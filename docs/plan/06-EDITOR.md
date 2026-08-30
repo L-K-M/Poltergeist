@@ -464,7 +464,13 @@ never regress is called out by name in review:
   no payload to lose (a crash between mkdir and the marker write leaves
   exactly this), and the sweep may remove it — `Recovered files` lists
   only dirs that actually hold a file, so no unnamed dead rows
-  accumulate. A fresh
+  accumulate. The sweep — the empty-dir check and its remove included —
+  runs under the same promise-chain mutex that serializes checkout-dir
+  creation (equivalently: only at store load, before the manager accepts
+  any operation), so it can never interleave with a live
+  mkdir→marker-write pair and pass the emptiness check in the exact
+  window a checkout is being born — the DoD regression test covers that
+  interleaving. A fresh
   index (post-quarantine or first run)
   starts a new epoch, so older dirs persist until the user discards them
   through §3.7's review dialog, which lists old-epoch dirs as recovered
@@ -532,7 +538,7 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 | Verb | Local file | Remote file |
 |---|---|---|
 | Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open); system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
-| Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap, then built-in editor |
+| Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap — refused from the known remote size *before* any download is queued, same rule as the Open row's built-in branch — then built-in editor |
 | Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor — except a choice of `poltergeist.builtin`, which takes the 4 MiB cap with the early refusal from the known remote size before any download is queued (same rule as the Open row's built-in branch) |
 
 Local files never go through a checkout — Poltergeist is their file
@@ -602,8 +608,12 @@ want a docked preview).
   visible until `produceLocalCopy` completes (progress per 02 §2.6, Esc
   cancels the production; the §8 large-download confirmation gates
   *every* production — the initial Space press and arrow-step
-  continuations alike — presented as a non-blocking card in the panel,
-  not a modal, so arrowing past a huge file never queues surprise
+  continuations alike — presented as a non-blocking overlay card in the
+  **Poltergeist window**, attached to the pane that owns the selection:
+  the native `QLPreviewPanel` cannot host Flutter content, and a modal
+  over it is forbidden. Arrow keys keep working while the card shows
+  (the previous item stays visible in the panel), so arrowing past a
+  huge file never queues surprise
   traffic and never traps navigation) — `updatePreview` is only ever
   called with
   produced local paths, never a path Quick Look cannot read.
@@ -617,11 +627,15 @@ window-level rightmost panel, sized by the adaptive-layout allocator
 (⌥⌘P / Ctrl+Alt+P); on Windows/Linux, Space opens it focused on the
 selection and Space again closes it — Quick Look cadence without Quick
 Look — except while the §5.3 `Press Space to download a preview` card is
-showing, where Space starts the download instead (Esc still closes the
-panel, and Space resumes its close role once a preview is rendered or
-the item changes; while the download is in flight Space is a no-op — Esc
-cancels it, never a second queued task — and after a failed or cancelled
-download the card returns, so Space retries). It tracks the focused pane's focused entry; on
+showing, where Space starts the download instead. Space is a
+per-focused-item state machine: card with prompt → Space downloads;
+download in flight → Space is a no-op and Esc cancels the download
+without closing the panel (never a second queued task); preview
+rendered (or a promptless card) → Space closes; failed or cancelled →
+the prompt card returns, so Space retries. A focus change re-evaluates
+the new item's state — an uncached previewable remote item shows the
+§5.3 prompt card (Space downloads), a cached or local item renders
+immediately (Space closes). It tracks the focused pane's focused entry; on
 multi-selection it
 previews the focused item — matching §5.1's Quick Look behavior on every
 platform — with the count + total size summary shown as a header above the
@@ -644,12 +658,20 @@ in-flight preview work via `RemoteTransferCancellation`.
 ### 5.3 Remote preview rules and cache
 
 - **Remote preview is always an explicit action** — selecting a remote
-  file shows the metadata card with `Press Space to download a preview`
-  (button equivalent for the mouse). No implicit downloads on selection;
+  file of a *previewable* kind (a §5.2 text/image/PDF row, under that
+  row's guard) shows the metadata card with `Press Space to download a
+  preview` (button equivalent for the mouse). Kinds whose row refuses
+  from metadata alone — the Everything-else card row, an over-64 MiB
+  image — show the card **without** the prompt, and Space keeps its §5.2
+  close role there: the prompt never appears where pressing it could do
+  nothing or download pointlessly. No implicit downloads on selection;
   a latency-prone pane must never generate surprise traffic.
 - Downloads go through the queue as priority tasks (visible, cancellable)
   into `<app-support>/preview-cache/`, file name
-  `<sha256(jsonEncode([serverId, remotePath, mtime, size]))>` plus the
+  `<sha256(jsonEncode([serverId, remotePath, mtimeSeconds, size]))>` —
+  `mtimeSeconds` being floored integer Unix seconds, so an int and a
+  fractional double source can never encode the same file to two
+  different keys — plus the
   original extension (Quick Look and image decoding both key type off the
   extension). JSON-encoding the fields keeps the key unambiguous — remote
   paths may legally contain `\n`. The mtime+size key self-invalidates on
@@ -723,7 +745,7 @@ PORTS.md (R10).
 | ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
 | perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
 | lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
-| Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments and `[section]` meta cover it |
+| Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments and `[section]` meta cover `.htaccess`; `.htpasswd` (`user:hash` lines) matches no ini rule and is mapped only so it opens as text rather than unknown — an accepted gap, stated so the detection tests don't imply coverage |
 
 Already covered upstream, no change needed: `php` maps to the c-family
 soup; nginx-style configs are covered by ini; `sql`, `xml/html`,
@@ -758,7 +780,8 @@ Sections (each with the `?` help-dialog affordance):
 - **Preview** — preview-cache size limit (default 512 MiB), `Clear
   Preview Cache` (shows reclaimed bytes in a toast), and the
   **large-download confirmation threshold** (default 100 MiB) — one
-  setting shared by remote previews (§5.3), compare sides (§6), and
+  setting shared by remote previews (§5.3), Quick Look productions
+  (§5.1), compare sides (§6), and
   external-editor checkouts (§3.2).
 
 `Open With ▸ Configure Editors…` and the §3.7 review dialog deep-link here
@@ -796,8 +819,8 @@ preference.
       `Process.start(..., runInShell: false)` — verified by the ported
       external-editor tests plus a launch-arguments test.
 - [ ] Double-click action resolves per the §4.2 table; local files never
-      checkout; remote Open resolves the default first and the built-in
-      branch — for both `Open` and an `Open With ▸` choice of
+      checkout; every remote built-in-editor path — `Open`'s built-in
+      branch, `Edit in Poltergeist`, and an `Open With ▸` choice of
       `poltergeist.builtin` — refuses over-cap files from the known
       remote size before any download is queued (tested).
 - [ ] Quick Look channel per §5.1 (show/update/hide/isVisible, panel
