@@ -520,7 +520,13 @@ the record id (a possible stale-client signature, never just
 skip-preserved silently). The minimum
 version is recorded once, in
 `kMinimumSharedAccountSeanceVersion` (app constants), filled with the literal
-tag of the first Séance release containing PR-S1; all setup copy interpolates
+tag of the first Séance release containing PR-S1 — and, recommended, the
+[Séance #56](https://github.com/L-K-M/Seance/issues/56) pin-conflict fix
+in the same tag, so the one version assertion covers record integrity and
+pin trust together; if the tag lacks #56, the §4.3 copy must disclose
+that Séance devices auto-trust synced pins without a conflict warning
+(their pre-existing behavior, extended to Poltergeist's pushes). All
+setup copy interpolates
 it.
 
 What shared mode unlocks:
