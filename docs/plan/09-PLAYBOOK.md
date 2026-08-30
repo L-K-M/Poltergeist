@@ -159,13 +159,33 @@ Any path assembled from external input — remote listings, sync plans,
 archive entries (v1.x), drag payloads, deep links — validates each
 component before it touches a filesystem: no empty component, no `.` or
 `..`, no separator inside a component, and the joined result must remain
-inside the intended root. This is Séance's path-validation tradition and
-the zip-slip defense D27 pre-commits to.
+inside the intended root — the helper below is the **lexical half only**;
+root containment is enforced where the absolute destination path is
+built (03 §2.3's `ensureSafeLocalDirectory` refuses symlink traversal on
+the way there). This is Séance's path-validation tradition and
+the zip-slip defense D27 pre-commits to. The checks are
+**destination-aware**: characters that are legal on a POSIX remote can
+be hazards on a Windows destination — a `:` in a component does not fail
+there, it silently writes an NTFS alternate data stream — so the caller
+says where the path is headed. Callers strip a trailing separator
+(`'a/b/'` → `'a/b'`) before validating — a directory entry's trailing
+`/` is shape, not a component. Windows reserved device names
+(`CON`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) are already rejected
+by `validateLocalName` (03 §2.3), which runs on every local target name;
+this helper stays component-shape-only.
 
 ```dart
-void validateRelativeComponents(String relative) {
+void validateRelativeComponents(String relative,
+    {required bool windowsDestination}) {
   for (final part in relative.split('/')) {
     if (part.isEmpty || part == '.' || part == '..' || part.contains('\\')) {
+      throw FormatException('unsafe path component in "$relative"');
+    }
+    // Destination-filesystem rules: fine on POSIX, hazardous on Windows —
+    // ':' writes an alternate data stream, <>"|?* fail CreateFile, and
+    // C0 control bytes are invalid.
+    if (windowsDestination &&
+        RegExp(r'[<>:"|?*\x00-\x1f]').hasMatch(part)) {
       throw FormatException('unsafe path component in "$relative"');
     }
   }
@@ -182,9 +202,20 @@ over the target; the editor's saver adds the backup + conflict dance,
 
 ```dart
 final tmp = File('${target.path}.poltergeist-${uuidV4()}.tmp');
-await tmp.writeAsBytes(bytes, flush: true);
-await tmp.rename(target.path); // atomic on the same filesystem
+try {
+  await tmp.writeAsBytes(bytes, flush: true);
+  await tmp.rename(target.path); // atomic on the same filesystem
+} on Object {
+  // A failed write must not leave temp siblings beside live stores.
+  if (await tmp.exists()) await tmp.delete();
+  rethrow;
+}
 ```
+
+(`flush: true` fsyncs the file, not the directory entry — the rename is
+atomic but not crash-*durable*; the journals' recovery rules (03 §4.6)
+are what absorb a lost-on-power-cut rename, so no store claims more than
+that.)
 
 ### 3.7 Per-platform key chords bound doubly
 
@@ -326,8 +357,10 @@ Every non-draft PR from a same-repo branch gets an automated GLM review
   new pushes, and merge-conflict transitions).
 - Triage **every** comment into exactly one bucket: **apply** (real bug or
   improvement), **decline with recorded reasons** (commit message + chat),
-  or **refute with evidence** (official docs, actual CI runs, the code)
-  when a claim is factually wrong. Verify factual claims against primary
+  **refute with evidence** (official docs, actual CI runs, the code)
+  when a claim is factually wrong, or **defer** (valid but out of the
+  PR's scope — recorded as a follow-up suggestion, the CLAUDE.md
+  steady-state rule's third condition). Verify factual claims against primary
   sources first; never apply a change just to appease the reviewer — this
   plan's decisions (00) outrank review suggestions, and a suggestion that
   contradicts a Dn is declined by citing it.
@@ -336,9 +369,11 @@ Every non-draft PR from a same-repo branch gets an automated GLM review
 - Declare **steady-state** and stop when two consecutive rounds yield no
   valid actionable findings, the reviewer re-raises already-declined items
   or contradicts itself, or everything left is out of the PR's scope. At
-  steady-state: post the short scorecard (real / refuted / deferred), state
+  steady-state: post the short scorecard (applied / declined / refuted /
+  deferred — one line per bucket above), state
   merge-readiness, `unsubscribe_pr_activity`, delete the check-in triggers.
-- Exceptions: human reviewers are never subject to the cutoff; always
+- Exceptions: human reviewers are never subject to the steady-state
+  cutoff; always
   unsubscribe on merge/close or when the user says stop.
 
 ## 8. When stuck

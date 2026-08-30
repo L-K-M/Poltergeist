@@ -86,7 +86,12 @@ exporting the test support other packages and the app import by path:
 
 ```dart
 // packages/poltergeist_core/lib/testing.dart
-export 'src/testing/in_memory_file_system.dart';   // InMemoryFileSystem
+export 'src/testing/in_memory_file_system.dart';   // InMemoryFileSystem +
+                                                   // InMemoryEntry (they
+                                                   // co-locate: snapshot()
+                                                   // returns the entry type,
+                                                   // so it must be public
+                                                   // and exported too)
 export 'src/testing/fault_plan.dart';              // fault injection
 export 'src/testing/in_process_engine_client.dart';// EngineClient over any fs
 ```
@@ -286,9 +291,14 @@ never silent fixes).
 05 §2.1 flag table plus the quoting rule (`'` → `'\''`) and the caveat/
 override comment lines; the plan-header sentence for each copy pattern in
 05 §7. **Static invariants as tests**: a test walks
-`packages/poltergeist_sync/lib/**` sources and fails on any occurrence of
-`Process`, `dart:ffi`, a Flutter import, or a `dartssh2` import (05 §2's
+`packages/poltergeist_sync/lib/**` sources and fails on any
+whole-identifier occurrence of `Process` outside comments — matched with
+word boundaries, never a bare substring, so `processedPlan`/`onProcess`
+pass — or any `dart:ffi`, Flutter, or `dartssh2` import (05 §2's
 never-executes promise and 03 §1's dependency rules, machine-checked).
+A `dart:io` import ban would be the simpler check but is wrong here:
+`journal.dart` legitimately writes JSONL files — the promise is about
+never *executing* anything, not about file I/O.
 
 ## 4. Widget layer
 
@@ -299,7 +309,10 @@ are mandatory: inject every seam (no platform channels in tests — the
 test **both chord variants** (meta and control) where 02 §8.3 defines
 both, set window sizes with `tester.view.physicalSize` +
 `addTearDown(tester.view.reset)`, and switch platforms with
-`debugDefaultTargetPlatformOverride` for per-platform expectations
+`debugDefaultTargetPlatformOverride` — always restored with
+`addTearDown(() => debugDefaultTargetPlatformOverride = null)`, exactly
+like the window-size reset, or the override leaks into every later test
+in the process — for per-platform expectations
 (macOS ⏎ renames; Windows Enter opens, F2 renames).
 
 Coverage commitments per surface:
@@ -356,7 +369,9 @@ test/integration/
                             defaults; pin any image with OpenSSH ≤ 8.x if
                             this base ages out)
   keys/                     pre-generated user + host keys (test-only)
-  run.sh                    compose up → dart test -t integration → down
+  run.sh                    compose up → dart test --concurrency=1
+                            -t integration → compose down via
+                            `trap … EXIT` (test exit code propagated)
 ```
 
 Compose services (config variants run on the modern image):
@@ -368,7 +383,7 @@ Compose services (config variants run on the modern image):
 | `sshd-chroot` | 2203 | `ForceCommand internal-sftp` + `ChrootDirectory` — the sftp-only world rsync cannot reach (D6) |
 | `sshd-restricted` | 2204 | `Subsystem sftp /usr/lib/ssh/sftp-server -P setstat,fsetstat` — forces the 05 §4 mtime-unreliable fallback (the executor must treat a failed setstat the same as a silently clamped one) |
 | `sshd-authmatrix` | 2205 | password + keyboard-interactive users, `PermitRootLogin prohibit-password`, plus a user whose authorized_keys rejects the offered key — feeds the failure-summarizer tests |
-| `sshd-keyswap` | 2201-alt | identical config to `sshd-modern`, different host key — the changed-key fixture |
+| `sshd-keyswap` | 2201 (swapped in) | identical config to `sshd-modern`, different host key (a second pre-generated host key in `keys/`) — the changed-key fixture. The TOFU suite's runner stops `sshd-modern` and starts this service on the **same host port**, so the client re-contacts an unchanged host:port and sees a changed key (a different port would read as a new, unpinned server and merely prompt); the two services are never up at once |
 
 The Dart tests live inside the packages (explicit-path rule):
 `packages/poltergeist_core/test/integration/` and
@@ -376,9 +391,15 @@ The Dart tests live inside the packages (explicit-path rule):
 `@Tags(['integration'])` and self-skipping with an explanatory message
 when the `POLTERGEIST_SSHD` environment variable is unset — so plain
 `dart test packages/…` stays green without Docker. `run.sh` starts the
-compose stack, exports `POLTERGEIST_SSHD=127.0.0.1`, and runs
-`dart test -t integration packages/poltergeist_core
-packages/poltergeist_sync`.
+compose stack, exports `POLTERGEIST_SSHD=127.0.0.1` plus one variable
+per service (`POLTERGEIST_SSHD_MODERN=2201`, `…_LEGACY=2202`, and so on)
+so tests never hardcode the port map, and runs
+`dart test --concurrency=1 -t integration packages/poltergeist_core
+packages/poltergeist_sync` — serialized on purpose: the pool suite
+docker-stops a shared service and the keyswap fixture swaps
+`sshd-modern` out entirely, so concurrent suites would flake each other;
+teardown runs from a `trap … EXIT` so an interrupted run never leaks the
+stack (the test exit code is preserved through the trap).
 
 Suites:
 
@@ -426,7 +447,7 @@ Two tiers, because CI runners cannot honestly measure UI frames:
 | Tier | Budgets | Harness | Environment | Enforcement |
 |---|---|---|---|---|
 | A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, run with `dart run` against the §5 Docker fixture on loopback (loopback stands in for LAN; network time is measured separately and subtracted for P3) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE`, red = failed job) from the milestone that introduces each surface |
-| B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` using `IntegrationTestWidgetsFlutterBinding.traceAction` and frame-timing summaries, run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression once enforced); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only (`continue-on-error`) until M9 flips to enforced; absolute at release QA |
+| B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` capturing `FrameTiming`s via `SchedulerBinding.instance.addTimingsCallback` (the stable in-process mechanism; `traceAction` may be used only after verifying it produces summaries under `flutter test integration_test --profile` with the pinned `integration_test` — its Timeline plumbing has a deprecation history), run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression of the median of ≥ 3 runs once enforced); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only until M9 flips to enforced (soft mode lives in `check.dart`, §6 — no blanket `continue-on-error`); absolute at release QA |
 
 Mechanics:
 
@@ -434,18 +455,35 @@ Mechanics:
   environment fingerprint); `test/benchmarks/check.dart` compares results
   against `test/benchmarks/budgets.json` (the P1–P7 values, mirroring
   02 §12) and the committed tier-B baseline, prints the table, and exits
-  non-zero only when `BENCH_ENFORCE=1`.
+  non-zero whenever an expected scenario is **missing or errored** — in
+  soft mode too; `BENCH_ENFORCE=1` additionally makes budget/trend
+  overruns fail. Soft mode softens overruns only, never a benchmark that
+  failed to run — a silently skipped benchmark is how budgets die.
 - **Two enforcement schedules** (07 §1 states the same policy): tier-A
   engine benchmarks (the pure-Dart engine budgets — P3, P5, P7) run
   enforced (`BENCH_ENFORCE`, a red benchmark fails the job) from the
-  milestone that introduces each surface; tier-B UI benchmarks run
-  trend-only in CI (`continue-on-error`) until M9 flips them to
-  enforced — M9 is the flip plus an audit, not a rescue. The tier-B flip
+  milestone that introduces each surface — and also run on PRs that
+  touch `packages/**` (path-filtered), so a P3/P5/P7 regression is
+  caught pre-merge instead of turning `main` red after the fact;
+  tier-B UI benchmarks run
+  trend-only in CI until M9 flips them to
+  enforced — M9 is the flip plus an audit, not a rescue. "Trend-only"
+  is implemented inside `check.dart` (overruns don't exit non-zero
+  without `BENCH_ENFORCE`), **never** as a blanket
+  `continue-on-error: true` on the job step — that would also mask
+  missing/errored scenarios, which fail in every mode (above). Once
+  enforced, a tier-B comparison uses the median of ≥ 3 runs against the
+  baseline, and the committed baseline is refreshed only via a dedicated
+  PR when the environment fingerprint changes — shared-runner noise must
+  not train people to ignore a gating check. The tier-B flip
   is a one-line repository-variable change recorded in 07's M9 exit
   criteria.
 - P5's "no upfront full-tree stat" is asserted structurally as well as
   temporally: the fake filesystem counts stat calls between drop and
-  first byte, and the count must be O(first file), not O(tree).
+  first byte, at **two tree sizes** (1k and 50k entries) — the count must
+  stay flat as the tree grows; the two-size comparison is what makes
+  "O(first file), not O(tree)" falsifiable rather than a fixed ceiling
+  any constant-fraction scan could sneak under.
 - P3's "always cancellable" is a functional test (cancel during a slow
   listing returns within 100 ms), not a benchmark.
 - Benchmark code never shares state with tests; a benchmark that fails
@@ -482,8 +520,11 @@ Automated, in `flutter test` (semantics enabled via
   overlapping scopes and on command ids that violate the dotted
   lowerCamel naming rule.
 - **Contrast test**: a pure-Dart test computes WCAG relative-luminance
-  contrast over the design-token set for both themes: text tokens
-  ≥ 4.5:1 and status/indicator colors (including the sync plan's action
+  contrast over the design-token set for both themes: normal-size text
+  tokens ≥ 4.5:1, large-text tokens (≥ 18 pt regular / ≥ 14 pt bold —
+  WCAG 1.4.3's tier; token metadata carries a size/role class so the
+  test can tell) ≥ 3:1, and status/indicator colors (including the sync
+  plan's action
   tints and the sidebar status dots) ≥ 3:1 against the surfaces they
   actually render on. This pins the fix for the Séance SEA-019 class —
   a status color that ignores brightness cannot pass.
@@ -505,7 +546,7 @@ section says what each job runs and what gets added when.
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
 | `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job is skipped-neutral until the fixture lands. Timeout 25 min. Runs on push to `main` and on PRs. |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture, tier-B under xvfb in profile mode, then `test/benchmarks/check.dart`; uploads `bench-results.json` as an artifact | runs on push to `main` and `workflow_dispatch` only — not on every PR (runner noise would train people to ignore it). Tier-A steps run with `BENCH_ENFORCE=1` (red = failed job) from the milestone that introduces each surface; tier-B steps run `continue-on-error: true` without `BENCH_ENFORCE` until M9 flips them (§6). |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture, tier-B under xvfb in profile mode, then `test/benchmarks/check.dart`; uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (§6) — until M9 flips enforcement. |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/
@@ -583,8 +624,10 @@ PR); every release records a filled copy in the release PR. Per release:
       end to end; the fixture lands with M0.
 - [ ] Benchmark harness of §6 runs both tiers, writes `bench-results.json`,
       checks against `budgets.json` + baseline, and follows the §6
-      enforcement schedules (tier A enforced from introduction; tier B
-      soft-fail until M9 flips `BENCH_ENFORCE`).
+      enforcement schedules (tier A enforced from introduction, on
+      `packages/**` PRs too; tier B soft-fails **overruns only** until M9
+      flips `BENCH_ENFORCE` — a missing or errored scenario is a CI
+      failure in every mode).
 - [ ] a11y suites of §7 pass: semantics on all custom rows, the
       keyboard-completeness + dispatch test over the full registry, the
       token contrast test, and the hardcoded-string test.

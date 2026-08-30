@@ -106,7 +106,13 @@ class BenchResult {
   final Duration elapsed;
   final double mbPerSec;
   final String? note;         // negotiation details, failure text
-  Map<String, Object?> toJson() => ...;
+  Map<String, Object?> toJson() => {
+        'scenario': scenario,
+        'bytes': bytes,
+        'elapsedMs': elapsed.inMilliseconds,
+        'mbPerSec': mbPerSec,
+        'note': note,
+      };
 }
 ```
 
@@ -182,15 +188,23 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
       by then.
 
 **Risks.** Toolchain drift in CI runners — fix versions in the workflow,
-not in prose. None otherwise; keep this milestone small on purpose.
+not in prose. And one real dependency the gate column does not show: the
+rehearsal release requires `release.yml` to publish D23's full asset set,
+which the parallel distribution workstream (§4) delivers — if D23 lags,
+scope the rehearsal to the assets that exist and record the gap in
+STATUS.md rather than stalling M1. Keep this milestone small on purpose.
 
 ### 3.3 M2 — connection layer — size L
 
 **Goal.** Poltergeist can connect: pool, prompts, diagnostics, import.
 Gates: **PR-S0 landed** (LICENSE on Séance `main` — M2 performs the first
 D2 copies, which may not happen before it), and **PR-S2**
-(`openAuthenticatedClient`, 04 §5.3) merged upstream and the Séance pin
-bumped. If upstream review is slow, pin to the rev of the PR branch (the
+(`openAuthenticatedClient`, 04 §5.3) landed on Séance `main` — **or**
+carried as a recorded branch-rev bridge per the next sentences — with the
+Séance pin bumped accordingly; either state satisfies the gate, and the
+bridged form must be recorded as a dated open item in STATUS.md (D2's
+rev-pin rule). If upstream review is slow, pin to the rev of the PR
+branch (the
 git pin is by rev anyway) and re-pin to the merge commit after — never
 copy the code. If Séance squash-merges and deletes the branch, re-pin
 immediately: the branch-rev SHA becomes unfetchable for fresh clones once
@@ -491,7 +505,12 @@ golden-tested "Copy as rsync command" exporter (D6).
 - [ ] Sync scan ≥ 1 000 remote entries/s on LAN (P7 benchmark, D12).
 - [ ] Docker matrix includes the setstat-ignoring server; the `sizeOnly`
       fallback notice appears.
-- [ ] chown UI (D28) enabled now that the pin carries `setOwner`.
+- [ ] chown UI (D28) enabled if the pin carries `setOwner`; if the §3.9
+      local-only fallback is active instead (no PR-S3 pin yet), ship
+      without it and record the deferral in STATUS.md — the same rule
+      covers the other remote-gated criteria here (the ≥ 1 000 entries/s
+      scan benchmark and the Docker matrix run against the pin, or are
+      recorded as deferred with it).
 
 **Risks.** The category's cardinal sin is a sync that surprises (01 §5
 trap 5). The executor runs exactly the reviewed plan and re-verifies per
@@ -626,6 +645,7 @@ assets on `v*` tags; the work is everything around it.
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
+| M10 | SHA-256 checksums for every release asset published in the release notes; INSTALL.md explains how to verify — necessary because the committed public keystore means a matching Android signature cannot prove an artifact came from this repo |
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,
@@ -701,7 +721,9 @@ Per-milestone invariant check (item 5 of §3.12):
       forecloses single-pane, scoped-access, or suspendable-queue mobile.
 - [ ] Pre-release tags `v0.<n>.0` exist for M1 onward (the release
       pipeline never rotted).
-- [ ] No fast-follow or D25 item was built before v1.0.
+- [ ] No fast-follow or D25 item was built before v1.0 — except the M4
+      drag-out produce-on-demand hook (03 §4.7 / D14), the one
+      pre-authorized seam, which ships inside v1 by design.
 
 ## Explicitly out of scope
 
