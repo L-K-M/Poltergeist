@@ -146,7 +146,13 @@ permissions · D29 mobile hooks · D30 Séance license
   pure Dart over the one VFS: parallel scans, size+mtime comparison with a
   2 s tolerance (SFTP v3 stores whole-second mtimes, so a preserved
   sub-second local mtime truncates on upload; FAT-family volumes
-  additionally quantize to 2 s — the two drivers of the window), a typed
+  additionally quantize to 2 s — the two drivers of the window. The
+  window's false-equal hazard is a **documented limitation**, stated
+  here rather than discovered: a same-size edit whose mtime lands
+  inside the tolerance is classified unchanged and skipped — rsync and
+  WinSCP share the default and document it likewise — with the opt-in
+  `contentHash` mode (D7) as the escape hatch and the per-pair
+  tolerance adjustable in 05 §6), a typed
   `SyncPlan` that
   **is** the preview (the executor executes exactly the reviewed items,
   re-verifying preconditions per item). v1 modes: **Update** (one-way, no
@@ -203,7 +209,10 @@ permissions · D29 mobile hooks · D30 Séance license
   kex); verify concurrent/pipelined requests on one SFTP channel actually
   work in dartssh2. Fallback ladder if it underperforms: contribute upstream
   → multiple channels/connections to compensate → document the ceiling → FFI
-  to libssh as a last resort. The connection-pool and sync-scan designs are
+  to **libssh2** (BSD-3-Clause — license-compatible with the
+  Unlicense/D30 stance; deliberately not LGPL `libssh`, whose
+  notice/relinking obligations would contradict D30's friction-free
+  goal at the bottom of the ladder) as a last resort. The connection-pool and sync-scan designs are
   not finalized until M0 reports.
 - **D12 — Numeric performance budgets** (tracked as benchmarks in CI, 08):
   first paint of a 10k-entry local directory < 150 ms; 100k entries < 1 s

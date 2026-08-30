@@ -289,7 +289,8 @@ CLA, no dual-license upsell path; the code is a public-domain dedication.
 The trust copy may say so plainly: "public-domain software; do anything you
 like with it."
 
-One dependency-hygiene fact must be handled before code moves (D30): Séance
+One dependency-hygiene fact gates porting and publishing — not
+development (D30, and this paragraph's own carve-out below): Séance
 currently has **no LICENSE file**. The git-pinned package dependencies
 (`seance_protocol`, `seance_core` per D2) and especially the
 copy-with-attribution ports of Séance app-layer code (managed-checkout
