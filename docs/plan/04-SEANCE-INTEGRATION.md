@@ -148,7 +148,9 @@ class SavedSyncSpec {
   ///                        'keepRight' | 'skip'                ('ask';
   ///                        left = source, right = destination)
   ///   symlinks:            'skip' ('copyAsLink'/'follow' reserved)
-  ///   trashPath:           string | null — out-of-root trash   (null)
+  ///   trashPathLeft:       string | null — that side's out-of-root
+  ///   trashPathRight:      string | null   trash, resolved on its own
+  ///                        host (05 §8 rail 5)          (null, null)
   ///   includeHidden:       bool                                (true)
   ///   maxDelete:           int                                 (500)
   ///   deleteFractionWarn:  double                              (0.5)
