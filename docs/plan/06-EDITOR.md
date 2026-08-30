@@ -217,7 +217,7 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   | upload returned false | `Saved locally; not uploaded.` — accompanied by the §3.4 conflict-escalation dialog when the cause was a remote change (false is also the result of cancelling that dialog); never a dead end |
   | upload threw | the local save stands and `onSaved` has reconciled the copy (the `finally`); no success toast — the exception propagates to the screen's normal error surface (Séance's behavior: the throw escapes the inner try) |
   | no upload requested (local-only) | `Saved locally.` |
-  | the local save itself threw (§2.1's size re-check, or the `changed in another editor. Reopen it…` conflict) | no success toast — the thrown error's message shows as a toast (Séance's catch: `showTopToastIn(context, message: error.toString())`, `built_in_text_editor.dart:512`); neither `onUpload` nor `onSaved` runs, and the document stays dirty |
+  | the local save itself threw (§2.1's size re-check, or the `changed in another editor. Reopen it…` conflict) | no success toast — the thrown error's message shows as a toast (Séance's catch: `showTopToastIn(context, message: error.toString())`, `built_in_text_editor.dart:512`); the ported error types must override `toString()` to return the bare §1/ARB message so this toast renders those strings exactly — never a default `Exception: ` prefix, or D20's localization can never reach the editor's most safety-critical toast (recorded in the §2.5 divergence row if Séance's types lack the override); neither `onUpload` nor `onSaved` runs, and the document stays dirty |
 
 ### 2.5 Port mechanics: renames and PORTS.md entries
 
@@ -236,7 +236,7 @@ at port time:
 | `lib/ui/built_in_text_editor.dart` | `lib/ui/built_in_text_editor.dart` | temp suffixes `.poltergeist-*`; toast/mono/basename injected as parameters (§2.3) |
 | `lib/ui/editor_syntax.dart` | `lib/ui/editor_syntax.dart` | Poltergeist theme values; §7 language additions |
 | `lib/services/managed_remote_file.dart` | `lib/services/managed_remote_file.dart` | none |
-| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch gate on the orphan sweep** — only current-epoch, marker-verified unindexed dirs may be removed; old-epoch dirs and markerless dirs holding any file never (§3.6 — fixes Séance issue #55, port-back candidate) |
+| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch gate on the orphan sweep** — only current-epoch, marker-verified, abandoned-or-empty unindexed dirs may be removed; old-epoch dirs and markerless dirs holding any file never (§3.6 — fixes Séance issue #55, port-back candidate); filename sanitizer extended with Windows reserved-name handling if Séance's lacks it (§3.1) |
 | `lib/services/atomic_file.dart` | `lib/services/atomic_file.dart` | temp suffix parameterized (03 §8.2's own example); `quarantineCorruptFile` gets a timestamp suffix (§3.6, port-back candidate) |
 | `lib/services/external_file_opener.dart` | `lib/services/external_file_opener.dart` | channel `poltergeist/files`; reserved ids `poltergeist.system` / `poltergeist.builtin` |
 
@@ -296,7 +296,16 @@ abstract class CheckoutManager extends ChangeNotifier {
   checkout files at `<app-support>/checkouts/<sha256(id)>/<sanitized
   name>` — the directory name is a hash so external ids never become path
   components, while the file keeps a human-readable sanitized name for
-  external editors. Linux **and macOS** checkout dirs/files get mode
+  external editors — and the sanitizer's contract is pinned: it
+  neutralizes separators, `.`/`..`, overlong names, trailing
+  dots/spaces, and **Windows reserved device names** (`CON`, `PRN`,
+  `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an
+  extension — prefixed, e.g. `file-nul.conf`), because a remote file
+  legitimately named `nul.conf` would otherwise fail the §3.2
+  exclusive-create with a raw OS error on Windows, outside every
+  designed refusal path; a Windows checkout test for `nul.conf` pins
+  it, and the §2.5 divergence row records it if Séance's helper lacks
+  the handling. Linux **and macOS** checkout dirs/files get mode
   700/600 (plaintext secrets may pass through; the macOS default umask
   would otherwise leave them group/world-readable). Séance's helper is
   Linux-only (`_restrictLinuxPermissions`) — the macOS extension is a
@@ -315,7 +324,10 @@ abstract class CheckoutManager extends ChangeNotifier {
    `unsupported` error. In-flight de-dup per `(serverId, remotePath)` —
    the manager is app-wide, so a path-only key would collide across
    servers — via a `putIfAbsent`-style flight map; a caller joining an
-   in-flight download applies its own `maximumBytes` to the awaited
+   in-flight download **pre-refuses on its own `entry.size` when that is
+   known and already over its `maximumBytes`** (fail fast — never wait
+   out a minutes-long shared transfer just to refuse at the end), and
+   otherwise applies its `maximumBytes` to the awaited
    result (refusing with the too-large reason rather than returning it),
    so a built-in-editor waiter never inherits an uncapped
    external-editor checkout. An existing checkout for the key is
@@ -459,15 +471,27 @@ kind surfaces normally (toast + activity-panel row).
   every record under a renamed directory — `key ==` old path or
   `key.startsWith('$oldPath/')`) via `copyWith(remotePath, remoteSnapshot)`
   + `store.update`. Two hardenings on top of the mechanical rewrite:
-  (1) an **occupied destination key** — a delete-retained record (below)
-  for a file that used to live at the new path — is never blind-
-  overwritten: the retained record is re-keyed out of the live
+  (1) an **occupied destination key** — *any* pre-existing record at
+  the destination key: a delete-retained record (below), or a **live**
+  checkout whose remote target the rename just overwrote (a pane
+  rename onto an existing file goes through the confirmed-overwrite
+  path, and posix-rename servers replace the target) — is never blind-
+  overwritten: the occupying record is re-keyed out of the live
   `(serverId, remotePath)` namespace (unique suffix key; checkout dir
   and record intact) and surfaces through §3.7's review dialog like a
-  recovered edit, while the migrated record takes the path key — either
-  record may hold the only copy of an edit (tested: checkout `b.conf`,
-  delete remote `b.conf`, rename `a.conf` → `b.conf`, migrate — both
-  records survive with distinct ids). (2) `migrateRename` also re-keys
+  recovered edit, while the migrated record takes the path key. The
+  occupancy check runs **per migrated key** — a directory rename checks
+  every destination path under the new prefix — because a blind
+  `store.update` would leave the occupant's checkout dir unreferenced,
+  and §3.6's sweep would then delete a current-epoch, marker-verified,
+  unreferenced dir *with the user's plaintext in it*: the collision
+  would be amplified into silent data loss instead of a recoverable
+  row. Either record may hold the only copy of an edit (tested:
+  checkout `b.conf`, delete remote `b.conf`, rename `a.conf` →
+  `b.conf`, migrate — both records survive with distinct ids; and the
+  live variant: dirty checkout of `b.conf`, confirmed-overwrite rename
+  `a.conf` → `b.conf`, migrate, reload the store — both records
+  survive and `b.conf`'s plaintext still exists). (2) `migrateRename` also re-keys
   **pending §3.2 flight-map entries**, and a completing checkout's
   `store.put` re-validates its key against the possibly-migrated record
   before writing — a rename landing during an in-flight checkout must
@@ -512,7 +536,16 @@ never regress is called out by name in review:
   marker file — written immediately after the directory is created and
   before any download lands in it, so no crash window leaves a payload
   without a marker — and the sweep removes only current-epoch,
-  marker-verified dirs the parsed index does not reference. A dir whose
+  marker-verified dirs the parsed index does not reference **and** that
+  are either empty or carry an explicit `abandoned` marker: `remove`
+  and a cancelled/failed checkout write that marker (under the same
+  mutex as the epoch marker) when they intentionally orphan a dir, so
+  the sweep has a disposition trail — an unreferenced dir that still
+  holds payload files *without* the marker is never swept but surfaces
+  through §3.7's `Recovered files` like an old-epoch dir, because the
+  paths that produce one (a record lost to a future bug, a partial
+  index write, an unhandled migration collision) are exactly where
+  deleting would amplify a bookkeeping mistake into data loss. A dir whose
   marker is missing or unreadable is classified **old-epoch** — never
   swept, surfaced through §3.7's `Recovered files` — because the failure
   modes that produce one (crash mid-create, manual tampering, a future
@@ -610,7 +643,7 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 
 | Verb | Local file | Remote file |
 |---|---|---|
-| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open); system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
+| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open); if the downloaded copy then fails the built-in editor's own checks (non-UTF-8, binary), Open falls back to the system default on the checkout file — §3.7's rule, mirrored: a *default-resolution* chain never dead-ends in a built-in refusal; system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
 | Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap — refused from the known remote size *before* any download is queued, same rule as the Open row's built-in branch — then built-in editor |
 | Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor — except a choice of `poltergeist.builtin`, which takes the 4 MiB cap with the early refusal from the known remote size before any download is queued (same rule as the Open row's built-in branch) |
 
@@ -621,7 +654,13 @@ possible at all. Where the table says "refused from the known remote
 size": a size-less listing entry (the SFTP size attribute is optional)
 cannot early-refuse — §3.2's stream cap is then the shared guard for
 all three built-in branches, aborting at 4 MiB instead of downloading
-fully to a certain refusal.
+fully to a certain refusal. The Open row's system-default fallback is
+deliberately *not* mirrored in `Edit in Poltergeist` or an
+`Open With ▸` choice of `poltergeist.builtin`: there the user named
+the built-in editor explicitly, so a silent hand-off to another
+program would betray the choice — those branches refuse with the §1
+reason and the `Open With ▸` router, per §1's refusal-is-a-router
+rule.
 
 ### 4.3 Launch rules per platform
 
@@ -740,7 +779,7 @@ Extension matching throughout this table (and §7's detection map) is
 |---|---|---|
 | Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings. Remote text previews still transfer the whole file into the §5.3 cache (Quick Look and re-preview need it; only the large-download threshold gates it) — a documented tradeoff, not an accident |
 | Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MiB file size — metadata card instead; for remote files the refusal is applied from the known remote size *before* any download is queued |
-| PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages; page count shown; decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
+| PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages, headed `Page 1–20 of M` with the text row's `Preview truncated — Open in editor`-style bar when M > 20 (a bare total would hide that 180 pages are missing); decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
 
 The panel never blocks the pane: rendering runs async with the standard
@@ -814,8 +853,10 @@ press, or 05 §7's double-click-opens-both promise would break) — though
 the §8
 large-download confirmation is unreachable here **at the default
 threshold**: a side whose known remote size
-exceeds the 4 MiB loader cap is refused *before* any download is queued,
-and 4 MiB is far below the 100 MiB default. If the user lowers the §8
+exceeds the 4 MiB loader cap is refused *before* any download is
+queued (a side whose remote size is unknown streams under §3.2's byte
+cap instead — aborted at 4 MiB, never fetched whole to a certain
+refusal), and 4 MiB is far below the 100 MiB default. If the user lowers the §8
 threshold below the cap, the confirmation applies to compare sides as
 usual — §8 lists them among the gated surfaces, and the pre-download
 refusal still fires first for over-cap sides.
@@ -891,7 +932,10 @@ Sections (each with the `?` help-dialog affordance):
   `pickApplication` on macOS and a native executable picker on
   Windows/Linux. Validation errors (bad path, non-`.exe` on Windows, too
   many extensions) render inline under the row.
-- **Preview** — preview-cache size limit (default 512 MiB), `Clear
+- **Preview & downloads** — named for both things it owns, because the
+  threshold below also gates external-editor checkouts, which nobody
+  would hunt for under plain "Preview" — preview-cache size limit
+  (default 512 MiB), `Clear
   Preview Cache` (shows reclaimed bytes in a toast), and the
   **large-download confirmation threshold** (default 100 MiB) — one
   setting shared by remote previews (§5.3), Quick Look productions
@@ -924,9 +968,13 @@ preference.
       subtree, occupied-destination and in-flight cases),
       delete-keeps-checkout, and **epoch-gated quarantine-never-sweep**
       (regression tests cover corrupt → restart → no pre-quarantine dir
-      deleted, generation uniqueness across index lifecycles, and that
+      deleted, generation uniqueness across index lifecycles, that
       an equality-mismatched marker — older *or* newer than the current
-      generation — is never swept).
+      generation — is never swept, that a live occupant survives a
+      confirmed-overwrite rename with its plaintext intact, and the
+      disposition trail: a cancelled checkout's abandoned-marked dir
+      sweeps with no Recovered row, while a dir orphaned by a simulated
+      index regression survives reload into Recovered files).
 - [ ] Recovered-edits banner + review dialog work with the server
       disconnected (open/discard offline; upload disabled with reason).
 - [ ] External editors: registry ported with `external_file_opener.dart`
@@ -939,7 +987,9 @@ preference.
       checkout; every remote built-in-editor path — `Open`'s built-in
       branch, `Edit in Poltergeist`, and an `Open With ▸` choice of
       `poltergeist.builtin` — refuses over-cap files from the known
-      remote size before any download is queued (tested).
+      remote size before any download is queued, and streams under
+      §3.2's byte cap when the size is unknown, aborting at the limit
+      instead of fetching the whole file (both paths tested).
 - [ ] Quick Look channel per §5.1 (show/update/hide/isVisible, panel
       control overrides); Space produces remote files through
       `TransferProducer` with progress and Esc-cancel.
