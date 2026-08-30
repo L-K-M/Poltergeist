@@ -308,12 +308,17 @@ planned sequence this gate never actually bites — the first milestone
 whose shipped app consumes Séance code is M2, and M2 already hard-gates
 on PR-S0 landing (07 §2) — the sentence exists so a schedule change
 cannot quietly falsify the trust copy. The
-LICENSE is what any *third party* needs to consume, fork, or
+LICENSE — together with whatever license Séance declares for the
+ported files, whose provenance PORTS.md records — is what any *third
+party* needs to consume, fork, or
 redistribute either repo or anything built from it, and what the
-copy-with-attribution step waits
-for as a provenance-hygiene matter. No Séance source is copied into
-Poltergeist before it lands —
-sequencing that D2's copy-with-attribution step must respect.
+copy-with-attribution step waits for as a **hard gate**: no Séance
+source is copied into Poltergeist until the D30 license PR (PR-S0)
+merges on Séance `main` — sequencing imposed by **D30**, which D2's
+copy-with-attribution step respects. There is no upstream-veto risk to
+plan around: both repos are the same owner's, so a stalled PR-S0 is a
+scheduling risk (07 §6 risk 4), never a rejection — and never a reason
+to fork or clean-room Séance code, which D2 forbids outright.
 
 ## Definition of done
 

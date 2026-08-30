@@ -128,9 +128,17 @@ permissions · D29 mobile hooks · D30 Séance license
   `SSHClient`s, interactive-auth-aware pool growth (never N parallel 2FA
   prompts), keepalive, auto-reconnect with backoff.
 - **D30 — Séance needs a LICENSE file.** Séance currently has none;
-  Poltergeist is Unlicense. Before code is copied per D2, Séance should add
-  a license (suggest Unlicense to match). Tracked in the Séance-side
-  integration notes (04).
+  Poltergeist is Unlicense. The license gates two things: **no Séance
+  source is copied per D2, and no release binaries embedding the
+  git-pinned packages are published**, until it lands (suggest Unlicense
+  to match). Git-pin *consumption* for development and CI is deliberately
+  not gated — both repos share one rights holder, who needs no license
+  from themselves (01 §9 records the full rationale and the
+  third-party-facing reason binaries wait) — and in the planned order the
+  binary gate never actually bites: M2, the first milestone whose shipped
+  app consumes Séance code, already hard-gates on the license landing
+  (07 §2). Tracked in the Séance-side
+  integration notes (04) and the 07 milestone gates.
 
 ### Sync (R6)
 
