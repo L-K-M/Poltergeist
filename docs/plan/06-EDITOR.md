@@ -64,8 +64,9 @@ class BuiltInTextDocument {
 - Strict UTF-8 decode; NUL scan; BOM detected from the first three bytes;
   CRLF detection by majority vote (`\r\n` count vs lone-`\n` count via
   `(?<!\r)\n` — valid Dart: `RegExp` lookbehind has been supported since
-  Dart 2.4 on the VM, and this is Séance's shipped code at
-  `built_in_text_editor.dart:70`). Ties and files with no line breaks
+  Dart 2.4 on the VM — a VM/desktop guarantee, not a dart2js/Flutter-web
+  one, where the underlying JS engine decides — and this is Séance's
+  shipped code at `built_in_text_editor.dart:70`). Ties and files with no line breaks
   resolve to LF — Séance's `crlfCount > lfCount` comparison — pinned by
   the round-trip tests (single-line files must never grow CRLF).
 
@@ -153,6 +154,12 @@ BuiltInTextEditorScreen({
   required void Function(BuildContext, String) showToast,
   required List<String> monoFontFallback,
   required String Function(String) basenameOf,   // remoteBasename from core
+                                                 // for remote paths; local
+                                                 // callers pass a platform-
+                                                 // aware basename (splits `\`
+                                                 // too — a Windows local
+                                                 // C:\… title must not
+                                                 // render the whole path)
 })
 ```
 
@@ -183,8 +190,14 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   finally { if (!uploaded) await widget.onSaved?.call(); }
   ```
 
-  The upload reconciles the copy itself; `onSaved` runs only when the
-  upload did not (returned false or threw — hence the `finally`).
+  The upload reconciles the copy itself; `onSaved` runs whenever the
+  upload did not (returned false or threw — hence the `finally`) — and
+  after every completed **local-only** save too (⇧⌘S, or ⌘S with
+  `onUpload` null): Séance's `else` branch awaits `onSaved` right after
+  the save (`built_in_text_editor.dart:497`), so the reconcile hook
+  fires on every save that did not upload — pinned by a §2.5 widget
+  test so the port cannot drift on the branch Séance's own SFTP-only
+  usage never exercised with a null `onUpload`.
   `onSaved` implementations must not throw: an exception there would
   replace the original upload error (Dart `finally` semantics), so
   `reconcile` swallows and logs its own failures.
@@ -204,6 +217,7 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   | upload returned false | `Saved locally; not uploaded.` — accompanied by the §3.4 conflict-escalation dialog when the cause was a remote change (false is also the result of cancelling that dialog); never a dead end |
   | upload threw | the local save stands and `onSaved` has reconciled the copy (the `finally`); no success toast — the exception propagates to the screen's normal error surface (Séance's behavior: the throw escapes the inner try) |
   | no upload requested (local-only) | `Saved locally.` |
+  | the local save itself threw (§2.1's size re-check, or the `changed in another editor. Reopen it…` conflict) | no success toast — the thrown error's message shows as a toast (Séance's catch: `showTopToastIn(context, message: error.toString())`, `built_in_text_editor.dart:512`); neither `onUpload` nor `onSaved` runs, and the document stays dirty |
 
 ### 2.5 Port mechanics: renames and PORTS.md entries
 
@@ -289,7 +303,9 @@ abstract class CheckoutManager extends ChangeNotifier {
   deliberate, PORTS-noted divergence and port-back candidate. Windows
   needs no extra work in v1: the checkout root lives under the per-user
   app-support directory, whose default ACLs already scope it to the
-  user.
+  user — same-user processes and local admins can still read the
+  plaintext, the same posture as Linux 600; at-rest encryption is out
+  of scope for v1 on every platform.
 
 ### 3.2 Checkout
 
@@ -326,12 +342,23 @@ abstract class CheckoutManager extends ChangeNotifier {
    against `entry.size` (refusing with a clear message when it won't
    fit), and a checkout larger than the §8 large-download confirmation
    threshold (default 100 MiB, shared with preview) asks before queueing:
-   `Download 240 MB to edit "access.log"?`.
+   `Download 240 MB to edit "access.log"?`. When the remote size is
+   unknown (the SFTP size attribute is optional in a listing entry), the
+   metadata-time refusals and preflights above cannot fire — the
+   `_MaximumByteSink` stream cap is then the built-in-editor guard
+   (abort and clean up the moment the cap is exceeded, never a full
+   download to a certain refusal), and the free-space preflight degrades
+   to surfacing the write failure if the volume fills.
 4. Record `ManagedRemoteFile{id: uuidV4(), serverId, editSessionId:
    serverId, remotePath, localPath, remoteSnapshot (the download's entry
    with its streamed `contentSha256`), baselineSha256:
    streamedFileSha256(local)}` → `store.put` (atomic index write) → start
-   watching. Any failure deletes the checkout file.
+   watching. Any failure — from the moment the checkout file exists:
+   stream error, disk-full mid-transfer on an uncapped external
+   checkout, cancellation — deletes the partial file (and the
+   flight-map entry per step 1), so no truncated payload is left on
+   disk for the watcher to churn on and no record is ever written for
+   an incomplete download.
 
 Hashing on this pipeline is **mandatory** (D7): the SHA-256 pair —
 `baselineSha256` for the local copy, `remoteSnapshot.contentSha256` for the
@@ -357,11 +384,17 @@ Kept exactly from Séance (03 §7.5 already reserves this design):
   `2 local edits` that opens the §3.7 review dialog — both clear only on
   upload, accept, or discard, so unsaved edits are never invisible during
   a live session.
-- Reconcile events for basenames matching the `.poltergeist-` temp
-  convention are ignored by the debouncer, so an upload cycle's own
-  snapshot create/delete (§3.4 step 1) never triggers a needless full
-  re-hash of the unchanged checkout (a small divergence from Séance,
-  PORTS-noted, port-back candidate).
+- Reconcile events for the pipeline's **own** temp files are ignored by
+  the debouncer — matched by the exact generated patterns
+  (`.poltergeist-<uuid>.upload`, §2.1's `.poltergeist-<uuid>.edit` /
+  `.backup` siblings), never by a bare `.poltergeist-` prefix test: a
+  remote file legitimately *named* `.poltergeist-notes` checks out
+  under its sanitized name and must keep its dirty detection — so an
+  upload cycle's own snapshot create/delete (§3.4 step 1) never
+  triggers a needless full re-hash of the unchanged checkout (a small
+  divergence from Séance, PORTS-noted, port-back candidate; the
+  pattern-vs-prefix distinction is pinned by a test whose checkout is
+  itself named with the prefix).
 - **External saves are never auto-uploaded.** The built-in editor's ⌘S is
   the one explicit save-and-upload; everything else asks first.
 
@@ -408,11 +441,15 @@ escalation), lifted whole:
 The UI (pane or editor) catches **only** the `conflict` kind and escalates
 with a dialog per 02 §10's verb rules — safe default first:
 
-> **Remote file changed** — `"nginx.conf"` changed on `prod-web-01` after
-> it was opened locally. Overwrite the newer remote version?
+> **Remote file changed** — `"nginx.conf"` changed (or was deleted) on
+> `prod-web-01` after it was opened locally. Overwrite the remote
+> version?
 > Buttons: `Cancel` (default) · `Overwrite Remote Version`
 
-Confirming retries with `overwriteRemoteChanges: true`. Any other error
+The neutral "(or was deleted)" matches step 2's typed message — a
+deleted target has no "newer remote version" to overwrite; confirming
+there recreates the file at its old path, which the copy must not
+misdescribe. Confirming retries with `overwriteRemoteChanges: true`. Any other error
 kind surfaces normally (toast + activity-panel row).
 
 ### 3.5 Rename migration and delete behavior
@@ -421,7 +458,27 @@ kind surfaces normally (toast + activity-panel row).
   directory, `CheckoutManager.migrateRename` rewrites the record (and
   every record under a renamed directory — `key ==` old path or
   `key.startsWith('$oldPath/')`) via `copyWith(remotePath, remoteSnapshot)`
-  + `store.update`. Pane controllers must call it from their rename
+  + `store.update`. Two hardenings on top of the mechanical rewrite:
+  (1) an **occupied destination key** — a delete-retained record (below)
+  for a file that used to live at the new path — is never blind-
+  overwritten: the retained record is re-keyed out of the live
+  `(serverId, remotePath)` namespace (unique suffix key; checkout dir
+  and record intact) and surfaces through §3.7's review dialog like a
+  recovered edit, while the migrated record takes the path key — either
+  record may hold the only copy of an edit (tested: checkout `b.conf`,
+  delete remote `b.conf`, rename `a.conf` → `b.conf`, migrate — both
+  records survive with distinct ids). (2) `migrateRename` also re-keys
+  **pending §3.2 flight-map entries**, and a completing checkout's
+  `store.put` re-validates its key against the possibly-migrated record
+  before writing — a rename landing during an in-flight checkout must
+  not mint a record under the stale pre-rename path (tested: rename
+  mid-download, the finished record and its uploads target the new
+  path). The local checkout file keeps its pre-rename sanitized name
+  (renaming it under a live external editor is unsafe — the editor
+  holds the old inode), so every surface that names a managed copy
+  (dirty badge, pane chip, §3.7 dialog) displays the record's current
+  `remotePath`, never the local basename. Pane controllers must call
+  `migrateRename` from their rename
   operation; a rename that skips migration is a review blocker.
 - **Delete keeps the checkout**: deleting a remote file deliberately
   retains its managed local copy — it may hold the only copy of an edit.
@@ -471,8 +528,19 @@ never regress is called out by name in review:
   mkdir→marker-write pair and pass the emptiness check in the exact
   window a checkout is being born — the DoD regression test covers that
   interleaving. A fresh
-  index (post-quarantine or first run)
-  starts a new epoch, so older dirs persist until the user discards them
+  index (post-quarantine or first run) starts a new epoch — and the
+  generation id is **minted fresh and unique per index lifecycle**: a
+  UUIDv4 (or time-ordered UUIDv7, which additionally makes a rollback
+  diagnosable in the audit trail), never a constant first-run value, a
+  counter a fresh index resets, or anything derived from swept-able
+  on-disk state — a generation that a later lifecycle can repeat would
+  re-classify pre-quarantine dirs as current-epoch and resurrect the
+  Séance #55 sweep this whole rule exists to kill. The sweep matches
+  each dir marker against the current generation by **equality**; any
+  mismatch — an older epoch, or one *newer* than the parsed index's
+  generation (an older index restored over a newer one — the
+  manual-tampering case above) — classifies the dir old-epoch, never
+  swept. Older dirs persist until the user discards them
   through §3.7's review dialog, which lists old-epoch dirs as recovered
   files. Port-back candidate.
 - All ops serialized through the promise-chain mutex; index written with
@@ -504,8 +572,13 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
   (confirms; deletes plaintext then record). A `missing` copy offers
   `Forget` instead of Open/Upload. Old-epoch checkout dirs (§3.6 — files
   recovered from before an index corruption, so no record metadata
-  exists) appear in a `Recovered files` section with the file name and
-  `Open` / `Discard…` only.
+  exists) appear in a `Recovered files` section — one row **per file
+  the dir actually holds**, not one per dir: external editors leave
+  siblings beside the plaintext (vim `.swp`/`~` backups, AppleDouble
+  `._*` files), and collapsing a dir to one name would misname or bury
+  a payload. Each row shows its file's name with `Open` / `Discard…`
+  only; `Discard…` removes that row's file, and the dir itself is
+  deleted when its last file goes.
 - Nothing auto-uploads on reconnect — same rule as §3.3.
 
 ## 4. External editors (R9)
@@ -544,7 +617,11 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 Local files never go through a checkout — Poltergeist is their file
 manager, not their custodian. Remote files always do; the checkout is what
 makes the external round-trip (watch → prompt → conflict-guarded upload)
-possible at all.
+possible at all. Where the table says "refused from the known remote
+size": a size-less listing entry (the SFTP size attribute is optional)
+cannot early-refuse — §3.2's stream cap is then the shared guard for
+all three built-in branches, aborting at 4 MiB instead of downloading
+fully to a certain refusal.
 
 ### 4.3 Launch rules per platform
 
@@ -615,8 +692,15 @@ want a docked preview).
   (the previous item stays visible in the panel), so arrowing past a
   huge file never queues surprise
   traffic and never traps navigation) — `updatePreview` is only ever
-  called with
-  produced local paths, never a path Quick Look cannot read.
+  called with produced local paths, never a path Quick Look cannot
+  read. Every production and every confirmation card is tagged with
+  the **selection generation** that requested it: a completion whose
+  generation no longer matches the focused selection updates nothing
+  (its produced file simply lands in the cache for later), and a card
+  is dismissed or re-targeted by the focus change that staled it — a
+  slow huge item can never yank the panel back off a newer selection,
+  and a lingering card can never confirm a download for an item the
+  user already left.
   Space again (or Esc in the panel) closes.
 
 ### 5.2 The in-app preview panel
@@ -628,14 +712,22 @@ window-level rightmost panel, sized by the adaptive-layout allocator
 selection and Space again closes it — Quick Look cadence without Quick
 Look — except while the §5.3 `Press Space to download a preview` card is
 showing, where Space starts the download instead. Space is a
-per-focused-item state machine: card with prompt → Space downloads;
-download in flight → Space is a no-op and Esc cancels the download
-without closing the panel (never a second queued task); preview
-rendered (or a promptless card) → Space closes; failed or cancelled →
-the prompt card returns, so Space retries. A focus change re-evaluates
+per-focused-item state machine: card with prompt → Space downloads —
+through the same §8 large-download confirmation as §5.1 when the item
+is over-threshold, with **confirmation-pending as its own state**
+(Space is a no-op there; Esc dismisses the card's confirmation without
+closing the panel); download in flight → Space is a no-op and Esc
+cancels the download without closing the panel (never a second queued
+task *for that item*); preview rendered (or a promptless card) → Space
+closes; failed or cancelled → the prompt card returns, so Space
+retries. A focus change re-evaluates
 the new item's state — an uncached previewable remote item shows the
 §5.3 prompt card (Space downloads), a cached or local item renders
-immediately (Space closes). It tracks the focused pane's focused entry; on
+immediately (Space closes) — while an in-flight production for the
+item the user left **keeps running** as its visible queue task (§5.3):
+its completion fills the cache under §5.1's generation rule, and
+cancelling it belongs to the queue row's Cancel or a re-focused Esc,
+never to the focus change itself. It tracks the focused pane's focused entry; on
 multi-selection it
 previews the focused item — matching §5.1's Quick Look behavior on every
 platform — with the count + total size summary shown as a header above the
@@ -648,12 +740,17 @@ Extension matching throughout this table (and §7's detection map) is
 |---|---|---|
 | Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings. Remote text previews still transfer the whole file into the §5.3 cache (Quick Look and re-preview need it; only the large-download threshold gates it) — a documented tradeoff, not an accident |
 | Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MiB file size — metadata card instead; for remote files the refusal is applied from the known remote size *before* any download is queued |
-| PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages; page count shown |
+| PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages; page count shown; decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
 
 The panel never blocks the pane: rendering runs async with the standard
-generation-counter/`identical()` idioms (03 §6); selection changes cancel
-in-flight preview work via `RemoteTransferCancellation`.
+generation-counter/`identical()` idioms (03 §6). Selection changes
+cancel in-flight **render/decode** work only — an explicitly requested
+production is a visible queue task (§5.3) and keeps running;
+`RemoteTransferCancellation` fires from the queue row's Cancel or the
+Esc-while-focused state above, never from a selection change, or a
+download the user deliberately confirmed would silently die the moment
+they clicked another row.
 
 ### 5.3 Remote preview rules and cache
 
@@ -662,10 +759,17 @@ in-flight preview work via `RemoteTransferCancellation`.
   row's guard) shows the metadata card with `Press Space to download a
   preview` (button equivalent for the mouse). Kinds whose row refuses
   from metadata alone — the Everything-else card row, an over-64 MiB
-  image — show the card **without** the prompt, and Space keeps its §5.2
+  image or PDF, a file whose known remote size exceeds the preview-
+  cache cap (below) — show the card **without** the prompt, and Space
+  keeps its §5.2
   close role there: the prompt never appears where pressing it could do
   nothing or download pointlessly. No implicit downloads on selection;
-  a latency-prone pane must never generate surprise traffic.
+  a latency-prone pane must never generate surprise traffic. (One
+  consequence, accepted as a v1 gap: an extensionless remote file not
+  caught by §7's basename/shebang detection always lands on the
+  Everything-else card — the unknown-but-UTF-8 text kind is decidable
+  only from bytes, and metadata is all a remote row has before a
+  download.)
 - Downloads go through the queue as priority tasks (visible, cancellable)
   into `<app-support>/preview-cache/`, file name
   `<sha256(jsonEncode([serverId, remotePath, mtimeSeconds, size]))>` —
@@ -681,8 +785,13 @@ in-flight preview work via `RemoteTransferCancellation`.
   metadata-card row) never downloads at all — the guard runs against the
   known remote size before anything is queued.
 - Cache is LRU-capped at 512 MiB (setting, §8) with a `Clear Preview
-  Cache` button; files over the §8 large-download threshold (default
-  100 MiB) ask before downloading:
+  Cache` button. A file whose known remote size exceeds the cache cap
+  is refused from metadata before anything is queued — the prompt never
+  offers a download the cache cannot hold (the promptless-card class,
+  first bullet), and lowering the cap setting below the confirmation
+  threshold narrows what may download rather than ungoverning it; files
+  over the §8 large-download threshold (default 100 MiB) but within
+  the cap ask before downloading:
   `Download 240 MB to preview "panorama.pdf"?` → `Download` / `Cancel`.
 - The cache directory is preview-only plumbing: never watched, never
   reconciled, never uploadable — editing goes through §3's checkouts
@@ -699,7 +808,10 @@ text handling (BOM/CRLF, limits, mono rendering) is the editor stack's job.
 **v1 — side-by-side view.** Two read-only viewer columns (document layer +
 syntax engine + find bar each), headers showing side label, full path,
 size, and mtime. Remote sides are produced into the preview cache (§5.3)
-first, with the same explicit-progress rules — though the §8
+first — opening the compare view is itself the explicit download action
+for each remote side (queue-visible, cancellable; no per-side Space
+press, or 05 §7's double-click-opens-both promise would break) — though
+the §8
 large-download confirmation is unreachable here **at the default
 threshold**: a side whose known remote size
 exceeds the 4 MiB loader cap is refused *before* any download is queued,
@@ -767,10 +879,12 @@ Sections (each with the `?` help-dialog affordance):
 - **Default editor** — dropdown: `Built-in editor` / `System default` /
   each configured external editor; other-platform definitions disabled
   with `(another platform)`. Removing the current default resets the
-  default to `System default`. Removing an editor also strips its
-  per-extension default entries (§4.1's `effectiveDefaultFor` falls back
-  to the global default for those extensions) — no dangling editor id
-  ever survives a removal.
+  default to `System default`. Removing an editor — or removing an
+  extension from one via `Edit Extensions…` — also strips the matching
+  per-extension default entries (§4.1's `effectiveDefaultFor` falls
+  back to the global default for those extensions) — no dangling editor
+  id, and no per-extension default pointing at an editor that has
+  disclaimed the extension, survives either path.
 - **External editors** — the registry list: per-editor row with display
   name, launch target, and accepted extensions rendered as `*.ext` chips;
   row actions Edit Extensions… and Remove; `Add Editor…` uses
@@ -807,9 +921,12 @@ preference.
       the `.poltergeist-` event filter, dirty/missing invariant, 12 s
       prompt plus the persistent badge/chip indicator, snapshot-first
       upload with CAS + escalation dialog, rename migration (file and
-      subtree), delete-keeps-checkout, and **epoch-gated
-      quarantine-never-sweep** (a regression test covers
-      corrupt → restart → no pre-quarantine dir deleted).
+      subtree, occupied-destination and in-flight cases),
+      delete-keeps-checkout, and **epoch-gated quarantine-never-sweep**
+      (regression tests cover corrupt → restart → no pre-quarantine dir
+      deleted, generation uniqueness across index lifecycles, and that
+      an equality-mismatched marker — older *or* newer than the current
+      generation — is never swept).
 - [ ] Recovered-edits banner + review dialog work with the server
       disconnected (open/discard offline; upload disabled with reason).
 - [ ] External editors: registry ported with `external_file_opener.dart`
