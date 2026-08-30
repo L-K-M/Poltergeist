@@ -50,7 +50,8 @@ tests come along.
 class BuiltInTextDocument {
   final String text;        // always LF, no BOM, in memory
   final bool hasUtf8Bom;
-  final LineEnding lineEnding;   // lf | crlf, detected by majority vote
+  final LineEnding lineEnding;   // lf | crlf, majority vote; ties and
+                                 // break-free files resolve to lf (§ below)
   final String sha256;      // baseline for conflict detection
 }
 ```
@@ -62,7 +63,11 @@ class BuiltInTextDocument {
   mismatch throws "changed while being opened" (cheap TOCTOU insurance).
 - Strict UTF-8 decode; NUL scan; BOM detected from the first three bytes;
   CRLF detection by majority vote (`\r\n` count vs lone-`\n` count via
-  `(?<!\r)\n`).
+  `(?<!\r)\n` — valid Dart: `RegExp` lookbehind has been supported since
+  Dart 2.3, and this is Séance's shipped code at
+  `built_in_text_editor.dart:70`). Ties and files with no line breaks
+  resolve to LF — Séance's `crlfCount > lfCount` comparison — pinned by
+  the round-trip tests (single-line files must never grow CRLF).
 
 `saveBuiltInTextDocument(File, text, {hasUtf8Bom, lineEnding,
 expectedSha256}) → savedSha256` — the atomic two-sibling save dance, kept
@@ -172,6 +177,8 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
 - Upload result contract, verbatim:
 
   ```dart
+  var uploaded = false; // declared before the try — the finally must see
+                        // false when onUpload throws (Séance line 486)
   try { uploaded = await widget.onUpload!(); }
   finally { if (!uploaded) await widget.onSaved?.call(); }
   ```
@@ -195,6 +202,7 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   | uploaded, user typed during upload | `Uploaded the saved version; newer edits remain unsaved.` |
   | uploaded, clean | `Saved and uploaded.` |
   | upload returned false | `Saved locally; not uploaded.` — accompanied by the §3.4 conflict-escalation dialog when the cause was a remote change (false is also the result of cancelling that dialog); never a dead end |
+  | upload threw | the local save stands and `onSaved` has reconciled the copy (the `finally`); no success toast — the exception propagates to the screen's normal error surface (Séance's behavior: the throw escapes the inner try) |
   | no upload requested (local-only) | `Saved locally.` |
 
 ### 2.5 Port mechanics: renames and PORTS.md entries
@@ -262,17 +270,32 @@ class CheckoutManager extends ChangeNotifier {
   checkout files at `<app-support>/checkouts/<sha256(id)>/<sanitized
   name>` — the directory name is a hash so external ids never become path
   components, while the file keeps a human-readable sanitized name for
-  external editors. Linux checkout dirs/files get mode 700/600 (plaintext
-  secrets may pass through), as in Séance.
+  external editors. Linux **and macOS** checkout dirs/files get mode
+  700/600 (plaintext secrets may pass through; the macOS default umask
+  would otherwise leave them group/world-readable). Séance's helper is
+  Linux-only (`_restrictLinuxPermissions`) — the macOS extension is a
+  deliberate, PORTS-noted divergence and port-back candidate. Windows
+  needs no extra work in v1: the checkout root lives under the per-user
+  app-support directory, whose default ACLs already scope it to the
+  user.
 
 ### 3.2 Checkout
 
 `checkout(serverId, entry, {maximumBytes})`:
 
 1. Regular files only; symlinks and directories refuse with the typed
-   `unsupported` error. In-flight de-dup per remote path
-   (`putIfAbsent`-style flight map); an existing checkout for the path is
-   returned as-is **only when it satisfies the caller's `maximumBytes`**
+   `unsupported` error. In-flight de-dup per `(serverId, remotePath)` —
+   the manager is app-wide, so a path-only key would collide across
+   servers — via a `putIfAbsent`-style flight map; a caller joining an
+   in-flight download applies its own `maximumBytes` to the awaited
+   result (refusing with the too-large reason rather than returning it),
+   so a built-in-editor waiter never inherits an uncapped
+   external-editor checkout. An existing checkout for the key is
+   returned as-is **only when its local file still exists** (stat it — a
+   `missing` copy is re-downloaded through the normal path below and its
+   record replaced, so the editor never opens a dangling record; offline,
+   the §3.7 `missing`/`Forget` flow applies instead) **and it satisfies
+   the caller's `maximumBytes`**
    (checked against `remoteSnapshot.size`; otherwise refuse with the §1
    too-large reason string — the built-in editor's loader re-enforces the
    cap at open as the final guard, but the early refusal beats
@@ -345,7 +368,11 @@ escalation), lifted whole:
    D17); mismatch or deletion throws the typed `conflict` with the message
    `"nginx.conf" changed or was deleted on the server after it was opened
    locally.`
-3. Upload with `overwrite: true`, `preserveMode: snapshot.mode`, and
+3. Upload with `overwrite: true`, `preserveMode:
+   copy.remoteSnapshot.mode` — the recorded **remote** mode, exactly
+   Séance's `remote_files_controller.dart` call; never the local snapshot
+   file's mode, which §3.1 hardens to 600 and would strip execute bits
+   and group/world readability from every uploaded file — and
    `expectedTarget: overwriteRemoteChanges ? null : copy.remoteSnapshot` —
    because the snapshot carries `contentSha256`, the ported adapter's CAS
    **re-reads and stream-hashes the remote target before commit** (SFTP
@@ -354,10 +381,17 @@ escalation), lifted whole:
    and the only way to close SFTP v3's 1-second mtime granularity hole;
    kept unconditional, matching Séance). The task runs on the queue as a
    priority upload.
-4. After success: baseline := the snapshot's digest; `dirty` recomputed
+4. After success: baseline := the snapshot's digest; `remoteSnapshot`
+   refreshed from a post-upload re-stat of the remote path with
+   `contentSha256` := the snapshot's digest — without this the next
+   step-2 preflight compares against the pre-upload stat and every
+   subsequent save of the same file false-conflicts; `dirty` recomputed
    against the *current* local file (typing during upload keeps the copy
    dirty and the prompt machinery live); record updated in the store;
-   temp snapshot always deleted.
+   temp snapshot always deleted. On the `overwriteRemoteChanges` path the
+   recorded pre-upload mode may itself be stale (a remote chmod after
+   checkout is reverted by the upload) — a Séance-identical residual,
+   accepted per D17.
 
 The UI (pane or editor) catches **only** the `conflict` kind and escalates
 with a dialog per 02 §10's verb rules — safe default first:
@@ -403,8 +437,15 @@ never regress is called out by name in review:
   [Séance #55](https://github.com/L-K-M/Seance/issues/55)). Poltergeist
   closes the hole with **epoch-gated sweeping**: the index carries a
   generation id, every checkout dir records its creation epoch in a
-  marker file, and the sweep removes only current-epoch dirs the parsed
-  index does not reference. A fresh index (post-quarantine or first run)
+  marker file — written immediately after the directory is created and
+  before any download lands in it, so no crash window leaves a payload
+  without a marker — and the sweep removes only current-epoch,
+  marker-verified dirs the parsed index does not reference. A dir whose
+  marker is missing or unreadable is classified **old-epoch** — never
+  swept, surfaced through §3.7's `Recovered files` — because the failure
+  modes that produce one (crash mid-create, manual tampering, a future
+  format change) are exactly the cases where deleting is unsafe. A fresh
+  index (post-quarantine or first run)
   starts a new epoch, so older dirs persist until the user discards them
   through §3.7's review dialog, which lists old-epoch dirs as recovered
   files. Port-back candidate.
@@ -461,7 +502,7 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 
 | Verb | Local file | Remote file |
 |---|---|---|
-| Open | OS default application | checkout (§3.2), then `effectiveDefaultFor(path)`: built-in → editor route; system default → OS-open the checkout file; configured editor → launch it on the checkout file |
+| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open); system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
 | Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap, then built-in editor |
 | Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor |
 
@@ -524,6 +565,11 @@ want a docked preview).
   `TransferProducer.produceLocalCopy` (03 §4.7 — this is the hook's
   day-one consumer) with visible progress and Esc-cancel (02 §2.6), then
   previewed; remote multi-selection previews the focused item only in v1.
+  While the panel is open, a selection change (or arrow step) onto a
+  remote item not yet in the preview cache keeps the current item
+  visible until `produceLocalCopy` completes (progress per 02 §2.6, Esc
+  cancels the production) — `updatePreview` is only ever called with
+  produced local paths, never a path Quick Look cannot read.
   Space again (or Esc in the panel) closes.
 
 ### 5.2 The in-app preview panel
@@ -533,14 +579,21 @@ window-level rightmost panel, sized by the adaptive-layout allocator
 (02 §1), hidden by default, toggled by `view.togglePreview`
 (⌥⌘P / Ctrl+Alt+P); on Windows/Linux, Space opens it focused on the
 selection and Space again closes it — Quick Look cadence without Quick
-Look. It tracks the focused pane's focused entry; on multi-selection it
+Look — except while the §5.3 `Press Space to download a preview` card is
+showing, where Space starts the download instead (Esc still closes the
+panel, and Space resumes its close role once a preview is rendered or
+the item changes). It tracks the focused pane's focused entry; on
+multi-selection it
 previews the focused item — matching §5.1's Quick Look behavior on every
 platform — with the count + total size summary shown as a header above the
 preview.
 
+Extension matching throughout this table (and §7's detection map) is
+**case-insensitive** — `IMG_0001.JPG` previews like `img_0001.jpg`.
+
 | Kind (by extension) | v1 rendering | Guards |
 |---|---|---|
-| Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings |
+| Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings. Remote text previews still transfer the whole file into the §5.3 cache (Quick Look and re-preview need it; only the large-download threshold gates it) — a documented tradeoff, not an accident |
 | Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MiB file size — metadata card instead; for remote files the refusal is applied from the known remote size *before* any download is queued |
 | PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages; page count shown |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
@@ -625,7 +678,7 @@ PORTS.md (R10).
 | css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments |
 | ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
 | perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
-| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — declared before the multiline-string rule so `--[[` wins over `[[` — `[[ ]]` multiline strings, keywords; the smoke test must pin both `--[[ comment ]]` and plain `[[ string ]]` |
+| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
 | Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments and `[section]` meta cover it |
 
 Already covered upstream, no change needed: `php` maps to the c-family
@@ -648,7 +701,10 @@ Sections (each with the `?` help-dialog affordance):
 - **Default editor** — dropdown: `Built-in editor` / `System default` /
   each configured external editor; other-platform definitions disabled
   with `(another platform)`. Removing the current default resets the
-  default to `System default`.
+  default to `System default`. Removing an editor also strips its
+  per-extension default entries (§4.1's `effectiveDefaultFor` falls back
+  to the global default for those extensions) — no dangling editor id
+  ever survives a removal.
 - **External editors** — the registry list: per-editor row with display
   name, launch target, and accepted extensions rendered as `*.ext` chips;
   row actions Edit Extensions… and Remove; `Add Editor…` uses
@@ -696,7 +752,9 @@ preference.
       `Process.start(..., runInShell: false)` — verified by the ported
       external-editor tests plus a launch-arguments test.
 - [ ] Double-click action resolves per the §4.2 table; local files never
-      checkout; remote Open runs checkout-then-default.
+      checkout; remote Open resolves the default first and the built-in
+      branch refuses over-cap files from the known remote size before
+      any download is queued (tested).
 - [ ] Quick Look channel per §5.1 (show/update/hide/isVisible, panel
       control overrides); Space produces remote files through
       `TransferProducer` with progress and Esc-cancel.
