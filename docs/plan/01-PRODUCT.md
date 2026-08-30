@@ -334,6 +334,7 @@ sequencing that D2's copy-with-attribution step must respect.
   fast-follow, the mobile-constraints memo) — 07-MILESTONES.md.
 - **Benchmarks and test strategy enforcing D12 and the trap guards** —
   08-TESTING.md.
-- **Icon production and asset pipeline** (this chapter fixes direction only)
-  — created with the app scaffold per docs/STATUS.md; packaging via
+- **Icon production and asset pipeline** (01-PRODUCT.md fixes direction
+  only) — the icon and derived assets are produced together with the app
+  scaffold per docs/STATUS.md, and Linux packaging of them is handled by
   `scripts/package-linux.sh`.

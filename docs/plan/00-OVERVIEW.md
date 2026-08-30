@@ -72,7 +72,8 @@ editing this file (with rationale) in the same PR as the change.
   - Séance **app-layer** assets (managed-checkout pipeline, atomic-file
     helpers, editor stack, toast system, `MiddleEllipsisText`, adaptive
     layout math, appearance/accent module, Swift channel patterns):
-    **copy-with-attribution** into Poltergeist, recorded in a
+    **copy-with-attribution** into Poltergeist — blocked until Séance
+    publishes a LICENSE (D30) — recorded in a
     `docs/PORTS.md` ledger (source path + Séance commit + local
     divergences). Upstream extraction into shared packages is a welcome
     later step, never a blocker.
@@ -84,10 +85,11 @@ editing this file (with rationale) in the same PR as the change.
   filesystem abstraction for panes, the transfer queue, and the sync engine.
   `LocalFileSystem implements RemoteFileSystem` (in `poltergeist_core`).
   The additive methods Poltergeist needs — `setTimes` (hard prerequisite for
-  sync convergence), `setOwner` (chown/chgrp), optional per-call hashing,
-  ranged read for future resume — are one small upstream Séance PR, sequenced
-  before the sync engine (04 §upstream). No second or third filesystem
-  interface may be introduced.
+  sync convergence), `setOwner` (chown/chgrp), optional per-call hashing —
+  are one small upstream Séance PR, sequenced before the sync engine
+  (04 §upstream). Ranged read is deferred to D25's resumable-transfer work
+  and lands as its own upstream PR then — keeping the pre-sync PR minimal.
+  No second or third filesystem interface may be introduced.
 
 ### Séance integration
 
@@ -218,8 +220,8 @@ editing this file (with rationale) in the same PR as the change.
   `EditorRegistry`/launch channels; the in-app preview panel
   (text/images/PDF) exists on all three platforms — the primary preview
   surface on Windows/Linux, supplementary to the macOS Quick Look channel.
-  Checkout ownership is per **server**, never per pane/tab (D2's
-  `CheckoutManager`).
+  Checkout ownership is per **server**, never per pane/tab
+  (`CheckoutManager`, specified in 06 and ported per D2).
 - **D28 — Permissions UI.** chmod via octal + checkboxes with recursive
   apply (app-level walker with progress/cancel); chown UI lands once the D3
   `setOwner` addition ships; uid→username shown when the server's `longname`
