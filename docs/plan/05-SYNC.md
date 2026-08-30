@@ -58,8 +58,10 @@ possibility (D25); it may never be needed.
 ### 2.1 Exporter spec (`lib/src/rsync_export.dart`)
 
 `String buildRsyncCommand(ResolvedSyncEndpoints endpoints, SyncRuleSet
-rules, {int manualOverrides = 0, DateTime? now})` — pure function,
-golden-string tested. `ResolvedSyncEndpoints` carries user/host/port/path
+rules, {int manualOverrides = 0, required DateTime now})` — pure function,
+golden-string tested (`now` is required precisely so the function stays
+pure: an implicit `DateTime.now()` default would bake wall-clock into the
+timestamped backup-dir and break the goldens). `ResolvedSyncEndpoints` carries user/host/port/path
 per side; the app layer resolves `BookmarkServerRef` → identity before
 calling. `manualOverrides > 0` emits the per-item-override comment below.
 Output layout is part of the golden contract: all `# note:` comment lines
@@ -93,18 +95,18 @@ Flag mapping from `SyncRuleSet` (§6):
 | Ruleset element | rsync rendering | Notes |
 |---|---|---|
 | base | `-r -p`, plus `-t` when `preserveMtime` | `-p` mirrors the engine's mode preservation (§4); `-t` is on by default; without it nothing converges |
-| `direction` | source rendered first with a trailing `/`, destination second; `rightToLeft` swaps them | remote endpoint renders as `user@host:'path/'` from `ResolvedSyncEndpoints`; adds `-e ssh` when either side is remote |
+| `direction` | source rendered first with a trailing `/`, destination second; `rightToLeft` swaps them | remote endpoint renders as **one single-quoted word** — `'user@host:path/'` — from `ResolvedSyncEndpoints` (quoting only the path half would leave `user@host:` outside the quotes, and a username or host containing shell metacharacters would be live; one quoted word keeps the whole remote spec inert); adds `-e 'ssh'` when either side is remote — single-quoted like every other generated argument, the same one-quoting-style rule as the port variant below |
 | `mtimeToleranceSecs` | `--modify-window=2` | verbatim value; emitted only for `sizeAndMtime` pairs — under `--size-only` or `-c` rsync never consults mtimes. The caller passes the **effective** ruleset, not the configured one: a pair auto-downgraded to `sizeOnly` by §4's `mtimeUnreliable` fallback (state that lives in §9's `sync_state`, outside `SyncRuleSet` — the app layer resolves it before calling, exactly as it resolves `BookmarkServerRef`) or by `preserveMtime: false` exports `--size-only` with no `--modify-window`; golden fixture required |
 | `comparison: sizeOnly` | `--size-only` | |
 | `comparison: contentHash` | `-c` | |
 | Update mode | no delete flag | rsync's default |
 | Mirror mode | `--delete-delay` | deletions after transfers — same order as our executor (§6). rsync's default is close to our failure gate: it skips the whole delete phase on I/O errors (`IO error encountered -- skipping file deletion`, unless `--ignore-errors` is passed — which the exporter never emits); the residual divergence is non-I/O partial failures, where rsync may still delete and our executor never does — the approximation `# note:` describes exactly that residue |
-| `maxDelete` | `--max-delete=500` | verbatim for values ≥ 1; a `0` must never be emitted, because its rsync meaning is **version-dependent** — rsync ≥ 3.0.0 reads `--max-delete=0` as "no deletions allowed", while older rsync (≤ 2.6.9 — long the system default on macOS, common on NAS boxes) reads it as *unlimited* — so the exporter omits `--delete-delay` and `--max-delete` entirely and the `# note:` states plainly: `# note: maxDelete is 0 — this command performs no deletions (the plan wouldn't either)`; golden fixture required. Values ≥ 1 carry their own divergence `# note:` — rsync deletes **up to** the cap and then stops with an error (deleted directories count toward the limit), while §8 rail 4's plan refuses to run at all when deletions exceed the cap: the note states that the command may perform deletions the plan would have refused outright; golden fixture for a Mirror export with the note |
-| `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` (or the destination side's `trashPathLeft`/`trashPathRight` when set, §8 rail 5 — rsync's backup-dir applies on the receiving side, so the exporter uses the destination side's setting) | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so. Anchoring is explicit: an absolute `trashPath*` renders verbatim; a relative value renders destination-root-relative, matching rsync's own resolution of a relative `--backup-dir` against the destination directory — golden fixture with an absolute custom trash path |
+| `maxDelete` | `--max-delete=500` | verbatim for values ≥ 1; a `0` must never be emitted, because its rsync meaning is **version-dependent** — rsync ≥ 3.0.0 reads `--max-delete=0` as "no deletions allowed", while older rsync (≤ 2.6.9 — long the system default on macOS, common on NAS boxes) reads it as *unlimited* — so the exporter omits `--delete-delay` and `--max-delete` entirely and the `# note:` states plainly: `# note: maxDelete is 0 — this command performs no deletions (the plan wouldn't either)`; golden fixture required. Values ≥ 1 carry their own divergence `# note:` — rsync deletes **up to** the cap and then stops with an error (deleted directories count toward the limit), while §8 rail 4's plan refuses to run **as a whole** when deletions exceed the cap — never a partial run: the note states exactly that asymmetry (the command may perform up-to-cap deletions in a run the plan would have refused to start); golden fixture for a Mirror export with the note |
+| `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` (or the destination side's `trashPathLeft`/`trashPathRight` when set, §8 rail 5 — rsync's backup-dir applies on the receiving side, so the exporter uses the destination side's setting) | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so. The in-root default trash survives a Mirror export's `--delete-delay` **by explicit dependency on the emitted excludes**: the app-default `.poltergeist*` filter lands first on the command line (excludeGlobs row) and rsync does not delete excluded destination files unless `--delete-excluded` is passed — which the exporter never emits, an invariant the §11 Mirror-protection golden pins with a destination-only `.poltergeist-trash/` entry asserted absent from the deletion set. Anchoring is explicit: an absolute `trashPath*` renders verbatim; a relative value renders destination-root-relative, matching rsync's own resolution of a relative `--backup-dir` against the destination directory — golden fixture with an absolute custom trash path |
 | `deletions: permanent` + `backups: trash` | `--backup --backup-dir='…'` as above | approximation in the safe direction: rsync's backup-dir also rescues the *deleted* files the plan would delete permanently, so the export deletes less than the plan — the comment must say so |
 | `deletions: permanent` + `backups: none` | no backup flags | |
 | `excludeGlobs` + defaults | one filter per pattern — plain → `--exclude='pat'`, `!` negation → `--include='pat'` — emitted in **reversed** pattern order, because gitignore is last-match-wins and rsync filters are first-match-wins: reversing makes the two agree (app defaults, evaluated last by the engine per §3, therefore land first on the command line) | rsync's filter language accepts `*`, `?`, `**`, and trailing-`/` dir-only patterns; re-including a file under an excluded directory is representable in neither engine (§3) nor export — where gitignore semantics otherwise diverge the export is an approximation and says so in a `# note:` |
-| `includeHidden: false` | `--exclude='.*'` | approximation: matches dot-prefixed names only — the Windows hidden *attribute* is not representable (`# note:` when the local side is Windows); emitted in the position matching the engine's evaluation order (after user rules, before app defaults — i.e. between them in the reversed §-order above) |
+| `includeHidden: false` | `--exclude='.*'` | approximation: matches dot-prefixed names only — the Windows hidden *attribute* is not representable (`# note:` when **either** side is Windows — a Windows-hosted remote hides by attribute exactly as a Windows client does); emitted in the position matching the engine's evaluation order (after user rules, before app defaults — i.e. between them in the reversed §-order above) |
 | `symlinks: skip` | no `-l` | rsync without `-l` skips symlinks with a warning — same behavior |
 | Additive two-way | two commands, each direction with `-u` and no delete flag | preceded by `# note: -u approximates conflicts as newer-wins; Poltergeist surfaces them instead` |
 | `transferConcurrency` | not representable | note comment: `# note: rsync is single-stream` |
@@ -234,9 +236,16 @@ concurrently in the engine isolate (D8).
   SFTP v3 mtimes are a uint32 of *whole seconds* (dartssh2 exposes
   `attrs.modifyTime` in seconds; Séance converts via `_timeFromSeconds`;
   a uint32 seconds field wraps in 2106 — not 2038, that is the signed
-  boundary — so remote mtimes are clamped to the uint32-representable
-  range [0, 2^32−1] before storage in `EntrySnapshot.mtimeSecs` and the
-  journal), so
+  boundary — so mtimes are clamped to the uint32-representable
+  range [0, 2^32−1] **on both sides and at every seam**: before storage
+  in `EntrySnapshot.mtimeSecs` and the journal, and before any
+  `setTimes` request. A pre-1970 local mtime is negative and a
+  high-bit value reads as negative through a signed lens; if the
+  request went out unclamped while the observation came back clamped
+  (or vice versa), §4's verification re-stat would disagree with its
+  own request and brand a faithful server `mtimeUnreliable` — with
+  both request and observation clamped identically the comparison is
+  clamped-vs-clamped and the flag stays truthful), so
   **both sides are truncated to whole seconds before comparing** and no
   sub-second expectation is ever stored about a remote file. Optional
   `acceptedTimeShifts` (e.g. `[3600]`) additionally accepts ±N-second
@@ -287,11 +296,14 @@ the requested one beyond the tolerance, the item is journaled with
 (hashes don't depend on mtimes, and D7's thorough-mode contract holds) —
 with a visible notice line in the plan header:
 `This server does not keep modification times — comparing by size only.`
-(pair settings offer an override back to `sizeAndMtime`; while a pair is
-on the `sizeOnly` path — auto-downgraded or forced via
+(pair settings offer an override back to `sizeAndMtime`; whenever the
+pair's mtimes are untrusted — `mtimeUnreliable` recorded, or
 `preserveMtime: false` — `ConflictDefault.newerWins` degrades to `ask`,
 because "newer" is undefined without trustworthy mtimes, matching §7's
-bulk-bar rule). The journaled observed
+bulk-bar rule. The degradation keys on **mtime trust, not comparison
+mode**: a `contentHash` pair is never downgraded to `sizeOnly`, yet a
+recorded `mtimeUnreliable` still degrades its `newerWins` — hashes
+prove *that* files differ, never *which* is newer). The journaled observed
 mtimes are how the clamp is *detected*; the `sizeOnly` downgrade is what
 prevents phantom flags on the next compare — overriding back to
 `sizeAndMtime` knowingly re-opens the re-flag loop. Note that Transmit-style clock-skew probing is unnecessary here:
@@ -321,8 +333,10 @@ destination: `Deleted items go to .poltergeist-trash` (default) or
 
 Additive conflict handling: `ConflictDefault` (§6) resolves conflicts at
 diff time (`newerWins` / `keepLeft` / `keepRight` / `skip`); the default
-`ask` leaves them as conflict items. `newerWins` degrades to `ask` while
-the pair is on the `sizeOnly` path (§4) — mtimes the engine itself
+`ask` leaves them as conflict items. `newerWins` degrades to `ask`
+whenever the pair's mtimes are untrusted (§4 — `mtimeUnreliable` or
+`preserveMtime: false`, in **any** comparison mode, `contentHash`
+included) — mtimes the engine itself
 distrusts must not decide conflicts. Unresolved conflicts **execute as
 skip** and are counted in the header and summary — surfaced, never silently
 resolved (Unison's rule).
@@ -469,8 +483,14 @@ class SyncItem {
   final String relativePath;             // relative to the sync root,
                                          // '/'-separated, no trailing
                                          // separator, byte form preserved
-                                         // (NFC only for matching, §3) —
-                                         // the one normalization rule for
+                                         // (NFC only for matching, §3).
+                                         // "Byte form" = the side's
+                                         // NFC/NFD choice among valid
+                                         // UTF-8, never arbitrary bytes:
+                                         // names that don't decode as
+                                         // UTF-8 are flagged per 02 §13
+                                         // and never enter a plan. The
+                                         // one normalization rule for
                                          // every relativePath in this
                                          // chapter, journal included
   final EntrySnapshot? left;             // null = absent on that side
@@ -517,7 +537,16 @@ class PlanTotals {
 }
 
 class SyncRunRecord {                    // journal header, JSONL (§8)
-  final String runId;                    // uuidV4
+  final String runId;                    // '<first 8 hex of this
+                                         // device's 04 §3.1 deviceId>-
+                                         // <uuidV4>' — the prefix lets
+                                         // §8 rail 5 tell this
+                                         // machine's trash directories
+                                         // from a sibling machine's
+                                         // without remote journal
+                                         // access; no layout change,
+                                         // the prefix rides inside the
+                                         // <runId> path segment
   final String pairId;                   // the canonical state key (§9),
                                          // never a bookmark id
   final DateTime startedAt;
@@ -593,6 +622,16 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    has recorded any failure flips whole to `skipped` with
    `Skipped: earlier errors in this run` — a removal never happens in a
    degraded run.
+5. **No symlink traversal on write.** The executor addresses every
+   destination it creates, replaces, or removes with
+   `followLinks: false` semantics end to end, matching the scan (§3):
+   rail 7's pre-action re-stat additionally confirms that no component
+   of the item's destination parent chain has become a symlink since
+   the scan — a link introduced in that window would otherwise let a
+   write, a rule-4 pre-delete, or a rule-3 deletion escape the sync
+   root through it. A failed check flips the item to `conflicted` with
+   `changed since preview`, exactly like any other precondition
+   mismatch (and therefore gates the delete phase per rule 3).
 
 ## 7. Preview UX — the plan view
 
@@ -645,7 +684,9 @@ files so the chips reconcile with the header totals, and keeps its
 copy/mkdir glyph with a small red removal badge.
 
 Action glyphs, with color *and* shape carrying the meaning (color-blind
-safe, D20): `→` copy new L→R, `⇒` update L→R, `←` / `⇐` mirrored, `✕`
+safe, D20): `→` copy new L→R, `⇒` update L→R, `←` / `⇐` mirrored, `⊞`
+make directory (green — the `makeDir*` items were the one action class
+without a glyph; its side shows in the row's columns), `✕`
 delete (red), `↯` conflict (amber), `–` skip (dim). Row tint by action
 class: create green, update blue, delete red, conflict amber — theme-aware,
 contrast-checked status colors (D20).
@@ -679,8 +720,9 @@ default on).
   applies bulk overrides.
 - When conflicts exist, a bulk bar appears above the table:
   `Resolve conflicts:  Newer wins · Keep left · Keep right · Skip all`.
-  `Newer wins` is hidden whenever the pair is on the `sizeOnly` path
-  (§4 — `mtimeUnreliable` or `preserveMtime: false`) — no bulk
+  `Newer wins` is hidden whenever the pair's mtimes are untrusted
+  (§4 — `mtimeUnreliable` or `preserveMtime: false`, in any comparison
+  mode, `contentHash` included) — no bulk
   resolution may trust a clock the engine itself has
   flagged; the remaining options and per-item overrides stay available.
 - Overridden rows show a small "manual" dot; overrides are journaled
@@ -772,11 +814,27 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    a docroot (`public_html`, `www`, `htdocs`, `/var/www`) — appears both
    in the pair editor *and* as a plan-view notice chip: ad-hoc pairs (§9)
    never pass through the pair editor, so the plan view is their only
-   chance to catch it. No code path removes trash as a side effect (09 §6
+   chance to catch it. The chip is **persistent, not one-shot**: it
+   renders on every plan for the pair until that side's `trashPath*`
+   points out of root (or the pair's policies send nothing to trash on
+   that side), and its action opens the trash-path field prefilled with
+   an out-of-root suggestion (a dot-directory in the same account's
+   home, outside the docroot — e.g. `~/.poltergeist-trash`), so the
+   fix is one click rather than a settings hunt — dismissing a chip
+   once must not permanently silence a secrets-over-HTTP hazard. No
+   code path removes trash as a side effect (09 §6
    rule 5): at plan time, if the pair's trash holds entries older than
    30 days, the plan view shows a notice chip — `N trashed files from M
    runs older than 30 days — delete them?` — whose action performs the
-   purge; the `sync.purgeTrash` command empties it on demand. The check
+   purge; the `sync.purgeTrash` command empties it on demand. Both
+   routes confirm through the same dialog, whose body states the two
+   things a quick click would miss: the **scope** — trash lives per
+   (host, root), so the purge also removes trashed files belonging to
+   other sync pairs that use the same root, and the dialog says so
+   whenever the matched journals span more than this pair — and the
+   **forfeit** — purged runs drop out of `Restore Trashed Files…`
+   (rail 9) permanently, so the dialog names the undo it is giving up
+   (`These files can no longer be restored.`). The check
    is cheap by construction: run ages and per-item counts come from
    the **local journals of every pair sharing that side's trash root**
    — trash lives per (host, root), not per pair, and two pairs may
@@ -789,20 +847,48 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    of them, and confirming
    which `<runId>` directories still exist takes one `listDirectory` of
    the trash root per side — the check's only remote access, never a
-   recursive walk. A `<runId>` directory that listing finds with **no
-   matching local journal** (a crash between the trash rename and the
-   journal write) joins the same notice using the directory's own mtime
-   as its age, and the purge removes it by directory — orphaned trash is
-   never invisible, docroot secrets included. Trash directories created
+   recursive walk. Cross-**pair** matching is not enough, because the
+   sharing is cross-**machine** too: saved pairs replicate to every
+   device (§9, D4) while journals stay per machine, so two machines
+   legitimately write runs into one remote trash root and each sees
+   only its own journals — `runId`'s device prefix (§6's
+   `SyncRunRecord`) is what keeps their purges apart. A `<runId>`
+   directory that listing finds with **no matching local journal** is
+   classified by that prefix. Carrying **this device's** prefix, it is
+   a crash orphan (a crash between the trash rename and the journal
+   write): it joins the same notice using the directory's own mtime as
+   its age, and the purge removes it by directory — orphaned trash is
+   never invisible, docroot secrets included. Carrying a **foreign**
+   device's prefix, it is a sibling machine's run history and is
+   **never counted or purged by this machine's notice** — the owning
+   machine's own notice ages it out (without the prefix rule, machine
+   A would misread machine B's journal-backed trash as crash orphans
+   and silently empty B's undo). The explicit `sync.purgeTrash`
+   command is the escape hatch for a machine that is gone for good: it
+   empties the whole trash root on demand, foreign-prefix directories
+   included, and its confirm dialog names them as another machine's.
+   The listing also closes the loop in the other direction: a local
+   journal whose recorded `<runId>` directory is **absent** from the
+   listing is marked `purged: true` on the spot — its trash is already
+   gone (purged by a sibling machine, or removed by hand), nothing
+   restorable remains, and rail 9's retention releases the journal
+   instead of holding it forever. Trash directories created
    by an exported rsync command (§2.1's `rsync-<ts>` backup dirs) are
-   exactly such journal-less entries: the same notice ages them out and
+   journal-less on every machine and carry no device prefix — their
+   literal `rsync-` prefix classifies them — and they keep the
+   crash-orphan treatment: the same notice ages them out by mtime and
    the same purge removes them, but journal-driven `Restore Trashed
    Files…` (rail 9) cannot restore what the app never journaled — an
    exported command runs outside the app's undo story, which is part of
    what its `# note:` lines already disclaim. When a side is unreachable
    that listing is skipped and
    the notice falls back to the newest cached trash state in `sync_state`
-   (§9) — it degrades, never blocks or errors the plan view. A purge
+   (§9) — it degrades, never blocks or errors the plan view: the chip
+   labels its staleness from the cache's `lastListedAt` (`as of 3 days
+   ago`) and its purge action is **disabled** for that side, because a
+   purge must act on a live listing, never on a cache that a sibling
+   machine's purge or a manual cleanup may already have invalidated. A
+   purge
    writes a
    `purged: true` marker line into each affected run's journal, which is
    what releases those journals for pruning (rail 9) and makes the
@@ -883,7 +969,12 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    pruning, requiring no existence probe of the trash itself; such a
    journal is retained until the purge (rail 5) marks it: Undo must
    never lose its source while the trash it reverses is still there
-   (`sync.purgeTrash` is what finally lets those journals be pruned). The
+   (`sync.purgeTrash` is what finally lets those journals be pruned).
+   That retention deliberately has **no age-based upper bound** — a
+   journal guarding live trash is undo's only source, rail 5's 30-day
+   notice is the pressure valve that eventually clears trash and
+   journal together, and its absent-directory rule releases journals
+   whose trash disappeared some other way. The
    journal powers the post-run report, `Retry Failed`, and **Undo**: v1's
    `Restore Trashed Files…` restores every trashed/backed-up file by
    reversing the recorded renames — with the parent chain handled for
@@ -1096,18 +1187,28 @@ Testing hooks, elaborated in 08:
   second `Retry Failed` pass leave the destination convergent, perform
   no duplicate trash moves, and append no duplicate journal line for the
   same `(runId, relativePath, side)` — the concrete meaning of
-  "replay is idempotent"; undo restores every trashed path whose destination is
+  "replay is idempotent"; every executed copy/update journals an item
+  line carrying `relativePath` + side + action and every trash move its
+  `trashLocation` (the two invariants the out-of-scope table's
+  full-undo row depends on — they must not regress); undo restores every trashed path whose destination is
   unmodified since the run, and skips-and-reports mutated ones; plan
   ordering obeys §6's contract.
 - **Rail tests**: `maxDelete` refusal fires before any item executes and
   dominates the typed confirmation; the >50 % gate rejects near-miss
   typed input; the trash purge is reachable only through the notice
-  chip's action and `sync.purgeTrash` — never as a side effect.
+  chip's action and `sync.purgeTrash` — never as a side effect; a
+  journal-less `<runId>` directory carrying a foreign device prefix is
+  never counted or purged by the notice while a local-prefix one is
+  (rail 5's cross-machine rule), and a local journal whose trash
+  directory is absent from the listing is marked `purged: true`.
 - **Golden tests** for the rsync exporter (§2.1) and the header sentence
   copy (§7) — the exporter fixtures include a negation preceding a later
   matching exclude (the reversed-order rule must reproduce gitignore's
-  outcome), a Mirror export where a destination-only ignored file is
-  protected from `--delete` by the emitted exclude, the `maxDelete: 0`
+  outcome), a Mirror export where a destination-only ignored file
+  **and the in-root `.poltergeist-trash/` itself** are protected from
+  `--delete` by the emitted excludes (§2.1's trash-row dependency: the
+  app-default filter lands first and `--delete-excluded` is never
+  emitted), the `maxDelete: 0`
   no-delete-flags case, a path pair requiring shell quoting (spaces,
   single and double quotes, `$`, glob metacharacters, an NFD name —
   an unquoted space would split the argument and could retarget
@@ -1189,7 +1290,7 @@ Testing hooks, elaborated in 08:
 |---|---|
 | True two-way sync with baseline DB, tombstones, move detection | v2 (D25); design sketch §5; milestone parking in 07 |
 | rsync accelerator (opt-in, per-item, `--files-from` from our plan) | v2 (D25) |
-| Full undo (removing copies a run created, beyond restoring trash) | v2; the §8 journal already suffices *because of two specifics that must not regress*: per-item copy lines (relativePath + side + action) name every created path, and pre-overwrite versions live in trash via `trashLocation` — keep both and v2 undo needs no journal migration |
+| Full undo (removing copies a run created, beyond restoring trash) | v2 (D25); the §8 journal already suffices *because of two specifics that must not regress*: per-item copy lines (relativePath + side + action) name every created path, and pre-overwrite versions live in trash via `trashLocation` — keep both and v2 undo needs no journal migration; §11's journal property tests pin both invariants |
 | Content-hash acceleration via exec channel or SFTP `check-file` | v2 (D25); mode contract fixed in §4 |
 | Scheduled / watched / auto-run sync | v2 (D25); parked in 07 |
 | Symlink `copyAsLink` / `follow` policies | v1.x/v2; enum reserved in §6 |
