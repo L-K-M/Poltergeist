@@ -99,7 +99,11 @@ interface is genuinely transport-neutral, so the mapping is direct:
 
 Every error is translated through one funnel (the `_guard` pattern from the
 adapter): `PathNotFoundException` → `notFound`, `FileSystemException` with
-EACCES/EPERM → `permissionDenied`, cancellation → `cancelled`, the rest →
+EACCES/EPERM → `permissionDenied` — on Windows, match the raw Windows
+error codes instead (`OSError.errorCode` carries `GetLastError` values
+there, never POSIX errnos: 5 `ERROR_ACCESS_DENIED`, 32
+`ERROR_SHARING_VIOLATION`), or Windows permission failures all land in
+`other` — cancellation → `cancelled`, the rest →
 `other`, message format `'Could not <op> "<path>": <detail>'`. Temp-file
 prefixes are `.poltergeist-` everywhere Séance uses `.seance-` (the research
 notes flag the prefix as the one thing to parameterize).
@@ -131,7 +135,13 @@ with their Séance tests carried over:
   component).
 - `validateLocalName(String name)` — Windows reserved names, forbidden
   characters, trailing dot/space.
-- `validatePathComponent(String c)` — no empty, `.`, `..`, `/`, NUL.
+- `validatePathComponent(String c)` — no empty, `.`, `..`, `/`, `\`,
+  NUL. Backslash is rejected everywhere on purpose: it is a legal
+  filename character on POSIX remotes but the path separator on a
+  Windows client, so a server-reported name like `..\..\x` that passes
+  a `/`-only check becomes traversal the moment a Windows build joins
+  it into a local path (09 §3.5 applies the same rule for the same
+  reason).
 
 They are used by `LocalFileSystem.upload`, the transfer queue's download
 executor, the checkout store, and the sync executor — one implementation, four
@@ -260,7 +270,12 @@ Growth rules (the part that must never be improvised):
 2. **Interactive auth caps the pool at one transport.** Record how the first
    connect authenticated. If keyboard-interactive ran or a password was
    prompted interactively, `maxTransports` is effectively 1 — additional
-   parallelism comes only from extra SFTP channels on that transport. Never N
+   parallelism comes only from extra SFTP channels on that transport,
+   which all share one TCP connection: on interactive-auth servers,
+   listings can slow while transfers saturate that connection — the
+   accepted cost that qualifies `openBrowseChannel`'s "listings stay
+   snappy" comment, because D5's no-second-prompt rule outranks
+   throughput. Never N
    parallel 2FA prompts (D5).
 3. **Non-interactive auth may grow the pool** (key auth, stored password): up
    to `maxTransports`, reusing the resolved in-memory `SshCredentials` from
@@ -285,11 +300,21 @@ Growth rules (the part that must never be improvised):
   keeps sshd logs quiet), then `openAuthenticatedClient` with backoff
   1 s → 2 s → 4 s → … capped at `reconnectBackoffCap`, ±30 % jitter (the probe
   service's hygiene rules). After reconnect the pane re-canonicalizes its
-  current path and refreshes. Running transfer tasks on that server flip to
+  current path and refreshes. Running **and scanning** transfer tasks on
+  that server flip to
   `queued` with a retry counter incremented once per reconnect cycle —
-  never per affected file, which would burn the limit in one flap; after
-  `taskRetryLimit` reconnect failures the task
-  fails with the summarized error. Séance's model (reconnect is replacement,
+  never per affected file, which would burn the limit in one flap. The
+  counter counts *consecutive* failed cycles and resets once the task
+  makes progress after a successful reconnect (a completed file, or
+  scan entries flowing again) — recoverable blips spread over a long
+  transfer must never add up to a permanent failure; after
+  `taskRetryLimit` consecutive reconnect failures the task
+  fails with the summarized error. A task caught mid-scan restarts its
+  scan from scratch with `plan` and `totalBytes` reset (the walker is
+  not resumable, and a partial re-count would double-count progress),
+  not re-dispatching files the §4.6 journal already records as
+  completed; user-`paused` tasks stay paused through a reconnect — the
+  flip to `queued` applies only to running/scanning tasks. Séance's model (reconnect is replacement,
   user-initiated) is deliberately upgraded here — a transfer app must
   self-heal.
 
@@ -310,7 +335,14 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   on promotion.
 - **The connection pool key is separate**: the normalized endpoint tuple
   (host, port, username). Two bookmarks at the same endpoint share a pool
-  while keeping distinct serverIds.
+  while keeping distinct serverIds. Shared pools are reference-counted
+  by serverId: `disconnectServer(serverId)` drops that id's reference —
+  closing its browse channels and leases — and the transports are torn
+  down and the resolved `SshCredentials` wiped only when the **last**
+  referencing serverId disconnects; an earlier wipe would silently
+  re-prompt the surviving bookmark's next pool growth, violating §3.2
+  rule 2's single-prompt guarantee. `watchServer` fans the shared
+  pool's state out to every referencing serverId.
 - **`CheckoutManager` keys checkouts by serverId.** Checkouts for a deleted
   favorite (or a dead ad-hoc id) persist and surface in the recovered-edits
   UI (06 §3.7 — the Séance pattern); no checkout is ever orphaned by
@@ -439,7 +471,8 @@ non-negotiable:
   a mismatch re-applies the policy (`ask` prompts) instead of clobbering
   a file that appeared mid-run. Local→local commits get the same guard
   through the shared code path. Cancellation is checked between every
-  entry. Completed
+  entry; `.part` temps orphaned by a crash are cleaned at journal
+  recovery (§4.6). Completed
   files stay in place on failure (documented Séance behavior, kept).
 
 Local→local tasks run the same two phases over two `LocalFileSystem`
@@ -453,7 +486,9 @@ preservation falls out of the one code path.
   `effectiveTransports` is 1 for interactively-authenticated servers
   (§3.2 rule 2) and `maxTransports` otherwise (default 2 × 3, M0-tuned).
 - **Global limit**: at most 6 files in flight across all tasks and servers
-  (constant next to `PoolPolicy`; the settings UI exposes both, 02). This
+  (a compile-time constant next to `PoolPolicy`, not user-configurable —
+  02's settings screen exposes the two directional bandwidth limits and
+  nothing else from this section, matching §6's settings-home table). This
   equals the default per-server limit on purpose: one busy server may
   briefly own the whole budget, and strict FIFO keeps behavior
   predictable — the user's reorder is the escape hatch. Cross-server
@@ -478,8 +513,13 @@ the sink). A remote→remote pipe (§4.5) acquires from **both** buckets per
 chunk — each piped byte genuinely traverses the local machine's downlink
 and uplink, so charging both is the physically honest accounting, not
 double-throttling; progress still counts the byte once.
-Bucket capacity is one second of tokens, so bursts are bounded and the limit
-is honored within ±1 s granularity.
+Bucket capacity is `max(bytesPerSecond, maxChunkBytes)` — one second of
+tokens, but never less than one full chunk — so `acquire` can always
+eventually be satisfied: a capacity below the chunk size would await
+tokens the bucket can never hold and hang the transfer (pinning its
+leased channels) at exactly the low limits the throttle exists for.
+Bursts stay bounded and the limit is honored within ±1 s granularity
+(coarser only when a single chunk exceeds one second of tokens).
 
 ### 4.4 Pause and cancel semantics
 
@@ -521,7 +561,9 @@ app-provided support directory (`EngineConfig`, §5):
 ```
 
 - **Journal**: one JSON object per line — `taskEnqueued` (full task spec),
-  `taskState`, `fileCompleted`, `taskRemoved`. Appends are flushed
+  `taskState`, `fileCompleted`, `fileFailed` (terminal per-item outcome,
+  with error text), `itemRemoved` (per-item cancel or skip, §4.4),
+  `taskRemoved`. Appends are flushed
   per line; recovery distinguishes two failure shapes: a **torn** final
   record (no terminating newline — a crash mid-append) is dropped and the
   file is truncated to the end of the last complete record before the log
@@ -530,9 +572,18 @@ app-provided support directory (`EngineConfig`, §5):
   (timestamped, the 06 §3.6 pattern) and replays the intact prefix, with
   a banner — never a silent drop of a record that was fully written. On
   startup
-  the journal is replayed: unfinished tasks come back `queued` with their
-  remaining plan items (the in-flight file restarts; ambiguous task state
-  is reconciled against leftover `.part` files before resuming); the user
+  the journal is replayed: unfinished tasks come back with their
+  **journaled state** — a per-task `paused` survives restart; only
+  `running`/`scanning` become `queued` — and their remaining plan
+  items, defined as the plan minus completed, failed, and removed items
+  (`fileCompleted`, `fileFailed`, `itemRemoved`): a file the user
+  watched fail or deliberately removed must not silently resurrect on
+  resume. The in-flight file restarts; ambiguous task state
+  is reconciled against leftover `.part` files before resuming, and
+  each restored item's destination directory is swept of its own stale
+  `.poltergeist-*.part` temps — recovery is the cleanup point for
+  crash-orphaned temps, scoped to paths the journal names, never a
+  general directory sweep. The user
   is not asked —
   the panel simply shows the restored queue paused, with a "Resume" affordance
   (restored queues start paused so a reboot never silently re-transfers).
@@ -648,8 +699,12 @@ to ≤ 30 per second per task so ports never flood the UI.
 The app resolves all storage directories via `path_provider` on the UI
 isolate and hands them to the engine in a typed `EngineConfig` message —
 support/journal directories, the `PoolPolicy`, initial bandwidth limits —
-sent as the first message after spawn: platform channels are unavailable in
-the engine isolate.
+sent as the first message after spawn: the engine isolate must not
+depend on plugins or platform channels. (Background isolates *can*
+reach platform channels since Flutter 3.7 via
+`BackgroundIsolateBinaryMessenger` — the constraint here is the design,
+not an SDK impossibility: that plumbing, and the plugin coupling it
+invites, is exactly what stays out of the engine.)
 
 **M0 must validate before this hardens** (D8, D9): dartssh2 sockets and
 multiple SFTP channels function inside a non-root isolate; cross-port
@@ -673,7 +728,7 @@ queue). Composition, all `ChangeNotifier`s unless noted:
 | Notifier | Scope | Owns |
 |---|---|---|
 | `WorkspaceController` | one per window (D13 — multi-window becomes mechanical later) | pane list, tabs per pane, active pane/tab, sidebar + activity panel visibility, layout ratios |
-| `PaneController` | one per pane-tab | navigation, entries, sort/filter/hidden, selection, per-location view prefs — a fork of Séance's `RemoteFilesController` with the terminal-follow inputs (`shellDirectory`, `terminalTitle`) deleted and the filesystem reached through `EngineClient` |
+| `PaneController` | one per pane-tab | navigation, entries, sort/filter/hidden, selection, per-location view prefs — a fork of Séance's `RemoteFilesController` — a D2 port with divergences, so it gets a PORTS.md entry and recorded divergence lines per §8.2/§8.3 like any other ported file — with the terminal-follow inputs (`shellDirectory`, `terminalTitle`) deleted and the filesystem reached through `EngineClient` |
 | `CheckoutManager` | app-wide, records keyed by server | the managed-checkout pipeline extracted from `RemoteFilesController`: checkout, watch, reconcile, upload-back, rename-migration. Wraps the ported `ManagedRemoteFileStore`; `editSessionId` is a per-server constant (D17 — checkout ownership is per server, never per pane/tab) |
 | `TransferQueue` UI mirror | app-wide | queue rows, history, throttle state — rebuilt from engine events |
 | `BookmarkStore` | app-wide | sidebar model, persistence, the sync-coordinator seam (04) — store-behind-callback like Séance, so the store stays sync-agnostic |

@@ -133,7 +133,13 @@ class SavedSyncSpec {
 
   /// The full 05 §6 SyncRuleSet, embedded and versioned. `rulesVersion`
   /// starts at 1; `rules` carries exactly these fields, with these JSON
-  /// defaults applying when a field is absent:
+  /// defaults applying when a field is absent. The map round-trips
+  /// verbatim: unknown keys from a newer Poltergeist are retained
+  /// through fromJson -> toJson — never thrown on (that would
+  /// skip-preserve the whole bookmark on older devices) and never
+  /// dropped (an older device's re-save must not strip newer sync
+  /// settings) — the "refuse to run" tier (§2.1) applies at sync
+  /// execution, not at decode. Known fields and defaults:
   ///   direction:           'leftToRight' | 'rightToLeft' |
   ///                        'bidirectional'       (default 'leftToRight';
   ///                        left = source, right = destination — the 05 §6
@@ -201,7 +207,14 @@ or a kind/field violation throws `FormatException` — a violation being any
 "kind only" field non-null under another kind, any required field null for
 its kind (`remotePath` requires `server` + `remotePath`; `localFolder`
 requires `localPath`; `workspace` requires both `left` and `right`;
-`savedSync` requires `sync`), or a blank `label` or `sortKey`. Validating
+`savedSync` requires `sync`), or a blank `label` or `sortKey` — and the
+same after-trim blank check covers every required string: `localPath`,
+`remotePath`, each `BookmarkLocation.path`, `EmbeddedHostIdentity.host`
+and `.username`, and a non-null `serverConfigId` (an empty string
+decodes "successfully" and then fails at activation, outside the
+per-record try/catch — exactly the crash validating-at-decode exists to
+prevent; a blank ref would also sit unresolved-pending forever with no
+fix-up, §2.2). Validating
 at decode keeps malformed records inside the per-record try/catch (§3.2) —
 skip-and-preserve — instead of crashing later at activation, outside it.
 So a bookmark written by a newer Poltergeist
@@ -226,6 +239,21 @@ asking what a wrong guess would cost.
   after the next sync round. The distinction matters because acting on the
   fix-up rewrites the bookmark and LWW-propagates — a premature rewrite
   would permanently destroy a reference that was never broken.
+  And because the catalog is LWW-merged, any device on the account can
+  rewrite a server's endpoint — one compromised device could redirect a
+  bookmark to an attacker host, which then collects a first-seen TOFU
+  pin and the vault-resolved credential (§3.2's pin quarantine cannot
+  catch this: the *new* host:port has no local pin to conflict with).
+  Resolution is therefore **endpoint-pinned per device**: when a
+  bookmark is created from the catalog, the picked
+  `(host, port, username)` is recorded device-locally (§2.3 — never
+  synced), and a later resolution whose catalog endpoint differs
+  requires explicit confirmation naming the old and new endpoints
+  **before any connection, TOFU prompt, or credential resolution** — a
+  silently changed endpoint never sees a credential. Confirming updates
+  the recorded endpoint; a legitimate edit made in Séance costs one
+  confirmation per device, the same price the §3.2 quarantine already
+  sets for a changed key.
 - `EmbeddedHostIdentity` is written for servers created inside Poltergeist,
   and for **all** servers in separate-account mode.
 - Passwords and key passphrases never appear in any record. `secretRef`
@@ -316,9 +344,19 @@ An embedded identity (separate mode or non-Séance server), `server` only:
 
 - **sortKey**: manual ordering within a group is lexicographic over `sortKey`.
   Keys come from `sortKeyBetween(String? before, String? after)` in
-  `poltergeist_core` (fractional indexing over `a`–`z`; midpoint of the
-  neighbors, append `m` when no midpoint exists). A reorder touches only the
-  moved bookmark's record — LWW-friendly by construction. Unit-tested.
+  `poltergeist_core` — fractional indexing over `a`–`z`: midpoint of the
+  neighbors, append `m` when no midpoint exists, and the **all-`a`
+  strings (`a`, `aa`, …) are reserved as the unreachable lower bound and
+  never minted as keys**, which is what makes head insertion total:
+  `before == null` takes the midpoint between that implicit floor and
+  the current first key, so a key strictly before the first always
+  exists (before `b` → `am`, before `am` → `ag`, and so on — repeated
+  drag-to-top descends toward but never reaches the reserved floor, and
+  §2.1's blank-`sortKey` rejection stays unreachable);
+  `after == null` appends past the last key. A reorder touches only the
+  moved bookmark's record — LWW-friendly by construction. Unit-tested,
+  including repeated head and tail insertions and
+  `sortKeyBetween(null, <first possible key>)`.
 - **Size**: the server caps records at 1 MiB (`maxBlobBytes`). A sealed
   bookmark is a few hundred bytes; Poltergeist still enforces a 64 KiB soft
   cap on the encoded payload at save time with the copy "This bookmark is too
@@ -418,11 +456,19 @@ own, and its API is `List<CatalogServer> servers`.
 
 `applyPulled` iterates the store's records, each wrapped in a per-record
 try/catch (one malformed payload skips that record, never aborts the loop —
-the same defense PR-S1 adds to Séance). Because the record-id prefix
-mirrors the kind in plaintext (§2.4), the switch happens **before
-decryption**: only `bookmark:`, `hostkey:` and — in shared mode —
-`serverConfig:` prefixes are decrypted at all. `secret:`, `snippet:` and
-unrecognized prefixes are skip-preserved without ever being decrypted —
+the same defense PR-S1 adds to Séance). Because the record id mirrors
+the kind in plaintext (§2.4), the switch happens **before decryption**:
+`bookmark:` and `hostkey:` prefixes are decrypted, plus — in shared
+mode only — ids carrying **no** kind prefix, which is Séance's actual
+serverConfig convention: `sync_coordinator.dart` seals server records
+under the bare `server.id` (a UUID — no `serverConfig:` prefix exists
+on the wire, and a dispatch that matched one would skip every catalog
+record with zero diagnostics, since skipping is silent by design; a
+shared-mode test that materializes the catalog from a Séance-written
+record pins the real convention). `secret:`, `snippet:`, and
+unrecognized `<prefix>:` ids are skip-preserved without ever being
+decrypted — prefixless ids too in separate mode, where no catalog
+exists —
 in shared mode this keeps the user's Séance password vault out of
 Poltergeist's memory entirely instead of decrypting it every round only
 to discard it (the §3.4 trust stance made mechanical). The dispatch on
@@ -442,6 +488,21 @@ no decrypt needed to leave a record alone.
 
 Poltergeist **never writes** `serverConfig`, `secret`, or `snippet` records.
 Editing a Séance server happens in Séance.
+
+Pin-conflict resolution always converges (mirroring the Séance-side
+doc, `docs/POLTERGEIST.md`): **accept** installs the quarantined key
+from the record store — no re-push; the record already won LWW.
+**Keep local** re-pushes the kept pin under a fresh LWW tuple, so the
+reaffirmed pin wins fleet-wide and the quarantine clears on every
+device that never applied the conflicting key (a device that already
+accepted it sees one more warning, and opposite answers ping-pong until
+the affected devices agree — one resolution per affected device is the
+convergence cost). A key rotation the user accepts at connect time
+(`TofuVerifier` changed-key verdict, resolved through 02's changed-key
+flow) pushes the new pin the same way. Without the keep-local re-push,
+one rejected conflict would re-quarantine on every later pull, forever
+— warning fatigue against the exact MITM signal the quarantine exists
+to keep loud.
 
 ### 3.3 Scheduling and status
 
@@ -471,7 +532,10 @@ backup is strictly opt-in, matching the trust stance (D19).
 ### 4.1 Design B — separate account: the default
 
 Poltergeist registers its own username (default: a user-chosen name; the
-suggestion placeholder is a random-suffix form like `ghost-<4 hex>`, never
+suggestion placeholder is a random-suffix form like `ghost-<8 hex>` —
+eight hex digits, because a 16-bit suffix would make `ghost-*` accounts
+trivially enumerable on a server whose registration errors reveal taken
+names — never
 derived from the Séance username — Design B allows "any other instance",
 and a derived name would leak the user's Séance identity to an unrelated
 server operator) on the same deployed sync server binary, or any other
@@ -514,10 +578,14 @@ registry), so this stays a documented, user-confirmed gate — a gate the
 user must keep honoring: the assertion covers devices present at unlock,
 and adding (or rolling back to) a pre-PR-S1 Séance later re-opens the
 same corruption path, which the §4.3 helper copy says outright — with one
-after-the-fact tripwire: a pulled `serverConfig:` record that fails
+after-the-fact tripwire: a pulled record on the serverConfig path (a
+prefixless id, §3.2) that fails
 strict decode raises a **durable warning** in Settings → Backup naming
-the record id (a possible stale-client signature, never just
-skip-preserved silently). The minimum
+the record id — as a stale-client, wrong-passphrase, *or*
+newer-Séance-schema signature: the copy names all three candidate
+causes, because blaming only a stale client sends the user hunting a
+device that may not exist — never just
+skip-preserved silently. The minimum
 version is recorded once, in
 `kMinimumSharedAccountSeanceVersion` (app constants), filled with the literal
 tag of the first Séance release containing PR-S1 — and, recommended, the
@@ -567,6 +635,13 @@ angle brackets):
   newer." Helper line: "Older Séance versions misread Poltergeist's records
   — update them everywhere before turning this on, and never add an older
   Séance to this account afterwards: the risk does not end at setup."
+- Conditional, rendered under option 2 only while the recorded
+  `kMinimumSharedAccountSeanceVersion` tag predates the Séance #56 fix
+  (§4.2's disclosure duty — without this string here, §4.3's
+  copy-verbatim rule would guarantee the mandated disclosure never
+  ships): "Séance devices accept synced host-key pins without a
+  conflict warning — including pins this app pushes." A test asserts it
+  renders exactly when the recorded tag lacks the fix.
 - On 403 `registration_closed` (Design B register): "This server has
   registration closed. If you run it: temporarily set
   SEANCE_OPEN_REGISTRATION=1, create the account, then close it again —
@@ -584,11 +659,19 @@ line) per the D2 copy list.
 ### 4.4 Switching from B to A
 
 Offered as "Switch to shared account…" once the user confirms the fleet gate
-(same checkbox). Flow: sign out of the separate account (local forget only) →
+(same checkbox). Flow: while the separate account's token is still
+held, offer an **optional** "Also delete the separate backup account…"
+step (typed confirmation per §4.1 — this is the one cheap moment:
+after sign-out, deletion needs a full re-enrollment with that account's
+passphrase, and §7.3's tokens never expire server-side, so a declined
+orphan account plus its live token persist indefinitely) → sign out of
+the separate account (local forget only) →
 log into the Séance account (§4.5) → mark every local bookmark dirty →
-next round pushes them under their existing `bookmark:<uuid>` ids (ids are
-namespaced per account; no collision). The old account is left untouched —
-Poltergeist never auto-deletes it; the UI notes it can be removed later.
+the next round pushes them — pushes held while `passphraseUnverified`
+is set (§4.5) — under their existing `bookmark:<uuid>` ids (ids are
+namespaced per account; no collision). Declining the delete leaves the
+old account untouched — Poltergeist never auto-deletes it; the UI notes
+that removing it later requires re-enrolling into it first.
 Switching away from shared mode first converts every `serverConfigId`
 reference to an `EmbeddedHostIdentity` snapshot taken from the catalog, so
 no bookmark dangles.
@@ -606,10 +689,22 @@ a retained `highWaterSeq` can never produce an empty pull that skips the
 check. When the account genuinely holds no decryptable record (fresh
 account, tombstone-only history) enrollment proceeds — there is nothing a
 wrong passphrase could corrupt yet — but records
-`passphraseUnverified: true`; the first later round that pulls a
-non-tombstone record performs the deferred trial-decrypt, and a failure
-raises the durable Settings → Backup error, so the check is deferred,
-never silently skipped. Then: bearer token to the OS keystore under
+`passphraseUnverified: true`. While that flag is set the round loop
+**holds all pushes** — nothing is ever sealed under an unverified key —
+and the deferred trial-decrypt is satisfied only by a **foreign**
+non-tombstone record (`deviceId != ours`): this device's own output
+decrypts under whatever key sealed it, so a self-pushed record would
+vacuously clear the flag and silently bless a wrong passphrase whose
+records no other device could read. A failed deferred check raises the
+durable Settings → Backup error and keeps pushes held; while held,
+Settings → Backup shows a visible "backup paused until the passphrase
+is verified against the account's existing data" status rather than a
+silent stall. (A Design B fresh *registration* never sets the flag —
+the passphrase is minted there, so there is nothing to verify against.)
+Deferred, never silently skipped, never self-satisfied — pinned by
+tests: a wrong passphrase against an empty shared account pushes
+nothing; a self-pushed record does not clear the flag; a failing
+foreign record raises the durable error with pushes still held. Then: bearer token to the OS keystore under
 `poltergeist.apikey.sync.token`; vault master key under
 `poltergeist.vault.masterKey.v1` (legacy login keychain on macOS, like
 Séance — AGENTS.md §4); re-key the local vault to the passphrase-derived key;
@@ -670,7 +765,21 @@ Scope, all in Séance:
    with JSON round-trip, strict `fromJson`, unknown color/icon → null
    (existing convention).
 4. `packages/seance_core/lib/src/sync/sync_coordinator.dart`
-   (`applyToStores`): wrap each record's apply in a per-record try/catch
+   (`applyToStores`): **dispatch tombstones before the kind switch.** A
+   tombstone's blob is empty, so its decoded kind is item 2's
+   placeholder — today that placeholder is `serverConfig`, which is the
+   only reason server deletions currently work (`case serverConfig: if
+   (dec.deleted) deleteServer(dec.id)`); flipping the placeholder to
+   `unknown` without re-homing that path would route every tombstone to
+   the new skip branch and silently regress serverConfig deletion.
+   Deletion needs only the plaintext id: before the switch, a
+   `deleted` record with a prefixless id calls
+   `configStore.deleteServer(dec.id)` (today's live behavior,
+   preserved), and prefixed-id tombstones remain the no-ops they
+   already are today — nothing in Séance mints them; the
+   persistent-store flow-back revisits per-kind deletion together with
+   [#54](https://github.com/L-K-M/Seance/issues/54). Then wrap each
+   record's apply in a per-record try/catch
    (collect skipped ids, report once per round, continue the loop), and add
    `case RecordKind.bookmark: case RecordKind.unknown: break;` — Séance has
    no bookmark store; skip-and-preserve. Because Séance's coordinator only
@@ -695,6 +804,10 @@ Acceptance criteria:
 - A malformed payload of a *known* kind no longer aborts the apply loop;
   subsequent records still apply.
 - `encrypt(unknown)` throws; tombstone placeholder is `unknown`.
+- A serverConfig tombstone (prefixless id, `deleted: true`, empty blob)
+  still deletes the server after the placeholder flip — the regression
+  the flip most easily introduces — and no tombstone of any kind
+  reaches the `RecordKind.unknown` skip branch.
 - Existing `sync_coordinator_test.dart` and `sync_test.dart` pass unchanged.
 - A Séance release is tagged; that tag becomes
   `kMinimumSharedAccountSeanceVersion` (§4.2).
@@ -816,6 +929,14 @@ Process and cadence:
   `poltergeist://browse?serverId=<uuid>&path=<url-encoded>` (shared mode —
   the Séance config id is meaningful in both apps) and
   `poltergeist://browse?host=<h>&port=<p>&username=<u>&path=<pth>`.
+  "No secrets in URLs" does not cover the *induced* prompt: any web page
+  can launch the host form at an attacker-chosen endpoint, staging a
+  TOFU-pin-and-credential phish that appears to come from the user's own
+  app. The host-form handler therefore always shows an interstitial
+  naming host, port, and username and requires explicit confirmation
+  before any connection, TOFU prompt, or credential prompt; only
+  `serverId` links that resolve to an existing catalog entry (an
+  already-established trust) may skip it.
 - "Open Terminal in Séance" in a server bookmark's context menu launches
   `seance://connect?serverId=<uuid>` (falling back to the host/port/username
   form). The Séance-side counterpart — registering `seance://` and handling
