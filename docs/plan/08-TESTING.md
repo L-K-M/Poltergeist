@@ -108,13 +108,21 @@ class InMemoryFileSystem implements RemoteFileSystem {
   Map<String, InMemoryEntry> snapshot();          // for convergence asserts
 }
 
-/// Fault injection per 05 §11.
+/// Fault injection per 05 §11. Immutable per test — final fields with a
+/// const constructor, so one test's faults can never leak into another.
 class FaultPlan {
-  Set<String> unlistableDirectories;   // listDirectory -> permissionDenied
-  bool ignoreSetTimes;                 // setstat silently clamped
-  bool failSetTimes;                   // setstat -> permissionDenied
-  Set<String> failRenameTargets;       // EXDEV-style rename failure
-  void Function(String op, String path)? onOperation; // mutate mid-run
+  const FaultPlan({
+    this.unlistableDirectories = const {},
+    this.ignoreSetTimes = false,
+    this.failSetTimes = false,
+    this.failRenameTargets = const {},
+    this.onOperation,
+  });
+  final Set<String> unlistableDirectories; // listDirectory -> permissionDenied
+  final bool ignoreSetTimes;               // setstat silently clamped
+  final bool failSetTimes;                 // setstat -> permissionDenied
+  final Set<String> failRenameTargets;     // EXDEV-style rename failure
+  final void Function(String op, String path)? onOperation; // mutate mid-run
 }
 ```
 
@@ -291,9 +299,10 @@ never silent fixes).
 05 §2.1 flag table plus the quoting rule (`'` → `'\''`) and the caveat/
 override comment lines; the plan-header sentence for each copy pattern in
 05 §7. **Static invariants as tests**: a test walks
-`packages/poltergeist_sync/lib/**` sources and fails on any
-whole-identifier occurrence of `Process` outside comments — matched with
-word boundaries, never a bare substring, so `processedPlan`/`onProcess`
+`packages/poltergeist_sync/lib/**` sources via an analyzer AST walk and
+fails on any whole-identifier occurrence of `Process` in a **code
+position** — comments and string literals excluded, so
+`processedPlan`/`onProcess` and reason strings that merely say "process"
 pass — or any `dart:ffi`, Flutter, or `dartssh2` import (05 §2's
 never-executes promise and 03 §1's dependency rules, machine-checked).
 A `dart:io` import ban would be the simpler check but is wrong here:
@@ -363,11 +372,19 @@ SFTP. The fixture lives in **`test/integration/`** at the repo root:
 
 ```
 test/integration/
-  docker-compose.yml        the whole matrix, loopback ports 2201–2205
-  sshd-modern/Dockerfile    alpine:latest — current OpenSSH (9.x/10.x)
-  sshd-legacy/Dockerfile    ubuntu:20.04 — OpenSSH 8.2p1 (older algorithm
-                            defaults; pin any image with OpenSSH ≤ 8.x if
-                            this base ages out)
+  docker-compose.yml        the whole matrix; every port mapping is
+                            loopback-only (`127.0.0.1:220N:22` — a bare
+                            `220N:22` binds 0.0.0.0 and would expose
+                            weak-credential sshds on the LAN: a bug here)
+  sshd-modern/Dockerfile    alpine pinned by version + digest — current
+                            OpenSSH (9.x/10.x), bumped deliberately (a
+                            floating latest would drift the D9 algorithm
+                            audit)
+  sshd-legacy/Dockerfile    ubuntu:20.04 pinned by digest — OpenSSH 8.2p1
+                            (older algorithm defaults; focal is past
+                            standard support, so expect to retarget apt at
+                            old-releases.ubuntu.com or swap to another
+                            OpenSSH ≤ 8.x base when the archive moves)
   keys/                     pre-generated user + host keys (test-only)
   run.sh                    compose up → dart test --concurrency=1
                             -t integration → compose down via
@@ -397,8 +414,13 @@ so tests never hardcode the port map, and runs
 `dart test --concurrency=1 -t integration packages/poltergeist_core
 packages/poltergeist_sync` — serialized on purpose: the pool suite
 docker-stops a shared service and the keyswap fixture swaps
-`sshd-modern` out entirely, so concurrent suites would flake each other;
-teardown runs from a `trap … EXIT` so an interrupted run never leaks the
+`sshd-modern` out entirely, so concurrent suites would flake each other.
+Every suite that stops or swaps a service **restores the original stack
+in `tearDownAll`** — the keyswap suite in particular restarts
+`sshd-modern`, or every later suite dialing `…_MODERN` meets a changed
+host key and hard-blocks (D18), a deterministic order-dependent red that
+would masquerade as flake. Teardown of the whole stack still runs from a
+`trap … EXIT` so an interrupted run never leaks the
 stack (the test exit code is preserved through the trap).
 
 Suites:
@@ -423,7 +445,9 @@ Suites:
   root `prohibit-password` case each yield the actionable one-liner from
   the ported `_summarizeFailure` machinery (assert the summary names the
   cause — e.g. that the server accepted none of the offered methods —
-  per `packages/seance_core/lib/src/ssh/ssh_session.dart`), never a raw
+  per the upstream Séance `seance_core` package's
+  `lib/src/ssh/ssh_session.dart`, consumed via the git pin — the in-repo
+  packages are `poltergeist_*` only), never a raw
   dartssh2 trace.
 - **Pool against a real server**: growth to `maxTransports`, keepalive
   pings, and reconnect-with-backoff after `docker stop`/`start` of the
@@ -446,7 +470,7 @@ Two tiers, because CI runners cannot honestly measure UI frames:
 
 | Tier | Budgets | Harness | Environment | Enforcement |
 |---|---|---|---|---|
-| A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, run with `dart run` against the §5 Docker fixture on loopback (loopback stands in for LAN; network time is measured separately and subtracted for P3) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE`, red = failed job) from the milestone that introduces each surface |
+| A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, run with `dart run` against the §5 Docker fixture on loopback (loopback stands in for LAN; network time is measured separately and subtracted for P3) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE_A`, red = failed job) from the milestone that introduces each surface |
 | B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` capturing `FrameTiming`s via `SchedulerBinding.instance.addTimingsCallback` (the stable in-process mechanism; `traceAction` may be used only after verifying it produces summaries under `flutter test integration_test --profile` with the pinned `integration_test` — its Timeline plumbing has a deprecation history), run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression of the median of ≥ 3 runs once enforced); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only until M9 flips to enforced (soft mode lives in `check.dart`, §6 — no blanket `continue-on-error`); absolute at release QA |
 
 Mechanics:
@@ -456,20 +480,25 @@ Mechanics:
   against `test/benchmarks/budgets.json` (the P1–P7 values, mirroring
   02 §12) and the committed tier-B baseline, prints the table, and exits
   non-zero whenever an expected scenario is **missing or errored** — in
-  soft mode too; `BENCH_ENFORCE=1` additionally makes budget/trend
-  overruns fail. Soft mode softens overruns only, never a benchmark that
+  soft mode too; the enforcement flags additionally make budget/trend
+  overruns fail. Enforcement is **per tier** — `BENCH_ENFORCE_A` for the
+  tier-A budgets, `BENCH_ENFORCE_B` (the M9 repository variable) for
+  tier-B trends — because one job evaluates both tiers over one results
+  file, and a single flag would either enforce tier B early on `main` or
+  leave tier A unenforced. Soft mode softens overruns only, never a
+  benchmark that
   failed to run — a silently skipped benchmark is how budgets die.
 - **Two enforcement schedules** (07 §1 states the same policy): tier-A
   engine benchmarks (the pure-Dart engine budgets — P3, P5, P7) run
-  enforced (`BENCH_ENFORCE`, a red benchmark fails the job) from the
+  enforced (`BENCH_ENFORCE_A`, a red benchmark fails the job) from the
   milestone that introduces each surface — and also run on PRs that
   touch `packages/**` (path-filtered), so a P3/P5/P7 regression is
   caught pre-merge instead of turning `main` red after the fact;
   tier-B UI benchmarks run
-  trend-only in CI until M9 flips them to
+  trend-only in CI until M9 flips `BENCH_ENFORCE_B` to
   enforced — M9 is the flip plus an audit, not a rescue. "Trend-only"
   is implemented inside `check.dart` (overruns don't exit non-zero
-  without `BENCH_ENFORCE`), **never** as a blanket
+  without the tier's flag), **never** as a blanket
   `continue-on-error: true` on the job step — that would also mask
   missing/errored scenarios, which fail in every mode (above). Once
   enforced, a tier-B comparison uses the median of ≥ 3 runs against the
@@ -484,11 +513,24 @@ Mechanics:
   stay flat as the tree grows; the two-size comparison is what makes
   "O(first file), not O(tree)" falsifiable rather than a fixed ceiling
   any constant-fraction scan could sneak under.
+- Tier-A measurement mode: `dart run` is JIT, which is neither release
+  nor profile. Tier-A scenarios run AOT via `dart compile exe` in CI
+  (each scenario also discards a stated number of warmup iterations);
+  02 §12's P3/P5/P7 values are quoted against that AOT mode — `dart run`
+  is for local iteration only, never a number quoted against a budget.
+- P1/P2 anchors: in-process `FrameTiming` sees nothing before Dart
+  `main()`, so each first-paint scenario anchors on an **in-app action**
+  (the timestamp taken when the test triggers the navigation into the
+  10k/100k directory) — never process launch; 02 §12's P1/P2 are defined
+  as navigation-to-paint, so the anchor and the budget agree.
 - P3's "always cancellable" is a functional test (cancel during a slow
-  listing returns within 100 ms), not a benchmark.
+  listing returns promptly — 100 ms on the reference machine, with a
+  CI-scaled bound for shared-runner scheduling jitter, 1 s on
+  `ubuntu-latest`; the assertion that matters is returning long before
+  the listing would have completed), not a benchmark.
 - Benchmark code never shares state with tests; a benchmark that fails
-  to run is a CI failure even in soft mode (a silently skipped
-  benchmark is how budgets die).
+  to run is a CI failure even in soft mode (per the first bullet's
+  check.dart rule).
 
 ## 7. Accessibility checks (D20)
 
@@ -546,7 +588,7 @@ section says what each job runs and what gets added when.
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
 | `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job is skipped-neutral until the fixture lands. Timeout 25 min. Runs on push to `main` and on PRs. |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture, tier-B under xvfb in profile mode, then `test/benchmarks/check.dart`; uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (§6) — until M9 flips enforcement. |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture, tier-B under xvfb in profile mode, then `test/benchmarks/check.dart`; uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode — until M9 flips `BENCH_ENFORCE_B`. |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/
@@ -624,16 +666,17 @@ PR); every release records a filled copy in the release PR. Per release:
       end to end; the fixture lands with M0.
 - [ ] Benchmark harness of §6 runs both tiers, writes `bench-results.json`,
       checks against `budgets.json` + baseline, and follows the §6
-      enforcement schedules (tier A enforced from introduction, on
-      `packages/**` PRs too; tier B soft-fails **overruns only** until M9
-      flips `BENCH_ENFORCE` — a missing or errored scenario is a CI
-      failure in every mode).
+      enforcement schedules (tier A enforced via `BENCH_ENFORCE_A` from
+      introduction, on `packages/**` PRs too; tier B soft-fails
+      **overruns only** until M9 flips `BENCH_ENFORCE_B` — a missing or
+      errored scenario is a CI failure in every mode).
 - [ ] a11y suites of §7 pass: semantics on all custom rows, the
       keyboard-completeness + dispatch test over the full registry, the
       token contrast test, and the hardcoded-string test.
 - [ ] `ci.yml` carries the §8 additions on schedule: dart-job OS matrix
       at M1, `integration` job at M2 (skip-neutral guarded), `bench` job
-      at M3 (main + dispatch only).
+      at M3 (main + dispatch for both tiers; tier A additionally on
+      `packages/**` PRs with `BENCH_ENFORCE_A`, per §6/§8).
 - [ ] `docs/qa/RELEASE-CHECKLIST.md` exists (M9) and a filled copy is
       attached to every release PR from then on.
 

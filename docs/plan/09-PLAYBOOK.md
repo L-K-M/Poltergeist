@@ -170,7 +170,8 @@ there, it silently writes an NTFS alternate data stream — so the caller
 says where the path is headed. Callers strip a trailing separator
 (`'a/b/'` → `'a/b'`) before validating — a directory entry's trailing
 `/` is shape, not a component. Windows reserved device names
-(`CON`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) are already rejected
+(`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9` — with or
+without an extension, `PRN.txt` included) are already rejected
 by `validateLocalName` (03 §2.3), which runs on every local target name;
 this helper stays component-shape-only.
 
@@ -178,18 +179,27 @@ this helper stays component-shape-only.
 void validateRelativeComponents(String relative,
     {required bool windowsDestination}) {
   for (final part in relative.split('/')) {
+    // Backslash is rejected for EVERY destination on purpose: these
+    // components also feed Windows-rendered previews and exports, and a
+    // '\' inside one is overwhelmingly an escaping bug, not a filename —
+    // do not "simplify" this to windowsDestination-only.
     if (part.isEmpty || part == '.' || part == '..' || part.contains('\\')) {
       throw FormatException('unsafe path component in "$relative"');
     }
     // Destination-filesystem rules: fine on POSIX, hazardous on Windows —
-    // ':' writes an alternate data stream, <>"|?* fail CreateFile, and
-    // C0 control bytes are invalid.
+    // ':' writes an alternate data stream, <>"|?* fail CreateFile, C0
+    // control bytes are invalid, and Win32 strips trailing dots/spaces,
+    // silently creating a different name than was validated.
     if (windowsDestination &&
-        RegExp(r'[<>:"|?*\x00-\x1f]').hasMatch(part)) {
+        (_windowsHazard.hasMatch(part) ||
+            part.endsWith('.') ||
+            part.endsWith(' '))) {
       throw FormatException('unsafe path component in "$relative"');
     }
   }
 }
+
+final _windowsHazard = RegExp(r'[<>:"|?*\x00-\x1f]'); // not per-component
 ```
 
 ### 3.6 Atomic writes for every persisted file
@@ -206,8 +216,14 @@ try {
   await tmp.writeAsBytes(bytes, flush: true);
   await tmp.rename(target.path); // atomic on the same filesystem
 } on Object {
-  // A failed write must not leave temp siblings beside live stores.
-  if (await tmp.exists()) await tmp.delete();
+  // A failed write must not leave temp siblings beside live stores —
+  // and cleanup is best-effort only: it must never mask the original
+  // failure with its own.
+  try {
+    if (await tmp.exists()) await tmp.delete();
+  } on Object {
+    // swallow: the rethrow below carries the failure that matters
+  }
   rethrow;
 }
 ```
@@ -337,7 +353,7 @@ is a plan violation. Changing any requires a 00 edit with rationale first.
    Writing a `bookmark` record into an account read by un-patched Séance
    bricks its sync or spawns phantom servers. Design B (separate account)
    is the default until the user confirms every install meets
-   `kMinimumSharedAccountSeanceVersion` (04 §4.3) — the gate is code, not
+   `kMinimumSharedAccountSeanceVersion` (04 §4.2) — the gate is code, not
    documentation.
 9. **Never fork `seance_core`/`seance_protocol`** (D2). Git-pinned tags
    only; a stalled upstream PR means pin-to-rev (07 §6 risk 4), never a

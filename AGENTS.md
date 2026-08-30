@@ -19,8 +19,9 @@ packages/
   poltergeist_core/       pure Dart — scaffold today; connections, transfers,
                           sync engine, and bookmark model per the plan
 app/
-  poltergeist_app/        Flutter — NOT created yet; scaffolded in the plan's
-                          first implementation milestone, and NOT a workspace
+  poltergeist_app/        Flutter — NOT created yet; scaffolded in milestone
+                          M1 per docs/plan/07-MILESTONES.md (M0 is a spike
+                          that creates no app), and NOT a workspace
                           member (it needs the Flutter SDK; members must not)
 docs/plan/                the design plan (read 00-OVERVIEW.md first —
                           it is the decision log; 09-PLAYBOOK.md is the

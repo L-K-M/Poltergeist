@@ -36,6 +36,7 @@ the porting policy is part of the plan.
 
 The repository carries infrastructure (CI, review workflow, build and
 release scripts) and the design plan. Implementation follows the plan in
-[`docs/plan/`](docs/plan/) — start with the overview there. Current state
+[`docs/plan/`](docs/plan/) — start with
+[`00-OVERVIEW.md`](docs/plan/00-OVERVIEW.md), the decision log. Current state
 and next steps live in [`docs/STATUS.md`](docs/STATUS.md); the working
 guide for agents and contributors is [`AGENTS.md`](AGENTS.md).

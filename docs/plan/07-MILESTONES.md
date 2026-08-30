@@ -28,10 +28,11 @@ decision log; where a decision is cited as "(Dn)" the log in
 - **Budgets gate from the milestone that introduces them.** A D12 budget
   becomes a CI benchmark (08) in the milestone where its surface first
   exists. Tier-A engine benchmarks (the pure-Dart engine budgets — P3, P5,
-  P7) run enforced (`BENCH_ENFORCE`, a red benchmark fails the job) from
+  P7) run enforced (`BENCH_ENFORCE_A`, a red benchmark fails the job) from
   the milestone that introduces each surface; tier-B UI benchmarks run
-  trend-only in CI (`continue-on-error`) until M9 flips them to enforced —
-  M9 is the flip plus an audit, not a rescue.
+  trend-only in CI (soft mode inside `check.dart`, 08 §6 — never
+  `continue-on-error`) until M9 flips `BENCH_ENFORCE_B` — M9 is the flip
+  plus an audit, not a rescue.
 
 ## 2. The milestone table
 
@@ -39,7 +40,7 @@ decision log; where a decision is cited as "(Dn)" the log in
 |---|---|---|---|---|
 | M0 | Engine fitness spike | dartssh2 benchmark/audit report, isolate PoC; pool + scan designs finalized | M | none (file S0, S1 now) |
 | M1 | App scaffold | `app/poltergeist_app` committed, icon, window, theme, CI matrix green | S | none (file S2 now) |
-| M2 | Connection layer | ConnectionManager + pool, engine isolate, TOFU/auth UI, probe, ssh_config import | L | **S0 landed (LICENSE on Séance main — first D2 copies) + S2 merged + pin bumped** |
+| M2 | Connection layer | ConnectionManager + pool, engine isolate, TOFU/auth UI, probe, ssh_config import | L | **S0 landed (LICENSE on Séance main — first D2 copies) + S2 merged or rev-bridged (§3.3) + pin bumped** |
 | M3 | Panes v1 | Local + remote browsing, tabs, sort/filter/type-ahead, path bar, empty states | L | none |
 | M4 | Transfers | Queue + activity panel, DnD-in, conflicts, recursive ops, trash | L | none |
 | M5 | Sidebar, bookmarks, workspaces | 04 §2 schema persisted locally, sidebar UI, workspaces | M | none (04 §2.1 temp model copy) |
@@ -65,7 +66,9 @@ and that the engine-isolate architecture works (D8).
 
 - Throughput benchmark: single-file download and upload of 1 MB / 100 MB /
   1 GB payloads through `DartSshRemoteFileSystem`
-  (`packages/seance_core/lib/src/ssh/remote_file_system.dart`), against an
+  (Séance's `lib/src/ssh/remote_file_system.dart`, reached via the
+  rev-pinned `seance_core` git dependency — not an in-repo path; this
+  repo's packages are `poltergeist_*` only), against an
   OpenSSH `sftp` baseline on the same links: LAN-class (Docker sshd on
   localhost) and high-latency (the same container behind `tc netem` with
   100 ms delay and 50 ms jitter). Record MB/s with hashing on and off
@@ -182,7 +185,10 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
       `release.yml` publishes D23's full scripted asset set — APK, Linux
       `.deb`/AppImage/bundle, macOS bundle, Windows zip, and the
       **unsigned** iOS IPA (`--no-codesign`, re-sign to sideload — no
-      signing infrastructure involved) — marked as a pre-release.
+      signing infrastructure involved) — marked as a pre-release. If D23
+      lags, publish the assets that exist and record the gap in
+      STATUS.md (the Risks fallback below) — that ticks this box too;
+      the box never stalls M1 on the parallel workstream.
 - [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
       the §2 table's "file S2 now" gate; M2 depends on it being in review
       by then.
@@ -290,12 +296,16 @@ fast, keyboard-first, honest about latency.
 - Per-visible-directory non-recursive watching with debounce (03 §7.5).
 - Local access flows through `ScopedPathAccess` from the first local pane
   (03 §7.2) — v1 desktop grants are pass-through, but the seam exists.
+- Bench harness migrates from `tool/bench/` into `packages/*/benchmark/`
+  + `test/benchmarks/` per the M0 commitment (08's layout) — this is what
+  gives the P1–P6 CI benchmarks below a home; `tool/bench/` is deleted or
+  reduced to a thin entrypoint.
 
 **Exit criteria.**
 
 - [ ] D12 browse budgets are CI benchmarks: the tier-A remote-listing-
       overhead benchmark (P3, < 50 ms) is green **and enforced**
-      (`BENCH_ENFORCE`, red = failed job); the tier-B UI benchmarks —
+      (`BENCH_ENFORCE_A`, red = failed job); the tier-B UI benchmarks —
       10k-entry local paint < 150 ms (P1), 100k < 1 s (P2), tab switch
       < 100 ms (P4), scroll jank within budget (P6) — run trend-only and
       are green in the job summary.
@@ -353,7 +363,7 @@ plus every file operation a browser needs.
 **Exit criteria.**
 
 - [ ] Drop-to-transfer-start < 500 ms (no upfront full-tree stat) — the
-      tier-A P5 benchmark green **and enforced** (`BENCH_ENFORCE`).
+      tier-A P5 benchmark green **and enforced** (`BENCH_ENFORCE_A`).
 - [ ] Kill the app mid-queue; relaunch restores queued/paused tasks from
       the journal and history shows completed ones.
 - [ ] Conflict dialog covers all five verbs; per-direction defaults
@@ -529,7 +539,7 @@ Nothing new lands here that changes architecture.
   import; preview UI polished. v1 importer scope is confirmed as
   ssh_config only (D22); FileZilla/WinSCP/Cyberduck are v1.x behind the
   same preview.
-- The tier-B enforcement flip (08 §6): `BENCH_ENFORCE` turns the tier-B
+- The tier-B enforcement flip (08 §6): `BENCH_ENFORCE_B` turns the tier-B
   UI benchmarks from trend-only to gating, and the audit confirms every
   D12 benchmark exists and is green — tier-A engine benchmarks have been
   enforced since the milestone that introduced each surface. M9 is the
@@ -558,7 +568,7 @@ Nothing new lands here that changes architecture.
 - [ ] Palette opens, filters, executes, and teaches shortcuts.
 - [ ] a11y checklist in 08 fully ticked; VoiceOver and NVDA walkthrough
       notes committed.
-- [ ] Every D12 benchmark green and enforced (`BENCH_ENFORCE` on, on the
+- [ ] Every D12 benchmark green and enforced (both tier flags on, on the
       bench job's schedule per 08 §6/§8) — the tier-B flip is done.
 - [ ] Known-issues section (Linux a11y, Windows IME) written into README.
 
@@ -645,7 +655,7 @@ assets on `v*` tags; the work is everything around it.
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
-| M10 | SHA-256 checksums for every release asset published in the release notes; INSTALL.md explains how to verify — necessary because the committed public keystore means a matching Android signature cannot prove an artifact came from this repo |
+| M10 | SHA-256 checksums for every release asset published in the release notes; INSTALL.md explains how to verify — and says to fetch checksums **only from this repo's release notes**: the committed public keystore means any fork can build a correctly-signed APK that upgrades an install in place, so a matching Android signature proves nothing about origin |
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,
@@ -719,7 +729,8 @@ Per-milestone invariant check (item 5 of §3.12):
       fresh-machine installs from INSTALL.md alone.
 - [ ] Mobile invariants (§5) checked at every milestone close; no v1 code
       forecloses single-pane, scoped-access, or suspendable-queue mobile.
-- [ ] Pre-release tags `v0.<n>.0` exist for M1 onward (the release
+- [ ] Pre-release tags `v0.<n>.0` exist for M1 through M9 — never a
+      `v0.10.0`; M10 ships `v1.0.0` per §3.12 (the release
       pipeline never rotted).
 - [ ] No fast-follow or D25 item was built before v1.0 — except the M4
       drag-out produce-on-demand hook (03 §4.7 / D14), the one
