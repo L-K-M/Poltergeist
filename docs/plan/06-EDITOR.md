@@ -243,16 +243,19 @@ see the same checkouts, and closing a tab never orphans an edit.
 ### 3.1 Placement and identity
 
 ```dart
-class CheckoutManager extends ChangeNotifier {
+abstract class CheckoutManager extends ChangeNotifier {
   CheckoutManager({
     required ManagedRemoteFileStore store,   // ported, §2.5
     required EngineClient engine,            // stat + transfer tasks (03 §5)
     required TransferProducer producer,      // priority downloads (03 §4.7)
   });
 
-  /// Live records for one server, keyed by remote path — an unmodifiable
-  /// view (Map.unmodifiable): mutation goes through the APIs below, never
-  /// around notifyListeners.
+  /// Records for one server, keyed by remote path — an unmodifiable
+  /// **snapshot copy per call** (Map.unmodifiable(Map.of(...))), safe to
+  /// iterate across awaits and notifyListeners; callers re-fetch after a
+  /// notification. A live Map.unmodifiable wrapper would throw
+  /// ConcurrentModificationError the moment the watcher mutates mid-walk.
+  /// Mutation goes through the APIs below, never around notifyListeners.
   Map<String, ManagedRemoteFile> copiesFor(String serverId);
 
   Future<ManagedRemoteFile> checkout(String serverId, RemoteFileEntry entry,
@@ -263,6 +266,8 @@ class CheckoutManager extends ChangeNotifier {
   Future<void> acceptLocal(ManagedRemoteFile copy);  // store.updateBaseline
   Future<void> reconcile(ManagedRemoteFile copy);    // one copy; never throws
   Future<void> reconcileAll();                       // resume/foreground hook
+  Future<void> migrateRename(String serverId, String oldPath,
+      String newPath);                               // §3.5 rename migration
 }
 ```
 
@@ -433,7 +438,10 @@ never regress is called out by name in review:
 
 - **Quarantine, never sweep — hardened with epoch gating.** A corrupt
   index is quarantined via `quarantineCorruptFile` — with a timestamp
-  suffix (`managed_remote_files.json.<utc-stamp>.corrupt`) so a second
+  suffix (`managed_remote_files.json.<utc-stamp>.corrupt`, the stamp at
+  sub-second precision plus an incrementing `-N` when the target name
+  already exists — a same-second relaunch loop must not overwrite the
+  first quarantine) so a second
   corruption never destroys the first quarantined evidence (deliberate
   divergence from the ported helper; PORTS-noted) — and unindexed
   checkout directories are **not** swept: any of them may hold the only
@@ -480,10 +488,12 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
 - `Review…` — also reachable offline via the favorite's context menu item
   `Local Edits…` — opens a dialog listing each copy: name, remote path,
   last-modified time, `dirty` / `missing` badge, and per-row actions:
-  `Open` (resolves like a §4.2 local open — `effectiveDefaultFor` first,
-  so a > 4 MiB or non-UTF-8 checkout opens in its configured or system
-  editor instead of dead-ending in a built-in refusal; every resolution
-  works offline on the local plaintext), `Upload`
+  `Open` (a checkout-specific chain, deliberately *not* §4.2's plain
+  local `Open` row, which goes straight to the OS default:
+  `effectiveDefaultFor(path)` first; when that resolves to the built-in
+  editor and the checkout is > 4 MiB or non-UTF-8, fall back to the
+  system default instead of dead-ending in a built-in refusal; every
+  resolution works offline on the local plaintext), `Upload`
   (disabled while disconnected, tooltip `Connect to upload`), `Discard…`
   (confirms; deletes plaintext then record). A `missing` copy offers
   `Forget` instead of Open/Upload. Old-epoch checkout dirs (§3.6 — files
@@ -501,7 +511,11 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
 unchanged: `{id, displayName, platform (macos/linux/windows),
 launchTarget (bundle id on macOS, absolute executable path elsewhere),
 acceptedExtensions}` with strict JSON validation (id regex, name
-length/control chars, absolute path, `.exe` on Windows), maximum 64
+length/control chars, absolute path, `.exe` on Windows — and rejection
+of the reserved ids and the whole reserved `poltergeist.` id prefix, so
+neither a hand-edited definition nor one arriving through bookmark
+backup sync (04) can shadow `poltergeist.builtin`'s §4.2 semantics),
+maximum 64
 editors and 64 extensions each. The reserved ids are the app-configurable
 constants `poltergeist.system` and `poltergeist.builtin`.
 `effectiveDefaultFor(path)` resolves the per-extension default;
@@ -664,11 +678,13 @@ text handling (BOM/CRLF, limits, mono rendering) is the editor stack's job.
 syntax engine + find bar each), headers showing side label, full path,
 size, and mtime. Remote sides are produced into the preview cache (§5.3)
 first, with the same explicit-progress rules — though the §8
-large-download confirmation is unreachable here: a side whose known
-remote size already
+large-download confirmation is unreachable here **at the default
+threshold**: a side whose known remote size
 exceeds the 4 MiB loader cap is refused *before* any download is queued,
-and 4 MiB is far below the 100 MiB default threshold, so no compare-side
-download can ever be large enough to ask.
+and 4 MiB is far below the 100 MiB default. If the user lowers the §8
+threshold below the cap, the confirmation applies to compare sides as
+usual — §8 lists them among the gated surfaces, and the pre-download
+refusal still fires first for over-cap sides.
 Each side loads through `loadBuiltInTextDocumentDetails` with the
 4 MiB/UTF-8 limits; a side that refuses to load renders its §1 reason
 string in place, leaving the other side readable. A notice chip surfaces differences the text view cannot
