@@ -1,0 +1,698 @@
+# 07 — Milestones and workstreams
+
+This chapter turns the design (01–06) into an ordered, checkable build plan:
+eleven milestones M0–M10, a parallel distribution workstream (D23), the
+mobile constraints memo (D29), and the risk register. It elaborates the
+decision log; where a decision is cited as "(Dn)" the log in
+[00-OVERVIEW.md](00-OVERVIEW.md) is the authority.
+
+## 1. Posture
+
+- **A milestone is a mergeable, demoable state of `main`.** Every milestone
+  ends with the app (or, for M0, the report and harness) merged, CI green,
+  and something a human can run and see. No milestone ends on a branch.
+- **Exit criteria are checkable by the implementation model.** Each is a
+  concrete artifact, passing test, or observable behavior — never "feels
+  polished". A milestone is closed by ticking every box, updating
+  [docs/STATUS.md](../STATUS.md), and running the milestone-close chores
+  (§3.12).
+- **Estimates are relative sizes, not weeks.** S = one substantial PR or a
+  few small ones; M = several PRs across one package plus its UI surface;
+  L = a full workstream of many PRs spanning engine and UI. Sizes compare
+  milestones to each other only.
+- **Order is fixed; parallelism is limited and named.** The upstream-PR
+  track (04 §5) and the distribution workstream (§4) run alongside the
+  milestones. Within the milestone sequence, M5 may proceed in parallel
+  with the tail of M4, and M6 with M7, because they touch disjoint code.
+  Any other reordering is a plan edit, not a judgment call.
+- **Budgets gate from the milestone that introduces them.** A D12 budget
+  becomes a CI benchmark (08) in the milestone where its surface first
+  exists. Tier-A engine benchmarks (the pure-Dart engine budgets — P3, P5,
+  P7) run enforced (`BENCH_ENFORCE`, a red benchmark fails the job) from
+  the milestone that introduces each surface; tier-B UI benchmarks run
+  trend-only in CI (`continue-on-error`) until M9 flips them to enforced —
+  M9 is the flip plus an audit, not a rescue.
+
+## 2. The milestone table
+
+| # | Name | Delivers | Size | Séance gate (04 §5) |
+|---|---|---|---|---|
+| M0 | Engine fitness spike | dartssh2 benchmark/audit report, isolate PoC; pool + scan designs finalized | M | none (file S0, S1 now) |
+| M1 | App scaffold | `app/poltergeist_app` committed, icon, window, theme, CI matrix green | S | none (file S2 now) |
+| M2 | Connection layer | ConnectionManager + pool, engine isolate, TOFU/auth UI, probe, ssh_config import | L | **S0 landed (LICENSE on Séance main — first D2 copies) + S2 merged + pin bumped** |
+| M3 | Panes v1 | Local + remote browsing, tabs, sort/filter/type-ahead, path bar, empty states | L | none |
+| M4 | Transfers | Queue + activity panel, DnD-in, conflicts, recursive ops, trash | L | none |
+| M5 | Sidebar, bookmarks, workspaces | 04 §2 schema persisted locally, sidebar UI, workspaces | M | none (04 §2.1 temp model copy) |
+| M6 | Bookmark sync | Design B enrollment, Design A behind the gate, settings UI | M | **S1 released** (for A) |
+| M7 | Editor, checkouts, preview | 06 in full: built-in editor, external editors, Quick Look/preview | L | none |
+| M8 | Sync | 05 in full: scan/diff/plan/preview/execute, rsync exporter | L | **S3 merged + pin bumped** (remote) |
+| M9 | Polish pass | Palette, budgets enforced, a11y/i18n audit, chrome QA | M | none |
+| M10 | v1.0 release | Distribution checklist complete, docs, STATUS flip, tag | S | none |
+
+Fast-follows after v1.0 (in order): agent auth + ProxyJump (D10, PR-S4),
+OS drag-out (D14), archives (D27), more importers (D22) — §3.13. Everything
+else deferred lives in the D25 parking lot and stays there.
+
+## 3. Milestones in detail
+
+### 3.1 M0 — dartssh2 fitness spike + isolate PoC (D8, D9) — size M
+
+**Goal.** Replace the plan's two biggest assumptions with measurements
+before any design hardens: that dartssh2 is fast and capable enough (D9),
+and that the engine-isolate architecture works (D8).
+
+**Scope.**
+
+- Throughput benchmark: single-file download and upload of 1 MB / 100 MB /
+  1 GB payloads through `DartSshRemoteFileSystem`
+  (`packages/seance_core/lib/src/ssh/remote_file_system.dart`), against an
+  OpenSSH `sftp` baseline on the same links: LAN-class (Docker sshd on
+  localhost) and high-latency (the same container behind `tc netem` with
+  100 ms delay and 50 ms jitter). Record MB/s with hashing on and off
+  (hashing-off requires a local patch until PR-S3; measure both anyway —
+  the delta is the D7 evidence).
+- Algorithm audit: connect dartssh2 2.9 against a current OpenSSH sshd in
+  three configs — defaults, `rsa-sha2-256/512`-only, and
+  `chacha20-poly1305@openssh.com` + `curve25519`/post-quantum-preferring
+  kex; also an ed25519-hostkey-only config. Record what negotiates, what
+  fails, and the exact error text.
+- Pipelining verification: on ONE SFTP channel, issue 8–32 concurrent
+  `read`s of one file and 8 concurrent readdirs of sibling directories;
+  verify correctness (byte-compare) and measure scaling. Then measure N
+  channels over one `SSHClient` and N separate transports. This arbitrates
+  the research notes' open question (gaps §3.9) and fixes the numbers in
+  `PoolPolicy` (03 §3.2) and the scanner's readdir depth (05 §3).
+- Isolate PoC (03 §5 lists the pass conditions): dartssh2 sockets and
+  multiple SFTP channels inside a non-root isolate; cross-port cancellation
+  latency < 100 ms; coalescing proven headlessly — coalesced progress
+  events arrive on the UI-side port at ≤ 30/s per task under a
+  10k-event/s synthetic flood, and a main-isolate timer probe records no
+  event-loop stall > 16 ms during 4 concurrent transfers + one directory
+  listing; throughput parity with the single-isolate baseline.
+- Harness code lives at `tool/bench/` (Dart CLI, repo root); the sshd
+  Docker fixture lives at `test/integration/` (08 §5's layout:
+  `docker-compose.yml`, `sshd-modern/` and friends, `run.sh`) and lands in
+  the M0 PR. The bench harness starts at `tool/bench/` and migrates into
+  `packages/*/benchmark/` + `test/benchmarks/` at M3, so this chapter and
+  08 describe one lifecycle. Sketch of the harness seam:
+
+```dart
+// tool/bench/lib/harness.dart — every scenario returns one of these.
+class BenchResult {
+  final String scenario;      // 'download-1g-lan-hash-off'
+  final int bytes;
+  final Duration elapsed;
+  final double mbPerSec;
+  final String? note;         // negotiation details, failure text
+  Map<String, Object?> toJson() => ...;
+}
+```
+
+**Deliverable.** A written report, `docs/M0-DARTSSH2-REPORT.md`, with the
+tables above, a verdict per D9's fallback ladder (fine as-is → contribute
+upstream → compensate with channels/transports → document the ceiling →
+FFI to libssh as last resort), and the finalized `PoolPolicy` defaults and
+scan pipelining depth. Rungs 3–5 of the ladder require editing the decision
+log (00) in the same PR — the ladder pre-authorizes the discussion, not a
+silent downgrade.
+
+**Exit criteria.**
+
+- [ ] `docs/M0-DARTSSH2-REPORT.md` merged with all four measurement
+      sections filled in and a one-paragraph verdict.
+- [ ] `PoolPolicy` defaults and 05 §3's readdir depth updated (or
+      confirmed) from the report, in the same PR.
+- [ ] Isolate PoC passes all four 03 §5 conditions, or the fallback and a
+      00 edit are in the PR.
+- [ ] `tool/bench/` and `test/integration/` committed and runnable per
+      their README lines.
+- [ ] PR-S0 and PR-S1 are filed against Séance (04 §5 says "immediately";
+      M0 is the calendar hook).
+
+**Risks.** dartssh2 underperforms (the ladder exists for this); the spike
+sprawls — timebox it to the scenarios listed, nothing exploratory.
+
+### 3.2 M1 — app scaffold — size S
+
+**Goal.** `app/poltergeist_app` exists, builds on all client platforms in
+CI, and looks like the beginning of Poltergeist, not a counter demo.
+
+**Scope.**
+
+- `flutter create --org com.lkm app/poltergeist_app` — the `--org` is
+  load-bearing: it yields Android id `com.lkm.poltergeist_app`, Apple
+  bundle id `com.lkm.poltergeistApp`, and Linux `APPLICATION_ID`
+  `com.lkm.poltergeist_app`, which must match the `StartupWMClass`
+  hard-coded in `scripts/package-linux.sh` (AGENTS.md §3). Commit the
+  platform folders. The app is NOT added to the root workspace `members`;
+  it path-depends on `packages/poltergeist_core` (AGENTS.md §4).
+- Create the master icon `media-sources/poltergeist-icon.png` (1024×1024,
+  the ghost — D24 personality) and generate all platform icons with
+  `flutter_launcher_icons`; keep the generation config in the app pubspec
+  so regeneration is one command. `scripts/package-linux.sh` requires the
+  master file.
+- `window_manager` (pin the exact version) for min/initial size, remembered
+  geometry, and the prevent-close hook (wired to the queue in M4);
+  `macos_window_utils` for the macOS titlebar treatment (D11).
+- Theme scaffold: the "quiet chrome" `ColorScheme.fromSeed` setup per
+  02 §11, light + dark. `gen-l10n`/ARB wiring with the first strings
+  externalized (D20 — no hard-coded user-facing string ever lands).
+- Delete the counter app; show an empty window with the two-pane layout
+  skeleton (dead panes, real splitter) so the demo reads as Poltergeist.
+
+**Exit criteria.**
+
+- [ ] `flutter analyze` and `flutter test` pass in `app/poltergeist_app`.
+- [ ] `ci.yml`'s `detect` job activates the `flutter` and `client` jobs and
+      the full matrix (android / linux / macos / ios / windows) is green,
+      including the `.deb`/AppImage packaging step.
+- [ ] Identifiers verified in-tree: grep shows the three ids above and no
+      `com.example`; the `poltergeist_core` ASCII-name test still passes
+      and a test (or CI grep) asserts the app's bundle/file names are
+      ASCII.
+- [ ] Rehearsal tag `v0.1.0` pushed via `scripts/release.sh`;
+      `release.yml` publishes assets for every platform (mark the release
+      as a pre-release).
+
+**Risks.** Toolchain drift in CI runners — fix versions in the workflow,
+not in prose. None otherwise; keep this milestone small on purpose.
+
+### 3.3 M2 — connection layer — size L
+
+**Goal.** Poltergeist can connect: pool, prompts, diagnostics, import.
+Gates: **PR-S0 landed** (LICENSE on Séance `main` — M2 performs the first
+D2 copies, which may not happen before it), and **PR-S2**
+(`openAuthenticatedClient`, 04 §5.3) merged upstream and the Séance pin
+bumped. If upstream review is slow, pin to the rev of the PR branch (the
+git pin is by rev anyway) and re-pin to the merge commit after — never
+copy the code.
+
+**Scope.**
+
+- Engine isolate + `EngineClient` + the typed port protocol (03 §5), with
+  `ConnectionManager`, the per-server pool, `PoolPolicy` (M0 numbers), the
+  growth rules — serialized first connect, interactive-auth cap, TOFU
+  single-prompt — keepalive, idle teardown, and auto-reconnect with
+  backoff + jitter (03 §3.2–3.3).
+- The bookmark data model from 04 §2.1 (`BookmarkKind { localFolder,
+  remotePath, workspace, savedSync }`, `EmbeddedHostIdentity`) lands in
+  `poltergeist_core` now — as the temporary strict-`fromJson` copy until
+  the pin includes PR-S1 (04 §2.1). M2 builds the connect flow on it; M5
+  adds the sidebar UI on top. No second server model is ever introduced.
+- Vault plumbing ported per D2 with PORTS.md entries (the ledger file is
+  created by the first copy): `MasterKeyManager` pattern
+  (`poltergeist.vault.masterKey.v1`, legacy login keychain on macOS),
+  `SecretVault`, JSON file stores with atomic writes.
+- Prompt UI: host-key dialog (first-use approve; changed-key hard block,
+  never auto-repin — D18), keyboard-interactive dialog, credential prompt
+  when the vault has no secret. Prompts round-trip from the engine isolate
+  per 03 §5. The live `SshConnectionLog` transcript renders during connect
+  and stays visible on failure with the summarized one-liner.
+- `ProbeService` wired (03 §3.4); status dots render in the interim server
+  list (the sidebar reuses them in M5).
+- ssh_config import with **preview + dedupe** (D22): Séance's
+  `SshConfigImporter` via the pin, a preview table (import/skip per row,
+  dedupe against existing bookmarks by host+port+username), IdentityFile
+  mapped to reference-style key auth.
+- D10 seam prep only (no implementation): `jumpHostId` plumbed through
+  untouched; pool growth reuses resolved `SshCredentials`; nothing assumes
+  auth is non-recursive.
+- Demo surface: a debug-only listing view proving connect → SFTP channel →
+  `listDirectory` end to end. It is throwaway; M3 replaces it.
+
+**Exit criteria.**
+
+- [ ] Connects to the `test/integration/` matrix: key, password, and
+      keyboard-interactive auth; TOFU first-use and changed-key flows
+      exercised by widget/integration tests.
+- [ ] Interactive-auth servers never see a second auth prompt from pool
+      growth (test: pool capped at one transport).
+- [ ] Kill the sshd container mid-session: the browse channel reconnects
+      with backoff and re-canonicalizes; the event stream shows the state
+      transitions.
+- [ ] ssh_config import preview shows, dedupes, and imports; IdentityFile
+      entries connect.
+- [ ] `docs/PORTS.md` exists with an entry per copied file.
+- [ ] Pin bump recorded; `dart test packages/poltergeist_core` green.
+
+**Risks.** PR-S2 stalls (pin-to-rev mitigation above); isolate prompt
+round-trips feel laggy (measure against the D12 budgets now, not in M9).
+
+### 3.4 M3 — panes v1 — size L
+
+**Goal.** Both panes browse local and remote through the one VFS (D3),
+fast, keyboard-first, honest about latency.
+
+**Scope.**
+
+- `LocalFileSystem implements RemoteFileSystem` in `poltergeist_core`
+  (03 §2.2), implementing all PR-S3 additions from day one.
+- `PaneController` (03 §6) with the two required async idioms (generation
+  counter, `identical()` recheck); tabs per pane (02 §3); the pane toggle.
+- Virtualized views: fixed-`itemExtent` list view and the
+  `two_dimensional_scrollables` `TableView` details view with our own
+  sortable header (02 §2.2–2.3); sort/filter/hidden files; type-ahead and
+  Quick Select (02 §2.5); row interactions incl. rename field with scoped
+  single-key shortcuts (02 §8.2).
+- Path bar with editable path (02 §2.1); navigation history (back/forward/
+  up); latency honesty rules — cancellable navigations, spinner rules,
+  stale-listing handling (02 §2.8); pane footer (02 §2.9).
+- Empty states per 02 §2.7 — the empty-state-as-launcher (connect,
+  import, open folder) replaces M2's interim list.
+- Sync Browsing (02 §7) — cheap once navigation is centralized; anchor
+  pair, graceful suspension, link chips.
+- Command registry (D21) lands NOW with every pane action registered;
+  menus (`PlatformMenuBar` on macOS, `MenuBar` widget elsewhere) render
+  from it. The palette UI itself waits for M9; the registry does not.
+- Per-visible-directory non-recursive watching with debounce (03 §7.5).
+- Local access flows through `ScopedPathAccess` from the first local pane
+  (03 §7.2) — v1 desktop grants are pass-through, but the seam exists.
+
+**Exit criteria.**
+
+- [ ] D12 browse budgets are CI benchmarks: the tier-A remote-listing-
+      overhead benchmark (P3, < 50 ms) is green **and enforced**
+      (`BENCH_ENFORCE`, red = failed job); the tier-B UI benchmarks —
+      10k-entry local paint < 150 ms (P1), 100k < 1 s (P2), tab switch
+      < 100 ms (P4), scroll jank within budget (P6) — run trend-only and
+      are green in the job summary.
+- [ ] Keyboard completeness for browse commands: the 08 invariant test
+      (every registered command reachable via menu/shortcut) passes for
+      the `go.*`, `view.*`, `pane.*`, `tab.*`, `selection.*` groups that
+      exist so far.
+- [ ] Type-ahead, Quick Select, sort, filter, hidden toggle all covered by
+      widget tests; rename field swallows single-key shortcuts.
+- [ ] Sync Browsing suspends and resumes per the 02 §7 copy.
+- [ ] A cancelled remote navigation leaves the pane on the old listing
+      with no stale repaint (generation-counter test).
+
+**Risks.** This is the milestone Spacedrive-class projects die in — slow
+basics. Tier-A benchmarks are enforced — a red tier-A run is a failed
+job; a tier-B regression is visible in the job summary — treat it like a
+red test even before M9 makes it one.
+
+### 3.5 M4 — transfers — size L
+
+**Goal.** The transfer queue and activity panel — the trust organ (D16) —
+plus every file operation a browser needs.
+
+**Scope.**
+
+- Engine-side `TransferQueue` per 03 §4: task model, scan-then-execute,
+  concurrency via channel leases, token-bucket throttle, pause/cancel
+  semantics, remote→remote piping, the produce-on-demand hook (D14 — hook
+  only, no drag-out), and the persistence journal + history store that
+  survives restart (D16).
+- Activity panel UI per 02 §6: per-item rows always, reorder, per-item
+  cancel/retry, queue pause, throttle control, history view that works.
+- Drag & drop: in-app pane↔pane via `Draggable`/`DragTarget`; OS drop-in
+  via `desktop_drop` with Séance's TickerMode/route gating pattern; drop
+  position decides hovered-folder vs current directory (D14).
+- Conflicts: the 5-verb model — Replace / Replace-if-newer / Keep Both /
+  Skip, Merge for folders — with per-direction defaults (02 §5.2).
+- Recursive operations: upload/download/delete with app-level walker,
+  aggregate progress, cancellation; Windows-reserved-name and traversal
+  safety ported from `RemoteFilesController`'s validation.
+- Local↔local first-class ops (D26): streamed copy with progress +
+  cancellation + mtime preservation, EXDEV move as copy+delete, case-only
+  rename handling.
+- Trash (D15): the in-repo Trash service and `poltergeist/trash` channel
+  per 03 §7.1/§7.3 — macOS
+  `FileManager.trashItem` with Put Back, Windows `IFileOperation` +
+  `FOF_ALLOWUNDO` via `win32` FFI, Linux `gio trash`. Remote browse
+  deletions: confirm-then-permanent, with the per-server
+  ".poltergeist-trash/ instead" opt-in.
+- chmod UI (D28): octal + checkboxes, recursive apply over the walker.
+  (chown waits for the PR-S3 pin bump; it ships with M8/M9.)
+- `window_manager` prevent-close wired: quitting with active tasks warns
+  and flushes the journal.
+
+**Exit criteria.**
+
+- [ ] Drop-to-transfer-start < 500 ms (no upfront full-tree stat) — the
+      tier-A P5 benchmark green **and enforced** (`BENCH_ENFORCE`).
+- [ ] Kill the app mid-queue; relaunch restores queued/paused tasks from
+      the journal and history shows completed ones.
+- [ ] Conflict dialog covers all five verbs; per-direction defaults
+      honored; folder Merge recurses correctly (tests).
+- [ ] Recursive delete of a 10k-entry tree shows progress and cancels
+      cleanly on both local and remote.
+- [ ] Trash round-trip test per platform in CI where the runner allows;
+      manual QA note recorded for the rest.
+- [ ] Remote→remote pipes between two Docker sshds.
+
+**Risks.** Three small native trash surfaces (medium risk in the research
+notes) — fall back per-platform to confirm-permanent only if a platform
+blocks, and record it; the queue journal format churns — version it from
+the first write.
+
+### 3.6 M5 — sidebar, bookmarks, workspaces — size M
+
+**Goal.** The ForkLift-style sidebar (R4) over the 04 §2 schema, persisted
+locally. Sync comes next milestone; nothing here depends on a server.
+
+**Scope.**
+
+- `BookmarkStore` (03 §6): JSON file store, atomic writes, device-local
+  field split honored (secure-bookmark blobs, per-device view state never
+  serialize into the synced payload — 04 §2.3).
+- Sidebar UI per 02 §4: named groups, all four bookmark kinds render
+  (workspace/savedSync open their features once those exist), drag to
+  reorder/group, probe dots via `ConnectionStatus`, preferred-pane,
+  context menus, keyboard navigation.
+- Workspaces (02 §3): capture/restore both panes' tabs and paths as a
+  `workspace` bookmark.
+- The M2 interim server list is deleted; the sidebar and the empty-state
+  launcher are the only entry points.
+
+**Exit criteria.**
+
+- [ ] Bookmark CRUD, grouping, reorder persist across restart.
+- [ ] `localFolder` and `remotePath` bookmarks open in the chosen pane;
+      `workspace` restores tab sets exactly.
+- [ ] Device-local fields proven non-syncing by a serialization test
+      (payload JSON contains no local-only keys).
+- [ ] Sidebar fully keyboard-operable; semantics per D20 on every row.
+
+**Risks.** Schema drift versus PR-S1's upstream copy of the model — the
+04 §2.1 rule stands: one authoritative schema, temporary copy deleted at
+the pin bump.
+
+### 3.7 M6 — bookmark sync (R5) — size M
+
+**Goal.** Bookmark backup through Séance's sync server (D4): Design B
+first (works against unmodified Séance today), Design A behind the PR-S1
+release gate.
+
+**Scope.**
+
+- Persistent record store + tombstone deletions per 04 §3.1–3.2;
+  `BookmarkCoordinator` with strict decode and skip-and-preserve (04
+  §3.2).
+- Design B (separate account, 04 §4.1): register/login, KDF-downgrade
+  refusal, trial-decrypt before persisting, token in keystore.
+- Design A (shared account, 04 §4.2): login-only, read-only Séance server
+  catalog, host-key pin reuse, never-expose-account-deletion rule; gated
+  on `kMinimumSharedAccountSeanceVersion` (the PR-S1 release tag) and the
+  fleet-confirmation checkbox.
+- Settings → Backup UI with the exact 04 §4.3 copy, **Design B
+  preselected**; the B→A switch flow (04 §4.4).
+
+**Séance-PR dependency.** Design B needs nothing (or the 04 §5.6 sealing
+shim if the pin lags PR-S1's model). Design A needs PR-S1 **released and
+its tag recorded**; until then the option renders with the gate copy and a
+disabled Continue.
+
+**Exit criteria.**
+
+- [ ] Two-device convergence tests against `seance_sync_server` in Docker:
+      create/edit/delete bookmarks on A, converge on B, tombstones win and
+      stay won (04 §3 tests).
+- [ ] A `flurb`-kind record survives rounds unmodified; a malformed known
+      kind skips without aborting the round.
+- [ ] Design A against a patched Séance: catalog section renders, a
+      Séance-pinned host connects with no TOFU prompt.
+- [ ] All 04 §4.3 strings verbatim in ARB; 403 `registration_closed`
+      shows its documented copy.
+
+**Risks.** PR-S1's release lags — Design B ships regardless; the gate is
+about Séance's decoder, not ours. Never work around the gate.
+
+### 3.8 M7 — editor, checkouts, preview (R8, R9) — size L
+
+**Goal.** Chapter 06 in full: the ported built-in editor, the managed
+checkout pipeline, external editors, Quick Look and the preview pane.
+
+**Scope.**
+
+- D2 copies with PORTS.md entries: document I/O with BOM/CRLF fidelity,
+  syntax engine, find bar, conflict-aware save-and-upload — behaviorally
+  identical to Séance (D17).
+- `CheckoutManager` per 03 §6: ported `ManagedRemoteFileStore`, per-server
+  `editSessionId` (never pane/tab), watch + debounce + reconcile-on-resume,
+  survive process death, never silently upload; SHA-256 stays mandatory on
+  this path (D7 — it is the conflict authority).
+- External editors: ported `EditorRegistry` + open-with/pick-application
+  channels; upload-on-save loop.
+- macOS Quick Look channel (spacebar); Windows/Linux in-app preview pane
+  (text/images/PDF) per 06.
+
+**Exit criteria.**
+
+- [ ] Edit round-trip conflict test: remote changes under an open
+      checkout → save is blocked with the conflict flow, never a silent
+      overwrite.
+- [ ] Kill the app with dirty checkouts; relaunch reconciles and offers
+      resume per 06.
+- [ ] External editor save triggers upload with progress in the activity
+      panel.
+- [ ] Spacebar previews local and (via the preview cache,
+      `TransferProducer`) remote files on
+      macOS; the preview pane covers text/images/PDF elsewhere.
+
+**Risks.** Watcher edge cases (atomic-replace saves) — the ported
+parent-directory watching pattern exists precisely for this; do not
+re-derive it.
+
+### 3.9 M8 — sync (R6) — size L
+
+**Goal.** Chapter 05 in full — the flagship. Gate: **PR-S3 merged and the
+pin bumped** before any remote sync work (`setTimes` is the convergence
+prerequisite, D3). Local↔local sync may start earlier: `LocalFileSystem`
+implements `setTimes` from M3, so the engine, plan model, and preview UX
+can be built and tested against local pairs while the pin lands.
+
+**Scope.** `poltergeist_sync` per 05: pipelined scanner with the M0-tuned
+depth, size+mtime comparison with the 2 s tolerance, the three v1 modes,
+the `SyncPlan`-is-the-preview model with per-item override, safety rails
+(mandatory preview, typed >50 % confirmation, `maxDelete`,
+`.poltergeist-trash/<runId>/`, JSONL journal, Retry Failed / Undo
+Deletions), the plan view with 05 §7's exact copy, saved syncs as
+`savedSync` bookmarks, execution in the activity panel, and the
+golden-tested "Copy as rsync command" exporter (D6).
+
+**Exit criteria.** 05's Definition of done is the checklist; additionally:
+
+- [ ] Sync scan ≥ 1 000 remote entries/s on LAN (P7 benchmark, D12).
+- [ ] Docker matrix includes the setstat-ignoring server; the `sizeOnly`
+      fallback notice appears.
+- [ ] chown UI (D28) enabled now that the pin carries `setOwner`.
+
+**Risks.** The category's cardinal sin is a sync that surprises (01 §5
+trap 5). The executor runs exactly the reviewed plan and re-verifies per
+item; any deviation found in review is a highest-severity defect (08).
+
+### 3.10 M9 — polish pass — size M
+
+**Goal.** Close the gap between "works" and "the point of the app" (R1).
+Nothing new lands here that changes architecture.
+
+**Scope.**
+
+- Quick Open palette (02 §8.4) over the registry that has existed since
+  M3; palette rows show and accept their shortcuts (D21).
+- Import experience finished: first-run/empty-state offers ssh_config
+  import; preview UI polished. v1 importer scope is confirmed as
+  ssh_config only (D22); FileZilla/WinSCP/Cyberduck are v1.x behind the
+  same preview.
+- The tier-B enforcement flip (08 §6): `BENCH_ENFORCE` turns the tier-B
+  UI benchmarks from trend-only to gating, and the audit confirms every
+  D12 benchmark exists and is green — tier-A engine benchmarks have been
+  enforced since the milestone that introduced each surface. M9 is the
+  flip plus an audit, not a rescue.
+- a11y audit per 02 §13: hand-built semantics on rows/tables (name–size–
+  date, selection, sort state), focus-visible styling everywhere,
+  contrast-checked status colors (the SEA-019 class fix), live regions on
+  transfer/sync progress. Linux screen-reader breakage documented honestly
+  (D20).
+- i18n sweep: zero hard-coded user-facing strings (CI grep + l10n lint);
+  reason strings and plurals verified.
+- Per-platform chrome QA against 02 §9–11: menus, dialogs, shortcuts
+  (meta vs control), scroll physics, titlebars; Windows IME behavior in
+  rename fields tested and known issues documented (Flutter IMM32
+  caveats).
+- Local fast-path spike (D26): measure APFS `clonefile`, Linux `FICLONE`,
+  Windows `CopyFileEx` against the streamed copy; adopt only what wins
+  clearly and keeps progress/cancel semantics, else record the numbers
+  and defer to v1.x.
+- Link-only update check (D19): Séance's banner pattern against the
+  GitHub latest-release tag; a link, never a download.
+
+**Exit criteria.**
+
+- [ ] Command-completeness invariant test green over the full registry.
+- [ ] Palette opens, filters, executes, and teaches shortcuts.
+- [ ] a11y checklist in 08 fully ticked; VoiceOver and NVDA walkthrough
+      notes committed.
+- [ ] Every D12 benchmark green and enforced (`BENCH_ENFORCE` on, on the
+      bench job's schedule per 08 §6/§8) — the tier-B flip is done.
+- [ ] Known-issues section (Linux a11y, Windows IME) written into README.
+
+**Risks.** Polish squeezed by schedule — structurally mitigated: budgets
+gated from M3, a11y semantics built with each surface. If M9 still
+overflows, the §6 cut lines apply — never quiet scope-dropping.
+
+### 3.11 M10 — v1.0 release — size S
+
+**Goal.** Ship. The distribution workstream (§4) must be fully checked.
+
+**Scope and exit criteria.**
+
+- [ ] Distribution checklist (§4) complete, including first-launch docs.
+- [ ] README carries the trust-stance copy (01 §6) and the version line;
+      human release notes written (D24 — personality, no changelog dump).
+- [ ] `docs/STATUS.md` flipped: v1.0 shipped, fast-follow list (§3.13) as
+      the new next-steps.
+- [ ] PORTS.md swept; port-back issues filed upstream per 04 §6.
+- [ ] `scripts/release.sh 1.0.0 --push`; `release.yml` green; assets
+      install-tested on macOS, Windows, and one GNOME + one KDE Linux
+      (fresh machines/VMs, following only the first-launch docs).
+- [ ] The mobile constraints memo (§5) reviewed once against the shipped
+      architecture; deviations recorded.
+
+### 3.12 Milestone-close chores (every milestone)
+
+1. Update `docs/STATUS.md` (done table + next steps, exit criteria
+   ticked there). This chapter stays stable — live progress never edits
+   the plan.
+2. Sweep `docs/PORTS.md`: batch small upstream fixes, refresh recorded
+   commits (04 §6).
+3. Bump the Séance pin if upstream merged anything; re-diff ported files
+   (03 §8.1).
+4. Tag `v0.<milestone>.0` as a pre-release from M1 onward — every tag is a
+   release-pipeline rehearsal, so `release.yml` never rots.
+5. Re-check the §5 mobile invariant for the milestone.
+
+### 3.13 Fast-follows after v1.0 (v1.x, in order)
+
+1. **Agent auth + ProxyJump** (D10, PR-S4 in `seance_core`, 04 §5.5) —
+   first, and explicitly not "eventually": `$SSH_AUTH_SOCK` / Windows
+   named-pipe agent client with a custom `SSHKeyPair` signer; ProxyJump
+   as recursive `openAuthenticatedClient` behind `jumpHostId`. The M2
+   seams make this additive.
+2. **OS drag-out** (D14): spike `super_drag_and_drop` 0.10.x on current
+   Flutter; if it fights the queue or the engine, custom per-platform
+   plugins, macOS `NSFilePromiseProvider` first. The produce-on-demand
+   hook has existed since M4.
+3. **Archives** (D27): local zip create/extract via `package:archive` in
+   `Isolate.run` workers, zip-slip-safe extraction (validate every
+   component). Remote-side extraction and browsable archives stay later.
+4. **Importers** (D22): FileZilla `sitemanager.xml`, WinSCP INI, Cyberduck
+   bookmarks — same preview + dedupe UI.
+5. **Deep links** (04 §7.1) and the text-diff view for sync pairs (05 →
+   06 deferral), as demand dictates.
+
+**v1.x backlog** — the smaller deferred items that 02/05/06 point here:
+batch/multi-rename UI; the named skip-rules engine (Transmit-style Rules);
+custom keymap editing UI; the native file icons/thumbnails channel; the
+cross-pane Compare entry point; Quick Look prefetch / preview-cache
+warming. Scheduled opportunistically after the numbered fast-follows.
+
+Everything else on anyone's wishlist is in the D25 parking lot; building
+it early is a plan violation, not initiative.
+
+## 4. The distribution workstream (D23)
+
+A parallel track, not a milestone — it accretes alongside M1–M10 and must
+be complete at M10. `release.yml` already exists and publishes per-platform
+assets on `v*` tags; the work is everything around it.
+
+| When | Item |
+|---|---|
+| M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
+| M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear |
+| M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
+| M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
+| M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
+| any | Android release signing: the `ci-release.jks` pattern — keystore stored base64 in a CI secret, decoded in `release.yml`, `key.properties` generated at build time; when the secret is absent (forks), fall back to debug signing so the job still passes |
+| M9 | Link-only update banner (D19) points at the GitHub releases page |
+| M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
+| M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
+
+Explicitly not in this track for v1 (each would amend D23): paid
+Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,
+Sparkle-style auto-update, app stores. The architecture stays
+sandbox-ready (`ScopedPathAccess`, sidebar bookmarks double as future
+grants) so none of these are foreclosed.
+
+## 5. The mobile constraints memo (D29)
+
+Mobile is post-v1, but v1 must never foreclose it. What iOS/Android will
+demand, recorded now:
+
+- **iOS kills background transfers.** A suspended app loses its sockets
+  within seconds-to-minutes; `NSURLSession` background sessions are
+  HTTP-only, so SFTP cannot ride them — this is what hurt Transmit iOS.
+  Consequence for v1: every transfer must be interruptible and cheap to
+  resume from the journal (M4's design); real byte-level resume needs the
+  ranged read/write seam (D25/PR-S3's ranged read is the start). Whether
+  dartssh2 sockets survive brief backgrounding is unverified — that spike
+  belongs to the future mobile milestone, not v1.
+- **Files.app / FileProvider** run file access out-of-process, possibly
+  with no UI at all. The property to preserve: `poltergeist_core` and the
+  engine protocol have no Flutter dependency and no assumption that a
+  window exists (03 §1, §5).
+- **Android scoped storage / SAF**: user folders are tree URIs, not
+  paths. All local access already flows through `ScopedPathAccess` —
+  grants, not raw paths, are the unit (03 §7.2). Séance precedents exist
+  (SAF export channel, `BackgroundKeepAlive` foreground service).
+- **Pane collapse**: phones show one pane with a switcher. Two-pane
+  assumptions may live only in `WorkspaceController` layout code (D1),
+  never in controllers, the queue, or `poltergeist_core`.
+
+Per-milestone invariant check (item 5 of §3.12):
+
+| Milestone | Invariant to re-verify at close |
+|---|---|
+| M1–M2 | `poltergeist_core` stays pure Dart; engine protocol messages are plain data |
+| M3 | Layout collapses to one pane without touching controllers; local access only via `ScopedPathAccess` |
+| M4 | Queue is suspendable: pause-all + journal restart is a working suspend primitive; no task assumes a long-lived socket |
+| M5 | Device-local bookmark fields model per-device grants (sandbox blobs today, SAF tree URIs tomorrow) |
+| M7 | Checkouts live under `path_provider` dirs; reconcile-on-resume works without watchers |
+| M8 | Scans are cancellable and runs resume from the journal; no watcher dependency |
+| M10 | This memo re-read against the shipped code; deviations recorded in STATUS.md |
+
+## 6. Risk register
+
+| # | Risk | Mitigation | Pre-authorized fallback / cut line |
+|---|---|---|---|
+| 1 | dartssh2 throughput or algorithm ceiling (D9) | M0 measures before any design hardens | The D9 ladder: upstream fix → channels/transports compensate → document the ceiling (00 edit) → libssh FFI last resort (00 edit) |
+| 2 | dartssh2 single-channel pipelining unsafe | M0 verifies with byte-compares | Compensate with N channels/transports; relax the scan budget with a 00 edit if even that fails |
+| 3 | Isolate model blocker (sockets, latency) | M0 PoC with explicit pass conditions (03 §5) | Connections on UI isolate, transfers/hashing in engine isolate — a 00 edit, never quiet drift |
+| 4 | Séance upstream PR stalls (S1–S3) | Same owner, sibling repos; file early per 04 §5 | Pin to the PR branch rev; S1 sealing shim (04 §5.6); Design B ships without S1; never fork `seance_core` |
+| 5 | Plugin staleness (the ecosystem meta-risk) | Minimal plugin surface; exact-version pins; first-party packages preferred; `super_*` family avoided in v1 | Replace a broken plugin with a small in-repo channel (Séance's proven pattern); Layer-1 Dart icon map if native icon work slips |
+| 6 | Flutter desktop a11y (Linux broken upstream) and Windows IME (IMM32) | Test and document per D20; semantics built per-surface, never retrofit | Honest known-issues section; not release blockers; track upstream issues by number |
+| 7 | Impeller-on-desktop regressions (new in 3.47) | Test both renderers while the Skia opt-out exists; bench on older GPUs | `--no-enable-impeller` escape hatch documented while upstream keeps it |
+| 8 | Scope creep | D25 parking lot; this chapter's fixed order; 09's review guardrails | Pre-authorized cuts, each a one-line edit to 00/02 in the cutting PR: native icon/thumbnail layer → Dart icon map; Quick Look → open-with-default; preview pane → text+images only; Sync Browsing → v1.x; local fast-path → streamed copy only |
+| 9 | Polish squeezed at the end | Budgets and a11y gate from the milestone that introduces each surface | M9 is defined as an audit; if it finds rescue work, the schedule slips, the bar does not |
+| 10 | Trash plugin blocked on one platform | Three small native surfaces, built early in M4 | Confirm-then-permanent on that platform only, recorded in README and STATUS |
+
+## Definition of done
+
+- [ ] Milestones M0–M10 executed in order, each closed with its exit
+      criteria ticked, STATUS.md updated, and the §3.12 chores run.
+- [ ] M0's report exists at `docs/M0-DARTSSH2-REPORT.md` and the pool +
+      scan designs reference its numbers.
+- [ ] Every Séance gate honored: M2 waited for PR-S2, Design A for the
+      PR-S1 release, M8's remote work for PR-S3 — verified by pin history.
+- [ ] The distribution checklist (§4) fully ticked at M10, including
+      fresh-machine installs from INSTALL.md alone.
+- [ ] Mobile invariants (§5) checked at every milestone close; no v1 code
+      forecloses single-pane, scoped-access, or suspendable-queue mobile.
+- [ ] Pre-release tags `v0.<n>.0` exist for M1 onward (the release
+      pipeline never rotted).
+- [ ] No fast-follow or D25 item was built before v1.0.
+
+## Explicitly out of scope
+
+| Deferred item | Where it lives |
+|---|---|
+| Agent auth + ProxyJump implementation | First v1.x fast-follow (§3.13, D10); PR-S4 spec in 04 §5.5 |
+| OS drag-out (promised files) | v1.x (§3.13, D14); hook ships in M4 |
+| Archives: local zip, then remote/browsable | v1.x then later (§3.13, D27) |
+| FileZilla / WinSCP / Cyberduck importers | v1.x (§3.13, D22) |
+| Deep links between the apps | v1.x (04 §7.1) |
+| Signing, notarization, stores, Flatpak, auto-update | Post-v1, each requires amending D23/D19 (§4) |
+| iOS/Android apps | Post-v1 (D29); constraints memo §5 keeps the door open |
+| Everything in the parking lot (two-way sync + baseline DB, resume, rsync accelerator, S3/WebDAV, multi-window, scheduled sync, custom tools, remote content search) | v2+ (D25) |
