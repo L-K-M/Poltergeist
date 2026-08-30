@@ -9,8 +9,10 @@ decision number, that decision — not this prose — is the authority.
 
 Poltergeist is a cross-platform, SFTP-first, two-pane file transfer client:
 local files or a remote server in either pane, tabs per pane, a ForkLift-style
-bookmarks sidebar on the left, an optional Transmit-style activity panel at the
-bottom, a built-in editor plus external-editor round-tripping, and a safe,
+bookmarks sidebar on the left, a collapsible Transmit-style activity panel
+at the bottom (collapsing never hides activity: the status-bar transfer
+chip always shows live queue state — D16), a built-in editor plus
+external-editor round-tripping, and a safe,
 previewable folder-sync feature. It is built in Flutter/Dart as a sibling of
 Séance, the personal SSH client, and reuses Séance's transport, TOFU security,
 encrypted sync, and editor foundations (D2, D3, D18) rather than reinventing
@@ -144,7 +146,10 @@ decision that makes it real.
 6. **One SSH stack shared with a terminal sibling.** Keys, known-hosts pins,
    TOFU prompts, and 2FA behave identically in Séance and Poltergeist because
    they are the same code (D2, D5); "open terminal here" / "open files here"
-   cross-links. Only Termius bundles both, and it rents the privilege.
+   cross-links. Termius bundles both and rents the privilege; MobaXterm
+   and Bitvise bundle both too, but as Windows-only, terminal-first
+   tools — none pairs a first-class transfer client with a first-class
+   terminal across platforms.
 7. **Latency-honest remote browsing.** Cancellable navigation, visible
    per-pane connection state, no UI pause ever attributable to the network
    (D12 budgets; 02 specifies the affordances) — directly against Nimble
@@ -189,8 +194,11 @@ is no "we" at runtime — that is the point).
 > It phones home for exactly one thing: an optional, link-only check that a
 > newer release exists — it tells you, you decide, nothing auto-installs.
 >
-> Your passwords and keys live in your operating system's keychain, never in
-> plain files. Host keys are pinned on first use and a changed key is a hard
+> Passwords and secrets Poltergeist saves for you are protected through
+> your operating system's keychain, never stored in plain files. (Keys
+> you already manage yourself — an imported `~/.ssh` identity file —
+> stay yours, where they are.) Host keys are pinned on first use and a
+> changed key is a hard
 > stop, not a shrug. If you back up your bookmarks, they leave your machine
 > only as end-to-end encrypted blobs to a Séance sync server — one you can
 > self-host — and the server cannot read them.
@@ -290,8 +298,13 @@ suggest the Unlicense to match, keeping the whole family friction-free.
 This is tracked as a Séance-side prerequisite in 04's upstream-work section;
 the porting ledger (`docs/PORTS.md`, per D2) records provenance for every
 ported file regardless. Until Séance's license lands, git-depending on
-pinned tags may proceed (the packages are consumed, not redistributed in
-source form by this repo), but no Séance source is copied into Poltergeist —
+pinned tags may proceed — release binaries embedding the pinned code
+included — because both repos share **one rights holder**, who needs no
+license from themselves to build or distribute their own code; the
+LICENSE is what any *third party* needs to consume, fork, or
+redistribute either repo, and what the copy-with-attribution step waits
+for as a provenance-hygiene matter. No Séance source is copied into
+Poltergeist before it lands —
 sequencing that D2's copy-with-attribution step must respect.
 
 ## Definition of done

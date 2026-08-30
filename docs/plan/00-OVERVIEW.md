@@ -127,7 +127,10 @@ editing this file (with rationale) in the same PR as the change.
 
 - **D6 — Native engine; rsync survives as an exporter.** The sync engine is
   pure Dart over the one VFS: parallel scans, size+mtime comparison with a
-  2 s tolerance (SFTP v3 has whole-second mtimes), a typed `SyncPlan` that
+  2 s tolerance (SFTP v3 stores whole-second mtimes, so a preserved
+  sub-second local mtime truncates on upload; FAT-family volumes
+  additionally quantize to 2 s — the two drivers of the window), a typed
+  `SyncPlan` that
   **is** the preview (the executor executes exactly the reviewed items,
   re-verifying preconditions per item). v1 modes: **Update** (one-way, no
   deletions — default), **Mirror** (one-way + explicit orphan deletion),
