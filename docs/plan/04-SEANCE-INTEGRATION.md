@@ -429,7 +429,7 @@ the decrypted kinds:
 | Pulled kind | Action |
 |---|---|
 | `bookmark` | upsert into `BookmarkStore`; tombstone → remove |
-| `hostKey` | `hostKeys.put` — pins flow in (both modes); Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both |
+| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store — like the never-decrypted `secret:`/`snippet:`/unrecognized prefixes above |
 
@@ -508,7 +508,10 @@ requires the PR-S1 fix (§5.2)
 shipped in a tagged Séance release **and running on every device the user
 syncs with Séance**. There is no in-band way to detect old clients up
 front (no device
-registry), so this stays a documented, user-confirmed gate — with one
+registry), so this stays a documented, user-confirmed gate — a gate the
+user must keep honoring: the assertion covers devices present at unlock,
+and adding (or rolling back to) a pre-PR-S1 Séance later re-opens the
+same corruption path, which the §4.3 helper copy says outright — with one
 after-the-fact tripwire: a pulled `serverConfig:` record that fails
 strict decode raises a **durable warning** in Settings → Backup naming
 the record id (a possible stale-client signature, never just
@@ -554,7 +557,8 @@ angle brackets):
 - Under option 2, a checkbox that gates the Continue button:
   "Every device that runs Séance with this account has version <version> or
   newer." Helper line: "Older Séance versions misread Poltergeist's records
-  — update them everywhere before turning this on."
+  — update them everywhere before turning this on, and never add an older
+  Séance to this account afterwards: the risk does not end at setup."
 - On 403 `registration_closed` (Design B register): "This server has
   registration closed. If you run it: temporarily set
   SEANCE_OPEN_REGISTRATION=1, create the account, then close it again —
