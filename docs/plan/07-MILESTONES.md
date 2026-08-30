@@ -481,8 +481,8 @@ the upstream review lands.
 depth, size+mtime comparison with the 2 s tolerance, the three v1 modes,
 the `SyncPlan`-is-the-preview model with per-item override, safety rails
 (mandatory preview, typed >50 % confirmation, `maxDelete`,
-`.poltergeist-trash/<runId>/`, JSONL journal, Retry Failed / Undo
-Deletions), the plan view with 05 §7's exact copy, saved syncs as
+`.poltergeist-trash/<runId>/`, JSONL journal, Retry Failed / Restore
+Trashed Files), the plan view with 05 §7's exact copy, saved syncs as
 `savedSync` bookmarks, execution in the activity panel, and the
 golden-tested "Copy as rsync command" exporter (D6).
 
