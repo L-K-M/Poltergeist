@@ -75,6 +75,12 @@ emits only its note and no command — a golden variant of its own):
 rsync <flags…> SRC DST
 ```
 
+The live line is deliberately the real command: the exporter is reachable
+only from the plan view, so the user has just reviewed exactly what it
+will do — the dry-run line exists for re-verification outside the app,
+not as a gate. Pasting the block executes the real run; the layout says
+so here rather than pretending otherwise.
+
 Flag mapping from `SyncRuleSet` (§6):
 
 | Ruleset element | rsync rendering | Notes |
@@ -180,7 +186,14 @@ concurrently in the engine isolate (D8).
     normalization → reason `normalizationCollision`, suggested `skip`.
   - Two entries on a case-sensitive side differing only by case, destined
     for a case-insensitive side → reason `caseCollision`, suggested `skip`;
-    never overwrite silently.
+    never overwrite silently. The check needs each side's case
+    sensitivity, so the scan records it per side on `ScanResult`: the
+    local side probes it empirically (create a lowercase temp sibling
+    under the sync root, stat its uppercase spelling, delete it —
+    attributes lie less than platform guesses); the remote side defaults
+    to case-sensitive with a per-pair override in the pair editor
+    (platform detection over SFTP is guesswork; a wrong "insensitive"
+    guess would silently skip legitimate distinct-case files).
   - Names invalid on a Windows destination (reserved names, forbidden
     characters, trailing dot/space — checked via `validateLocalName`,
     03 §2.3) → reason `invalidNameOnDestination`, suggested `skip`.
@@ -310,8 +323,9 @@ seams:
   `<app-support>/sync_state/<pairId>.baseline.jsonl` — rclone-bisync-style
   local listings, **never** FreeFileSync/Unison-style files planted inside
   the synced trees. One record per path: kind, size, *both sides' observed*
-  mtimes (absorbing setstat-clamping servers), optional hash, recorded at
-  the end of the last successful run.
+  mtimes (absorbing setstat-clamping servers), optional hash, written
+  incrementally as each item completes (the crash-safety bullet below is
+  the authoritative timing — "end of run" would contradict it).
 - Decision rule: each side diffs against the baseline into
   unchanged/modified/new/deleted; the 3×3 matrix yields copy/delete/
   conflict; both-modified or modified-vs-deleted is a conflict (default:
@@ -340,9 +354,11 @@ class SyncPair {
 sealed class SyncEndpoint {}
 class LocalEndpoint extends SyncEndpoint { final String path; }
 class RemoteEndpoint extends SyncEndpoint {
-  final BookmarkServerRef server;  // 04 §2.1: serverConfigId XOR
-  final String path;               // EmbeddedHostIdentity; creds resolve
-}                                  // via the vault — never embeds secrets
+  // 04 §2.1 — BookmarkServerRef is serverConfigId XOR
+  // EmbeddedHostIdentity; creds resolve via the vault, never embedded.
+  final BookmarkServerRef server;
+  final String path;
+}
 // Ad-hoc pairs (built from the panes, §7/§9) always carry the
 // EmbeddedHostIdentity form of BookmarkServerRef.
 
@@ -458,6 +474,8 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
   final String pairId;
   final DateTime startedAt;
   final SyncRuleSet rules;               // snapshot at run time
+  final PlanTotals totals;               // §8 rail 9's header contents —
+  final List<ScanWarning> warnings;      // the post-run report reads these
   // followed by per-item lines: relativePath, side, action, outcome,
   // bytes, durationMs, userOverridden, trashLocation?,
   // observedMtimeAfterWrite?, setstatIgnored? — side and userOverridden
@@ -509,11 +527,15 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    explicit per-item override authorizes the pre-delete — a mode whose
    header can promise "nothing deleted" never removes anything without
    the user having picked that row by hand. Pre-deletes also inherit
-   rule 3's failure gate even though they run in the copy phase: when an
-   item carrying a pre-delete is reached after the run has recorded any
-   failure (checked at the moment the removal step would begin), the
-   whole item flips to `skipped` with `Skipped: earlier errors in this
-   run` — a removal never happens in a degraded run.
+   rule 3's failure gate, and under rule 2's parallelism the gate is a
+   **barrier, not a peek**: before a removal step begins, the executor
+   drains all in-flight transfers, re-checks the failure flag, and only
+   then removes (parallelism resumes after) — a moment-in-time check
+   would let a sibling transfer fail while the removal is mid-flight.
+   An item carrying a pre-delete that reaches the barrier after the run
+   has recorded any failure flips whole to `skipped` with
+   `Skipped: earlier errors in this run` — a removal never happens in a
+   degraded run.
 
 ## 7. Preview UX — the plan view
 
@@ -637,10 +659,11 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    and at least 10 files — whichever side trips it. Run opens a typed
    confirmation:
    `This will delete 320 of 512 files on webserver — more than {pct} of
-   that side. Type DELETE to continue.` — `{pct}` renders
-   `deleteFractionWarn` as a percentage; the words "more than half" are
-   used verbatim only at the 0.5 default (a threshold the user lowered
-   must not claim "half"). The confirm button stays disabled
+   that side. Type DELETE to continue.` — `{pct}` renders as the word
+   `half` at the 0.5 default (so the default sentence reads "more than
+   half of that side") and as the numeric percentage for **any** other
+   value, raised or lowered — a user-adjusted threshold must never claim
+   "half". The confirm button stays disabled
    until the word matches. Precedence: the `maxDelete` cap (rail 4) is
    checked first and dominates — the typed confirmation only ever fires
    for plans whose deletion count is under the cap.
@@ -705,7 +728,11 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    name; failed temps are cleaned up.
 7. **Per-item precondition re-stat.** Immediately before acting, each item
    re-verifies against its plan snapshot: copy-new requires the destination
-   still absent; update and delete require the destination's size+mtime to
+   still absent — except a §6-rule-4 `typeDiffers` item resolved to
+   copy/mkdir, whose destination is present *by definition*; its
+   precondition is that the destination still matches the plan snapshot
+   (same kind, size, mtime), because the pre-delete is what legalizes
+   the write; update and delete require the destination's size+mtime to
    equal the snapshot (uploads additionally use the adapter's
    `expectedTarget` compare-and-swap, 03 §2.1). Any mismatch flips the item
    to `conflict` with `changed since preview`, and the run continues — the
@@ -744,9 +771,19 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    journal powers the post-run report, `Retry Failed`, and **Undo**: v1's
    `Restore Trashed Files…` restores every trashed/backed-up file by
    reversing the recorded renames, conflict-checked with a re-stat per
-   file: a destination that no longer matches its journal snapshot
+   file **against the run's recorded post-state** — absent for a
+   deletion, the written file's size + `observedMtimeAfterWrite` for an
+   update, the created entry for a rule-4 replace; *never* the pre-run
+   plan snapshot, which by construction no longer matches anything the
+   run touched (comparing against it would skip every restore). A
+   destination that no longer matches that post-state
    (changed by a later run or by hand) is **skipped and listed in the
-   result** — Undo never overwrites newer changes. The trashed entry
+   result** — Undo never overwrites newer changes. For a §6-rule-4
+   directory replace, restore runs in order: conflict-check and remove
+   the run's created entry (its post-state must still match), recreate
+   the directory chain shallowest-first, then reverse the recorded
+   renames — the per-file `trashLocation` lines under the parent item
+   carry everything this needs. The trashed entry
    itself is verified too: its size is re-statted against the journal
    line and a mismatch is skipped-and-reported — rail 5's
    copy-then-delete fallback can leave a half-written trash copy when
@@ -783,7 +820,13 @@ v2, the
 sibling baseline file (§5). "Save as Favorite…" in the plan view's action
 bar creates the favorite (command `sync.saveAsFavorite`). For an ad-hoc
 pair (built from the panes, never saved), `pairId` is the SHA-256 over
-both resolved endpoint identities plus paths — stable across invocations —
+both sides' **canonicalized** identities — `user@host:port` with the
+host lowercased and default port/user made explicit, plus the absolute
+path without trailing separator — the two sides hashed in **sorted
+order**, so the id survives pane swaps and spelling variants (without
+canonicalization, `Example.com` vs `example.com` or a trailing slash
+would fork one logical pair into several `sync_state`s and journal
+sets) — stable across invocations —
 so ad-hoc pairs get a `sync_state` file too (`mtimeUnreliable` persists)
 and the newest-20 journal pruning (§8) applies per `pairId` as usual;
 `sync_state` files for ad-hoc pairs untouched for 90 days are pruned
@@ -802,11 +845,18 @@ running in the engine isolate (D8) — registers a sync task facade with
 file counts, speed/ETA per 02 §5.3, and per-item sub-rows under the
 chevron. Pause and cancel follow 03 §4.4 semantics unchanged (pause stops
 new items, the in-flight file's bytes are re-sent on resume; cancel is
-sticky and cleans temps). Transfers acquire channels through the same
+sticky and cleans temps — which for a sync run means upload
+`.poltergeist-*.tmp` files **only**: the run's
+`.poltergeist-trash/<runId>/` directory and its journal are undo
+material and always survive a cancel, rail 9's retention depends on
+it). Transfers acquire channels through the same
 per-server leases (03 §3.2), count against the same global in-flight limit,
 and await the same `BandwidthLimiter` token bucket — a sync run is throttled
-and scheduled like any other work, with `transferConcurrency` (default 4)
-as its own upper bound.
+and scheduled like any other work, with the pair's
+`SyncRuleSet.transferConcurrency` (§6, default 4) as the run's own
+per-pair upper bound *beneath* those global limits — a sync-scoped rule
+field, not a rename of any 03 queue setting (03's knobs are the global
+in-flight constant and `PoolPolicy`).
 
 The plan view stays open during execution, ticking rows
 `pending → running → done/failed/skipped` live; the panel row and the plan
@@ -867,14 +917,20 @@ Testing hooks, elaborated in 08:
   makes destination converge to source for **hazard-free** generated
   trees, judged by **each mode's own equality relation** — byte-identical
   for `sizeAndMtime` and `contentHash`; for `sizeOnly`, convergence to
-  size-equality, with same-size/different-content pairs asserted
-  *skipped-and-visible*, never copied (that blind spot is the mode's
-  documented contract, so the property pins it instead of hiding it)
+  size-equality, with same-size/different-content pairs — known to the
+  *generator*, undetectable by the engine in this mode by design —
+  asserted absent from every copy and delete item, and the plan header's
+  `sizeOnly` notice asserted present (the blind spot is the mode's
+  documented contract, so the property pins its boundary and its
+  visibility instead of pretending per-pair detection exists)
   (conflicts execute as skip, so
   hazard-bearing trees converge only up to their conflict items — a
   companion property asserts every generated name hazard surfaces as a
-  conflict item, never auto-fixed); executor + journal replay is
-  idempotent; undo restores every trashed path whose destination is
+  conflict item, never auto-fixed); crash-resume re-execution and a
+  second `Retry Failed` pass leave the destination convergent, perform
+  no duplicate trash moves, and append no duplicate journal line for the
+  same `(runId, relativePath, side)` — the concrete meaning of
+  "replay is idempotent"; undo restores every trashed path whose destination is
   unmodified since the run, and skips-and-reports mutated ones; plan
   ordering obeys §6's contract.
 - **Rail tests**: `maxDelete` refusal fires before any item executes and
@@ -898,7 +954,12 @@ Testing hooks, elaborated in 08:
   symbol level (an analyzer-based ban on the `dart:io` `Process` API,
   aliased imports included — never a substring scan, which would
   false-positive on comments and reason strings; 08 §3.3 specifies the
-  mechanism).
+  mechanism). A blanket `dart:io` *import* ban is deliberately not the
+  rule: `journal.dart`'s own JSONL file I/O under app-support is the
+  package's one legitimate `dart:io` use — the invariants being guarded
+  are never-executes (the `Process` symbol ban) and no sync-private VFS
+  (the review rule that all *sync* filesystem operations flow through
+  the two injected `RemoteFileSystem`s), not an I/O-free package.
 - **sshd-in-Docker matrix** (08): OpenSSH variants including a chrooted
   `internal-sftp` config and a setstat-ignoring configuration to exercise
   the §4 fallback end to end — including a resume-after-interrupt run on
