@@ -255,7 +255,10 @@ asking what a wrong guess would cost.
   effectively — requires explicit confirmation naming the old and new
   endpoints **before any connection, TOFU prompt, or credential
   resolution**: a silently changed endpoint never sees a credential.
-  Confirming updates the recorded endpoint; a legitimate edit costs one
+  Confirming **replaces** the recorded endpoint — the pin is a single
+  slot, never an accumulating allowlist, so flip-flopping between two
+  previously confirmed endpoints re-triggers the check every time; a
+  legitimate edit costs one
   confirmation per device, the same price the §3.2 quarantine already
   sets for a changed key.
 - `EmbeddedHostIdentity` is written for servers created inside Poltergeist,
@@ -481,7 +484,7 @@ the decrypted kinds:
 | Pulled kind | Action |
 |---|---|
 | `bookmark` | upsert into `BookmarkStore`; tombstone → remove |
-| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both |
+| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store — like the never-decrypted `secret:`/`snippet:`/unrecognized prefixes above |
 
