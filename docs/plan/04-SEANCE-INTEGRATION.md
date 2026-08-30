@@ -139,12 +139,13 @@ class SavedSyncSpec {
   ///   deletions:           'none' | 'trash' | 'permanent'      ('none')
   ///   backups:             'trash' | 'none'                    ('trash')
   ///   comparison:          'sizeAndMtime' | 'sizeOnly' | 'contentHash'
-  ///                                                        ('sizeMtime')
+  ///                                                     ('sizeAndMtime')
   ///   mtimeToleranceSecs:  int                                 (2)
   ///   acceptedTimeShifts:  list of int                         ([])
   ///   conflictDefault:     'ask' | 'newerWins' | 'keepLeft' |
   ///                        'keepRight' | 'skip'                ('ask')
   ///   symlinks:            'skip' ('copyAsLink'/'follow' reserved)
+  ///   trashPath:           string | null — out-of-root trash   (null)
   ///   includeHidden:       bool                                (true)
   ///   maxDelete:           int                                 (500)
   ///   deleteFractionWarn:  double                              (0.5)
