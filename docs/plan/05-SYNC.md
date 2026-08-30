@@ -87,7 +87,7 @@ Flag mapping from `SyncRuleSet` (§6):
 |---|---|---|
 | base | `-r -p`, plus `-t` when `preserveMtime` | `-p` mirrors the engine's mode preservation (§4); `-t` is on by default; without it nothing converges |
 | `direction` | source rendered first with a trailing `/`, destination second; `rightToLeft` swaps them | remote endpoint renders as `user@host:'path/'` from `ResolvedSyncEndpoints`; adds `-e ssh` when either side is remote |
-| `mtimeToleranceSecs` | `--modify-window=2` | verbatim value |
+| `mtimeToleranceSecs` | `--modify-window=2` | verbatim value; emitted only for `sizeAndMtime` pairs — under `--size-only` or `-c` rsync never consults mtimes, and the block's value is documentation of what the sync will do (covers §4's auto-downgraded pairs too) |
 | `comparison: sizeOnly` | `--size-only` | |
 | `comparison: contentHash` | `-c` | |
 | Update mode | no delete flag | rsync's default |
@@ -112,7 +112,10 @@ Additional rules:
   `# note: adjust the local Windows path for your rsync build` — the
   spec deliberately does not pick one build's convention. The golden
   fixtures include a Windows-local pair.
-- A remote side on a nonstandard port renders `-e "ssh -p <port>"` — the
+- A remote side on a nonstandard port renders `-e 'ssh -p <port>'` —
+  single-quoted like every other generated argument (one quoting style
+  in the goldens, and no `$`/backtick interpolation if the transport
+  string ever grows) — the
   port travels in `ResolvedSyncEndpoints` and must reach the command, or
   the copy silently talks to port 22.
 - When both endpoints are remote, rsync refuses to run ("The source and
@@ -120,7 +123,9 @@ Additional rules:
   the command is not directly runnable (Poltergeist routes such pairs via
   the local machine) instead of a command that fails.
 - When the plan carries manual per-item overrides, prepend
-  `# note: N manual per-item overrides are not reflected in this command`.
+  `# note: N manual per-item overrides are not reflected — this command
+  applies the ruleset only and may copy or delete items you excluded in
+  the plan`.
   Per-item edits are deliberately not compiled into `--exclude`/
   `--files-from` lists — rsync's include/exclude ordering is famously
   subtle, and a wrong translation would betray the feature's whole point.
@@ -188,12 +193,24 @@ concurrently in the engine isolate (D8).
     for a case-insensitive side → reason `caseCollision`, suggested `skip`;
     never overwrite silently. The check needs each side's case
     sensitivity, so the scan records it per side on `ScanResult`: the
-    local side probes it empirically (create a lowercase temp sibling
-    under the sync root, stat its uppercase spelling, delete it —
-    attributes lie less than platform guesses); the remote side defaults
+    local side probes it empirically **before the walk starts** (create
+    `.poltergeist-caseprobe` under the sync root — a name the
+    non-removable `.poltergeist*` default exclusion guarantees no scan
+    ever admits — stat its uppercase spelling, delete it; attributes
+    lie less than platform guesses; on a root the app cannot write, the
+    probe is skipped, the side is treated as case-sensitive, and a
+    `ScanWarning` records the assumption); the remote side defaults
     to case-sensitive with a per-pair override in the pair editor
     (platform detection over SFTP is guesswork; a wrong "insensitive"
-    guess would silently skip legitimate distinct-case files).
+    guess would silently skip legitimate distinct-case files). A
+    defaulted or assumed sensitivity is second-class on purpose: when
+    case-variant names are actually present and the destination side's
+    sensitivity came from a default or a skipped probe — not a probe
+    result or an explicit override — the affected items render as
+    `ask`-class conflict rows instead of proceeding, because a wrong
+    "sensitive" guess there would let the second variant silently
+    overwrite the first, the exact outcome `caseCollision` exists to
+    prevent.
   - Names invalid on a Windows destination (reserved names, forbidden
     characters, trailing dot/space — checked via `validateLocalName`,
     03 §2.3) → reason `invalidNameOnDestination`, suggested `skip`.
@@ -377,7 +394,12 @@ class SyncRuleSet {
   final ComparisonMode comparison;
   final int mtimeToleranceSecs;          // default 2
   final List<int> acceptedTimeShifts;    // e.g. [3600] for FAT/DST; default []
-  final ConflictDefault conflictDefault; // bidirectional only; default ask
+  final ConflictDefault conflictDefault; // default ask. Bidirectional
+                                         // conflicts generally; in the
+                                         // one-way modes it participates
+                                         // only in §6 rule 4's typeDiffers
+                                         // resolution (where the no-delete
+                                         // modes force it to skip)
   final List<String> excludeGlobs;       // gitignore-style (§3)
   final bool includeHidden;              // default true (it's a file manager)
   final SymlinkPolicy symlinks;          // v1: skip
@@ -430,7 +452,11 @@ enum SyncReason {
   invalidNameOnDestination, scanError,
 }
 
-enum SyncItemStatus { pending, running, done, failed, skipped }
+enum SyncItemStatus {
+  pending, running, done, failed, skipped,
+  conflicted, // rail 7's changed-since-preview flip — a race, not a hard
+              // error, but it gates rule 3's delete phase like a failure
+}
 
 class SyncItem {
   final String relativePath;             // relative to the sync root,
@@ -447,7 +473,12 @@ class SyncItem {
   final SyncReason reason;
   bool userOverridden;                   // renders the "manual" dot (§7)
   SyncItemStatus status;
-  String? error;                         // RemoteFileException.message
+  String? error;                         // side-neutral message:
+                                         // RemoteFileException.message for
+                                         // a remote-side failure, the local
+                                         // filesystem error's message
+                                         // (03 §2.2's funnel wording) for a
+                                         // local commit/trash failure
 }
 
 class ScanWarning {
@@ -471,14 +502,17 @@ class PlanTotals {
 
 class SyncRunRecord {                    // journal header, JSONL (§8)
   final String runId;                    // uuidV4
-  final String pairId;
+  final String pairId;                   // the canonical state key (§9),
+                                         // never a bookmark id
   final DateTime startedAt;
   final SyncRuleSet rules;               // snapshot at run time
   final PlanTotals totals;               // §8 rail 9's header contents —
   final List<ScanWarning> warnings;      // the post-run report reads these
   // followed by per-item lines: relativePath, side, action, outcome,
   // bytes, durationMs, userOverridden, trashLocation?,
-  // observedMtimeAfterWrite?, setstatIgnored? — side and userOverridden
+  // trashContentSha256? (rail 5 copy-fallback entries only — rail 9's
+  // restore hash-verifies those), observedMtimeAfterWrite?,
+  // setstatIgnored? — side and userOverridden
   // are what §7's override dot and §8's per-side accounting read back
 }
 ```
@@ -490,8 +524,12 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    `transferConcurrency` (order within the group is not significant).
 3. Deletions last, **deepest-first** (children before parents), and the
    delete phase starts only after the copy/update phase finished **without
-   failures** — rsync's `--delete-delay` insight, hardened: if anything
-   failed, every deletion flips to `skipped` with error text
+   failures** — rsync's `--delete-delay` insight, hardened. "Failure"
+   for this gate means any item that ended the copy/update phase as
+   neither `done` nor a user-set `skip`: `failed` **and rail 7's
+   `conflicted` flips alike** — a copy displaced by destination churn
+   is precisely the run deletions must not proceed in. If anything
+   gated, every deletion flips to `skipped` with error text
    `Skipped: earlier errors in this run`, and the summary says so.
 4. **Kind changes pre-delete.** When an item's effective action creates a
    file or directory at a path whose destination entry has a different kind
@@ -656,7 +694,17 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    pre-deletes alike) are grouped by **target side**; the rail fires when
    one side's deletions exceed
    `deleteFractionWarn` (default 0.5) of *that side's* file count —
-   and at least 10 files — whichever side trips it. Run opens a typed
+   and at least 10 files — whichever side trips it. Deletion counting
+   is **per file everywhere** — this rail, the `maxDelete` cap, the §7
+   header's `{k}` and the Deletes chip all count the same unit: an
+   extraneous directory is never "one deletion" — the scan enumerates
+   its contents, each contained file is its own delete-phase item
+   (rule 3's deepest-first order presupposes exactly that), and the
+   directory itself is a zero-count cleanup item — otherwise one
+   extraneous tree of any size would slide under the default cap of
+   500. The denominator is that side's scanned file count (planned
+   deletions included, the effective trash root excluded — it is never
+   scanned, rail 5). Run opens a typed
    confirmation:
    `This will delete 320 of 512 files on webserver — more than {pct} of
    that side. Type DELETE to continue.` — `{pct}` renders as the word
@@ -714,7 +762,13 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    matching local journal** (a crash between the trash rename and the
    journal write) joins the same notice using the directory's own mtime
    as its age, and the purge removes it by directory — orphaned trash is
-   never invisible, docroot secrets included. When a side is unreachable
+   never invisible, docroot secrets included. Trash directories created
+   by an exported rsync command (§2.1's `rsync-<ts>` backup dirs) are
+   exactly such journal-less entries: the same notice ages them out and
+   the same purge removes them, but journal-driven `Restore Trashed
+   Files…` (rail 9) cannot restore what the app never journaled — an
+   exported command runs outside the app's undo story, which is part of
+   what its `# note:` lines already disclaim. When a side is unreachable
    that listing is skipped and
    the notice falls back to the newest cached trash state in `sync_state`
    (§9) — it degrades, never blocks or errors the plan view. A purge
@@ -732,18 +786,39 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    copy/mkdir, whose destination is present *by definition*; its
    precondition is that the destination still matches the plan snapshot
    (same kind, size, mtime), because the pre-delete is what legalizes
-   the write; update and delete require the destination's size+mtime to
-   equal the snapshot (uploads additionally use the adapter's
-   `expectedTarget` compare-and-swap, 03 §2.1). Any mismatch flips the item
-   to `conflict` with `changed since preview`, and the run continues — the
-   preview→execute race that rsync's two-run model cannot close. A source
+   the write; update and delete require the destination to match the
+   snapshot — **for files**, size plus mtime compared with the pair's
+   `mtimeToleranceSecs`/`acceptedTimeShifts`, never exact equality;
+   **for directories**, kind only (still a directory — and, for a
+   delete-phase parent, empty of everything but entries this run
+   already removed): a directory's mtime changes the moment rule 3's
+   deepest-first pass deletes its children, so an mtime precondition
+   there would spuriously flip every parent after its children and
+   Mirror would leave empty directory husks behind on every run
+   (uploads additionally use the adapter's
+   `expectedTarget` compare-and-swap, 03 §2.1). Any mismatch flips the
+   item to status `conflicted` with `changed since preview`, and the run
+   continues — the
+   preview→execute race that rsync's two-run model cannot close. A
+   `conflicted` item is distinct from `failed` in the journal and
+   summary — a race flip, not a hard error — but **counts as a failure
+   for rule 3's delete gate**: deletions must never proceed in a run
+   where a copy was displaced by destination churn, the exact window
+   the `--delete-delay` hardening exists to close. `Retry Failed`
+   covers `failed` items; `conflicted` items return through a re-scan,
+   which re-plans them from current reality. A source
    that vanished mid-run fails the item (`failed`), never aborts the run.
 8. **Per-item errors never abort the run.** Permission, disk-full, and
    vanished-file errors mark the item `failed` with its
    `RemoteFileException.message`; the summary reports
    `14 copied, 2 failed, 5 deleted (in trash)` with one-click
-   `Retry Failed` (re-scans just those paths, rebuilds their preconditions,
-   re-executes). Connection loss pauses the run; on resume, items whose
+   `Retry Failed` (re-scans just those paths, rebuilds their
+   preconditions, re-executes) — with rail 1 intact on the **source**
+   side too: a retried item whose source stat no longer matches the
+   plan snapshot returns to the plan view as a fresh conflict row
+   instead of executing, because a retry must never quietly push
+   content the user never previewed. Connection loss pauses the run; on
+   resume, items whose
    journal line records completion are marked done without re-executing.
    The journal line is written *after* the commit rename, so a
    committed-but-unjournaled window exists: a resumed item whose
@@ -779,22 +854,38 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    destination that no longer matches that post-state
    (changed by a later run or by hand) is **skipped and listed in the
    result** — Undo never overwrites newer changes. For a §6-rule-4
-   directory replace, restore runs in order: conflict-check and remove
-   the run's created entry (its post-state must still match), recreate
-   the directory chain shallowest-first, then reverse the recorded
-   renames — the per-file `trashLocation` lines under the parent item
-   carry everything this needs. The trashed entry
+   replace, restore runs in order: conflict-check the run's created
+   entry — a created *directory's* recorded post-state is its
+   **end-of-run entry set**, the copies this run placed inside it
+   included (the journal's item lines under and inside the parent carry
+   it) — then remove the entry together with that set, recreate the
+   original entry's directory chain shallowest-first, and reverse the
+   recorded renames; the per-file `trashLocation` lines under the
+   parent item carry the rest. Reverting a replace is atomic on
+   purpose: the pre-run file cannot come back while the created
+   directory stands, so this is the **one place v1 undo removes
+   run-created copies** — the confirm dialog counts those files among
+   what it removes, and any file inside the created directory that no
+   longer matches its recorded post-state skips the whole replace
+   revert (listed in the result) rather than deleting someone's newer
+   work. The trashed entry
    itself is verified too: its size is re-statted against the journal
-   line and a mismatch is skipped-and-reported — rail 5's
+   line — and a rail 5 **copy-fallback** trash entry is additionally
+   verified against the `trashContentSha256` its journal line recorded
+   at trash time (rename-based entries stay size-only: a rename cannot
+   truncate, and hashing every rename would tax the common path for
+   nothing) — a mismatch is skipped-and-reported: rail 5's
    copy-then-delete fallback can leave a half-written trash copy when
-   interrupted, and Undo must never resurrect a truncated "previous
-   version" over a good file. Note the explicit
+   interrupted — same-size truncation included, which the size check
+   alone would pass — and Undo must never resurrect a truncated
+   "previous version" over a good file. Note the explicit
    scope: because overwrite backups are restored
    too, this also reverts files the run *updated* back to their pre-run
    versions — the confirm dialog says so (`Restores 5 deleted and 3
-   overwritten files to their pre-run versions.`). Full undo (also
-   removing copies the run created) is v2, and the journal already
-   records enough for it.
+   overwritten files to their pre-run versions.`). Full undo (removing
+   every copy the run created) is v2 — the rule-4 replace revert above
+   is the sole v1 exception, forced by the restore itself — and the
+   journal already records enough for it.
 10. **Scan errors exclude, on both sides** (§3) — never read as emptiness.
 
 ## 9. Saved syncs
@@ -818,16 +909,28 @@ unreachable-side fallback reads: `lastListedAt` plus one
 written after every successful plan-time trash-root listing — and, in
 v2, the
 sibling baseline file (§5). "Save as Favorite…" in the plan view's action
-bar creates the favorite (command `sync.saveAsFavorite`). For an ad-hoc
-pair (built from the panes, never saved), `pairId` is the SHA-256 over
+bar creates the favorite (command `sync.saveAsFavorite`). `pairId` — the
+key for `sync_state` and the journals, **for every pair, saved and
+ad-hoc alike** — is the SHA-256 over
 both sides' **canonicalized** identities — `user@host:port` with the
-host lowercased and default port/user made explicit, plus the absolute
-path without trailing separator — the two sides hashed in **sorted
+host lowercased and default port/user made explicit (the default user
+resolved from the endpoint's stored identity — the vault/catalog behind
+`BookmarkServerRef`, §6 — never the ambient local username, which would
+fork every pair on an OS-account rename), plus the absolute
+path without trailing separator, case-folded on a local side whose
+filesystem the §3 probe found case-insensitive (`/Users/Alice` and
+`/users/alice` are one root there) — the two sides hashed in **sorted
 order**, so the id survives pane swaps and spelling variants (without
 canonicalization, `Example.com` vs `example.com` or a trailing slash
 would fork one logical pair into several `sync_state`s and journal
-sets) — stable across invocations —
-so ad-hoc pairs get a `sync_state` file too (`mtimeUnreliable` persists)
+sets) — stable across invocations. The savedSync favorite's own
+bookmark id (04 §2.1's `SyncPair.id` mapping) is the *favorite's*
+identity, never the state key — which is exactly what makes "Save as
+Favorite…" after an ad-hoc run lossless: the canonical `pairId` does
+not change at save time, so `mtimeUnreliable`, `trashCache`, journals,
+and the live-trash retention they carry all survive the save instead
+of orphaning under a freshly minted id. So
+ad-hoc pairs get a `sync_state` file too (`mtimeUnreliable` persists)
 and the newest-20 journal pruning (§8) applies per `pairId` as usual;
 `sync_state` files for ad-hoc pairs untouched for 90 days are pruned
 together with their journals — subject to §8 rail 9's live-trash
@@ -898,7 +1001,12 @@ app/poltergeist_app/lib/sync/      Flutter: plan view, filters, overrides,
 Testing hooks, elaborated in 08:
 
 - **In-memory VFS**: an `InMemoryFileSystem implements RemoteFileSystem`
-  test fake (shared with the queue tests) with fault injection — unlistable
+  test fake — one instance of the concept, importable across packages
+  because it is exported from `poltergeist_core`'s public
+  `lib/testing.dart` barrel (08 §3.1's layout; `test/` directories are
+  not importable across packages, and a per-package copy would let the
+  fault matrix drift) — shared with the queue tests, with fault
+  injection: unlistable
   directories, setstat-ignoring mode, mid-run mutations for precondition
   tests, EXDEV-style rename failures, and an interrupted out-of-root
   trash copy (rail 5's copy-then-delete fallback) asserting Undo
