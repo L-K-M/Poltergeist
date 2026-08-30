@@ -539,7 +539,12 @@ Bursts stay bounded and the limit is honored within ±1 s granularity
 SFTP has no server-side copy, so cross-server remote→remote is a piping
 task (D16) — with one carve-out from 02 §5.1: a **same-server move** is a
 rename-class server-side operation on one leased channel, no data
-through the local machine, still enqueued as a queue task for visibility;
+through the local machine, still enqueued as a queue task for
+visibility — and when the server rejects the rename as cross-device
+(EXDEV-class: mount boundaries no SFTP rename can cross), the task
+falls back to the piped copy-then-delete path below without re-asking
+any conflict question already answered, the task row updated to name
+the actual mechanism (02 §5.1's rule, mechanized here);
 a same-server *copy* still pipes (no SFTP v3 copy primitive; the
 `copy-file` extension is a D25-class acceleration). For the piping case
 the
