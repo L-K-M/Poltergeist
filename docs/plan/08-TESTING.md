@@ -570,11 +570,12 @@ Automated, in `flutter test` (semantics enabled via
   labels and value announcements.
 - **Keyboard-completeness test** (D21, referenced by 02 §8.1): a test
   iterates the command registry and fails if any command is unreachable.
-  Reachable means: it has activators for the current platform, **or** a
-  menu path, **or** appears in the palette (all registered commands are
-  palette-visible by construction — the test asserts exactly that, so a
-  command someone hides from the palette must gain a binding or a menu
-  item to pass). A second, stronger pass pumps the workspace with a
+  Reachable means: it has activators for the current platform **or** a
+  menu path — palette inclusion does **not** count toward reachability,
+  because every registered command is palette-visible by construction
+  and a universally-true disjunct would make the invariant unfailable
+  (02 §8.1 states the same); universal palette visibility is asserted
+  as its own separate check. A second, stronger pass pumps the workspace with a
   recording registry and sends the real key events for every row of the
   02 §8.3 table on both platform personalities, asserting each command's
   `run` fired — bindings are proven by dispatch, not by table
