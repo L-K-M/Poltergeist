@@ -126,8 +126,14 @@ a directory the user already left must never repaint the pane (03 §6,
 
 ```dart
 Future<void> navigateTo(String path) async {
+  // Cancel the superseded listing first: dropping its result is not
+  // enough — the stale request keeps consuming the browse channel, and
+  // §3.3 requires the cancel affordance to target the listing actually
+  // in flight, so the token rotates per navigation.
+  _listCancellation?.cancel();
+  final cancellation = _listCancellation = RemoteTransferCancellation();
   final generation = ++_navigationGeneration;
-  final entries = await _engine.list(path, cancellation: _cancellation);
+  final entries = await _engine.list(path, cancellation: cancellation);
   if (_disposed || generation != _navigationGeneration) return; // stale
   _applyEntries(path, entries);
 }
@@ -189,7 +195,7 @@ void validateRelativeComponents(String relative,
     // '\' inside one is overwhelmingly an escaping bug, not a filename —
     // do not "simplify" this to windowsDestination-only.
     if (part.isEmpty || part == '.' || part == '..' || part.contains('\\')) {
-      throw FormatException('unsafe path component in "$relative"');
+      throw FormatException('unsafe path component "$part" in "$relative"');
     }
     // Destination-filesystem rules: fine on POSIX, hazardous on Windows —
     // ':' writes an alternate data stream, <>"|?* fail CreateFile, C0
@@ -199,7 +205,17 @@ void validateRelativeComponents(String relative,
         (_windowsHazard.hasMatch(part) ||
             part.endsWith('.') ||
             part.endsWith(' '))) {
-      throw FormatException('unsafe path component in "$relative"');
+      throw FormatException('unsafe path component "$part" in "$relative"');
+    }
+    // Bidi override/isolate controls are rejected for EVERY destination:
+    // they visually reorder a rendered name (the CVE-2021-42574 spoof
+    // class — 'invoice.pdf' that is really an .exe), and these
+    // components feed exports and external programs that 02 §13's
+    // display-time LRI/PDI isolation cannot protect. Legitimate RTL
+    // names carry directionality in their characters and never need
+    // explicit override controls.
+    if (_bidiControls.hasMatch(part)) {
+      throw FormatException('unsafe path component "$part" in "$relative"');
     }
   }
 }
@@ -207,6 +223,11 @@ void validateRelativeComponents(String relative,
 final _windowsHazard =
     RegExp(r'[<>:"|?*\x00-\x1f]'); // char class — applied per component
                                    // via hasMatch in the loop above
+final _bidiControls = // LRM/RLM, LRE..RLO+PDF, LRI..PDI — written as
+    RegExp(                     // regex-level \uXXXX escapes so the
+        r'[\u200e\u200f'       // source stays visible ASCII (a
+        r'\u202a-\u202e'       // literal bidi char in a validator
+        r'\u2066-\u2069]');    // would be its own spoof hazard)
 ```
 
 ### 3.6 Atomic writes for every persisted file
@@ -326,6 +347,11 @@ A PR merges only when all of these hold:
       the same PR edits the chapter (and 00 if a decision changed — §8.3);
       silent drift is a defect.
 - [ ] Commit hygiene per §2 (trailer, session link, no model identifiers).
+- [ ] A dependency-bump PR re-verifies the §4 item-4 API constraints —
+      each is backed by one pinned test (HKDF salt domain separation,
+      dartssh2 fingerprint-bytes semantics, no inline RegExp flags), so
+      an upgrade that silently invalidates an assumption fails CI
+      instead of relying on review memory.
 
 ## 6. What never to do — hard rules
 

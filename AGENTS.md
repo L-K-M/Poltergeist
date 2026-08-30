@@ -7,9 +7,10 @@ conventions this repo family shares.
 Poltergeist is a cross-platform two-pane file transfer client (SFTP first),
 patterned after Transmit and ForkLift, and a sibling of
 [Séance](https://github.com/L-K-M/Seance). The product design and the
-implementation plan live in [docs/plan/](docs/plan/) — start with the
-overview (the decision log); current status and the next-steps checklist
-live in [docs/STATUS.md](docs/STATUS.md).
+implementation plan live in [docs/plan/](docs/plan/) — start with
+[00-OVERVIEW.md](docs/plan/00-OVERVIEW.md) (the decision log); current
+status and the next-steps checklist live in
+[docs/STATUS.md](docs/STATUS.md).
 
 ## Repository layout
 

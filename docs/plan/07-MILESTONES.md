@@ -108,13 +108,17 @@ class BenchResult {
   final int bytes;
   final Duration elapsed;
   final double mbPerSec;
-  final String? note;         // negotiation details, failure text
+  final String? note;         // negotiation details, failure text,
+                              // the dartssh2/Séance revs under test
   Map<String, Object?> toJson() => {
         'scenario': scenario,
         'bytes': bytes,
         'elapsedMs': elapsed.inMilliseconds,
         'mbPerSec': mbPerSec,
         'note': note,
+        // Rows from different days/machines must stay attributable
+        // once the report merges them (and once M3 moves this to CI).
+        'timestampUtc': DateTime.now().toUtc().toIso8601String(),
       };
 }
 ```
@@ -454,6 +458,13 @@ disabled Continue.
       stay won (04 §3 tests).
 - [ ] A `flurb`-kind record survives rounds unmodified; a malformed known
       kind skips without aborting the round.
+- [ ] The enrollment security behaviors are tested: KDF downgrade
+      refused (`meetsMinimum()`), trial-decrypt before persisting (the
+      04 §4.5 foreign-record rule and push hold included), sync token
+      stored only in the OS keystore; the B→A switch flow (04 §4.4)
+      works end to end; Design A renders gated — disabled Continue —
+      until PR-S1's tag is recorded in
+      `kMinimumSharedAccountSeanceVersion`.
 - [ ] Design A against a patched Séance: catalog section renders, a
       Séance-pinned host connects with no TOFU prompt.
 - [ ] All 04 §4.3 strings verbatim in ARB; 403 `registration_closed`
@@ -526,15 +537,16 @@ golden-tested "Copy as rsync command" exporter (D6).
 - [ ] Sync scan ≥ 1 000 remote entries/s on LAN (P7 benchmark, D12).
 - [ ] Docker matrix includes the setstat-ignoring server; the `sizeOnly`
       fallback notice appears.
-- [ ] chown UI (D28) enabled if the pin carries `setOwner`; otherwise
-      ship without it and record the deferral in STATUS.md. "The pin" in
-      this criterion and the two above means the Goal's hard gate
-      satisfied — PR-S3 **merged** and the pin bumped to the merge. A
-      branch-rev pin of the filed PR-S3 unblocks the local↔local work
-      only, never these remote-gated criteria; if the merge has not
-      landed by milestone close, each is recorded as deferred in
-      STATUS.md (dated, with the branch rev noted), exactly like the M2
-      bridge record.
+- [ ] chown UI (D28) enabled if the **merged** PR-S3 pin carries
+      `setOwner`; otherwise ship without it and record the deferral in
+      STATUS.md.
+
+**Remote-gated criteria.** All three checkboxes above read "the pin" as
+the Goal's hard gate satisfied — PR-S3 **merged** and the pin bumped to
+the merge. A branch-rev pin of the filed PR-S3 unblocks the
+local↔local work only, never these criteria; if the merge has not
+landed by milestone close, each is recorded as deferred in STATUS.md
+(dated, with the branch rev noted), exactly like the M2 bridge record.
 
 **Risks.** The category's cardinal sin is a sync that surprises (01 §5
 trap 5). The executor runs exactly the reviewed plan and re-verifies per
@@ -602,7 +614,10 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
 - [ ] `docs/STATUS.md` flipped: v1.0 shipped, fast-follow list (§3.13) as
       the new next-steps.
 - [ ] PORTS.md swept; port-back issues filed upstream per 04 §6.
-- [ ] `scripts/release.sh 1.0.0 --push`; `release.yml` green; assets
+- [ ] `scripts/release.sh 1.0.0 --push` (the script takes the bare
+      version and tags `v1.0.0` itself — AGENTS.md's documented
+      convention, matching `release.yml`'s `v*` trigger); `release.yml`
+      green; assets
       install-tested on macOS, Windows, and one GNOME + one KDE Linux
       (fresh machines/VMs, following only the first-launch docs).
 - [ ] The mobile constraints memo (§5) reviewed once against the shipped
@@ -670,7 +685,8 @@ assets on `v*` tags; the work is everything around it.
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
-| M10 | SHA-256 checksums for every release asset published in the release notes; INSTALL.md explains how to verify — and says to fetch checksums **only from this repo's release notes**: the committed public keystore means any fork can build a correctly-signed APK that upgrades an install in place, so a matching Android signature proves nothing about origin. The release tag itself is signed (`git tag -s`, the maintainer's local key — never a CI secret) as a second origin channel alongside the notes |
+| any `v*` tag | SHA-256 checksums for every published asset land in that release's notes as a `release.yml` step — automated from the **first** tag that ships an APK, not an M10 chore: the committed public keystore means any fork can build a correctly-signed APK that upgrades an install in place from v0.1.0 onward, so the origin channel must exist as long as the artifacts do |
+| M10 | INSTALL.md explains how to verify the checksums — and says to fetch them **only from this repo's release notes** (a matching Android signature proves nothing about origin, per the row above). The release tag is signed (`git tag -s`, the maintainer's local key — never a CI secret); the signature attests the **source commit**, not the CI-built artifacts — absent reproducible builds, the release-notes checksums remain the only artifact-level origin channel, and INSTALL.md must not overstate what the tag signature proves |
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,

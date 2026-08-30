@@ -388,10 +388,28 @@ test/integration/
   keys/                     committed test-only user + host keys (incl.
                             the keyswap second host key) — generated
                             once, never by run.sh, never used anywhere
-                            but this loopback fixture
-  run.sh                    compose up → dart test --concurrency=1
-                            -t integration with the explicit package
-                            paths (prose below) → compose down via
+                            but this loopback fixture; a README in the
+                            dir marks every key fake/test-only, and the
+                            repo carries secret-scanner allowlist
+                            entries for them (GitHub push protection
+                            flags committed SSH private keys and would
+                            otherwise block the push — allowlisted,
+                            never "fixed" by deleting the keys, which
+                            would break TOFU determinism); sshd
+                            entrypoints chmod 0600 the mounted host
+                            keys, because git stores only the
+                            executable bit and OpenSSH refuses
+                            group-readable host keys
+  run.sh                    compose up -d, then wait for readiness —
+                            poll each loopback sshd port until it
+                            accepts TCP, or per-service compose
+                            healthchecks (`up` returns on container
+                            start, not sshd listening: skipping the
+                            wait is the classic first-test
+                            connection-refused flake) — then dart test
+                            --concurrency=1 -t integration with the
+                            explicit package paths (prose below) →
+                            compose down via
                             `trap … EXIT` (test exit code propagated)
 ```
 
@@ -416,12 +434,22 @@ compose stack, exports `POLTERGEIST_SSHD=127.0.0.1` plus one variable
 per service (`POLTERGEIST_SSHD_MODERN=2201`, `…_LEGACY=2202`, and so on)
 so tests never hardcode the port map, and runs
 `dart test --concurrency=1 -t integration packages/poltergeist_core
-packages/poltergeist_sync` — serialized on purpose: the pool suite
+packages/poltergeist_sync` (a multi-package invocation from the repo
+root, which works because the root **is** a pub workspace whose shared
+package config covers both members — AGENTS.md's layout; under any
+per-package resolution instead, run.sh would loop the same command
+inside each package in turn, preserving the serialization) —
+serialized on purpose: the pool suite
 docker-stops a shared service and the keyswap fixture swaps
 `sshd-modern` out entirely, so concurrent suites would flake each other.
 Every suite that stops or swaps a service **restores the original stack
-in `tearDownAll`** — the keyswap suite in particular restarts
-`sshd-modern`, or every later suite dialing `…_MODERN` meets a changed
+in `tearDownAll`** — the keyswap suite in particular must stop
+`sshd-keyswap` **before** starting `sshd-modern`: both publish host
+port 2201, so starting `sshd-modern` while keyswap still binds the port
+makes the new container fail to bind and exit, leaving 2201 serving the
+swapped key — the literal "restart sshd-modern" reading reintroduces
+the exact failure this paragraph guards. Skip either step and every
+later suite dialing `…_MODERN` meets a changed
 host key and hard-blocks (D18), a deterministic order-dependent red that
 would masquerade as flake. Teardown of the whole stack still runs from a
 `trap … EXIT` so an interrupted run never leaks the
