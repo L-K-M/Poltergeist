@@ -56,6 +56,15 @@ Every open question from the research phase is resolved here, once. Chapters
 elaborate these decisions; they do not reopen them. Changing a decision means
 editing this file (with rationale) in the same PR as the change.
 
+Quick index: D1 monorepo · D2 code sharing · D3 one VFS · D4 bookmark
+sync · D5 shell-less transport · D6 sync engine · D7 hashing · D8
+isolates · D9 M0 spike · D10 agent/ProxyJump · D11 design language ·
+D12 perf budgets · D13 single window · D14 drag & drop · D15 trash ·
+D16 activity panel · D17 editor · D18 security model · D19 trust
+stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
+D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
+permissions · D29 mobile hooks · D30 Séance license
+
 ### Stack and shape
 
 - **D1 — Flutter/Dart monorepo mirroring Séance.** `packages/` (pure Dart) +
@@ -140,7 +149,10 @@ editing this file (with rationale) in the same PR as the change.
   servers, sftp-only chroots, busybox NAS), bypasses the in-app auth/TOFU
   stack, and breaks the preview-equals-execution promise. The user-suggested
   rsync idea ships as **"Copy as rsync command"**: renders the pair's
-  ruleset as the equivalent rsync invocation; manual per-item overrides are
+  ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
+  exporter contract owns the specifics (POSIX single-quoting of every
+  path and argument, hazard `# note:` lines, golden-tested); manual
+  per-item overrides are
   annotated in a comment, never compiled into filters. An opt-in rsync
   accelerator remains a documented v2 possibility, driven per-item from our
   own plan; it may never be needed. Full analysis: 05.
@@ -150,7 +162,12 @@ editing this file (with rationale) in the same PR as the change.
   setting; `contentHash` comparison mode), pending D8/D9 measurements.
 - **D15 — One trash story.** Local deletions go to the OS trash via a thin
   in-repo plugin (macOS `FileManager.trashItem` with Put Back; Windows
-  `IFileOperation`+`FOF_ALLOWUNDO` via `win32` FFI; Linux `gio trash`).
+  `IFileOperation`+`FOF_ALLOWUNDO` via `win32` FFI; Linux `gio trash`,
+  behind a detected-once capability probe: where the `gio` binary is
+  absent — minimal distros — the plugin falls back to
+  confirm-then-permanent with a one-time notice, never a crash and never
+  an unconfirmed permanent delete; 07 §6 risk 10 pre-authorizes the same
+  fallback per platform).
   Remote deletions from browsing default to confirm-then-permanent
   (Transmit's model) with a per-server opt-in "move to `.poltergeist-trash/`
   instead"; sync deletions *and* the previous versions of files sync
@@ -158,6 +175,12 @@ editing this file (with rationale) in the same PR as the change.
   trash (overwrite backups sit behind their own explicit `backups` knob,
   independent of the deletion policy — 05). One directory name everywhere;
   default ignore rules exclude `.poltergeist*` and `*.poltergeist-*`.
+  Sync trash is never reclaimed as a side effect — retention is 05 §8
+  rail 5's story: a plan-time notice surfaces trash older than 30 days
+  (orphaned, journal-less run directories included, aged by mtime) with
+  a user-confirmed purge, plus the explicit `sync.purgeTrash` command —
+  accumulation is visible and reclaim is always a deliberate act,
+  matching the no-unguarded-deletes rule (09 §6).
 
 ### Engine and performance
 

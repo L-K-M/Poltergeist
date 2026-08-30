@@ -18,7 +18,7 @@ Séance, the personal SSH client, and reuses Séance's transport, TOFU security,
 encrypted sync, and editor foundations (D2, D3, D18) rather than reinventing
 them. It is desktop software in the classic sense: one honest window, no
 account, no telemetry, no server component of its own — bookmark backup rides
-the Séance sync server the user already runs (D4, D19, D23).
+a Séance sync server the user may already run (D4, D18, D19).
 
 The one-sentence product, verbatim from the overview:
 
@@ -298,11 +298,19 @@ suggest the Unlicense to match, keeping the whole family friction-free.
 This is tracked as a Séance-side prerequisite in 04's upstream-work section;
 the porting ledger (`docs/PORTS.md`, per D2) records provenance for every
 ported file regardless. Until Séance's license lands, git-depending on
-pinned tags may proceed — release binaries embedding the pinned code
-included — because both repos share **one rights holder**, who needs no
-license from themselves to build or distribute their own code; the
+pinned tags may proceed for development and CI — both repos share **one
+rights holder**, who needs no license from themselves to build their own
+code — but *publishing* release binaries that embed the pinned code
+waits for the license too: this repo's Unlicense dedication grants third
+parties no rights to the embedded Séance code, and §6's "do anything you
+like with it" must never ship on an artifact it does not cover. In the
+planned sequence this gate never actually bites — the first milestone
+whose shipped app consumes Séance code is M2, and M2 already hard-gates
+on PR-S0 landing (07 §2) — the sentence exists so a schedule change
+cannot quietly falsify the trust copy. The
 LICENSE is what any *third party* needs to consume, fork, or
-redistribute either repo, and what the copy-with-attribution step waits
+redistribute either repo or anything built from it, and what the
+copy-with-attribution step waits
 for as a provenance-hygiene matter. No Séance source is copied into
 Poltergeist before it lands —
 sequencing that D2's copy-with-attribution step must respect.
@@ -328,8 +336,11 @@ sequencing that D2's copy-with-attribution step must respect.
 - Every v1 non-goal carries user-facing reasoning and its deferral home
   (decision + chapter/milestone); D10 and D26 are explicitly distinguished
   from non-goals.
-- License posture states the Unlicense and the D30 Séance sequencing rule
-  (no source copied before Séance licenses).
+- License posture states the Unlicense for Poltergeist's original code —
+  ported Séance files additionally follow the PORTS.md provenance
+  convention and whatever license Séance declares — and the D30 Séance
+  sequencing rule (no Séance source is copied until the D30 license PR,
+  PR-S0, is merged on Séance `main`).
 
 ## Explicitly out of scope
 
