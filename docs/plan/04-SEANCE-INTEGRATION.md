@@ -244,14 +244,18 @@ asking what a wrong guess would cost.
   bookmark to an attacker host, which then collects a first-seen TOFU
   pin and the vault-resolved credential (§3.2's pin quarantine cannot
   catch this: the *new* host:port has no local pin to conflict with).
-  Resolution is therefore **endpoint-pinned per device**: when a
-  bookmark is created from the catalog, the picked
+  Resolution is therefore **endpoint-pinned per device, checked at
+  connect time, record-agnostically**: when a bookmark is created (from
+  the catalog or with an embedded identity), the resolved
   `(host, port, username)` is recorded device-locally (§2.3 — never
-  synced), and a later resolution whose catalog endpoint differs
-  requires explicit confirmation naming the old and new endpoints
-  **before any connection, TOFU prompt, or credential resolution** — a
-  silently changed endpoint never sees a credential. Confirming updates
-  the recorded endpoint; a legitimate edit made in Séance costs one
+  synced), and any later connect whose resolved endpoint differs —
+  whether the change arrived through a `serverConfig` edit *or a
+  rewritten `bookmark:` record*, a kind Poltergeist devices
+  legitimately write and a compromised one could LWW-rewrite just as
+  effectively — requires explicit confirmation naming the old and new
+  endpoints **before any connection, TOFU prompt, or credential
+  resolution**: a silently changed endpoint never sees a credential.
+  Confirming updates the recorded endpoint; a legitimate edit costs one
   confirmation per device, the same price the §3.2 quarantine already
   sets for a changed key.
 - `EmbeddedHostIdentity` is written for servers created inside Poltergeist,
