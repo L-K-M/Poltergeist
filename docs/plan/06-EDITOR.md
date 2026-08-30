@@ -86,8 +86,10 @@ differently"):
 Line endings are re-normalized on save (fold to `\n`, expand to CRLF only
 when the target ending is CRLF) and the BOM re-prepended — what the user
 edits is always LF/no-BOM in memory; the disk form is reconstructed.
-**Round-trip byte fidelity is a tested feature**, asserted byte-for-byte in
-the ported tests.
+**Round-trip byte fidelity is a tested feature** for files with a single
+dominant line ending, asserted byte-for-byte in the ported tests; a file
+with mixed endings (or lone `\r`) is normalized to its majority ending on
+first save, and that normalization is itself pinned by a test.
 
 Sibling temp names change spelling only: `file.poltergeist-<uuid>.edit` and
 `file.poltergeist-<uuid>.backup` (the `.seance-` → `.poltergeist-` rename
@@ -135,7 +137,11 @@ BuiltInTextEditorScreen({
   required File file,           // local file or managed checkout
   String? remotePath,           // display + language detection only
   String? initialText,          // test seam: skips disk I/O
-  Future<String> Function(File, String)? saveDocument, // overrides atomic saver
+  // TEST-ONLY seam, as in Séance: overrides the atomic saver wholesale,
+  // bypassing BOM/CRLF reconstruction and the expectedSha256 conflict
+  // check. Production code never passes it — the screen always saves via
+  // saveBuiltInTextDocument (§2.1), so the conflict-check path stays live.
+  Future<String> Function(File, String)? saveDocument,
   Future<void> Function()? onSaved,     // post-save reconcile hook
   Future<bool> Function()? onUpload,    // save-and-upload; null = local-only
   // Poltergeist parameterization (Séance hardcodes these):
@@ -147,7 +153,8 @@ BuiltInTextEditorScreen({
 
 For a remote checkout, the caller wires
 `onUpload: () => checkoutManager.uploadLocalCopy(copy, ...)` and
-`onSaved: checkoutManager.reconcile` — the pipeline of §3. For a local
+`onSaved: () => checkoutManager.reconcile(copy)` (the per-copy reconcile,
+§3.1) — the pipeline of §3. For a local
 file, `onUpload` is null and the upload UI disappears. The screen keeps
 `PopScope(canPop: !dirty)` with the "Discard unsaved changes?" dialog, the
 two-line AppBar title (basename over the full path in `labelSmall`), and
@@ -171,6 +178,9 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
 
   The upload reconciles the copy itself; `onSaved` runs only when the
   upload did not (returned false or threw — hence the `finally`).
+  `onSaved` implementations must not throw: an exception there would
+  replace the original upload error (Dart `finally` semantics), so
+  `reconcile` swallows and logs its own failures.
 - Edits made during a save stay unsaved: `_savedText` is set to the value
   captured at save start so the dirty flag re-arms (the ported widget test
   with two `Completer`s guards this race).
@@ -184,7 +194,7 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   |---|---|
   | uploaded, user typed during upload | `Uploaded the saved version; newer edits remain unsaved.` |
   | uploaded, clean | `Saved and uploaded.` |
-  | upload returned false | `Saved locally; not uploaded.` |
+  | upload returned false | `Saved locally; not uploaded.` — accompanied by the §3.4 conflict-escalation dialog when the cause was a remote change (false is also the result of cancelling that dialog); never a dead end |
   | no upload requested (local-only) | `Saved locally.` |
 
 ### 2.5 Port mechanics: renames and PORTS.md entries
@@ -197,8 +207,8 @@ its Séance tests in the same PR. The only allowed divergences at port time:
 | `lib/ui/built_in_text_editor.dart` | `lib/ui/built_in_text_editor.dart` | temp suffixes `.poltergeist-*`; toast/mono/basename injected as parameters (§2.3) |
 | `lib/ui/editor_syntax.dart` | `lib/ui/editor_syntax.dart` | Poltergeist theme values; §7 language additions |
 | `lib/services/managed_remote_file.dart` | `lib/services/managed_remote_file.dart` | none |
-| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`) |
-| `lib/services/atomic_file.dart` | `lib/services/atomic_file.dart` | temp suffix parameterized (03 §8.2's own example) |
+| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch-gated orphan sweep** (§3.6 — fixes Séance issue #55, port-back candidate) |
+| `lib/services/atomic_file.dart` | `lib/services/atomic_file.dart` | temp suffix parameterized (03 §8.2's own example); `quarantineCorruptFile` gets a timestamp suffix (§3.6, port-back candidate) |
 | `lib/services/external_file_opener.dart` | `lib/services/external_file_opener.dart` | channel `poltergeist/files`; reserved ids `poltergeist.system` / `poltergeist.builtin` |
 
 `EditorRegistry`, `ExternalEditorDefinition`, `validateEditorDisplayName`,
@@ -225,7 +235,9 @@ class CheckoutManager extends ChangeNotifier {
     required TransferProducer producer,      // priority downloads (03 §4.7)
   });
 
-  /// Live records for one server, keyed by remote path.
+  /// Live records for one server, keyed by remote path — an unmodifiable
+  /// view (Map.unmodifiable): mutation goes through the APIs below, never
+  /// around notifyListeners.
   Map<String, ManagedRemoteFile> copiesFor(String serverId);
 
   Future<ManagedRemoteFile> checkout(String serverId, RemoteFileEntry entry,
@@ -234,6 +246,7 @@ class CheckoutManager extends ChangeNotifier {
       {bool overwriteRemoteChanges = false});
   Future<void> discard(ManagedRemoteFile copy);      // plaintext, then record
   Future<void> acceptLocal(ManagedRemoteFile copy);  // store.updateBaseline
+  Future<void> reconcile(ManagedRemoteFile copy);    // one copy; never throws
   Future<void> reconcileAll();                       // resume/foreground hook
 }
 ```
@@ -259,7 +272,13 @@ class CheckoutManager extends ChangeNotifier {
 1. Regular files only; symlinks and directories refuse with the typed
    `unsupported` error. In-flight de-dup per remote path
    (`putIfAbsent`-style flight map); an existing checkout for the path is
-   returned as-is.
+   returned as-is **only when it satisfies the caller's `maximumBytes`**
+   (checked against `remoteSnapshot.size`; otherwise refuse with the §1
+   too-large reason string — the built-in editor's loader re-enforces the
+   cap at open as the final guard, but the early refusal beats
+   open-then-refuse). Flight-map entries are removed on failure or
+   cancellation so concurrent waiters retry instead of observing a dead
+   future.
 2. Create the checkout file `exclusive: true` after safe-parent creation
    (no symlink traversal — `ensureSafeLocalDirectory`, 03 §2.3).
 3. Download as a **priority task through the transfer queue** so it is
@@ -267,7 +286,12 @@ class CheckoutManager extends ChangeNotifier {
    never invisible I/O. When the destination is the built-in editor, the
    caller passes `maximumBytes: builtInEditorMaximumBytes` and the stream
    is capped by the ported `_MaximumByteSink` (pre-checked against
-   `entry.size` too). External-editor checkouts pass no cap.
+   `entry.size` too). External-editor checkouts pass no per-editor cap,
+   but **every checkout preflights free space** on the app-support volume
+   against `entry.size` (refusing with a clear message when it won't
+   fit), and a checkout larger than the §8 large-download confirmation
+   threshold (default 100 MiB, shared with preview) asks before queueing:
+   `Download 240 MB to edit "access.log"?`.
 4. Record `ManagedRemoteFile{id: uuidV4(), serverId, editSessionId:
    serverId, remotePath, localPath, remoteSnapshot (the download's entry
    with its streamed `contentSha256`), baselineSha256:
@@ -292,7 +316,17 @@ Kept exactly from Séance (03 §7.5 already reserves this design):
 - A copy turning dirty queues a **12 s action toast**:
   `"nginx.conf" changed locally. Upload it?` with an `Upload` action —
   guarded by prompted/uploading sets so a built-in save-and-upload racing
-  the watcher never shows a stale prompt.
+  the watcher never shows a stale prompt. Because the toast is transient,
+  dirty copies also raise a **persistent indicator**: a per-file badge on
+  the entry in any pane showing it, plus a pane-header chip
+  `2 local edits` that opens the §3.7 review dialog — both clear only on
+  upload, accept, or discard, so unsaved edits are never invisible during
+  a live session.
+- Reconcile events for basenames matching the `.poltergeist-` temp
+  convention are ignored by the debouncer, so an upload cycle's own
+  snapshot create/delete (§3.4 step 1) never triggers a needless full
+  re-hash of the unchanged checkout (a small divergence from Séance,
+  PORTS-noted, port-back candidate).
 - **External saves are never auto-uploaded.** The built-in editor's ⌘S is
   the one explicit save-and-upload; everything else asks first.
 
@@ -313,9 +347,13 @@ escalation), lifted whole:
    locally.`
 3. Upload with `overwrite: true`, `preserveMode: snapshot.mode`, and
    `expectedTarget: overwriteRemoteChanges ? null : copy.remoteSnapshot` —
-   the adapter's CAS then re-verifies the remote content hash (the
-   snapshot carries `contentSha256`), closing SFTP v3's 1-second mtime
-   granularity hole. The task runs on the queue as a priority upload.
+   because the snapshot carries `contentSha256`, the ported adapter's CAS
+   **re-reads and stream-hashes the remote target before commit** (SFTP
+   has no server-side hash primitive, so verification is a full remote
+   read, cost proportional to file size — small for checkout-class files,
+   and the only way to close SFTP v3's 1-second mtime granularity hole;
+   kept unconditional, matching Séance). The task runs on the queue as a
+   priority upload.
 4. After success: baseline := the snapshot's digest; `dirty` recomputed
    against the *current* local file (typing during upload keeps the copy
    dirty and the prompt machinery live); record updated in the store;
@@ -352,11 +390,24 @@ kind surfaces normally (toast + activity-panel row).
 The ported `ManagedRemoteFileStore` keeps every rule; the one that must
 never regress is called out by name in review:
 
-- **Quarantine, never sweep**: a corrupt index is quarantined via
-  `quarantineCorruptFile` (kept as `managed_remote_files.json.corrupt`) and
-  unindexed checkout directories are **not** swept — any of them may hold
-  the only copy of an edit. Only a healthy load sweeps orphaned checkout
-  dirs.
+- **Quarantine, never sweep — hardened with epoch gating.** A corrupt
+  index is quarantined via `quarantineCorruptFile` — with a timestamp
+  suffix (`managed_remote_files.json.<utc-stamp>.corrupt`) so a second
+  corruption never destroys the first quarantined evidence (deliberate
+  divergence from the ported helper; PORTS-noted) — and unindexed
+  checkout directories are **not** swept: any of them may hold the only
+  copy of an edit. The ported logic alone does not keep that promise
+  past one launch — after quarantine the index file is gone, the next
+  load looks "healthy empty", and Séance's sweep would delete every
+  pre-quarantine checkout (filed upstream as
+  [Séance #55](https://github.com/L-K-M/Seance/issues/55)). Poltergeist
+  closes the hole with **epoch-gated sweeping**: the index carries a
+  generation id, every checkout dir records its creation epoch in a
+  marker file, and the sweep removes only current-epoch dirs the parsed
+  index does not reference. A fresh index (post-quarantine or first run)
+  starts a new epoch, so older dirs persist until the user discards them
+  through §3.7's review dialog, which lists old-epoch dirs as recovered
+  files. Port-back candidate.
 - All ops serialized through the promise-chain mutex; index written with
   `writeStringAtomically`; rollback-on-flush-failure for put/update/remove;
   `remove` deletes the plaintext before the index entry (never orphan a
@@ -379,7 +430,10 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
   `Open` (built-in editor on the checkout, works offline), `Upload`
   (disabled while disconnected, tooltip `Connect to upload`), `Discard…`
   (confirms; deletes plaintext then record). A `missing` copy offers
-  `Forget` instead of Open/Upload.
+  `Forget` instead of Open/Upload. Old-epoch checkout dirs (§3.6 — files
+  recovered from before an index corruption, so no record metadata
+  exists) appear in a `Recovered files` section with the file name and
+  `Open` / `Discard…` only.
 - Nothing auto-uploads on reconnect — same rule as §3.3.
 
 ## 4. External editors (R9)
@@ -479,13 +533,15 @@ window-level rightmost panel, sized by the adaptive-layout allocator
 (02 §1), hidden by default, toggled by `view.togglePreview`
 (⌥⌘P / Ctrl+Alt+P); on Windows/Linux, Space opens it focused on the
 selection and Space again closes it — Quick Look cadence without Quick
-Look. It tracks the focused pane's single selected entry (multi-selection
-shows a count + total size summary instead).
+Look. It tracks the focused pane's focused entry; on multi-selection it
+previews the focused item — matching §5.1's Quick Look behavior on every
+platform — with the count + total size summary shown as a header above the
+preview.
 
 | Kind (by extension) | v1 rendering | Guards |
 |---|---|---|
-| Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, with a `Preview truncated — Open in editor` bar; loader errors show the §1 reason strings |
-| Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MB file size — metadata card instead |
+| Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings |
+| Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MiB file size — metadata card instead; for remote files the refusal is applied from the known remote size *before* any download is queued |
 | PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages; page count shown |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
 
@@ -501,12 +557,19 @@ in-flight preview work via `RemoteTransferCancellation`.
   a latency-prone pane must never generate surprise traffic.
 - Downloads go through the queue as priority tasks (visible, cancellable)
   into `<app-support>/preview-cache/`, file name
-  `<sha256(serverId + '\n' + remotePath + '\n' + mtime + '\n' + size)>`
-  plus the original extension (Quick Look and image decoding both key type
-  off the extension). The mtime+size key makes staleness self-invalidating.
+  `<sha256(jsonEncode([serverId, remotePath, mtime, size]))>` plus the
+  original extension (Quick Look and image decoding both key type off the
+  extension). JSON-encoding the fields keeps the key unambiguous — remote
+  paths may legally contain `\n`. The mtime+size key self-invalidates on
+  change, except a same-second, same-size rewrite (SFTP v3 mtime is
+  second-granular) — a documented residual race, accepted in v1.
+- A kind whose row above refuses from metadata alone (oversized image, the
+  metadata-card row) never downloads at all — the guard runs against the
+  known remote size before anything is queued.
 - Cache is LRU-capped at 512 MiB (setting, §8) with a `Clear Preview
-  Cache` button; files over 100 MiB (setting) ask before downloading:
-  `Download 240 MB to preview "backup.tar"?` → `Download` / `Cancel`.
+  Cache` button; files over the §8 large-download threshold (default
+  100 MiB) ask before downloading:
+  `Download 240 MB to preview "panorama.pdf"?` → `Download` / `Cancel`.
 - The cache directory is preview-only plumbing: never watched, never
   reconciled, never uploadable — editing goes through §3's checkouts
   exclusively.
@@ -522,10 +585,12 @@ text handling (BOM/CRLF, limits, mono rendering) is the editor stack's job.
 **v1 — side-by-side view.** Two read-only viewer columns (document layer +
 syntax engine + find bar each), headers showing side label, full path,
 size, and mtime. Remote sides are produced into the preview cache (§5.3)
-first, with the same explicit-progress rules. Each side loads through
-`loadBuiltInTextDocumentDetails` with the 4 MiB/UTF-8 limits; a side that
-refuses to load renders its §1 reason string in place, leaving the other
-side readable. A notice chip surfaces differences the text view cannot
+first, with the same explicit-progress rules — including the §8
+large-download confirmation — and a side whose known remote size already
+exceeds the 4 MiB loader cap is refused *before* any download is queued.
+Each side loads through `loadBuiltInTextDocumentDetails` with the
+4 MiB/UTF-8 limits; a side that refuses to load renders its §1 reason
+string in place, leaving the other side readable. A notice chip surfaces differences the text view cannot
 show: `Line endings differ: LF vs CRLF` and `BOM differs` (majority-vote
 normalization would otherwise hide exactly those diffs). Scrolling is
 independent in v1; no change detection is claimed.
@@ -557,10 +622,10 @@ PORTS.md (R10).
 
 | Addition | Kind | Detection | Declaration notes |
 |---|---|---|---|
-| css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant |
+| css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments |
 | ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
 | perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
-| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments, `[[ ]]` multiline strings, keywords |
+| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — declared before the multiline-string rule so `--[[` wins over `[[` — `[[ ]]` multiline strings, keywords; the smoke test must pin both `--[[ comment ]]` and plain `[[ string ]]` |
 | Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments and `[section]` meta cover it |
 
 Already covered upstream, no change needed: `php` maps to the c-family
@@ -591,8 +656,10 @@ Sections (each with the `?` help-dialog affordance):
   Windows/Linux. Validation errors (bad path, non-`.exe` on Windows, too
   many extensions) render inline under the row.
 - **Preview** — preview-cache size limit (default 512 MiB), `Clear
-  Preview Cache` (shows reclaimed bytes in a toast), and the remote
-  preview confirmation threshold (default 100 MiB).
+  Preview Cache` (shows reclaimed bytes in a toast), and the
+  **large-download confirmation threshold** (default 100 MiB) — one
+  setting shared by remote previews (§5.3), compare sides (§6), and
+  external-editor checkouts (§3.2).
 
 `Open With ▸ Configure Editors…` and the §3.7 review dialog deep-link here
 via `openSettings(initialTab:)` (Séance's deep-link pattern). Editor
@@ -611,11 +678,15 @@ preference.
       toast matrix verified by widget tests using injected
       `saveDocument`/`onUpload` fakes; toast strings match verbatim.
 - [ ] `CheckoutManager` implements §3: per-server ownership
-      (`editSessionId = serverId`), queue-visible checkouts, 600 ms
-      parent-dir watch reconcile, dirty/missing invariant, 12 s prompt
-      with race guards, snapshot-first upload with CAS + escalation
-      dialog, rename migration (file and subtree), delete-keeps-checkout,
-      quarantine-never-sweep untouched.
+      (`editSessionId = serverId`), queue-visible checkouts with the
+      dedup-hit size check and flight-map cleanup, free-space preflight +
+      large-download confirmation, 600 ms parent-dir watch reconcile with
+      the `.poltergeist-` event filter, dirty/missing invariant, 12 s
+      prompt plus the persistent badge/chip indicator, snapshot-first
+      upload with CAS + escalation dialog, rename migration (file and
+      subtree), delete-keeps-checkout, and **epoch-gated
+      quarantine-never-sweep** (a regression test covers
+      corrupt → restart → no pre-quarantine dir deleted).
 - [ ] Recovered-edits banner + review dialog work with the server
       disconnected (open/discard offline; upload disabled with reason).
 - [ ] External editors: registry ported with `external_file_opener.dart`
