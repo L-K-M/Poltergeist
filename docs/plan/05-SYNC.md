@@ -64,8 +64,10 @@ per side; the app layer resolves `BookmarkServerRef` → identity before
 calling. `manualOverrides > 0` emits the per-item-override comment below.
 Output layout is part of the golden contract: all `# note:` comment lines
 first (auth caveat, override count, approximation notes, in the order the
-rules below introduce them), then the commented dry-run variant, then the
-real command:
+rules below introduce them — every "note comment" in the table lands in
+this leading block, never after a command), then the commented dry-run
+variant, then the real command (two dry-run/command pairs, one per
+direction, in the Additive case):
 
 ```
 # Preview first (matches Poltergeist's plan):  rsync -n -i <flags…> SRC DST
@@ -82,7 +84,7 @@ Flag mapping from `SyncRuleSet` (§6):
 | `comparison: sizeOnly` | `--size-only` | |
 | `comparison: contentHash` | `-c` | |
 | Update mode | no delete flag | rsync's default |
-| Mirror mode | `--delete-delay` | deletions after transfers — same ordering as our executor (§6) |
+| Mirror mode | `--delete-delay` | deletions after transfers — same order as our executor (§6), but rsync still deletes after failed transfers where our executor skips the whole delete phase; emit an approximation `# note:` saying so |
 | `maxDelete` | `--max-delete=500` | verbatim value |
 | `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` (or the pair's `trashPath` when set, §8 rail 5) | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so |
 | `deletions: permanent` + `backups: trash` | `--backup --backup-dir='…'` as above | approximation in the safe direction: rsync's backup-dir also rescues the *deleted* files the plan would delete permanently, so the export deletes less than the plan — the comment must say so |
@@ -91,12 +93,18 @@ Flag mapping from `SyncRuleSet` (§6):
 | `includeHidden: false` | `--exclude='.*'` | |
 | `symlinks: skip` | no `-l` | rsync without `-l` skips symlinks with a warning — same behavior |
 | Additive two-way | two commands, each direction with `-u` and no delete flag | preceded by `# note: -u approximates conflicts as newer-wins; Poltergeist surfaces them instead` |
-| `transferConcurrency` | not representable | trailing comment: `# note: rsync is single-stream` |
-| `acceptedTimeShifts` | not representable beyond `--modify-window` | trailing comment when non-empty |
+| `transferConcurrency` | not representable | note comment: `# note: rsync is single-stream` |
+| `acceptedTimeShifts` | not representable beyond `--modify-window` | note comment when non-empty |
 
 Additional rules:
 
 - Paths are POSIX single-quoted; embedded `'` becomes `'\''`.
+- A local **Windows** path is not directly runnable by Cygwin/cwRsync/MSYS
+  rsync builds (`C:\Users\me\blog` needs `/cygdrive/c/Users/me/blog` or a
+  build-specific prefix); the exporter renders the path as-is and emits
+  `# note: adjust the local Windows path for your rsync build` — the
+  spec deliberately does not pick one build's convention. The golden
+  fixtures include a Windows-local pair.
 - A remote side on a nonstandard port renders `-e "ssh -p <port>"` — the
   port travels in `ResolvedSyncEndpoints` and must reach the command, or
   the copy silently talks to port 22.
@@ -180,8 +188,9 @@ concurrently in the engine isolate (D8).
   size, and `|mtimeLeft − mtimeRight| ≤ mtimeToleranceSecs` (default **2 s**).
   SFTP v3 mtimes are a uint32 of *whole seconds* (dartssh2 exposes
   `attrs.modifyTime` in seconds; Séance converts via `_timeFromSeconds`;
-  the uint32 wraps in 2038, so remote mtimes are clamped to the
-  representable range before storage in `EntrySnapshot.mtimeSecs` and the
+  a uint32 seconds field wraps in 2106 — not 2038, that is the signed
+  boundary — so remote mtimes are clamped to the uint32-representable
+  range [0, 2^32−1] before storage in `EntrySnapshot.mtimeSecs` and the
   journal), so
   **both sides are truncated to whole seconds before comparing** and no
   sub-second expectation is ever stored about a remote file. Optional
@@ -212,6 +221,11 @@ Unix and no-op on Windows (03 §2.2's local-mode rule). This is what
 `setTimes` is the D3 additive method: `LocalFileSystem` implements it from
 day one, the remote side gates on the upstream Séance PR and pin bump
 (03 §2.4); the remote-sync milestone in 07 sequences after that bump.
+Setting `preserveMtime: false` (§6) forces the pair's comparison to
+`sizeOnly` with the same visible plan-header notice as the setstat
+fallback below — a `sizeAndMtime` pair that stamps transfer-time mtimes
+would re-flag every copied file as newer forever, the classic
+never-converging sync.
 
 **Verification and the setstat fallback.** After `setTimes`, the executor
 re-stats and journals the *observed* mtime. Some servers ignore or clamp
@@ -219,7 +233,10 @@ setstat (chrooted or read-mostly setups). If the observed value differs from
 the requested one beyond the tolerance, the item is journaled with
 `setstatIgnored: true`; at run end the pair's local metadata (§9) records
 `mtimeUnreliable: true`. From then on plans for that pair compare
-**`sizeOnly` automatically**, with a visible notice line in the plan header:
+**`sizeOnly` automatically** — only when the pair's mode is
+`sizeAndMtime`; an explicit `contentHash` opt-in is never downgraded
+(hashes don't depend on mtimes, and D7's thorough-mode contract holds) —
+with a visible notice line in the plan header:
 `This server does not keep modification times — comparing by size only.`
 (pair settings offer an override back to `sizeAndMtime`). Because observed
 mtimes are journaled, the run never flags phantom changes on the next
@@ -333,7 +350,10 @@ class SyncRuleSet {
                                          // set = out-of-root trash (§8 rail 5)
   final int maxDelete;                   // hard cap; default 500
   final double deleteFractionWarn;       // default 0.5 -> typed confirm (§8)
-  final bool preserveMtime;              // default true
+  final bool preserveMtime;              // default true; false forces the
+                                         // pair to sizeOnly (§4) — sizeAndMtime
+                                         // never converges without preserved
+                                         // mtimes
   final int transferConcurrency;         // default 4, clamp 1..8
 }
 
@@ -419,14 +439,24 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    `Skipped: earlier errors in this run`, and the summary says so.
 4. **Kind changes pre-delete.** When an item's effective action creates a
    file or directory at a path whose destination entry has a different kind
-   (`typeDiffers` resolved via override or `ConflictDefault`), the executor
-   removes the destination entry first — honoring `DeletionPolicy`/trash,
-   deepest-first for a directory being replaced by a file — then performs
+   (`typeDiffers` resolved to a copy/mkdir), the executor
+   removes the destination entry first — honoring `DeletionPolicy`/trash
+   (in a no-delete mode the removal always goes to trash: there is no
+   permanent-delete opt-in to honor there), deepest-first for a directory
+   being replaced by a file — then performs
    the makeDir/copy. The removal and creation stay one plan item so the
    preview remains one row per path (a mkdir over an existing file, or a
    file write onto an existing directory, would otherwise fail and trip
    rule 3's deletion skip). Pre-delete removals count toward `maxDelete`
-   and the delete-fraction warning exactly like delete-phase items.
+   and the delete-fraction warning exactly like delete-phase items, render
+   red, and suppress the header's green no-deletion tail (§7, §8 rail 2).
+   Who may resolve `typeDiffers` to a copy differs by mode: in Mirror,
+   `ConflictDefault` and per-item overrides both may; in the no-delete
+   modes (Update, Additive — `deletions: none`) an automatic
+   `ConflictDefault` resolves `typeDiffers` to **skip** and only an
+   explicit per-item override authorizes the pre-delete — a mode whose
+   header can promise "nothing deleted" never removes anything without
+   the user having picked that row by hand.
 
 ## 7. Preview UX — the plan view
 
@@ -445,10 +475,20 @@ patterns (placeholders in braces; destination rendered as
 
 - Base: `Copy {n} new files ({bytes}) and update {m} on {destination}.`
   (omit either clause when its count is zero).
-- No deletions (green-tinted tail): `Nothing will be deleted.`
+- No deletions (green-tinted tail): `Nothing will be deleted.` — rendered
+  only when the plan holds no delete-phase items *and* no kind-change
+  pre-deletes (§6 rule 4); a plan that removes anything never shows it.
 - With deletions (red-tinted clause):
-  `Delete {k} files on {side} (moved to .poltergeist-trash).` — or
+  `Delete {k} files on {side} (moved to trash at {trashLocation}).` — or
   `Delete {k} files on {side} permanently.` for the opt-out.
+  `{trashLocation}` renders the in-root `.poltergeist-trash` default or
+  the pair's out-of-root `trashPath` (§8 rail 5), so the sentence always
+  says where the files went; the §11 header goldens cover both.
+- Kind-change pre-deletes (§6 rule 4, red-tinted clause):
+  `Replace {j} items of a different kind on {side} (previous versions
+  moved to trash at {trashLocation}).` — the parenthetical becomes
+  `(previous versions deleted permanently)` under Mirror's permanent
+  opt-in; in no-delete modes it is always the trash form (rule 4).
 - Conflicts (amber clause): `{c} conflicts need a decision.`
 - Nothing to do: `Both sides match. Nothing to do.`
 - sizeOnly fallback notice (§4) renders as its own line under the sentence.
@@ -509,8 +549,16 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    executor executes exactly `plan.items` with `effective` actions. (An
    "auto-run when no deletes/conflicts" preference is a possible later
    addition, not v1.)
-2. **No-delete default.** Update is the default mode; deletions exist only
-   in Mirror and are red, counted, and named in the header sentence.
+2. **No-delete default.** Update is the default mode; delete-*phase*
+   items exist only in Mirror and are red, counted, and named in the
+   header sentence. The one removal a no-delete mode can perform is §6
+   rule 4's kind-change pre-delete, and only when the user explicitly
+   overrides that row to a copy/mkdir — automatic `ConflictDefault`
+   resolution executes `typeDiffers` as skip in no-delete modes (rule 4),
+   so the untouched default path removes nothing, ever. Override-driven
+   pre-deletes count toward `maxDelete` and the >50 % rail, render red,
+   and replace the green `Nothing will be deleted.` tail with the §7
+   replace clause.
 3. **The >50 % rail.** When planned deletions exceed
    `deleteFractionWarn` (default 0.5) of the destination side's files —
    and at least 10 files — Run opens a typed confirmation:
@@ -552,10 +600,13 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    purge; the `sync.purgeTrash` command empties it on demand. The check
    is cheap by construction: run ages and per-item counts come from the
    pair's **local journals** (`startedAt` plus the recorded
-   `trashLocation` lines — no remote access at all), and one
-   `listDirectory` of the trash root per side confirms which `<runId>`
-   directories still exist — never a recursive walk; the newest observed
-   trash state is cached in `sync_state` (§9). A purge writes a
+   `trashLocation` lines — no remote access for those), and confirming
+   which `<runId>` directories still exist takes one `listDirectory` of
+   the trash root per side — the check's only remote access, never a
+   recursive walk. When a side is unreachable that listing is skipped and
+   the notice falls back to the newest cached trash state in `sync_state`
+   (§9) — it degrades, never blocks or errors the plan view. A purge
+   writes a
    `purged: true` marker line into each affected run's journal, which is
    what releases those journals for pruning (rail 9) and makes the
    retention exception locally evaluable.
@@ -581,18 +632,24 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    The journal line is written *after* the commit rename, so a
    committed-but-unjournaled window exists: a resumed item whose
    destination no longer matches the plan snapshot but matches the
-   intended post-state (source size+mtime, with this run's trash/backup
-   entry present where the plan expected one) is journaled as done rather
-   than flipped to conflict; anything else falls through to rail 7's
-   precondition flip as usual.
+   intended post-state is journaled as done rather than flipped to
+   conflict; anything else falls through to rail 7's precondition flip as
+   usual. "Intended post-state" means source size always, source mtime
+   only when the run is not on the `sizeOnly` path (§4's fallback or
+   `preserveMtime: false` — a setstat-ignoring server can never satisfy
+   an mtime match, and requiring one would flip every committed item to a
+   spurious conflict), and this run's trash/backup entry present where
+   the plan expected one.
 9. **Run journal.** JSONL per run at `<app-support>/sync_runs/<runId>.jsonl`
    (under the app-provided support directory — `EngineConfig`, 03 §5)
    — a `SyncRunRecord` header line (pair, ruleset snapshot, totals,
    warnings), one line per executed item (outcome, bytes, duration,
    `trashLocation`, `observedMtimeAfterWrite`, `setstatIgnored`), one
    summary line. Journals are pruned to the newest 20 per pair — **except**
-   a run whose `.poltergeist-trash/<runId>/` entries still exist, whose
-   journal is retained until the purge (rail 5) removes them: Undo must
+   a run whose journal records trash entries without a `purged` marker
+   (rail 5) — the same locally evaluable rule §9 applies to ad-hoc-pair
+   pruning, requiring no existence probe of the trash itself; such a
+   journal is retained until the purge (rail 5) marks it: Undo must
    never lose its source while the trash it reverses is still there
    (`sync.purgeTrash` is what finally lets those journals be pruned). The
    journal powers the post-run report, `Retry Failed`, and **Undo**: v1's
@@ -694,7 +751,10 @@ Testing hooks, elaborated in 08:
   directories, setstat-ignoring mode, mid-run mutations for precondition
   tests, EXDEV-style rename failures.
 - **Property tests** over generated trees, asserting the invariants: Update
-  and Additive plans contain no `delete*` items; applying a Mirror plan
+  and Additive plans contain no `delete*` items (kind-change pre-deletes
+  live inside copy items by design — a companion property asserts a
+  no-delete-mode plan with no user overrides performs zero removals, §6
+  rule 4); applying a Mirror plan
   makes destination converge to source under every comparison mode for
   **hazard-free** generated trees (conflicts execute as skip, so
   hazard-bearing trees converge only up to their conflict items — a
@@ -708,7 +768,10 @@ Testing hooks, elaborated in 08:
   `Process` (§2's never-executes invariant).
 - **sshd-in-Docker matrix** (08): OpenSSH variants including a chrooted
   `internal-sftp` config and a setstat-ignoring configuration to exercise
-  the §4 fallback end to end; the P7 scan benchmark (≥ 1 000 remote
+  the §4 fallback end to end — including a resume-after-interrupt run on
+  the setstat-ignoring server asserting committed-but-unjournaled items
+  are journaled done under rail 8's `sizeOnly`-path post-state rule, not
+  flipped to conflict; the P7 scan benchmark (≥ 1 000 remote
   entries/s on LAN, D12) runs against this fixture.
 - Remote-side `setTimes` tests gate on the Séance pin bump (03 §2.4); until
   then the engine's remote tests run with `mtimeUnreliable` forced on, which
