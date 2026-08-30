@@ -245,10 +245,14 @@ asking what a wrong guess would cost.
   pin and the vault-resolved credential (§3.2's pin quarantine cannot
   catch this: the *new* host:port has no local pin to conflict with).
   Resolution is therefore **endpoint-pinned per device, checked at
-  connect time, record-agnostically**: when a bookmark is created (from
-  the catalog or with an embedded identity), the resolved
-  `(host, port, username)` is recorded device-locally (§2.3 — never
-  synced), and any later connect whose resolved endpoint differs —
+  connect time, record-agnostically**: the device-local record (§2.3 —
+  never synced) is written **only by a local user act** — creating the
+  bookmark *on this device*, or confirming a connect; a device that
+  received the bookmark through sync holds no record and prompts on
+  its first connect (seeding from the synced-in record would let a
+  fresh device capture an already-rewritten attacker endpoint and then
+  connect silently) — and any later connect whose resolved endpoint
+  differs —
   whether the change arrived through a `serverConfig` edit *or a
   rewritten `bookmark:` record*, a kind Poltergeist devices
   legitimately write and a compromised one could LWW-rewrite just as
@@ -484,7 +488,7 @@ the decrypted kinds:
 | Pulled kind | Action |
 |---|---|
 | `bookmark` | upsert into `BookmarkStore`; tombstone → remove |
-| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both |
+| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record: a present record with no local pin is exactly the auto-apply state, so without the tombstone the re-derivation diff would silently resurrect the key the user just removed (a tombstone losing LWW to a genuinely newer pin edit resolves to the edit, as intended) |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store — like the never-decrypted `secret:`/`snippet:`/unrecognized prefixes above |
 
