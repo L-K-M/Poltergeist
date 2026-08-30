@@ -638,8 +638,11 @@ After each merge, bumping the Séance pin is the routine chore of 03 §8.1
 Séance currently has no LICENSE file; Poltergeist is Unlicense. Scope: ask
 upstream (same owner, sibling repos) to add one — suggest Unlicense to match.
 Acceptance: LICENSE on Séance `main`. Interim rule, matching D30 and 01 §9:
-git-pin consumption may proceed anytime — the packages are consumed, not
-redistributed in source form by this repo — but **no Séance source is
+git-pin consumption may proceed anytime — release binaries embedding the
+pinned code included, because both repos share one rights holder, who
+needs no license from themselves; the LICENSE is what any third party
+needs to consume, fork, or redistribute either repo — but **no Séance
+source is
 copied into Poltergeist until the LICENSE lands on Séance `main`**
 (PR-S0). PR-S0 therefore gates every D2 copy; M2, the first milestone that
 performs one, carries the gate (07).

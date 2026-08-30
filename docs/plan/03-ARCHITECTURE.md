@@ -392,7 +392,10 @@ The app resolves 02 §5.2's per-direction/per-kind conflict matrix into the
 per-task `ResolvedConflictPolicy` at enqueue time — one bucket pair per
 task, mirroring 02 §5.2's dimensionality exactly: local→remote → the
 `upload*` pair, remote→local → `download*`, local→local → `local*`,
-remote→remote piping → `serverSide*`. An engine-side `ask` pauses
+remote→remote (cross-server piping and same-server server-side moves
+alike) → `remoteToRemote*`. `merge` is valid only in the folder fields —
+the resolver rejects it in file fields, falling back to `ask`,
+mirroring 02 §5.2's constraint. An engine-side `ask` pauses
 the item and round-trips an `EnginePromptEvent.conflict` to the UI (§5),
 whose reply resolves that item (and, when the user asks, the task's
 remaining conflicts).
@@ -493,7 +496,13 @@ is honored within ±1 s granularity.
 
 ### 4.5 Remote-to-remote piping
 
-SFTP has no server-side copy, so remote→remote is a piping task (D16): the
+SFTP has no server-side copy, so cross-server remote→remote is a piping
+task (D16) — with one carve-out from 02 §5.1: a **same-server move** is a
+rename-class server-side operation on one leased channel, no data
+through the local machine, still enqueued as a queue task for visibility;
+a same-server *copy* still pipes (no SFTP v3 copy primitive; the
+`copy-file` extension is a D25-class acceleration). For the piping case
+the
 worker leases one channel on each server, then streams
 `source.download(path, sink)` into `destination.upload(path, stream)` chunk
 by chunk with a small buffer, counting bytes once. Scan phase runs against
