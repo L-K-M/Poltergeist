@@ -135,7 +135,9 @@ class SavedSyncSpec {
   /// starts at 1; `rules` carries exactly these fields, with these JSON
   /// defaults applying when a field is absent:
   ///   direction:           'leftToRight' | 'rightToLeft' |
-  ///                        'bidirectional'       (default 'leftToRight')
+  ///                        'bidirectional'       (default 'leftToRight';
+  ///                        left = source, right = destination — the 05 §6
+  ///                        mapping, restated here where the values live)
   ///   deletions:           'none' | 'trash' | 'permanent'      ('none')
   ///   backups:             'trash' | 'none'                    ('trash')
   ///   comparison:          'sizeAndMtime' | 'sizeOnly' | 'contentHash'
@@ -143,7 +145,8 @@ class SavedSyncSpec {
   ///   mtimeToleranceSecs:  int                                 (2)
   ///   acceptedTimeShifts:  list of int                         ([])
   ///   conflictDefault:     'ask' | 'newerWins' | 'keepLeft' |
-  ///                        'keepRight' | 'skip'                ('ask')
+  ///                        'keepRight' | 'skip'                ('ask';
+  ///                        left = source, right = destination)
   ///   symlinks:            'skip' ('copyAsLink'/'follow' reserved)
   ///   trashPath:           string | null — out-of-root trash   (null)
   ///   includeHidden:       bool                                (true)
@@ -191,10 +194,23 @@ Kind semantics:
 | `workspace` | set both panes: `left` and `right` locations |
 | `savedSync` | open the sync sheet (05) pre-filled from `sync` |
 
-`fromJson` is strict: unknown `BookmarkKind` or an invalid `BookmarkServerRef`
-throws `FormatException`. The coordinator's per-record try/catch (§3.2) turns
-that into skip-and-preserve, so a bookmark written by a newer Poltergeist
+`fromJson` is strict: unknown `BookmarkKind`, an invalid `BookmarkServerRef`,
+or a kind/field violation throws `FormatException` — a violation being any
+"kind only" field non-null under another kind, any required field null for
+its kind (`remotePath` requires `server` + `remotePath`; `localFolder`
+requires `localPath`; `workspace` requires both `left` and `right`;
+`savedSync` requires `sync`), or a blank `label` or `sortKey`. Validating
+at decode keeps malformed records inside the per-record try/catch (§3.2) —
+skip-and-preserve — instead of crashing later at activation, outside it.
+So a bookmark written by a newer Poltergeist
 survives an older one untouched.
+
+Forward-compatibility policy for future fields, so additions stay
+consistent: **structural** values (kinds, refs, shapes) throw on unknown
+input → skip-and-preserve; **behavior-affecting** values (sync rule
+strings) refuse to run ("created by a newer Poltergeist"); **cosmetic**
+values (`ServerIcon`/`ServerColor`) decode to null. Pick the tier by
+asking what a wrong guess would cost.
 
 ### 2.2 Server references: when each form is used
 
@@ -202,7 +218,12 @@ survives an older one untouched.
   "Your Séance servers" picker. Connect-time resolution reads the read-only
   catalog; if the server was deleted in Séance (tombstoned serverConfig), the
   bookmark row shows "This server was removed in Séance" with a
-  "Choose a server…" fix-up action.
+  "Choose a server…" fix-up action. A reference whose record is merely
+  **absent** — no tombstone, e.g. a freshly enrolled device whose initial
+  pull has not completed — is *unresolved-pending*: no fix-up UI, retried
+  after the next sync round. The distinction matters because acting on the
+  fix-up rewrites the bookmark and LWW-propagates — a premature rewrite
+  would permanently destroy a reference that was never broken.
 - `EmbeddedHostIdentity` is written for servers created inside Poltergeist,
   and for **all** servers in separate-account mode.
 - Passwords and key passphrases never appear in any record. `secretRef`
@@ -371,6 +392,14 @@ class BookmarkCoordinator {
   /// Called on every delete: write a real tombstone (empty blob,
   /// deleted: true) via the codec's tombstone helper — fixing, in new code,
   /// the delete-resurrection gap Séance has today.
+  ///
+  /// Tombstone lifecycle: tombstones are retained indefinitely — there is
+  /// no device registry, so any GC window risks resurrecting a deletion
+  /// through a long-offline device. A tombstone's updatedAt is the
+  /// deletion time; a delete that loses server-side LWW to a newer
+  /// concurrent edit resolves to the edit (the bookmark reappears) —
+  /// intended behavior, covered by a two-device test and a line in the
+  /// §4.3 help copy, never a bug to "fix" with tombstone priority.
   Future<void> onBookmarkDeleted(String bookmarkId);
 
   /// After each engine run: decrypt and materialize pulled records.
@@ -387,18 +416,27 @@ own, and its API is `List<CatalogServer> servers`.
 
 `applyPulled` iterates the store's records, each wrapped in a per-record
 try/catch (one malformed payload skips that record, never aborts the loop —
-the same defense PR-S1 adds to Séance), and switches on kind:
+the same defense PR-S1 adds to Séance). Because the record-id prefix
+mirrors the kind in plaintext (§2.4), the switch happens **before
+decryption**: only `bookmark:`, `hostkey:` and — in shared mode —
+`serverConfig:` prefixes are decrypted at all. `secret:`, `snippet:` and
+unrecognized prefixes are skip-preserved without ever being decrypted —
+in shared mode this keeps the user's Séance password vault out of
+Poltergeist's memory entirely instead of decrypting it every round only
+to discard it (the §3.4 trust stance made mechanical). The dispatch on
+the decrypted kinds:
 
 | Pulled kind | Action |
 |---|---|
 | `bookmark` | upsert into `BookmarkStore`; tombstone → remove |
 | `hostKey` | `hostKeys.put` — pins flow in (both modes); Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
-| `secret`, `snippet`, `unknown`, anything that throws | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store |
+| anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store — like the never-decrypted `secret:`/`snippet:`/unrecognized prefixes above |
 
 The symmetric skip rule is tested explicitly: a record of kind `flurb`
 planted in the account survives many Poltergeist sync rounds byte-identical
-on the server.
+on the server — the pre-decryption skip preserves bytes by construction,
+no decrypt needed to leave a record alone.
 
 Poltergeist **never writes** `serverConfig`, `secret`, or `snippet` records.
 Editing a Séance server happens in Séance.
@@ -430,8 +468,12 @@ backup is strictly opt-in, matching the trust stance (D19).
 
 ### 4.1 Design B — separate account: the default
 
-Poltergeist registers its own username (suggest `<seance-user>-poltergeist`)
-on the same deployed sync server binary, or any other instance. Zero Séance
+Poltergeist registers its own username (default: a user-chosen name; the
+suggestion placeholder is a random-suffix form like `ghost-<4 hex>`, never
+derived from the Séance username — Design B allows "any other instance",
+and a derived name would leak the user's Séance identity to an unrelated
+server operator) on the same deployed sync server binary, or any other
+instance. Zero Séance
 changes required; works against today's servers and clients; total isolation
 (own vault key, own records).
 
@@ -456,11 +498,21 @@ as `bookmark` records inside the same encrypted stream; the server cannot
 tell (kind is inside the ciphertext) and needs zero changes.
 
 **The gate (D4):** un-patched Séance decodes unknown kinds as `serverConfig`
-— sync rounds brick, or a plausibly-shaped bookmark materializes as a phantom
-server and propagates. Shared mode therefore requires the PR-S1 fix (§5.2)
+— and because Séance re-collects and re-pushes its whole dataset every
+round (§3.1), one stale device does not merely mis-render a bookmark: it
+re-seals the half-parsed data as a genuine `serverConfig` record and
+overwrites the bookmark server-side via LWW — **active, permanent,
+fleet-wide corruption** from a single forgotten device, which
+skip-and-preserve on the patched side cannot undo. Shared mode therefore
+requires the PR-S1 fix (§5.2)
 shipped in a tagged Séance release **and running on every device the user
-syncs with Séance**. There is no in-band way to detect old clients (no device
-registry), so this stays a documented, user-confirmed gate. The minimum
+syncs with Séance**. There is no in-band way to detect old clients up
+front (no device
+registry), so this stays a documented, user-confirmed gate — with one
+after-the-fact tripwire: a pulled `serverConfig:` record that fails
+strict decode raises a **durable warning** in Settings → Backup naming
+the record id (a possible stale-client signature, never just
+skip-preserved silently). The minimum
 version is recorded once, in
 `kMinimumSharedAccountSeanceVersion` (app constants), filled with the literal
 tag of the first Séance release containing PR-S1; all setup copy interpolates
@@ -504,8 +556,11 @@ angle brackets):
   newer." Helper line: "Older Séance versions misread Poltergeist's records
   — update them everywhere before turning this on."
 - On 403 `registration_closed` (Design B register): "This server has
-  registration closed. On the server, temporarily set
-  SEANCE_OPEN_REGISTRATION=1, create the account, then close it again."
+  registration closed. If you run it: temporarily set
+  SEANCE_OPEN_REGISTRATION=1, create the account, then close it again —
+  while it is open, anyone who can reach the server can register, so
+  close it as soon as you are done. If someone else runs it, ask them to
+  create an account for you."
 - Passphrase callout (ported errorContainer style): "The encryption
   passphrase never leaves your devices and cannot be recovered. Losing it
   means losing the backup."
@@ -534,7 +589,15 @@ app_services.dart`): `POST /v1/prelogin` → **refuse any KDF downgrade** below
 /v1/login` → **trial-decrypt the first non-tombstone pulled record** before
 persisting anything (auth success cannot prove the E2E passphrase; the check
 is kind-agnostic and works when that record is a bookmark or a Séance
-record). Then: bearer token to the OS keystore under
+record). Enrollment always pulls **full** (`since = 0`), never a delta, so
+a retained `highWaterSeq` can never produce an empty pull that skips the
+check. When the account genuinely holds no decryptable record (fresh
+account, tombstone-only history) enrollment proceeds — there is nothing a
+wrong passphrase could corrupt yet — but records
+`passphraseUnverified: true`; the first later round that pulls a
+non-tombstone record performs the deferred trial-decrypt, and a failure
+raises the durable Settings → Backup error, so the check is deferred,
+never silently skipped. Then: bearer token to the OS keystore under
 `poltergeist.apikey.sync.token`; vault master key under
 `poltergeist.vault.masterKey.v1` (legacy login keychain on macOS, like
 Séance — AGENTS.md §4); re-key the local vault to the passphrase-derived key;
@@ -607,6 +670,13 @@ Acceptance criteria:
   round completes.
 - A truly unknown kind (`'flurb'`) decodes as `unknown`, is skipped, and
   survives rounds unmodified on the fake server.
+- The `orElse` flip is observable: `recordKindFromName` (or its caller)
+  emits a debug-level log whenever the `unknown` fallback fires, so any
+  legacy record the old `serverConfig` fallback was silently absorbing
+  becomes visible after the release instead of just vanishing from the
+  UI. Record-id prefixes are plaintext, so a client-side sweep of an
+  account's prefixes against the known set is the cheap pre-release
+  audit for accounts that matter.
 - A malformed payload of a *known* kind no longer aborts the apply loop;
   subsequent records still apply.
 - `encrypt(unknown)` throws; tombstone placeholder is `unknown`.
@@ -631,22 +701,25 @@ TOFU first-use/changed, every failure-summary branch reachable).
 
 ### 5.4 PR-S3 — `RemoteFileSystem` additions (D3)
 
-Scope: the four additive members of 03 §2.4 on the interface and
+Scope: the three additive members of 03 §2.4 on the interface and
 `DartSshRemoteFileSystem`:
 
 - `setTimes(String path, {DateTime? accessedAt, DateTime? modifiedAt})` via
   `SftpFileAttrs` — the sync-convergence prerequisite;
 - `setOwner(String path, {int? uid, int? gid})`;
 - `bool computeHash = true` on `download`/`upload` (skips the inline SHA-256;
-  `contentSha256` stays null);
-- ranged read (offset/length) for future resume — dartssh2 already supports
-  `file.read(offset:)`.
+  `contentSha256` stays null).
+
+Ranged read is **not** in PR-S3: D3 defers it to D25's resumable-transfer
+work as its own upstream PR when that work actually starts (dartssh2
+already supports `file.read(offset:)`, so it stays cheap to add) — the
+pre-sync PR carries only surface v1 exercises.
 
 Acceptance: fake-`SftpClient` tests for each; servers rejecting an operation
 map to `RemoteFileErrorKind.unsupported` with the standard message format;
 existing behavior with defaults untouched (hashing still on by default —
 Séance's managed edits keep their conflict authority, D7). Poltergeist's
-`LocalFileSystem` implements all four from day one (03 §2.2), so only remote
+`LocalFileSystem` implements them from day one (03 §2.2), so only remote
 callers wait on the pin bump.
 
 ### 5.5 PR-S4 — agent auth + ProxyJump in `seance_core` (D10, later)
@@ -666,7 +739,15 @@ The sealed payload shape is trivial JSON; if the pin cannot include PR-S1 in
 time for Design-B work, `poltergeist_core` may temporarily seal
 `{'kind': 'bookmark', 'data': ...}` via `VaultCrypto.sealJson` directly,
 bypassing `RecordCodec`'s enum, with a PORTS.md-recorded shim deleted at the
-pin bump. Shared mode still waits for the real PR-S1 release — the gate is
+pin bump. Two hard requirements before that deletion, so no record's
+readability ever depends on deleted shim code: (a) a round-trip test
+proving the post-bump `RecordCodec.decrypt` accepts the shim's output
+verbatim — identical envelope, version header, and HKDF
+info/domain-separation inputs (exactly the constraint class §6's
+etiquette forbids "simplifying away"); and (b) if that proof fails, the
+shim's removal re-seals every shim-written record through the real codec
+(or asserts none exist) as a one-time migration. Shared mode still waits
+for the real PR-S1 release — the gate is
 about *Séance's* decoder, not Poltergeist's.
 
 ## 6. Porting-back policy (R10)
@@ -744,7 +825,9 @@ written, since older readers decode it to null (the accepted lossy rule).
   own token in their own keystore entry and never interfere. "Sign out"
   forgets the token locally only — the server keeps it until account
   deletion (inherited Séance behavior; a revocation endpoint is a recorded
-  port-back candidate, §6).
+  port-back candidate, §6 — and an urgent one: tokens never expire and
+  shared mode hides account deletion by design, so a leaked token
+  currently has no clean remediation at all).
 - **Rate limits**: only `/v1/login` is limited (default 10 attempts / 60 s
   per username). Poltergeist logs in at enrollment only; sync rounds use the
   stored bearer token and are unlimited. In shared mode both apps' logins
@@ -784,8 +867,9 @@ written, since older readers decode it to null (the accepted lossy rule).
       version checkbox with the §4.3 strings, hides account deletion in
       shared mode, and handles `registration_closed` with the documented
       guidance.
-- [ ] Enrollment refuses KDF downgrades and trial-decrypts before persisting
-      (§4.5); keystore entry names match §4.5.
+- [ ] Enrollment refuses KDF downgrades and trial-decrypts before
+      persisting — full pull at enrollment, deferred-verification flag on
+      a genuinely empty account (§4.5); keystore entry names match §4.5.
 - [ ] PR-S0 and PR-S1 are filed upstream; PR-S1's release tag is recorded in
       `kMinimumSharedAccountSeanceVersion` before shared mode is enabled;
       PR-S2/S3 are filed per the §5 schedule and the pin bumped after each.

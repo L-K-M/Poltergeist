@@ -86,13 +86,13 @@ interface is genuinely transport-neutral, so the mapping is direct:
 | Method | dart:io implementation | Caveats |
 |---|---|---|
 | `canonicalize` | `resolveSymbolicLinks()` when the path exists; otherwise return the normalized absolute path | never throws just because the path is missing (matches realpath use for home resolution); "home" = the user home via the ported `expandHomePath` |
-| `listDirectory` | `Directory(path).list(followLinks: false)`, each entry statted into a `RemoteFileEntry` | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
+| `listDirectory` | `Directory(path).list(followLinks: false)`; classify each entry via `FileSystemEntity.type(…, followLinks: false)` and stat only non-link entries — links report `type: symbolicLink` with `size`/`modifiedAt` null, matching the `stat` row below (a plain `FileStat.stat` would follow the link and report the target's identity) | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
 | `stat` | `FileStat.stat` when `followLinks: true`; with `followLinks: false`, detect symlinks via `FileSystemEntity.type(path, followLinks: false)` | dart:io has no lstat: for a symlink itself, return `type: symbolicLink` with `size`/`modifiedAt` null — callers already treat those as optional |
 | `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', [octal, path])` on macOS/Linux | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
 | `readSymbolicLink` | `Link(path).target()` | |
 | `createSymbolicLink` | exists-preflight (conflict), then `Link(linkPath).create(targetPath)` | Windows needs Developer Mode or elevation — map the OS error to `permissionDenied` with a hint in the message |
 | `createDirectory` | `Directory(path).create(recursive: false)` | parent must exist — same as SFTP mkdir |
-| `rename` | preflight destination lstat; `overwrite: false` + existing ⇒ `conflict` before any change; then `rename()` | Windows rename-over-existing may fail: with `overwrite: true`, fall back to delete-then-rename guarded by the preflight snapshot; case-only renames on case-insensitive filesystems go through a temporary sibling name (two-step), per D26 |
+| `rename` | preflight destination lstat; `overwrite: false` + existing ⇒ `conflict` before any change; then `rename()` | Windows rename-over-existing may fail: with `overwrite: true`, fall back to the `replaceLocalFile` backup-rename dance (§2.3) — target → sibling temp, source → target, restore on failure, delete temp only after success — **never delete-then-rename**, which strands the user with neither file when the second step fails; case-only renames on case-insensitive filesystems go through a temporary sibling name (two-step), per D26 |
 | `delete` | `File`/`Link.delete`, `Directory.delete(recursive: false)` | non-empty directory error keeps Séance's wording ("Only an empty directory can be deleted."); recursion stays app-level |
 | `download` | stream `File.openRead()` through the same cancellation racer, tee into chunked SHA-256; stat before and after, mismatch ⇒ `conflict` | keep the integrity protocol — it is cheap locally and makes local and remote sources behaviorally identical to the queue and sync engine |
 | `upload` | write to exclusive sibling `.poltergeist-<8 hex>.tmp`, hash chunks, verify declared length, chmod `preserveMode` on Unix, then commit via `replaceLocalFile` (§2.3) | same preflight/`expectedTarget` CAS semantics as the adapter; temp always cleaned up on failure |
@@ -105,8 +105,14 @@ prefixes are `.poltergeist-` everywhere Séance uses `.seance-` (the research
 notes flag the prefix as the one thing to parameterize).
 
 `LocalFileSystem` also implements the D3 additive methods from day one —
-`setTimes` maps to `File.setLastModified` (and `setLastAccessed`), `setOwner`
-to `Process.run('chown')` on Unix / `unsupported` on Windows — so the sync
+`setTimes` maps to `File.setLastModified` (and `setLastAccessed`) for
+**files**; a directory target returns the typed `unsupported` error, since
+dart:io cannot set directory timestamps — which costs the sync engine
+nothing: it compares directories by existence only and never sets their
+times (05 §4). `setOwner`
+maps to `Process.run('chown')` on Unix — EPERM (the normal non-root
+outcome) translates to `permissionDenied` through the §2.2 funnel — and
+`unsupported` on Windows. So the sync
 engine's local half never waits on the upstream PR (§2.4).
 
 ### 2.3 Local-safety helpers become public utilities
@@ -141,7 +147,10 @@ to `RemoteFileSystem`:
 | set timestamps | `Future<void> setTimes(String path, {DateTime? accessedAt, DateTime? modifiedAt})` | the **sync engine** (05) — hard prerequisite for convergence; also "preserve mtime on transfer" |
 | set ownership | `Future<void> setOwner(String path, {int? uid, int? gid})` | the chown/chgrp UI (D28) — ships only after the pin containing it |
 | optional hashing | `bool computeHash = true` parameter on `download`/`upload` | the D7 opt-in "verify after transfer" default for bulk work — until then bulk transfers pay the always-on SHA-256 |
-| ranged read | offset/length read for resume | nothing in v1 — resumable transfers are v2 (D25) |
+
+Ranged read is deliberately absent: D3 defers it to D25's
+resumable-transfer work as its own upstream PR at that time — nothing in
+v1 exercises it, and the pre-sync PR stays minimal.
 
 Until the Séance pin is bumped past that PR, remote callers simply do not call
 these methods; `poltergeist_sync`'s remote milestone (07) explicitly gates on
@@ -190,8 +199,12 @@ identities — their semantics are fixed in §3.5:
 ```dart
 abstract interface class ConnectionManager {
   /// One dedicated SFTP browse channel per pane-tab. Listings stay snappy
-  /// while transfers saturate other channels.
-  Future<PaneChannel> openBrowseChannel(String serverId);
+  /// while transfers saturate other channels. `paneTabId` keys the
+  /// channel, so two tabs browsing the same server each get their own;
+  /// the tab closes its channel via PaneChannel.close() (below) when it
+  /// closes or navigates off the server.
+  Future<PaneChannel> openBrowseChannel(String serverId,
+      {required String paneTabId});
 
   /// A transfer worker borrows a channel; releasing it returns it to the
   /// pool. Blocks while the pool is at capacity.
@@ -273,7 +286,9 @@ Growth rules (the part that must never be improvised):
   1 s → 2 s → 4 s → … capped at `reconnectBackoffCap`, ±30 % jitter (the probe
   service's hygiene rules). After reconnect the pane re-canonicalizes its
   current path and refreshes. Running transfer tasks on that server flip to
-  `queued` with a retry counter; after `taskRetryLimit` failures the task
+  `queued` with a retry counter incremented once per reconnect cycle —
+  never per affected file, which would burn the limit in one flap; after
+  `taskRetryLimit` reconnect failures the task
   fails with the summarized error. Séance's model (reconnect is replacement,
   user-initiated) is deliberately upgraded here — a transfer app must
   self-heal.
@@ -324,6 +339,13 @@ enum TransferTaskState {
 /// model. Uses the SAME ConflictResolution enum —
 /// { ask, replace, replaceIfNewer, keepBoth, skip, merge } — including
 /// `ask` and `merge` (merge is meaningful for folders only).
+///
+/// Folder semantics at the engine (02 §5.2 owns the user-facing story):
+/// `merge` = the §4.2 default — stat-else-mkdir, recurse, per-file policy
+/// applies to contents; `replace` = wholesale replacement — remove the
+/// existing destination directory through the D15 delete story (OS trash
+/// locally, the per-server trash opt-in remotely), then recreate and
+/// copy; `skip`/`ask` evaluate on the directory itself before recursing.
 class ResolvedConflictPolicy {
   final ConflictResolution files;
   final ConflictResolution folders;
@@ -340,8 +362,13 @@ class TransferTask {
   final ResolvedConflictPolicy policy;
   final DateTime enqueuedAt;
   TransferTaskState state;
-  TransferPlan? plan;              // set once scanning completes
+  TransferPlan plan;               // attached when scanning starts; the
+                                   // scan appends to it concurrently (§4.2)
+  bool scanComplete;               // flips when the source walk finishes
   int completedFiles; int transferredBytes; int? totalBytes;
+                                   // running total while scanning (progress
+                                   // shows the growing "+" form, 02 §5.3);
+                                   // final at scanComplete
   int retryCount;
   String? error;                   // user-facing RemoteFileException.message
   final RemoteTransferCancellation cancellation;
@@ -362,10 +389,10 @@ class PlannedFile {
 ```
 
 The app resolves 02 §5.2's per-direction/per-kind conflict matrix into the
-per-task `ResolvedConflictPolicy` at enqueue time. The matrix side is chosen
-by the **destination**: destination remote → the upload defaults;
-destination local → the download defaults; remote→remote uses the upload
-defaults, local→local the download defaults. An engine-side `ask` pauses
+per-task `ResolvedConflictPolicy` at enqueue time — one bucket pair per
+task, mirroring 02 §5.2's dimensionality exactly: local→remote → the
+`upload*` pair, remote→local → `download*`, local→local → `local*`,
+remote→remote piping → `serverSide*`. An engine-side `ask` pauses
 the item and round-trips an `EnginePromptEvent.conflict` to the UI (§5),
 whose reply resolves that item (and, when the user asks, the task's
 remaining conflicts).
@@ -387,18 +414,29 @@ non-negotiable:
 - **Scan** walks the source (`followLinks: false`; symlinks skipped and
   counted), validates every name crossing a trust boundary
   (`validatePathComponent` for remote targets, `validateLocalName` for local
-  targets, case-insensitive collision detection within the plan on Windows),
-  pre-computes directories parents-first and files with sizes, and only then
-  sets `totalBytes` — progress is indeterminate during scan, honest
-  afterwards. Scans stat lazily enough to honor D12's "no upfront full-tree
-  stat before the first byte moves": the first file starts as soon as its
-  parent directory chain exists; the scan continues concurrently and grows
-  the plan.
+  targets, and case-insensitive collision detection within the plan
+  whenever the **destination filesystem** is case-insensitive — Windows
+  volumes, macOS default APFS/HFS+, and remotes that report or are marked
+  case-insensitive — resolved per endpoint at scan time, never keyed to
+  the client OS), emitting directories parents-first and files with sizes
+  as it goes. There is **no full eager walk**: the first file starts as
+  soon as its parent directory chain exists, the scan continues
+  concurrently growing `plan`, `totalBytes` is a running total rendered
+  as the growing `N+` form (02 §5.3), and both finalize when
+  `scanComplete` flips.
 - **Execute** creates directories in order (`stat`-else-`mkdir`; a non-dir in
-  the way is an error), then per file applies the conflict policy against the
-  scanned `existing` stat, uploads with `overwrite` + `expectedTarget` CAS or
-  downloads into an exclusive `.poltergeist-<uuid>.part` committed via
-  `replaceLocalFile`. Cancellation is checked between every entry. Completed
+  the way is an error), then per file **re-stats the destination at
+  execution time** and applies the conflict policy against that fresh
+  stat — the scanned `existing` is a hint for the UI, not the decision
+  basis; on a long queue the destination has had time to change. Uploads
+  commit with `overwrite` + `expectedTarget` CAS; downloads write an
+  exclusive `.poltergeist-<uuid>.part` and commit via
+  `replaceLocalFile` only when the destination still matches the
+  decision basis (absent, or the same stat the policy was evaluated on) —
+  a mismatch re-applies the policy (`ask` prompts) instead of clobbering
+  a file that appeared mid-run. Local→local commits get the same guard
+  through the shared code path. Cancellation is checked between every
+  entry. Completed
   files stay in place on failure (documented Séance behavior, kept).
 
 Local→local tasks run the same two phases over two `LocalFileSystem`
@@ -408,9 +446,16 @@ preservation falls out of the one code path.
 ### 4.3 Concurrency and throttling
 
 - **Per-server limit** = what `leaseTransferChannel` will grant:
-  `maxTransports × maxTransferChannelsPerTransport` (default 2 × 3, M0-tuned).
+  `effectiveTransports × maxTransferChannelsPerTransport`, where
+  `effectiveTransports` is 1 for interactively-authenticated servers
+  (§3.2 rule 2) and `maxTransports` otherwise (default 2 × 3, M0-tuned).
 - **Global limit**: at most 6 files in flight across all tasks and servers
-  (constant next to `PoolPolicy`; the settings UI exposes both, 02).
+  (constant next to `PoolPolicy`; the settings UI exposes both, 02). This
+  equals the default per-server limit on purpose: one busy server may
+  briefly own the whole budget, and strict FIFO keeps behavior
+  predictable — the user's reorder is the escape hatch. Cross-server
+  round-robin dispatch is a recorded non-goal for v1 (revisit only with
+  evidence of real starvation).
 - Dispatch order: queue order (user-reorderable), one task's files dispatched
   before the next task's unless the user reorders; small-file batches from
   one task may run in parallel up to the limits.
@@ -424,8 +469,12 @@ class BandwidthLimiter {
 }
 ```
 
-Every transfer stream awaits `acquire(chunk.length)` before forwarding a
-chunk (upload: before `writeBytes`; download: before pushing to the sink).
+Every transfer stream awaits `acquire(chunk.length)` once per chunk before
+forwarding it (upload: before `writeBytes`; download: before pushing to
+the sink). A remote→remote pipe (§4.5) acquires from **both** buckets per
+chunk — each piped byte genuinely traverses the local machine's downlink
+and uplink, so charging both is the physically honest accounting, not
+double-throttling; progress still counts the byte once.
 Bucket capacity is one second of tokens, so bursts are bounded and the limit
 is honored within ±1 s granularity.
 
@@ -463,17 +512,36 @@ app-provided support directory (`EngineConfig`, §5):
 ```
 
 - **Journal**: one JSON object per line — `taskEnqueued` (full task spec),
-  `taskState`, `fileCompleted`, `taskRemoved`. Appends are plain file appends;
-  a corrupt trailing line (crash mid-write) is dropped on replay. On startup
+  `taskState`, `fileCompleted`, `taskRemoved`. Appends are flushed
+  per line; recovery distinguishes two failure shapes: a **torn** final
+  record (no terminating newline — a crash mid-append) is dropped and the
+  file is truncated to the end of the last complete record before the log
+  reopens for append, so malformed bytes are never buried mid-log; a
+  *complete* line that fails to parse quarantines the journal
+  (timestamped, the 06 §3.6 pattern) and replays the intact prefix, with
+  a banner — never a silent drop of a record that was fully written. On
+  startup
   the journal is replayed: unfinished tasks come back `queued` with their
-  remaining plan items (the in-flight file restarts); the user is not asked —
+  remaining plan items (the in-flight file restarts; ambiguous task state
+  is reconciled against leftover `.part` files before resuming); the user
+  is not asked —
   the panel simply shows the restored queue paused, with a "Resume" affordance
   (restored queues start paused so a reboot never silently re-transfers).
-- **Compaction**: on clean shutdown and after startup replay, rewrite the
-  journal to just the pending tasks (via the ported `writeStringAtomically`)
-  and append finished tasks to the history file.
-- **History**: one record per finished task — id, endpoints, root names, byte
-  and file counts, duration, outcome, error text. Capped at 10 000 records;
+  Prompt state does not survive restart (promptIds are session-scoped):
+  resuming a task whose policy is `ask` re-runs its remaining items'
+  execution-time policy check, which re-emits the `conflict`
+  `EnginePromptEvent` (§5) — never a remembered answer, never a default.
+- **Compaction**: on clean shutdown and after startup replay, first append
+  finished tasks to the history file keyed by task id (idempotent —
+  replay skips ids already present in history), then rewrite the
+  journal to just the pending tasks (via the ported
+  `writeStringAtomically`). A crash between the two steps loses nothing:
+  the next replay re-reads the old journal and skips already-recorded
+  ids. The reverse order would have a crash window that silently loses
+  finished-task records.
+- **History**: one record per finished task — id, endpoints, root names,
+  byte and file counts, `startedAt`/`finishedAt` timestamps, duration,
+  outcome, error text. Capped at 10 000 records;
   compaction drops the oldest. This is the "working history log" FileZilla
   never had (D16); the activity panel's History tab reads it (02).
 
@@ -524,12 +592,15 @@ class CancelRequest extends EngineRequest { final String targetId; }
 /// Exactly one reply per promptId; a UI-side dismissal sends the
 /// cancel/auth-failure reply for the prompt's kind.
 class PromptReplyRequest extends EngineRequest {
-  final String promptId; final Object? reply;  // kind-specific plain data
+  final String promptId;
+  final EnginePromptKind kind;   // engine validates against the open prompt
+  final PromptReply reply;       // sealed: one plain-data subtype per kind
 }
 
 sealed class EngineEvent {}
-class ResponseEvent extends EngineEvent { final int requestId; /* result or
-  serialized RemoteFileException */ }
+/// payload is a sealed result type: the value, or a serialized
+/// RemoteFileException — never a bare Object (the protocol stays typed).
+class ResponseEvent extends EngineEvent { final int requestId; }
 class TransferProgressEvent extends EngineEvent {
   final String taskId; final int transferred; final int? total;
 }
@@ -663,7 +734,11 @@ also the mobile hook D29 requires.
 
 One `Trash` service with per-platform backends (§7.1): local deletions from
 panes go to the OS trash with undo where the platform gives it (macOS Put
-Back; Windows Explorer undo; `gio trash --restore` on Linux). Remote
+Back; Windows Explorer undo; on Linux, `gio trash --list` to find the
+item's `trash://` URI and `gio trash --restore <uri>` — the restore
+option exists in GLib ≥ 2.74; on older GLib the fallback is parsing
+`~/.local/share/Trash/info/*.trashinfo` (`Path=` + `DeletionDate=`) and
+moving the file back, Nautilus-style). Remote
 deletions from browsing default to confirm-then-permanent with the per-server
 opt-in "move to `.poltergeist-trash/` instead"; sync deletions use
 `.poltergeist-trash/<runId>/` (05). One directory name everywhere; the
@@ -680,9 +755,11 @@ dependency (3 years stale).
 
 ### 7.5 Directory watching
 
-Policy, fixed: watch **only the directories currently visible in a pane**,
-non-recursively, one watcher per pane-tab, debounced 300 ms into a refresh,
-dropped on navigate-away. Non-recursive watches work natively on all three
+Policy, fixed: watch **only the directory shown by each pane's active
+tab**, non-recursively — one watcher per pane, retargeted on tab switch
+and navigation, dropped when the pane shows a launcher or remote location;
+background tabs are not watched (their listing refreshes on activation).
+Debounced 300 ms into a refresh. Non-recursive watches work natively on all three
 platforms (Linux inotify does not do recursive — this policy sidesteps it).
 The sync engine uses explicit scans, never watchers (05). The checkout
 watcher keeps Séance's separate design untouched: parent-directory watch,
