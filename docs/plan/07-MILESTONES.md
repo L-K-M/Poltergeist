@@ -133,8 +133,8 @@ silent downgrade.
       sections filled in and a one-paragraph verdict.
 - [ ] `PoolPolicy` defaults and 05 §3's readdir depth updated (or
       confirmed) from the report, in the same PR.
-- [ ] Isolate PoC passes all four 03 §5 conditions, or the fallback and a
-      00 edit are in the PR.
+- [ ] Isolate PoC passes every 03 §5 pass condition, or the fallback and
+      a 00 edit are in the PR.
 - [ ] `tool/bench/` and `test/integration/` committed and runnable per
       their README lines.
 - [ ] PR-S0 and PR-S1 are filed against Séance (04 §5 says "immediately";
@@ -188,7 +188,12 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
       signing infrastructure involved) — marked as a pre-release. If D23
       lags, publish the assets that exist and record the gap in
       STATUS.md (the Risks fallback below) — that ticks this box too;
-      the box never stalls M1 on the parallel workstream.
+      the box never stalls M1 on the parallel workstream. The fallback
+      has a floor: the APK and the Linux `.deb`/AppImage/bundle must
+      publish — everything they need (icons, identifiers, the committed
+      keystore — §4's M1 and "any" rows) builds on `ubuntu-latest`, so
+      their absence is a pipeline bug, not D23 lag, and the tag waits
+      for the fix. A rehearsal that publishes nothing rehearses nothing.
 - [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
       the §2 table's "file S2 now" gate; M2 depends on it being in review
       by then.
@@ -275,7 +280,13 @@ fast, keyboard-first, honest about latency.
 **Scope.**
 
 - `LocalFileSystem implements RemoteFileSystem` in `poltergeist_core`
-  (03 §2.2), implementing all PR-S3 additions from day one.
+  (03 §2.2), implementing all PR-S3 additions from day one — as concrete
+  methods on the class until the pinned interface declares them, 03 §2.2's
+  own bridge ("the sync engine's local half never waits on the upstream
+  PR"): they become interface overrides at the PR-S3 pin bump, and a
+  caller that needs one before then types against the concrete
+  `LocalFileSystem` under §3.9's `// TODO(pin)` rule. Never an in-repo
+  extension interface — D3 allows exactly one VFS.
 - `PaneController` (03 §6) with the two required async idioms (generation
   counter, `identical()` recheck); tabs per pane (02 §3); the pane toggle.
 - Virtualized views: fixed-`itemExtent` list view and the
@@ -515,12 +526,15 @@ golden-tested "Copy as rsync command" exporter (D6).
 - [ ] Sync scan ≥ 1 000 remote entries/s on LAN (P7 benchmark, D12).
 - [ ] Docker matrix includes the setstat-ignoring server; the `sizeOnly`
       fallback notice appears.
-- [ ] chown UI (D28) enabled if the pin carries `setOwner`; if the §3.9
-      local-only fallback is active instead (no PR-S3 pin yet), ship
-      without it and record the deferral in STATUS.md — the same rule
-      covers the other remote-gated criteria here (the ≥ 1 000 entries/s
-      scan benchmark and the Docker matrix run against the pin, or are
-      recorded as deferred with it).
+- [ ] chown UI (D28) enabled if the pin carries `setOwner`; otherwise
+      ship without it and record the deferral in STATUS.md. "The pin" in
+      this criterion and the two above means the Goal's hard gate
+      satisfied — PR-S3 **merged** and the pin bumped to the merge. A
+      branch-rev pin of the filed PR-S3 unblocks the local↔local work
+      only, never these remote-gated criteria; if the merge has not
+      landed by milestone close, each is recorded as deferred in
+      STATUS.md (dated, with the branch rev noted), exactly like the M2
+      bridge record.
 
 **Risks.** The category's cardinal sin is a sync that surprises (01 §5
 trap 5). The executor runs exactly the reviewed plan and re-verifies per
@@ -602,7 +616,8 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
 2. Sweep `docs/PORTS.md`: batch small upstream fixes, refresh recorded
    commits (04 §6).
 3. Bump the Séance pin if upstream merged anything; re-diff ported files
-   (03 §8.1).
+   (03 §8.1); grep for `// TODO(pin)` markers and delete every one the
+   bump obsoletes (§3.9's rule).
 4. Tag `v0.<milestone>.0` as a pre-release for M1 through M9 — every tag
    is a release-pipeline rehearsal, so `release.yml` never rots. M10 ships
    `v1.0.0` (§3.11) and no `v0.10.0` pre-release.
@@ -651,11 +666,11 @@ assets on `v*` tags; the work is everything around it.
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
-| any | Android release signing: Séance's `ci-release.jks` pattern exactly — a **committed, deliberately public, debug-grade keystore** at `android/app/ci-release.jks` (personal tool, no Play Store; D23). No CI secret, no fallback path, no build-time generation: every build — fork, PR, or `v*` tag — signs with the same stable committed key, so each release's APK upgrades the installed app in place and a missing-secret misconfiguration cannot exist |
+| any | Android release signing: Séance's `ci-release.jks` pattern exactly — a **committed, deliberately public, debug-grade keystore** at `android/app/ci-release.jks` (personal tool, no Play Store; D23). No CI secret, no fallback path, no build-time generation: every build — fork, PR, or `v*` tag — signs with the same stable committed key, so each release's APK upgrades the installed app in place and a missing-secret misconfiguration cannot exist. The flip side, documented in INSTALL.md at M10: this key can never rotate without breaking in-place upgrades — if it is ever replaced, existing installs must uninstall and reinstall (Android rejects the signature change), and the release notes for that release must say so |
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
-| M10 | SHA-256 checksums for every release asset published in the release notes; INSTALL.md explains how to verify — and says to fetch checksums **only from this repo's release notes**: the committed public keystore means any fork can build a correctly-signed APK that upgrades an install in place, so a matching Android signature proves nothing about origin |
+| M10 | SHA-256 checksums for every release asset published in the release notes; INSTALL.md explains how to verify — and says to fetch checksums **only from this repo's release notes**: the committed public keystore means any fork can build a correctly-signed APK that upgrades an install in place, so a matching Android signature proves nothing about origin. The release tag itself is signed (`git tag -s`, the maintainer's local key — never a CI secret) as a second origin channel alongside the notes |
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,

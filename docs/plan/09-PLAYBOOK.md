@@ -172,8 +172,13 @@ says where the path is headed. Callers strip a trailing separator
 `/` is shape, not a component. Windows reserved device names
 (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9` — with or
 without an extension, `PRN.txt` included) are already rejected
-by `validateLocalName` (03 §2.3), which runs on every local target name;
-this helper stays component-shape-only.
+by `validateLocalName` (03 §2.3), which runs on **every locally created
+name — intermediate directories included**: each directory a recursive
+walk materializes is itself a target name at its own creation, so
+`pkg/CON/x.txt` fails at the `CON` mkdir, not only at the leaf. A code
+path that creates a local directory without `validateLocalName` on its
+name is the same review defect as skipping it on a file. This helper
+stays component-shape-only.
 
 ```dart
 void validateRelativeComponents(String relative,
@@ -199,7 +204,9 @@ void validateRelativeComponents(String relative,
   }
 }
 
-final _windowsHazard = RegExp(r'[<>:"|?*\x00-\x1f]'); // not per-component
+final _windowsHazard =
+    RegExp(r'[<>:"|?*\x00-\x1f]'); // char class — applied per component
+                                   // via hasMatch in the loop above
 ```
 
 ### 3.6 Atomic writes for every persisted file
