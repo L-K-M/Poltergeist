@@ -100,7 +100,10 @@ editing this file (with rationale) in the same PR as the change.
   passphrases, server list visible read-only, host-key pins synced
   bidirectionally — Poltergeist honors pulled `hostkey:` records and pushes
   its own new pins as standard `hostkey:<host:port>` records, mirroring
-  Séance's own multi-device host-key sync; same user, same devices) is the
+  Séance's own multi-device host-key sync, except that a pulled pin
+  conflicting with a locally known key is quarantined unapplied behind a
+  MITM warning, never LWW-installed as trusted (04 §3.2); same user, same
+  devices) is the
   headline mode but is **gated on Séance shipping the `RecordKind.unknown`
   forward-compatibility fix** (un-patched Séance decodes unknown kinds as
   `serverConfig` — sync bricks or phantom servers appear). Until the user
