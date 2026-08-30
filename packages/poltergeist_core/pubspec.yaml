@@ -1,0 +1,16 @@
+name: poltergeist_core
+description: >-
+  Platform-agnostic core for Poltergeist: connections, transfers, the sync
+  engine, and the bookmark model per docs/plan/. Currently a scaffold that
+  carries the product identity and keeps the workspace, analyzer, tests, and
+  CI exercised end to end.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.12.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

@@ -1,0 +1,211 @@
+name: Release
+
+# Tag a version (scripts/release.sh X.Y.Z --push) to test, build, and publish
+# Poltergeist's release artifacts: the app client for every platform folder
+# the repo carries — Android APK, Linux packages (.deb + AppImage, x64 —
+# Flutter publishes no linux-arm64 host artifacts), macOS/Windows desktop
+# bundles, and an unsigned iOS IPA. Poltergeist has no server component
+# (bookmark backup rides Séance's sync server), so unlike Séance there are no
+# server binaries or Docker images here. The desktop bundles are unsigned
+# (macOS: ad-hoc), so first launch needs the usual unidentified-developer
+# step (macOS: right-click ▸ Open; Windows: SmartScreen ▸ Run anyway), and
+# the iOS IPA must be re-signed to install (AltStore / Sideloadly / Xcode
+# with a free Apple ID). Tagging before app/poltergeist_app exists fails the
+# client jobs by design — there is nothing to release yet.
+# No tag handy? The workflow_dispatch trigger below cuts the same release from
+# a chosen commit and creates the tag for you (see its comment).
+
+on:
+  push:
+    tags: ['v*']        # e.g. v0.2.0
+  # Cut a release without pushing a tag — for environments whose credential
+  # can push branches but not tag refs (e.g. remote agent sessions). The tag
+  # is created at the dispatched commit by the first gh-release step; the
+  # input must match the pubspec `version:` (the scripts/release.sh lockstep
+  # contract), since the APK/bundles bake that version in.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.3.1 (created here if it doesn't exist)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write       # create the GitHub Release
+
+jobs:
+  # Gate the release on the pure-Dart suite. A tag on a broken commit must
+  # not publish a release. (The Flutter app's analyze+test and a per-platform
+  # compile of every client run in CI on main/PRs, so the tagged commit is
+  # already green there; the client jobs below still re-compile each
+  # platform, which fails that platform's asset if it won't build.)
+  test:
+    name: Test (release gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve workspace
+        run: dart pub get
+      - name: Analyze
+        run: dart analyze $(ls -d packages/*)
+      - name: Test
+        run: |
+          dirs=""
+          for p in packages/*; do
+            [ -d "$p/test" ] && dirs="$dirs $p"
+          done
+          if [ -z "$dirs" ]; then
+            echo "no package has a test/ directory yet"; exit 1
+          fi
+          dart test $dirs
+
+  # The app, once per client platform. `flutter build` is host-locked
+  # (linux/windows only build on their own OS, macos/ios only on a Mac) —
+  # hence a matrix over runners. fail-fast stays off so one platform's
+  # breakage doesn't cancel the others: each job attaches its own asset to
+  # the release independently. CI compiles the same matrix on main/PRs
+  # (ci.yml `client` job — keep the two in step), so a tag should never be
+  # the first time a client platform builds.
+  client:
+    name: Client (${{ matrix.target }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45   # first run downloads the Flutter toolchain
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The APK should sign with a committed, deliberately public,
+          # debug-grade keystore (Séance's ci-release.jks pattern — personal
+          # tool, no Play Store) so each release's APK upgrades the installed
+          # app in place instead of demanding an uninstall. The app scaffold
+          # milestone sets this up; no signing secrets are needed either way.
+          - os: ubuntu-latest
+            target: android
+            build: apk --release
+            files: poltergeist-android.apk
+          # The .deb and AppImage ride along with the plain bundle (three
+          # assets); the .deb keeps its versioned Debian filename, hence the
+          # glob. x64 only: Flutter publishes no linux-arm64 host artifacts
+          # (releases_linux.json is x64-only), so an arm runner can't build it.
+          - os: ubuntu-latest
+            target: linux
+            build: linux --release
+            flavor: x64
+            files: |
+              poltergeist-linux-x64.tar.gz
+              poltergeist_*.deb
+              poltergeist-linux-x64.AppImage
+          - os: macos-latest
+            target: macos
+            build: macos --release
+            files: poltergeist-macos-universal.zip
+          # No Apple Developer account: built unsigned (--no-codesign) and
+          # shipped as an IPA for users who re-sign and sideload.
+          - os: macos-latest
+            target: ios
+            build: ios --release --no-codesign
+            files: poltergeist-ios-unsigned.ipa
+          - os: windows-latest
+            target: windows
+            build: windows --release
+            files: poltergeist-windows-x64.zip
+    steps:
+      - uses: actions/checkout@v4
+      # Pin the JDK so the Gradle build is deterministic rather than tracking
+      # the runner's default; keep in step with the app's compileOptions.
+      - uses: actions/setup-java@v4
+        if: matrix.target == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      # GTK toolchain for the Flutter Linux embedder, plus libsecret/jsoncpp
+      # for flutter_secure_storage's keyring backend; imagemagick/file feed
+      # scripts/package-linux.sh (icon resize, appimagetool).
+      - name: Install Linux desktop toolchain
+        if: startsWith(matrix.target, 'linux')
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+          libsecret-1-dev libjsoncpp-dev imagemagick file
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      # If the committed project signs Release with a developer identity the
+      # runner doesn't have (the scripts/build.sh local path), switch the
+      # build to ad-hoc signing — the signing class the app is designed to
+      # support (entitlements and keychain use chosen to work ad-hoc-signed,
+      # per the Séance lesson). Harmless when the project already specifies
+      # ad-hoc signing (sed simply matches nothing).
+      - name: Switch macOS signing to ad-hoc (runner has no certificate)
+        if: matrix.target == 'macos'
+        run: |
+          sed -i '' \
+            -e 's/"CODE_SIGN_IDENTITY\[sdk=macosx\*\]" = "Apple Development";/"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";/' \
+            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/' \
+            -e 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/' \
+            app/poltergeist_app/macos/Runner.xcodeproj/project.pbxproj
+      - name: Resolve app dependencies
+        working-directory: app/poltergeist_app
+        run: flutter pub get
+      - name: Build
+        working-directory: app/poltergeist_app
+        run: flutter build ${{ matrix.build }}
+      # Stage each platform's product under its release asset name: product +
+      # platform, no version (the release page already carries the version) —
+      # except the .deb, whose filename is Debian's versioned convention.
+      # Poltergeist is ASCII, so unlike Séance no post-build bundle rename is
+      # needed anywhere.
+      - name: Package
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in
+            android)
+              cp app/poltergeist_app/build/app/outputs/flutter-apk/app-release.apk \
+                 poltergeist-android.apk
+              ;;
+            linux)
+              mv "$(ls -d app/poltergeist_app/build/linux/*/release/bundle)" \
+                 "poltergeist-linux-${{ matrix.flavor }}"
+              tar -czf "poltergeist-linux-${{ matrix.flavor }}.tar.gz" "poltergeist-linux-${{ matrix.flavor }}"
+              # The mv above renamed the bundle out of Flutter's layout, so
+              # point the packager at it explicitly (--bundle asks the ELF for
+              # its arch).
+              scripts/package-linux.sh --bundle "poltergeist-linux-${{ matrix.flavor }}" --output-dir .
+              ;;
+            macos)
+              # ditto keeps the bundle's symlinks and metadata intact inside
+              # the zip.
+              cd app/poltergeist_app/build/macos/Build/Products/Release
+              ditto -c -k --keepParent "$(ls -d *.app | head -1)" \
+                "$GITHUB_WORKSPACE/poltergeist-macos-universal.zip"
+              ;;
+            ios)
+              # An IPA is Payload/<app>.app zipped. Unsigned — installing it
+              # means re-signing (AltStore / Sideloadly / Xcode free account).
+              mkdir Payload
+              mv app/poltergeist_app/build/ios/iphoneos/Runner.app Payload/
+              zip -qry poltergeist-ios-unsigned.ipa Payload
+              ;;
+            windows)
+              mv "$(ls -d app/poltergeist_app/build/windows/*/runner/Release)" poltergeist-windows-x64
+              7z a -bd poltergeist-windows-x64.zip poltergeist-windows-x64
+              ;;
+          esac
+      - uses: softprops/action-gh-release@v2
+        with:
+          # On a tag push these two resolve to the pushed tag (and the
+          # commitish is ignored); on workflow_dispatch they make the first
+          # job to get here create the tag at the dispatched commit.
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          files: ${{ matrix.files }}
