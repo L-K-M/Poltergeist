@@ -122,7 +122,12 @@ class FaultPlan {
   final bool ignoreSetTimes;               // setstat silently clamped
   final bool failSetTimes;                 // setstat -> permissionDenied
   final Set<String> failRenameTargets;     // EXDEV-style rename failure
-  final void Function(String op, String path)? onOperation; // mutate mid-run
+  final void Function(String op, String path)? onOperation;
+                      // observe/mutate mid-run — and it MAY THROW: the
+                      // fake funnels the throw into a RemoteFileException
+                      // (§3.1's error shape holds for injected failures
+                      // too), which is what makes retry counting, .part
+                      // cleanup, and executor-idempotence paths injectable
 }
 ```
 
@@ -207,8 +212,11 @@ pairs and `fake_async`:
   **paused** with remaining items; a corrupt trailing JSONL line is
   dropped; compaction moves finished tasks to history; history caps at
   10 000 records.
-- `BandwidthLimiter`: with a fake clock, N bytes at limit L take ≥ N/L
-  seconds and bursts never exceed one second of tokens.
+- `BandwidthLimiter`: with a fake clock — no burst ever grants more
+  than one second of tokens, N > L bytes at limit L take
+  ≥ (N − L)/L seconds (a full initial bucket makes ≥ N/L unattainable
+  by the intended bursting implementation), and sustained throughput
+  over any window ≥ 2 s averages ≤ L bytes/s.
 - Remote→remote piping over two fakes: bytes counted once, both leases
   released on success and on either side's failure, failing side named in
   the error message.
@@ -375,7 +383,12 @@ test/integration/
   docker-compose.yml        the whole matrix; every port mapping is
                             loopback-only (`127.0.0.1:220N:22` — a bare
                             `220N:22` binds 0.0.0.0 and would expose
-                            weak-credential sshds on the LAN: a bug here)
+                            weak-credential sshds on the LAN). Enforced
+                            mechanically, not by prose: run.sh and CI
+                            grep this file and fail on any `ports:`
+                            entry lacking a `127.0.0.1:` host prefix —
+                            Principle 3 applies to the fixture's own
+                            most dangerous property too
   sshd-modern/Dockerfile    alpine pinned by version + digest — current
                             OpenSSH (9.x/10.x), bumped deliberately (a
                             floating latest would drift the D9 algorithm
@@ -401,8 +414,13 @@ test/integration/
                             executable bit and OpenSSH refuses
                             group-readable host keys
   run.sh                    compose up -d, then wait for readiness —
-                            poll each loopback sshd port until it
-                            accepts TCP, or per-service compose
+                            a real SSH banner exchange against literal
+                            `127.0.0.1:220N` per service (never
+                            `localhost`, which can resolve to `::1`
+                            while the publish is IPv4-only; and never a
+                            bare TCP connect — Docker's userland proxy
+                            accepts host-side TCP before sshd listens),
+                            or per-service compose
                             healthchecks (`up` returns on container
                             start, not sshd listening: skipping the
                             wait is the classic first-test
@@ -420,7 +438,7 @@ Compose services (config variants run on the modern image):
 | `sshd-modern` | 2201 | baseline: key auth, full SFTP |
 | `sshd-legacy` | 2202 | old algorithm defaults — D9 coverage audit |
 | `sshd-chroot` | 2203 | `ForceCommand internal-sftp` + `ChrootDirectory` — the sftp-only world rsync cannot reach (D6) |
-| `sshd-restricted` | 2204 | `Subsystem sftp /usr/lib/ssh/sftp-server -P setstat,fsetstat` — forces the 05 §4 mtime-unreliable fallback (the executor must treat a failed setstat the same as a silently clamped one) |
+| `sshd-restricted` | 2204 | `Subsystem sftp /usr/lib/ssh/sftp-server -P setstat,fsetstat` (the Alpine path, matching `sshd-modern`'s pinned base — a Debian/Ubuntu base would need `/usr/lib/openssh/sftp-server`, so the path follows whatever image the compose spec pins) — forces the 05 §4 mtime-unreliable fallback (the executor must treat a failed setstat the same as a silently clamped one) |
 | `sshd-authmatrix` | 2205 | password + keyboard-interactive users, `PermitRootLogin prohibit-password`, plus a user whose authorized_keys rejects the offered key — feeds the failure-summarizer tests |
 | `sshd-keyswap` | 2201 (swapped in) | identical config to `sshd-modern`, different host key (a second pre-generated host key in `keys/`) — the changed-key fixture. The TOFU suite's runner stops `sshd-modern` and starts this service on the **same host port**, so the client re-contacts an unchanged host:port and sees a changed key (a different port would read as a new, unpinned server and merely prompt); the two services are never up at once. To make that structural, the service is declared under `profiles: [keyswap]` in the compose file — a bare `compose up` therefore never starts it (both services mapping host port 2201 would otherwise race to bind at startup and fail the stack); the TOFU runner starts it by name (`docker compose up -d sshd-keyswap`, which activates a profiled service explicitly targeted on the command line) after stopping `sshd-modern` |
 
@@ -503,7 +521,7 @@ Two tiers, because CI runners cannot honestly measure UI frames:
 | Tier | Budgets | Harness | Environment | Enforcement |
 |---|---|---|---|---|
 | A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, compiled AOT (`dart compile exe`) in CI — `dart run` is local iteration only, per Mechanics — against the §5 Docker fixture on loopback (loopback stands in for LAN; network time is measured separately and subtracted for P3) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE_A`, red = failed job) from the milestone that introduces each surface |
-| B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` capturing `FrameTiming`s via `SchedulerBinding.instance.addTimingsCallback` (the stable in-process mechanism; `traceAction` may be used only after verifying it produces summaries under `flutter test integration_test --profile` with the pinned `integration_test` — its Timeline plumbing has a deprecation history), run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression of the median of ≥ 3 runs once enforced); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only until M9 flips to enforced (soft mode lives in `check.dart`, §6 — no blanket `continue-on-error`); absolute at release QA |
+| B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` capturing `FrameTiming`s via `SchedulerBinding.instance.addTimingsCallback` (the stable in-process mechanism; `traceAction` may be used only after verifying it produces summaries under `flutter test integration_test --profile` with the pinned `integration_test` — its Timeline plumbing has a deprecation history), run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression of the median of ≥ 3 in-job repetitions once enforced — Mechanics defines the source); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only until M9 flips to enforced (soft mode lives in `check.dart`, §6 — no blanket `continue-on-error`); absolute at release QA |
 
 Mechanics:
 
@@ -541,8 +559,11 @@ Mechanics:
   without the tier's flag), **never** as a blanket
   `continue-on-error: true` on the job step — that would also mask
   missing/errored scenarios, which fail in every mode (above). Once
-  enforced, a tier-B comparison uses the median of ≥ 3 runs against the
-  baseline, and the committed baseline is refreshed only via a dedicated
+  enforced, a tier-B comparison runs the tier-B suite ≥ 3 times
+  **within the single bench job** and compares the median of those
+  in-job repetitions against the baseline (no cross-run orchestration;
+  the results file carries per-repetition entries so `check.dart` can
+  compute it), and the committed baseline is refreshed only via a dedicated
   PR when the environment fingerprint changes — shared-runner noise must
   not train people to ignore a gating check. The tier-B flip
   is a one-line repository-variable change recorded in 07's M9 exit
@@ -636,7 +657,7 @@ section says what each job runs and what gets added when.
 | `dart` | yes | `dart analyze` + `dart test` over `packages/*`, discovered dynamically | `poltergeist_sync` joins automatically when created. **Change at M1**: extend to an OS matrix (`ubuntu-latest`, `macos-latest`, `windows-latest`) once `LocalFileSystem` lands — the platform-conditional contract cases (case-only rename, reserved names, mode unsupported) only mean something on the real OS. All three are required checks; they are cheap (pure Dart). |
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
-| `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral if the fixture is ever absent — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main` and on PRs. |
+| `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral if the fixture is ever absent — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, and on PRs touching `packages/**` or `test/integration/**` (the bench job's path-filter rationale — a 25-minute Docker job has no business on a docs-only PR). |
 | `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture, tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and

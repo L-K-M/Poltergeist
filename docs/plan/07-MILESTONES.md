@@ -119,6 +119,9 @@ class BenchResult {
         // Rows from different days/machines must stay attributable
         // once the report merges them (and once M3 moves this to CI).
         'timestampUtc': DateTime.now().toUtc().toIso8601String(),
+        'host': Platform.localHostname, // dart:io — rows from different
+                                        // machines (dev laptop vs CI
+                                        // runner) must stay attributable
       };
 }
 ```
@@ -195,7 +198,7 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
       the box never stalls M1 on the parallel workstream. The fallback
       has a floor: the APK and the Linux `.deb`/AppImage/bundle must
       publish — everything they need (icons, identifiers, the committed
-      keystore — §4's M1 and "any" rows) builds on `ubuntu-latest`, so
+      keystore — §4's M1 rows) builds on `ubuntu-latest`, so
       their absence is a pipeline bug, not D23 lag, and the tag waits
       for the fix. A rehearsal that publishes nothing rehearses nothing.
 - [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
@@ -302,7 +305,9 @@ fast, keyboard-first, honest about latency.
   up); latency honesty rules — cancellable navigations, spinner rules,
   stale-listing handling (02 §2.8); pane footer (02 §2.9).
 - Empty states per 02 §2.7 — the empty-state-as-launcher (connect,
-  import, open folder) replaces M2's interim list.
+  import, open folder) becomes the default connect entry point; M2's
+  interim server list coexists until M5 deletes it (§3.6 owns the
+  removal — its probe dots stay live for the M3–M4 window).
 - Sync Browsing (02 §7) — cheap once navigation is centralized; anchor
   pair, graceful suspension, link chips.
 - Command registry (D21) lands NOW with every pane action registered;
@@ -677,16 +682,38 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
-| any | Android release signing: Séance's `ci-release.jks` pattern exactly — a **committed, deliberately public, debug-grade keystore** at `android/app/ci-release.jks` (personal tool, no Play Store; D23). No CI secret, no fallback path, no build-time generation: every build — fork, PR, or `v*` tag — signs with the same stable committed key, so each release's APK upgrades the installed app in place and a missing-secret misconfiguration cannot exist. The flip side, documented in INSTALL.md at M10: this key can never rotate without breaking in-place upgrades — if it is ever replaced, existing installs must uninstall and reinstall (Android rejects the signature change), and the release notes for that release must say so |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks`; every build signs with it (policy: **Android signing & checksums**, below the table) |
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
-| any `v*` tag | SHA-256 checksums for every published asset land in that release's notes as a `release.yml` step — automated from the **first** tag that ships an APK, not an M10 chore: the committed public keystore means any fork can build a correctly-signed APK that upgrades an install in place from v0.1.0 onward, so the origin channel must exist as long as the artifacts do |
-| M10 | INSTALL.md explains how to verify the checksums — and says to fetch them **only from this repo's release notes** (a matching Android signature proves nothing about origin, per the row above). The release tag is signed (`git tag -s`, the maintainer's local key — never a CI secret); the signature attests the **source commit**, not the CI-built artifacts — absent reproducible builds, the release-notes checksums remain the only artifact-level origin channel, and INSTALL.md must not overstate what the tag signature proves |
+| from `v0.1.0`, every `v*` tag | `release.yml` writes SHA-256 checksums for all published assets into that release's notes (policy: **Android signing & checksums**, below the table) |
+| M10 | INSTALL.md explains checksum verification: download artifacts **only from this repo's Releases page** and fetch checksums **only from the release notes** (policy: **Android signing & checksums**, below the table) |
+
+**Android signing & checksums** (the policy the three rows above
+schedule). The keystore is Séance's `ci-release.jks` pattern exactly:
+a committed, deliberately public, debug-grade keystore (personal tool,
+no Play Store — D23). No CI secret, no fallback path, no build-time
+generation: every build — fork, PR, or `v*` tag — signs with the same
+stable committed key, so each release's APK upgrades the installed app
+in place and a missing-secret misconfiguration cannot exist. The flip
+side, documented in INSTALL.md at M10: the key can never rotate without
+breaking in-place upgrades — if it is ever replaced, existing installs
+must uninstall and reinstall (Android rejects the signature change),
+and that release's notes must say so. Because the key is public, a
+matching Android signature proves nothing about origin — any fork can
+build a correctly-signed APK that upgrades an install in place, which
+is why the checksum channel must exist from the first tag that ships an
+APK and for as long as the artifacts do, and why INSTALL.md tells users
+to download only from this repo's Releases page and verify against the
+notes. The release tag is signed (`git tag -s`, the maintainer's local
+key — never a CI secret); the signature attests the **source commit**,
+not the CI-built artifacts — absent reproducible builds, the
+release-notes checksums remain the only artifact-level origin channel,
+and INSTALL.md must not overstate what the tag signature proves.
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,

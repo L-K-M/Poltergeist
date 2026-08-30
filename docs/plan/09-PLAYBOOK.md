@@ -176,7 +176,9 @@ there, it silently writes an NTFS alternate data stream — so the caller
 says where the path is headed. Callers strip a trailing separator
 (`'a/b/'` → `'a/b'`) before validating — a directory entry's trailing
 `/` is shape, not a component. Windows reserved device names
-(`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9` — with or
+(`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` and superscript
+`COM¹`–`COM³`, `LPT1`–`LPT9` and superscript `LPT¹`–`LPT³` — the NT
+path layer accepts superscript digits — with or
 without an extension, `PRN.txt` included) are already rejected
 by `validateLocalName` (03 §2.3), which runs on **every locally created
 name — intermediate directories included**: each directory a recursive
@@ -184,7 +186,9 @@ walk materializes is itself a target name at its own creation, so
 `pkg/CON/x.txt` fails at the `CON` mkdir, not only at the leaf. A code
 path that creates a local directory without `validateLocalName` on its
 name is the same review defect as skipping it on a file. This helper
-stays component-shape-only.
+stays shape-and-hazard only for POSIX destinations; on a Windows
+destination it additionally owns the reserved-name check (above),
+because its non-mkdir callers have no other guard.
 
 ```dart
 void validateRelativeComponents(String relative,
@@ -194,7 +198,11 @@ void validateRelativeComponents(String relative,
     // components also feed Windows-rendered previews and exports, and a
     // '\' inside one is overwhelmingly an escaping bug, not a filename —
     // do not "simplify" this to windowsDestination-only.
-    if (part.isEmpty || part == '.' || part == '..' || part.contains('\\')) {
+    if (part.isEmpty || part == '.' || part == '..' || part.contains('\\') ||
+        // NUL is not a legal filename byte on any platform, and a POSIX
+        // C string silently truncates at it — the same escaping-bug
+        // class as backslash, rejected for every destination.
+        part.contains('\x00')) {
       throw FormatException('unsafe path component "$part" in "$relative"');
     }
     // Destination-filesystem rules: fine on POSIX, hazardous on Windows —
@@ -203,6 +211,11 @@ void validateRelativeComponents(String relative,
     // silently creating a different name than was validated.
     if (windowsDestination &&
         (_windowsHazard.hasMatch(part) ||
+            // Reserved device names checked HERE too, not only in
+            // validateLocalName: export, preview, and drag-payload
+            // flows never mkdir, so nothing else would ever see these
+            // components on a Windows-bound path.
+            _isWindowsReservedName(part) ||
             part.endsWith('.') ||
             part.endsWith(' '))) {
       throw FormatException('unsafe path component "$part" in "$relative"');
@@ -223,9 +236,10 @@ void validateRelativeComponents(String relative,
 final _windowsHazard =
     RegExp(r'[<>:"|?*\x00-\x1f]'); // char class — applied per component
                                    // via hasMatch in the loop above
-final _bidiControls = // LRM/RLM, LRE..RLO+PDF, LRI..PDI — written as
-    RegExp(                     // regex-level \uXXXX escapes so the
-        r'[\u200e\u200f'       // source stays visible ASCII (a
+final _bidiControls = // ALM/LRM/RLM, LRE..RLO+PDF, LRI..PDI — the full
+    RegExp(                     // Bidi_Control set, as regex-level
+        r'[\u061c'             // \uXXXX escapes so the
+        r'\u200e\u200f'        // source stays visible ASCII (a
         r'\u202a-\u202e'       // literal bidi char in a validator
         r'\u2066-\u2069]');    // would be its own spoof hazard)
 ```
@@ -239,10 +253,15 @@ over the target; the editor's saver adds the backup + conflict dance,
 06 §2). Bare `File.writeAsString` to a live path is a review blocker.
 
 ```dart
+// uuidV4() is the project's one thin helper over package:uuid
+// (`const Uuid().v4()`) — several chapters' sketches call it by this
+// name; do not invent a second helper or paste raw Uuid() calls.
 final tmp = File('${target.path}.poltergeist-${uuidV4()}.tmp');
 try {
   await tmp.writeAsBytes(bytes, flush: true);
-  await tmp.rename(target.path); // atomic on the same filesystem
+  await tmp.rename(target.path); // atomic on POSIX; best-effort
+                                 // replace on Windows (MoveFileEx) —
+                                 // journal recovery absorbs a torn one
 } on Object {
   // A failed write must not leave temp siblings beside live stores —
   // and cleanup is best-effort only: it must never mask the original
@@ -316,8 +335,9 @@ The mechanics live in 03 §8; the porting-back flow in 04 §6. Operationally:
      keyboard-interactive handler's lambda parameter type stays inferred;
      writing the type breaks the build.
    - Dart `RegExp` has **no inline `(?i)` flag** — use
-     `caseSensitive: false`; porting a pattern with inline flags from
-     another engine silently fails.
+     `caseSensitive: false`; a pattern ported with an inline flag throws
+     `FormatException` at construction (never a quiet case-sensitive
+     match — the pinned test asserts the throw, not a non-match).
 5. **Never diverge on the shared safety protocols** — the
    `DartSshRemoteFileSystem` transfer/hash protocols (03 §2.1) and the
    crypto/wire contracts of 04 §1.3. A change there goes upstream or not at
@@ -347,11 +367,14 @@ A PR merges only when all of these hold:
       the same PR edits the chapter (and 00 if a decision changed — §8.3);
       silent drift is a defect.
 - [ ] Commit hygiene per §2 (trailer, session link, no model identifiers).
-- [ ] A dependency-bump PR re-verifies the §4 item-4 API constraints —
-      each is backed by one pinned test (HKDF salt domain separation,
-      dartssh2 fingerprint-bytes semantics, no inline RegExp flags), so
-      an upgrade that silently invalidates an assumption fails CI
-      instead of relying on review memory.
+- [ ] **If this PR bumps a dependency:** the pinned tests for the §4
+      item-4 constraints still pass — one per testable constraint (HKDF
+      salt domain separation, Argon2 `memory` in KiB, the
+      `nonce(24) || ciphertext || mac(16)` sealed-blob layout, dartssh2
+      fingerprint-bytes semantics, inline RegExp flags throwing at
+      construction; the barrel-export constraint is compile-time and
+      needs no test) — so an upgrade that silently invalidates an
+      assumption fails CI instead of relying on review memory.
 
 ## 6. What never to do — hard rules
 
@@ -471,7 +494,10 @@ see clearly: title it as a decision change, not a feature.
       the milestone it serves (§1).
 - [ ] The §3 idioms are enforced in review from the first controller PR:
       at least one review round has rejected or required changes citing
-      §3.1–§3.7 rules, or the code demonstrably follows them.
+      §3.1–§3.7 rules, or the controller PR's description cites the §3
+      idioms it applies — linkable, spot-checkable evidence, like every
+      other item here; a bare "the code follows them" satisfies
+      nothing.
 - [ ] `docs/PORTS.md` exists from the first ported file, and every entry
       matches the 03 §8.2 format with `Divergences` and `Port-back
       candidates` lines (§4).
