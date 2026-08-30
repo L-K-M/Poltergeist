@@ -75,7 +75,18 @@ expectedSha256}) → savedSha256` — the atomic two-sibling save dance, kept
 step for step (the research notes flag it "do NOT re-implement
 differently"):
 
-1. Exclusive-create a temp sibling, write, flush, close, SHA it (that
+1. Exclusive-create a temp sibling and immediately chmod it to 0600 on
+   POSIX **before any plaintext byte is written** — at umask default
+   (typically 0644) the content would sit group/world-readable for the
+   whole write/flush/close/SHA sequence, and a crash before step 4
+   would strand a world-readable plaintext `.edit` sibling that the
+   D15 ignore rules hide from the app's own listings (a deliberate
+   divergence from the ported saver if Séance's lacks it — PORTS-noted,
+   port-back candidate; step 4 still re-applies the *original* file's
+   mode before the rename, so a 644 original saves back to 644; the
+   §2.5 save test samples the temp's mode between create and first
+   write and asserts group/other bits are clear); then
+   write, flush, close, SHA it (that
    digest is the return value and the next baseline).
 2. Verify the target is still a regular file
    (`FileSystemEntity.type(followLinks: false)`).
@@ -89,11 +100,29 @@ differently"):
    group/world-readable on the very first save (PORTS-noted if Séance's
    saver lacks this; `CheckoutManager.reconcile` re-asserts 600 on
    POSIX when it re-hashes, catching external editors' atomic saves
-   too, and the §2.5 production-path save test asserts a 600 checkout
+   too — riding §3.3's existing triggers, which bound the exposure: the
+   parent-directory watcher fires when the editor's save lands and
+   reconcile runs after the ~600 ms debounce, so a 0644 file left by an
+   external atomic save is re-asserted within roughly a second while
+   watching works; when watching is degraded the bound degrades with
+   it to §3.3's reconcile-on-resume/`reconcileAll`-on-foreground, and a
+   test chmods a checkout to 644 and asserts the watcher-path reconcile
+   restores 600 — and the §2.5 production-path save test asserts a 600
+   checkout
    is still 600 after a save); then `rename(temp → file)`;
    restore the backup on any failure.
 5. Delete the backup, **tolerating a failing delete** (a stray backup file
-   beats reporting a false save failure).
+   beats reporting a false save failure). Tolerated strays must not
+   accumulate invisibly **in app-owned space**: inside checkout dirs
+   (§3.1), `CheckoutManager.reconcile` sweeps stale
+   `*.poltergeist-*.edit`/`.backup` siblings matched by §3.3's exact
+   generated patterns — skipping any modified within the current save
+   window, tolerating and logging failures. Outside app-owned space
+   (a plain local file edited in place) there is deliberately **no**
+   sweep: deleting pattern-matched files from user-owned directories
+   is a side-effect deletion the plan forbids everywhere else, and the
+   stray there is the user's own content in its own directory at its
+   original mode — the step-6 `finally` covers the normal path.
 6. `finally`: close any open handle, delete leftover temp. The size cap is
    re-checked on the encoded output.
 
@@ -299,7 +328,18 @@ abstract class CheckoutManager extends ChangeNotifier {
   therefore degenerates to `(serverId, remotePath)` with no store changes.
   Because the manager is app-wide, Séance's retained-copies handoff across
   disconnect/reconnect disappears entirely — records simply persist; a
-  reconnect changes nothing about checkout identity.
+  reconnect changes nothing about checkout identity. One consequence is
+  pinned rather than left to surprise: two in-app editors on the same
+  `(serverId, remotePath)` would now share one local file and baseline,
+  so the second one's save would arm the first's
+  `changed in another editor. Reopen it…` refusal (§2.4) — where
+  Séance's per-tab identity gave each tab its own copy and surfaced the
+  clash at upload time through §3.4's escalation. Poltergeist therefore
+  enforces **one live built-in editor session per key**: opening a file
+  that already has one focuses the existing editor tab instead of
+  opening a second (the D17 divergence row records it; external
+  editors are unaffected — the OS owns those windows, and their saves
+  already route through §3.3's watch-and-prompt).
 - Store layout: index at `<app-support>/managed_remote_files.json`,
   checkout files at `<app-support>/checkouts/<sha256(record id)>/
   <sanitized name>` — the record's `uuidV4()` id is **minted at §3.2
@@ -326,7 +366,11 @@ abstract class CheckoutManager extends ChangeNotifier {
   designed refusal path; a Windows checkout test for `nul.conf` pins
   it, and the §2.5 divergence row records it if Séance's helper lacks
   the handling. Linux **and macOS** checkout dirs/files get mode
-  700/600 (plaintext secrets may pass through; the macOS default umask
+  700/600 — and so do `managed_remote_files.json` and the atomic-write
+  temp that replaces it: the index maps server ids to the remote paths
+  the user edits (private keys, sensitive configs), a disclosure of its
+  own at the umask default (plaintext secrets may pass through the
+  checkouts; the macOS default umask
   would otherwise leave them group/world-readable). Séance's helper is
   Linux-only (`_restrictLinuxPermissions`) — the macOS extension is a
   deliberate, PORTS-noted divergence and port-back candidate. Windows
@@ -350,11 +394,22 @@ abstract class CheckoutManager extends ChangeNotifier {
    servers — via a `putIfAbsent`-style flight map; a caller joining an
    in-flight download **pre-refuses on its own `entry.size` when that is
    known and already over its `maximumBytes`** (fail fast — never wait
-   out a minutes-long shared transfer just to refuse at the end), and
+   out a minutes-long shared transfer just to refuse at the end); when
+   the size is unknown and the shared flight is uncapped, the capped
+   waiter **watches the shared transfer's running byte count and fails
+   its own future the moment the count passes its cap** — the waiter
+   never caps the shared sink, it only stops waiting (step 3's "never a
+   full download to a certain refusal" guarantee, extended to joined
+   waiters); and
    otherwise applies its `maximumBytes` to the awaited
    result (refusing with the too-large reason rather than returning it),
    so a built-in-editor waiter never inherits an uncapped
-   external-editor checkout. An existing checkout for the key is
+   external-editor checkout. A waiter's cap refusal — pre-refusal,
+   byte-count abort, and end-of-flight refusal alike — **fails only
+   that waiter's future, never the shared one**: it is not a failure of
+   the download for step 4's cleanup, so it never deletes the file,
+   removes the record, or drops the flight-map entry — the completed
+   checkout belongs to the caller that started it. An existing checkout for the key is
    returned as-is **only when its local file still exists** (stat it — a
    `missing` copy is re-downloaded through the normal path below and its
    record replaced, so the editor never opens a dangling record; offline,
@@ -369,9 +424,21 @@ abstract class CheckoutManager extends ChangeNotifier {
    cap at open as the final guard, but the early refusal beats
    open-then-refuse). Flight-map entries are removed on failure or
    cancellation so concurrent waiters retry instead of observing a dead
-   future.
+   future. Checkouts and destructive mutations share **one per-key
+   serialization**: `discard` (§3.7's Discard/Forget) and
+   `migrateRename`'s record rewrite queue behind any in-flight
+   `checkout` for the same key and vice versa — a `checkout` racing a
+   `discard` either waits it out or starts fresh after it, and must
+   never return a record whose local file is being removed underneath
+   the caller (the step-1 stat check closes the dangling-record case
+   only when the file is already gone, not mid-removal).
 2. Create the checkout file `exclusive: true` after safe-parent creation
-   (no symlink traversal — `ensureSafeLocalDirectory`, 03 §2.3).
+   (no symlink traversal — `ensureSafeLocalDirectory`, 03 §2.3). The
+   §3.6 epoch marker is already on disk by this point — its rule is
+   written **between mkdir and any download**, under the creation
+   mutex — so a crash anywhere in steps 2–4 leaves a marker-verified
+   dir the sweep can classify, never a markerless one holding a
+   partial.
 3. Download as a **priority task through the transfer queue** so it is
    visible and cancellable in the activity panel (D16); the checkout is
    never invisible I/O. When the destination is the built-in editor, the
@@ -380,7 +447,11 @@ abstract class CheckoutManager extends ChangeNotifier {
    `entry.size` too). External-editor checkouts pass no per-editor cap,
    but **every checkout preflights free space** on the app-support volume
    against `entry.size` (refusing with a clear message when it won't
-   fit), and a checkout larger than the §8 large-download confirmation
+   fit — checked **after** the cap refusals above, so an over-cap file
+   refuses as too-large, never with a misleading won't-fit; a capped
+   checkout that passes its cap check has `entry.size ≤ maximumBytes`,
+   so `entry.size` is already the worst-case footprint and no separate
+   `min()` is needed), and a checkout larger than the §8 large-download confirmation
    threshold (default 100 MiB, shared with preview) asks before queueing:
    `Download 240 MB to edit "access.log"?`. When the remote size is
    unknown (the SFTP size attribute is optional in a listing entry), the
@@ -471,7 +542,16 @@ escalation), lifted whole:
    refreshed from a post-upload re-stat of the remote path with
    `contentSha256` := the snapshot's digest — without this the next
    step-2 preflight compares against the pre-upload stat and every
-   subsequent save of the same file false-conflicts; `dirty` recomputed
+   subsequent save of the same file false-conflicts. When that re-stat
+   itself fails after an already-successful upload (a connection drop
+   right behind the commit — routine on flaky links), the upload
+   **still reports success**: baseline advances to the snapshot's
+   digest, `remoteSnapshot` is synthesized from the snapshot (size +
+   digest, no server mtime) with a needs-reconcile mark on the record,
+   and the next connect's `reconcileAll` repairs the stat — a
+   transient stat failure must never surface a succeeded upload as
+   failed (inviting a duplicate upload) nor retain the pre-upload stat
+   (guaranteeing a false conflict); `dirty` recomputed
    against the *current* local file (typing during upload keeps the copy
    dirty and the prompt machinery live); record updated in the store;
    temp snapshot deleted in a `finally` on **every** exit path —
@@ -518,11 +598,13 @@ kind surfaces normally (toast + activity-panel row).
   recovered edit, while the migrated record takes the path key. The
   occupancy check runs **per migrated key** — a directory rename checks
   every destination path under the new prefix — because a blind
-  `store.update` would leave the occupant's checkout dir unreferenced,
-  and §3.6's sweep would then delete a current-epoch, marker-verified,
-  unreferenced dir *with the user's plaintext in it*: the collision
-  would be amplified into silent data loss instead of a recoverable
-  row. Either record may hold the only copy of an edit (tested:
+  `store.update` would leave the occupant's record overwritten and its
+  checkout dir unreferenced. §3.6's hardened sweep does *not* delete
+  such a dir (non-empty, no `abandoned` marker — never swept), but the
+  occupant's edit is still demoted from a live, key-addressable record
+  to an anonymous recovered file the user must stumble on via §3.7 —
+  the occupancy check keeps the collision a first-class recoverable
+  row instead of a silent demotion. Either record may hold the only copy of an edit (tested:
   checkout `b.conf`, delete remote `b.conf`, rename `a.conf` →
   `b.conf`, migrate — both records survive with distinct ids; and the
   live variant: dirty checkout of `b.conf`, confirmed-overwrite rename
@@ -533,7 +615,15 @@ kind surfaces normally (toast + activity-panel row).
   before writing — a rename landing during an in-flight checkout must
   not mint a record under the stale pre-rename path (tested: rename
   mid-download, the finished record and its uploads target the new
-  path). The local checkout file keeps its pre-rename sanitized name
+  path). That re-validation covers the inverse race too: a record
+  **migrated onto the completing checkout's own path** while it was in
+  flight (checkout of `b.conf` in flight; confirmed-overwrite rename
+  `a.conf` → `b.conf`; migration finds no record occupant at `b.conf`
+  and takes the key). The completing `store.put` treats *any* differing
+  record at its key as an occupied destination and re-keys **itself**
+  with a unique suffix exactly like the occupant rule — never a blind
+  overwrite (tested: that scenario ends with both records surviving
+  under distinct ids, the migrated one on the path key). The local checkout file keeps its pre-rename sanitized name
   (renaming it under a live external editor is unsafe — the editor
   holds the old inode), so every surface that names a managed copy
   (dirty badge, pane chip, §3.7 dialog) displays the record's current
@@ -596,12 +686,20 @@ never regress is called out by name in review:
   old-epoch dir would be never-swept *and* never-listed, accumulating
   invisibly forever; no unnamed dead rows
   accumulate. The sweep — the empty-dir check and its remove included —
-  runs under the same promise-chain mutex that serializes checkout-dir
-  creation (equivalently: only at store load, before the manager accepts
-  any operation), so it can never interleave with a live
-  mkdir→marker-write pair and pass the emptiness check in the exact
-  window a checkout is being born — the DoD regression test covers that
-  interleaving. A fresh
+  runs **only at store load, before the manager accepts any
+  operation**, and holds the creation mutex while it does. The mutex
+  alone would not be the guarantee: downloads and the record's
+  `store.put` run outside the mkdir→marker-write mutex, and in the span
+  between marker-write and the first payload byte a newborn checkout
+  dir is current-epoch, marker-verified, unreferenced by the parsed
+  index, *and empty* — indistinguishable from an abandoned dir — so a
+  sweep allowed to run mid-session (say, hung off a foreground
+  `reconcileAll`) could meet every deletion criterion against a live
+  checkout. Load-time-only closes that window by construction: no
+  checkout can be in flight before the manager accepts operations —
+  and the DoD regression test attempts a sweep with a checkout parked
+  between marker-write and first payload byte and asserts the dir
+  survives. A fresh
   index (post-quarantine or first run) starts a new epoch — and the
   generation id is **minted fresh and unique per index lifecycle**: a
   UUIDv4 (or time-ordered UUIDv7, which additionally makes a rollback
@@ -689,7 +787,15 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 | Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor — except a choice of `poltergeist.builtin`, which takes the 4 MiB cap with the early refusal from the known remote size before any download is queued (same rule as the Open row's built-in branch) |
 
 Local files never go through a checkout — Poltergeist is their file
-manager, not their custodian. Remote files always do; the checkout is what
+manager, not their custodian — and local Open deliberately bypasses
+`effectiveDefaultFor` too: per-extension defaults bind only the
+checkout chains (this table's remote rows and §3.7's), because a
+double-clicked local file behaving differently from Finder/Explorer
+would surprise more than a remote-scoped preference does. If real
+usage disagrees, routing local Open through `effectiveDefaultFor(path)`
+with a `poltergeist.system` fallback is the one-line unification —
+noted here so a future change is a decision, not a drift.
+Remote files always do; the checkout is what
 makes the external round-trip (watch → prompt → conflict-guarded upload)
 possible at all. Where the table says "refused from the known remote
 size": a size-less listing entry (the SFTP size attribute is optional)
@@ -785,7 +891,15 @@ want a docked preview).
   slow huge item can never yank the panel back off a newer selection,
   and a lingering card can never confirm a download for an item the
   user already left.
-  Space again (or Esc in the panel) closes.
+  Space again (or Esc in the panel) closes. Esc while a production is
+  in flight cancels that production — and because the native
+  `QLPreviewPanel` owns Esc and closes itself, cancel and close happen
+  together; more generally, the panel closing by **any** route either
+  cancels its in-flight production or lets it complete silently into
+  the preview cache without ever calling `updatePreview` (the
+  generation rule above already covers the landing), mirroring §5.2's
+  Esc semantics — a production finishing after close must never call
+  into, or reopen, a panel the user dismissed.
 
 ### 5.2 The in-app preview panel
 
@@ -822,7 +936,7 @@ Extension matching throughout this table (and §7's detection map) is
 
 | Kind (by extension) | v1 rendering | Guards |
 |---|---|---|
-| Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings. Remote text previews still transfer the whole file into the §5.3 cache (Quick Look and re-preview need it; only the large-download threshold gates it) — a documented tradeoff, not an accident |
+| Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings. Remote text previews still transfer the whole file into the §5.3 cache (Quick Look and re-preview need it; the §8 large-download threshold confirms over-threshold downloads, and §5.3's cache-cap refusal still applies from metadata above the cap — two gates, not one) — a documented tradeoff, not an accident |
 | Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MiB file size — metadata card instead; for remote files the refusal is applied from the known remote size *before* any download is queued |
 | PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages, headed `Page 1–20 of M` with the text row's `Preview truncated — Open in editor`-style bar when M > 20 (a bare total would hide that 180 pages are missing); decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
@@ -879,12 +993,19 @@ they clicked another row.
   known remote size before anything is queued. A file whose remote size
   is **unknown** (the SFTP size attribute is optional) streams under
   the tightest applicable cap instead — its kind's §5.2 byte cap where
-  one exists, the preview-cache cap otherwise (§5.1 Quick Look
+  one exists (only the image/PDF 64 MiB caps qualify: the text row's
+  1 MiB is a *render* truncation, not a download cap — the same row
+  mandates whole-file transfer — so unknown-size text streams under
+  the preview-cache cap), the preview-cache cap otherwise (§5.1 Quick
+  Look
   productions have no kind cap) — and aborts at the limit: never
   fetched whole to a certain refusal, never past the cache cap (§6's
   rule, applied to every preview path; DoD covers the abort).
 - Cache is LRU-capped at 512 MiB (setting, §8) with a `Clear Preview
-  Cache` button — enforced on every insert, evicting oldest-first until
+  Cache` button — enforced on every insert, evicting
+  least-recently-**used** first (a Quick Look production or re-preview
+  hit refreshes recency — true LRU, not insertion-order FIFO, which
+  would evict a hot entry while stale ones survive) until
   the new file fits; lowering the setting evicts now-over-cap entries
   at the next enforcement pass (the cache must never itself hold what
   it would refuse to admit), and concurrent completions may transiently
@@ -896,7 +1017,12 @@ they clicked another row.
   threshold narrows what may download rather than ungoverning it; files
   over the §8 large-download threshold (default 100 MiB) but within
   the cap ask before downloading:
-  `Download 40 MB to preview "panorama.pdf"?` → `Download` / `Cancel`.
+  `Download 40 MB to preview "panorama.pdf"?` → `Download` / `Cancel` —
+  an example at a user-**lowered** threshold (say 32 MiB), deliberately:
+  per the reachability note below, this panel path never prompts at the
+  100 MiB default, and an over-100 MB example would be impossible here
+  at *any* threshold (no panel-previewable kind passes the 64 MiB kind
+  caps).
   Reachability, §6's analysis applied here: for the in-app panel this
   prompt fires only when the threshold is *lowered* below §5.2's
   64 MiB kind caps — no panel-previewable kind exceeds them, so the
@@ -1067,7 +1193,9 @@ preference.
       control overrides); Space produces remote files through
       `TransferProducer` with progress and Esc-cancel.
 - [ ] Preview panel per §5.2 with the kind table, caps, explicit remote
-      action, keyed LRU cache, and cancellation on selection change.
+      action, keyed LRU cache, and **render/decode** cancellation on
+      selection change (transfers keep running — only the queue row's
+      Cancel or a re-focused Esc cancels a production, per §5.2).
 - [ ] Sync-plan double-click opens the v1 side-by-side compare view with
       the line-ending/BOM notice chips; unloadable sides degrade to
       reason strings.
