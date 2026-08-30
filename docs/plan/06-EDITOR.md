@@ -117,7 +117,15 @@ differently"):
    (§3.1), `CheckoutManager.reconcile` sweeps stale
    `*.poltergeist-*.edit`/`.backup` siblings matched by §3.3's exact
    generated patterns — skipping any modified within the current save
-   window, tolerating and logging failures. Outside app-owned space
+   window, and **only when the sibling's target file still exists**: a
+   `.backup` beside a *missing* target is the sole surviving pre-save
+   copy (a crash landed between step 3's `rename(file → backup)` and
+   step 4's `rename(temp → file)`), so reconcile renames it back onto
+   the target and routes the `.edit` sibling — the just-saved content —
+   through §3.4's conflict flow instead of deleting either; a test
+   simulates that crash state (`.edit` + `.backup`, no target) and
+   asserts recovery, never deletion. Failures tolerated and logged.
+   Outside app-owned space
    (a plain local file edited in place) there is deliberately **no**
    sweep: deleting pattern-matched files from user-owned directories
    is a side-effect deletion the plan forbids everywhere else, and the
@@ -335,7 +343,10 @@ abstract class CheckoutManager extends ChangeNotifier {
   `changed in another editor. Reopen it…` refusal (§2.4) — where
   Séance's per-tab identity gave each tab its own copy and surfaced the
   clash at upload time through §3.4's escalation. Poltergeist therefore
-  enforces **one live built-in editor session per key**: opening a file
+  enforces **one live built-in editor session per key** — checkouts
+  keyed `(serverId, remotePath)`, local files keyed by canonical
+  absolute path, since two editors on one local file share the
+  physical file exactly as two checkouts share a copy: opening a file
   that already has one focuses the existing editor tab instead of
   opening a second (the D17 divergence row records it; external
   editors are unaffected — the OS owns those windows, and their saves
@@ -484,7 +495,11 @@ Kept exactly from Séance (03 §7.5 already reserves this design):
   save via atomic replace change the inode. Debounce 600 ms per checkout
   id, then `store.reconcile(id)`: re-hash the local file; `dirty = digest
   != baselineSha256`; `missing` when the file vanished (missing ⇒ not
-  dirty — a model invariant the store enforces). Watch errors fall back to
+  dirty — a model invariant the store enforces). While connected,
+  reconcile additionally repairs any §3.4 needs-reconcile record with a
+  remote re-stat — the local re-hash alone never touches the remote,
+  and §3.4's synthesized-snapshot repair names this pass. Watch errors
+  fall back to
   reconcile-on-resume (`reconcileAll` on app foreground, Séance's
   `_Bootstrap` lifecycle pattern).
 - A copy turning dirty queues a **12 s action toast**:
@@ -547,11 +562,24 @@ escalation), lifted whole:
    right behind the commit — routine on flaky links), the upload
    **still reports success**: baseline advances to the snapshot's
    digest, `remoteSnapshot` is synthesized from the snapshot (size +
-   digest, no server mtime) with a needs-reconcile mark on the record,
-   and the next connect's `reconcileAll` repairs the stat — a
+   digest, no server mtime) with a needs-reconcile mark on the record.
+   The mark repairs from **two** triggers, not only the next connect:
+   `reconcileAll` gains a remote re-stat pass for needs-reconcile
+   records (§3.3's local re-hash alone never touches the remote), and
+   `uploadLocalCopy` itself re-stats inline before the step-2
+   preflight, adopting the server stat only when size and digest still
+   match the synthesized values — a transient stat failure need not
+   coincide with a disconnect, so connect-only repair could leave the
+   mark live all session. Until repaired, step 2's stat compare treats
+   a snapshot with no server mtime as matching on size + mode (step
+   3's content-hash CAS still verifies in full), never as an automatic
+   mismatch — a
    transient stat failure must never surface a succeeded upload as
-   failed (inviting a duplicate upload) nor retain the pre-upload stat
-   (guaranteeing a false conflict); `dirty` recomputed
+   failed (inviting a duplicate upload), retain the pre-upload stat,
+   or false-conflict every later save on the absent mtime (tested:
+   inject a re-stat failure after a successful upload with the
+   connection still up, save again, assert no conflict dialog and a
+   repaired stat); `dirty` recomputed
    against the *current* local file (typing during upload keeps the copy
    dirty and the prompt machinery live); record updated in the store;
    temp snapshot deleted in a `finally` on **every** exit path —
@@ -596,6 +624,18 @@ kind surfaces normally (toast + activity-panel row).
   `(serverId, remotePath)` namespace (unique suffix key; checkout dir
   and record intact) and surfaces through §3.7's review dialog like a
   recovered edit, while the migrated record takes the path key. The
+  suffix applies to the **store key only** — the record's `remotePath`
+  field is never rewritten, so an upload from a re-keyed occupant
+  still targets its original path and routes through §3.4's conflict
+  preflight, never a suffixed phantom path; and because two records
+  can then legitimately display the same `remotePath`, every surface
+  that names one (the §3.3 badge and chip, the §3.7 dialog rows)
+  marks a re-keyed record `recovered`, so the pair is never
+  indistinguishable. Both rules bind hardening (2)'s self-re-key of a
+  completing checkout equally (tested: after an occupant re-key, an
+  upload from the re-keyed record targets the original remotePath via
+  the conflict path, and the review dialog renders the two same-path
+  records distinguishably). The
   occupancy check runs **per migrated key** — a directory rename checks
   every destination path under the new prefix — because a blind
   `store.update` would leave the occupant's record overwritten and its
@@ -750,7 +790,11 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
   `._*` files), and collapsing a dir to one name would misname or bury
   a payload. Each row shows its file's name with `Open` / `Discard…`
   only; `Discard…` removes that row's file, and the dir itself is
-  deleted when its last file goes.
+  deleted when its last file goes. Because no record exists, edits made
+  after `Open` cannot upload from this dialog — the section's copy
+  says so and points the way back (`Recovered files can't upload from
+  here — upload the file through a pane when you're done`), so a
+  recovered edit is never silently assumed persisted to the server.
 - Nothing auto-uploads on reconnect — same rule as §3.3.
 
 ## 4. External editors (R9)
@@ -782,7 +826,7 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 
 | Verb | Local file | Remote file |
 |---|---|---|
-| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open); if the downloaded copy then fails the built-in editor's own checks (non-UTF-8, binary), Open falls back to the system default on the checkout file — §3.7's rule, mirrored: a *default-resolution* chain never dead-ends in a built-in refusal; system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
+| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open) — and that over-cap refusal, the early known-size one or §3.2's `_MaximumByteSink` abort when the size was unknown, is itself a fallback trigger, never a dead-end toast: Open re-resolves through the system-default chain (a fresh uncapped checkout, then OS-open); if the downloaded copy instead fails the built-in editor's own checks (non-UTF-8, binary), Open falls back to the system default on the checkout file — §3.7's rule, mirrored: a *default-resolution* chain never dead-ends in a built-in refusal; system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
 | Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap — refused from the known remote size *before* any download is queued, same rule as the Open row's built-in branch — then built-in editor |
 | Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor — except a choice of `poltergeist.builtin`, which takes the 4 MiB cap with the early refusal from the known remote size before any download is queued (same rule as the Open row's built-in branch) |
 
@@ -927,8 +971,12 @@ its completion fills the cache under §5.1's generation rule, and
 cancelling it belongs to the queue row's Cancel or a re-focused Esc,
 never to the focus change itself. It tracks the focused pane's focused entry; on
 multi-selection it
-previews the focused item — matching §5.1's Quick Look behavior on every
-platform — with the count + total size summary shown as a header above the
+previews the focused item — matching §5.1's Quick Look behavior for
+**remote** selections; a *local* Quick Look multi-selection serves
+every selected path and arrows through them (§5.1 sends the plural
+paths), and the panel staying focus-only there is an accepted v1
+divergence, not a match — with the count + total size summary shown as
+a header above the
 preview.
 
 Extension matching throughout this table (and §7's detection map) is
@@ -983,11 +1031,25 @@ they clicked another row.
   `mtimeSeconds` being floored integer Unix seconds, so an int and a
   fractional double source can never encode the same file to two
   different keys — plus the
-  original extension (Quick Look and image decoding both key type off the
-  extension). JSON-encoding the fields keeps the key unambiguous — remote
+  original extension, **sanitized**: kept only when it matches
+  `[A-Za-z0-9_-]{1,16}` (case preserved), dropped otherwise — remote
+  names are server-controlled, so an "extension" can carry characters
+  illegal in local filenames (Windows `:` `?` `*` `<` `>` `|`, control
+  bytes) or unbounded length, and the raw form would also write
+  server-chosen `.bat`/`.cmd` names into app-support; Quick Look and
+  image decoding key type off the extension, so the sanitized form is
+  kept whenever safe and an extensionless hash name falls back to
+  content sniffing or the metadata card. JSON-encoding the fields
+  keeps the key unambiguous — remote
   paths may legally contain `\n`. The mtime+size key self-invalidates on
   change, except a same-second, same-size rewrite (SFTP v3 mtime is
-  second-granular) — a documented residual race, accepted in v1.
+  second-granular) — a documented residual race, accepted in v1. A
+  **size-less** listing (the optional SFTP size attribute absent)
+  encodes `null` in the size slot, and the entry **keeps** that key
+  after download — the actual size is recorded as metadata beside it —
+  so repeated previews of a size-less file hit the cache; a later
+  listing that does report a size changes the key once (one
+  re-download, then cached).
 - A kind whose row above refuses from metadata alone (oversized image, the
   metadata-card row) never downloads at all — the guard runs against the
   known remote size before anything is queued. A file whose remote size
@@ -1007,8 +1069,11 @@ they clicked another row.
   hit refreshes recency — true LRU, not insertion-order FIFO, which
   would evict a hot entry while stale ones survive) until
   the new file fits; lowering the setting evicts now-over-cap entries
-  at the next enforcement pass (the cache must never itself hold what
-  it would refuse to admit), and concurrent completions may transiently
+  **immediately when the setting is saved**, with the insert-time pass
+  as the backstop (the cache must never itself hold what it would
+  refuse to admit — deferring to the next insert would leave it over
+  the user's limit indefinitely on a quiet cache), and concurrent
+  completions may transiently
   exceed the cap by at most the in-flight batch. A file whose known
   remote size exceeds the cache cap
   is refused from metadata before anything is queued — the prompt never
@@ -1017,18 +1082,19 @@ they clicked another row.
   threshold narrows what may download rather than ungoverning it; files
   over the §8 large-download threshold (default 100 MiB) but within
   the cap ask before downloading:
-  `Download 40 MB to preview "panorama.pdf"?` → `Download` / `Cancel` —
-  an example at a user-**lowered** threshold (say 32 MiB), deliberately:
-  per the reachability note below, this panel path never prompts at the
-  100 MiB default, and an over-100 MB example would be impossible here
-  at *any* threshold (no panel-previewable kind passes the 64 MiB kind
-  caps).
-  Reachability, §6's analysis applied here: for the in-app panel this
-  prompt fires only when the threshold is *lowered* below §5.2's
-  64 MiB kind caps — no panel-previewable kind exceeds them, so the
-  default never fires on this path (a test asserting it fires at
-  defaults would be testing an impossible branch). The 100+ MB class
-  stays real on the threshold's other surfaces: §5.1 Quick Look
+  `Download 40 MiB to preview "panorama.pdf"?` → `Download` / `Cancel` —
+  an image/PDF example at a user-**lowered** threshold (say 32 MiB),
+  deliberately, because those kinds' 64 MiB caps sit under the default.
+  Reachability, §6's analysis applied here — and split by kind, because
+  the gates differ: **text is the real default-threshold case** (the
+  §5.2 Text row carries no download byte cap and mandates whole-file
+  transfer, so a remote text file between the 100 MiB default and the
+  preview-cache cap prompts at defaults on this very path — tests must
+  cover it, and a test asserting the prompt never fires at defaults
+  would pin a false invariant); **image/PDF** prompts fire only when
+  the threshold is *lowered* below §5.2's 64 MiB kind caps, since no
+  file passing those caps reaches the default. The 100+ MiB class
+  also stays real on the threshold's other surfaces: §5.1 Quick Look
   productions (Quick Look renders kinds the panel cannot — video,
   archives) and §3.2 external-editor checkouts.
 - The cache directory is preview-only plumbing: never watched, never
