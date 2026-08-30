@@ -608,6 +608,15 @@ that Séance devices auto-trust synced pins without a conflict warning
 setup copy interpolates
 it.
 
+One disclosure sits above all the narrower ones: any app signed into
+the shared account derives the account key and **can decrypt every
+synced record** — `secret` records included, not only the kinds it
+writes. §3.2's never-decrypt dispatch for `secret:`/`snippet:` ids is
+an implementation courtesy that keeps the vault out of Poltergeist's
+memory, never a cryptographic boundary, and the §4.3 option-2 copy
+states the exposure plainly so the pin-trust warnings cannot imply the
+key is scoped.
+
 What shared mode unlocks:
 
 - **Read-only Séance server catalog.** Pulled `serverConfig` records
@@ -639,7 +648,9 @@ angle brackets):
   1. "Separate backup account — a new account just for Poltergeist, on the
      same server. Works with every Séance version."
   2. "Shared Séance account — bookmarks live alongside your Séance data, and
-     your Séance servers appear as bookmark sources. Requires Séance
+     your Séance servers appear as bookmark sources. This app will hold
+     your Séance encryption passphrase and could read everything in the
+     account, including saved passwords. Requires Séance
      <version> or newer on all devices."
 - Under option 2, a checkbox that gates the Continue button:
   "Every device that runs Séance with this account has version <version> or
