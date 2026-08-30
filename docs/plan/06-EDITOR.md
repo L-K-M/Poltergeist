@@ -82,7 +82,15 @@ differently"):
 3. `rename(file → backup)`, then SHA the backup against `expectedSha256`;
    mismatch means another program wrote the local file — rename back and
    throw the "changed in another editor. Reopen it…" conflict.
-4. Verify nothing re-created the target mid-save; `rename(temp → file)`;
+4. Verify nothing re-created the target mid-save; re-apply the original
+   file's mode to the temp sibling **before** the rename — the temp was
+   created at umask default (typically 0644), and renaming it over a
+   §3.1-hardened 600 checkout would silently make the plaintext
+   group/world-readable on the very first save (PORTS-noted if Séance's
+   saver lacks this; `CheckoutManager.reconcile` re-asserts 600 on
+   POSIX when it re-hashes, catching external editors' atomic saves
+   too, and the §2.5 production-path save test asserts a 600 checkout
+   is still 600 after a save); then `rename(temp → file)`;
    restore the backup on any failure.
 5. Delete the backup, **tolerating a failing delete** (a stray backup file
    beats reporting a false save failure).
@@ -293,14 +301,26 @@ abstract class CheckoutManager extends ChangeNotifier {
   disconnect/reconnect disappears entirely — records simply persist; a
   reconnect changes nothing about checkout identity.
 - Store layout: index at `<app-support>/managed_remote_files.json`,
-  checkout files at `<app-support>/checkouts/<sha256(id)>/<sanitized
-  name>` — the directory name is a hash so external ids never become path
+  checkout files at `<app-support>/checkouts/<sha256(record id)>/
+  <sanitized name>` — the record's `uuidV4()` id is **minted at §3.2
+  step 1**, before any filesystem work, precisely so the directory can
+  be keyed by it: a per-record dir means two remote files with the same
+  basename on one server can never share a local path (hashing
+  `serverId` alone would collide `/etc/nginx/nginx.conf` with
+  `/home/me/nginx.conf` and fail the exclusive-create with a raw OS
+  error), and — unlike a `serverId+remotePath` hash — the dir never has
+  to move on a rename, which §3.5's live-external-editor rule forbids
+  anyway (`migrateRename` rewrites the record, never the dir). The hash
+  keeps external ids out of path
   components, while the file keeps a human-readable sanitized name for
   external editors — and the sanitizer's contract is pinned: it
   neutralizes separators, `.`/`..`, overlong names, trailing
   dots/spaces, and **Windows reserved device names** (`CON`, `PRN`,
-  `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or without an
-  extension — prefixed, e.g. `file-nul.conf`), because a remote file
+  `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1`–`COM9`, `LPT1`–`LPT9`, and
+  the superscript-digit variants `COM¹`–`COM³`/`LPT¹`–`LPT³` — matched
+  **case-insensitively on the stem before the first dot**, so
+  `Nul.conf`, `nul.tar.gz`, and `com3.log` are all caught, with or
+  without an extension — prefixed, e.g. `file-nul.conf`), because a remote file
   legitimately named `nul.conf` would otherwise fail the §3.2
   exclusive-create with a raw OS error on Windows, outside every
   designed refusal path; a Windows checkout test for `nul.conf` pins
@@ -321,7 +341,11 @@ abstract class CheckoutManager extends ChangeNotifier {
 `checkout(serverId, entry, {maximumBytes})`:
 
 1. Regular files only; symlinks and directories refuse with the typed
-   `unsupported` error. In-flight de-dup per `(serverId, remotePath)` —
+   `unsupported` error. The record's `uuidV4()` id is minted **here**,
+   first — §3.1 keys the checkout directory by its hash, so the id must
+   exist before step 2 touches the filesystem (a same-basename
+   collision test pins it: two files named `nginx.conf` at different
+   remote paths on one server check out into distinct dirs). In-flight de-dup per `(serverId, remotePath)` —
    the manager is app-wide, so a path-only key would collide across
    servers — via a `putIfAbsent`-style flight map; a caller joining an
    in-flight download **pre-refuses on its own `entry.size` when that is
@@ -336,7 +360,11 @@ abstract class CheckoutManager extends ChangeNotifier {
    record replaced, so the editor never opens a dangling record; offline,
    the §3.7 `missing`/`Forget` flow applies instead) **and it satisfies
    the caller's `maximumBytes`**
-   (checked against `remoteSnapshot.size`; otherwise refuse with the §1
+   (checked against a fresh stat of `localPath`, since what opens is the
+   local file and the stored `remoteSnapshot.size` goes stale the
+   moment an external editor grows the copy — a unit test pins the
+   refusal firing at checkout for a locally-grown file, not at editor
+   open; otherwise refuse with the §1
    too-large reason string — the built-in editor's loader re-enforces the
    cap at open as the final guard, but the early refusal beats
    open-then-refuse). Flight-map entries are removed on failure or
@@ -361,7 +389,8 @@ abstract class CheckoutManager extends ChangeNotifier {
    (abort and clean up the moment the cap is exceeded, never a full
    download to a certain refusal), and the free-space preflight degrades
    to surfacing the write failure if the volume fills.
-4. Record `ManagedRemoteFile{id: uuidV4(), serverId, editSessionId:
+4. Record `ManagedRemoteFile{id: /* minted in step 1 */, serverId,
+   editSessionId:
    serverId, remotePath, localPath, remoteSnapshot (the download's entry
    with its streamed `contentSha256`), baselineSha256:
    streamedFileSha256(local)}` → `store.put` (atomic index write) → start
@@ -445,7 +474,14 @@ escalation), lifted whole:
    subsequent save of the same file false-conflicts; `dirty` recomputed
    against the *current* local file (typing during upload keeps the copy
    dirty and the prompt machinery live); record updated in the store;
-   temp snapshot always deleted. On the `overwriteRemoteChanges` path the
+   temp snapshot deleted in a `finally` on **every** exit path —
+   success, the step-2 conflict throw, and a step-3 upload failure
+   alike, though this sentence sits in the success step: an aborted
+   upload must not leave a `.poltergeist-<uuid>.upload` plaintext
+   behind that no record references and §3.6/§3.7 can therefore never
+   surface or clean (conflicts are a routine path, so the leak would
+   accumulate; a test asserts both failure paths leave no sibling). On
+   the `overwriteRemoteChanges` path the
    recorded pre-upload mode may itself be stale (a remote chmod after
    checkout is reverted by the upload) — a Séance-identical residual,
    accepted per D17.
@@ -550,10 +586,15 @@ never regress is called out by name in review:
   swept, surfaced through §3.7's `Recovered files` — because the failure
   modes that produce one (crash mid-create, manual tampering, a future
   format change) are exactly the cases where deleting is unsafe. One
-  carve-out: a markerless dir verified to contain **no files** carries
+  carve-out: a dir verified to contain **no files** — markerless *or*
+  old-epoch — carries
   no payload to lose (a crash between mkdir and the marker write leaves
-  exactly this), and the sweep may remove it — `Recovered files` lists
-  only dirs that actually hold a file, so no unnamed dead rows
+  the markerless kind; §3.7's per-file discards emptying an old-epoch
+  dir leave the other), and the sweep may remove it — `Recovered files`
+  lists
+  only dirs that actually hold a file, so without this width the empty
+  old-epoch dir would be never-swept *and* never-listed, accumulating
+  invisibly forever; no unnamed dead rows
   accumulate. The sweep — the empty-dir check and its remove included —
   runs under the same promise-chain mutex that serializes checkout-dir
   creation (equivalently: only at store load, before the manager accepts
@@ -660,7 +701,11 @@ deliberately *not* mirrored in `Edit in Poltergeist` or an
 the built-in editor explicitly, so a silent hand-off to another
 program would betray the choice — those branches refuse with the §1
 reason and the `Open With ▸` router, per §1's refusal-is-a-router
-rule.
+rule. The Open row's own **pre-download** size refusal follows that
+same router rule: it never auto-falls-back to the system default,
+which would force exactly the full download the early refusal exists
+to avoid — the system-default fallback applies only once a local copy
+already exists.
 
 ### 4.3 Launch rules per platform
 
@@ -782,6 +827,12 @@ Extension matching throughout this table (and §7's detection map) is
 | PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages, headed `Page 1–20 of M` with the text row's `Preview truncated — Open in editor`-style bar when M > 20 (a bare total would hide that 180 pages are missing); decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
 
+As in §4.2, a size-less remote listing entry cannot early-refuse
+against the image/PDF rows' 64 MiB guard — §5.3's unknown-size rule
+covers it (stream under the kind cap, abort at the limit), so the
+worst case is confirmed-and-aborted bandwidth, never a surprise or an
+overfull cache.
+
 The panel never blocks the pane: rendering runs async with the standard
 generation-counter/`identical()` idioms (03 §6). Selection changes
 cancel in-flight **render/decode** work only — an explicitly requested
@@ -809,7 +860,10 @@ they clicked another row.
   Everything-else card — the unknown-but-UTF-8 text kind is decidable
   only from bytes, and metadata is all a remote row has before a
   download.)
-- Downloads go through the queue as priority tasks (visible, cancellable)
+- Downloads go through the queue as priority tasks (visible,
+  cancellable; "priority" means ahead of background sync traffic only —
+  never preempting user-initiated transfers or checkouts, which would
+  be the surprise traffic this section forbids)
   into `<app-support>/preview-cache/`, file name
   `<sha256(jsonEncode([serverId, remotePath, mtimeSeconds, size]))>` —
   `mtimeSeconds` being floored integer Unix seconds, so an int and a
@@ -822,16 +876,35 @@ they clicked another row.
   second-granular) — a documented residual race, accepted in v1.
 - A kind whose row above refuses from metadata alone (oversized image, the
   metadata-card row) never downloads at all — the guard runs against the
-  known remote size before anything is queued.
+  known remote size before anything is queued. A file whose remote size
+  is **unknown** (the SFTP size attribute is optional) streams under
+  the tightest applicable cap instead — its kind's §5.2 byte cap where
+  one exists, the preview-cache cap otherwise (§5.1 Quick Look
+  productions have no kind cap) — and aborts at the limit: never
+  fetched whole to a certain refusal, never past the cache cap (§6's
+  rule, applied to every preview path; DoD covers the abort).
 - Cache is LRU-capped at 512 MiB (setting, §8) with a `Clear Preview
-  Cache` button. A file whose known remote size exceeds the cache cap
+  Cache` button — enforced on every insert, evicting oldest-first until
+  the new file fits; lowering the setting evicts now-over-cap entries
+  at the next enforcement pass (the cache must never itself hold what
+  it would refuse to admit), and concurrent completions may transiently
+  exceed the cap by at most the in-flight batch. A file whose known
+  remote size exceeds the cache cap
   is refused from metadata before anything is queued — the prompt never
   offers a download the cache cannot hold (the promptless-card class,
   first bullet), and lowering the cap setting below the confirmation
   threshold narrows what may download rather than ungoverning it; files
   over the §8 large-download threshold (default 100 MiB) but within
   the cap ask before downloading:
-  `Download 240 MB to preview "panorama.pdf"?` → `Download` / `Cancel`.
+  `Download 40 MB to preview "panorama.pdf"?` → `Download` / `Cancel`.
+  Reachability, §6's analysis applied here: for the in-app panel this
+  prompt fires only when the threshold is *lowered* below §5.2's
+  64 MiB kind caps — no panel-previewable kind exceeds them, so the
+  default never fires on this path (a test asserting it fires at
+  defaults would be testing an impossible branch). The 100+ MB class
+  stays real on the threshold's other surfaces: §5.1 Quick Look
+  productions (Quick Look renders kinds the panel cannot — video,
+  archives) and §3.2 external-editor checkouts.
 - The cache directory is preview-only plumbing: never watched, never
   reconciled, never uploadable — editing goes through §3's checkouts
   exclusively.
@@ -897,7 +970,7 @@ PORTS.md (R10).
 | css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments |
 | ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
 | perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
-| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
+| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords — equality-level long brackets (`[==[ … ]==]`, `--[==[ … ]==]`) are an **accepted gap**, stated like ruby's `=begin` and perl's POD: `--[==[` falls through to the `--` line-comment rule and a bare `[==[` matches nothing; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
 | Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments and `[section]` meta cover `.htaccess`; `.htpasswd` (`user:hash` lines) matches no ini rule and is mapped only so it opens as text rather than unknown — an accepted gap, stated so the detection tests don't imply coverage |
 
 Already covered upstream, no change needed: `php` maps to the c-family
