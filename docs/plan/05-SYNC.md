@@ -81,7 +81,8 @@ Flag mapping from `SyncRuleSet` (§6):
 | Update mode | no delete flag | rsync's default |
 | Mirror mode | `--delete-delay` | deletions after transfers — same ordering as our executor (§6) |
 | `maxDelete` | `--max-delete=500` | verbatim value |
-| `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so |
+| `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` (or the pair's `trashPath` when set, §8 rail 5) | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so |
+| `deletions: permanent` + `backups: trash` | `--backup --backup-dir='…'` as above | approximation in the safe direction: rsync's backup-dir also rescues the *deleted* files the plan would delete permanently, so the export deletes less than the plan — the comment must say so |
 | `deletions: permanent` + `backups: none` | no backup flags | |
 | `excludeGlobs` + defaults | one `--exclude='pat'` per pattern, app defaults first; gitignore `!` negations become `--include='pat'` emitted before the excludes | rsync's filter language accepts `*`, `?`, `**`, and trailing-`/` dir-only patterns; where gitignore semantics diverge the export is an approximation and says so in a comment |
 | `includeHidden: false` | `--exclude='.*'` | |
@@ -93,6 +94,13 @@ Flag mapping from `SyncRuleSet` (§6):
 Additional rules:
 
 - Paths are POSIX single-quoted; embedded `'` becomes `'\''`.
+- A remote side on a nonstandard port renders `-e "ssh -p <port>"` — the
+  port travels in `ResolvedSyncEndpoints` and must reach the command, or
+  the copy silently talks to port 22.
+- When both endpoints are remote, rsync refuses to run ("The source and
+  destination cannot both be remote"); the exporter emits a comment saying
+  the command is not directly runnable (Poltergeist routes such pairs via
+  the local machine) instead of a command that fails.
 - When the plan carries manual per-item overrides, prepend
   `# note: N manual per-item overrides are not reflected in this command`.
   Per-item edits are deliberately not compiled into `--exclude`/
@@ -229,6 +237,14 @@ diff time (`newerWins` / `keepLeft` / `keepRight` / `skip`); the default
 skip** and are counted in the header and summary — surfaced, never silently
 resolved (Unison's rule).
 
+One-way semantics are mirror-the-source, stated explicitly because it is
+the most common sync surprise: a changed pair whose **destination** is
+newer still copies source→destination (matching rsync without `-u`). The
+item renders with reason `newerOnRight`/`newerOnLeft` so the
+backwards-in-time copy is visible in the table before running, and with
+`backups: trash` (the default) the overwritten newer version lands in the
+run's trash, recoverable via §8 rail 9.
+
 **True two-way is deferred (D25), but designed for now** so the v1 data
 model needs no rework. Without last-run state, "exists on A, missing on B"
 is ambiguous — new on A, or deleted on B? DB-free two-way either never
@@ -296,6 +312,8 @@ class SyncRuleSet {
   final List<String> excludeGlobs;       // gitignore-style (§3)
   final bool includeHidden;              // default true (it's a file manager)
   final SymlinkPolicy symlinks;          // v1: skip
+  final String? trashPath;               // null = in-root .poltergeist-trash;
+                                         // set = out-of-root trash (§8 rail 5)
   final int maxDelete;                   // hard cap; default 500
   final double deleteFractionWarn;       // default 0.5 -> typed confirm (§8)
   final bool preserveMtime;              // default true
@@ -382,6 +400,15 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    failures** — rsync's `--delete-delay` insight, hardened: if anything
    failed, every deletion flips to `skipped` with error text
    `Skipped: earlier errors in this run`, and the summary says so.
+4. **Kind changes pre-delete.** When an item's effective action creates a
+   file or directory at a path whose destination entry has a different kind
+   (`typeDiffers` resolved via override or `ConflictDefault`), the executor
+   removes the destination entry first — honoring `DeletionPolicy`/trash,
+   deepest-first for a directory being replaced by a file — then performs
+   the makeDir/copy. The removal and creation stay one plan item so the
+   preview remains one row per path (a mkdir over an existing file, or a
+   file write onto an existing directory, would otherwise fail and trip
+   rule 3's deletion skip).
 
 ## 7. Preview UX — the plan view
 
@@ -466,9 +493,11 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
 3. **The >50 % rail.** When planned deletions exceed
    `deleteFractionWarn` (default 0.5) of the destination side's files —
    and at least 10 files — Run opens a typed confirmation:
-   `This will delete 1,204 of 1,890 files on webserver — more than half of
+   `This will delete 320 of 512 files on webserver — more than half of
    that side. Type DELETE to continue.` The confirm button stays disabled
-   until the word matches.
+   until the word matches. Precedence: the `maxDelete` cap (rail 4) is
+   checked first and dominates — the typed confirmation only ever fires
+   for plans whose deletion count is under the cap.
 4. **`maxDelete` cap** (default 500): a plan whose deletions exceed the cap
    refuses to run with deletions; the dialog explains and points at the
    pair's rules to raise it deliberately. No override button on the spot.
@@ -483,11 +512,23 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    rename trash even locally so undo is journal-driven and symmetric).
    Because the trash lives under the sync root, the rename never crosses
    devices, and the default ignore rules (`.poltergeist*`, §3) keep it out
-   of every scan. No code path removes trash as a side effect (09 §6
-   rule 5): at plan time, if the pair's trash holds entries older than
-   30 days, the plan view shows a notice chip — `N trashed items older
-   than 30 days — delete them?` — whose action performs the purge; the
-   `sync.purgeTrash` command empties it on demand.
+   of every scan. **Webroot caveat:** when the sync root is a published
+   HTTP docroot (the flagship `Blog → webserver` pair!), in-root trash
+   means previous versions of overwritten/deleted files — old configs,
+   secrets — may be retrievable over HTTP until purged. The per-pair
+   `trashPath` rule (§6) moves the trash outside the root (a
+   cross-filesystem rename falls back to copy-then-delete), and the pair
+   editor warns when trash is in-root and the destination path looks like
+   a docroot (`public_html`, `www`, `htdocs`, `/var/www`). No code path
+   removes trash as a side effect (09 §6 rule 5): at plan time, if the
+   pair's trash holds entries older than 30 days, the plan view shows a
+   notice chip — `N trashed items older than 30 days — delete them?` —
+   whose action performs the purge; the `sync.purgeTrash` command empties
+   it on demand. The age check is cheap by construction: one
+   `listDirectory` of the trash root per side returns the `<runId>`
+   directories with their mtimes (READDIR carries attributes) — never a
+   recursive walk — and the newest observed trash state is cached in
+   `sync_state` (§9).
 6. **Atomic writes.** Uploads write to an exclusive sibling
    `.poltergeist-<8 hex>.tmp` and rename over the target; downloads commit
    via `replaceLocalFile` (03 §2.3). No torn file ever holds the final
@@ -505,18 +546,33 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    `RemoteFileException.message`; the summary reports
    `14 copied, 2 failed, 5 deleted (in trash)` with one-click
    `Retry Failed` (re-scans just those paths, rebuilds their preconditions,
-   re-executes). Connection loss pauses the run; resume re-dispatches the
-   remaining items — each is idempotent thanks to rail 7.
+   re-executes). Connection loss pauses the run; on resume, items whose
+   journal line records completion are marked done without re-executing.
+   The journal line is written *after* the commit rename, so a
+   committed-but-unjournaled window exists: a resumed item whose
+   destination no longer matches the plan snapshot but matches the
+   intended post-state (source size+mtime, with this run's trash/backup
+   entry present where the plan expected one) is journaled as done rather
+   than flipped to conflict; anything else falls through to rail 7's
+   precondition flip as usual.
 9. **Run journal.** JSONL per run at `<app-support>/sync_runs/<runId>.jsonl`
    (under the app-provided support directory — `EngineConfig`, 03 §5)
    — a `SyncRunRecord` header line (pair, ruleset snapshot, totals,
    warnings), one line per executed item (outcome, bytes, duration,
    `trashLocation`, `observedMtimeAfterWrite`, `setstatIgnored`), one
-   summary line. Journals are pruned to the newest 20 per pair. The journal
-   powers the post-run report, `Retry Failed`, and **Undo**: v1's
-   `Undo Deletions…` restores every trashed/backed-up file by reversing the
-   recorded renames (conflict-checked with a re-stat per file); full undo
-   (also removing copies the run created) is v2, and the journal already
+   summary line. Journals are pruned to the newest 20 per pair — **except**
+   a run whose `.poltergeist-trash/<runId>/` entries still exist, whose
+   journal is retained until the purge (rail 5) removes them: Undo must
+   never lose its source while the trash it reverses is still there
+   (`sync.purgeTrash` is what finally lets those journals be pruned). The
+   journal powers the post-run report, `Retry Failed`, and **Undo**: v1's
+   `Restore Trashed Files…` restores every trashed/backed-up file by
+   reversing the recorded renames (conflict-checked with a re-stat per
+   file). Note the explicit scope: because overwrite backups are restored
+   too, this also reverts files the run *updated* back to their pre-run
+   versions — the confirm dialog says so (`Restores 5 deleted and 3
+   overwritten files to their pre-run versions.`). Full undo (also
+   removing copies the run created) is v2, and the journal already
    records enough for it.
 10. **Scan errors exclude, on both sides** (§3) — never read as emptiness.
 
@@ -540,7 +596,10 @@ bar creates the favorite (command `sync.saveAsFavorite`). For an ad-hoc
 pair (built from the panes, never saved), `pairId` is the SHA-256 over
 both resolved endpoint identities plus paths — stable across invocations —
 so ad-hoc pairs get a `sync_state` file too (`mtimeUnreliable` persists)
-and the newest-20 journal pruning (§8) applies per `pairId` as usual.
+and the newest-20 journal pruning (§8) applies per `pairId` as usual;
+`sync_state` files for ad-hoc pairs untouched for 90 days are pruned
+together with their journals (subject to §8 rail 9's live-trash
+exception).
 
 ## 10. Execution and the activity panel
 
@@ -562,8 +621,8 @@ The plan view stays open during execution, ticking rows
 view render the same engine state (per-row `ValueListenable`s, never a
 global notifier — 02 §12). The finished run appends one record to the queue
 history (03 §4.6) and leaves its journal (§8) as the detailed report; the
-plan view's summary bar offers `Retry Failed · Undo Deletions… · Copy
-Report` (plain-text summary to the clipboard).
+plan view's summary bar offers `Retry Failed · Restore Trashed Files… ·
+Copy Report` (plain-text summary to the clipboard).
 
 ## 11. Package layout and testing hooks
 
@@ -634,16 +693,18 @@ Testing hooks, elaborated in 08:
       as skip.
 - [ ] `SyncPlan` model as specified in §6, including the ordering contract
       (mkdirs first, deletes last deepest-first, delete phase only after a
-      clean copy phase).
+      clean copy phase, kind-change pre-delete per rule 4).
 - [ ] Plan view: header sentence with the exact §7 copy patterns, glyph +
       color + reason table, filter chips with counts, per-item override
       cycling and context menu, bulk conflict resolution, Run button that
       states its consequence.
-- [ ] Safety rails: mandatory preview, >50 % typed confirmation,
-      `maxDelete` refusal, `.poltergeist-trash/<runId>/` rename trash with
-      the age-notice purge chip and `sync.purgeTrash` (never automatic),
-      tmp+rename writes, per-item precondition re-stat, JSONL run journal
-      with Retry Failed and Undo Deletions.
+- [ ] Safety rails: mandatory preview, >50 % typed confirmation (under the
+      `maxDelete` cap, which dominates), `maxDelete` refusal,
+      `.poltergeist-trash/<runId>/` rename trash with the age-notice purge
+      chip and `sync.purgeTrash` (never automatic), the out-of-root
+      `trashPath` option with the docroot warning, tmp+rename writes,
+      per-item precondition re-stat, JSONL run journal (live-trash
+      retention exception) with Retry Failed and Restore Trashed Files.
 - [ ] "Copy as rsync command": golden-tested exporter implementing the §2.1
       flag table, clipboard-only, with the dry-run line and the
       caveat/override comments.
