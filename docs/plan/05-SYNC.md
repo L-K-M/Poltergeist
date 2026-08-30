@@ -85,8 +85,8 @@ Flag mapping from `SyncRuleSet` (§6):
 | `comparison: sizeOnly` | `--size-only` | |
 | `comparison: contentHash` | `-c` | |
 | Update mode | no delete flag | rsync's default |
-| Mirror mode | `--delete-delay` | deletions after transfers — same order as our executor (§6), but rsync still deletes after failed transfers where our executor skips the whole delete phase; emit an approximation `# note:` saying so |
-| `maxDelete` | `--max-delete=500` | verbatim for values ≥ 1; a `0` must never be emitted — rsync reads `--max-delete=0` as **unlimited** — the exporter omits the delete flags entirely and emits a `# note:` instead; golden fixture required |
+| Mirror mode | `--delete-delay` | deletions after transfers — same order as our executor (§6). rsync's default is close to our failure gate: it skips the whole delete phase on I/O errors (`IO error encountered -- skipping file deletion`, unless `--ignore-errors` is passed — which the exporter never emits); the residual divergence is non-I/O partial failures, where rsync may still delete and our executor never does — the approximation `# note:` describes exactly that residue |
+| `maxDelete` | `--max-delete=500` | verbatim for values ≥ 1; a `0` must never be emitted, because its rsync meaning is **version-dependent** — rsync ≥ 3.0.0 reads `--max-delete=0` as "no deletions allowed", while older rsync (≤ 2.6.9 — long the system default on macOS, common on NAS boxes) reads it as *unlimited* — so the exporter omits `--delete-delay` and `--max-delete` entirely and the `# note:` states plainly: `# note: maxDelete is 0 — this command performs no deletions (the plan wouldn't either)`; golden fixture required |
 | `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` (or the destination side's `trashPathLeft`/`trashPathRight` when set, §8 rail 5 — rsync's backup-dir applies on the receiving side, so the exporter uses the destination side's setting) | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so |
 | `deletions: permanent` + `backups: trash` | `--backup --backup-dir='…'` as above | approximation in the safe direction: rsync's backup-dir also rescues the *deleted* files the plan would delete permanently, so the export deletes less than the plan — the comment must say so |
 | `deletions: permanent` + `backups: none` | no backup flags | |
@@ -119,7 +119,9 @@ Additional rules:
   `--files-from` lists — rsync's include/exclude ordering is famously
   subtle, and a wrong translation would betray the feature's whole point.
 - A comment line notes the auth caveat:
-  `# uses your OpenSSH config and known_hosts, not Poltergeist's connections`.
+  `# note: uses your OpenSSH config and known_hosts, not Poltergeist's
+  connections` — carrying the same `# note:` prefix as every other
+  leading-block comment, so the layout contract stays uniform.
 - Surfaced as command `sync.copyRsyncCommand` — a button in the plan view's
   action bar and `Commands > Copy as rsync Command` (02 §9). On copy, toast:
   `Copied rsync command`.
@@ -483,9 +485,23 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    the makeDir/copy. The removal and creation stay one plan item so the
    preview remains one row per path (a mkdir over an existing file, or a
    file write onto an existing directory, would otherwise fail and trip
-   rule 3's deletion skip). Pre-delete removals count toward `maxDelete`
-   and the delete-fraction warning exactly like delete-phase items, render
-   red, and suppress the header's green no-deletion tail (§7, §8 rail 2).
+   rule 3's deletion skip). When the entry being replaced is a
+   **directory**, its descendants are **subsumed** into the parent item:
+   the differ emits no separate items for paths that exist only under
+   it — otherwise the parent's pre-delete would remove them first and
+   every child item would then flip to a spurious rail-7
+   `changed since preview` conflict. The pre-delete counts **every file
+   it removes** toward `maxDelete` and the delete-fraction warning
+   (never "one item = one deletion"), those files render in the §7
+   replace clause's `{j}` and byte totals, and the journal writes one
+   `trashLocation` line per removed file under the parent item. A
+   pre-delete-carrying item keeps its rule-1/rule-2 phase and ordering —
+   a makeDir with a pre-delete still runs in the makeDir group,
+   shallowest-first, before any copy into it; only its *removal step* is
+   what rule 3's gate checks (rule 2's "order not significant" applies
+   to file copies with no parent-child dependency, never to makeDirs).
+   Pre-delete removals render
+   red and suppress the header's green no-deletion tail (§7, §8 rail 2).
    Who may resolve `typeDiffers` to a copy differs by mode: in Mirror,
    `ConflictDefault` and per-item overrides both may; in the no-delete
    modes (Update, Additive — `deletions: none`) an automatic
@@ -543,7 +559,11 @@ patterns (placeholders in braces; destination rendered as
 path column by default, groupable by directory. Columns:
 
 `name/path · left size · left mtime · action glyph · right size · right
-mtime · reason`
+mtime · reason` — a kind-change row carrying an authorized pre-delete
+(§6 rule 4) tints **red** (the removal dominates, matching the header's
+replace clause), counts in the `Deletes` filter chip with its removed
+files so the chips reconcile with the header totals, and keeps its
+copy/mkdir glyph with a small red removal badge.
 
 Action glyphs, with color *and* shape carrying the meaning (color-blind
 safe, D20): `→` copy new L→R, `⇒` update L→R, `←` / `⇐` mirrored, `✕`
@@ -616,15 +636,22 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    `deleteFractionWarn` (default 0.5) of *that side's* file count —
    and at least 10 files — whichever side trips it. Run opens a typed
    confirmation:
-   `This will delete 320 of 512 files on webserver — more than half of
-   that side. Type DELETE to continue.` The confirm button stays disabled
+   `This will delete 320 of 512 files on webserver — more than {pct} of
+   that side. Type DELETE to continue.` — `{pct}` renders
+   `deleteFractionWarn` as a percentage; the words "more than half" are
+   used verbatim only at the 0.5 default (a threshold the user lowered
+   must not claim "half"). The confirm button stays disabled
    until the word matches. Precedence: the `maxDelete` cap (rail 4) is
    checked first and dominates — the typed confirmation only ever fires
    for plans whose deletion count is under the cap.
 4. **`maxDelete` cap** (default 500): a plan whose deletions exceed the cap
    refuses to run **at all** (Run stays disabled — never strip-and-run,
    which would silently diverge the destination); the dialog explains and
-   points at the pair's rules to raise it deliberately. No override button
+   points at the pair's rules to raise it deliberately — and for an
+   ad-hoc pair (§9), which has no saved ruleset to point at, it offers
+   `Save as Favorite & Adjust Rules…` (saves the pair, opens the pair
+   editor focused on `maxDelete`, rescans on close), so Run-disabled is
+   never a dead end. No override button
    on the spot.
 5. **Trash, one story (D15).** Two independent knobs feed one trash:
    deletions follow `deletions` (`trash` moves them; `permanent` — an
@@ -747,7 +774,12 @@ credentials and host identity resolve through the catalog/vault and never
 ride in the pair itself.
 
 Local, non-synced pair state lives at `<app-support>/sync_state/
-<pairId>.json`: `lastRunAt`, `mtimeUnreliable` (§4), and — in v2 — the
+<pairId>.json`: `lastRunAt`, `mtimeUnreliable` (§4), `trashCache` —
+the per-side newest-known trash summary that §8 rail 5's
+unreachable-side fallback reads: `lastListedAt` plus one
+`{runId, ageBasis, fileCount}` entry per observed `<runId>` directory,
+written after every successful plan-time trash-root listing — and, in
+v2, the
 sibling baseline file (§5). "Save as Favorite…" in the plan view's action
 bar creates the favorite (command `sync.saveAsFavorite`). For an ad-hoc
 pair (built from the panes, never saved), `pairId` is the SHA-256 over
@@ -799,7 +831,9 @@ packages/poltergeist_sync/
     ignore.dart                    gitignore-style matcher + app defaults (§3)
     scan.dart                      TreeScanner -> ScanResult (§3)
     compare.dart                   comparison modes, tolerance, NFC matching,
-                                   name-hazard detection (§3, §4)
+                                   raw name-hazard detection (§3, §4);
+                                   hazard -> conflict-item classification
+                                   with §7 reason strings lives in diff.dart
     diff.dart                      (ScanResult, ScanResult, SyncRuleSet)
                                    -> SyncPlan (§5, §6)
     plan.dart                      the data model (§6)
@@ -821,29 +855,50 @@ Testing hooks, elaborated in 08:
   skips-and-reports the truncated trash entry (rail 9).
 - **Property tests** over generated trees, asserting the invariants: Update
   and Additive plans contain no `delete*` items (kind-change pre-deletes
-  live inside copy items by design — a companion property asserts a
-  no-delete-mode plan with no user overrides performs zero removals, §6
+  live inside copy items by design, and in Update/Additive an unresolved
+  kind change is a *conflict* whose embedded pre-delete runs only on an
+  explicit per-item override — which is exactly why a companion property
+  can assert a no-delete-mode plan with no user overrides performs zero
+  removals, §6
   rule 4); an item carrying a pre-delete that is reached after any failed
   item is skipped and performs zero removals (rule 4's failure gate); a
   user `!` pattern matching an app-default exclude never re-includes it
   (§3's defaults-last rule); applying a Mirror plan
-  makes destination converge to source under every comparison mode for
-  **hazard-free** generated trees (conflicts execute as skip, so
+  makes destination converge to source for **hazard-free** generated
+  trees, judged by **each mode's own equality relation** — byte-identical
+  for `sizeAndMtime` and `contentHash`; for `sizeOnly`, convergence to
+  size-equality, with same-size/different-content pairs asserted
+  *skipped-and-visible*, never copied (that blind spot is the mode's
+  documented contract, so the property pins it instead of hiding it)
+  (conflicts execute as skip, so
   hazard-bearing trees converge only up to their conflict items — a
   companion property asserts every generated name hazard surfaces as a
   conflict item, never auto-fixed); executor + journal replay is
   idempotent; undo restores every trashed path whose destination is
   unmodified since the run, and skips-and-reports mutated ones; plan
   ordering obeys §6's contract.
+- **Rail tests**: `maxDelete` refusal fires before any item executes and
+  dominates the typed confirmation; the >50 % gate rejects near-miss
+  typed input; the trash purge is reachable only through the notice
+  chip's action and `sync.purgeTrash` — never as a side effect.
 - **Golden tests** for the rsync exporter (§2.1) and the header sentence
   copy (§7) — the exporter fixtures include a negation preceding a later
   matching exclude (the reversed-order rule must reproduce gitignore's
   outcome), a Mirror export where a destination-only ignored file is
   protected from `--delete` by the emitted exclude, the `maxDelete: 0`
-  no-delete-flags case, and the Windows-local pair; the header goldens
+  no-delete-flags case, a path pair requiring shell quoting (spaces,
+  single and double quotes, `$`, glob metacharacters, an NFD name —
+  an unquoted space would split the argument and could retarget
+  `--delete` at the wrong directory; POSIX-sh quoting is the pinned
+  contract, the Windows-local fixture keeping the same quoting plus its
+  adjust-note), and the Windows-local pair; the header goldens
   include the Additive both-directions sentence and both trash-location
   forms per side — plus a static check that `poltergeist_sync` never
-  references `Process` (§2's never-executes invariant).
+  references `Process` (§2's never-executes invariant), enforced at the
+  symbol level (an analyzer-based ban on the `dart:io` `Process` API,
+  aliased imports included — never a substring scan, which would
+  false-positive on comments and reason strings; 08 §3.3 specifies the
+  mechanism).
 - **sshd-in-Docker matrix** (08): OpenSSH variants including a chrooted
   `internal-sftp` config and a setstat-ignoring configuration to exercise
   the §4 fallback end to end — including a resume-after-interrupt run on
