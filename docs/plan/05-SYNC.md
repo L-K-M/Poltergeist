@@ -73,9 +73,14 @@ direction, in the Additive case; the both-remote case below legally
 emits only its note and no command — a golden variant of its own):
 
 ```
-# Preview first (matches Poltergeist's plan):  rsync -n -i <flags…> SRC DST
-rsync <flags…> SRC DST
+# Preview first (matches Poltergeist's plan):  rsync -n -i <flags…> -- SRC DST
+rsync <flags…> -- SRC DST
 ```
+
+Positional paths always follow `--`, on the dry-run and live lines alike
+(the Additive case's two pairs included), so a path beginning with `-`
+can never be parsed as bundled options — a misparse there could flip
+dry-run or delete semantics rather than erroring out.
 
 The live line is deliberately the real command: the exporter is reachable
 only from the plan view, so the user has just reviewed exactly what it
@@ -104,7 +109,7 @@ Flag mapping from `SyncRuleSet` (§6):
 | `maxDelete` | `--max-delete=500` | verbatim for values ≥ 1; a `0` must never be emitted, because its rsync meaning is **version-dependent** — rsync ≥ 3.0.0 reads `--max-delete=0` as "no deletions allowed", while older rsync (≤ 2.6.9 — long the system default on macOS, common on NAS boxes) reads it as *unlimited* — so the exporter omits `--delete-delay` and `--max-delete` entirely and the `# note:` states plainly: `# note: maxDelete is 0 — this command performs no deletions (the plan wouldn't either)`; golden fixture required. Values ≥ 1 carry their own divergence `# note:` — rsync deletes **up to** the cap and then stops with an error (deleted directories count toward the limit), while §8 rail 4's plan refuses to run **as a whole** when deletions exceed the cap — never a partial run: the note states exactly that asymmetry (the command may perform up-to-cap deletions in a run the plan would have refused to start); golden fixture for a Mirror export with the note |
 | `deletions: trash` and/or `backups: trash` | `--backup --backup-dir='.poltergeist-trash/rsync-<yyyyMMdd-HHmmss>'` (or the destination side's `trashPathLeft`/`trashPathRight` when set, §8 rail 5 — rsync's backup-dir applies on the receiving side, so the exporter uses the destination side's setting) | timestamp computed at copy time (`now`); rsync's one backup-dir captures deleted and overwritten files alike, so when only one of the two knobs is `trash` the export approximates and a comment says so. The in-root default trash survives a Mirror export's `--delete-delay` **by explicit dependency on the emitted excludes**: the app-default `.poltergeist*` filter lands first on the command line (excludeGlobs row) and rsync does not delete excluded destination files unless `--delete-excluded` is passed — which the exporter never emits, an invariant the §11 Mirror-protection golden pins with a destination-only `.poltergeist-trash/` entry asserted absent from the deletion set. Anchoring is explicit: an absolute `trashPath*` renders verbatim; a relative value renders destination-root-relative, matching rsync's own resolution of a relative `--backup-dir` against the destination directory — golden fixture with an absolute custom trash path |
 | `deletions: permanent` + `backups: trash` | `--backup --backup-dir='…'` as above | approximation in the safe direction: rsync's backup-dir also rescues the *deleted* files the plan would delete permanently, so the export deletes less than the plan — the comment must say so |
-| `deletions: permanent` + `backups: none` | no backup flags | |
+| `deletions: permanent` + `backups: none` | no backup flags | the leading `# note:` block must state it plainly: `# note: pasting runs the real sync — its deletions are permanent (no trash, no backup-dir)`; the clipboard text outlives the plan view, so this is the one place the layout's paste-executes decision needs its own pinned warning; golden fixture required |
 | `excludeGlobs` + defaults | one filter per pattern — plain → `--exclude='pat'`, `!` negation → `--include='pat'` — emitted in **reversed** pattern order, because gitignore is last-match-wins and rsync filters are first-match-wins: reversing makes the two agree (app defaults, evaluated last by the engine per §3, therefore land first on the command line) | rsync's filter language accepts `*`, `?`, `**`, and trailing-`/` dir-only patterns; re-including a file under an excluded directory is representable in neither engine (§3) nor export — where gitignore semantics otherwise diverge the export is an approximation and says so in a `# note:` |
 | `includeHidden: false` | `--exclude='.*'` | approximation: matches dot-prefixed names only — the Windows hidden *attribute* is not representable (`# note:` when **either** side is Windows — a Windows-hosted remote hides by attribute exactly as a Windows client does); emitted in the position matching the engine's evaluation order (after user rules, before app defaults — i.e. between them in the reversed §-order above) |
 | `symlinks: skip` | no `-l` | rsync without `-l` skips symlinks with a warning — same behavior |
@@ -114,7 +119,23 @@ Flag mapping from `SyncRuleSet` (§6):
 
 Additional rules:
 
-- Paths are POSIX single-quoted; embedded `'` becomes `'\''`.
+- Paths are POSIX single-quoted; embedded `'` becomes `'\''`. Local
+  single-quoting hardens only the **local** parse: rsync re-joins the
+  remote spec and the **remote shell re-parses it**, so a remote path
+  containing spaces, quotes, or glob metacharacters would be split or
+  expanded on the far side — and could silently operate on different
+  sources than the previewed plan. The exporter therefore additionally
+  **backslash-escapes remote-shell specials inside the remote path**
+  (space, `*`, `?`, `[`, `'`, `"`, `\`, `$`, backtick — the classic
+  "quote twice, once per shell" rule), rather than emitting
+  `-s`/`--protect-args`: `-s` is unsupported on exactly the peers §2
+  names as common (rsync ≤ 2.6.9, macOS's openrsync), so relying on it
+  would break the flagship platform's default client, while
+  double-escaping works on every version — a considered choice,
+  recorded here. IPv6 hosts render **bracketed**
+  (`'user@[2001:db8::1]:path/'`), or the host's own colons would be
+  read as the host/path separator. Golden fixtures: a remote path
+  containing a space, and an IPv6 remote.
 - A local **Windows** path is not directly runnable by Cygwin/cwRsync/MSYS
   rsync builds (`C:\Users\me\blog` needs `/cygdrive/c/Users/me/blog` or a
   build-specific prefix); the exporter renders the path as-is and emits
@@ -174,7 +195,16 @@ concurrently in the engine isolate (D8).
 - **Symlinks are never followed** (loop and escape-the-tree hazards). v1
   policy: skip with notice — symlink entries are counted and reported as one
   warning (`14 symbolic links skipped`); `SymlinkPolicy.copyAsLink` and
-  `follow` are reserved enum values for v2. Scans use `followLinks: false`
+  `follow` are reserved enum values for v2. Symlink entries **do**
+  appear in `ScanResult` (kind `symlink`) and plan as `skip` — and the
+  path is excluded **on both sides**, exactly like a scan error: the
+  other side's file or directory at that relative path is never
+  treated as an orphan, so a Mirror run can never delete the real
+  counterpart of a source-side symlink (dropping the entry from one
+  side only would be the same mirror-wipes-destination shape the
+  scan-error rule above closes). A kind mismatch involving a symlink
+  surfaces as `typeDiffers` (§4) with suggested `skip`, never a
+  deletion. Scans use `followLinks: false`
   everywhere, matching the transfer queue (03 §4.2).
 - **Ignore rules** are gitignore-style, evaluated during the scan so ignored
   subtrees are never descended: blank lines and `#` comments; `*`, `?`,
@@ -237,15 +267,21 @@ concurrently in the engine isolate (D8).
   `attrs.modifyTime` in seconds; Séance converts via `_timeFromSeconds`;
   a uint32 seconds field wraps in 2106 — not 2038, that is the signed
   boundary — so mtimes are clamped to the uint32-representable
-  range [0, 2^32−1] **on both sides and at every seam**: before storage
-  in `EntrySnapshot.mtimeSecs` and the journal, and before any
-  `setTimes` request. A pre-1970 local mtime is negative and a
-  high-bit value reads as negative through a signed lens; if the
-  request went out unclamped while the observation came back clamped
-  (or vice versa), §4's verification re-stat would disagree with its
-  own request and brand a faithful server `mtimeUnreliable` — with
-  both request and observation clamped identically the comparison is
-  clamped-vs-clamped and the flag stays truthful), so
+  range [0, 2^32−1] **at every wire and journal seam**: before any
+  `setTimes` request and before journaling observed values.
+  `EntrySnapshot.mtimeSecs` keeps the **pre-clamp original**, because
+  clamping before *comparison* would collapse every pre-1970 local
+  mtime to 0 and let two size-equal files with distinct pre-epoch
+  mtimes — or a pre-epoch original against a genuine epoch-0 file —
+  compare falsely equal and silently skip a needed copy; comparing
+  originals keeps such pairs unequal. A pre-1970 local mtime is
+  negative and a high-bit value reads as negative through a signed
+  lens; if a `setTimes` request went out unclamped while the
+  observation came back clamped (or vice versa), §4's verification
+  re-stat would disagree with its own request and brand a faithful
+  server `mtimeUnreliable` — with both request and observation
+  clamped identically the comparison there is clamped-vs-clamped and
+  the flag stays truthful), so
   **both sides are truncated to whole seconds before comparing** and no
   sub-second expectation is ever stored about a remote file. Optional
   `acceptedTimeShifts` (e.g. `[3600]`) additionally accepts ±N-second
@@ -280,22 +316,31 @@ day one, the remote side gates on the upstream Séance PR and pin bump
 (03 §2.4); the remote-sync milestone in 07 sequences after that bump.
 Setting `preserveMtime: false` (§6) forces a `sizeAndMtime` pair to
 `sizeOnly` — an explicit `contentHash` pair is never downgraded, the
-same exemption as the setstat fallback below — with the same visible
-plan-header notice: a `sizeAndMtime` pair that stamps transfer-time
+same exemption as the setstat fallback below — with a visible
+plan-header notice **naming this cause**, not the server's:
+`Modification times are not preserved for this pair — comparing by
+size only.` (the fallback's server-blaming string below would be false
+here — the server may keep mtimes perfectly; the user's own setting is
+the cause): a `sizeAndMtime` pair that stamps transfer-time
 mtimes would re-flag every copied file as newer forever, the classic
 never-converging sync.
 
 **Verification and the setstat fallback.** After `setTimes`, the executor
-re-stats and journals the *observed* mtime. Some servers ignore or clamp
-setstat (chrooted or read-mostly setups). If the observed value differs from
+re-stats and journals the *observed* mtime — after uploads and
+downloads alike: some servers ignore or clamp
+setstat (chrooted or read-mostly setups), and some *local* mounts do
+too (network filesystems, FUSE/WSL bridges), so the loop is
+direction-agnostic. If the observed value differs from
 the requested one beyond the tolerance, the item is journaled with
 `setstatIgnored: true`; at run end the pair's local metadata (§9) records
 `mtimeUnreliable: true`. From then on plans for that pair compare
 **`sizeOnly` automatically** — only when the pair's mode is
 `sizeAndMtime`; an explicit `contentHash` opt-in is never downgraded
 (hashes don't depend on mtimes, and D7's thorough-mode contract holds) —
-with a visible notice line in the plan header:
-`This server does not keep modification times — comparing by size only.`
+with a visible notice line in the plan header naming the failing
+**side** (the direction-agnostic loop above can flag a local mount
+too): `Modification times are not kept on {side} — comparing by size
+only.` — `{side}` rendering the favorite label or `this computer`.
 (pair settings offer an override back to `sizeAndMtime`; whenever the
 pair's mtimes are untrusted — `mtimeUnreliable` recorded, or
 `preserveMtime: false` — `ConflictDefault.newerWins` degrades to `ask`,
@@ -648,8 +693,12 @@ with live progress (§3); the plan renders when the diff completes.
 patterns (placeholders in braces; destination rendered as
 `{favoriteLabel}:{path}` or a shortened local path):
 
-- Base: `Copy {n} new files ({bytes}) and update {m} on {destination}.`
-  (omit either clause when its count is zero). Additive two-way
+- Base: `Copy {n} new files ({bytes}), create {d} folders, and update
+  {m} on {destination}.`
+  (omit any clause when its count is zero; when only `{d}` is nonzero
+  the sentence renders `Create {d} folders on {destination}.` — a
+  dirs-only plan must never show an empty headline while the `New`
+  chip and Run button show work). Additive two-way
   aggregates both directions into `{n}`/`{m}` and renders
   `{destination}` as `both sides`; the per-direction split stays visible
   in the item table and filter chips — the §11 header goldens include an
@@ -659,7 +708,13 @@ patterns (placeholders in braces; destination rendered as
   pre-deletes (§6 rule 4); a plan that removes anything never shows it.
 - With deletions (red-tinted clause):
   `Delete {k} files on {side} (moved to trash at {trashLocation}).` — or
-  `Delete {k} files on {side} permanently.` for the opt-out.
+  `Delete {k} files on {side} permanently.` for the opt-out. "Files" is
+  exact, not loose: §8 rail 3 pins deletion counting as per-file
+  everywhere — this `{k}`, the `Deletes` chip, `maxDelete`, and the
+  >50 % rail all count files, and a deleted *directory* is a
+  zero-count cleanup item riding under its contained files — so the
+  sentence, the chip, and the rails reconcile on one unit by
+  construction.
   `{trashLocation}` renders the named side's effective trash root — its
   in-root `.poltergeist-trash` default or that side's out-of-root
   `trashPathLeft`/`trashPathRight` (§8 rail 5) — so the sentence always
@@ -717,7 +772,15 @@ default on).
   explicit per-item pre-delete authorization on a `typeDiffers` row —
   anything more would hollow out rail 2's promise.
 - Multi-select (the 02 §2.5 selection model) + the same context menu
-  applies bulk overrides.
+  applies bulk overrides — with one carve-out: in the no-delete modes
+  (Update, Additive), a bulk `Copy left → right` / `Copy right → left`
+  **skips `typeDiffers` rows** (reported in the result, not silent),
+  because on those rows that override is precisely §6 rule 4's
+  pre-delete authorization, which stays **per-item only** — a
+  rubber-band selection plus one menu click must never authorize
+  destination removals in a mode whose header just promised nothing
+  would be deleted. The click-to-cycle glyph is inherently per-item
+  and needs no carve-out.
 - When conflicts exist, a bulk bar appears above the table:
   `Resolve conflicts:  Newer wins · Keep left · Keep right · Skip all`.
   `Newer wins` is hidden whenever the pair's mtimes are untrusted
@@ -758,8 +821,11 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    pre-deletes alike) are grouped by **target side**; the rail fires when
    one side's deletions exceed
    `deleteFractionWarn` (default 0.5) of *that side's* file count —
-   and **≥ 10** files, or *every* file on that side however few (a
-   full wipe of an 8-file destination must not slip under the floor) —
+   and **≥ 10** files, **≥ 90 %** of that side however few, or *every*
+   file on that side however few (a
+   full wipe of an 8-file destination must not slip under the floor —
+   and neither must a 9-of-10 near-wipe, which the ≥ 10 floor alone
+   would exempt) —
    whichever side trips it. Deletion counting
    is **per file everywhere** — this rail, the `maxDelete` cap, the §7
    header's `{k}` and the Deletes chip all count the same unit: an
@@ -847,7 +913,13 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    of them, and confirming
    which `<runId>` directories still exist takes one `listDirectory` of
    the trash root per side — the check's only remote access, never a
-   recursive walk. Cross-**pair** matching is not enough, because the
+   recursive walk. File counts therefore come from journals (or the
+   §9 `trashCache`) **only**: a journal-less directory — a crash
+   orphan or an `rsync-<ts>` export dir — contributes to the notice's
+   `M` (runs) but never to `N` (files), and the notice says so
+   explicitly (`… plus 2 unjournaled runs`) rather than inventing a
+   count or walking for one; `trashCache.fileCount` is null for any
+   run no local journal covers. Cross-**pair** matching is not enough, because the
    sharing is cross-**machine** too: saved pairs replicate to every
    device (§9, D4) while journals stay per machine, so two machines
    legitimately write runs into one remote trash root and each sees
@@ -948,15 +1020,24 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    conflict; anything else falls through to rail 7's precondition flip as
    usual. "Intended post-state" means source size always, source mtime
    only when the run is not on the `sizeOnly` path (§4's fallback or
-   `preserveMtime: false` — a setstat-ignoring server can never satisfy
-   an mtime match, and requiring one would flip every committed item to a
-   spurious conflict), and this run's trash/backup entry present where
+   `preserveMtime: false`, **or any journaled item of this run
+   recording `setstatIgnored: true`** — a silently setstat-ignoring
+   server under `preserveMtime: true` leaves every committed mtime at
+   write time *before* §4's fallback has tripped for the pair, and
+   requiring an mtime match there would flip every committed item to a
+   spurious conflict, which rail 7 counts as a failure and rule 3
+   would then wedge the delete phase on — and this run's trash/backup
+   entry present where
    the plan expected one.
 9. **Run journal.** JSONL per run at `<app-support>/sync_runs/<runId>.jsonl`
    (under the app-provided support directory — `EngineConfig`, 03 §5)
    — a `SyncRunRecord` header line (pair, ruleset snapshot, totals,
    warnings), one line per executed item (outcome, bytes, duration,
-   `trashLocation`, `observedMtimeAfterWrite`, `setstatIgnored`), one
+   `trashLocation`, `observedMtimeAfterWrite`, `setstatIgnored`, and
+   `trashContentSha256` — recorded only for rail 5 copy-fallback trash
+   entries, and load-bearing for this rail's hash-verified restore, so
+   it belongs in the schema enumeration, not only §6's model comment),
+   one
    summary line. Every line is appended with an immediate flush — no
    userspace buffering — so a killed process loses at most the line it
    was mid-writing (a torn final line is dropped on replay — 03 §4.6's
@@ -1070,7 +1151,13 @@ known-insensitive side) — the two sides hashed in **sorted
 order**, so the id survives pane swaps and spelling variants (without
 canonicalization, `Example.com` vs `example.com` or a trailing slash
 would fork one logical pair into several `sync_state`s and journal
-sets) — stable across invocations. The savedSync favorite's own
+sets). Concretely: each side's canonical identity is SHA-256'd to its
+own digest first, the two digests sorted and hashed together — never
+a delimiter-free concatenation of the two raw strings, which
+prefix-shaped identities could alias (`A1+B1 == A2+B2` merging two
+distinct pairs' state and journals); pane-swap stability holds
+unchanged because the sort applies to the digests — stable across
+invocations. The savedSync favorite's own
 bookmark id (04 §2.1's `SyncPair.id` mapping) is the *favorite's*
 identity, never the state key — which is exactly what makes "Save as
 Favorite…" after an ad-hoc run lossless: the canonical `pairId` does
@@ -1173,7 +1260,14 @@ Testing hooks, elaborated in 08:
   (§3's defaults-last rule); applying a Mirror plan
   makes destination converge to source for **hazard-free** generated
   trees, judged by **each mode's own equality relation** — byte-identical
-  for `sizeAndMtime` and `contentHash`; for `sizeOnly`, convergence to
+  for `sizeAndMtime` (with the generator guaranteeing every
+  same-size/different-content pair it emits has truncated mtimes
+  differing by more than the 2 s tolerance — the tolerance window is
+  this mode's own documented blind spot, exactly as the same-size
+  blindness is `sizeOnly`'s below, so the property constrains the
+  generator the same way rather than intermittently failing on pairs
+  the engine correctly calls equal) and `contentHash`; for `sizeOnly`,
+  convergence to
   size-equality, with same-size/different-content pairs — known to the
   *generator*, undetectable by the engine in this mode by design —
   asserted absent from every copy and delete item, and the plan header's
@@ -1186,13 +1280,24 @@ Testing hooks, elaborated in 08:
   conflict item, never auto-fixed); crash-resume re-execution and a
   second `Retry Failed` pass leave the destination convergent, perform
   no duplicate trash moves, and append no duplicate journal line for the
-  same `(runId, relativePath, side)` — the concrete meaning of
+  same `(runId, relativePath, side, attempt)` — `attempt` starts at 1
+  and a `Retry Failed` outcome journals under the next attempt for its
+  key, so a retried item's success is recorded without violating
+  uniqueness (suppressing it would starve the full-undo row's
+  requirement; a fresh runId would fork the run's history) — the
+  concrete meaning of
   "replay is idempotent"; every executed copy/update journals an item
   line carrying `relativePath` + side + action and every trash move its
   `trashLocation` (the two invariants the out-of-scope table's
   full-undo row depends on — they must not regress); undo restores every trashed path whose destination is
   unmodified since the run, and skips-and-reports mutated ones; plan
-  ordering obeys §6's contract.
+  ordering obeys §6's contract. Comparison-boundary fixtures
+  (unit-level, deliberately outside the generators): a truncated
+  Δmtime of exactly 2 s compares equal, 3 s compares different, and
+  sub-second components are dropped before comparing — pinning §4's
+  tolerance edge, which the convergence properties' generators stay
+  away from by design (an implementation with tolerance 0 or 5 s
+  would otherwise pass every listed property).
 - **Rail tests**: `maxDelete` refusal fires before any item executes and
   dominates the typed confirmation; the >50 % gate rejects near-miss
   typed input; the trash purge is reachable only through the notice
@@ -1226,7 +1331,11 @@ Testing hooks, elaborated in 08:
   package's one legitimate `dart:io` use — the invariants being guarded
   are never-executes (the `Process` symbol ban) and no sync-private VFS
   (the review rule that all *sync* filesystem operations flow through
-  the two injected `RemoteFileSystem`s), not an I/O-free package.
+  the two injected `RemoteFileSystem`s), not an I/O-free package. A
+  sibling analyzer rule (same 08 §3.3 mechanism) bans importing
+  `package:poltergeist_core/testing.dart` outside `test/` and `tool/`,
+  so the shared fake can never leak into production code — the same
+  class of guard as the `Process` ban.
 - **sshd-in-Docker matrix** (08): OpenSSH variants including a chrooted
   `internal-sftp` config and a setstat-ignoring configuration to exercise
   the §4 fallback end to end — including a resume-after-interrupt run on
@@ -1252,7 +1361,10 @@ Testing hooks, elaborated in 08:
 - [ ] Comparison: size+mtime with 2 s tolerance and whole-second
       truncation; `sizeOnly` and `contentHash` (size-gated) modes;
       `setTimes` + mode preservation after every transfer with re-stat
-      verification; automatic `sizeOnly`
+      verification (the remote half gated on the Séance pin bump,
+      03 §2.4 — until it lands, remote targets exercise the `sizeOnly`
+      fallback path, per §11's testing note and the out-of-scope row);
+      automatic `sizeOnly`
       fallback plus visible notice when a server ignores setstat.
 - [ ] Exactly three modes — Update (default), Mirror, Additive two-way —
       encoded as direction × deletion policy; unresolved conflicts execute
