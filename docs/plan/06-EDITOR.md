@@ -64,7 +64,7 @@ class BuiltInTextDocument {
 - Strict UTF-8 decode; NUL scan; BOM detected from the first three bytes;
   CRLF detection by majority vote (`\r\n` count vs lone-`\n` count via
   `(?<!\r)\n` — valid Dart: `RegExp` lookbehind has been supported since
-  Dart 2.3, and this is Séance's shipped code at
+  Dart 2.4 on the VM, and this is Séance's shipped code at
   `built_in_text_editor.dart:70`). Ties and files with no line breaks
   resolve to LF — Séance's `crlfCount > lfCount` comparison — pinned by
   the round-trip tests (single-line files must never grow CRLF).
@@ -208,14 +208,21 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
 ### 2.5 Port mechanics: renames and PORTS.md entries
 
 Every file below lands with a `docs/PORTS.md` entry (03 §8.2 format) and
-its Séance tests in the same PR. The only allowed divergences at port time:
+its Séance tests in the same PR — plus one production-path save test the
+Séance suite lacks: a `BuiltInTextEditorScreen` widget test with **no**
+`saveDocument` override, saving through the real
+`saveBuiltInTextDocument` onto a real temp file, asserting BOM/CRLF
+reconstruction round-trips and that a modified-on-disk file throws the
+"changed in another editor" conflict — so the TEST-ONLY seam (§2.3) can
+never mask drift in the real save wiring. The only allowed divergences
+at port time:
 
 | Ported file (destination under `app/poltergeist_app/`) | Source (Séance) | Divergences |
 |---|---|---|
 | `lib/ui/built_in_text_editor.dart` | `lib/ui/built_in_text_editor.dart` | temp suffixes `.poltergeist-*`; toast/mono/basename injected as parameters (§2.3) |
 | `lib/ui/editor_syntax.dart` | `lib/ui/editor_syntax.dart` | Poltergeist theme values; §7 language additions |
 | `lib/services/managed_remote_file.dart` | `lib/services/managed_remote_file.dart` | none |
-| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch-gated orphan sweep** (§3.6 — fixes Séance issue #55, port-back candidate) |
+| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch gate on the orphan sweep** — only current-epoch, marker-verified unindexed dirs may be removed; old-epoch dirs and markerless dirs holding any file never (§3.6 — fixes Séance issue #55, port-back candidate) |
 | `lib/services/atomic_file.dart` | `lib/services/atomic_file.dart` | temp suffix parameterized (03 §8.2's own example); `quarantineCorruptFile` gets a timestamp suffix (§3.6, port-back candidate) |
 | `lib/services/external_file_opener.dart` | `lib/services/external_file_opener.dart` | channel `poltergeist/files`; reserved ids `poltergeist.system` / `poltergeist.builtin` |
 
@@ -444,7 +451,12 @@ never regress is called out by name in review:
   marker is missing or unreadable is classified **old-epoch** — never
   swept, surfaced through §3.7's `Recovered files` — because the failure
   modes that produce one (crash mid-create, manual tampering, a future
-  format change) are exactly the cases where deleting is unsafe. A fresh
+  format change) are exactly the cases where deleting is unsafe. One
+  carve-out: a markerless dir verified to contain **no files** carries
+  no payload to lose (a crash between mkdir and the marker write leaves
+  exactly this), and the sweep may remove it — `Recovered files` lists
+  only dirs that actually hold a file, so no unnamed dead rows
+  accumulate. A fresh
   index (post-quarantine or first run)
   starts a new epoch, so older dirs persist until the user discards them
   through §3.7's review dialog, which lists old-epoch dirs as recovered
@@ -468,7 +480,10 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
 - `Review…` — also reachable offline via the favorite's context menu item
   `Local Edits…` — opens a dialog listing each copy: name, remote path,
   last-modified time, `dirty` / `missing` badge, and per-row actions:
-  `Open` (built-in editor on the checkout, works offline), `Upload`
+  `Open` (resolves like a §4.2 local open — `effectiveDefaultFor` first,
+  so a > 4 MiB or non-UTF-8 checkout opens in its configured or system
+  editor instead of dead-ending in a built-in refusal; every resolution
+  works offline on the local plaintext), `Upload`
   (disabled while disconnected, tooltip `Connect to upload`), `Discard…`
   (confirms; deletes plaintext then record). A `missing` copy offers
   `Forget` instead of Open/Upload. Old-epoch checkout dirs (§3.6 — files
@@ -504,7 +519,7 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 |---|---|---|
 | Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open); system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
 | Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap, then built-in editor |
-| Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor |
+| Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor — except a choice of `poltergeist.builtin`, which takes the 4 MiB cap with the early refusal from the known remote size before any download is queued (same rule as the Open row's built-in branch) |
 
 Local files never go through a checkout — Poltergeist is their file
 manager, not their custodian. Remote files always do; the checkout is what
@@ -520,7 +535,10 @@ possible at all.
   withApplicationAt:)`, errors surfaced as `FlutterError`, results
   marshalled on the main queue).
 - **Windows/Linux** — `Process.start(launchTarget, [path], runInShell:
-  false, mode: detached)` after existence and executable-bit checks.
+  false, mode: detached)` after an existence check, plus a POSIX
+  executable-bit check on Linux only (NTFS has no executable bit —
+  Windows relies on existence plus the definition-time `.exe`
+  validation, §4.1).
   **Never through a shell**, never string-concatenated — the argument list
   is the interface. Windows validates the `.exe` extension at definition
   time (registry validation, §4.1).
@@ -568,7 +586,12 @@ want a docked preview).
   While the panel is open, a selection change (or arrow step) onto a
   remote item not yet in the preview cache keeps the current item
   visible until `produceLocalCopy` completes (progress per 02 §2.6, Esc
-  cancels the production) — `updatePreview` is only ever called with
+  cancels the production; the §8 large-download confirmation gates
+  *every* production — the initial Space press and arrow-step
+  continuations alike — presented as a non-blocking card in the panel,
+  not a modal, so arrowing past a huge file never queues surprise
+  traffic and never traps navigation) — `updatePreview` is only ever
+  called with
   produced local paths, never a path Quick Look cannot read.
   Space again (or Esc in the panel) closes.
 
@@ -582,7 +605,9 @@ selection and Space again closes it — Quick Look cadence without Quick
 Look — except while the §5.3 `Press Space to download a preview` card is
 showing, where Space starts the download instead (Esc still closes the
 panel, and Space resumes its close role once a preview is rendered or
-the item changes). It tracks the focused pane's focused entry; on
+the item changes; while the download is in flight Space is a no-op — Esc
+cancels it, never a second queued task — and after a failed or cancelled
+download the card returns, so Space retries). It tracks the focused pane's focused entry; on
 multi-selection it
 previews the focused item — matching §5.1's Quick Look behavior on every
 platform — with the count + total size summary shown as a header above the
@@ -638,9 +663,12 @@ text handling (BOM/CRLF, limits, mono rendering) is the editor stack's job.
 **v1 — side-by-side view.** Two read-only viewer columns (document layer +
 syntax engine + find bar each), headers showing side label, full path,
 size, and mtime. Remote sides are produced into the preview cache (§5.3)
-first, with the same explicit-progress rules — including the §8
-large-download confirmation — and a side whose known remote size already
-exceeds the 4 MiB loader cap is refused *before* any download is queued.
+first, with the same explicit-progress rules — though the §8
+large-download confirmation is unreachable here: a side whose known
+remote size already
+exceeds the 4 MiB loader cap is refused *before* any download is queued,
+and 4 MiB is far below the 100 MiB default threshold, so no compare-side
+download can ever be large enough to ask.
 Each side loads through `loadBuiltInTextDocumentDetails` with the
 4 MiB/UTF-8 limits; a side that refuses to load renders its §1 reason
 string in place, leaving the other side readable. A notice chip surfaces differences the text view cannot
@@ -753,8 +781,9 @@ preference.
       external-editor tests plus a launch-arguments test.
 - [ ] Double-click action resolves per the §4.2 table; local files never
       checkout; remote Open resolves the default first and the built-in
-      branch refuses over-cap files from the known remote size before
-      any download is queued (tested).
+      branch — for both `Open` and an `Open With ▸` choice of
+      `poltergeist.builtin` — refuses over-cap files from the known
+      remote size before any download is queued (tested).
 - [ ] Quick Look channel per §5.1 (show/update/hide/isVisible, panel
       control overrides); Space produces remote files through
       `TransferProducer` with progress and Esc-cancel.
