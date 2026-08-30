@@ -69,8 +69,10 @@ and that the engine-isolate architecture works (D8).
   OpenSSH `sftp` baseline on the same links: LAN-class (Docker sshd on
   localhost) and high-latency (the same container behind `tc netem` with
   100 ms delay and 50 ms jitter). Record MB/s with hashing on and off
-  (hashing-off requires a local patch until PR-S3; measure both anyway —
-  the delta is the D7 evidence).
+  (hashing-off requires a patch until PR-S3 — carried as a committed
+  patch on a rev-pinned branch of a Séance fork, never an uncommitted
+  working-tree or pub-cache edit, so CI and fresh clones reproduce the
+  numbers; measure both anyway — the delta is the D7 evidence).
 - Algorithm audit: connect dartssh2 2.9 against a current OpenSSH sshd in
   three configs — defaults, `rsa-sha2-256/512`-only, and
   `chacha20-poly1305@openssh.com` + `curve25519`/post-quantum-preferring
@@ -171,8 +173,13 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
       and a test (or CI grep) asserts the app's bundle/file names are
       ASCII.
 - [ ] Rehearsal tag `v0.1.0` pushed via `scripts/release.sh`;
-      `release.yml` publishes assets for every platform (mark the release
-      as a pre-release).
+      `release.yml` publishes D23's full scripted asset set — APK, Linux
+      `.deb`/AppImage/bundle, macOS bundle, Windows zip, and the
+      **unsigned** iOS IPA (`--no-codesign`, re-sign to sideload — no
+      signing infrastructure involved) — marked as a pre-release.
+- [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
+      the §2 table's "file S2 now" gate; M2 depends on it being in review
+      by then.
 
 **Risks.** Toolchain drift in CI runners — fix versions in the workflow,
 not in prose. None otherwise; keep this milestone small on purpose.
@@ -185,7 +192,9 @@ D2 copies, which may not happen before it), and **PR-S2**
 (`openAuthenticatedClient`, 04 §5.3) merged upstream and the Séance pin
 bumped. If upstream review is slow, pin to the rev of the PR branch (the
 git pin is by rev anyway) and re-pin to the merge commit after — never
-copy the code.
+copy the code. If Séance squash-merges and deletes the branch, re-pin
+immediately: the branch-rev SHA becomes unfetchable for fresh clones once
+the branch is gone.
 
 **Scope.**
 
@@ -458,9 +467,15 @@ re-derive it.
 
 **Goal.** Chapter 05 in full — the flagship. Gate: **PR-S3 merged and the
 pin bumped** before any remote sync work (`setTimes` is the convergence
-prerequisite, D3). Local↔local sync may start earlier: `LocalFileSystem`
-implements `setTimes` from M3, so the engine, plan model, and preview UX
-can be built and tested against local pairs while the pin lands.
+prerequisite, D3). Local↔local sync may start earlier, and the seam is
+named so nobody improvises: file PR-S3 early and pin Séance **by rev to
+the filed PR-S3 branch** (the D2 stalled-PR exception) — the pinned
+`RemoteFileSystem` then already carries `setTimes`, no shim and no second
+interface (D3). Only if even that pin is unavailable may local-only work
+call the concrete `LocalFileSystem.setTimes` directly behind a
+`// TODO(pin)` marker, deleted at the bump. On that footing the engine,
+plan model, and preview UX are built and tested against local pairs while
+the upstream review lands.
 
 **Scope.** `poltergeist_sync` per 05: pipelined scanner with the M0-tuned
 depth, size+mtime comparison with the 2 s tolerance, the three v1 modes,
@@ -559,9 +574,11 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
    commits (04 §6).
 3. Bump the Séance pin if upstream merged anything; re-diff ported files
    (03 §8.1).
-4. Tag `v0.<milestone>.0` as a pre-release from M1 onward — every tag is a
-   release-pipeline rehearsal, so `release.yml` never rots.
-5. Re-check the §5 mobile invariant for the milestone.
+4. Tag `v0.<milestone>.0` as a pre-release for M1 through M9 — every tag
+   is a release-pipeline rehearsal, so `release.yml` never rots. M10 ships
+   `v1.0.0` (§3.11) and no `v0.10.0` pre-release.
+5. Re-check the §5 mobile invariant for the milestone (M0 predates the
+   app and is exempt; every other milestone has a row in the §5 table).
 
 ### 3.13 Fast-follows after v1.0 (v1.x, in order)
 
@@ -605,7 +622,7 @@ assets on `v*` tags; the work is everything around it.
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
-| any | Android release signing: the `ci-release.jks` pattern — keystore stored base64 in a CI secret, decoded in `release.yml`, `key.properties` generated at build time; when the secret is absent (forks), fall back to debug signing so the job still passes |
+| any | Android release signing: Séance's `ci-release.jks` pattern exactly — a **committed, deliberately public, debug-grade keystore** at `android/app/ci-release.jks` (personal tool, no Play Store; D23). No CI secret, no fallback path, no build-time generation: every build — fork, PR, or `v*` tag — signs with the same stable committed key, so each release's APK upgrades the installed app in place and a missing-secret misconfiguration cannot exist |
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |
@@ -649,8 +666,10 @@ Per-milestone invariant check (item 5 of §3.12):
 | M3 | Layout collapses to one pane without touching controllers; local access only via `ScopedPathAccess` |
 | M4 | Queue is suspendable: pause-all + journal restart is a working suspend primitive; no task assumes a long-lived socket |
 | M5 | Device-local bookmark fields model per-device grants (sandbox blobs today, SAF tree URIs tomorrow) |
+| M6 | Sync enrollment and the record store add no pane, watcher, or window coupling; every earlier row still holds |
 | M7 | Checkouts live under `path_provider` dirs; reconcile-on-resume works without watchers |
 | M8 | Scans are cancellable and runs resume from the journal; no watcher dependency |
+| M9 | Polish surfaces (palette, importers, chrome) add no pane, watcher, or window coupling; every earlier row still holds |
 | M10 | This memo re-read against the shipped code; deviations recorded in STATUS.md |
 
 ## 6. Risk register
@@ -695,4 +714,4 @@ Per-milestone invariant check (item 5 of §3.12):
 | Deep links between the apps | v1.x (04 §7.1) |
 | Signing, notarization, stores, Flatpak, auto-update | Post-v1, each requires amending D23/D19 (§4) |
 | iOS/Android apps | Post-v1 (D29); constraints memo §5 keeps the door open |
-| Everything in the parking lot (two-way sync + baseline DB, resume, rsync accelerator, S3/WebDAV, multi-window, scheduled sync, custom tools, remote content search) | v2+ (D25) |
+| Everything in the parking lot (two-way sync + baseline DB, byte-level transfer resume beyond journal restart, rsync accelerator, S3/WebDAV, multi-window, scheduled sync, custom tools, remote content search) | v2+ (D25) |

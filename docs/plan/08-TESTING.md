@@ -266,8 +266,9 @@ failure output prints the seed. Invariants (05 §11), each its own test:
   with `Skipped: earlier errors in this run`.
 - **Executor idempotence**: kill after item k (throw injected), re-run the
   remaining plan ⇒ same converged result, no duplicate trash entries.
-- **Undo restores**: after a Mirror run with trash, `Undo Deletions…`
-  restores every trashed path byte-identically (journal-driven).
+- **Undo restores**: after a Mirror run with trash, `Restore Trashed
+  Files…` (05 §8 rail 9) restores every trashed path byte-identically
+  (journal-driven), including pre-run versions of updated files.
 - **setstat fallback**: with `ignoreSetTimes` (and separately
   `failSetTimes`), the journal records `setstatIgnored: true`, pair state
   records `mtimeUnreliable`, and the next plan compares `sizeOnly` with
