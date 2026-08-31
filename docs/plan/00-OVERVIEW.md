@@ -134,7 +134,10 @@ permissions · D29 mobile hooks · D30 Séance license
   to match). Git-pin *consumption* for development and CI is deliberately
   not gated — both repos share one rights holder, who needs no license
   from themselves (01 §9 records the full rationale and the
-  third-party-facing reason binaries wait) — and in the planned order the
+  third-party-facing reason binaries wait) — an assumption to revisit if
+  any external contribution lands in Séance before its LICENSE does, since
+  the `release.yml` guard below covers only this repo's own `v*` tags, not
+  third-party forks or builds — and in the planned order the
   binary gate never actually bites: M2, the first milestone whose shipped
   app consumes Séance code, already hard-gates on the license landing
   (07 §2). Tracked in the Séance-side

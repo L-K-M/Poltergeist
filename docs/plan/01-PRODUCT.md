@@ -91,7 +91,7 @@ refusal is deliberate and durable.
 
 | Competitor | What we take | What we refuse |
 |---|---|---|
-| Transmit 5 (macOS) | The polish benchmark: idle pane as Servers/Quick Connect/History launcher; 5-verb conflict model with per-direction defaults; sync Simulate dry-run; clock-skew handling; instant-start transfers with no upfront stat pass; add-server-from-live-connection; personality in icon and release notes | macOS-only forever; cloud-backend sprawl (~17 protocols with parity holes); summary-bar-only activity view (its launch mistake — D16 mandates per-item rows); shallow one-way-only sync |
+| Transmit 5 (macOS) | The polish benchmark: idle pane as Servers/Quick Connect/History launcher; 5-verb conflict model with per-direction defaults; sync Simulate dry-run; clock-skew handling; instant-start transfers with no upfront stat pass; add-server-from-live-connection; personality in icon and release notes | macOS-only forever; cloud-backend sprawl (~17 protocols with parity holes); summary-bar-only activity view (its launch mistake — D16 mandates per-item rows); sync with no plan-grade preview or deletion-safety story (our own true two-way sync is deliberately v2 too, §8 — the v1 difference is the previewable, never-surprising plan, D6) |
 | ForkLift 4 (macOS) | The sidebar model wholesale — one global left sidebar, favorites in named groups, a favorite is anything openable (folder, server, workspace, saved sync); Quick Open palette that teaches shortcuts (D21); sync preview with per-item veto; tabs per pane | iCloud-locked favorites sync; shipping a rewrite minus beloved behaviors (keyboard regressions dominated FL4's reception for years); "no bug fixes after license expiry" pricing |
 | WinSCP (Windows) | The best sync UX in the field — checklist with per-row checkboxes, direction indicators, bulk toggles; the model for our `SyncPlan` preview (D6); thorough temp-file editor round-trip | Windows-only reach; visibly dated Win32 chrome; burying power behind dense dialogs. Move-candidate detection and per-pair diff are v2 ideas, not v1 promises |
 | FileZilla (cross-platform) | Its user base — the largest pool of people waiting for something better; directory-comparison coloring as a cheap legibility win | Everything else: alien wxWidgets chrome, six collapsible sub-panes, bundled installer adware (the trust stance in §6 is the direct answer), a transfer history that does not work (D16 mandates one that does) |
@@ -309,34 +309,37 @@ This is tracked as a Séance-side prerequisite in 04's upstream-work section;
 the porting ledger (`docs/PORTS.md`, per D2) records provenance for every
 ported file regardless. Until Séance's license lands, git-depending on
 pinned tags may proceed for development and CI — both repos share **one
-rights holder** (an assertion that holds only while Séance's git history
-carries no external contributions, so re-verify with `git shortlog -sne`
-whenever Séance accepts a patch), who needs no license from themselves
-to build their own
-code — but *publishing* release binaries that embed the pinned code
-waits for the license too: this repo's Unlicense dedication grants third
-parties no rights to the embedded Séance code, and 01 §6's "do anything you
-like with it" must never ship on an artifact it does not cover. In the
-planned sequence this gate never actually bites — the first milestone
-whose shipped app consumes Séance code is M2, and M2 already hard-gates
-on PR-S0 landing (07 §2) — the sentence exists so a schedule change
-cannot quietly falsify the trust copy. The
-LICENSE — together with whatever license Séance declares for the
-ported files, whose provenance PORTS.md records — is what any *third
-party* needs to consume, fork, or
-redistribute either repo or anything built from it, and what the
-copy-with-attribution step waits for as a **hard gate**: no Séance
-source is copied into Poltergeist until the D30 license PR (PR-S0)
-merges on Séance `main` **with a permissive, attribution-compatible
-license** — the gate is content-aware, not a merge-event checkbox: if
-PR-S0 somehow landed anything else (a copyleft term, say), D30 reopens
-rather than proceeding under PORTS.md alone, because provenance records
-conflicts, it does not resolve them — sequencing imposed by **D30**,
-which D2's
-copy-with-attribution step respects. There is no upstream-veto risk to
-plan around: both repos are the same owner's, so a stalled PR-S0 is a
-scheduling risk (07 §6 risk 4), never a rejection — and never a reason
-to fork or clean-room Séance code, which D2 forbids outright.
+rights holder**, who needs no license from themselves to build their own
+code. That single-holder claim is **verified, not assumed**: an
+authorship audit (`git log --format='%an <%ae>' | sort -u`) is recorded
+in `docs/PORTS.md` and re-run whenever Séance accepts a patch; any
+external contributor it turns up makes that contribution's code wait for
+the LICENSE like any third party's, and blocks the copy-with-attribution
+ports until they grant it.
+
+The **hard gate** comes first: no Séance source is copied into
+Poltergeist until the D30 license PR (PR-S0) merges on Séance `main`
+**with a permissive, attribution-compatible license** — the gate is
+content-aware, not a merge-event checkbox. If PR-S0 somehow landed
+anything else (a copyleft term, say), D30 reopens rather than proceeding
+under PORTS.md alone, because provenance records conflicts; it does not
+resolve them. This sequencing is imposed by **D30**, which D2's
+copy-with-attribution step respects; the LICENSE — together with whatever
+license Séance declares for the ported files, whose provenance PORTS.md
+records — is what any *third party* needs to consume, fork, or
+redistribute either repo or anything built from it.
+
+*Publishing* release binaries that embed the pinned code waits for the
+license too: this repo's Unlicense dedication grants third parties no
+rights to the embedded Séance code, and 01 §6's "do anything you like
+with it" must never ship on an artifact it does not cover. In the planned
+sequence this gate never actually bites — the first milestone whose
+shipped app consumes Séance code is M2, and M2 already hard-gates on
+PR-S0 landing (07 §2) — the clause exists so a schedule change cannot
+quietly falsify the trust copy. There is no upstream-veto risk to plan
+around: both repos are the same owner's, so a stalled PR-S0 is a
+scheduling risk (07 §6 risk 4), never a rejection — and never a reason to
+fork or clean-room Séance code, which D2 forbids outright.
 
 ## Definition of done
 
@@ -349,7 +352,8 @@ to fork or clean-room Séance code, which D2 forbids outright.
   Cyberduck/Mountain Duck, Termius, XPipe, and one-line entries for the rest
   of the surveyed field, each with an explicit take/refuse split.
 - One differentiator per decision the competitive analysis identifies,
-  each tied to a decision number (ten as of this plan).
+  each tied to a decision number; the expected count is whatever the
+  decision log holds at write time, not a fixed target.
 - All five traps mapped to a concrete structural guard (decision, budget, or
   milestone), not to intentions.
 - Trust stance exists as canonical user-facing copy consistent with D18/D19,
@@ -362,12 +366,10 @@ to fork or clean-room Séance code, which D2 forbids outright.
   from non-goals.
 - License posture states the Unlicense for Poltergeist's original code —
   ported Séance files additionally follow the PORTS.md provenance
-  convention and whatever license Séance declares — and the D30 Séance
-  sequencing rule (no Séance source is copied until the D30 license PR,
-  PR-S0, is merged on Séance `main` **with a permissive,
-  attribution-compatible license**; if PR-S0 lands anything else, D30
-  reopens rather than proceeding — the gate is content-aware, not a
-  merge-event checkbox).
+  convention and whatever license Séance declares — and carries the D30
+  Séance sequencing rule (the content-aware PR-S0 gate) exactly as §9
+  words it; that gate's normative wording lives only in §9 and is
+  referenced here, not restated.
 
 ## Explicitly out of scope
 
