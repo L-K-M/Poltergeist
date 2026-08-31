@@ -215,25 +215,23 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 ### Sync and deletion/trash policy (R6)
 
 - **D6 — Native engine; rsync survives as an exporter.** The sync engine is
-  pure Dart over the one VFS: parallel scans, size+mtime comparison with a
-  tolerance that defaults to 1 s (SFTP v3 stores whole-second mtimes, so a
-  preserved sub-second local mtime truncates on upload) and widens to 2 s
-  only when an endpoint is *known* FAT-family — a local endpoint is
-  queried directly; SFTP v3 has no filesystem-type attribute at all, and
-  `statvfs@openssh.com`, where a server even supports it, returns block
-  size and inode counts, not a filesystem type name, so a remote
-  endpoint's FAT-family status is unknowable from the protocol and
-  defaults to the per-pair tolerance knob (05 §6) rather than a guess
-  (FAT volumes additionally
-  quantize to 2 s) — the two drivers of the window. The
-  window's false-equal hazard is a **documented limitation**, stated
+  pure Dart over the one VFS: parallel scans, then size+mtime comparison
+  with a **2 s tolerance** — the wider of the window's two drivers (SFTP
+  v3 stores whole-second mtimes, so a preserved sub-second local mtime
+  truncates on upload — a ≤ 1 s error; FAT volumes quantize to 2 s), the
+  default 05 §4 specifies and FreeFileSync ships. A finer per-endpoint
+  window is deliberately not attempted: SFTP v3 has no filesystem-type
+  attribute at all, and `statvfs@openssh.com`, where a server even
+  supports it, returns block size and inode counts, not a filesystem type
+  name, so a remote endpoint's FAT-family status is unknowable from the
+  protocol — tuning stays manual via the per-pair tolerance knob (05 §6).
+  The window's false-equal hazard is a **documented limitation**, stated
   here rather than discovered: a same-size edit whose mtime lands
   inside the tolerance is classified unchanged and skipped — rsync
   (whose default `--modify-window` is 0/exact, with the window an opt-in
   documented for FAT) and WinSCP share the *hazard* and document it
   likewise — with the opt-in
-  `contentHash` mode (D7) as the escape hatch and the per-pair
-  tolerance adjustable in 05 §6), a typed
+  `contentHash` mode (D7) as the escape hatch. The engine produces a typed
   `SyncPlan` that
   **is** the preview (the executor executes exactly the reviewed items,
   re-verifying preconditions per item). v1 modes: **Update** (one-way, no
