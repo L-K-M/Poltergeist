@@ -7,8 +7,9 @@ conventions this repo family shares.
 Poltergeist is a cross-platform two-pane file transfer client (SFTP first),
 patterned after Transmit and ForkLift, and a sibling of
 [Séance](https://github.com/L-K-M/Seance). The product design and the
-implementation plan will live in `docs/plan/` (in progress — arriving as
-reviewed PRs); current status and the next-steps checklist live in
+implementation plan live in [docs/plan/](docs/plan/) — start with
+[00-OVERVIEW.md](docs/plan/00-OVERVIEW.md) (the decision log); current
+status and the next-steps checklist live in
 [docs/STATUS.md](docs/STATUS.md).
 
 ## Repository layout
@@ -19,20 +20,22 @@ packages/
   poltergeist_core/       pure Dart — scaffold today; connections, transfers,
                           sync engine, and bookmark model per the plan
 app/
-  poltergeist_app/        Flutter — NOT created yet; scaffolded in the plan's
-                          first implementation milestone, and NOT a workspace
+  poltergeist_app/        Flutter — NOT created yet; scaffolded in milestone
+                          M1 per docs/plan/07-MILESTONES.md (M0 is a spike
+                          that creates no app), and NOT a workspace
                           member (it needs the Flutter SDK; members must not)
-docs/plan/                the design plan — NOT created yet; arriving as
-                          reviewed PRs (read the overview first once it lands)
+docs/plan/                the design plan (read 00-OVERVIEW.md first —
+                          it is the decision log; 09-PLAYBOOK.md is the
+                          implementation operating manual)
 docs/STATUS.md            what's done / tested / still open
 scripts/                  build.sh, release.sh, package-linux.sh
 media-sources/            master icon (poltergeist-icon.png; created with the app)
 ```
 
 The layout deliberately mirrors Séance's proven shape (`packages/` + `app/`),
-so knowledge and tooling transfer both ways. Whether Poltergeist consumes
-Séance packages directly or via extraction is decided in the plan
-(docs/plan/, in progress) — don't preempt it by copying code ad hoc.
+so knowledge and tooling transfer both ways. How Poltergeist consumes
+Séance code is decided per layer in the plan (docs/plan/00-OVERVIEW.md,
+decision D2) — don't preempt it by copying code ad hoc.
 
 ## Build & test
 

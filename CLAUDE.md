@@ -3,9 +3,11 @@
 Start with **[AGENTS.md](AGENTS.md)** — it's the full working guide (toolchain
 setup, build/test commands, layout, conventions, gotchas inherited from
 Séance). Current status and the next-steps checklist are in
-**[docs/STATUS.md](docs/STATUS.md)**. The implementation plan is arriving as
-reviewed PRs into `docs/plan/` — once it lands, read its overview before
-writing app code; until then, don't start implementation (see STATUS.md).
+**[docs/STATUS.md](docs/STATUS.md)**. The implementation plan lives in
+**[docs/plan/](docs/plan/)** — read
+[docs/plan/00-OVERVIEW.md](docs/plan/00-OVERVIEW.md) (the decision log)
+before writing app code, then follow
+[docs/plan/09-PLAYBOOK.md](docs/plan/09-PLAYBOOK.md).
 
 Quick reminders:
 - No Dart/Flutter is pre-installed in dev containers — see AGENTS.md §1.
