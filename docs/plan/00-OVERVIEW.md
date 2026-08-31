@@ -191,8 +191,14 @@ permissions · D29 mobile hooks · D30 Séance license
   rsync idea ships as **"Copy as rsync command"**: renders the pair's
   ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
   exporter contract owns the specifics (POSIX single-quoting of every
-  path and argument, including the embedded-quote escape (`'` → `'\''`)
-  and, upstream of the exporter, 09's shared path validator rejecting
+  path and argument, including the embedded-quote escape (`'` → `'\''`);
+  a `--` end-of-options separator before the first path argument plus
+  `./`-prefixing (or absolutizing) every path, so a name like `-delete`
+  can never be parsed as an rsync option and a name like `host:path` can
+  never be reparsed as a remote host spec once the shell strips the
+  quotes — quoting alone stops word-splitting and quote breakout, not
+  argv-level reinterpretation by rsync itself; and, upstream of the
+  exporter, 09's shared path validator rejecting
   newlines/control characters from ever reaching it, so an untrusted
   remote filename can never break out of the quoted argument — the
   exported command targets a POSIX shell
@@ -248,8 +254,13 @@ permissions · D29 mobile hooks · D30 Séance license
   design empirically before it hardens.
 - **D9 — M0 is a dartssh2 fitness spike, week one.** Measure throughput vs
   the OpenSSH `sftp` baseline on LAN and high-latency links; audit algorithm
-  coverage against 2026-era sshd (rsa-sha2, ed25519, chacha20-poly1305,
-  kex); verify concurrent/pipelined requests on one SFTP channel actually
+  coverage against 2026-era sshd (rsa-sha2-256/512, ed25519, aes128/256-gcm
+  and chacha20-poly1305 ciphers, curve25519-sha256 kex, and the
+  mlkem768x25519-sha256 post-quantum hybrid kex OpenSSH 10.0 made its
+  default — verified against openssh.org's own release notes; a sshd this
+  spike measures against and dartssh2 doesn't speak leaves M0 blind to
+  its most current-gen compatibility gap); verify concurrent/pipelined
+  requests on one SFTP channel actually
   work in dartssh2. Fallback ladder if it underperforms: contribute upstream
   → multiple channels/connections to compensate → document the ceiling → FFI
   to **libssh2** (BSD-3-Clause — permissive; its one obligation,

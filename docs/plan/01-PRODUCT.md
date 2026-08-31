@@ -171,7 +171,7 @@ decision that makes it real.
    behind a preview + dedupe step (D22). Adoption is migration.
 9. **Trust as a feature.** Open source, zero telemetry, no account, OS
    keystore for secrets, no installer adware, link-only update check (D18,
-   D19) — positioned explicitly against the field's trust failures (§6).
+   D19, D23) — positioned explicitly against the field's trust failures (§6).
 10. **Command palette and total keyboard addressability.** Every action is a
     registered command feeding menus, shortcuts, and a Quick Open palette
     that displays and accepts shortcuts (D21). ForkLift's Quick Open and
@@ -314,11 +314,19 @@ day one.
 
 ## 9. License posture
 
-Poltergeist is released under the **Unlicense** — the file is already in the
-repo. That is the strongest possible statement of §6: no copyleft lever, no
-CLA, no dual-license upsell path; the code is a public-domain dedication.
-The trust copy may say so plainly: "public-domain software; do anything you
-like with it."
+Poltergeist's original code is released under the **Unlicense** — the file
+is already in the repo. That is the strongest possible statement of §6: no
+copyleft lever, no CLA, no dual-license upsell path; the code is a
+public-domain dedication. The trust copy may say so plainly — "public-domain
+software; do anything you like with it" — **provided every line in the
+shipped artifact is actually Unlicensed**, i.e. provided Séance also lands
+the Unlicense for PR-S0 (below). If PR-S0 instead lands a different
+permissive, attribution-compatible license (MIT, BSD, …) — which the gate
+accepts — the ported files it covers carry that license's own attribution
+terms, PORTS.md records provenance per file, and both the trust copy and the
+repo-level Unlicense dedication get scoped down to "original code" rather
+than the whole artifact, so neither over-claims rights the repo cannot
+actually grant.
 
 One dependency-hygiene fact gates landing any Séance-derived code in this
 repo and gates publishing — other development is not gated (D30, and this
@@ -339,8 +347,11 @@ That single-holder claim is **verified against recorded authorship, not
 assumed**, by this audit procedure:
 
 - **Command**: `git log <pinned-SHA> --format='%an <%ae>%n%cn <%ce>%n%(trailers)' |
-  LC_ALL=C sort -u` — needs git ≥ 2.22 for the `%(trailers)` placeholder,
-  which surfaces every attribution trailer (`Co-authored-by`,
+  LC_ALL=C sort -u` — needs a git with the bare `%(trailers)` placeholder
+  (verified present since at least git 2.17, 2018, via git-scm.com's
+  archived pretty-formats docs — far below any git a 2026-era contributor
+  runs, so a non-constraint rather than a version floor worth pinning
+  precisely), which surfaces every attribution trailer (`Co-authored-by`,
   `Signed-off-by`, `Reported-by`, …), not `Co-authored-by` alone, since
   any of them can be the only automated trace of an external contribution
   the maintainer committed under their own identity. Committer identity
@@ -360,7 +371,14 @@ assumed**, by this audit procedure:
   commit SHA and is re-run whenever the pinned Séance ref changes (an
   accepted upstream patch reaches Poltergeist only then, and CI can
   observe the pin moving); patches applied under the owner's identity are
-  attributed to their real author by hand.
+  attributed to their real author by hand. The audit bounds what git
+  *recorded*, not what exists: content with no authorship trace at all —
+  a vendored file, a snippet pasted into a commit the owner authored,
+  history predating the repo — is invisible to it, so the single-holder
+  conclusion additionally rests on Séance containing no vendored
+  third-party code, checked once by inspecting Séance's tree (vendored
+  directories, foreign license/copyright headers) rather than re-verified
+  on every audit run.
 - **On an external hit**: pinpoint its exact commits by re-running the
   audit scoped to that author (`git log <pinned-SHA> -i --author="<email>"
   --committer="<email>" --grep="<email>"` — git ORs `--author`,
@@ -391,8 +409,12 @@ assumed**, by this audit procedure:
   there is no human to rewind past on principle or ask for a grant — so
   PORTS.md records the maintainer's by-hand call instead: content-free
   bot commits (merges, version bumps with no code change) are noted and
-  cleared, content-bearing ones are attributed to whichever human
-  authored the underlying change the bot merely committed.
+  cleared; content-bearing ones with a human-authored underlying change
+  are attributed to that human; content-bearing ones with *no* human
+  underlying change — a Dependabot lockfile/manifest regeneration, the
+  common case — are noted as mechanically derived from already-licensed
+  published dependency metadata and cleared on that basis, never
+  attributed to an author that doesn't exist.
 
 The **hard gate** comes first: no Séance source is copied into
 Poltergeist until the D30 license PR (PR-S0) merges on Séance `main`
