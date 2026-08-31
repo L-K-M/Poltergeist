@@ -15,7 +15,7 @@ chip always shows live queue state — D16), a built-in editor plus
 external-editor round-tripping, and a safe,
 previewable folder-sync feature. It is built in Flutter/Dart as a sibling of
 Séance, the personal SSH client, and reuses Séance's transport, TOFU security,
-encrypted sync, and editor foundations (D2, D3, D18) rather than reinventing
+encrypted sync, and editor foundations (D2, D3, D17, D18) rather than reinventing
 them. It is desktop software in the classic sense: one honest window, no
 account, no telemetry, no server component of its own — bookmark backup rides
 a Séance sync server the user may already run (D4, D18, D19).
@@ -235,11 +235,11 @@ to any on-disk key, so the claim stays unconditional); bookmark backup is whole-
 existing encrypted-record protocol (all D18, D4). The update check reuses
 Séance's link-only banner pattern (D19, D23); the "phones home for exactly
 one thing" claim is enforced, not merely asserted — an 08 egress test
-audits the app's outbound destinations and fails on any host beyond the
-connections configured in its fixtures (a stub SFTP endpoint and a stub
-sync server standing in for the user's real servers, since a CI test has
-no real user configuration), the fixture sync server (only when backup
-is enabled),
+audits the app's outbound destinations and fails on any host beyond its
+three allowances — the stub SFTP endpoint configured in its fixtures
+(standing in for the user's real servers, since a CI test has no real
+user configuration), the fixture sync server (only when backup is
+enabled),
 and the single update-check URL — gated on its own setting, not on
 backup being enabled (they are deliberately different conditions: backup
 is opt-in, the update check is opt-out per D19/D23, and conflating the
@@ -260,7 +260,8 @@ say "Poltergeist file transfer" once per page for search discoverability.
 The product name is plain ASCII everywhere a file name or identifier appears
 — this is a tested invariant in `packages/poltergeist_core` (Séance's
 codesign lesson), and identifiers are already fixed:
-`com.lkm.poltergeist_app` (Android/Linux GApplication),
+`com.lkm.poltergeist_app` (Linux GApplication; reserved, not currently
+used, for the mobile build D29 keeps open),
 `com.lkm.poltergeistApp` (Apple), Linux binary `poltergeist`.
 
 Personality is part of the product (D24; Transmit's truck icon and Panic's
@@ -352,14 +353,23 @@ license from themselves to build their own code.
 That single-holder claim is **verified against recorded authorship, not
 assumed**, by this audit procedure:
 
-- **Command**: `git --no-replace-objects -c log.mailmap=false log <pinned-SHA>
+- **Command**: `LC_ALL=C git --no-replace-objects -c log.mailmap=false
+  -c i18n.logOutputEncoding=utf-8 log <pinned-SHA>
   --format='%an <%ae>%n%cn <%ce>%n%(trailers)' |
   LC_ALL=C sort -u` — `log.mailmap` and `refs/replace` are pinned off
   because either can rewrite recorded identities per clone (a mailmap
   entry can canonicalize — or launder — an external contributor's
   address onto the maintainer's own, and a replace ref changes recorded
-  authorship wholesale, both defeating the byte-stability `LC_ALL=C`
-  buys); needs a git with the bare `%(trailers)` placeholder
+  authorship wholesale, both defeating the byte-stability this command
+  buys); `i18n.logOutputEncoding` is pinned to utf-8 for the same
+  reason — left unset it falls back to `i18n.commitEncoding`, which git
+  uses to re-encode trailer/author text on output, so a clone with a
+  non-default value there would silently mutate the recorded bytes; the
+  leading `LC_ALL=C` on `git` itself is a defensive match for the
+  trailing `LC_ALL=C sort -u` rather than a load-bearing fix on its own
+  — git's own field extraction here consults no locale — but costs
+  nothing and keeps the whole pipeline under one stated invariant;
+  needs a git with the bare `%(trailers)` placeholder
   (verified present since at least git 2.17, 2018, via git-scm.com's
   archived pretty-formats docs — far below any git a 2026-era contributor
   runs, so a non-constraint rather than a version floor worth pinning
@@ -376,10 +386,14 @@ assumed**, by this audit procedure:
   another automated trace the block must not miss.
 - **Companion scan**: `%(trailers)` misses an attribution line stranded
   outside the final trailer block, so also run a whole-message sweep and
-  reconcile it against the sorted identity record above: `git log
+  reconcile it against the sorted identity record above: `git
+  --no-replace-objects -c log.mailmap=false log
   <pinned-SHA> -i --grep=co-authored-by --grep=signed-off-by
   --grep=reported-by --grep=helped-by --grep=reviewed-by --grep=tested-by
-  --grep=suggested-by --format='%H %an <%ae>'` (multiple `--grep`s OR by
+  --grep=suggested-by --grep=co-developed-by --grep=acked-by
+  --grep=mentored-by --format='%H %an <%ae>'` — replace refs and mailmap
+  are pinned off here too, for the same reason as the main command above
+  (multiple `--grep`s OR by
   default, exactly as the external-hit procedure below already relies
   on). A commit this sweep lists whose attribution line is absent from
   the sorted identity record means the block parse missed it — treat that
@@ -391,8 +405,8 @@ assumed**, by this audit procedure:
   branches, and synthetic `refs/pull/*/merge` authors, spuriously
   tripping the block and making the record non-reproducible as upstream
   advances. Run in a **full, non-shallow** clone so the ancestor walk is
-  never silently truncated; `LC_ALL=C` keeps the recorded output
-  byte-stable across machines.
+  never silently truncated; the pinned config above — not `LC_ALL=C`
+  alone — is what keeps the recorded output byte-stable across machines.
 - **Record**: the output goes to `docs/PORTS.md` against the audited
   commit SHA and is re-run whenever the pinned Séance ref changes (an
   accepted upstream patch reaches Poltergeist only then, and CI can
@@ -411,9 +425,12 @@ assumed**, by this audit procedure:
   re-scanning on every pin change catches it before it flows into a
   published binary.
 - **On an external hit**: pinpoint its exact commits by re-running the
-  audit scoped to that author (`git -c grep.patternType=basic log
+  audit scoped to that author (`git --no-replace-objects
+  -c grep.patternType=basic -c log.mailmap=false log
   <pinned-SHA> -i --author="<email>"
-  --committer="<email>" --grep="<email>"` — `grep.patternType` is pinned
+  --committer="<email>" --grep="<email>"` — replace refs and mailmap are
+  pinned off here too, for the same reason as the main command above;
+  `grep.patternType` is pinned
   so a contributor's local config (e.g. `perl`) can't silently change
   what the escaping rule below means; git ORs `--author`,
   `--committer`, and `--grep` by default, so this catches the person as

@@ -211,18 +211,20 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
   exporter contract owns the specifics (POSIX single-quoting of every
   path and argument, including the embedded-quote escape (`'` → `'\''`);
-  `-s`/`--protect-args` whenever either side of the pair is remote, so
-  the *remote* shell cannot re-split or reinterpret the arguments rsync
-  forwards to it over the transport (introduced, optional, in rsync
-  3.0.0 — a floor busybox's minimal rsync applet can plausibly sit below,
-  so the exporter must either detect the failure and re-render without
-  `-s` with an added hazard `# note:` explaining the exposure, or refuse
-  and say why, never guess silently) — quoting and `--`/`./`-prefixing
-  (below) only govern the *local* shell that parses the pasted command,
-  and pre-3.2.4 rsync does not turn protect-args on by default, which the
-  busybox/NAS targets this exporter explicitly serves can easily be
-  running (a documented word-splitting/injection history predates it,
-  CVE-2022-29154); a `--` end-of-options separator before the first path argument plus
+  never `-s`/`--protect-args` — that flag is unsupported on exactly the
+  rsync builds this exporter's busybox/NAS/macOS-client audience is most
+  likely running (rsync ≤ 2.6.9, long the system default on macOS and
+  common on NAS boxes, and macOS 15.4+'s own openrsync), so relying on it
+  would break the flagship platform's default client; the exporter
+  instead backslash-escapes every remote-path byte outside a safe
+  allowlist before local POSIX-quoting the result (05 §2.1's own
+  double-escaping rule), closing the same *remote*-shell re-splitting/
+  reinterpretation hazard `-s` would have addressed — without a version
+  floor, and without the exporter ever needing to detect which rsync
+  build the far end is running, since it is a pure command-string
+  renderer with no exec channel to probe one (D5's shell-less transport
+  gives it none) — quoting and `--`/`./`-prefixing
+  (below) only govern the *local* shell that parses the pasted command; a `--` end-of-options separator before the first path argument plus
   `./`-prefixing (or absolutizing) every path, so a name like `-delete`
   can never be parsed as an rsync option and a name like `host:path` can
   never be reparsed as a remote host spec once the shell strips the
@@ -396,7 +398,8 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   user's own opt-in Séance sync account (D4) — link-only update check
   (Séance's banner pattern) —
   the check is the app's only outbound call absent a user-initiated
-  connection, on by default and one setting away from off (01 §6); every
+  connection or the opt-in Séance bookmark backup (D4), on by default and
+  one setting away from off (01 §6); every
   shorter "zero telemetry" tagline elsewhere in this plan is shorthand
   for this same scoped claim, never a silent contradiction of it.
   Stated in the README; treated as a feature (the category punishes
@@ -414,9 +417,15 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   signature ships from the first tag rather than waiting for v1.0.0,
   since generating one costs nothing paid certificates would — and the
   signing key never lives in CI secrets: `release.yml`'s tag-triggered
-  publish produces the assets and the unsigned `SHA256SUMS`, and
+  publish creates the release **as a draft** — Séance's own inherited
+  workflow calls `softprops/action-gh-release` with no `draft:` flag, so
+  a stock port of it would go public the instant the workflow finishes,
+  with nothing pausing for a human; Poltergeist's copy of the step adds
+  `draft: true` — producing the assets and the unsigned `SHA256SUMS`
+  while still hidden, and
   `SHA256SUMS.asc` is attached by a separate, maintainer-approved step
-  (signed locally or via a hardware token) before the release goes
+  (signed locally or via a hardware token) that then publishes the draft
+  — before the release goes
   public, since a CI-resident key reduces the whole provenance claim to
   "trust GitHub/the CI runner" — exactly the release-channel compromise
   the independent-fingerprint requirement below exists to survive; the
