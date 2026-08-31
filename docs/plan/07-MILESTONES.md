@@ -114,14 +114,19 @@ class BenchResult {
   final String scenario;      // 'download-1g-lan-hash-off'
   final int bytes;
   final Duration elapsed;
-  final double mbPerSec;      // decimal MB (10^6 bytes)/s — unit pinned so
-                              // merged cross-run rows stay comparable
+  // decimal MB (10^6 bytes)/s, DERIVED: bytes per microsecond is exactly
+  // MB per second, so a row's rate can never disagree with its own
+  // bytes/elapsedUs once rows merge across runs.
+  double get mbPerSec => bytes / elapsed.inMicroseconds;
   final String? note;         // negotiation details, failure text
   final String dartssh2Rev;   // dartssh2 rev under test (pin or patched
                               // fork branch) — structured, so a merged
                               // report never mistakes a hashing-off fork
                               // row for an unpatched-Séance one
   final String seanceRev;     // seance_core git-pin rev under test
+  final int? rttMs;           // measured RTT for shaped links (null on
+                              // LAN-class rows) — the MEASURED value, never
+                              // the configured netem delay (§3.1)
 
   // Fixed when the row is built: the harness passes DateTime.now().toUtc()
   // and Platform.localHostname at capture, fromJson passes the stored
@@ -134,10 +139,10 @@ class BenchResult {
     required this.scenario,
     required this.bytes,
     required this.elapsed,
-    required this.mbPerSec,
     this.note,
     required this.dartssh2Rev,
     required this.seanceRev,
+    this.rttMs,
     required this.timestampUtc,
     required this.host,
   });
@@ -147,11 +152,11 @@ class BenchResult {
         'bytes': bytes,
         'dartssh2Rev': dartssh2Rev,
         'seanceRev': seanceRev,
+        'rttMs': rttMs,
         'elapsedUs': elapsed.inMicroseconds, // µs — LAN 1 MB runs finish
                                              // in single-digit ms; ms would
                                              // quantize the D7 hashing delta
-        'mbPerSec': mbPerSec,
-        'note': note,
+        'note': note,           // mbPerSec is derived (getter), not stored
         // Rows from different days/machines must stay attributable once the
         // report merges them (and once M3 moves this to CI). The harness
         // stamps both at capture and fromJson reads them back, so toJson is
@@ -166,10 +171,10 @@ class BenchResult {
         scenario: json['scenario']! as String,
         bytes: json['bytes']! as int,
         elapsed: Duration(microseconds: json['elapsedUs']! as int),
-        mbPerSec: (json['mbPerSec']! as num).toDouble(),
         note: json['note'] as String?,
         dartssh2Rev: json['dartssh2Rev']! as String,
         seanceRev: json['seanceRev']! as String,
+        rttMs: json['rttMs'] as int?,
         timestampUtc: DateTime.parse(json['timestampUtc']! as String),
         host: json['host']! as String,
       );
@@ -786,7 +791,7 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with secret-scanner coverage for both** (a `.gitleaksignore` fingerprint entry covers the two paths, and the committed password value is allowlisted once through the repo's GitHub secret-scanning alert — push protection exempts by secret *value* (an admin action), not by path, so there is no path-scoped push-protection entry to add — and thus the mandated push is not blocked; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlists instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with secret-scanner coverage for both** (a `.gitleaksignore` fingerprint entry covers the two paths, and the committed password value is allowlisted once through the repo's GitHub secret-scanning alert — order of operations: the *first* push is blocked until an admin follows the bypass link in the push-protection message to let it through, which creates the alert, then closed as *used in tests* to allowlist the value for every later push (push protection exempts by secret *value*, an admin action, not by path, so there is no path-scoped entry to add) — and thus the mandated push is not permanently blocked; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlists instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
 | M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the leading-`0.` heuristic `release.yml` must carry actually holds. The APK is a **rehearsal artifact of the desktop codebase**: Android is not a supported v1 target — all Android-specific work and verification (D29, §5) stays post-v1 — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
@@ -808,8 +813,11 @@ upgrade also requires a strictly increasing Android `versionCode`,
 derived monotonically from `release.sh`'s version argument
 (`v0.2.0` > `v0.1.0` > … > `v1.0.0`), with any pre-release suffix mapped
 **below** its final — e.g. `major*1_000_000 + minor*10_000 + patch*100 +
-pre`, `pre` = 99 for a final and 1–98 for `-rcN`/`-betaN`, so `v1.1.0-rc1`
-(1_010_001) < `v1.1.0` (1_010_099) < `v1.1.1-rc1`; if the tag grammar
+pre`, `pre` = 99 for a final, 50–98 for `-rcN`, and 1–49 for `-betaN` (so
+`v1.1.0-beta1` (1_010_001) < `v1.1.0-rc1` (1_010_050) < `v1.1.0`
+(1_010_099) < `v1.1.1-beta1` (1_010_101)), with `N` above the family's
+range rejected by `release.sh` as a tagging error rather than silently
+wrapping past the final's 99; if the tag grammar
 instead forbids suffixes (§3.12's alternative), a suffixed tag must never
 ship an APK — pick one rule in writing before the first v1 RC. From
 `v0.2.0` on, each rehearsal
@@ -825,8 +833,12 @@ matching Android signature proves nothing about origin — any fork can
 build a correctly-signed APK that upgrades an install in place, which
 is why the checksum channel must exist from the first tag that ships an
 APK and for as long as the artifacts do, and why INSTALL.md tells users
-to download only from this repo's Releases page and verify against the
-notes. The release tag is signed (`git tag -s`, the maintainer's local
+to download only from this repo's Releases page, verify against the
+notes, and treat any "update available" prompt as fake by definition — the
+app never prompts for or auto-installs updates (D19), and a correctly-signed
+APK offered anywhere other than Releases still installs cleanly over an
+existing install precisely because the key is public. The release tag is
+signed (`git tag -s`, the maintainer's local
 key — never a CI secret); the signature attests the **source commit**,
 not the CI-built artifacts. Absent reproducible builds, the
 release-notes checksums are an **integrity** channel, not an origin
@@ -895,7 +907,7 @@ Per-milestone invariant check (item 5 of §3.12):
 | 2 | dartssh2 single-channel pipelining unsafe | M0 verifies with byte-compares | Compensate with N channels/transports; relax the scan budget with a 00 edit if even that fails |
 | 3 | Isolate model blocker (sockets, latency) | M0 PoC with explicit pass conditions (03 §5) | Connections on UI isolate, transfers/hashing in engine isolate — a 00 edit, never quiet drift |
 | 4 | Séance upstream PR stalls (S1–S3) | Same owner, sibling repos; file early per 04 §5 | Pin to the PR branch rev; S1 sealing shim (04 §5.6); Design B ships without S1; never fork `seance_core` |
-| 5 | Plugin staleness (the ecosystem meta-risk) | Minimal plugin surface; exact-version pins; first-party packages preferred; `super_*` family avoided in v1 | Replace a broken plugin with a small in-repo channel (Séance's proven pattern); Layer-1 Dart icon map if native icon work slips |
+| 5 | Plugin staleness (the ecosystem meta-risk) | Minimal plugin surface; exact-version pins with automated update PRs (Dependabot/Renovate) as a standing §3.12 chore so security/bug fixes don't freeze; first-party packages preferred; `super_*` family avoided in v1 | Replace a broken plugin with a small in-repo channel (Séance's proven pattern); Layer-1 Dart icon map if native icon work slips |
 | 6 | Flutter desktop a11y (Linux broken upstream) and Windows IME (IMM32) | Test and document per D20; semantics built per-surface, never retrofit | Honest known-issues section; not release blockers; track upstream issues by number |
 | 7 | Impeller-on-desktop regressions (new in 3.47) | Test both renderers while the Skia opt-out exists; bench on older GPUs | `--no-enable-impeller` covers dev/CI/bench only — a shipped build can't read a `flutter run` flag — so a user-facing regression needs a build-time renderer opt-out (Info.plist/manifest), decided if one appears while upstream keeps the opt-out; if upstream removes the opt-out first, an unresolved user-facing regression is a release blocker resolved by a 00 edit (pin/bisect/upstream fix), never a silent ship |
 | 8 | Scope creep | D25 parking lot; this chapter's fixed order; 09's review guardrails | Pre-authorized cuts, each a one-line edit to 00/02 in the cutting PR: native icon/thumbnail layer → Dart icon map; Quick Look → open-with-default; preview pane → text+images only; Sync Browsing → v1.x; local fast-path → streamed copy only |
@@ -917,15 +929,21 @@ Per-milestone invariant check (item 5 of §3.12):
       below): a default OS blocks an unsigned download without them — and
       §4 already publishes SHA-256 checksums beside every asset from
       `v0.1.0`, linked from INSTALL.md next to the bypass steps, so the
-      download is verifiable before the OS gate is bypassed.
+      download is verifiable before the OS gate is bypassed — with the
+      limit stated: same-release checksums detect corruption, not a
+      compromised release, so v1.0.0's `SHA256SUMS.asc` (a detached
+      maintainer-key signature over the checksum list, §4) is the
+      origin-independent channel that a release-asset swap cannot forge.
 - [ ] Mobile invariants (07 §5) checked at every milestone close; no v1
       code forecloses single-pane, scoped-access, or suspendable-queue
       mobile.
 - [ ] Pre-1.0 milestone tags `v0.<n>.0` exist for M1 through M9 — never a
       `v0.10.0`; M10 ships `v1.0.0` per §3.12, with every tag cut by the
-      release pipeline itself (so the pipeline is exercised at each
-      milestone, not first at v1.0.0). Inter-milestone hotfixes may append patch
-      tags (`v0.<n>.<patch>`) without advancing the minor.
+      release pipeline itself (so the pipeline is exercised at every tagged
+      milestone M1–M10, not first at v1.0.0 — M0 has no tag). Inter-milestone
+      hotfixes may append patch tags (`v0.<n>.<patch>`) without advancing the
+      minor, each cut from the `v0.<n>.0` tag's commit (or a hotfix branch off
+      it), never from a `main` carrying in-flight milestone work.
 - [ ] No fast-follow or D25 item was built before v1.0 — except the M4
       drag-out produce-on-demand hook (03 §4.7 / D14), the one
       pre-authorized seam, which ships inside v1 by design.

@@ -122,7 +122,12 @@ Future<void> _connectTab(PaneTab tab) async {
   try {
     final session = await _engine.connect(tab.serverId);
     if (_disposed || !identical(_workspace.tabById(tab.id), tab)) {
-      await session.close();        // don't leak the fresh session
+      try {
+        await session.close();      // don't leak the fresh session — but
+      } on Object {
+        // swallow: the tab is gone, nobody can surface this failure, and
+        // §3.2's rule forbids unhandled async errors from controllers
+      }
       return;                       // tab was closed/replaced mid-connect
     }
     tab.attach(session);
@@ -248,11 +253,9 @@ forget it: SFTP-style listings routinely carry the trailing slash, and
 a caller-side precondition here would make the designated zip-slip
 defense reject legitimate directory entries at whichever call site
 missed a strip (`'/'` still rejects — stripping leaves the empty
-string). Windows reserved device names
-(`CON`, `PRN`, `AUX`, `NUL`, `CLOCK$`, `COM1`–`COM9` and superscript
-`COM¹`–`COM³`, `LPT1`–`LPT9` and superscript `LPT¹`–`LPT³` — the NT
-path layer accepts superscript digits — with or
-without an extension, `PRN.txt` included) are already rejected
+string). Windows reserved device names (the exact set enumerated above,
+`CLOCK$` and the superscript digit forms included, with or without an
+extension, `PRN.txt` among them) are already rejected
 by `validateLocalName` (03 §2.3), which runs on **every locally created
 name — intermediate directories included**: each directory a recursive
 walk materializes is itself a target name at its own creation, so
@@ -293,6 +296,13 @@ void validateRelativeComponents(String relative,
         // same escaping-bug class as backslash: these components feed the
         // rsync-command exporter, journals, and rendered previews, where an
         // embedded line break corrupts line-oriented output or naive quoting.
+        // ':' stays legal for POSIX destinations, so the exporter's side of
+        // the bargain is pinned here too: rsync parses 'host:path' in any
+        // bare relative operand, so a ':' in the FIRST component (e.g.
+        // 'evil:x/y', legal on the POSIX remote) would aim the transfer at
+        // host 'evil' — exfiltration. The rsync exporter (05 §2) MUST prefix
+        // every generated operand with './' (a leading './' forces local);
+        // a test pins 'a:b/c' → './a:b/c'.
         part.contains('\n') || part.contains('\r') ||
         // NUL is not a legal filename byte on any platform, and a POSIX
         // C string silently truncates at it — the same escaping-bug
