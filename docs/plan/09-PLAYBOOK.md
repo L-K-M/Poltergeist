@@ -73,7 +73,11 @@ rules — AGENTS.md remains the authority on toolchain setup (§1 there).
   neighborhood.
 - **Commit messages** end with the repo family's co-author trailer and the
   session link. **No model identifiers anywhere** — not in commits, code,
-  comments, or docs (AGENTS.md §3). This is a review blocker.
+  comments, or docs (AGENTS.md §3). The one sanctioned exception is
+  naming the repo's own review tooling where §7 documents working with
+  it — the rule targets the *authoring* model's identity, and a rules
+  file that flunked its own gate would invite inconsistent enforcement
+  either way. This is a review blocker.
 - **Docs wrap at ~80 columns**, sentence-case headings, tables where they
   clarify, no emoji — match the files in `docs/plan/`.
 - **Doc comments explain *why*.** The Séance standard: a comment that
@@ -133,7 +137,21 @@ Future<void> navigateTo(String path) async {
   _listCancellation?.cancel();
   final cancellation = _listCancellation = RemoteTransferCancellation();
   final generation = ++_navigationGeneration;
-  final entries = await _engine.list(path, cancellation: cancellation);
+  final List<RemoteFileEntry> entries;
+  try {
+    entries = await _engine.list(path, cancellation: cancellation);
+  } on RemoteFileException catch (e) {
+    // A cancelled call completes by THROWING RemoteFileException with
+    // kind `cancelled` (seance_core funnels its internal cancellation
+    // type into the one exception funnel — remote_file_system.dart's
+    // guard; §3.3 pins this as the contract). The superseded listing
+    // the token rotation above cancelled is expected — swallow exactly
+    // that kind, or every fast double-navigation surfaces an unhandled
+    // async error; every other kind is a real failure and reaches the
+    // pane's error state.
+    if (e.kind == RemoteFileErrorKind.cancelled) return;
+    rethrow;
+  }
   if (_disposed || generation != _navigationGeneration) return; // stale
   _applyEntries(path, entries);
 }
@@ -143,7 +161,12 @@ Future<void> navigateTo(String path) async {
 
 Every listing, transfer, recursive walk, scan, and hash accepts a
 cancellation token (`RemoteTransferCancellation` from `seance_core` for VFS
-calls; the engine protocol's cancel message across isolates, 03 §5). The UI
+calls; the engine protocol's cancel message across isolates, 03 §5). The
+**completion contract is pinned**: a cancelled VFS call throws
+`RemoteFileException` with kind `cancelled` — never a partial result —
+(seance_core's funnel wraps its internal cancellation type;
+`remote_file_system.dart`), so every call site handles cancellation
+identically, per the §3.2 sample. The UI
 wires the Cancel affordance **before** awaiting, never after. An operation
 without a cancel path is a review blocker — D16 makes "visible, cancellable,
 inspectable" the product's trust contract.
@@ -173,9 +196,15 @@ the zip-slip defense D27 pre-commits to. The checks are
 **destination-aware**: characters that are legal on a POSIX remote can
 be hazards on a Windows destination — a `:` in a component does not fail
 there, it silently writes an NTFS alternate data stream — so the caller
-says where the path is headed. Callers strip a trailing separator
-(`'a/b/'` → `'a/b'`) before validating — a directory entry's trailing
-`/` is shape, not a component. Windows reserved device names
+says where the path is headed. The helper itself absorbs trailing
+separators (`'a/b//'` → `'a/b'`, all of them, not one) before
+validating — a directory entry's trailing `/` is shape, not a
+component, and the **validator owns that shape** so no call site can
+forget it: SFTP-style listings routinely carry the trailing slash, and
+a caller-side precondition here would make the designated zip-slip
+defense reject legitimate directory entries at whichever call site
+missed a strip (`'/'` still rejects — stripping leaves the empty
+string). Windows reserved device names
 (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` and superscript
 `COM¹`–`COM³`, `LPT1`–`LPT9` and superscript `LPT¹`–`LPT³` — the NT
 path layer accepts superscript digits — with or
@@ -193,6 +222,12 @@ because its non-mkdir callers have no other guard.
 ```dart
 void validateRelativeComponents(String relative,
     {required bool windowsDestination}) {
+  // A directory entry's trailing '/' is shape, not a component; the
+  // validator absorbs it (all of them) so no caller has to remember.
+  // '/' itself reduces to '' and is rejected below like any root.
+  while (relative.endsWith('/')) {
+    relative = relative.substring(0, relative.length - 1);
+  }
   for (final part in relative.split('/')) {
     // Backslash is rejected for EVERY destination on purpose: these
     // components also feed Windows-rendered previews and exports, and a
@@ -256,7 +291,14 @@ over the target; the editor's saver adds the backup + conflict dance,
 // uuidV4() is the project's one thin helper over package:uuid
 // (`const Uuid().v4()`) — several chapters' sketches call it by this
 // name; do not invent a second helper or paste raw Uuid() calls.
-final tmp = File('${target.path}.poltergeist-${uuidV4()}.tmp');
+// Sibling DIRECTORY, bounded-length NAME: the rename must stay on one
+// volume (hence the same parent), but suffixing the full target name
+// would push a legal-but-long basename (POSIX NAME_MAX is 255 bytes)
+// past the limit and make exactly those files unsavable — so the temp
+// name is the recognizable prefix plus the uuid, never the target's
+// own name (crash sweeps match the same `.poltergeist-*.tmp` pattern).
+final tmp = File(
+    '${target.parent.path}/.poltergeist-${uuidV4()}.tmp');
 try {
   await tmp.writeAsBytes(bytes, flush: true);
   await tmp.rename(target.path); // atomic on POSIX; best-effort
@@ -504,8 +546,11 @@ see clearly: title it as a decision change, not a feature.
 - [ ] Every merged PR since implementation start satisfies the §5
       checklist (spot-checkable: STATUS diffs, screenshots on UI PRs,
       green CI history).
-- [ ] No violation of the §6 hard rules exists on `main`; the D4 shared-
-      account gate is enforced in code before any sync feature ships.
+- [ ] No violation of the §6 hard rules exists on `main`.
+- [ ] The D4 shared-account gate is enforced in code before any sync
+      feature ships (a temporal gate checked at shipping time — split
+      from the standing invariant above so each is attestable on its
+      own evidence).
 - [ ] GLM review rounds on merged PRs show the §7 triage discipline
       (scorecards at steady-state; no flip-flops).
 

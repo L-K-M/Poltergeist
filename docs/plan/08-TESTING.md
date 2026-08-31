@@ -215,8 +215,13 @@ pairs and `fake_async`:
 - `BandwidthLimiter`: with a fake clock — no burst ever grants more
   than one second of tokens, N > L bytes at limit L take
   ≥ (N − L)/L seconds (a full initial bucket makes ≥ N/L unattainable
-  by the intended bursting implementation), and sustained throughput
-  over any window ≥ 2 s averages ≤ L bytes/s.
+  by the intended bursting implementation), and throughput in any
+  window of W seconds averages ≤ L·(1 + 1/W) bytes/s — 1.5·L at
+  W = 2 s, converging to L as W grows (a flat "≤ L over any window"
+  is unattainable by the same arithmetic: a full bucket at window
+  start admits L + W·L bytes); plus the §4.3 hang guards — an
+  `acquire` larger than bucket capacity drains in capacity-sized
+  grants, and a zero limit is rejected at the settings boundary.
 - Remote→remote piping over two fakes: bytes counted once, both leases
   released on success and on either side's failure, failing side named in
   the error message.
@@ -385,8 +390,14 @@ test/integration/
                             `220N:22` binds 0.0.0.0 and would expose
                             weak-credential sshds on the LAN). Enforced
                             mechanically, not by prose: run.sh and CI
-                            grep this file and fail on any `ports:`
-                            entry lacking a `127.0.0.1:` host prefix —
+                            render `docker compose config` (interpolated,
+                            resolved) and fail unless every published
+                            host IP is 127.0.0.1 — a raw YAML grep would
+                            pass quoted (`"2201:22"`), interpolated
+                            (`${PORT}:22`), and long-form
+                            (`host_ip: 0.0.0.0`) entries that still bind
+                            0.0.0.0, and the check's own test feeds it
+                            those three shapes and asserts red —
                             Principle 3 applies to the fixture's own
                             most dangerous property too
   sshd-modern/Dockerfile    alpine pinned by version + digest — current
@@ -397,11 +408,24 @@ test/integration/
                             (older algorithm defaults; focal is past
                             standard support, so expect to retarget apt at
                             old-releases.ubuntu.com or swap to another
-                            OpenSSH ≤ 8.x base when the archive moves)
-  keys/                     committed test-only user + host keys (incl.
+                            OpenSSH ≤ 8.x base when the archive moves —
+                            and once built, the image is pushed to the
+                            project's GHCR and CI pulls that
+                            digest-pinned frozen artifact, so archive
+                            outages or focal's eventual removal never
+                            redden the legacy leg for reasons unrelated
+                            to the code under test)
+  keys/                     committed test-only HOST keys only (incl.
                             the keyswap second host key) — generated
                             once, never by run.sh, never used anywhere
-                            but this loopback fixture; a README in the
+                            but this loopback fixture: host keys need
+                            cross-run stability for TOFU determinism,
+                            but the USER keypair does not — run.sh
+                            generates it fresh per run (ssh-keygen,
+                            public half installed into each container's
+                            authorized_keys), shrinking the committed
+                            secret surface to the keys that actually
+                            need committing; a README in the
                             dir marks every key fake/test-only, and the
                             repo carries secret-scanner allowlist
                             entries for them (GitHub push protection
@@ -462,8 +486,11 @@ docker-stops a shared service and the keyswap fixture swaps
 `sshd-modern` out entirely, so concurrent suites would flake each other.
 Every suite that stops or swaps a service **restores the original stack
 in `tearDownAll`** — the keyswap suite in particular must stop
-`sshd-keyswap` **before** starting `sshd-modern`: both publish host
-port 2201, so starting `sshd-modern` while keyswap still binds the port
+`sshd-keyswap` **before** starting `sshd-modern` — and then **wait
+until host port 2201 is actually free** (poll the bind, or retry the
+`up` on bind failure): `docker stop` returning does not guarantee the
+publish teardown has finished, and both publish host
+port 2201, so starting `sshd-modern` while the port is still bound
 makes the new container fail to bind and exit, leaving 2201 serving the
 swapped key — the literal "restart sshd-modern" reading reintroduces
 the exact failure this paragraph guards. Skip either step and every
@@ -471,7 +498,14 @@ later suite dialing `…_MODERN` meets a changed
 host key and hard-blocks (D18), a deterministic order-dependent red that
 would masquerade as flake. Teardown of the whole stack still runs from a
 `trap … EXIT` so an interrupted run never leaks the
-stack (the test exit code is preserved through the trap).
+stack (the test exit code is preserved through the trap) — and the
+trap tears down **with the profile enabled**: `docker compose
+--profile keyswap down`, because a plain `down` ignores services whose
+profiles are inactive in that invocation, so an interrupt during the
+keyswap suite (after its `up`, before `tearDownAll`) would leak the
+keyswap container still holding port 2201 and wedge every later run's
+`sshd-modern` bind — a teardown bug that would masquerade as a fixture
+flake.
 
 Suites:
 
@@ -549,7 +583,12 @@ Mechanics:
 - **Two enforcement schedules** (07 §1 states the same policy): tier-A
   engine benchmarks (the pure-Dart engine budgets — P3, P5, P7) run
   enforced (`BENCH_ENFORCE_A`, a red benchmark fails the job) from the
-  milestone that introduces each surface — and also run on PRs that
+  milestone that introduces each surface — schedule-consistent because
+  the bench job itself arrives in the M3 PR and every tier-A surface
+  lands at or after M3; a surface that ever landed earlier would stay
+  **unlanded in `budgets.json`** until the job exists to gate it, so
+  "enforced from introduction" can never name a job that is not there
+  yet — and also run on PRs that
   touch `packages/**` (path-filtered), so a P3/P5/P7 regression is
   caught pre-merge instead of turning `main` red after the fact;
   tier-B UI benchmarks run
@@ -658,7 +697,7 @@ section says what each job runs and what gets added when.
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
 | `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral if the fixture is ever absent — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, and on PRs touching `packages/**` or `test/integration/**` (the bench job's path-filter rationale — a 25-minute Docker job has no business on a docs-only PR). |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture, tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle: compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/

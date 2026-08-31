@@ -191,14 +191,20 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 - [ ] Rehearsal tag `v0.1.0` pushed via `scripts/release.sh`;
       `release.yml` publishes D23's full scripted asset set — APK, Linux
       `.deb`/AppImage/bundle, macOS bundle, Windows zip, and the
-      **unsigned** iOS IPA (`--no-codesign`, re-sign to sideload — no
+      **unsigned** iOS IPA (D23's script zips `Payload/` out of the
+      `--no-codesign` `.xcarchive` — on current stable Flutter,
+      `flutter build ipa --no-codesign` stops at the unsigned archive
+      and emits no `.ipa` on its own, so without the explicit zip step
+      the iOS asset would silently be missing; re-sign to sideload — no
       signing infrastructure involved) — marked as a pre-release. If D23
       lags, publish the assets that exist and record the gap in
       STATUS.md (the Risks fallback below) — that ticks this box too;
       the box never stalls M1 on the parallel workstream. The fallback
       has a floor: the APK and the Linux `.deb`/AppImage/bundle must
       publish — everything they need (icons, identifiers, the committed
-      keystore — §4's M1 rows) builds on `ubuntu-latest`, so
+      keystore — §4's M1 rows, and the "Android signing & checksums"
+      section below states that key's deliberately-public risk posture
+      in full) builds on `ubuntu-latest`, so
       their absence is a pipeline bug, not D23 lag, and the tag waits
       for the fix. A rehearsal that publishes nothing rehearses nothing.
 - [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
@@ -209,8 +215,12 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 not in prose. And one real dependency the gate column does not show: the
 rehearsal release requires `release.yml` to publish D23's full asset set,
 which the parallel distribution workstream (§4) delivers — if D23 lags,
-scope the rehearsal to the assets that exist and record the gap in
-STATUS.md rather than stalling M1. Keep this milestone small on purpose.
+publish the assets that exist and record the gap in STATUS.md rather
+than stalling M1, **subject to the exit criterion's floor**: the APK
+and the Linux `.deb`/AppImage/bundle must publish, their absence is a
+pipeline bug, and the tag waits for that fix — this fallback never
+authorizes a rehearsal that publishes nothing. Keep this milestone
+small on purpose.
 
 ### 3.3 M2 — connection layer — size L
 
@@ -664,6 +674,9 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
    06 deferral), as demand dictates.
 
 **v1.x backlog** — the smaller deferred items that 02/05/06 point here:
+Sync Browsing, if risk 8's pre-authorized cut line is ever exercised
+(the cut's destination must exist in a tracked list, or cutting would
+be the quiet scope-dropping this chapter forbids);
 batch/multi-rename UI; the named skip-rules engine (Transmit-style Rules);
 custom keymap editing UI; the native file icons/thumbnails channel; the
 cross-pane Compare entry point; Quick Look prefetch / preview-cache
@@ -682,7 +695,7 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1), and the M10 INSTALL.md labels it accordingly |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
@@ -711,9 +724,13 @@ APK and for as long as the artifacts do, and why INSTALL.md tells users
 to download only from this repo's Releases page and verify against the
 notes. The release tag is signed (`git tag -s`, the maintainer's local
 key — never a CI secret); the signature attests the **source commit**,
-not the CI-built artifacts — absent reproducible builds, the
-release-notes checksums remain the only artifact-level origin channel,
-and INSTALL.md must not overstate what the tag signature proves.
+not the CI-built artifacts. Absent reproducible builds, the
+release-notes checksums are an **integrity** channel, not an origin
+one — CI computes them alongside the artifacts it builds, so they
+catch corrupted downloads and foreign mirrors but can never attest a
+compromised pipeline; origin rests on the signed tag plus this repo's
+CI being the thing that built from it — and INSTALL.md must not
+overstate what either the tag signature or the checksums prove.
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,
