@@ -97,8 +97,11 @@ class BookmarkServerRef {
   final String? serverConfigId;
 
   /// A self-contained identity for servers not managed in Séance, and for
-  /// every server in separate-account mode (§4.1).
-  final EmbeddedHostIdentity? host;
+  /// every server in separate-account mode (§4.1). Named `identity`, not
+  /// `host`, so the union tag does not collide with `EmbeddedHostIdentity.host`
+  /// (the hostname) — `ref.identity.host`, and `{"identity": {"host": …}}`
+  /// on the wire.
+  final EmbeddedHostIdentity? identity;
 }
 
 class EmbeddedHostIdentity {
@@ -168,7 +171,8 @@ class SavedSyncSpec {
   ///   conflictDefault:     'ask' | 'newerWins' | 'keepLeft' |
   ///                        'keepRight' | 'skip'                ('ask';
   ///                        left = source, right = destination)
-  ///   symlinks:            'skip' ('copyAsLink'/'follow' reserved)
+  ///   symlinks:            'skip'   (default 'skip'; 'copyAsLink'/'follow'
+  ///                        reserved — 05's symlink semantics)
   ///   trashPathLeft:       string | null — that side's out-of-root
   ///   trashPathRight:      string | null   trash, resolved on its own
   ///                        host (05 §8 rail 5)          (null, null)
@@ -190,7 +194,10 @@ class SavedSyncSpec {
 
 // Decode contract — fields are kind-gated: `server`/`remotePath` only
 // for remotePath, `localPath` only for localFolder, `left`/`right` only
-// for workspace, `sync` only for savedSync; `fromJson` throws
+// for workspace, `sync` only for savedSync — and each gated field is
+// REQUIRED non-null for its kind (`server`+`remotePath`; `localPath`;
+// `left`+`right`; `sync`). `id`, `kind`, and `label` are always required;
+// an absent `preferredPane` decodes as `either`. `fromJson` throws
 // FormatException on any violation, and an *unknown* `kind` string leaves
 // the record skip-preserved (never decoded or activated by guesswork —
 // the one forward-compat case not already covered by icon→null and the
@@ -302,7 +309,11 @@ asking what a wrong guess would cost.
   never synced) is written **only by a local user act** — creating the
   bookmark *on this device*, or confirming a connect; a device that
   received the bookmark through sync holds no record and prompts on
-  its first connect (seeding from the synced-in record would let a
+  its first connect — that prompt displays the full resolved endpoint
+  (host, port, username) and precedes any connection, TOFU prompt, or
+  credential resolution, matching the change-confirmation bar below,
+  because on a sync-received bookmark it is the only endpoint check the
+  endpoint ever gets (seeding from the synced-in record would let a
   fresh device capture an already-rewritten attacker endpoint and then
   connect silently) — and any later connect whose resolved endpoint
   differs —
@@ -406,7 +417,7 @@ An embedded identity (separate mode or non-Séance server), `server` only:
 
 ```json
 "server": {
-  "host": {
+  "identity": {
     "host": "nas.local", "port": 22, "username": "alice",
     "authMethod": "privateKey",
     "identityFilePath": "~/.ssh/id_ed25519"
@@ -439,9 +450,11 @@ An embedded identity (separate mode or non-Séance server), `server` only:
   including repeated head and tail insertions and
   `sortKeyBetween(null, <first possible key>)`.
 - **Size**: the server caps records at 1 MiB (`maxBlobBytes`). A sealed
-  bookmark is a few hundred bytes; Poltergeist still enforces a 64 KiB soft
+  bookmark is a few hundred bytes; Poltergeist still enforces a 64 KiB **hard**
   cap on the encoded payload at save time with the copy "This bookmark is too
-  large to back up." — nothing legitimate approaches it.
+  large to save." — nothing legitimate approaches it, so no local-only,
+  never-synced bookmark state ever exists (§2.3's synced/device-local split
+  stays total; a save-time cap is a hard cap, not a warn-and-skip-sync).
 - **Lossy re-push**: like Séance, `fromJson` → `toJson` drops fields it does
   not know, and a re-push from another device replaces the blob. That is the
   accepted lossy-downgrade posture *between Poltergeist versions* for fields;
@@ -471,8 +484,10 @@ class PersistentLocalRecordStore implements LocalRecordStore {
   // allRecords / getRecord / putLocal (marks dirty) / putRemote /
   // tombstone (local deletes persist as tombstoned records so a later
   // delta pull can never resurrect them — the resurrection bug this
-  // store exists to fix; tombstones GC after the server's retention
-  // window) /
+  // store exists to fix; tombstones are retained indefinitely per the
+  // §3.2 lifecycle rule — no GC, since there is no device registry and
+  // any GC window risks resurrecting a deletion through a long-offline
+  // device) /
   // dirtyRecords / markSynced / highWaterSeq — the seance_core interface,
   // implemented for real.
 }
@@ -490,7 +505,10 @@ Consequences:
   unchanged dataset (better than Séance's re-collect-everything, and safe:
   server-side LWW made Séance's habit a no-op, not a requirement).
 - Offline edits persist as dirty and push on the next round.
-- A corrupt store file is quarantined (`sync_records.json.corrupt`), the
+- A corrupt store file is quarantined under a unique per-occurrence name
+  (`sync_records.json.corrupt-<timestamp>`, never overwritten by a later
+  quarantine — a second corruption must not destroy the first rescue copy,
+  which may hold the only copy of unpushed dirty edits), the
   store restarts empty, and a **durable** notice appears in Settings → Backup
   (never a toast alone — Séance's SEA-039 lesson). Losing the store loses
   only unpushed dirty edits, which the quarantine file preserves for rescue;
@@ -566,10 +584,19 @@ the decrypted kinds:
 
 | Pulled kind | Action |
 |---|---|
-| `bookmark` | upsert into `BookmarkStore`; tombstone → remove |
-| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record **and records a durable local negative pin**: auto-apply requires a present record with no local pin *and no negative pin*. The tombstone alone cannot hold — patched Séance treats prefixed-id tombstones as no-ops (§5.2 item 4) yet re-collects and re-pushes its pins with fresh LWW timestamps every round (§3.1/§4.2), so any *still-trusting* Séance device resurrects the record and the diff would auto-apply the key the user just removed under MITM suspicion; that habitual re-seal is not the "genuinely newer pin edit" the LWW carve-out means. The negative pin holds the untrust verdict until the user explicitly re-trusts (accepting the key at connect time). PR-S1 item 4 additionally routes `hostkey:`-prefixed tombstones to Séance's pin-store deletion so the two apps' untrust stays symmetric; an acceptance test pins that a Séance round re-pushing the pin does not restore auto-trust |
+| `bookmark` | upsert into `BookmarkStore`; tombstone → remove. Delta events are applied in seq order, and a pulled record is applied only when its LWW tuple (`updatedAt`, `deviceId`) beats the local record for the same id — a record that does not beat a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly upserted, so a just-deleted bookmark never transiently resurrects and a pending offline edit is never clobbered at the apply layer |
+| `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record **and records a durable local negative pin**: auto-apply requires a present record with no local pin *and no negative pin*. The tombstone alone cannot hold — patched Séance treats prefixed-id tombstones as no-ops (§5.2 item 4) yet re-collects and re-pushes its pins with fresh LWW timestamps every round (§3.1/§4.2), so any *still-trusting* Séance device resurrects the record and the diff would auto-apply the key the user just removed under MITM suspicion; that habitual re-seal is not the "genuinely newer pin edit" the LWW carve-out means. The negative pin holds the untrust verdict until the user explicitly re-trusts (accepting the key at connect time). Negative pins persist in **app settings**, never inside the §3.1 record store — so the corrupt-store quarantine (store restarts empty) cannot erase an untrust verdict and let the very next `applyPulled` diff auto-apply a key the user removed under MITM suspicion. PR-S1 item 4 additionally routes `hostkey:`-prefixed tombstones to Séance's pin-store deletion so the two apps' untrust stays symmetric; an acceptance test pins that a Séance round re-pushing the pin does not restore auto-trust |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store — like the never-decrypted `secret:`/`snippet:`/unrecognized prefixes above |
+| decrypted `kind` ≠ the kind the id prefix implied (e.g. a `bookmark:`-prefixed id whose payload decodes as `secret`, or a prefixless id decoding as anything but `serverConfig`) | skip-and-preserve, identical to malformed: the id prefix gates *which key decrypts*, the decrypted kind gates *what is applied*. The plaintext id is peer-writable on a shared account, so a relabeled blob — a `secret:` ciphertext re-uploaded under a `bookmark:` id — must never be applied (nor even upserted), or the "keeps the vault out of Poltergeist's memory" guarantee is bypassed by relabeling. (Longer term, binding the record id as AEAD associated data in `RecordCodec` makes relabeling fail at decrypt outright.) |
+
+The prefix/kind split above is a two-gate rule, stated once: the
+pre-decryption **prefix** decides whether (and with which key) a record is
+decrypted at all, and the decrypted **kind** decides whether it is applied.
+A shared-account peer can relabel the plaintext id but cannot forge the
+sealed kind, so the second gate is what actually protects application. A
+§3.2 test pins the relabel case (a `secret:` ciphertext re-uploaded under a
+`bookmark:` id is decrypted under the bookmark path yet never applied).
 
 The symmetric skip rule is tested explicitly: a record of kind `flurb`
 planted in the account survives many Poltergeist sync rounds byte-identical
@@ -678,8 +705,12 @@ wrong door while §3.2's catch-all silently skip-preserved the very
 corruption this gate exists to catch (an acceptance test pins the
 `bookmark:`-id case raising the warning) — raises a **durable
 warning** in Settings → Backup naming
-the record id — as a stale-client, wrong-passphrase, *or*
-newer-Séance-schema signature: the copy names all three candidate
+the record id — as a stale-client, corrupt-record, *or*
+newer-Séance-schema signature (never wrong-passphrase: a record that
+**decrypts** proves the passphrase that sealed it, so a wrong passphrase
+yields a decrypt *failure*, not the decrypt-success + decode-failure this
+tripwire fires on — naming it would send a user with a provably-correct
+passphrase to reset it): the copy names all three candidate
 causes, because blaming only a stale client sends the user hunting a
 device that may not exist — never just
 skip-preserved silently. The minimum
@@ -772,7 +803,9 @@ held, offer an **optional** "Also delete the separate backup account…"
 step (typed confirmation per §4.1 — this is the one cheap moment:
 after sign-out, deletion needs a full re-enrollment with that account's
 passphrase, and §7.3's tokens never expire server-side, so a declined
-orphan account plus its live token persist indefinitely) → sign out of
+orphan account persists indefinitely, its tokens never expiring
+server-side — not a token Poltergeist still holds, since the sign-out
+below is local-forget only) → sign out of
 the separate account (local forget only) → **wipe and re-create the §3.1
 record store and reset `highWaterSeq`** (its records are sealed under the
 separate account's key and are undecryptable after the re-key — permanent
@@ -792,7 +825,16 @@ old account untouched — Poltergeist never auto-deletes it; the UI notes
 that removing it later requires re-enrolling into it first.
 Switching away from shared mode first converts every `serverConfigId`
 reference to an `EmbeddedHostIdentity` snapshot taken from the catalog, so
-no bookmark dangles.
+no bookmark dangles. The rest mirrors the B→A sequence, since every hazard
+applies symmetrically after re-keying to the separate account: local
+sign-out only (the shared account is the user's Séance account — deletion
+is never offered, §4.2), then **wipe and re-create the §3.1 record store
+and reset `highWaterSeq`** (the same undecryptable-shared-key-residue and
+same-id `hostkey:` LWW-shadow hazards the B→A flow cites), enroll into the
+separate account (§4.5, full pull, `since = 0`), and **mark every local
+bookmark dirty** so the first round re-pushes them under their existing
+`bookmark:<uuid>` ids — without the dirty-marking the fresh separate
+account would stay permanently empty.
 
 ### 4.5 Enrollment implementation notes
 
@@ -808,8 +850,10 @@ memory, the exact thing §3.2 promises never happens)** before
 persisting anything (auth success cannot prove the E2E passphrase; the
 check is kind-agnostic *across those ids* — a bookmark or a Séance
 serverConfig both qualify. An **immediate** trial-decrypt failure
-surfaces §4.2's three-cause copy — wrong passphrase, corrupt record,
-or newer schema — never a definitive wrong-passphrase verdict. An
+surfaces the **decrypt-failure** three-cause copy — wrong passphrase, corrupt record,
+or newer schema (a genuinely different set from §4.2's decrypt-success
+tripwire, which cannot blame the passphrase) — never a definitive
+wrong-passphrase verdict. An
 immediate failure **warns with the three-cause copy and proceeds**
 (`passphraseUnverified: true`, pushes held), never aborts — a corrupt
 first candidate must not block enrollment on an account whose passphrase
@@ -877,6 +921,10 @@ After each merge, bumping the Séance pin is the routine chore of 03 §8.1
 
 Séance currently has no LICENSE file; Poltergeist is Unlicense. Scope: ask
 upstream (same owner, sibling repos) to add one — suggest Unlicense to match.
+Pre-check: audit Séance's commit history for non-owner copyright (external
+contributions, vendored or borrowed snippets, `git shortlog -sne`); the
+single-rights-holder rationale below holds only if none exist, and any
+third-party code found waits for the LICENSE like any other third party.
 Acceptance: LICENSE on Séance `main`. Interim rule, matching D30 and 01 §9:
 git-pin consumption may proceed anytime — release binaries embedding the
 pinned code included, because both repos share one rights holder, who
@@ -906,6 +954,11 @@ Scope, all in Séance:
 2. `record_codec.dart`: use `RecordKind.unknown` (not `serverConfig`) as the
    tombstone placeholder in `decrypt`; make `encrypt` throw `ArgumentError`
    on `kind == RecordKind.unknown` (the placeholder must never be encoded).
+   Sweep every `RecordKind.values` iteration and `switch` in Séance (UI kind
+   selectors, name↔kind maps, debug dumps) so the new `bookmark`/`unknown`
+   members cannot surface in any generic path — a plain non-exhaustive
+   `switch` silently misses them, undermining the "skip-and-preserve is
+   invisible" story the PR sells upstream.
 3. `packages/seance_protocol/lib/src/models/bookmark.dart`: the §2.1 model
    with JSON round-trip, strict `fromJson`, unknown color/icon → null
    (existing convention).
@@ -920,8 +973,11 @@ Scope, all in Séance:
    Deletion needs only the plaintext id: before the switch, a
    `deleted` record with a prefixless id calls
    `configStore.deleteServer(dec.id)` (today's live behavior,
-   preserved), and prefixed-id tombstones remain the no-ops they
-   already are today — nothing in Séance mints them; the
+   preserved), and prefixed-id tombstones are consumed as explicit
+   no-ops (`continue`) in that same pre-switch dispatch, so **no
+   tombstone of any kind ever reaches the kind switch** (satisfying the
+   acceptance bullet below, and keeping the skip branch from ever having
+   to reason about deleted records) — nothing in Séance mints them; the
    persistent-store flow-back revisits per-kind deletion together with
    [#54](https://github.com/L-K-M/Seance/issues/54). Then wrap each
    record's apply in a per-record try/catch
@@ -1098,8 +1154,11 @@ Process and cadence:
   fallback would reopen the exact induced-prompt phish the
   interstitial closes.
 - "Open Terminal in Séance" in a server bookmark's context menu launches
-  `seance://connect?serverId=<uuid>` (falling back to the host/port/username
-  form). The Séance-side counterpart — registering `seance://` and handling
+  `seance://connect?serverId=<uuid>` when the bookmark carries a synced
+  serverId, falling back to the host/port/username form only for bookmarks
+  that have none (Design B) — never as a retry after a `serverId` link
+  fails to resolve, which would reopen the induced-prompt phish the
+  dead-end rule above closes. The Séance-side counterpart — registering `seance://` and handling
   connect, plus its own "Browse Files in Poltergeist" item — is a proposed
   upstream app-layer item, tracked in the porting ledger, **not** in the
   gating PR sequence — and that proposal must carry §7.1's host-form
