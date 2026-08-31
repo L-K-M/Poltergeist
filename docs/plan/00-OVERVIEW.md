@@ -134,7 +134,8 @@ permissions · D29 mobile hooks · D30 Séance license
   source is copied per D2, and no release binaries embedding the
   git-pinned packages are published**, until it lands (suggest Unlicense
   to match). Git-pin *consumption* for development and CI is deliberately
-  not gated — both repos share one rights holder, who needs no license
+  not gated (pre-license CI must stay ephemeral — no published,
+  downloadable artifacts embedding the pinned code) — both repos share one rights holder, who needs no license
   from themselves (01 §9 records the full rationale and the
   third-party-facing reason binaries wait) — an assumption to revisit if
   any external contribution lands in Séance before its LICENSE does, since
@@ -146,7 +147,10 @@ permissions · D29 mobile hooks · D30 Séance license
   integration notes (04) and the 07 milestone gates. A mechanical guard
   backs the ordering discipline rather than relying on it alone: a
   pre-publish check in `release.yml` fails any `v*` tag whose pinned
-  Séance revision's repository carries no LICENSE file, so a prematurely
+  Séance revision's **tree** lacks a LICENSE file (resolve the pinned
+  commit from the pubspec git pin and inspect that tree — e.g.
+  `git cat-file -e <rev>:LICENSE` — because a repo whose HEAD carries a
+  LICENSE can still have pre-license pinned revs, D2's rev-pin hatch), so a prematurely
   cut tag cannot publish binaries embedding unlicensed code (07 §2 owns
   wiring the check).
 
@@ -191,8 +195,10 @@ permissions · D29 mobile hooks · D30 Séance license
 - **D15 — One trash story.** Local deletions go to the OS trash via a thin
   in-repo plugin (macOS `FileManager.trashItem` with Put Back; Windows
   `IFileOperation`+`FOF_ALLOWUNDO` via `win32` FFI; Linux `gio trash`,
-  behind a detected-once capability probe: where the `gio` binary is
-  absent — minimal distros — the plugin falls back to
+  behind a detected-once capability probe plus a runtime-failure path:
+  where `gio` is absent — minimal distros — or `gio trash` fails at run
+  time (no writable trash dir, read-only home, a removable volume with no
+  usable trash), the plugin falls back to
   confirm-then-permanent with a one-time notice, never a crash and never
   an unconfirmed permanent delete; 07 §6 risk 10 pre-authorizes the same
   fallback per platform).
@@ -228,8 +234,10 @@ permissions · D29 mobile hooks · D30 Séance license
   releases would ship anyway, is acceptable under D30. LGPL `libssh`
   is avoided because *static FFI embedding* — the form this fallback
   would take — triggers its heavier relinking/source-availability
-  duties; dynamic linking would be lighter, but is not how a Dart FFI
-  fallback ships) as a last resort. The connection-pool and sync-scan designs are
+  duties; note that dynamic linking via `DynamicLibrary.open` — the normal
+  Dart FFI pattern on desktop, which keeps the library user-replaceable —
+  is the lighter LGPL path if `libssh` is ever reconsidered) as a last
+  resort. The connection-pool and sync-scan designs are
   not finalized until M0 reports.
 - **D12 — Numeric performance budgets** (tracked as benchmarks in CI, 08):
   first paint of a 10k-entry local directory < 150 ms; 100k entries < 1 s

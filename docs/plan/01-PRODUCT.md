@@ -132,7 +132,7 @@ decision that makes it real.
 2. **E2E-encrypted, vendor-neutral bookmark backup.** Bookmark records travel
    inside Séance's existing encrypted-record protocol (`EncryptedRecord`, a
    new `RecordKind`) to a server the user can self-host (D4, D18). Panic Sync
-   is Mac-only, ForkLift's is iCloud-only, Termius's is rented. Ours is open,
+   is Apple-only, ForkLift's is iCloud-only, Termius's is rented. Ours is open,
    E2E, and free.
 3. **A Transmit-class experience on Windows and Linux at all.** The entire
    polish tier of this category is macOS-exclusive; D1 ships all three
@@ -218,7 +218,9 @@ Engineering facts behind the copy, so it stays true: TOFU and the changed-key
 hard block come from Séance's `TofuVerifier`; secrets are sealed at rest
 under a master key held in the OS keystore (so "never stored in
 plaintext" is exact — the store on disk is ciphertext, the key is in the
-keystore); bookmark backup is whole-record sealed blobs in the
+keystore — and where the OS offers no keystore, as on Linux without a
+secret service, saving secrets **fails closed** rather than falling back
+to any on-disk key, so the claim stays unconditional); bookmark backup is whole-record sealed blobs in the
 existing encrypted-record protocol (all D18, D4). The update check reuses
 Séance's link-only banner pattern (D19, D23). Any future change that would
 falsify a sentence of this copy requires editing D19 first (per the decision
@@ -299,8 +301,9 @@ CLA, no dual-license upsell path; the code is a public-domain dedication.
 The trust copy may say so plainly: "public-domain software; do anything you
 like with it."
 
-One dependency-hygiene fact gates porting and publishing — not
-development (D30, and this paragraph's own carve-out below): Séance
+One dependency-hygiene fact gates landing any Séance-derived code in this
+repo and gates publishing — other development is not gated (D30, and this
+paragraph's own carve-out below): Séance
 currently has **no LICENSE file**. The git-pinned package dependencies
 (`seance_protocol`, `seance_core` per D2) and especially the
 copy-with-attribution ports of Séance app-layer code (managed-checkout
@@ -312,8 +315,9 @@ ported file regardless. Until Séance's license lands, git-depending on
 pinned commit SHAs (tags can be re-pointed; SHAs cannot) may proceed for
 development and CI — both repos share **one
 rights holder**, who needs no license from themselves to build their own
-code. That single-holder claim is **verified, not assumed**: an
-authorship audit (`git log --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | sort -u`,
+code. That single-holder claim is **verified against recorded
+authorship, not assumed**: an
+authorship audit (`git log --all --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | sort -u`,
 which needs git ≥ 2.26 to surface `Co-authored-by` trailers — the most
 common way an external contribution appears in a small repo) is recorded
 in `docs/PORTS.md` against the audited commit SHA and re-run whenever the
