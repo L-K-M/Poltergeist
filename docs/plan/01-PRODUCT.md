@@ -168,8 +168,11 @@ decision that makes it real.
    D19) — positioned explicitly against the field's trust failures (§6).
 10. **Command palette and total keyboard addressability.** Every action is a
     registered command feeding menus, shortcuts, and a Quick Open palette
-    that displays and accepts shortcuts (D21). No one in this category has a
-    real palette; it is also the cheapest path to power-user love, and it
+    that displays and accepts shortcuts (D21). ForkLift's Quick Open and
+    Marta's command-palette discipline (§3) are the in-category
+    precedents — both macOS-only; no one ships a full command palette
+    across all three desktops. It is also the cheapest path to power-user
+    love, and it
     ports back to Séance (R10).
 
 ## 5. The five traps, and the structural guards
@@ -317,15 +320,23 @@ development and CI — both repos share **one
 rights holder**, who needs no license from themselves to build their own
 code. That single-holder claim is **verified against recorded
 authorship, not assumed**: an
-authorship audit (`git log --all --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | sort -u`,
+authorship audit (`git log --all <pinned-SHA> --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | LC_ALL=C sort -u`,
 which needs git ≥ 2.26 to surface `Co-authored-by` trailers — the most
-common way an external contribution appears in a small repo) is recorded
+common way an external contribution appears in a small repo — run in a
+**full, non-shallow** clone with the pinned SHA named explicitly, so a
+commit fetched by bare SHA or living only under a `refs/pull/*` ref is
+still traversed and a shallow clone cannot silently stop the walk at its
+truncation boundary; `LC_ALL=C` keeps the recorded output byte-stable
+across machines) is recorded
 in `docs/PORTS.md` against the audited commit SHA and re-run whenever the
 pinned Séance ref changes (an accepted upstream patch reaches Poltergeist
 only then, and CI can observe the pin moving); patches applied under the
 owner's identity are attributed to their real author by hand. Any
 external contributor it turns up makes that contribution's code wait for
-the LICENSE like any third party's, and blocks the copy-with-attribution
+the LICENSE like any third party's — which, since the single-holder
+premise no longer holds for the commits it touches, includes re-pinning
+the dev/CI git dependency past that commit (or obtaining a grant covering
+it) — and blocks the copy-with-attribution
 ports until they grant it.
 
 The **hard gate** comes first: no Séance source is copied into

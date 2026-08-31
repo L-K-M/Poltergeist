@@ -146,15 +146,16 @@ permissions · D29 mobile hooks · D30 Séance license
   (07 §2). Tracked in the Séance-side
   integration notes (04) and the 07 milestone gates. A mechanical guard
   backs the ordering discipline rather than relying on it alone: a
-  pre-publish check in `release.yml` fails any `v*` tag whose pinned
-  Séance revision's **tree** lacks a LICENSE file (resolve the pinned
-  commit from the pubspec git pin and inspect that tree — e.g.
-  `git cat-file -e <rev>:LICENSE` — because a repo whose HEAD carries a
-  LICENSE can still have pre-license pinned revs, D2's rev-pin hatch), so a prematurely
-  cut tag cannot publish binaries embedding unlicensed code (07 §2 owns
-  wiring the check).
+  pre-publish check in `release.yml` fails any `v*` tag unless **every**
+  pinned Séance revision's **tree** carries a LICENSE file (resolve each
+  Séance git pin in the pubspec — `seance_protocol` and `seance_core`
+  may sit on different revs under D2's rev-pin hatch — and inspect each
+  pinned tree — e.g. `git cat-file -e <rev>:LICENSE` — because a repo
+  whose HEAD carries a LICENSE can still have pre-license pinned revs),
+  so a prematurely cut tag cannot publish binaries embedding unlicensed
+  code (07 §2 owns wiring the check).
 
-### Sync (R6)
+### Sync and deletion/trash policy (R6)
 
 - **D6 — Native engine; rsync survives as an exporter.** The sync engine is
   pure Dart over the one VFS: parallel scans, size+mtime comparison with a
