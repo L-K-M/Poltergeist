@@ -108,7 +108,9 @@ permissions · D29 mobile hooks · D30 Séance license
   ciphertext). Sharing the user's Séance *account* (Design A: same
   passphrases, server list visible read-only, host-key pins synced
   bidirectionally — Poltergeist honors pulled `hostkey:` records and pushes
-  its own new pins as standard `hostkey:<host:port>` records, mirroring
+  its own new pins as standard `hostkey:<host:port>` records — a push that
+  diverges from the pin already on the account is held back behind the same
+  MITM review, never LWW-published — mirroring
   Séance's own multi-device host-key sync, except that a pulled pin
   conflicting with a locally known key is quarantined unapplied behind a
   MITM warning, never LWW-installed as trusted (04 §3.2); same user, same
@@ -237,7 +239,9 @@ permissions · D29 mobile hooks · D30 Séance license
   sync scan ≥ 1 000 remote entries/s on LAN (pipelined readdirs).
 - **D26 — Local↔local operations are first-class.** v1: streamed copy with
   progress + cancellation + mtime preservation; cross-device moves as
-  copy+delete; case-only renames handled on case-insensitive filesystems.
+  copy+delete — the source is deleted only after the streamed copy completes
+  successfully, so cancellation or failure leaves the original intact;
+  case-only renames handled on case-insensitive filesystems.
   A native fast-path spike (APFS `clonefile`, Linux `FICLONE`, Windows
   `CopyFileEx`) is scheduled in 07; metadata beyond mtime+mode (xattrs,
   ACLs) is explicitly out of v1 scope and documented as such.

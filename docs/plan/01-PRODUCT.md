@@ -149,9 +149,9 @@ decision that makes it real.
 6. **One SSH stack shared with a terminal sibling.** Identity-file keys,
    known-hosts pins,
    TOFU prompts, and 2FA behave identically in Séance and Poltergeist because
-   they are the same code (D2, D5 — ssh-agent and ProxyJump land in the
-   first post-1.0 fast-follow, D10, so at v1 the parity claim is scoped
-   to identity-file auth); "open terminal here" / "open files here"
+   they are the same code (D2, D5 — at v1 every shared auth path except
+   ssh-agent and ProxyJump is in scope; those two land in the first
+   post-1.0 fast-follow, D10); "open terminal here" / "open files here"
    cross-links (v1.x, 04 §7.1). Termius bundles both and rents the privilege; MobaXterm
    and Bitvise bundle both too, but as Windows-only, terminal-first
    tools — none pairs a first-class transfer client with a first-class
@@ -201,8 +201,9 @@ is no "we" at runtime — that is the point).
 > home for exactly one thing: an optional, link-only check that a
 > newer release exists — it tells you, you decide, nothing auto-installs.
 >
-> Passwords and secrets Poltergeist saves for you are protected through
-> your operating system's keychain, never stored in plaintext. (Keys
+> Passwords and secrets Poltergeist saves for you are sealed at rest under a
+> master key held in your operating system's keychain — never stored in
+> plaintext. (Keys
 > you already manage yourself — an imported `~/.ssh` identity file —
 > stay yours, where they are.) Host keys are pinned on first use and a
 > changed key is a hard
@@ -308,11 +309,17 @@ suggest the Unlicense to match, keeping the whole family friction-free.
 This is tracked as a Séance-side prerequisite in 04's upstream-work section;
 the porting ledger (`docs/PORTS.md`, per D2) records provenance for every
 ported file regardless. Until Séance's license lands, git-depending on
-pinned tags may proceed for development and CI — both repos share **one
+pinned commit SHAs (tags can be re-pointed; SHAs cannot) may proceed for
+development and CI — both repos share **one
 rights holder**, who needs no license from themselves to build their own
 code. That single-holder claim is **verified, not assumed**: an
-authorship audit (`git log --format='%an <%ae>' | sort -u`) is recorded
-in `docs/PORTS.md` and re-run whenever Séance accepts a patch; any
+authorship audit (`git log --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | sort -u`,
+which needs git ≥ 2.26 to surface `Co-authored-by` trailers — the most
+common way an external contribution appears in a small repo) is recorded
+in `docs/PORTS.md` against the audited commit SHA and re-run whenever the
+pinned Séance ref changes (an accepted upstream patch reaches Poltergeist
+only then, and CI can observe the pin moving); patches applied under the
+owner's identity are attributed to their real author by hand. Any
 external contributor it turns up makes that contribution's code wait for
 the LICENSE like any third party's, and blocks the copy-with-attribution
 ports until they grant it.
@@ -368,8 +375,9 @@ fork or clean-room Séance code, which D2 forbids outright.
   ported Séance files additionally follow the PORTS.md provenance
   convention and whatever license Séance declares — and carries the D30
   Séance sequencing rule (the content-aware PR-S0 gate) exactly as §9
-  words it; that gate's normative wording lives only in §9 and is
-  referenced here, not restated.
+  words it; that gate's normative wording lives only in §9 — this
+  chapter summarizes it for context and defers to §9 as the sole
+  normative source.
 
 ## Explicitly out of scope
 
