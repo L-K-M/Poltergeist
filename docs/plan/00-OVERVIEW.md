@@ -135,7 +135,13 @@ permissions · D29 mobile hooks · D30 Séance license
   git-pinned packages are published**, until it lands (suggest Unlicense
   to match). Git-pin *consumption* for development and CI is deliberately
   not gated (pre-license CI must stay ephemeral — no published,
-  downloadable artifacts embedding the pinned code) — both repos share one rights holder, who needs no license
+  downloadable artifacts embedding the pinned code — enforced by never
+  uploading embedding binaries as a CI artifact, or by a one-day
+  `retention-days` setting on any workflow step that does, since a public
+  repo's default artifact retention leaves GitHub-hosted builds
+  downloadable by anyone with read access for up to 90 days, the same
+  leak the `release.yml` guard below exists to close on the release
+  side) — both repos share one rights holder, who needs no license
   from themselves (01 §9 records the full rationale and the
   third-party-facing reason binaries wait) — an assumption to revisit if
   any external contribution lands in Séance before its LICENSE does, since
@@ -210,8 +216,9 @@ permissions · D29 mobile hooks · D30 Séance license
   (Transmit's model) with a per-server opt-in "move to `.poltergeist-trash/`
   instead"; sync deletions *and* the previous versions of files sync
   overwrites default to the same `.poltergeist-trash/<runId>/` rename-based
-  trash (overwrite backups sit behind their own explicit `backups` knob,
-  independent of the deletion policy — 05). One directory name everywhere;
+  trash (overwrite backups sit behind their own `backups` knob — default
+  `trash`, matching 05's `BackupPolicy` — independent of the deletion
+  policy). One directory name everywhere;
   default ignore rules exclude `.poltergeist*` and `*.poltergeist-*`.
   Sync trash is never reclaimed as a side effect — retention is 05 §8
   rail 5's story: a plan-time notice surfaces trash older than 30 days
@@ -279,7 +286,8 @@ permissions · D29 mobile hooks · D30 Séance license
   reorder, per-item cancel/retry, queue pause, conflict policy
   (Replace / Replace-if-newer / Keep Both / Skip, Merge for folders, with
   per-direction configurable defaults), bandwidth throttle (token bucket),
-  remote→remote piping tasks, **persistent queue and a working history log**
+  remote→remote piping tasks, **persistent queue (re-enqueued from
+  scratch — mid-file resume waits for D25) and a working history log**
   across restarts — the history records endpoints, root names, byte/file
   counts, timestamps, and outcome (never credentials), caps at 10 000
   entries, and ships a `Clear History` action (02 §6). Hidden or dishonest transfer state is the category's
@@ -330,11 +338,15 @@ permissions · D29 mobile hooks · D30 Séance license
   bundle, Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
   unsigned iOS IPA (all already scripted); the mobile product remains
   post-v1 (D29) — the artifacts merely exist. No paid signing
-  in v1 (documented first-launch steps) — but every release publishes
-  `SHA256SUMS` beside the assets from `v0.1.0`, and `v1.0.0` on adds
+  in v1 (documented first-launch steps) — but every release from
+  `v0.1.0` on publishes `SHA256SUMS` beside the assets **and**
   `SHA256SUMS.asc`, a detached maintainer-key signature over that list
-  (07 §4), so integrity and provenance are verifiable without paid
-  certificates; architecture stays sandbox-ready
+  (07 §4): an unsigned checksum alone only catches accidental corruption
+  — anyone who can swap a binary can recompute its sum — so the
+  signature ships from the first tag rather than waiting for v1.0.0,
+  since generating one costs nothing paid certificates would; integrity
+  and provenance are both verifiable without paid certificates;
+  architecture stays sandbox-ready
   (a `ScopedPathAccess` service fronts all local file access; sidebar
   bookmarks double as future sandbox grants) but v1 desktop builds are
   unsandboxed. Auto-update stays link-only.

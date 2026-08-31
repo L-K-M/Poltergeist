@@ -89,7 +89,7 @@ records, per competitor, what Poltergeist takes and what it refuses. "Take"
 means the idea is scheduled somewhere in this plan; "refuse" means the
 refusal is deliberate and durable. A third category — deferred to v2
 (D25) — is neither taken nor refused: where a row names a v2 idea, read
-it as parked (§8 keeps deferrals and refusals in separate lists).
+it as parked (§8 marks each non-goal as refused or deferred in place).
 
 | Competitor | What we take | What we refuse |
 |---|---|---|
@@ -99,6 +99,7 @@ it as parked (§8 keeps deferrals and refusals in separate lists).
 | FileZilla (cross-platform) | Its user base — the largest pool of people waiting for something better; directory-comparison coloring as a cheap legibility win | Everything else: alien wxWidgets chrome, six collapsible sub-panes, bundled installer adware (the trust stance in §6 is the direct answer), a transfer history that does not work (D16 mandates one that does) |
 | Cyberduck / Mountain Duck | Editor round-trip breadth (any external editor, re-upload on save); bookmark-as-first-class-object | Single-pane browsing (R2 requires two); the detached Transfers window (activity stays in-window, D16); mounting remotes as volumes — Mountain Duck's frozen "Synchronization ongoing" beachballs are the case study in hidden state (§5, trap 3) |
 | Termius (cross-platform, subscription) | Proof that an E2E-encrypted cross-device vault is loved; SSH+SFTP under one roof validates the Séance pairing (D2, D4) | Renting basic SFTP behind a subscription; mandatory accounts; bolted-on file management with no real queue, sync, or editor loop |
+| MobaXterm / Bitvise (Windows) | Proof that bundling terminal + transfers earns loyalty | Windows-only, terminal-first: the transfer side is a side dish, never the product |
 | XPipe (cross-platform, open-core) | Respect for existing OpenSSH config — import `~/.ssh/config` including IdentityFile (D22 — XPipe fumbled IdentityFile); one-click edit-in-VS-Code energy (D17) | Paywalled security features (YubiKey behind a tier); JavaFX look-and-feel; being a connection hub rather than a transfer client |
 | Muon / Snowflake | The feature checklist of what web devs do over SSH, minus its looks | Java Swing chrome; toolbox sprawl (terminal + process manager + disk analyzer) ahead of transfer depth |
 | CrossFTP | Nothing beyond a cautionary datapoint | The whole JVM-generic pattern: cross-platform reach with native feel nowhere |
@@ -110,7 +111,7 @@ it as parked (§8 keeps deferrals and refusals in separate lists).
 | File Pilot / OneCommander | The "instant everything" feel bar our local panes are judged against on Windows (D12, D26) | No remote protocols to learn from; OneCommander's automation-depth creep |
 | Files / Spacedrive | The lesson: polish without speed does not stick; grand abstractions fail before browsing is fast | Virtual-distributed-filesystem ambitions; shipping beauty over a slow lister |
 | AeroFTP | Profile import as adoption fuel (D22); zero-telemetry positioning | 25-protocol kitchen sink; webview feel; bundled AI agent |
-| GoodSync / ChronoSync / FreeFileSync | Proof deep sync sells | Overwhelming UI as the price of power — our sync power stays inside one previewable plan (D6); automation ambitions parked (D25) |
+| GoodSync / ChronoSync / FreeFileSync | Proof deep sync sells — FreeFileSync in particular ships preview-grade (dry-run comparison) sync across Windows/macOS/Linux | Overwhelming UI as the price of power — our sync power stays inside one previewable plan (D6); automation ambitions parked (D25) |
 | rsync GUIs (Grsync, Acrosync) | Their one beloved feature: dry-run preview before commit — generalized into "the plan is the preview" (D6) and "Copy as rsync command" | rsync as the engine (absent on Windows servers, sftp-only chroots, busybox NAS; bypasses our auth/TOFU stack — D6) |
 
 The position that falls out of this table: Poltergeist competes on depth in
@@ -128,10 +129,9 @@ decision that makes it real.
    desktops.** A typed `SyncPlan` that *is* the preview — per-item veto,
    direction and action legible per row, executor runs exactly what was
    reviewed (D6). Nobody ships this combination cross-platform — the
-   preview-grade sync, the polish, and all three desktops at once (the §3
-   table's FreeFileSync carries two of the three — preview-grade sync and
-   all three desktops — but never the polish, and the rsync GUIs carry only
-   the preview; none carry the set). Flagship feature.
+   preview-grade sync, the polish, and all three desktops at once.
+   FreeFileSync ships preview-grade sync on all three desktops but not
+   the polish (§3); the rsync GUIs ship only the preview. Flagship feature.
 2. **E2E-encrypted, vendor-neutral bookmark backup.** Bookmark records travel
    inside Séance's existing encrypted-record protocol (`EncryptedRecord`, a
    new `RecordKind`) to a server the user can self-host (D4, D18). Panic Sync
@@ -232,7 +232,9 @@ Séance's link-only banner pattern (D19, D23); the "phones home for exactly
 one thing" claim is enforced, not merely asserted — an 08 egress test
 audits the app's outbound destinations and fails on any host beyond the
 user's configured servers, the sync server (only when backup is enabled),
-and the single update-check URL. Any future change that would
+and the single update-check URL (only when the update check is enabled —
+the same conditional as the sync server, since the check is opt-out per
+D19/D23). Any future change that would
 falsify a sentence of this copy requires editing the governing decision
 first — D18 (keystore sealing, TOFU, E2E blobs), D4 (bookmark records on
 the sync server), D23 (link-only update distribution), or D19
@@ -326,39 +328,49 @@ This is tracked as a Séance-side prerequisite in 04's upstream-work section;
 the porting ledger (`docs/PORTS.md`, per D2) records provenance for every
 ported file regardless. Until Séance's license lands, git-depending on
 pinned commit SHAs (tags can be re-pointed; SHAs cannot) may proceed for
-development and CI — both repos share **one
-rights holder**, who needs no license from themselves to build their own
-code. That single-holder claim is **verified against recorded
-authorship, not assumed**: an
-authorship audit (`git log <pinned-SHA> --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | LC_ALL=C sort -u`,
-which needs git ≥ 2.26 to surface `Co-authored-by` trailers — the most
-common way an external contribution appears in a small repo — walking
-**only the pin's ancestors** (the code actually embedded): plain
-`git log <pinned-SHA>` traverses every parent transitively regardless of
-refs, so **no `--all`** — which would union in every ref's history and
-fold in post-pin commits, unrelated branches, and synthetic
-`refs/pull/*/merge` authors, spuriously tripping the block and making the
-record non-reproducible as upstream advances. Run in a **full,
-non-shallow** clone so the ancestor walk is never silently truncated;
-`LC_ALL=C` keeps the recorded output byte-stable across machines) is
-recorded
-in `docs/PORTS.md` against the audited commit SHA and re-run whenever the
-pinned Séance ref changes (an accepted upstream patch reaches Poltergeist
-only then, and CI can observe the pin moving); patches applied under the
-owner's identity are attributed to their real author by hand. Any
-external contributor it turns up — its exact commits pinpointed by
-re-running the audit scoped to that author (`git log <pinned-SHA>
---author=<email> -i --grep="Co-authored-by:.*<email>"` — git ORs
-`--author` with `--grep` by default, so this catches the person as commit
-author *or* trailer co-author, since `--author` alone never matches a
-`Co-authored-by:` trailer) and recorded in PORTS.md, so the block acts on the
-commits actually ancestral to the pin rather than a bare name — makes
-that contribution's code wait for
-the LICENSE like any third party's — which, since the single-holder
-premise no longer holds for the commits it touches, includes re-pinning
-the dev/CI git dependency past that commit (or obtaining a grant covering
-it) — and blocks the copy-with-attribution
-ports until they grant it.
+development and CI — both repos share **one rights holder**, who needs no
+license from themselves to build their own code.
+
+That single-holder claim is **verified against recorded authorship, not
+assumed**, by this audit procedure:
+
+- **Command**: `git log <pinned-SHA> --format='%an <%ae>%n%(trailers)' |
+  LC_ALL=C sort -u` — needs git ≥ 2.22 for the `%(trailers)` placeholder,
+  which surfaces every attribution trailer (`Co-authored-by`,
+  `Signed-off-by`, `Reported-by`, …), not `Co-authored-by` alone, since
+  any of them can be the only automated trace of an external contribution
+  the maintainer committed under their own identity.
+- **Scope**: walks **only the pin's ancestors** (the code actually
+  embedded) — plain `git log <pinned-SHA>` traverses every parent
+  transitively regardless of refs, so **no `--all`**, which would union
+  in every ref's history and fold in post-pin commits, unrelated
+  branches, and synthetic `refs/pull/*/merge` authors, spuriously
+  tripping the block and making the record non-reproducible as upstream
+  advances. Run in a **full, non-shallow** clone so the ancestor walk is
+  never silently truncated; `LC_ALL=C` keeps the recorded output
+  byte-stable across machines.
+- **Record**: the output goes to `docs/PORTS.md` against the audited
+  commit SHA and is re-run whenever the pinned Séance ref changes (an
+  accepted upstream patch reaches Poltergeist only then, and CI can
+  observe the pin moving); patches applied under the owner's identity are
+  attributed to their real author by hand.
+- **On an external hit**: pinpoint its exact commits by re-running the
+  audit scoped to that author (`git log <pinned-SHA> --author=<email> -i
+  --grep="Co-authored-by:.*<email>"` — git ORs `--author` with `--grep`
+  by default, so this catches the person as commit author *or* trailer
+  co-author, since `--author` alone never matches a `Co-authored-by:`
+  trailer; both arguments are regexes, so an address like
+  `user+tag@example.com` needs its `+`/`.` metacharacters escaped, or
+  match on a metacharacter-free substring such as the domain) and record
+  them in PORTS.md, so the block acts on the commits actually ancestral
+  to the pin rather than a bare name. That contribution's code then waits
+  for the LICENSE like any third party's — which, since the
+  single-holder premise no longer holds for the commits it touches,
+  includes rewinding the dev/CI git dependency to a pin whose ancestry
+  excludes it (git ancestry is monotonic, so advancing the pin keeps
+  every ancestor embedded; only a rewind to a commit that predates the
+  contribution drops it) or obtaining a grant covering it — and blocks
+  the copy-with-attribution ports until they grant it.
 
 The **hard gate** comes first: no Séance source is copied into
 Poltergeist until the D30 license PR (PR-S0) merges on Séance `main`
