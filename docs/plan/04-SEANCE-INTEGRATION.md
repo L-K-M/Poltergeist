@@ -189,7 +189,15 @@ class SavedSyncSpec {
   ///                        reserved — 05's symlink semantics)
   ///   trashPathLeft:       string | null — that side's out-of-root
   ///   trashPathRight:      string | null   trash, resolved on its own
-  ///                        host (05 §8 rail 5)          (null, null)
+  ///                        host (05 §8 rail 5)          (null, null);
+  ///                        a non-null value is shape-checked at the same
+  ///                        materialization point as the numeric fields
+  ///                        below and refuses to run if blank or neither
+  ///                        absolute nor `~`-relative — a relative path
+  ///                        resolves against the session cwd and could
+  ///                        silently land inside the synced root,
+  ///                        defeating the out-of-root trash rail these
+  ///                        fields exist to configure
   ///   includeHidden:       bool                                (true)
   ///   maxDelete:           int                                 (500)
   ///   deleteFractionWarn:  double                              (0.5)
@@ -199,14 +207,20 @@ class SavedSyncSpec {
   ///   Numeric fields are range-checked when `rules` is materialized into a
   ///   SyncRuleSet (05 §6); an out-of-range value refuses to run the sync
   ///   ("created by a newer Poltergeist" tier, §2.1) rather than silently
-  ///   applying: negative maxDelete, deleteFractionWarn outside [0, 1],
-  ///   transferConcurrency < 1, negative mtimeToleranceSecs, negative
-  ///   acceptedTimeShifts entries. This closes the same LWW-rewrite threat
-  ///   §2.2 threat-models for serverConfig and hostkey records: a
-  ///   compromised device could otherwise rewrite maxDelete/
-  ///   deleteFractionWarn to neutralize the bulk-delete guardrails
-  ///   fleet-wide, and the unrecognized-enum refuse tier alone never
-  ///   catches a known key carrying a bad numeric value.
+  ///   applying: maxDelete outside [0, 10 000] (20× the default),
+  ///   deleteFractionWarn outside [0, 1], transferConcurrency outside
+  ///   [1, 64], negative mtimeToleranceSecs, negative
+  ///   acceptedTimeShifts entries. The upper bounds are the load-bearing
+  ///   half of the LWW-rewrite threat §2.2 threat-models for serverConfig
+  ///   and hostkey records: a compromised device neutralizes the
+  ///   bulk-delete guardrails fleet-wide not with a malformed value but
+  ///   with an in-range *weakening* one — a huge `maxDelete`,
+  ///   `deleteFractionWarn` pushed to the permissive end of `[0, 1]` —
+  ///   which a lower-bound-only check passes cleanly; the `maxDelete`
+  ///   ceiling is what actually contains that rewrite (the fraction
+  ///   warning stays advisory), and the unrecognized-enum refuse tier
+  ///   alone never catches a known key carrying a bad-but-in-range
+  ///   numeric value.
   final int rulesVersion;              // readers REFUSE TO RUN the sync
                                        // when this exceeds the newest
                                        // version they understand — the
@@ -689,7 +703,13 @@ own, and its API is `List<CatalogServer> servers`.
 `applyPulled` iterates the store's records, each wrapped in a per-record
 try/catch (one malformed payload skips that record, never aborts the loop —
 the same defense PR-S1 adds to Séance). Because the record id mirrors
-the kind in plaintext (§2.4), the switch happens **before decryption**:
+the kind in plaintext (§2.4), the switch happens **before decryption**
+(extracted as the substring before the **first** colon only — a
+`hostkey:[2001:db8::1]:22` IPv6 id contains several colons, and any
+parse expecting exactly two `:`-separated segments would send it into
+the unrecognized-`<prefix>:` silent skip below instead of the `hostkey`
+path, exactly the kind of silent-skip bug this section's bare-UUID
+`serverConfig` note two sentences down exists to avoid):
 `bookmark:` and `hostkey:` prefixes are decrypted, plus — in shared
 mode only — ids carrying **no** kind prefix, which is Séance's actual
 serverConfig convention: `sync_coordinator.dart` seals server records
@@ -708,7 +728,7 @@ the decrypted kinds:
 
 | Pulled kind | Action |
 |---|---|
-| `bookmark` | upsert into `BookmarkStore`; tombstone → remove — **both under the same tuple guard**, stated once here rather than twice below: Delta events are applied in seq order, and a pulled record — upsert or tombstone alike — is applied only when its LWW tuple (`updatedAt`, `deviceId`) beats the tuple **last materialized into `BookmarkStore`**, which the store persists per row (the winning envelope's `(updatedAt, deviceId)`) — after the SyncEngine's merge the §3.1 record store holds only the winner, so there is nothing else to compare against, and `putRemote` never overwrites a dirty local record — a record that does not beat a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly applied, so a just-deleted bookmark never transiently resurrects, a pending offline edit is never clobbered at the apply layer, and a pulled tombstone cannot transiently remove a row out from under a dirty local edit that would out-tuple it once pushed |
+| `bookmark` | upsert into `BookmarkStore`; tombstone → remove — **both under the same tuple guard**, stated once here rather than twice below: Delta events are applied in seq order, and a pulled record — upsert or tombstone alike — is applied when its LWW tuple (`updatedAt`, `deviceId`) **beats or ties** the tuple **last materialized into `BookmarkStore`**, which the store persists per row (the winning envelope's `(updatedAt, deviceId)`) — after the SyncEngine's merge the §3.1 record store holds only the winner, so there is nothing else to compare against, and `putRemote` never overwrites a dirty local record. A **tie** is the same winning envelope arriving again — this device's own pushed record echoed back by a later delta, the §3.1 corruption recovery's re-seal with the row's persisted winning tuple, or any full-resync re-pull re-delivering an unchanged winner — so it applies as an idempotent no-op (content-identical by construction: one `(id, updatedAt, deviceId)` tuple names exactly one save) and counts toward `lastAppliedSeq` advancing; treating a tie as neither applied nor superseded would strand the cursor at the first tied record forever; every full re-pull re-scans the entire lifetime record set every round after that, breaking the delta-scales invariant this design exists to provide. Only a record that **loses to** a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly applied, so a just-deleted bookmark never transiently resurrects, a pending offline edit is never clobbered at the apply layer, and a pulled tombstone cannot transiently remove a row out from under a dirty local edit that would out-tuple it once pushed |
 | `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record **and records a durable local negative pin**: auto-apply requires a present record with no local pin *and no negative pin*. The tombstone alone cannot hold — patched Séance treats prefixed-id tombstones as no-ops (§5.2 item 4, whose `hostkey:` carve-out routes those tombstones to pin-store deletion) yet re-collects and re-pushes its pins with fresh LWW timestamps every round (§3.1/§4.2), so any *still-trusting* Séance device resurrects the record and the diff would auto-apply the key the user just removed under MITM suspicion; that habitual re-seal is not the "genuinely newer pin edit" the LWW carve-out means. The negative pin holds the untrust verdict until the user explicitly re-trusts (accepting the key at connect time). Negative pins persist in **app settings**, never inside the §3.1 record store — so the corrupt-store quarantine (store restarts empty) cannot erase an untrust verdict and let the very next `applyPulled` diff auto-apply a key the user removed under MITM suspicion. PR-S1 item 4 additionally routes `hostkey:`-prefixed tombstones to Séance's pin-store deletion so the two apps' untrust stays symmetric; an acceptance test pins that a Séance round re-pushing the pin does not restore auto-trust |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned — **and, when the decrypt succeeded but strict decode then failed, raises the §4.2 durable tripwire** (a wrong-key decrypt *failure* is a different signal — §4.2/§4.5 — not this), unlike the silent never-decrypted-prefix skips above. Strict decode is **prefix-aware**: a `bookmark:` id must decode as `bookmark`, a prefixless id as `serverConfig`, a `hostkey:` id as `hostKey` (a prefix/kind mismatch is the row below). The encrypted record simply stays in the store |
@@ -752,9 +772,15 @@ without it, a still-conflicting device that habitually re-pushes its pin
 with a fresher LWW tuple would beat the one-time keep-local re-push and
 re-quarantine this device on every pull, the exact pull-side twin of the
 re-push habit that forced negative pins out of the record store. The
-verdict clears when the record's key matches the kept pin or a
-*genuinely different* conflicting key appears (a new conflict must still
-warn). Fleet-wide, the reaffirmed pin still wins on every device that
+verdict is replaced only when a *genuinely different* conflicting
+fingerprint appears (a new conflict must still warn) — never merely
+because the record's key currently matches the kept pin: that match is
+the steady state the verdict exists to protect, not evidence the conflict
+is over, and clearing on it would drop the very protection needed the
+next time the *same* rejected key returns (the still-conflicting device's
+habitual re-push, above) — a record briefly matching the kept pin, then
+reverting to the identical rejected key on the next round, must still
+resolve to "stays resolved," never a fresh warning. Fleet-wide, the reaffirmed pin still wins on every device that
 never applied the conflicting key; a device that already accepted it
 ping-pongs until its user resolves it there — one resolution per affected
 device is the convergence cost. A key rotation the user accepts at connect
@@ -822,7 +848,13 @@ Poltergeist logs into the user's **existing Séance account**: same server,
 same username, same account password and encryption passphrase (two Argon2
 runs over the same account salt), hence the same vault key. Bookmarks travel
 as `bookmark` records inside the same encrypted stream; the server cannot
-tell (kind is inside the ciphertext) and needs zero changes.
+read their *content* (the `bookmark` kind field itself is inside the
+ciphertext) and needs zero changes — but the id prefix is not part of
+that confidentiality claim: `bookmark:`/`hostkey:`/prefixless ids are
+exactly what §3.2's pre-decryption dispatch relies on being server-visible
+plaintext (it switches on the prefix *before* decrypting), so a server
+operator can trivially count bookmark records and enumerate every pinned
+`host:port` from `hostkey:<host:port>` ids without decrypting anything.
 
 **The gate (D4):** un-patched Séance decodes unknown kinds as `serverConfig`
 — and because Séance re-collects and re-pushes its whole dataset every
@@ -869,7 +901,12 @@ version is recorded once, in
 tag of the first Séance release containing PR-S1 — and, recommended, the
 [Séance #56](https://github.com/L-K-M/Seance/issues/56) pin-conflict fix
 in the same tag, so the one version assertion covers record integrity and
-pin trust together; if the tag lacks #56, the §4.3 copy must disclose
+pin trust together; a companion compile-time
+`kMinSharedVersionIncludesSeance56Fix` boolean rides next to it — a bare
+tag string carries no order a renderer can evaluate, so "predates #56"
+below is this boolean, set by hand when the constant is updated, not a
+string comparison; if the tag lacks #56 (the boolean is `false`), the
+§4.3 copy must disclose
 that Séance devices auto-trust synced pins without a conflict warning
 (their pre-existing behavior, extended to Poltergeist's pushes). All
 setup copy interpolates
@@ -924,13 +961,13 @@ angle brackets):
   newer." Helper line: "Older Séance versions misread Poltergeist's records
   — update them everywhere before turning this on, and never add an older
   Séance to this account afterwards: the risk does not end at setup."
-- Conditional, rendered under option 2 only while the recorded
-  `kMinimumSharedAccountSeanceVersion` tag predates the Séance #56 fix
-  (§4.2's disclosure duty — without this string here, §4.3's
+- Conditional, rendered under option 2 only while
+  `kMinSharedVersionIncludesSeance56Fix` is `false` (§4.2's disclosure
+  duty — without this string here, §4.3's
   copy-verbatim rule would guarantee the mandated disclosure never
   ships): "Séance devices accept synced host-key pins without a
   conflict warning — including pins this app pushes." A test asserts it
-  renders exactly when the recorded tag lacks the fix.
+  renders exactly when that boolean is `false` and never when it's `true`.
 - On 403 `registration_closed` (Design B register): "This server has
   registration closed. If you run it: temporarily set
   SEANCE_OPEN_REGISTRATION=1, create the account, then close it again —
@@ -1402,7 +1439,15 @@ Process and cadence:
   one notice would let a user confirming what they believe is their own
   link get TOFU-pinned or credential-prompted against a different,
   attacker-chosen one — reintroducing the exact induced-prompt phish this
-  interstitial exists to close. The confirmation must not be spam-able
+  interstitial exists to close. The pending queue is bounded (three): a
+  distinct-endpoint launch beyond that collapses into one summary entry
+  ("N additional link activations pending") that expands to a reviewed
+  list where each endpoint is still individually confirmed or cancelled,
+  plus one explicit user-initiated "Discard all remaining" action — a
+  discard the user chose from a list they saw is not the silent
+  page-driven pre-emption the never-drop rule forbids, so the bound
+  closes the launch-flooding/prompt-fatigue path without ever letting a
+  page itself drop or merge an endpoint. The confirmation must not be spam-able
   into a reflex either way.
 - "Open Terminal in Séance" in a server bookmark's context menu launches
   `seance://connect?serverId=<uuid>` when the bookmark carries a synced

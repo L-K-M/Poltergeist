@@ -98,7 +98,7 @@ interface is genuinely transport-neutral, so the mapping is direct:
 | `canonicalize` | `resolveSymbolicLinks()` when the path exists; otherwise return the normalized absolute path | never throws just because the path is missing (matches realpath use for home resolution); "home" = the user home via the ported `expandHomePath` |
 | `listDirectory` | `Directory(path).list(followLinks: false)`; classify each entry from the listed entity's own runtime type (`entry is Link`/`Directory`/`File` — `followLinks: false` already reports a symlink as a `Link` instance, so no extra per-entry `FileSystemEntity.type` lstat is needed) and stat only non-link entries — links report `type: symbolicLink` with `size`/`modifiedAt` null, matching the `stat` row below (a plain `FileStat.stat` would follow the link and report the target's identity) | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
 | `stat` | `FileStat.stat` when `followLinks: true`; with `followLinks: false`, detect symlinks via `FileSystemEntity.type(path, followLinks: false)` | dart:io has no lstat: for a symlink itself, return `type: symbolicLink` with `size`/`modifiedAt` null — callers already treat those as optional |
-| `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', ['--', octal, path], environment: {...Platform.environment, 'LC_ALL': 'C'})` on macOS/Linux — `--` so a path beginning with `-` can never parse as an option, and `LC_ALL=C` (spread the inherited environment so `PATH` survives) so stderr is deterministic English regardless of the user's locale, since chmod localizes via `strerror`; a non-zero exit code routes through the §2.2 funnel (`Process.run` failures arrive as exit codes, or as a thrown `ProcessException` when the binary cannot be launched — the guard catches it and maps it to `other`; exit 1 with `Operation not permitted`/`Permission denied` in stderr maps to `permissionDenied`, mirroring `setOwner`'s EPERM translation — the chown path uses the same `LC_ALL=C` environment) | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
+| `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', ['--', octal, path], environment: {...Platform.environment, 'LC_ALL': 'C'})` on macOS/Linux — `--` so a path beginning with `-` can never parse as an option, and `LC_ALL=C` (spread the inherited environment so `PATH` survives) so stderr is deterministic English regardless of the user's locale, since chmod localizes via `strerror`; a non-zero exit code routes through the §2.2 funnel (`Process.run` failures arrive as exit codes, or as a thrown `ProcessException` when the binary cannot be launched — the guard catches it and maps it to `other`; exit 1 with `Operation not permitted`/`Permission denied` in stderr maps to `permissionDenied`, mirroring `setOwner`'s EPERM translation, and `No such file or directory` maps to `notFound` — the chown path uses the same `LC_ALL=C` environment) | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
 | `readSymbolicLink` | `Link(path).target()` | |
 | `createSymbolicLink` | exists-preflight (conflict), then `Link(linkPath).create(targetPath)` | Windows needs Developer Mode or elevation — map the OS error to `permissionDenied` with a hint in the message |
 | `createDirectory` | `Directory(path).create(recursive: false)` | parent must exist — same as SFTP mkdir |
@@ -108,10 +108,21 @@ interface is genuinely transport-neutral, so the mapping is direct:
 | `upload` | write to exclusive sibling `.poltergeist-<8 hex>.tmp`, hash chunks, verify declared length, chmod `preserveMode` on Unix, then commit via `replaceLocalFile` (§2.3) | same preflight/`expectedTarget` CAS semantics as the adapter; temp always cleaned up on failure |
 
 Every error is translated through one funnel (the `_guard` pattern from the
-adapter): `PathNotFoundException` → `notFound`, `FileSystemException` with
+adapter): `PathNotFoundException` → `notFound`, and — since dart:io is
+inconsistent about which operations raise that typed exception versus a
+plain `FileSystemException` carrying the errno in `OSError.errorCode`
+(`Directory.create` with a missing parent, `File.delete`/`Link.delete` on
+a vanished path, and `rename` with a missing source all throw the plain
+form) — `FileSystemException` with errno ENOENT (2) also → `notFound`,
+and EEXIST (17) → `conflict` (closing the exists-preflight gap for
+`createSymbolicLink`: a `Link.create` racing an external create throws
+this plain form, not `PathNotFoundException`'s sibling), keyed off the
+errno rather than the exception type; `FileSystemException` with
 EACCES/EPERM → `permissionDenied` — on Windows, match the raw Windows
 error codes instead (`OSError.errorCode` carries `GetLastError` values
-there, never POSIX errnos: 5 `ERROR_ACCESS_DENIED` → `permissionDenied`;
+there, never POSIX errnos: 2 `ERROR_FILE_NOT_FOUND` / 3
+`ERROR_PATH_NOT_FOUND` → `notFound`, 183 `ERROR_ALREADY_EXISTS` →
+`conflict`, 5 `ERROR_ACCESS_DENIED` → `permissionDenied`;
 32 `ERROR_SHARING_VIOLATION` → `other` with an explicit "file is in use
 by another process" message — a lock, not a permission denial, and the
 `replaceLocalFile` rename dance hits it when the target is open in
@@ -128,9 +139,13 @@ write a synced tree's mtime through a link to its target — maps to
 `File.setLastModified` (and `setLastAccessed`) for
 **files**; a directory target succeeds on POSIX (`File.setLastModified`
 bottoms out in `utimensat`, a path-based syscall with no regular-file
-restriction) and returns the typed `unsupported` error only on Windows
-(whose implementation opens the path, and cannot open a directory that
-way) — which costs the sync engine
+restriction) and fails on Windows, whose implementation opens the path and
+cannot open a directory that way — surfacing as `ERROR_ACCESS_DENIED`,
+which the funnel above would otherwise translate to `permissionDenied`,
+not the promised `unsupported`, so `setTimes` pre-checks the entry type
+(`FileSystemEntity.type(path, followLinks: false)`) and throws the typed
+`unsupported` itself for a directory target on Windows, never relying on
+the OS error translation to get there — which costs the sync engine
 nothing either way: it compares directories by existence only and never sets their
 times (05 §4). `setOwner`
 maps to `Process.run('chown', ['--', spec, path], environment:
@@ -164,11 +179,19 @@ differently"). Port them into
 with their Séance tests carried over:
 
 - `replaceLocalFile(File part, File target)` — the backup-rename dance:
-  refuse replacing links/non-regular files; rename target → a unique
+  refuse replacing links/non-regular files — the check itself must not
+  follow links (`FileSystemEntity.type(path, followLinks: false)`), or a
+  symlink to a regular file passes a stat-based "is regular" test and the
+  replace silently swaps the user's link for a plain file; rename target → a unique
   `.poltergeist-<8 hex>.backup` sibling (never a fixed `.backup`, which the
   temp-prefix policy §2.2 states and which would clobber a pre-existing
   user `<target>.backup`), part →
-  target, restore backup on failure, best-effort delete backup.
+  target, restore backup on failure, best-effort delete backup. A crash
+  or power loss between the two renames strands the data in the hidden
+  backup with the target missing — an orphaned `.poltergeist-*.backup`
+  whose target is absent means an interrupted replace, and the next
+  touch of that directory (or a startup sweep) restores it before any
+  new replace runs, rather than leaving the user's file looking deleted.
 - `ensureSafeLocalDirectory(String path)` — create parents while refusing to
   traverse through symlinks or non-directories (`followLinks: false` at every
   component).
@@ -376,7 +399,11 @@ Growth rules (the part that must never be improvised):
   as the adapter's) marks the transport disconnected and closes it, so the
   reconnect path below — which fires on transport closure — triggers.
 - **Idle:** extra transports (beyond the first) close after
-  `idleExtraTransportTimeout` with no leased channel. The first transport
+  `idleExtraTransportTimeout` holding no channels at all — no leased
+  transfer channel and no open browse channel either, since §3.2 rule 4
+  can park browse channels on an extra transport once the first hits
+  `maxChannelsPerTransport`, and those channels are never "leased" (only
+  `leaseTransferChannel` grants a lease). The first transport
   follows pane lifetime, not a timer — but never closes while any of its
   channels is leased: with the last pane-tab gone, a leased first transport
   stays until its leases are released, so closing tabs cannot park a
@@ -402,8 +429,16 @@ Growth rules (the part that must never be improvised):
   from the §4.6 journal (leaving them stale against a reset `totalBytes`
   would break 02 §5.3's growing-`+` form; the walker is
   not resumable, and a partial re-count would double-count progress),
-  not re-dispatching files the §4.6 journal already records as
-  completed; user-`paused` tasks stay paused through a reconnect — the
+  not re-dispatching files the §4.6 journal already records under any
+  terminal outcome — `fileCompleted`, `fileFailed`, or `itemRemoved`
+  alike, not `fileCompleted` alone, or a skipped/failed item would
+  re-dispatch and re-prompt on every restart — and folding those
+  journaled terminal outcomes into the recomputed progress the same way
+  §4.1 already requires PlannedFile identity to (subtracting a skipped or
+  failed item's scanned size from `totalBytes`, or tracking it in a
+  side `skippedBytes`/`failedBytes` counter) so a heavily-skipped task's
+  progress still converges to 100 % rather than stalling below `total`
+  forever; user-`paused` tasks stay paused through a reconnect — the
   flip to `queued` applies only to running/scanning tasks. Séance's model (reconnect is replacement,
   user-initiated) is deliberately upgraded here — a transfer app must
   self-heal.
@@ -495,7 +530,12 @@ enum TransferTaskState {
 /// task's `replace` removed its parent re-evaluates against the fresh
 /// destination (a conflict, never a retryCount-burning generic failure);
 /// `skip`/`ask` evaluate on the directory itself before recursing.
-/// `replaceIfNewer` on a folder compares the two directory mtimes and
+/// `replaceIfNewer` on a folder compares the two directory mtimes —
+/// treating an unknown or equal mtime as *not newer*, since directory
+/// mtimes are an unreliable freshness proxy (many SFTP servers never
+/// update a directory's mtime when its contents change) and the
+/// destructive `replace` verb this compares into must never fire on a
+/// coin-flip signal — and
 /// otherwise behaves as `merge`; `keepBoth` on a folder creates the source
 /// under the first free auto-numbered name (02 §5.2's keep-both), leaving
 /// the existing destination untouched; and a non-dir occupying a planned
@@ -528,7 +568,19 @@ class TransferTask {
                                    // running total while scanning (progress
                                    // shows the growing "+" form, 02 §5.3);
                                    // final at scanComplete
-  int retryCount;
+  int retryCount;                  // §3.3's reconnect-cycle counter ONLY:
+                                   // +1 per failed reconnect cycle, reset
+                                   // on post-reconnect progress, checked
+                                   // against taskRetryLimit. A per-item
+                                   // generic failure (§4.2's
+                                   // "retryCount-burning generic failure"
+                                   // phrase names what conflict handling
+                                   // must NOT do) never reads or writes
+                                   // this field — it fails that one item
+                                   // via §4.6's fileFailed record and
+                                   // leaves the task's reconnect count
+                                   // untouched; there is no separate
+                                   // per-item retry budget in v1.
   String? error;                   // user-facing RemoteFileException.message
   final RemoteTransferCancellation cancellation; // sticky — reserved for
                                    // **whole-task** cancel only (§4.4); each
@@ -595,7 +647,13 @@ the resolver rejects it in file fields, falling back to `ask`,
 mirroring 02 §5.2's constraint. An engine-side `ask` pauses
 the item and round-trips an `EnginePromptEvent.conflict` to the UI (§5),
 whose reply resolves that item (and, when the user asks, the task's
-remaining conflicts). A prompt-parked item holds **no** §4.3 global slot
+remaining conflicts) — a §3.3 disconnect that flips the task to `queued`
+invalidates any outstanding prompt for it: the UI dismisses or marks the
+dialog stale, a reply that arrives after invalidation is ignored (the
+same debug-logged, never-erroring drop §5's `PromptReplyRequest` already
+defines for a closed/unknown `promptId`), and the post-reconnect
+re-dispatch re-stats the item and re-prompts fresh, never resolving a
+conflict against a plan that may no longer match reality. A prompt-parked item holds **no** §4.3 global slot
 and **no** leased channel: the decision point precedes any committed bytes,
 so the per-attempt token is cancelled, the lease released, and the item
 re-dispatched carrying the reply — prompt-wait never counts against §4.3's
@@ -688,11 +746,23 @@ non-negotiable:
   contract — a mismatch re-applies the policy (`ask` prompts) instead of clobbering
   a file that appeared mid-run. Local→local commits get the same guard
   through the shared code path. Uploads get the mirror of the download
-  guarantee: either stream to a server-side `.poltergeist-<uuid>.part`
-  and commit via POSIX rename under the same absent/existing-stat
+  guarantee: either open a server-side `.poltergeist-<uuid>.part`
+  **exclusively** (`SSH_FXF_EXCL`, the same guarantee the download temp
+  gets locally) — a non-exclusive truncating open would write through a
+  symlink another user planted at that predictable name on a shared
+  server — stream to it, and commit via
+  POSIX rename under the same absent/existing-stat
   contract (atomic for the absent case; server-side either way, so an
   interrupted attempt never touches the real
-  destination), or — where a server-side temp is ruled out — the
+  destination) — and on the existing-stat/overwrite path specifically,
+  when the server offers no `posix-rename@openssh.com` (common on
+  embedded/appliance sftp-servers, where plain v3 `SSH_FXP_RENAME`
+  simply fails whenever the target exists), the commit re-stats, removes
+  the occupying target through the D15 delete story, then commits via
+  the same absent-only v3 rename — a wider, non-atomic window than the
+  extension gives, but still closed by the mandatory post-commit re-stat
+  and still a conflict (never a generic failure) on any mismatch — or —
+  where a server-side temp is ruled out entirely — the
   per-attempt abort path MUST delete the partially overwritten remote
   file before the lease is released, and a re-stat matching a journaled
   non-`fileCompleted` partial (size short of the plan size) is treated as
@@ -731,6 +801,15 @@ preservation falls out of the one code path.
 
 ```dart
 class BandwidthLimiter {
+  final int maxChunkBytes;                // injected: the largest single
+                                          // chunk any acquire() caller in
+                                          // this app passes (today's fixed
+                                          // stream-read chunk size) — the
+                                          // sole input the capacity rule
+                                          // below needs; a future larger
+                                          // sink (D27 archive streaming)
+                                          // updates this constant, not the
+                                          // limiter
   int? bytesPerSecond;                    // null = unlimited; a hand-edited 0
                                           // maps to null ("off"/unlimited —
                                           // the widespread convention; a
@@ -830,9 +909,16 @@ any conflict question already answered — but the trigger is classified
 narrowly: SFTP v3 has **no EXDEV status code** (OpenSSH returns a plain
 `SSH_FX_FAILURE` for a cross-device rename), so the fallback fires only
 on a cross-device-class failure identified from the server's status
-text, and an ambiguous `SSH_FX_FAILURE` (permission denied, target
-exists) is treated as **non-EXDEV** and surfaced as the rename's own
-error rather than silently entering copy-then-delete. **Known limit:**
+text, and an ambiguous `SSH_FX_FAILURE` — permission denied, or a target
+that exists *unexpectedly* under a non-Overwrite policy — is treated as
+**non-EXDEV** and surfaced as the rename's own
+error rather than silently entering copy-then-delete. An **Overwrite**
+policy's move expects the target to exist, so it never even attempts the
+plain v3 rename that would fail on it: it renames via
+`posix-rename@openssh.com` when the server offers the extension, else
+falls straight to the piped copy-then-delete path below — "target
+exists" only ever reaches the ambiguous-failure classification above
+when the resolved policy did *not* expect it. **Known limit:**
 OpenSSH's `sftp-server` sends an *empty* message string with
 `SSH_FX_FAILURE` (`send_status`), so on it no status text is available
 and a genuine same-server cross-device move surfaces as the rename's own
@@ -923,9 +1009,13 @@ app-provided support directory (`EngineConfig`, §5):
   not journaled, it is set unconditionally at restore — so even tasks
   mapped `running`→`queued` cannot dispatch before the user hits
   Resume; the state-mapping bullet above and this rule are one
-  mechanism, not two). §4.7's head-inserted **produce** tasks are exempt
-  from this pause (as from the runtime pause): a preview or Quick Look
-  read issued while the queue is restored-paused must still dispatch, or
+  mechanism, not two). §4.7's head-inserted **produce** tasks are never
+  journaled at all — their awaited Future dies with the calling process,
+  so none exist for a restore to find or exempt — which makes the
+  runtime-pause exemption the only one that matters in practice: a
+  preview or Quick Look
+  read issued while the queue is paused (restored-paused or
+  user-paused) must still dispatch, or
   its awaited Future would hang with nothing telling the user why.
   Prompt state does not survive restart (promptIds are session-scoped):
   resuming a task whose policy is `ask` re-runs its remaining items'
@@ -942,11 +1032,16 @@ app-provided support directory (`EngineConfig`, §5):
   `writeStringAtomically`, hardened to fsync the temp file before the
   rename — and the history append flushed and fsynced before the rewrite
   begins — so the ordering also survives power loss, not just process
-  death). The whole sequence — and every other append path — is funneled
-  through one single-writer async mutex on the journal, so no append can
-  interleave with a rewrite: a `fileCompleted`/`taskState` record
-  completing while compaction awaits its I/O is queued and appended to
-  the rewritten journal *after* the rename, never written to the
+  death). The whole sequence — and every other append path, to **both**
+  the journal and the history file — is funneled
+  through one single-writer async mutex, so no append to either file can
+  interleave with a rewrite of it: a `fileCompleted`/`taskState` record
+  completing while compaction awaits its journal I/O is queued and
+  appended to
+  the rewritten journal *after* the rename, and a completion racing the
+  history file's own 10 000-record trim rewrite (below) is queued the
+  same way against *that* file's rewrite — neither append is ever
+  written to a
   pre-rename file or a handle pointing at its now-unlinked inode, where
   it would silently vanish the moment the rename replaces the path it
   was targeting. A crash between the two steps loses nothing:
@@ -994,11 +1089,19 @@ abstract interface class TransferProducer {
   /// mirror — its awaited Future is the completion signal, so the §6 mirror
   /// never sees a taskId with no queue row and §5's per-flush event bound
   /// (§4.3-capped queue tasks) is unaffected. Downloads [path] from [source] into
-  /// [destination] — the caller computes the destination (the preview
+  /// [destinationPath] — the caller computes the destination (the preview
   /// cache path per 06 §5.3) — completing once produced. Used by future
   /// promised-file drag-out and by Quick Look / preview for remote files.
+  /// A path String, not a `File`, crosses the isolate boundary here:
+  /// `TransferProducer` is implemented engine-side but consumed through
+  /// `EngineClient` (§5's "plain-data messages ... nothing non-sendable"
+  /// rule), so a `ProduceLocalCopyRequest` (source, path,
+  /// destinationPath — all plain data) belongs in §5's protocol
+  /// inventory alongside the other `EngineRequest`s, with cancellation
+  /// riding the existing `CancelRequest` machinery rather than an
+  /// ad-hoc, unversioned handle.
   Future<void> produceLocalCopy(FsLocation source, String path,
-      {required File destination, RemoteTransferCancellation? cancellation});
+      {required String destinationPath, RemoteTransferCancellation? cancellation});
 }
 ```
 
@@ -1029,12 +1132,19 @@ class ListDirectoryRequest extends EngineRequest {
 /// TransferTaskSpec is the enqueue-time subset of TransferTask (§4.1):
 /// source/destination/rootPaths/destinationDir/policy — no runtime state.
 class EnqueueTransferRequest extends EngineRequest { final TransferTaskSpec spec; }
-/// Cancels the task or in-flight item named by [targetId]: a bare task
-/// uuid trips the task token (§4.4), a `(taskId, destinationPath)` item
-/// id cancels just that item — the two id shapes are disjoint, so the
-/// engine tells them apart — and an unknown id is ignored at debug level
-/// (matching prompt replies). Fixed here before M4 freezes the protocol.
-class CancelRequest extends EngineRequest { final String targetId; }
+/// Cancels a whole task ([taskId] alone) or one in-flight item
+/// ([itemDestinationPath] non-null, per §4.1's item identity): typed as
+/// two fields rather than one shape-sniffed `String`, since destination
+/// paths are arbitrary strings and any single-string pair-encoding would
+/// make "the two shapes are disjoint" an unproven, collision-prone
+/// invariant in the most safety-critical control path (§4.4's sticky
+/// task token bricks every later dispatch if tripped by a misrouted
+/// cancel). An unknown [taskId] is ignored at debug level (matching
+/// prompt replies). Fixed here before M4 freezes the protocol.
+class CancelRequest extends EngineRequest {
+  final String taskId;                // uuid — trips the task token (§4.4)
+  final String? itemDestinationPath;   // non-null cancels one item only
+}
 /// Queue/connection control — the requests the EngineClient facade below
 /// promises ("plus queue and connection control"): runtime bandwidth-limit
 /// changes (§6 global settings) and queue pause/resume (§4.4). Left out of
@@ -1062,7 +1172,10 @@ class PromptReplyRequest extends EngineRequest {
 sealed class EngineEvent {}
 /// payload is a sealed result type: the value, or a serialized
 /// RemoteFileException — never a bare Object (the protocol stays typed).
-class ResponseEvent extends EngineEvent { final int requestId; }
+class ResponseEvent extends EngineEvent {
+  final int requestId;
+  final EngineResult result;   // sealed: value | serialized RemoteFileException
+}
 class TransferProgressEvent extends EngineEvent {
   final String taskId;
   final String itemId;      // the §4.1 plan item — per-file sub-rows
@@ -1213,6 +1326,15 @@ Every local filesystem touch in the app flows through one service:
 
 ```dart
 abstract interface class ScopedPathAccess {
+  // [localPath] must already be canonical — symlink-resolved, no `.`/`..`
+  // segments, no trailing separator, case-normalized on a case-insensitive
+  // volume — before it reaches this interface: token balancing and the
+  // release/acquire serialization below are keyed on the string itself,
+  // and macOS in particular routes `/tmp`/`/var` through `/private/...`
+  // symlinks, so two un-normalized spellings of one directory would
+  // double-grant, double-balance, and defeat mintBookmark/acquireBookmark
+  // round-tripping (a blob minted under one spelling failing to resolve
+  // under another looks exactly like a stale blob).
   Future<ScopedAccessToken> acquire(String localPath); // token.release()
   Future<Uint8List?> mintBookmark(String localPath);   // while grant is live
   // Resolve a stored blob (keyed by bookmark id) and begin scoped access;
@@ -1227,7 +1349,11 @@ v1 desktop builds are unsandboxed, so the default backend is a pass-through —
 but the calls exist from day one, security-scoped bookmark blobs are stored
 device-locally in a dedicated `<app-support>/scoped-bookmarks.json` (never
 inside `settings.json`, so that file's immediate-persist atomic rewrite
-stays small and text-only — their one home is this dedicated file,
+stays small and text-only — and itself written with §6's same
+atomic-temp-write-and-rename discipline behind one serialized in-process
+writer: a torn write or two concurrent mints racing here would drop
+every stored blob at once, forcing a full re-prompt for every
+previously granted path — their one home is this dedicated file,
 deliberately outside §6's settings table, which reserves no row for these
 binary blobs) keyed by bookmark id (never synced — 04 §2.3), and
 turning on the macOS sandbox later is a backend swap, not a refactor: a
@@ -1255,13 +1381,20 @@ with spaces or non-ASCII — plus the RFC 3339 `DeletionDate=`, which is
 also the disambiguator when several entries share one `Path=` — delete,
 restore, delete again under the same name is the normal way this
 happens — restore always picks the newest `DeletionDate=` and moves back
-exactly one file, never an arbitrary or ambiguous pick) and
+exactly one file — `DeletionDate=` is second-resolution, so an
+exact-timestamp tie (quite possible on a rapid delete/restore/delete
+cycle) tie-breaks on the `.trashinfo` file's own mtime, then on the
+dedupe suffix below, keeping the pick deterministic rather than
+arbitrary or ambiguous) and
 moving the file back, Nautilus-style; and if the `gio` binary is absent
 entirely (minimal/GNOME-less distros, some WSL setups), both trash and
 restore fall back to the same spec directly — a home-filesystem path moves
 into `$XDG_DATA_HOME/Trash/files/` (`~/.local/share/Trash/files/` when
 `XDG_DATA_HOME` is unset, same rule as the read path above) with a
-written `.trashinfo`, while a
+written `.trashinfo` whose filename mirrors a spec-style deduped name in
+`files/` (`name`, `name.2`, … on collision, per the FreeDesktop spec —
+trashing two same-named files must never let the second overwrite the
+first trashed copy), while a
 path on another mounted volume (§7.4) prefers that volume's
 `<topdir>/.Trash/$UID` — only after verifying `.Trash` is a root-owned,
 sticky-bit, non-symlink directory per the spec (a crafted volume could
