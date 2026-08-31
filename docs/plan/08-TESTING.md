@@ -165,7 +165,12 @@ real semantics the queue and sync tests rely on. Cases, at minimum:
 - `delete` of a non-empty directory fails with Séance's wording
   (`Only an empty directory can be deleted.`); recursion is app-level.
 - Download integrity: `mutateOutOfBand` between stat and read ⇒
-  `conflict`; short read ⇒ `conflict`; returned entry carries the
+  `conflict` — the fake interposes via `FaultPlan.onOperation`; the
+  local harness (which has no mid-operation seam) fronts
+  `LocalFileSystem` with a decorating `RemoteFileSystem` that applies
+  the pending out-of-band mutation on the first read chunk, so the case
+  is deterministic on both, never racy (Principle 6); short read ⇒
+  `conflict`; returned entry carries the
   `contentSha256` of exactly the streamed bytes.
 - Upload: exclusive sibling temp, declared-length mismatch error,
   `expectedTarget` CAS ⇒ `conflict` when the target changed, temp cleaned
@@ -256,8 +261,11 @@ conflict rules; the store persists behind callbacks and never blocks on a
 failed save (revert + surfaced error, Séance's keep-alive-toggle pattern).
 
 **Engine protocol** (`test/engine/`): every `EngineRequest`/`EngineEvent`
-round-trips through a real spawned isolate pair (proving no closures or
-non-sendable types leak into the protocol); progress coalescing emits
+round-trips through a real spawned isolate pair (proving the payload is
+isolate-sendable and reconstructs intact — **not** closure-freedom,
+since Dart copies closures with sendable captures across isolates;
+function-typed fields in the protocol classes are banned by the §3.3
+AST walker instead); progress coalescing emits
 ≤ 30 events/s per task under a flood; a serialized
 `RemoteFileException` reconstructs kind + message intact.
 
@@ -491,12 +499,13 @@ until host port 2201 is actually free** (poll the bind, or retry the
 `up` on bind failure): `docker stop` returning does not guarantee the
 publish teardown has finished, and both publish host
 port 2201, so starting `sshd-modern` while the port is still bound
-makes the new container fail to bind and exit, leaving 2201 serving the
-swapped key — the literal "restart sshd-modern" reading reintroduces
-the exact failure this paragraph guards. Skip either step and every
-later suite dialing `…_MODERN` meets a changed
-host key and hard-blocks (D18), a deterministic order-dependent red that
-would masquerade as flake. Teardown of the whole stack still runs from a
+makes the new container fail to bind and exit, leaving host port 2201
+**unserved** — later suites then meet connection-refused. Skipping the
+**stop** instead leaves `sshd-keyswap` itself serving, and every later
+suite dialing `…_MODERN` meets the changed host key and hard-blocks
+(D18). Both are deterministic order-dependent reds that masquerade as
+flake; only the second carries the changed-key signature — so the
+prescription is stop keyswap first, then wait for 2201 free. Teardown of the whole stack still runs from a
 `trap … EXIT` so an interrupted run never leaks the
 stack (the test exit code is preserved through the trap) — and the
 trap tears down **with the profile enabled**: `docker compose
@@ -565,7 +574,10 @@ Mechanics:
   02 §12) and the committed tier-B baseline, prints the table, and exits
   non-zero whenever an expected scenario is **missing or errored** — in
   soft mode too; the enforcement flags additionally make budget/trend
-  overruns fail. "Expected" is scoped two ways, or the rule reddens runs
+  overruns fail. A declared tier whose baseline file is **absent** (the
+  M3 spike window, before the spike PR commits it) prints a loud
+  non-enforced notice and exits zero while soft, non-zero once that
+  tier's enforcement flag is set. "Expected" is scoped two ways, or the rule reddens runs
   it should not: the invocation declares which tiers it ran
   (`--tiers a|b|ab` — a `packages/**` PR run executes tier A only and
   passes `--tiers a`, so absent tier-B scenarios are not "missing"), and
@@ -602,7 +614,11 @@ Mechanics:
   **within the single bench job** and compares the median of those
   in-job repetitions against the baseline (no cross-run orchestration;
   the results file carries per-repetition entries so `check.dart` can
-  compute it), and the committed baseline is refreshed only via a dedicated
+  compute it). **The CI bench job's in-job runs are the authoritative
+  tier-B comparison after the M9 flip** — the once-on-reference-macOS
+  release run (DoD) is a human-readable release-note artifact, not the
+  gate; the baseline is fingerprinted to the CI runner so the two are
+  never compared across hardware. The committed baseline is refreshed only via a dedicated
   PR when the environment fingerprint changes — shared-runner noise must
   not train people to ignore a gating check. The tier-B flip
   is a one-line repository-variable change recorded in 07's M9 exit
@@ -697,7 +713,7 @@ section says what each job runs and what gets added when.
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
 | `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral if the fixture is ever absent — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, and on PRs touching `packages/**` or `test/integration/**` (the bench job's path-filter rationale — a 25-minute Docker job has no business on a docs-only PR). |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle: compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`** with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle: compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**` or `test/benchmarks/**`** (so a baseline-refresh or check.dart/budgets.json-only PR is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/
@@ -750,7 +766,9 @@ PR); every release records a filled copy in the release PR. Per release:
 - Theme flip (light/dark) live-restyles listing, plan view, and editor;
   HiDPI scaling at 100 %/150 %/200 % shows no clipped chrome.
 - Tier-B benchmark suite run once on the reference macOS machine in
-  release mode; results attached to the release PR (§6).
+  release mode; results attached to the release PR as a readable
+  artifact — the authoritative M9 gate is the CI bench job's in-job
+  tier-B runs against the CI-fingerprinted baseline, not this run (§6).
 
 ## Definition of done
 
@@ -776,11 +794,13 @@ PR); every release records a filled copy in the release PR. Per release:
 - [ ] Benchmark harness of §6 runs both tiers, writes `bench-results.json`,
       checks against `budgets.json` + baseline, and follows the §6
       enforcement schedules (tier A enforced via `BENCH_ENFORCE_A` from
-      introduction, on `packages/**` PRs too; tier B soft-fails
-      **overruns only** until M9 flips `BENCH_ENFORCE_B` — a missing or
-      errored scenario is a CI failure in every mode, within the tiers
-      the invocation declares and the scenarios `budgets.json` marks
-      landed, §6).
+      its **M3** introduction, on `packages/**` and `test/benchmarks/**`
+      PRs too; tier B soft-fails
+      **overruns only** until M9 flips `BENCH_ENFORCE_B`. A missing or
+      errored scenario is a CI failure in every mode; this applies only
+      to the tiers the invocation declares and only to scenarios
+      `budgets.json` marks landed — un-landed scenarios are not
+      "missing" (§6).
 - [ ] a11y suites of §7 pass: semantics on all custom rows, the
       keyboard-completeness + dispatch test over the full registry, the
       token contrast test, and the hardcoded-string test.

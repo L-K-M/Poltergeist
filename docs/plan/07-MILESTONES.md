@@ -108,11 +108,17 @@ class BenchResult {
   final int bytes;
   final Duration elapsed;
   final double mbPerSec;
-  final String? note;         // negotiation details, failure text,
-                              // the dartssh2/Séance revs under test
+  final String? note;         // negotiation details, failure text
+  final String dartssh2Rev;   // dartssh2 rev under test (pin or patched
+                              // fork branch) — structured, so a merged
+                              // report never mistakes a hashing-off fork
+                              // row for an unpatched-Séance one
+  final String seanceRev;     // seance_core git-pin rev under test
   Map<String, Object?> toJson() => {
         'scenario': scenario,
         'bytes': bytes,
+        'dartssh2Rev': dartssh2Rev,
+        'seanceRev': seanceRev,
         'elapsedMs': elapsed.inMilliseconds,
         'mbPerSec': mbPerSec,
         'note': note,
@@ -160,8 +166,10 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 - `flutter create --org com.lkm app/poltergeist_app` — the `--org` is
   load-bearing: it yields Android id `com.lkm.poltergeist_app`, Apple
   bundle id `com.lkm.poltergeistApp`, and Linux `APPLICATION_ID`
-  `com.lkm.poltergeist_app`, which must match the `StartupWMClass`
-  hard-coded in `scripts/package-linux.sh` (AGENTS.md §3). Commit the
+  `com.lkm.poltergeist_app`; the `.desktop` `StartupWMClass`, however,
+  must be the **binary name** `poltergeist_app` (X11 `WM_CLASS` follows
+  CMake `BINARY_NAME`, not the dotted application id) — kept in sync in
+  `scripts/package-linux.sh` (AGENTS.md §3). Commit the
   platform folders. The app is NOT added to the root workspace `members`;
   it path-depends on `packages/poltergeist_core` (AGENTS.md §4).
 - Create the master icon `media-sources/poltergeist-icon.png` (1024×1024,
@@ -461,8 +469,10 @@ release gate.
 - Settings → Backup UI with the exact 04 §4.3 copy, **Design B
   preselected**; the B→A switch flow (04 §4.4).
 
-**Séance-PR dependency.** Design B needs nothing (or the 04 §5.6 sealing
-shim if the pin lags PR-S1's model). Design A needs PR-S1 **released and
+**Séance-PR dependency.** Design B has no hard Séance dependency; its
+one conditional is the 04 §5.6 sealing shim, required only when the pin
+lags PR-S1's record model (04 §5.6 defines exactly when that state
+holds). Design A needs PR-S1 **released and
 its tag recorded**; until then the option renders with the gate copy and a
 disabled Continue.
 
@@ -631,7 +641,9 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
 - [ ] PORTS.md swept; port-back issues filed upstream per 04 §6.
 - [ ] `scripts/release.sh 1.0.0 --push` (the script takes the bare
       version and tags `v1.0.0` itself — AGENTS.md's documented
-      convention, matching `release.yml`'s `v*` trigger); `release.yml`
+      convention, matching `release.yml`'s `v*` trigger — the tag itself
+      is `git tag -s`-signed with the maintainer's local key, never a CI
+      secret, per §4); `release.yml`
       green; assets
       install-tested on macOS, Windows, and one GNOME + one KDE Linux
       (fresh machines/VMs, following only the first-launch docs).
@@ -649,7 +661,9 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
    (03 §8.1); grep for `// TODO(pin)` markers and delete every one the
    bump obsoletes (§3.9's rule).
 4. Tag `v0.<milestone>.0` as a pre-release for M1 through M9 — every tag
-   is a release-pipeline rehearsal, so `release.yml` never rots. M10 ships
+   is a release-pipeline rehearsal, so `release.yml` never rots — via
+   `scripts/release.sh 0.<milestone>.0 --push`, the identical path
+   v1.0.0 uses, marking the GitHub release as a pre-release. M10 ships
    `v1.0.0` (§3.11) and no `v0.10.0` pre-release.
 5. Re-check the §5 mobile invariant for the milestone (M0 predates the
    app and is exempt; every other milestone has a row in the §5 table).
@@ -695,11 +709,11 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks`; every build signs with it (policy: **Android signing & checksums**, below the table) |
 | M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1), and the M10 INSTALL.md labels it accordingly |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
-| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks`; every build signs with it (policy: **Android signing & checksums**, below the table) |
 | M9 | Link-only update banner (D19) points at the GitHub releases page |
 | M10 | `docs/INSTALL.md` first-launch steps per platform: macOS ad-hoc build — right-click → Open, or `xattr -dr com.apple.quarantine Poltergeist.app`; Windows — SmartScreen "More info → Run anyway"; Linux — AppImage `chmod +x`, `.deb` install line, libsecret runtime dependency note |
 | M10 | Fresh-machine install test on all three desktops using only INSTALL.md |

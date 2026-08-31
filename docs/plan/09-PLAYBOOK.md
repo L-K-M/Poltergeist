@@ -147,9 +147,12 @@ Future<void> navigateTo(String path) async {
     // guard; §3.3 pins this as the contract). The superseded listing
     // the token rotation above cancelled is expected — swallow exactly
     // that kind, or every fast double-navigation surfaces an unhandled
-    // async error; every other kind is a real failure and reaches the
-    // pane's error state.
+    // async error. A non-cancel failure on a navigation the user has
+    // already left is dropped too — a slow listing's timeout must not
+    // repaint the abandoned directory (or throw unhandled); only the
+    // CURRENT navigation's real errors reach the pane's error state.
     if (e.kind == RemoteFileErrorKind.cancelled) return;
+    if (_disposed || generation != _navigationGeneration) return; // stale
     rethrow;
   }
   if (_disposed || generation != _navigationGeneration) return; // stale
@@ -194,8 +197,15 @@ built (03 §2.3's `ensureSafeLocalDirectory` refuses symlink traversal on
 the way there). This is Séance's path-validation tradition and
 the zip-slip defense D27 pre-commits to. The checks are
 **destination-aware**: characters that are legal on a POSIX remote can
-be hazards on a Windows destination — a `:` in a component does not fail
-there, it silently writes an NTFS alternate data stream — so the caller
+be hazards on a Windows destination — a `:` in a component silently
+writes an NTFS alternate data stream, a `\` is a **Win32 path
+separator** so `a\..\..\b` (no `/`, one component to the split)
+traverses out of the root once joined on Windows, and the Win32-invalid
+`*` `?` `"` `<` `>` `|` plus a trailing dot or space each fail late at
+write time — all rejected in the `windowsDestination` branch, a clean
+boundary error beating a confusing mid-transfer failure (the backslash
+rejection is destination-aware too, since `\` is a legal POSIX
+filename byte). So the caller
 says where the path is headed. The helper itself absorbs trailing
 separators (`'a/b//'` → `'a/b'`, all of them, not one) before
 validating — a directory entry's trailing `/` is shape, not a
@@ -298,7 +308,10 @@ over the target; the editor's saver adds the backup + conflict dance,
 // name is the recognizable prefix plus the uuid, never the target's
 // own name (crash sweeps match the same `.poltergeist-*.tmp` pattern).
 final tmp = File(
-    '${target.parent.path}/.poltergeist-${uuidV4()}.tmp');
+    p.join(target.parent.path,                 // package:path as p —
+        '.poltergeist-${uuidV4()}.tmp'));      // manual '/' yields mixed
+                                               // separators on Windows and
+                                               // '//' for a root parent
 try {
   await tmp.writeAsBytes(bytes, flush: true);
   await tmp.rename(target.path); // atomic on POSIX; best-effort
@@ -469,7 +482,8 @@ Every non-draft PR from a same-repo branch gets an automated GLM review
 - On opening a PR: subscribe with `subscribe_pr_activity` immediately and
   arm an hourly `send_later` self check-in (webhooks miss CI successes,
   new pushes, and merge-conflict transitions).
-- Triage **every** comment into exactly one bucket: **apply** (real bug or
+- Triage **every** finding into exactly one bucket (a single comment may
+  bundle several): **apply** (real bug or
   improvement), **decline with recorded reasons** (commit message + chat),
   **refute with evidence** (official docs, actual CI runs, the code)
   when a claim is factually wrong, or **defer** (valid but out of the
@@ -482,7 +496,10 @@ Every non-draft PR from a same-repo branch gets an automated GLM review
   declined item is re-opened only on genuinely new evidence.
 - Declare **steady-state** and stop when two consecutive rounds yield no
   valid actionable findings, the reviewer re-raises already-declined items
-  or contradicts itself, or everything left is out of the PR's scope. At
+  **without new evidence** (a re-raise that carries genuinely new
+  evidence re-opens the item per the no-flip-flop rule, it does not end
+  the review) or contradicts itself, or everything left is out of the
+  PR's scope. At
   steady-state: post the short scorecard (applied / declined / refuted /
   deferred — one line per bucket above), state
   merge-readiness, `unsubscribe_pr_activity`, delete the check-in triggers.
