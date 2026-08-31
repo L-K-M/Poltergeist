@@ -179,7 +179,11 @@ decision that makes it real.
    Commander's freezes and Mountain Duck's hidden state.
 8. **Import everything, previewed.** `~/.ssh/config` with IdentityFile at
    v1 via Séance's importer, FileZilla/WinSCP/Cyberduck formats in v1.x, all
-   behind a preview + dedupe step (D22). Adoption is migration.
+   behind a preview + dedupe step (D22) — the same preview flags any
+   entry that depends on a deferred auth path (ProxyJump, or an
+   ssh-agent-only identity, per differentiator 6/D10) as not connectable
+   until the fast-follow, rather than importing it silently into a
+   bookmark that fails at first connect. Adoption is migration.
 9. **Trust as a feature.** Open source, zero telemetry, no Poltergeist
    account, OS keystore for secrets, no installer adware, link-only update
    check (D18, D19, D23) — positioned explicitly against the field's trust
@@ -188,8 +192,8 @@ decision that makes it real.
     registered command feeding menus, shortcuts, and a Quick Open palette
     that displays and accepts shortcuts (D21). ForkLift's Quick Open and
     Marta's command-palette discipline (§3) are the in-category
-    precedents — both macOS-only; no one ships a full command palette
-    across all three desktops. It is also the cheapest path to power-user
+    precedents — both macOS-only; no one in this category ships a full
+    command palette across all three desktops. It is also the cheapest path to power-user
     love, and it
     ports back to Séance (R10).
 
@@ -352,9 +356,14 @@ Poltergeist's original code is released under the **Unlicense** — the file
 is already in the repo. That is the strongest possible statement of §6: no
 copyleft lever, no CLA, no dual-license upsell path; the code is a
 public-domain dedication. The trust copy may say so plainly — "public-domain
-software; do anything you like with it" — **provided every line in the
-shipped artifact is actually Unlicensed**, i.e. provided Séance also lands
-the Unlicense for PR-S0 (below). If PR-S0 instead lands a different
+software; do anything you like with it" — **provided every first-party
+line in the shipped artifact is actually Unlicensed**, i.e. provided
+Séance also lands
+the Unlicense for PR-S0 (below); the claim was never about the wider
+dependency tree — a Flutter release binary always statically embeds
+third-party code (the Flutter engine itself, every pub package
+Poltergeist consumes) under its own permissive terms, which is normal
+and disclosed, not a gap this gate is meant to close. If PR-S0 instead lands a different
 permissive, attribution-compatible license (MIT, BSD, …) — which the gate
 accepts — the ported files it covers carry that license's own attribution
 terms, PORTS.md records provenance per file, and both the trust copy and the
@@ -479,12 +488,18 @@ assumed**, by this audit procedure:
   file present at the pin gets scanned regardless of when it arrived),
   pinned the same way as the log walks above — `--no-replace-objects`
   (a `refs/replace/` entry in a contributor's clone would otherwise
-  rewrite which commit, and thus which tree, the pin resolves to) and
+  rewrite which commit, and thus which tree, the pin resolves to),
   `-c core.quotepath=false` (the default quotes any non-ASCII path byte
   as octal escapes, while `quotepath=false` emits raw UTF-8; this scan's
   output is recorded in `docs/PORTS.md` and re-verified across machines
-  just like the log walks, so it needs the same byte stability):
-  `git --no-replace-objects -c core.quotepath=false grep -Ii -e copyright
+  just like the log walks, so it needs the same byte stability), and
+  `-c grep.patternType=basic` (`git grep` honors this config exactly like
+  the pinpoint `git log --grep` run below does; a contributor-local
+  `patternType=fixed` would silently turn the bracket-pattern catch-all
+  below into a literal-string match that stops matching real license
+  text — the same silent-miss class this whole sweep exists to close,
+  and the same pin the email sweep's own catch-all already needed):
+  `git --no-replace-objects -c grep.patternType=basic -c core.quotepath=false grep -Ii -e copyright
   -e spdx -e 'apache license' -e 'gnu general'
   -e 'permission is hereby granted' -e 'redistribution and use'
   -e 'mozilla public' -e 'creative commons' -e 'public domain'
@@ -501,10 +516,16 @@ assumed**, by this audit procedure:
   sweep below already uses: noisy hits are fine because the output is
   recorded and confirmed, while silence is the failure mode that matters
   — for foreign license/copyright headers, plus a
-  `git --no-replace-objects -c core.quotepath=false ls-tree -r
-  --name-only <pin>` pass checked against a small
-  vendored-path list (`third_party/`, `vendor/`, `node_modules/`,
-  `ext/`) for new vendored directories — never a manual, unscripted
+  `git --no-replace-objects -c core.quotepath=false ls-tree -r <pin>`
+  pass — keeping the mode column rather than `--name-only`, so a
+  `160000` gitlink entry (a git submodule, which `git grep` never
+  descends into and which is otherwise indistinguishable from an
+  ordinary directory path) is always a hit to resolve against
+  `.gitmodules` and audit separately — with the remaining path names
+  checked against a small
+  vendored-path list (`third_party/`, `third-party/`, `vendor/`,
+  `vendors/`, `node_modules/`, `ext/`, `external/`, `deps/`, `Pods/`,
+  `packages/`) for new vendored directories — never a manual, unscripted
   read of the whole tree, which is exactly the kind of gate that
   degrades quietly as the tree grows and leaves no recorded artifact to
   re-verify against; the scan's output is recorded in `docs/PORTS.md`
@@ -518,7 +539,11 @@ assumed**, by this audit procedure:
   -c grep.patternType=basic -c log.mailmap=false
   -c i18n.logOutputEncoding=utf-8 log
   <pinned-SHA> -i --author="<email>"
-  --committer="<email>" --grep="<email>"` — the same config as the main
+  --committer="<email>" --grep="<email>"` — falling back, for a stranded
+  attribution with no `<email>` at all (a bare `Co-authored-by: Jane Doe`
+  with no angle-bracket address), to a `--grep="<Kind-By: Name>"` rerun
+  under the same BRE-escaping rules below, since `--author`/`--committer`
+  have no name-only equivalent — the same config as the main
   command above is pinned here too, for the same reason (this pinpoint
   run's output feeds directly into `docs/PORTS.md`, so it needs the same
   byte-stability); `grep.patternType` is pinned
@@ -648,8 +673,13 @@ fork or clean-room Séance code, which D2 forbids outright.
   summary that defers to §9 as the sole normative source.
 - The §9 audit procedure (main identity command, companion sweep,
   external-hit pinpoint, vendored-code scan) is implemented as a script
-  (e.g. `scripts/audit-seance-pin.sh`), run by CI whenever the pinned
-  Séance ref changes, against a **non-shallow clone of the pinned
+  (e.g. `scripts/audit-seance-pin.sh`), triggered by a paths-filter on
+  the file recording the Séance pin (a pinned SHA only ever moves via a
+  Poltergeist commit, so this is exact, not a poll), and **failing the
+  build whenever its output does not match the recorded `docs/PORTS.md`
+  entry** — running the script without reconciling its output is not
+  enforcement, it is exactly the unattended-gate-nobody-reads failure
+  mode §9 refuses everywhere else. It runs against a **non-shallow clone of the pinned
   Séance ref specifically** — the script's own Séance fetch must use
   `fetch-depth: 0`, independent of the depth the Poltergeist checkout
   itself uses; CI clones are shallow by default, which would silently

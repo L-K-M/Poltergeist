@@ -169,8 +169,12 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   `LICENSE`/`LICENSE.txt`/`LICENSE.md`/`LICENCE`/`UNLICENSE`/`COPYING` —
   e.g. `git cat-file -e <rev>:LICENSE` for each name — and requires the
   file's text to match the canonical SPDX text of a permissive allowlist
-  (Unlicense, MIT, Apache-2.0, BSD-2/3-Clause, ISC), ignoring the
-  copyright-holder/year line that legally varies in MIT/BSD/ISC texts —
+  (Unlicense, MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC), ignoring
+  a copyright-notice line wherever it appears — SPDX's own matching
+  guidelines exclude the copyright notice from every license's
+  substantive text, not just MIT/BSD/ISC's, and it is commonly prefixed
+  above the Unlicense text too even though the canonical Unlicense body
+  carries none itself —
   not merely to exist or to name a license: a repo
   whose HEAD carries a LICENSE can still have pre-license pinned revs,
   and a *restrictive* license landing in a pinned rev (a `COPYING` file
@@ -188,7 +192,11 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   revisions the guard exists to block. Backed mechanically too, not by
   discipline alone: a PR-level CI check fails when a diff adds a Séance
   git dependency to any `pubspec.yaml` while `release.yml` lacks the
-  license-gate step, anchored on a grep-able marker comment inside the
+  license-gate step — and, symmetrically, when a diff removes or renames
+  the gate's marker comment from `release.yml` while any `pubspec.lock`
+  in the monorepo still resolves a Séance git pin, since an unrelated
+  workflow refactor deleting the gate is exactly as dangerous as a pin
+  landing before it — anchored on a grep-able marker comment inside the
   workflow so the check stays stable across refactors.
 - **D31 — No volume mounting, ever.** FUSE/WebDAV-mount/network-drive
   presentation of a remote is refused durably, never deferred to v2 —
@@ -210,7 +218,13 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   pure Dart over the one VFS: parallel scans, size+mtime comparison with a
   tolerance that defaults to 1 s (SFTP v3 stores whole-second mtimes, so a
   preserved sub-second local mtime truncates on upload) and widens to 2 s
-  only when either endpoint is FAT-family (FAT volumes additionally
+  only when an endpoint is *known* FAT-family — a local endpoint is
+  queried directly; SFTP v3 has no filesystem-type attribute at all, and
+  `statvfs@openssh.com`, where a server even supports it, returns block
+  size and inode counts, not a filesystem type name, so a remote
+  endpoint's FAT-family status is unknowable from the protocol and
+  defaults to the per-pair tolerance knob (05 §6) rather than a guess
+  (FAT volumes additionally
   quantize to 2 s) — the two drivers of the window. The
   window's false-equal hazard is a **documented limitation**, stated
   here rather than discovered: a same-size edit whose mtime lands
@@ -272,7 +286,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     this section's own "hazards get `# note:` lines" rule, the exporter
     must render a prominent `# note:` line (or refuse to render) whenever
     the pair's connection settings include an identity file or a jump
-    host, so the gap is loud rather than latent until 05 closes it.
+    host, so the gap is loud rather than latent until 05 closes it; this
+    interim patch to 05's already-merged exporter is recorded as a dated
+    open item in STATUS.md, not an untracked prose promise, and blocks
+    "Copy as rsync command" from shipping in any milestone until it lands.
 
   Manual per-item overrides are
   annotated in a comment, never compiled into filters. An opt-in rsync
@@ -299,17 +316,21 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   purges under the identical 30-day rule); sync deletions *and* the
   previous versions of files that sync
   overwrites default to the same `.poltergeist-trash/<runId>/` rename-based
-  trash — falling back to copy-then-delete when the rename fails
+  trash, with entry names uniquified inside the run by a per-run sequence
+  prefix (`<runId>/000042-<name>`) so same-basename items from different
+  source directories cannot collide and rename stays the common path
+  even against SFTP v3's fail-when-target-exists — falling back to
+  copy-then-delete only for a genuine cross-device/permission failure
   cross-filesystem (EXDEV for local pairs, mirroring D26's local rule; for
   a remote pair the SFTP status code carries no errno, so *any* rename
-  failure triggers the fallback rather than one classified as
-  cross-device — including SFTP v3's fail-when-target-exists, which makes
-  trash-name collisions a routine trigger on the v3-only NAS/embedded
-  servers this plan targets, not an edge case; 05's rail 5 owns this
+  failure not resolved by the sequence prefix still triggers the fallback
+  rather than one classified as
+  cross-device; 05's rail 5 owns this
   fallback, including the interrupted-copy recovery it tests for — 05's
   own text states the fallback trigger as "cross-filesystem" without this
-  remote/errno distinction, a precision gap worth closing there too as a
-  follow-up, out of this PR's scope) —
+  remote/errno distinction or the sequence-prefix naming rule, a
+  precision gap recorded as a dated open item in STATUS.md for closing
+  there too, out of this PR's scope) —
   (overwrite backups sit behind their own `backups` knob — default
   `trash`, matching 05's `BackupPolicy` — independent of the deletion
   policy). One directory name everywhere;
@@ -360,8 +381,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   sync scan ≥ 1 000 remote entries/s on LAN (pipelined readdirs).
 - **D26 — Local↔local operations are first-class.** v1: streamed copy with
   progress + cancellation + mtime preservation; cross-device moves as
-  copy+delete — the source is deleted only after the streamed copy completes
-  successfully, so cancellation or failure leaves the original intact;
+  copy+delete — the copy is flushed to durable storage (an fsync of the
+  file data, then of the destination parent directory) and only then is
+  the source deleted, so cancellation, failure, or a crash leaves either
+  the original intact or a durable copy, never neither;
   case-only renames handled on case-insensitive filesystems.
   A native fast-path spike (APFS `clonefile`, Linux `FICLONE`, Windows
   `CopyFileEx`) is scheduled in 07; metadata beyond mtime+mode (xattrs,
@@ -427,12 +450,18 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 - **D22 — Import is adoption fuel, staged.** v1 imports `~/.ssh/config`
   (Séance's importer, IdentityFile included) **with a preview + dedupe
   + unsupported-directive warnings** — an imported host whose real
-  behavior depends on `ProxyCommand`, `ProxyJump`, `Match`, or `Include`
-  (D10 defers ProxyJump *execution* to the first post-1.0 fast-follow,
-  so at v1 it is exactly as unsupported as the others) gets an
+  behavior depends on `ProxyCommand`, `ProxyJump`, `Match`, or an
+  `Include` nested inside a `Match` block (D10 defers ProxyJump
+  *execution* to the first post-1.0 fast-follow, so at v1 it is exactly
+  as unsupported as the others) gets an
   explicit "won't behave as in ssh" badge in the preview rather than
   silently importing as a bookmark that then fails to connect the way
-  the user's actual config does; FileZilla `sitemanager.xml`, WinSCP
+  the user's actual config does — a plain, top-level `Include` is
+  resolved read-only at import time instead (the same local-file trust
+  already granted to `~/.ssh/config` itself and any `IdentityFile` it
+  references), so the common `Include ~/.ssh/config.d/*` layout doesn't
+  badge every imported host and drown the signal on the hosts that
+  actually need it; FileZilla `sitemanager.xml`, WinSCP
   INI, and Cyberduck bookmarks
   follow in v1.x behind the same preview UI.
 - **D27 — Archives.** v1.x, not v1: local zip create/extract via
@@ -470,7 +499,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     publish, from every `v*` tag: the unsigned/ad-hoc macOS bundle,
     Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
     unsigned iOS IPA (all already scripted); the mobile product remains
-    post-v1 (D29) — the artifacts merely exist. No paid signing in v1
+    post-v1 (D29) — the artifacts merely exist, and the IPA's filename
+    and the release notes label it unsigned and unsupported so no one
+    mistakes an artifact that cannot be installed on any device without
+    a separate signing step for a usable build. No paid signing in v1
     (documented first-launch steps).
   - **Drafts and signing.** Every release from `v0.1.0` on publishes
     `SHA256SUMS` beside the assets **and** `SHA256SUMS.asc`, a detached
@@ -486,8 +518,16 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     nothing pausing for a human; Poltergeist's copy of the step adds
     `draft: true` and aborts if any release — draft or published —
     already exists for this tag (the action's default when a release
-    exists is to update it, overwriting same-named assets), so a
-    stray re-run can never touch a release the first run already
+    exists is to update it, overwriting same-named assets) — and because
+    that existence check is check-then-act, not atomic (GitHub allows
+    multiple drafts to share a `tag_name`, so racing to create the draft
+    first does not close this either), the workflow also declares a
+    `concurrency` group keyed on the tag (queuing, never
+    cancel-in-progress), so no two instances of the publish workflow —
+    a tag push racing a manual `workflow_dispatch`, or a deleted and
+    re-pushed tag while an earlier run is still building — can ever
+    race the guard, so a
+    stray or concurrent re-run can never touch a release the first run already
     published — producing the assets and the unsigned `SHA256SUMS`
     while still hidden. `SHA256SUMS.asc` is attached by a separate,
     maintainer-approved step (signed locally or via a hardware token),
@@ -514,10 +554,12 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     with the release left drafted on a retry-confirmed, definitive
     mismatch (a digest or signature failure that survives one re-fetch);
     a merely inconclusive check — a transient API or network error —
-    pages the maintainer instead of aborting, since abort here is
-    fail-safe (the release stays drafted either way) but a false abort
-    still wastes a human's attention on a phantom failure. Once
-    confirmed clean, the step publishes the
+    halts the publish and pages the maintainer instead, the draft left
+    exactly as an abort would leave it: an inconclusive check never
+    proceeds to publish, it only differs from a definitive-mismatch
+    abort in what it tells the human, since a false halt is fail-safe
+    but still wastes a human's attention on a phantom failure. Only once
+    confirmed clean does the step publish the
     draft — and because verify-then-publish is two operations, not one
     atomic one, the step re-verifies the now-live release immediately
     after publishing too, deleting it only on that same
@@ -535,7 +577,9 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     an unsigned one) — so a race with the local signing step or a
     workflow re-run on the tag can publish a stale signature alongside
     changed assets only in the width of that final re-verify, never
-    silently and never left standing. All of this exists because a
+    silently and never left standing unattended: a definitive mismatch
+    is auto-deleted, an inconclusive one pages a human and is resolved
+    by decision rather than ignored. All of this exists because a
     CI-resident key would reduce the whole provenance claim to "trust
     GitHub/the CI runner" — exactly the release-channel compromise the
     independent-fingerprint requirement below exists to survive.
