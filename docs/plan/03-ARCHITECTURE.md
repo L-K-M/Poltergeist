@@ -98,7 +98,7 @@ interface is genuinely transport-neutral, so the mapping is direct:
 | `canonicalize` | `resolveSymbolicLinks()` when the path exists; otherwise return the normalized absolute path | never throws just because the path is missing (matches realpath use for home resolution); "home" = the user home via the ported `expandHomePath` |
 | `listDirectory` | `Directory(path).list(followLinks: false)`; classify each entry via `FileSystemEntity.type(…, followLinks: false)` and stat only non-link entries — links report `type: symbolicLink` with `size`/`modifiedAt` null, matching the `stat` row below (a plain `FileStat.stat` would follow the link and report the target's identity) | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
 | `stat` | `FileStat.stat` when `followLinks: true`; with `followLinks: false`, detect symlinks via `FileSystemEntity.type(path, followLinks: false)` | dart:io has no lstat: for a symlink itself, return `type: symbolicLink` with `size`/`modifiedAt` null — callers already treat those as optional |
-| `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', ['--', octal, path])` on macOS/Linux — `--` so a path beginning with `-` can never parse as an option, and a non-zero exit code routes through the §2.2 funnel (`Process.run` failures arrive as exit codes, never `FileSystemException`; exit 1 with `Operation not permitted`/`Permission denied` in stderr maps to `permissionDenied`, mirroring `setOwner`'s EPERM translation, so a `chmod` on a file the user does not own reports the same kind as `chown` for the same EPERM) | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
+| `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', ['--', octal, path], environment: {...Platform.environment, 'LC_ALL': 'C'})` on macOS/Linux — `--` so a path beginning with `-` can never parse as an option, and `LC_ALL=C` (spread the inherited environment so `PATH` survives) so stderr is deterministic English regardless of the user's locale, since chmod localizes via `strerror`; a non-zero exit code routes through the §2.2 funnel (`Process.run` failures arrive as exit codes, or as a thrown `ProcessException` when the binary cannot be launched — the guard catches it and maps it to `other`; exit 1 with `Operation not permitted`/`Permission denied` in stderr maps to `permissionDenied`, mirroring `setOwner`'s EPERM translation — the chown path uses the same `LC_ALL=C` environment) | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
 | `readSymbolicLink` | `Link(path).target()` | |
 | `createSymbolicLink` | exists-preflight (conflict), then `Link(linkPath).create(targetPath)` | Windows needs Developer Mode or elevation — map the OS error to `permissionDenied` with a hint in the message |
 | `createDirectory` | `Directory(path).create(recursive: false)` | parent must exist — same as SFTP mkdir |
@@ -122,12 +122,16 @@ prefixes are `.poltergeist-` everywhere Séance uses `.seance-` (the research
 notes flag the prefix as the one thing to parameterize).
 
 `LocalFileSystem` also implements the D3 additive methods from day one —
-`setTimes` maps to `File.setLastModified` (and `setLastAccessed`) for
+`setTimes` — gated on the same refuse-symlinks-first check as
+`setMode`/`setOwner`, since `setLastModified` dereferences and would
+write a synced tree's mtime through a link to its target — maps to
+`File.setLastModified` (and `setLastAccessed`) for
 **files**; a directory target returns the typed `unsupported` error, since
 dart:io cannot set directory timestamps — which costs the sync engine
 nothing: it compares directories by existence only and never sets their
 times (05 §4). `setOwner`
-maps to `Process.run('chown', ['--', spec, path])` on Unix — **after
+maps to `Process.run('chown', ['--', spec, path], environment:
+{...Platform.environment, 'LC_ALL': 'C'})` on Unix — **after
 the same refuse-symlinks-first check as `setMode`**: a bare `chown`
 dereferences a symlink and changes the *target's* owner, so an
 attribute write inside a synced tree could otherwise escape it through
@@ -199,7 +203,11 @@ excluding `client.shell(pty:)`:
 ```dart
 // Upstream, in seance_core. Behavior byte-identical to today's connect()
 // through the authentication step.
-Future<SSHClient> openAuthenticatedClient({
+// Returns the client plus how auth resolved — key, storedPassword,
+// keyboardInteractive, or promptedPassword (AuthKind). §3.2 rules 2–3
+// record it to cap or allow pool growth; Séance's recomposed connect()
+// discards it.
+Future<(SSHClient, AuthKind)> openAuthenticatedClient({
   required ServerConfig config,
   required SshCredentials credentials,
   required TofuVerifier tofu,
@@ -249,14 +257,14 @@ abstract interface class ConnectionManager {
   Future<void> disconnectServer(String serverId);
 }
 
-class PaneChannel {
-  final RemoteFileSystem fs;   // its own DartSshRemoteFileSystem instance
-  final String homePath;       // canonicalize('.') at open, Séance-style
+abstract interface class PaneChannel {
+  RemoteFileSystem get fs;     // its own DartSshRemoteFileSystem instance
+  String get homePath;         // canonicalize('.') at open, Séance-style
   Future<void> close();
 }
 
-class TransferChannelLease {
-  final RemoteFileSystem fs;   // the leased transfer channel's adapter
+abstract interface class TransferChannelLease {
+  RemoteFileSystem get fs;     // the leased transfer channel's adapter
   Future<void> release();      // returns the channel to the pool
 }
 
@@ -265,7 +273,8 @@ enum ServerConnectionState {
 }
 ```
 
-Under each `serverId` sits a pool of one or more authenticated `SSHClient`
+Behind each `serverId` — via its endpoint-keyed pool (§3.5), shared by every
+`serverId` at that endpoint — sits one or more authenticated `SSHClient`
 transports, each carrying SFTP channels (`client.sftp()` opens a fresh channel
 per call — Séance caches one per session as policy; Poltergeist opens
 several). Pool policy constants live in one file,
@@ -310,8 +319,9 @@ Growth rules (the part that must never be improvised):
    parallel 2FA prompts (D5).
 3. **Non-interactive auth may grow the pool** (key auth, stored password): up
    to `maxTransports`, reusing the resolved in-memory `SshCredentials` from
-   the first connect. Credentials are wiped on `disconnectServer` and app
-   exit; a reconnect that fails auth re-resolves through the vault/prompt
+   the first connect. Credentials are wiped only when the **last** serverId
+   referencing the pool disconnects (§3.5) and on app exit; a reconnect
+   that fails auth re-resolves through the vault/prompt
    path — and if that re-resolve prompts interactively, the pool's
    recorded auth mode updates to interactive, capping growth per rule 2
    from then on, so a server that switched to 2FA mid-session can never
@@ -328,7 +338,10 @@ Growth rules (the part that must never be improvised):
   as the adapter's) marks the transport disconnected.
 - **Idle:** extra transports (beyond the first) close after
   `idleExtraTransportTimeout` with no leased channel. The first transport
-  follows pane lifetime, not a timer.
+  follows pane lifetime, not a timer — but never closes while any of its
+  channels is leased: with the last pane-tab gone, a leased first transport
+  stays until its leases are released, so closing tabs cannot park a
+  running transfer.
 - **Reconnect:** on `RemoteFileErrorKind.disconnected` or transport closure,
   browse channels auto-reconnect: probe first with `TcpBannerProber` (cheap,
   keeps sshd logs quiet), then `openAuthenticatedClient` with backoff
@@ -357,8 +370,9 @@ Growth rules (the part that must never be improvised):
 
 ### 3.4 Probe integration
 
-The ported `ProbeService` (`packages/seance_core/lib/src/probe/
-probe_service.dart`) drives sidebar status dots. `ConnectionManager` feeds it
+The ported `ProbeService`
+(`packages/seance_core/lib/src/probe/probe_service.dart`) drives sidebar
+status dots. `ConnectionManager` feeds it
 `connectedServerIds` so servers with live pools are skipped and reported
 online for free — same fail2ban-friendly philosophy as Séance: jittered
 sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
@@ -381,7 +395,10 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   the disconnected id, so a task never hangs `queued` against a
   demonstrably-connected endpoint — and otherwise on that serverId's
   next connect), never `failed` — a user-initiated
-  disconnect is not an error, and §3.3's auto-reconnect explicitly
+  disconnect is not an error, and it is not a way to stop transfers either:
+  while a sibling serverId keeps the pool alive the task keeps running
+  (only cancel/pause stops it — surface that in the disconnect UI), and
+  §3.3's auto-reconnect explicitly
   does **not** fire for it — and teardown lets in-flight writes reach
   the §4.6 journal boundary before closing the transport, so no
   mid-file state is lost untracked. The transports are torn
@@ -470,6 +487,13 @@ class TransferPlan {
 }
 
 class PlannedFile {
+  // Identity: destinationPath IS the item id — TransferProgressEvent.itemId,
+  // CancelRequest.targetId (item form), and §4.6's fileCompleted /
+  // fileFailed / itemRemoved records all key on it, because the
+  // mid-scan-crash re-scan merge can only match journaled terminal
+  // outcomes by path, never by a scan-minted uuid (fresh uuids would
+  // resurrect removed/failed files). Enqueue therefore rejects or dedups
+  // nested/duplicate rootPaths so a task's destinationPaths are unique.
   final String sourcePath;
   final String destinationPath;
   final int? size;                         // from the scan
@@ -525,9 +549,13 @@ non-negotiable:
   the first variant has landed; two case-variant files in flight
   simultaneously from *different* tasks could still both pass an absent
   re-stat under §4.3's global cap, so the executor also consults a shared
-  case-folded destination-key registry of in-flight and committed
-  targets and fails the second with a `conflict` on a case-insensitive
-  destination); the scan continues
+  case-folded destination-key registry of in-flight and committed targets
+  and treats the hit as a conflict resolved through the task's policy,
+  exactly like a fresh-stat conflict — `ask` prompts via
+  `EnginePromptEvent.conflict`, `skip`/`replace`/`replaceIfNewer`/`keepBoth`
+  apply their verb once the registry entry commits; only a policy that
+  cannot be evaluated against an in-flight sibling terminal-fails the item
+  with a `conflict` error); the scan continues
   concurrently growing `plan`, `totalBytes` is a running total rendered
   as the growing `N+` form (02 §5.3), and both finalize when
   `scanComplete` flips.
@@ -823,8 +851,13 @@ class TransferProgressEvent extends EngineEvent {
                             // adding it after M4 would be a versioned
                             // protocol change
   final int transferred;    // bytes for THIS item
-  final int? total;         // this item's size; the task rollup is
-                            // computed UI-side from the task spec
+  final int? total;         // this item's size
+  final int taskTransferredBytes; // §4.1 rollups, engine-computed — the
+  final int? taskTotalBytes;      // growing "N+" total (02 §5.3) is
+                                  // scan-time state: TransferTaskSpec
+                                  // carries no plan/sizes and TransferTask
+                                  // is not sendable, so the UI cannot
+                                  // derive the rollup itself
 }
 class ServerStateEvent extends EngineEvent {
   final String serverId;
@@ -875,7 +908,8 @@ invites, is exactly what stays out of the engine.)
 **M0 must validate before this hardens** (D8, D9): dartssh2 sockets and
 multiple SFTP channels function inside a non-root isolate; cross-port
 cancellation latency < 100 ms; coalescing holds headlessly — coalesced
-progress events arrive on the UI-side port at ≤ 30/s per task under a
+progress flushes arrive on the UI-side port at ≤ 30/s per task (each ≤ 6
+events per §4.3's in-flight caps, so ≤ 180 events/s total) under a
 10k-event/s synthetic flood, and a main-isolate timer probe records no
 event-loop stall > 16 ms during 4 concurrent transfers + one directory
 listing; throughput matches the single-isolate baseline. If M0 finds a
@@ -984,7 +1018,7 @@ also the mobile hook D29 requires.
 
 One `Trash` service with per-platform backends (§7.1): local deletions from
 panes go to the OS trash with undo where the platform gives it (macOS Put
-Back; Windows Explorer undo; on Linux, `gio trash --list` to find the
+Back; Windows Explorer undo; on Linux, `gio list trash://` to find the
 item's `trash://` URI and `gio trash --restore <uri>` — the restore
 option's availability is probed at runtime (`gio trash --help` lists
 supported flags) rather than trusted from the GLib version, since
@@ -1007,8 +1041,10 @@ default ignore rules exclude `.poltergeist*`.
 ### 7.4 Volumes
 
 Own enumeration per the research notes — Windows via `win32` FFI, with
-hot-plug from a `WM_DEVICECHANGE` message window in the §7.1 C++ helper
-(a plain Dart FFI thread has no message pump to receive the broadcast;
+hot-plug from a hidden top-level `WM_DEVICECHANGE` window in the §7.1 C++
+helper (never a message-only/`HWND_MESSAGE` window — top-level
+`WM_DEVICECHANGE` broadcasts skip those — and a plain Dart FFI thread has
+no message pump to receive the broadcast;
 note that volumes need this helper **independently** of §7.1's trash/COM
 spike outcome — only trash is conditional on that spike, so the helper's
 go/no-go is also driven by volume hot-plug, and descoping it lands on the
