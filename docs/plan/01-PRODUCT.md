@@ -24,7 +24,7 @@ The one-sentence product, verbatim from the overview:
 
 > WinSCP's sync checklist with Transmit's polish and ForkLift's sidebar, on
 > all three desktops, with E2E-encrypted bookmark backup through the Séance
-> you already run — and no account, no telemetry, no rent.
+> you already run — and no Poltergeist account, no telemetry, no rent.
 
 Requirement R1 ("extremely high usability, polish, user-friendliness — the
 point of the app") is the product. Every feature in this plan is subordinate
@@ -84,8 +84,10 @@ ours).
 
 ## 3. Competitive positioning
 
-The field survey (conducted August 2026) covered roughly twenty clients and
-file managers — a snapshot, not a standing claim: competitors ship, and a
+The field survey (conducted August 2026) covered twenty competitor rows —
+grouped by shared verdict where several products earn the same take/refuse,
+so the table names 29 distinct products across those twenty rows — a
+snapshot, not a standing claim: competitors ship, and a
 statement here about what a named product does or doesn't do is dated
 2026-08, not evergreen. The table
 records, per competitor, what Poltergeist takes and what it refuses. "Take"
@@ -156,19 +158,19 @@ decision that makes it real.
    Notepad-equivalent (its docs say so), and Cyberduck has no built-in
    editor at all.
 6. **One SSH stack shared with a terminal sibling.** Identity-file keys,
-   known-hosts pins,
-   TOFU prompts, and 2FA behave identically in Séance and Poltergeist because
-   they are the same code (D2, D5 — at v1 every shared auth path except
-   ssh-agent and ProxyJump is in scope; those two land in the first
-   post-1.0 fast-follow, D10 — which also defers hardware-security-key
-   auth, since Séance's own auth stack has no independent path to a
-   YubiKey or similar beyond ssh-agent; state this plainly rather than
-   let a security-conscious user discover it at first connect, since the
-   §3 XPipe row criticizes exactly this capability being gated); "open terminal here" / "open files here"
-   cross-links (v1.x, 04 §7.1). Termius bundles both and rents the privilege; MobaXterm
-   and Bitvise bundle both too, but as Windows-only, terminal-first
-   tools — none pairs a first-class transfer client with a first-class
-   terminal across platforms.
+   known-hosts pins, TOFU prompts, and 2FA behave identically in Séance and
+   Poltergeist because they are the same code (D2, D5). At v1, every shared
+   auth path except ssh-agent and ProxyJump is in scope; those two land in
+   the first post-1.0 fast-follow (D10), which also defers
+   hardware-security-key auth, since Séance's own auth stack has no
+   independent path to a YubiKey or similar beyond ssh-agent. State that
+   plainly in the user-facing docs — a security-conscious user should not
+   discover it at first connect — because the §3 XPipe row criticizes
+   exactly this capability being gated. "Open terminal here" / "open files
+   here" cross-links follow in v1.x (04 §7.1). Termius bundles both and
+   rents the privilege; MobaXterm and Bitvise bundle both too, but as
+   Windows-only, terminal-first tools — none pairs a first-class transfer
+   client with a first-class terminal across platforms.
 7. **Latency-honest remote browsing.** Cancellable navigation, visible
    per-pane connection state, no UI pause ever attributable to the network
    (D12 budgets; 02 specifies the affordances) — directly against Nimble
@@ -176,9 +178,10 @@ decision that makes it real.
 8. **Import everything, previewed.** `~/.ssh/config` with IdentityFile at
    v1 via Séance's importer, FileZilla/WinSCP/Cyberduck formats in v1.x, all
    behind a preview + dedupe step (D22). Adoption is migration.
-9. **Trust as a feature.** Open source, zero telemetry, no account, OS
-   keystore for secrets, no installer adware, link-only update check (D18,
-   D19, D23) — positioned explicitly against the field's trust failures (§6).
+9. **Trust as a feature.** Open source, zero telemetry, no Poltergeist
+   account, OS keystore for secrets, no installer adware, link-only update
+   check (D18, D19, D23) — positioned explicitly against the field's trust
+   failures (§6).
 10. **Command palette and total keyboard addressability.** Every action is a
     registered command feeding menus, shortcuts, and a Quick Open palette
     that displays and accepts shortcuts (D21). ForkLift's Quick Open and
@@ -198,7 +201,7 @@ to a decision, budget, or milestone that makes the failure hard to ship.
 | 1 | Non-native uncanny valley (FileZilla, CrossFTP, XPipe, Double Commander) | D11 makes per-platform conventions non-negotiable: native titlebar on Windows/Linux, `macos_window_utils` unified toolbar, `PlatformMenuBar` on macOS, platform dialogs, shortcuts, and scroll physics. 02 specifies each; 08 tests keyboard and a11y invariants. One rendering stack (D1) removes the toolkit matrix that sank Double Commander |
 | 2 | Slow basics kill polish (Spacedrive, Files) | D12's numeric budgets are CI benchmarks, not aspirations (10k-entry paint < 150 ms, tab switch < 100 ms, drop-to-transfer < 500 ms…). D8 keeps all heavy work off the UI isolate. D9 makes week one an engine fitness spike — the pool and scan designs are not finalized until M0 reports |
 | 3 | Hidden or dishonest transfer state (Mountain Duck, Nimble, FileZilla history) | D16 declares the activity panel a trust organ: per-item rows always, every long operation visible, cancellable, inspectable; persistent queue and working history. D15 gives deletion one legible story. No mounting, ever (D31; §8) — mounting is where state goes to hide |
-| 4 | Monetization that violates the tool contract (Termius, XPipe, FileZilla bundleware) | The Unlicense (§9) plus D19: no account, no telemetry, no paid tiers exist to gate anything. There is no rent to seek — the guard is that the mechanism is absent, not merely unused |
+| 4 | Monetization that violates the tool contract (Termius, XPipe, FileZilla bundleware) | The Unlicense (§9) plus D19: no Poltergeist account, no telemetry, no paid tiers exist to gate anything. There is no rent to seek — the guard is that the mechanism is absent, not merely unused |
 | 5 | Breadth before depth; sync that surprises (CrossFTP, AeroFTP, GoodSync's UI, Transmit's shallow sync) | SFTP-first scope with D25 as a written parking lot so nobody "helpfully" builds v2 early. D6's executor runs exactly the previewed plan and re-verifies preconditions per item; deletion requires the explicit Mirror mode; Update mode (no deletions) is the default. A sync that surprises the user is treated as a defect of the highest severity (08) |
 
 ## 6. Trust stance as product copy
@@ -408,7 +411,18 @@ assumed**, by this audit procedure:
   log <pinned-SHA> -i --grep=co-authored-by --grep=signed-off-by
   --grep=reported-by --grep=helped-by --grep=reviewed-by --grep=tested-by
   --grep=suggested-by --grep=co-developed-by --grep=acked-by
-  --grep=mentored-by --format='%H %an <%ae>'` — the same config as the
+  --grep=mentored-by --grep='<[^>]*@[^>]*>' --format='%H %an <%ae>'` —
+  the last pattern is a kind-agnostic catch-all: the enumerated
+  `--grep`s only ever catch the trailer kinds this list happens to name,
+  but the list is provably open-ended (it already includes non-standard
+  kinds like `Mentored-by`), so a stranded line using some other kind —
+  `Original-Author:`, `Written-by:`, a project-specific `*-by:` — would
+  otherwise be invisible to both `%(trailers)` (final-block-only) and
+  this sweep (kind-enumerated); any attribution trailer, whatever its
+  kind, carries an `<email>`, so the bracket pattern catches it
+  regardless, and its prose hits go through the same trailer-shape
+  confirmation step below as everything else this sweep lists — the
+  same config as the
   main command above is pinned here too, `i18n.logOutputEncoding`
   included: this sweep prints the identical `%an <%ae>` author bytes it
   reconciles against that record, so an unpinned clone could make an
@@ -441,12 +455,19 @@ assumed**, by this audit procedure:
   history predating the repo — is invisible to it, so the single-holder
   conclusion additionally rests on Séance containing no vendored
   third-party code, checked on the same trigger as the audit itself —
-  when the pin first lands and whenever the pinned ref changes — by
-  inspecting the tree diff (there is no old pin on first landing, so that
-  run diffs against the empty tree — `git diff $(git hash-object -t tree
-  /dev/null) <pin>` — and every later run uses `old-pin..new-pin`) for
-  new vendored directories
-  or foreign license/copyright headers, never a one-time check: a
+  when the pin first lands and whenever the pinned ref changes — by a
+  scripted scan of the tree diff (there is no old pin on first landing,
+  so that run scans the whole tree — `git diff $(git hash-object -t tree
+  /dev/null) <pin>` — and every later run scopes to `old-pin..new-pin`):
+  `git grep -Ii -e copyright -e spdx -e 'apache license' -e 'gnu general' <range>`
+  for foreign license/copyright headers, plus a
+  `git ls-tree -r --name-only <pin>` pass checked against a small
+  vendored-path list (`third_party/`, `vendor/`, `node_modules/`,
+  `ext/`) for new vendored directories — never a manual, unscripted
+  read of the whole tree, which is exactly the kind of gate that
+  degrades quietly as the tree grows and leaves no recorded artifact to
+  re-verify against; the scan's output is recorded in `docs/PORTS.md`
+  next to the identity record, never a one-time check: a
   vendoring commit added after an earlier check lands under the owner's
   own identity, invisible to the `git log` identity lines, so only
   re-scanning on every pin change catches it before it flows into a
@@ -468,9 +489,20 @@ assumed**, by this audit procedure:
   not optional here — it is the only one of the three that matches the
   committer identity the initial audit's `%cn <%ce>` was added to catch,
   and neither `--author` nor `--grep` matches it. All three patterns are
-  git's default POSIX **basic** regular expressions, where `.` (and,
-  rarely, `*` in a generated local part) are the BRE-active characters in
-  an address and must be escaped — `+` is a literal BRE character and
+  git's default POSIX **basic** regular expressions, where `.`, `[`, and
+  `\` (and, rarely, `*` in a generated local part, or `^`/`$` when the
+  chosen substring begins or ends with one) are the BRE-active characters
+  in an address and must be escaped — an unescaped `[` is loud (GNU grep's
+  `regcomp` rejects it outright, "Unmatched [, [^, [:, [., or [="), but an
+  unescaped `\` is not: GNU grep recognizes `\s`/`\S`/`\w`/`\W`/`\b`/`\B`
+  as extensions even in BRE mode (verified empirically: `grep 'a\sb'`
+  matches `a b`, a literal space, not a literal backslash-s), so a
+  `\` in a quoted-local-part address like `"back\slash"@example.com`
+  inserted unescaped would silently change what the pattern matches
+  rather than erroring — exactly the failure mode this pinpoint run's
+  verbatim-recorded output must not have, since a silent mismatch here
+  means a missed external contribution, the one thing §9 says provenance
+  must never paper over — `+` is a literal BRE character and
   must *not* be escaped, since GNU BRE reads `\+` as a
   one-or-more quantifier that then fails to match a literal `+` (verified
   empirically on GNU grep: `grep "a+b"` matches a literal `a+b`,
@@ -481,7 +513,8 @@ assumed**, by this audit procedure:
   escaping of its `+` at all, only its BRE-active characters escaped
   (every real domain has at least one `.`, so "match on the
   metacharacter-free domain"
-  is not a real escape hatch — escape the dots, and any `*`, in whatever
+  is not a real escape hatch — escape the dots, any `[` or `\`, any `*`,
+  and an edge `^`/`$`, in whatever
   substring is
   chosen, full address included) and record
   them in PORTS.md, so the block acts on the commits actually ancestral

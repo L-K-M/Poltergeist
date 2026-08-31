@@ -166,10 +166,12 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   e.g. `git cat-file -e <rev>:LICENSE` for each name — because a repo
   whose HEAD carries a LICENSE can still have pre-license pinned revs),
   so a prematurely cut tag cannot publish binaries embedding unlicensed
-  code (07 §2 owns wiring the check — which MUST land no later than the
-  first Séance git pin, since a `v*` tag cut in the window between that pin
-  and the guard would publish unlicensed revisions the guard exists to
-  block).
+  code (07 §2 owns wiring the check).
+
+  **Hard ordering rule:** the guard MUST land in `release.yml` no later
+  than the first Séance git pin lands in any `pubspec` — a `v*` tag cut
+  in the window between that pin and the guard would publish unlicensed
+  revisions the guard exists to block.
 - **D31 — No volume mounting, ever.** FUSE/WebDAV-mount/network-drive
   presentation of a remote is refused durably, never deferred to v2 —
   unlike everything on the D25 parking lot, there is no future version
@@ -209,35 +211,33 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   servers, sftp-only chroots, busybox NAS), bypasses the in-app auth/TOFU
   stack, and breaks the preview-equals-execution promise. The user-suggested
   rsync idea ships as **"Copy as rsync command"**: renders the pair's
-  ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
-  exporter contract owns the specifics (POSIX single-quoting of every
-  path and argument, including the embedded-quote escape (`'` → `'\''`);
-  never `-s`/`--protect-args` — that flag is unsupported on exactly the
-  rsync builds this exporter's busybox/NAS/macOS-client audience is most
-  likely running (rsync ≤ 2.6.9, long the system default on macOS and
-  common on NAS boxes, and macOS 15.4+'s own openrsync), so relying on it
-  would break the flagship platform's default client; the exporter
-  instead backslash-escapes every remote-path byte outside a safe
-  allowlist before local POSIX-quoting the result (05 §2.1's own
-  double-escaping rule), closing the same *remote*-shell re-splitting/
-  reinterpretation hazard `-s` would have addressed — without a version
-  floor, and without the exporter ever needing to detect which rsync
-  build the far end is running, since it is a pure command-string
-  renderer with no exec channel to probe one (D5's shell-less transport
-  gives it none) — quoting and `--`/`./`-prefixing
-  (below) only govern the *local* shell that parses the pasted command; a `--` end-of-options separator before the first path argument plus
-  `./`-prefixing (or absolutizing) every path, so a name like `-delete`
-  can never be parsed as an rsync option and a name like `host:path` can
-  never be reparsed as a remote host spec once the shell strips the
-  quotes — quoting alone stops word-splitting and quote breakout, not
-  argv-level reinterpretation by rsync itself; and, upstream of the
-  exporter, 09's shared path validator rejecting
-  newlines/control characters from ever reaching it, so an untrusted
-  remote filename can never break out of the quoted argument — the
-  exported command targets a POSIX shell
-  (bash/zsh), pasting into cmd.exe or PowerShell being out of contract —
-  hazard `# note:` lines, golden-tested); manual
-  per-item overrides are
+  ruleset as the equivalent rsync invocation, shell-safely. 05 §2.1's
+  exporter contract owns the specifics:
+  - POSIX single-quote every path and argument, with the embedded-quote
+    escape (`'` → `'\''`).
+  - Never emit `-s`/`--protect-args`: unsupported on the builds this
+    exporter's busybox/NAS/macOS-client audience is most likely running
+    (rsync ≤ 2.6.9, long the macOS system default and common on NAS
+    boxes; macOS 15.4+'s openrsync). Instead backslash-escape every
+    remote-path byte outside a safe allowlist before local
+    POSIX-quoting (05 §2.1's double-escaping rule), closing the
+    remote-shell re-splitting hazard `-s` would have addressed — no
+    version floor, and no need to probe the far end's rsync build (a
+    pure command-string renderer has no exec channel; D5 gives it none).
+  - Emit `--` before the first path argument and `./`-prefix (or
+    absolutize) every path: quoting alone stops word-splitting and quote
+    breakout, not argv-level reinterpretation by rsync itself — `-delete`
+    must never parse as an option, `host:path` must never reparse as a
+    remote spec. Quoting and these prefixes govern the *local* shell
+    that parses the pasted command.
+  - 09's shared path validator rejects newlines/control characters
+    upstream of the exporter, so an untrusted remote filename cannot
+    break out of the quoted argument.
+  - The exported command targets a POSIX shell (bash/zsh); cmd.exe and
+    PowerShell are out of contract. Hazards get `# note:` lines; the
+    exporter is golden-tested.
+
+  Manual per-item overrides are
   annotated in a comment, never compiled into filters. An opt-in rsync
   accelerator remains a documented v2 possibility, driven per-item from our
   own plan; it may never be needed. Full analysis: 05.
@@ -359,10 +359,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   keystore (that's sized and scoped for small secrets, not a growing log
   of endpoints/paths), so anyone who wants none of that persisted at all
   gets a `Disable History` setting alongside `Clear History` (02 §6) —
-  turning it on stops recording immediately and prompts to purge the
+  turning it on stops recording immediately and offers to purge the
   already-stored entries too (mirroring `Clear History`'s own action),
-  so "none of that persisted" holds retroactively, not just going
-  forward.
+  so "none of that persisted" holds retroactively — once the user
+  accepts the purge — not just going forward.
   Hidden or dishonest transfer state is the category's
   cardinal sin; every long operation is visible, cancellable, inspectable.
 - **D21 — Command registry from day one; palette in v1.** Every user action
@@ -388,11 +388,21 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   provides it, numeric otherwise.
 - **D22 — Import is adoption fuel, staged.** v1 imports `~/.ssh/config`
   (Séance's importer, IdentityFile included) **with a preview + dedupe
-  step**; FileZilla `sitemanager.xml`, WinSCP INI, and Cyberduck bookmarks
+  + unsupported-directive warnings** — an imported host whose real
+  behavior depends on `ProxyCommand`, `Match`, or `Include` gets an
+  explicit "won't behave as in ssh" badge in the preview rather than
+  silently importing as a bookmark that then fails to connect the way
+  the user's actual config does; FileZilla `sitemanager.xml`, WinSCP
+  INI, and Cyberduck bookmarks
   follow in v1.x behind the same preview UI.
 - **D27 — Archives.** v1.x, not v1: local zip create/extract via
   `package:archive` with zip-slip-safe extraction (validate every component
-  — Séance's path-validation tradition). Remote-side extraction and
+  — Séance's path-validation tradition), per-entry and total
+  decompressed-size caps (a zip bomb is a distinct hazard from path
+  traversal), and symlink-entry rejection (an extracted symlink can
+  redirect a later entry's write outside the target directory) —
+  traversal is not the only extraction hazard; pin an audited
+  `package:archive` version at implementation time. Remote-side extraction and
   browsable archives are later, consciously scheduled in 07.
 
 ### Security, trust, distribution
@@ -413,59 +423,85 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   for this same scoped claim, never a silent contradiction of it.
   Stated in the README; treated as a feature (the category punishes
   rent-seeking and opacity).
-- **D23 — Distribution mirrors Séance.** GitHub Releases via the existing
-  `release.yml` publish, from every `v*` tag: the unsigned/ad-hoc macOS
-  bundle, Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
-  unsigned iOS IPA (all already scripted); the mobile product remains
-  post-v1 (D29) — the artifacts merely exist. No paid signing
-  in v1 (documented first-launch steps) — but every release from
-  `v0.1.0` on publishes `SHA256SUMS` beside the assets **and**
-  `SHA256SUMS.asc`, a detached maintainer-key signature over that list
-  (07 §4): an unsigned checksum alone only catches accidental corruption
-  — anyone who can swap a binary can recompute its sum — so the
-  signature ships from the first tag rather than waiting for v1.0.0,
-  since generating one costs nothing paid certificates would — and the
-  signing key never lives in CI secrets: `release.yml`'s tag-triggered
-  publish creates the release **as a draft** — Séance's own inherited
-  workflow calls `softprops/action-gh-release` with no `draft:` flag, so
-  a stock port of it would go public the instant the workflow finishes,
-  with nothing pausing for a human; Poltergeist's copy of the step adds
-  `draft: true` — producing the assets and the unsigned `SHA256SUMS`
-  while still hidden, and
-  `SHA256SUMS.asc` is attached by a separate, maintainer-approved step
-  (signed locally or via a hardware token), which — immediately before
-  publishing — re-verifies against the draft *as it currently stands*
-  that the signature validates over the on-release `SHA256SUMS` and that
-  those sums still digest-match every attached asset, aborting with the
-  release left drafted on any mismatch (so a workflow re-run on the tag,
-  or a race with the local signing step, can never publish a stale
-  signature alongside changed assets), and only then publishes the draft
-  — before the release goes
-  public, since a CI-resident key reduces the whole provenance claim to
-  "trust GitHub/the CI runner" — exactly the release-channel compromise
-  the independent-fingerprint requirement below exists to survive; the
-  maintainer key's fingerprint is published out-of-band — concretely, a
-  personal domain unrelated to this repo and release site, or an
-  email-verified keys.openpgp.org entry: a bare keyserver reference is
-  not enough, since the old SKS pool is gone and a plain keyserver is an
-  unauthenticated directory — if both the key and its expected
-  fingerprint trace back to the same untrusted server, an attacker who
-  can insert one can insert the other, and the comparison proves
-  nothing; keyservers stay a convenience for *fetching* the key, never
-  the source of the *expected* fingerprint (the app's
-  About box is a convenience cross-check for an already-installed,
-  previously-trusted binary only — it ships inside the very artifact a
-  release-channel compromise would replace, so it cannot bootstrap
-  first-install trust the way an independently hosted fingerprint can) — and
-  INSTALL.md walks users through verifying that
-  fingerprint rather than just fetching the key from the download page
-  (07 §4), since a signature alone only proves internal consistency, not
-  provenance, without that independent check; integrity
-  and provenance are both verifiable without paid certificates;
-  architecture stays sandbox-ready
-  (a `ScopedPathAccess` service fronts all local file access; sidebar
-  bookmarks double as future sandbox grants) but v1 desktop builds are
-  unsandboxed. Auto-update stays link-only.
+- **D23 — Distribution mirrors Séance.**
+  - **Artifacts.** GitHub Releases via the existing `release.yml`
+    publish, from every `v*` tag: the unsigned/ad-hoc macOS bundle,
+    Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
+    unsigned iOS IPA (all already scripted); the mobile product remains
+    post-v1 (D29) — the artifacts merely exist. No paid signing in v1
+    (documented first-launch steps).
+  - **Drafts and signing.** Every release from `v0.1.0` on publishes
+    `SHA256SUMS` beside the assets **and** `SHA256SUMS.asc`, a detached
+    maintainer-key signature over that list (07 §4): an unsigned
+    checksum alone only catches accidental corruption — anyone who can
+    swap a binary can recompute its sum — so the signature ships from
+    the first tag rather than waiting for v1.0.0, since generating one
+    costs nothing paid certificates would. The signing key never lives
+    in CI secrets: `release.yml`'s tag-triggered publish creates the
+    release **as a draft** — Séance's own inherited workflow calls
+    `softprops/action-gh-release` with no `draft:` flag, so a stock
+    port of it would go public the instant the workflow finishes, with
+    nothing pausing for a human; Poltergeist's copy of the step adds
+    `draft: true` and aborts if a release for this tag already exists,
+    so a stray re-run can never touch a release the first run already
+    published — producing the assets and the unsigned `SHA256SUMS`
+    while still hidden. `SHA256SUMS.asc` is attached by a separate,
+    maintainer-approved step (signed locally or via a hardware token),
+    and before that step signs, it first builds the tagged commit
+    locally for the maintainer's own primary platform and spot-checks
+    the CI-produced asset for that platform against it (asset size and
+    digest, at minimum) — this is a documented, deliberately partial
+    mitigation, not full cross-platform reproducible builds, which
+    Flutter's toolchain does not make achievable in v1 at low cost; it
+    narrows what a compromised CI runner could get away with without
+    eliminating the risk, and the residual "sign what CI produced for
+    every other platform sight-unseen" trust is stated here rather than
+    implied by the ceremony around it. Immediately before publishing,
+    the step re-verifies against the draft *as it currently stands*
+    that the signature validates over the on-release `SHA256SUMS` and
+    that those sums still digest-match every attached asset, aborting
+    with the release left drafted on any mismatch, then publishes the
+    draft — and because verify-then-publish is two operations, not one
+    atomic one, the step re-verifies the now-live release immediately
+    after publishing too, deleting it on any mismatch (an emergency
+    response, not a routine path: a published release with a valid
+    signature over sums that no longer match its assets is worse than
+    an unsigned one) — so a race with the local signing step or a
+    workflow re-run on the tag can publish a stale signature alongside
+    changed assets only in the width of that final re-verify, never
+    silently and never left standing. All of this exists because a
+    CI-resident key would reduce the whole provenance claim to "trust
+    GitHub/the CI runner" — exactly the release-channel compromise the
+    independent-fingerprint requirement below exists to survive.
+  - **Key trust.** The maintainer key's fingerprint is published
+    out-of-band — concretely, a personal domain unrelated to this repo
+    and release site, or an email-verified keys.openpgp.org entry: a
+    bare keyserver reference is not enough, since the old SKS pool is
+    gone and a plain keyserver is an unauthenticated directory — if
+    both the key and its expected fingerprint trace back to the same
+    untrusted server, an attacker who can insert one can insert the
+    other, and the comparison proves nothing; keyservers stay a
+    convenience for *fetching* the key, never the source of the
+    *expected* fingerprint (the app's About box is a convenience
+    cross-check for an already-installed, previously-trusted binary
+    only — it ships inside the very artifact a release-channel
+    compromise would replace, so it cannot bootstrap first-install
+    trust the way an independently hosted fingerprint can) — and
+    INSTALL.md walks users through verifying that fingerprint rather
+    than just fetching the key from the download page (07 §4), since a
+    signature alone only proves internal consistency, not provenance,
+    without that independent check; integrity and provenance are both
+    verifiable without paid certificates. Key rotation/revocation (loss
+    or compromise of the maintainer key) is not designed here in
+    detail, but is not left undefined either: 07 §4 specifies a signed
+    transition statement to a successor key, with the new fingerprint
+    re-announced through the same out-of-band channel as the original —
+    deferred rather than improvised under the pressure of an actual
+    compromise.
+  - **Sandbox posture.** Architecture stays sandbox-ready (a
+    `ScopedPathAccess` service fronts all local file access; sidebar
+    bookmarks double as future sandbox grants) but v1 desktop builds
+    are unsandboxed. Auto-update stays link-only.
 - **D20 — a11y and i18n from day one.** All user-facing strings in ARB via
   `gen-l10n` (English only at v1, but externalized); semantics hand-built
   for custom rows/tables (announced name–size–date, selection, sort state);
@@ -512,4 +548,4 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 
 > WinSCP's sync checklist with Transmit's polish and ForkLift's sidebar, on
 > all three desktops, with E2E-encrypted bookmark backup through the Séance
-> you already run — and no account, no telemetry, no rent.
+> you already run — and no Poltergeist account, no telemetry, no rent.
