@@ -147,13 +147,19 @@ Future<void> navigateTo(String path) async {
     // guard; §3.3 pins this as the contract). The superseded listing
     // the token rotation above cancelled is expected — swallow exactly
     // that kind, or every fast double-navigation surfaces an unhandled
-    // async error. A non-cancel failure on a navigation the user has
+    // async error. This swallow also covers the user cancelling the
+    // in-flight listing via §3.3's affordance: the pane keeps its current
+    // entries, and the cancel wiring (not this catch) clears the pending
+    // indicator. A non-cancel failure on a navigation the user has
     // already left is dropped too — a slow listing's timeout must not
     // repaint the abandoned directory (or throw unhandled); only the
     // CURRENT navigation's real errors reach the pane's error state.
     if (e.kind == RemoteFileErrorKind.cancelled) return;
     if (_disposed || generation != _navigationGeneration) return; // stale
-    rethrow;
+    _applyError(path, e); // route the current navigation's real error into
+                          // the pane's error state here — never rethrow from
+                          // a UI-invoked async, or the contract would depend
+                          // on every (fire-and-forget) call site catching.
   }
   if (_disposed || generation != _navigationGeneration) return; // stale
   _applyEntries(path, entries);
@@ -190,7 +196,9 @@ Séance's SOL-057 and is rejected in review.
 Any path assembled from external input — remote listings, sync plans,
 archive entries (v1.x), drag payloads, deep links — validates each
 component before it touches a filesystem: no empty component, no `.` or
-`..`, no separator inside a component, and the joined result must remain
+`..`, no `/` inside a component (`\` is legal POSIX filename data,
+rejected only for Windows destinations per the destination-aware rule
+below — not an unconditional "separator"), and the joined result must remain
 inside the intended root — the helper below is the **lexical half only**;
 root containment is enforced where the absolute destination path is
 built (03 §2.3's `ensureSafeLocalDirectory` refuses symlink traversal on
@@ -235,6 +243,7 @@ void validateRelativeComponents(String relative,
   // A directory entry's trailing '/' is shape, not a component; the
   // validator absorbs it (all of them) so no caller has to remember.
   // '/' itself reduces to '' and is rejected below like any root.
+  final original = relative; // quote the input as received, not post-strip
   while (relative.endsWith('/')) {
     relative = relative.substring(0, relative.length - 1);
   }
@@ -244,11 +253,17 @@ void validateRelativeComponents(String relative,
     // '\' inside one is overwhelmingly an escaping bug, not a filename —
     // do not "simplify" this to windowsDestination-only.
     if (part.isEmpty || part == '.' || part == '..' || part.contains('\\') ||
+        // '\n'/'\r' are line-format breakers on EVERY destination — the
+        // same escaping-bug class as backslash: these components feed the
+        // rsync-command exporter, journals, and rendered previews, where an
+        // embedded line break corrupts line-oriented output or naive quoting.
+        part.contains('\n') || part.contains('\r') ||
         // NUL is not a legal filename byte on any platform, and a POSIX
         // C string silently truncates at it — the same escaping-bug
         // class as backslash, rejected for every destination.
         part.contains('\x00')) {
-      throw FormatException('unsafe path component "$part" in "$relative"');
+      throw FormatException(
+          'unsafe path component "$part" in "$original" (shape/traversal)');
     }
     // Destination-filesystem rules: fine on POSIX, hazardous on Windows —
     // ':' writes an alternate data stream, <>"|?* fail CreateFile, C0
@@ -263,7 +278,8 @@ void validateRelativeComponents(String relative,
             _isWindowsReservedName(part) ||
             part.endsWith('.') ||
             part.endsWith(' '))) {
-      throw FormatException('unsafe path component "$part" in "$relative"');
+      throw FormatException('unsafe path component "$part" in "$original"'
+          ' (windows: hazard char / reserved name / trailing dot or space)');
     }
     // Bidi override/isolate controls are rejected for EVERY destination:
     // they visually reorder a rendered name (the CVE-2021-42574 spoof
@@ -273,7 +289,8 @@ void validateRelativeComponents(String relative,
     // names carry directionality in their characters and never need
     // explicit override controls.
     if (_bidiControls.hasMatch(part)) {
-      throw FormatException('unsafe path component "$part" in "$relative"');
+      throw FormatException(
+          'unsafe path component "$part" in "$original" (bidi control)');
     }
   }
 }
@@ -288,6 +305,22 @@ final _bidiControls = // ALM/LRM/RLM, LRE..RLO+PDF, LRI..PDI — the full
         r'\u202a-\u202e'       // literal bidi char in a validator
         r'\u2066-\u2069]');    // would be its own spoof hazard)
 ```
+
+Pin `_isWindowsReservedName`'s contract in its tests, since the
+export/preview/drag flows it guards never mkdir and so nothing else would
+catch a divergent stem rule: bare names case-insensitively (`con`, `Aux`,
+`NUL`), stem-plus-extension forms (`CON.txt`, `lpt1.tar`), names that
+collide only *after* Win32 trailing-dot/space stripping (`NUL.`,
+`COM1 .log`), and `CLOCK$` \u2014 and record the chosen stem rule here so 02/05
+cannot state a conflicting one.
+
+Corollary on bidi: a string that has passed through 02 \u00a713's display-time
+LRI\u2026PDI isolation is *rendered* text carrying the app's own isolation
+marks, so it must never be persisted or fed back into
+`validateRelativeComponents`. Rename and copy flows take user input
+**pre**-isolation, and any isolate arriving in pasted input is stripped at
+the field boundary rather than stored; a display\u2192input round trip that
+reaches the validator is a defect to record, not a reason to loosen it.
 
 ### 3.6 Atomic writes for every persisted file
 
@@ -460,12 +493,13 @@ is a plan violation. Changing any requires a 00 edit with rationale first.
 7. **No blocking the UI isolate with hashing, scans, archive work, or
    transfer I/O** (D8). Sockets live in the engine isolate; CPU-heavy work
    runs in workers; the UI isolate holds view state only.
-8. **Never push to a Séance shared account before PR-S1 ships** (D4).
-   Writing a `bookmark` record into an account read by un-patched Séance
-   bricks its sync or spawns phantom servers. Design B (separate account)
-   is the default until the user confirms every install meets
-   `kMinimumSharedAccountSeanceVersion` (04 §4.2) — the gate is code, not
-   documentation.
+8. **Never push to a Séance shared account unless every install reading it
+   meets `kMinimumSharedAccountSeanceVersion`** (D4; before PR-S1 ships this
+   can never hold, so Design B is the default). PR-S1 *shipping* does not by
+   itself make shared pushes safe — an un-patched install still on the
+   account bricks its sync or spawns phantom servers when it reads a
+   `bookmark` record — so the precondition is per-install version coverage,
+   confirmed by the user (04 §4.2); the gate is code, not documentation.
 9. **Never fork `seance_core`/`seance_protocol`** (D2). Git-pinned tags
    only; a stalled upstream PR means pin-to-rev (07 §6 risk 4), never a
    copy.
@@ -492,20 +526,26 @@ Every non-draft PR from a same-repo branch gets an automated GLM review
   sources first; never apply a change just to appease the reviewer — this
   plan's decisions (00) outrank review suggestions, and a suggestion that
   contradicts a Dn is declined by citing it.
-- Never flip-flop: keep a running list of declined items and reasons; a
+- Never flip-flop: keep a running list of declined items and reasons **in
+  the PR description** (one line per item, updated as triage happens — chat
+  is ephemeral and commit messages are scattered, so a later round can
+  prove a re-raise is evidence-free against a durable, linkable list); a
   declined item is re-opened only on genuinely new evidence.
-- Declare **steady-state** and stop when two consecutive rounds yield no
-  valid actionable findings, the reviewer re-raises already-declined items
-  **without new evidence** (a re-raise that carries genuinely new
-  evidence re-opens the item per the no-flip-flop rule, it does not end
-  the review) or contradicts itself, or everything left is out of the
-  PR's scope. At
+- Declare **steady-state** and stop when **either** (a) two consecutive
+  rounds yield no valid actionable findings, **or** (b) a round's only
+  content is the reviewer re-raising already-declined items **without new
+  evidence**, contradicting itself, or leaving nothing but out-of-scope
+  items — a re-raise that carries genuinely new evidence re-opens the item
+  per the no-flip-flop rule and does not end the review. At
   steady-state: post the short scorecard (applied / declined / refuted /
   deferred — one line per bucket above), state
   merge-readiness, `unsubscribe_pr_activity`, delete the check-in triggers.
 - Exceptions: human reviewers are never subject to the steady-state
-  cutoff; always
-  unsubscribe on merge/close or when the user says stop.
+  cutoff; on merge/close or when the user says stop, always run the **full
+  teardown** — `unsubscribe_pr_activity` **and** deleting the check-in
+  triggers (most PRs exit via merge rather than steady-state, so the merge
+  path must not leave orphaned hourly check-ins firing after the PR is
+  gone).
 
 ## 8. When stuck
 

@@ -3,7 +3,7 @@
 Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) first for how to build/test.
 
-_Last updated: 2026-08-30 — the design plan is complete and merged; next
+_Last updated: 2026-08-31 — the design plan is complete and merged; next
 up is implementation, starting at milestone M0._
 
 ## Done

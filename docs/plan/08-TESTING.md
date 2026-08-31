@@ -38,8 +38,11 @@ These are Séance's proven testing principles, adopted wholesale:
    clean copy phase, TOFU changed-key hard block, restored queues start
    paused) each map to a named test. A safety behavior without a test is
    treated as absent.
-4. **Analyze clean, always.** `dart analyze packages/poltergeist_core
-   packages/poltergeist_sync` and `flutter analyze` in the app are
+4. **Analyze clean, always.** `dart analyze packages/poltergeist_core &&
+   dart analyze packages/poltergeist_sync` — one invocation per package,
+   because `dart analyze` takes a **single** analysis root (unlike
+   `dart test`, which accepts several paths) — and `flutter analyze` in
+   the app are
    zero-warning gates in CI and before every commit — with explicit paths,
    never bare at the repo root (AGENTS.md §4).
 5. **String and structure goldens, not pixel goldens.** Golden tests
@@ -405,7 +408,12 @@ test/integration/
                             (`${PORT}:22`), and long-form
                             (`host_ip: 0.0.0.0`) entries that still bind
                             0.0.0.0, and the check's own test feeds it
-                            those three shapes and asserts red —
+                            those three shapes **plus the bare unquoted
+                            `2201:22` short form**, treats a resolved
+                            entry with no `host_ip` key (how `docker
+                            compose config` commonly renders an unpinned
+                            short form) as **non-loopback**, and asserts
+                            red on every one of them —
                             Principle 3 applies to the fixture's own
                             most dangerous property too
   sshd-modern/Dockerfile    alpine pinned by version + digest — current
@@ -415,8 +423,12 @@ test/integration/
   sshd-legacy/Dockerfile    ubuntu:20.04 pinned by digest — OpenSSH 8.2p1
                             (older algorithm defaults; focal is past
                             standard support, so expect to retarget apt at
-                            old-releases.ubuntu.com or swap to another
-                            OpenSSH ≤ 8.x base when the archive moves —
+                            old-releases.ubuntu.com or swap to Debian
+                            bullseye (OpenSSH 8.4p1, still on primary/LTS
+                            mirrors — the pre-decided ≤ 8.x candidate,
+                            pinned by digest and re-audited against D9's
+                            algorithm expectations) when the archive
+                            moves —
                             and once built, the image is pushed to the
                             project's GHCR and CI pulls that
                             digest-pinned frozen artifact, so archive
@@ -436,7 +448,14 @@ test/integration/
                             need committing; a README in the
                             dir marks every key fake/test-only, and the
                             repo carries secret-scanner allowlist
-                            entries for them (GitHub push protection
+                            entries **scoped to the exact blobs/paths
+                            under `test/integration/keys/`** (never a
+                            pattern-level or repo-wide exemption, which
+                            would also admit a future real private key
+                            committed elsewhere), plus a scheduled scan
+                            asserting no private-key detection exists
+                            anywhere outside that dir (GitHub push
+                            protection
                             flags committed SSH private keys and would
                             otherwise block the push — allowlisted,
                             never "fixed" by deleting the keys, which
@@ -478,7 +497,11 @@ The Dart tests live inside the packages (explicit-path rule):
 `packages/poltergeist_core/test/integration/` and
 `packages/poltergeist_sync/test/integration/`, each file tagged
 `@Tags(['integration'])` and self-skipping with an explanatory message
-when the `POLTERGEIST_SSHD` environment variable is unset — so plain
+when **its own** service variable is unset (`POLTERGEIST_SSHD_MODERN`,
+`…_LEGACY`, `…_AUTHMATRIX`, … — never the umbrella `POLTERGEIST_SSHD`
+alone, or a partially-exported local environment would enable a suite
+whose port var is absent and turn a named skip into a confusing
+connection error) — so plain
 `dart test packages/…` stays green without Docker. `run.sh` starts the
 compose stack, exports `POLTERGEIST_SSHD=127.0.0.1` plus one variable
 per service (`POLTERGEIST_SSHD_MODERN=2201`, `…_LEGACY=2202`, and so on)
@@ -496,7 +519,15 @@ Every suite that stops or swaps a service **restores the original stack
 in `tearDownAll`** — the keyswap suite in particular must stop
 `sshd-keyswap` **before** starting `sshd-modern` — and then **wait
 until host port 2201 is actually free** (poll the bind, or retry the
-`up` on bind failure): `docker stop` returning does not guarantee the
+`up` on bind failure), and — after **every** in-suite `up`/`start` (the
+keyswap `up`, `tearDownAll`'s `sshd-modern` restart, the pool suite's
+`start`) — **repeat run.sh's banner-exchange readiness wait for that
+service before the suite connects** (a shared helper reading the
+per-service host/port env vars): waiting for the port to be *free* is
+not waiting for sshd to be *listening*, and Docker's userland proxy
+publishes the host port as the container starts, so the very next
+connect can be refused — the same first-connection flake run.sh's wait
+closes, reopened at each in-suite restart. `docker stop` returning does not guarantee the
 publish teardown has finished, and both publish host
 port 2201, so starting `sshd-modern` while the port is still bound
 makes the new container fail to bind and exit, leaving host port 2201
@@ -568,8 +599,11 @@ Two tiers, because CI runners cannot honestly measure UI frames:
 
 Mechanics:
 
-- Every run writes `bench-results.json` (scenario id, value, unit,
-  environment fingerprint); `test/benchmarks/check.dart` compares results
+- Every run writes `bench-results.json` (scenario id, **repetition index
+  within the job**, value, unit, environment fingerprint — the repetition
+  index is part of the aggregation key so `check.dart` can take the median
+  of the ≥3 in-job repetitions per scenario without treating them as
+  duplicate ids); `test/benchmarks/check.dart` compares results
   against `test/benchmarks/budgets.json` (the P1–P7 values, mirroring
   02 §12) and the committed tier-B baseline, prints the table, and exits
   non-zero whenever an expected scenario is **missing or errored** — in
@@ -713,7 +747,7 @@ section says what each job runs and what gets added when.
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
 | `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral if the fixture is ever absent — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, and on PRs touching `packages/**` or `test/integration/**` (the bench job's path-filter rationale — a 25-minute Docker job has no business on a docs-only PR). |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle: compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**` or `test/benchmarks/**`** (so a baseline-refresh or check.dart/budgets.json-only PR is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle via a `--lifecycle-only` mode run.sh grows for this job (compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — but **no `dart test` invocation**, since reusing run.sh verbatim would run the whole ~25-min integration suite inside this 45-min job, while copying the lifecycle into the bench job would fork the trap/readiness logic §5 centralizes) — tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**` or `test/benchmarks/**`** (so a baseline-refresh or check.dart/budgets.json-only PR is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/
@@ -740,8 +774,10 @@ PR); every release records a filled copy in the release PR. Per release:
   `StartupWMClass` maps the window to the desktop entry.
 
 **IME smoke** (Flutter-desktop pitfall: Windows is IMM32, not TSF)
-- Rename a file with Japanese and Korean input on Windows and macOS:
-  composition renders in place, Enter commits, Esc cancels the
+- Rename a file with Japanese and Korean input on Windows, macOS, and
+  Linux (IBus/fcitx — Linux is a shipped platform, and IME composition is
+  notoriously platform-divergent): composition renders in place, Enter
+  commits, Esc cancels the
   composition without cancelling the rename.
 - Type CJK in the editor and the filter field; verify highlighting never
   fights composition (the `CodeEditingController` IME guard).
@@ -760,8 +796,11 @@ PR); every release records a filled copy in the release PR. Per release:
   macOS, SmartScreen "More info → Run anyway" on Windows — both match
   the documented steps.
 - Trash per platform (D15): macOS Put Back works; Windows Explorer undo
-  restores; Linux `gio trash --restore` restores.
-- Drop-in from Finder/Explorer into each pane; in-app pane↔pane drag;
+  restores; Linux restore-from-trash verified — `gio trash --restore`
+  where the installed GLib supports the flag (it takes the trash-side
+  suffixed name, not the original path), else `gio open trash://` + a
+  file-manager restore; record which path the QA machine used.
+- Drop-in from Finder/Explorer/Nautilus into each pane; in-app pane↔pane drag;
   confirm drag-out is absent (v1) and the "Download to…" path covers it.
 - Theme flip (light/dark) live-restyles listing, plan view, and editor;
   HiDPI scaling at 100 %/150 %/200 % shows no clipped chrome.
@@ -807,7 +846,9 @@ PR); every release records a filled copy in the release PR. Per release:
 - [ ] `ci.yml` carries the §8 additions on schedule: dart-job OS matrix
       at M1, `integration` job at M2 (skip-neutral guarded), `bench` job
       at M3 (main + dispatch for both tiers; tier A additionally on
-      `packages/**` PRs with `BENCH_ENFORCE_A`, per §6/§8).
+      `packages/**` **and `test/benchmarks/**`** PRs with
+      `BENCH_ENFORCE_A`, per §6/§8 — the harness's own PRs are the ones
+      most likely to perturb timings, so they gate too).
 - [ ] `docs/qa/RELEASE-CHECKLIST.md` exists (M9) and a filled copy is
       attached to every release PR from then on.
 

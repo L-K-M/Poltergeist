@@ -102,6 +102,8 @@ and that the engine-isolate architecture works (D8).
   08 describe one lifecycle. Sketch of the harness seam:
 
 ```dart
+import 'dart:io'; // Platform.localHostname
+
 // tool/bench/lib/harness.dart — every scenario returns one of these.
 class BenchResult {
   final String scenario;      // 'download-1g-lan-hash-off'
@@ -114,6 +116,17 @@ class BenchResult {
                               // report never mistakes a hashing-off fork
                               // row for an unpatched-Séance one
   final String seanceRev;     // seance_core git-pin rev under test
+
+  const BenchResult({
+    required this.scenario,
+    required this.bytes,
+    required this.elapsed,
+    required this.mbPerSec,
+    this.note,
+    required this.dartssh2Rev,
+    required this.seanceRev,
+  });
+
   Map<String, Object?> toJson() => {
         'scenario': scenario,
         'bytes': bytes,
@@ -129,6 +142,17 @@ class BenchResult {
                                         // machines (dev laptop vs CI
                                         // runner) must stay attributable
       };
+
+  // The report tooling merges rows across runs, so the row round-trips.
+  factory BenchResult.fromJson(Map<String, Object?> json) => BenchResult(
+        scenario: json['scenario']! as String,
+        bytes: json['bytes']! as int,
+        elapsed: Duration(milliseconds: json['elapsedMs']! as int),
+        mbPerSec: json['mbPerSec']! as double,
+        note: json['note'] as String?,
+        dartssh2Rev: json['dartssh2Rev']! as String,
+        seanceRev: json['seanceRev']! as String,
+      ); // timestampUtc/host stay as passthrough report metadata
 }
 ```
 
@@ -189,6 +213,9 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 **Exit criteria.**
 
 - [ ] `flutter analyze` and `flutter test` pass in `app/poltergeist_app`.
+- [ ] PR-S2 is filed against Séance (the milestone table's "file S2 now"
+      gate — M2 then requires it merged or rev-bridged), mirroring M0's
+      "PR-S0 and PR-S1 are filed" box so the gate is checkable.
 - [ ] `ci.yml`'s `detect` job activates the `flutter` and `client` jobs and
       the full matrix (android / linux / macos / ios / windows) is green,
       including the `.deb`/AppImage packaging step.
@@ -234,17 +261,23 @@ small on purpose.
 
 **Goal.** Poltergeist can connect: pool, prompts, diagnostics, import.
 Gates: **PR-S0 landed** (LICENSE on Séance `main` — M2 performs the first
-D2 copies, which may not happen before it), and **PR-S2**
+D2 copies, which must not happen before it), and **PR-S2**
 (`openAuthenticatedClient`, 04 §5.3) landed on Séance `main` — **or**
 carried as a recorded branch-rev bridge per the next sentences — with the
 Séance pin bumped accordingly; either state satisfies the gate, and the
 bridged form must be recorded as a dated open item in STATUS.md (D2's
 rev-pin rule). If upstream review is slow, pin to the rev of the PR
 branch (the
-git pin is by rev anyway) and re-pin to the merge commit after — never
-copy the code. If Séance squash-merges and deletes the branch, re-pin
-immediately: the branch-rev SHA becomes unfetchable for fresh clones once
-the branch is gone.
+git pin is by rev anyway) and re-pin to the landed commit on `main`
+after — never
+copy the code. If Séance squash-merges, rebase-merges, force-pushes the
+branch during review, or deletes it, re-pin immediately: any of these
+makes the branch-rev SHA unfetchable for fresh clones (a squash or rebase
+never leaves the original SHA an ancestor of `main`, and a force-push
+replaces the tip — the most likely breakage while the bridge is live).
+If the PR is filed from a fork, resolve the rev through
+`refs/pull/<n>/head` rather than a plain SHA fetch, which may not resolve
+against `origin` at all.
 
 **Scope.**
 
@@ -342,7 +375,10 @@ fast, keyboard-first, honest about latency.
 **Exit criteria.**
 
 - [ ] D12 browse budgets are CI benchmarks: the tier-A remote-listing-
-      overhead benchmark (P3, < 50 ms) is green **and enforced**
+      overhead benchmark (P3, < 50 ms, measured as the **median of ≥5 warm
+      runs of the overhead over the local-listing baseline on the same
+      runner** — never a single-run absolute wall-clock, which flakes on
+      shared `ubuntu-latest`) is green **and enforced**
       (`BENCH_ENFORCE_A`, red = failed job); the tier-B UI benchmarks —
       10k-entry local paint < 150 ms (P1), 100k < 1 s (P2), tab switch
       < 100 ms (P4), scroll jank within budget (P6) — run trend-only and
@@ -389,7 +425,9 @@ plus every file operation a browser needs.
   rename handling.
 - Trash (D15): the in-repo Trash service and `poltergeist/trash` channel
   per 03 §7.1/§7.3 — macOS
-  `FileManager.trashItem` with Put Back, Windows `IFileOperation` +
+  `FileManager.trashItem` (Finder's Put Back is best-effort OS-provided
+  behavior, verified in the manual QA note, not something the app
+  guarantees), Windows `IFileOperation` +
   `FOF_ALLOWUNDO` via `win32` FFI, Linux `gio trash`. Remote browse
   deletions: confirm-then-permanent, with the per-server
   ".poltergeist-trash/ instead" opt-in.
@@ -401,7 +439,8 @@ plus every file operation a browser needs.
 **Exit criteria.**
 
 - [ ] Drop-to-transfer-start < 500 ms (no upfront full-tree stat) — the
-      tier-A P5 benchmark green **and enforced** (`BENCH_ENFORCE_A`).
+      tier-A P5 benchmark green **and enforced** (`BENCH_ENFORCE_A`),
+      measured as the median of ≥5 warm runs on the same runner, like P3.
 - [ ] Kill the app mid-queue; relaunch restores queued/paused tasks from
       the journal and history shows completed ones.
 - [ ] Conflict dialog covers all five verbs; per-direction defaults
@@ -442,8 +481,12 @@ locally. Sync comes next milestone; nothing here depends on a server.
 - [ ] `localFolder` and `remotePath` bookmarks open in the chosen pane;
       `workspace` restores tab sets exactly.
 - [ ] Device-local fields proven non-syncing by a serialization test
-      (payload JSON contains no local-only keys).
-- [ ] Sidebar fully keyboard-operable; semantics per D20 on every row.
+      (the `BookmarkStore` payload JSON contains no local-only keys **and
+      no secure-bookmark blobs** — the exact shape M6's sync will consume,
+      so a leak is caught here, not as an M6 sync bug).
+- [ ] Sidebar fully keyboard-operable, with keyboard navigation and
+      drag-to-reorder/group covered by widget tests; semantics per D20 on
+      every row.
 
 **Risks.** Schema drift versus PR-S1's upstream copy of the model — the
 04 §2.1 rule stands: one authoritative schema, temporary copy deleted at
@@ -709,8 +752,8 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks`; every build signs with it (policy: **Android signing & checksums**, below the table) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1), and the M10 INSTALL.md labels it accordingly |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1) — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable, self-upgrading APK |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
