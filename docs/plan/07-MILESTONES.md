@@ -70,11 +70,13 @@ and that the engine-isolate architecture works (D8).
   rev-pinned `seance_core` git dependency — not an in-repo path; this
   repo's packages are `poltergeist_*` only), against an
   OpenSSH `sftp` baseline on the same links: LAN-class (Docker sshd on
-  localhost) and high-latency (the same container behind `tc netem` with
-  100 ms delay and 50 ms jitter, stated as RTT and shaped in **both**
-  directions — egress-only netem delays a single direction, halving the
-  effective RTT and skewing the pipelining conclusions; in-container `tc`
-  also needs `--cap-add=NET_ADMIN`). Record MB/s with hashing on and off
+  localhost) and high-latency (the same container behind `tc netem`
+  targeting 100 ms RTT — 50 ms delay + 25 ms jitter shaped in **both**
+  directions, since RTT ≈ 2× the per-direction delay — egress-only netem
+  delays a single direction, halving the effective RTT and skewing the
+  pipelining conclusions; in-container `tc` also needs `--cap-add=NET_ADMIN`;
+  the report row records the **measured** RTT, not the configured delay).
+  Record MB/s with hashing on and off
   (hashing-off requires a patch until PR-S3 — carried as a committed
   patch on a rev-pinned branch of a Séance fork, never an uncommitted
   working-tree or pub-cache edit, so CI and fresh clones reproduce the
@@ -233,7 +235,8 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 - [ ] `flutter analyze` and `flutter test` pass in `app/poltergeist_app`.
 - [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
       the milestone table's "file S2 now" gate; M2 then requires it merged
-      or rev-bridged per §3.3, and it must be in review by then — mirroring
+      or rev-bridged per §3.3 — and, unless it has already merged, at least
+      in review — mirroring
       M0's "PR-S0 and PR-S1 are filed" box so the gate is checkable.
 - [ ] `ci.yml`'s `detect` job activates the `flutter` and `client` jobs and
       the full matrix (android / linux / macos / ios / windows) is green,
@@ -343,6 +346,8 @@ against `origin` at all.
       entries connect.
 - [ ] `docs/PORTS.md` exists with an entry per copied file.
 - [ ] Pin bump recorded; `dart test packages/poltergeist_core` green.
+- [ ] If PR-S2 is carried as the branch-rev bridge, STATUS.md records it as
+      a dated open item (the §3.3 gate's own requirement).
 
 **Risks.** PR-S2 stalls (pin-to-rev mitigation above); isolate prompt
 round-trips feel laggy (measure against the D12 budgets now, not in M9).
@@ -386,7 +391,9 @@ fast, keyboard-first, honest about latency.
   (03 §7.2) — v1 desktop grants are pass-through, but the seam exists.
 - Bench harness migrates from `tool/bench/` into `packages/*/benchmark/`
   + `test/benchmarks/` per the M0 commitment (08's layout) — this is what
-  gives the P1–P6 CI benchmarks below a home; `tool/bench/` is deleted or
+  gives the CI benchmarks below a home (P1–P4 and P6 gate at M3; P5 gates
+  at M4 and P7 at M8, the milestones that introduce their surfaces, §1);
+  `tool/bench/` is deleted or
   reduced to a thin entrypoint.
 
 **Exit criteria.**
@@ -447,7 +454,7 @@ plus every file operation a browser needs.
   guarantees), Windows `IFileOperation` +
   `FOF_ALLOWUNDO` via `win32` FFI, Linux `gio trash`. Remote browse
   deletions: confirm-then-permanent, with the per-server
-  ".poltergeist-trash/ instead" opt-in.
+  `.poltergeist-trash/` opt-in instead.
 - chmod UI (D28): octal + checkboxes, recursive apply over the walker.
   (chown waits for the PR-S3 pin bump; it ships with M8/M9.)
 - `window_manager` prevent-close wired: quitting with active tasks warns
@@ -726,11 +733,14 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
    v1.0.0 uses; `release.yml`'s `softprops/action-gh-release` step keys
    `prerelease` off the leading `0.`, so every `v0.*` tag publishes as a
    pre-release automatically and a rehearsal tag can never become the
-   repo's latest stable release. Once the v1.x fast-follows (§3.13) begin,
-   the same step must additionally treat a semver pre-release suffix
-   (`v1.1.0-rc1`, betas) as a pre-release — or the tag grammar must forbid
-   such tags — so an RC can never publish as Latest either; the leading-`0.`
-   rule alone stops holding the moment any hyphenated `v1.*` tag exists.
+   repo's latest stable release. From `v0.1.0` on, the same step also treats
+   any semver pre-release suffix (`v1.1.0-rc1`, betas) as a pre-release —
+   e.g. `prerelease: startsWith(github.ref, 'refs/tags/v0.') ||
+   contains(github.ref, '-')` — so an RC can never publish as Latest either
+   (a one-expression change that closes the window now rather than at v1.x
+   time). The leading-`0.` rule alone stops holding the moment any
+   hyphenated `v1.*` tag exists; the tag grammar may instead forbid such
+   tags — pick one, consistent with §4's versionCode suffix rule.
    M10 ships `v1.0.0` (§3.11) and no `v0.10.0` pre-release.
 5. Re-check the §5 mobile invariant for the milestone (M0 predates the
    app and is exempt; every other milestone has a row in the §5 table).
@@ -776,8 +786,8 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with a secret-scanner allowlist entry scoped to both paths** (`.gitleaksignore` / push-protection exemption — a `password =` line otherwise trips gitleaks-class rules and GitHub push protection and blocks a file this plan mandates; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlist instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the leading-`0.` heuristic `release.yml` must carry actually holds. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1) — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with secret-scanner coverage for both** (a `.gitleaksignore` fingerprint entry covers the two paths, and the committed password value is allowlisted once through the repo's GitHub secret-scanning alert — push protection exempts by secret *value* (an admin action), not by path, so there is no path-scoped push-protection entry to add — and thus the mandated push is not blocked; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlists instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the leading-`0.` heuristic `release.yml` must carry actually holds. The APK is a **rehearsal artifact of the desktop codebase**: Android is not a supported v1 target — all Android-specific work and verification (D29, §5) stays post-v1 — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
@@ -796,7 +806,13 @@ stable committed key, so each release's APK upgrades the installed app
 in place and a missing-secret misconfiguration cannot exist. In-place
 upgrade also requires a strictly increasing Android `versionCode`,
 derived monotonically from `release.sh`'s version argument
-(`v0.2.0` > `v0.1.0` > … > `v1.0.0`); from `v0.2.0` on, each rehearsal
+(`v0.2.0` > `v0.1.0` > … > `v1.0.0`), with any pre-release suffix mapped
+**below** its final — e.g. `major*1_000_000 + minor*10_000 + patch*100 +
+pre`, `pre` = 99 for a final and 1–98 for `-rcN`/`-betaN`, so `v1.1.0-rc1`
+(1_010_001) < `v1.1.0` (1_010_099) < `v1.1.1-rc1`; if the tag grammar
+instead forbids suffixes (§3.12's alternative), a suffixed tag must never
+ship an APK — pick one rule in writing before the first v1 RC. From
+`v0.2.0` on, each rehearsal
 installs the new APK over the previous pre-release to prove the upgrade
 path, because a flat or mis-derived `versionCode` keeps every
 signature/checksum rehearsal green while a real sideloaded APK refuses
@@ -868,7 +884,7 @@ Per-milestone invariant check (item 5 of §3.12):
 | M6 | Sync enrollment and the record store add no pane, watcher, or window coupling; every earlier row still holds |
 | M7 | Checkouts live under `path_provider` dirs; reconcile-on-resume works without watchers |
 | M8 | Scans are cancellable and runs resume from the journal; no watcher dependency |
-| M9 | Polish surfaces (palette, importers, chrome) add no pane, watcher, or window coupling; every earlier row still holds |
+| M9 | Polish surfaces (palette, ssh_config import, chrome) add no pane, watcher, or window coupling; every earlier row still holds |
 | M10 | This memo re-read against the shipped code; deviations recorded in STATUS.md |
 
 ## 6. Risk register
@@ -881,7 +897,7 @@ Per-milestone invariant check (item 5 of §3.12):
 | 4 | Séance upstream PR stalls (S1–S3) | Same owner, sibling repos; file early per 04 §5 | Pin to the PR branch rev; S1 sealing shim (04 §5.6); Design B ships without S1; never fork `seance_core` |
 | 5 | Plugin staleness (the ecosystem meta-risk) | Minimal plugin surface; exact-version pins; first-party packages preferred; `super_*` family avoided in v1 | Replace a broken plugin with a small in-repo channel (Séance's proven pattern); Layer-1 Dart icon map if native icon work slips |
 | 6 | Flutter desktop a11y (Linux broken upstream) and Windows IME (IMM32) | Test and document per D20; semantics built per-surface, never retrofit | Honest known-issues section; not release blockers; track upstream issues by number |
-| 7 | Impeller-on-desktop regressions (new in 3.47) | Test both renderers while the Skia opt-out exists; bench on older GPUs | `--no-enable-impeller` covers dev/CI/bench only — a shipped build can't read a `flutter run` flag — so a user-facing regression needs a build-time renderer opt-out (Info.plist/manifest), decided if one appears while upstream keeps the opt-out |
+| 7 | Impeller-on-desktop regressions (new in 3.47) | Test both renderers while the Skia opt-out exists; bench on older GPUs | `--no-enable-impeller` covers dev/CI/bench only — a shipped build can't read a `flutter run` flag — so a user-facing regression needs a build-time renderer opt-out (Info.plist/manifest), decided if one appears while upstream keeps the opt-out; if upstream removes the opt-out first, an unresolved user-facing regression is a release blocker resolved by a 00 edit (pin/bisect/upstream fix), never a silent ship |
 | 8 | Scope creep | D25 parking lot; this chapter's fixed order; 09's review guardrails | Pre-authorized cuts, each a one-line edit to 00/02 in the cutting PR: native icon/thumbnail layer → Dart icon map; Quick Look → open-with-default; preview pane → text+images only; Sync Browsing → v1.x; local fast-path → streamed copy only |
 | 9 | Polish squeezed at the end | Budgets and a11y gate from the milestone that introduces each surface | M9 is defined as an audit; if it finds rescue work, the schedule slips, the bar does not |
 | 10 | Trash plugin blocked on one platform | Three small native surfaces, built early in M4 | Confirm-then-permanent on that platform only, recorded in README and STATUS |
@@ -898,7 +914,10 @@ Per-milestone invariant check (item 5 of §3.12):
       fresh-machine installs from INSTALL.md alone — which carries the
       macOS Gatekeeper and Windows SmartScreen first-launch bypass steps
       (§4 M10), since signing and notarization are deferred (out of scope
-      below): a default OS blocks an unsigned download without them.
+      below): a default OS blocks an unsigned download without them — and
+      §4 already publishes SHA-256 checksums beside every asset from
+      `v0.1.0`, linked from INSTALL.md next to the bypass steps, so the
+      download is verifiable before the OS gate is bypassed.
 - [ ] Mobile invariants (07 §5) checked at every milestone close; no v1
       code forecloses single-pane, scoped-access, or suspendable-queue
       mobile.

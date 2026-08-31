@@ -65,8 +65,13 @@ rules — AGENTS.md remains the authority on toolchain setup (§1 there).
   cannot reach it either. The commands are:
 
   ```bash
-  dart analyze packages/poltergeist_core packages/poltergeist_sync
+  dart analyze packages/poltergeist_core
+  dart analyze packages/poltergeist_sync   # one root per invocation —
+                                           # `dart analyze` takes a single
+                                           # analysis root (08 §3 Principle 4)
   dart test    packages/poltergeist_core packages/poltergeist_sync
+                                           # `dart test` DOES accept several
+                                           # paths, unlike analyze
   cd app/poltergeist_app && flutter analyze && flutter test
   ```
 
@@ -586,6 +591,11 @@ Every non-draft PR from a same-repo branch gets an automated GLM review
   triggers (most PRs exit via merge rather than steady-state, so the merge
   path must not leave orphaned hourly check-ins firing after the PR is
   gone).
+- A **stalled** PR (neither merged, closed, nor at steady-state, with the
+  author gone quiet) gets the same teardown: after 7 days with no PR
+  activity, run the full teardown — `unsubscribe_pr_activity` **and**
+  delete the check-in triggers — and record the PR in STATUS.md's open
+  items. A check-in must not outlive the work it was armed for.
 
 ## 8. When stuck
 
@@ -643,7 +653,11 @@ see clearly: title it as a decision change, not a feature.
 - [ ] Every merged PR since implementation start satisfies the §5
       checklist (spot-checkable: STATUS diffs, screenshots on UI PRs,
       green CI history).
-- [ ] No violation of the §6 hard rules exists on `main`.
+- [ ] No violation of the §6 hard rules exists on `main` (spot-checkable:
+      CI or a scripted check guards the mechanically-checkable rules — no
+      `rsync` process spawn, no telemetry/crash-reporting dependency — and
+      each merged PR's review confirms its touched surfaces against §6; a
+      bare assertion satisfies nothing, like every other item here).
 - [ ] The D4 shared-account gate is enforced in code before any sync
       feature ships (a temporal gate checked at shipping time — split
       from the standing invariant above so each is attestable on its
