@@ -96,7 +96,7 @@ interface is genuinely transport-neutral, so the mapping is direct:
 | Method | dart:io implementation | Caveats |
 |---|---|---|
 | `canonicalize` | `resolveSymbolicLinks()` when the path exists; otherwise return the normalized absolute path | never throws just because the path is missing (matches realpath use for home resolution); "home" = the user home via the ported `expandHomePath` |
-| `listDirectory` | `Directory(path).list(followLinks: false)`; classify each entry via `FileSystemEntity.type(…, followLinks: false)` and stat only non-link entries — links report `type: symbolicLink` with `size`/`modifiedAt` null, matching the `stat` row below (a plain `FileStat.stat` would follow the link and report the target's identity) | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
+| `listDirectory` | `Directory(path).list(followLinks: false)`; classify each entry from the listed entity's own runtime type (`entry is Link`/`Directory`/`File` — `followLinks: false` already reports a symlink as a `Link` instance, so no extra per-entry `FileSystemEntity.type` lstat is needed) and stat only non-link entries — links report `type: symbolicLink` with `size`/`modifiedAt` null, matching the `stat` row below (a plain `FileStat.stat` would follow the link and report the target's identity) | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
 | `stat` | `FileStat.stat` when `followLinks: true`; with `followLinks: false`, detect symlinks via `FileSystemEntity.type(path, followLinks: false)` | dart:io has no lstat: for a symlink itself, return `type: symbolicLink` with `size`/`modifiedAt` null — callers already treat those as optional |
 | `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', ['--', octal, path], environment: {...Platform.environment, 'LC_ALL': 'C'})` on macOS/Linux — `--` so a path beginning with `-` can never parse as an option, and `LC_ALL=C` (spread the inherited environment so `PATH` survives) so stderr is deterministic English regardless of the user's locale, since chmod localizes via `strerror`; a non-zero exit code routes through the §2.2 funnel (`Process.run` failures arrive as exit codes, or as a thrown `ProcessException` when the binary cannot be launched — the guard catches it and maps it to `other`; exit 1 with `Operation not permitted`/`Permission denied` in stderr maps to `permissionDenied`, mirroring `setOwner`'s EPERM translation — the chown path uses the same `LC_ALL=C` environment) | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
 | `readSymbolicLink` | `Link(path).target()` | |
@@ -126,9 +126,12 @@ notes flag the prefix as the one thing to parameterize).
 `setMode`/`setOwner`, since `setLastModified` dereferences and would
 write a synced tree's mtime through a link to its target — maps to
 `File.setLastModified` (and `setLastAccessed`) for
-**files**; a directory target returns the typed `unsupported` error, since
-dart:io cannot set directory timestamps — which costs the sync engine
-nothing: it compares directories by existence only and never sets their
+**files**; a directory target succeeds on POSIX (`File.setLastModified`
+bottoms out in `utimensat`, a path-based syscall with no regular-file
+restriction) and returns the typed `unsupported` error only on Windows
+(whose implementation opens the path, and cannot open a directory that
+way) — which costs the sync engine
+nothing either way: it compares directories by existence only and never sets their
 times (05 §4). `setOwner`
 maps to `Process.run('chown', ['--', spec, path], environment:
 {...Platform.environment, 'LC_ALL': 'C'})` on Unix — **after
@@ -144,9 +147,13 @@ like every other non-zero exit code — and
 engine's local half never waits on the upstream PR (§2.4). Like the
 `rename` preflight, the refuse-symlinks-first check is advisory, not
 atomic: a path swapped to a symlink between the check and the
-`chmod`/`chown` exec is dereferenced. Either re-stat after the operation
-and fail the write when the entry type changed in flight, or record the
-residual check-then-act race as accepted, as the `rename` row does.
+`chmod`/`chown`/`setLastModified` exec is dereferenced. The decision:
+re-stat (lstat-style, `followLinks: false`) after the operation and fail
+the write — mapped to `conflict`, matching the upload/download commit
+guards' vocabulary in §4.2 — when the entry type no longer matches what
+the refuse-first check saw; the residual window between the write and
+that re-stat is what's accepted, as the `rename` row does, not the
+whole check-then-act race.
 
 ### 2.3 Local-safety helpers become public utilities
 
@@ -423,7 +430,10 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   by serverId: `disconnectServer(serverId)` drops that id's reference —
   closing its browse channels and **releasing** its transfer leases:
   a running task whose lease is released this way flips to `queued`
-  (this flip consumes no §3.3 reconnect retry — that counter counts
+  (a transient engine-internal state only: while the shared pool stays
+  alive under a sibling serverId the re-lease is immediate and this flip
+  is never fanned out to the §6 mirror — the task never renders in the
+  UI as anything but running; this flip consumes no §3.3 reconnect retry — that counter counts
   failed reconnect cycles only, and this path can never fail the task; it is
   retryable **immediately** while the shared pool stays alive under a
   sibling serverId — the queue re-leases by the pool endpoint, not by
@@ -490,8 +500,11 @@ enum TransferTaskState {
 /// under the first free auto-numbered name (02 §5.2's keep-both), leaving
 /// the existing destination untouched; and a non-dir occupying a planned
 /// directory path routes through the folder policy (`replace` removes it
-/// via the D15 delete story, `skip` skips that subtree) rather than
-/// surfacing as a bare item error — only an unresolvable policy errors.
+/// via the D15 delete story, `skip` skips that subtree, `ask` prompts,
+/// `merge` falls back to `ask` — it cannot recurse into a non-directory)
+/// rather than surfacing as a bare item error — only an unresolvable
+/// policy errors, and never merely "the mkdir found a non-dir", which
+/// §4.2's executor treats identically.
 class ResolvedConflictPolicy {
   final ConflictResolution files;
   final ConflictResolution folders;
@@ -623,6 +636,11 @@ non-negotiable:
   simultaneously from *different* tasks could still both pass an absent
   re-stat under §4.3's global cap, so the executor also consults a shared
   case-folded destination-key registry of in-flight and committed targets
+  (committed entries are evicted once their task reaches a terminal
+  state — the case-folding-aware execution-time re-stat already covers
+  anything already committed, so the registry only ever needs to hold
+  the in-flight window it exists for, and never grows unbounded across a
+  long session)
   and treats the hit as a conflict resolved through the task's policy,
   exactly like a fresh-stat conflict — `ask` prompts via
   `EnginePromptEvent.conflict`, and `skip`/`replace`/`replaceIfNewer`/
@@ -637,26 +655,43 @@ non-negotiable:
   `scanComplete` flips.
 - **Execute** creates directories in order (**mkdir-then-classify**:
   "already exists as a directory" — including one a concurrent task
-  created between check and call — is success, only a non-dir in the
-  way is an error, so two of the app's own tasks sharing a destination
-  tree never spuriously fail on a benign race), then per file
+  created between check and call — is success, so two of the app's own
+  tasks sharing a destination tree never spuriously fail on a benign
+  race; a non-dir occupying a planned directory path routes through the
+  task's folder policy per §4.1 — `replace` removes it via the D15
+  delete story, `skip` skips that subtree, `ask` prompts, `merge` falls
+  back to `ask` — and only an unresolvable policy errors, never a bare
+  item error), then per file
   **re-stats the destination at
   execution time** and applies the conflict policy against that fresh
   stat — the scanned `existing` is a hint for the UI, not the decision
-  basis; on a long queue the destination has had time to change. Uploads
-  commit with `overwrite` + `expectedTarget` CAS, and a CAS mismatch (a
-  file appeared between the execution-time re-stat and the commit)
-  re-applies the policy (`ask` prompts) exactly like the download guard
-  below — never a generic failure that burns `retryCount`; downloads write an
+  basis; on a long queue the destination has had time to change. No SFTP
+  primitive supports a truly conditional commit keyed on the
+  destination's current stat: SFTP v3 `SSH_FXP_RENAME` fails whenever
+  *anything* already occupies the target (an absent-only CAS — sound for
+  a fresh destination, useless for an overwrite), and the
+  `posix-rename@openssh.com` extension overwrites unconditionally with no
+  precondition at all. The commit contract is therefore two-shaped: an
+  *absent* expected target commits through an atomic create-if-absent (a
+  plain v3 rename remotely, a `link`-style exclusive create locally) — an
+  appearance between the re-stat and the commit fails the commit outright,
+  never silently wins; an *existing-stat* expected target has no atomic
+  wire or POSIX primitive either, so the commit is stat-immediately-before
+  the rename, then re-stat-immediately-after, and a mismatch on either
+  side is classified as a conflict with the policy re-applied (`ask`
+  prompts) — never a silent clobber, never a `retryCount`-burning generic
+  failure. Uploads commit through this contract, and a mismatch
+  re-applies the policy exactly like the download guard
+  below; downloads write an
   exclusive `.poltergeist-<uuid>.part` and commit via
-  `replaceLocalFile` only when the destination still matches the
-  decision basis (absent, or the same stat the policy was evaluated on) —
-  a mismatch re-applies the policy (`ask` prompts) instead of clobbering
+  `replaceLocalFile(expected:)` under the same absent/existing-stat
+  contract — a mismatch re-applies the policy (`ask` prompts) instead of clobbering
   a file that appeared mid-run. Local→local commits get the same guard
   through the shared code path. Uploads get the mirror of the download
   guarantee: either stream to a server-side `.poltergeist-<uuid>.part`
-  and commit via POSIX rename under the same `expectedTarget` CAS (atomic
-  server-side, so an interrupted attempt never touches the real
+  and commit via POSIX rename under the same absent/existing-stat
+  contract (atomic for the absent case; server-side either way, so an
+  interrupted attempt never touches the real
   destination), or — where a server-side temp is ruled out — the
   per-attempt abort path MUST delete the partially overwritten remote
   file before the lease is released, and a re-stat matching a journaled
@@ -702,15 +737,23 @@ class BandwidthLimiter {
                                           // silent clamp to a floor would read
                                           // as a bug, "I set 0 and it crawls").
                                           // A NEGATIVE value is invalid and
-                                          // clamped to the documented floor at
-                                          // EVERY boundary — the settings
+                                          // normalized to null — the same
+                                          // "off" sentinel as 0, never a
+                                          // positive floor, which would
+                                          // recreate the exact "I set [near]
+                                          // 0 and it crawls" bug the 0→null
+                                          // rule exists to avoid — at EVERY
+                                          // boundary: the settings
                                           // screen, SettingsStore's load/parse
                                           // of settings.json (a hand-edited
                                           // value bypasses a screen-only
                                           // check), and this limiter's own
-                                          // constructor (defense in depth); no
-                                          // rate-0 bucket is ever built, so
-                                          // acquire never hangs
+                                          // constructor (defense in depth). No
+                                          // rate <= 0 ever reaches the bucket,
+                                          // so no rate-0 bucket is ever built,
+                                          // acquire never hangs, and nothing
+                                          // is ever silently clamped to a
+                                          // crawl-inducing floor
   Future<void> acquire(int chunkBytes);   // awaits until tokens available;
                                           // returns immediately when
                                           // bytesPerSecond is null (unlimited
@@ -837,7 +880,13 @@ app-provided support directory (`EngineConfig`, §5):
   `taskState`, `fileCompleted`, `fileFailed` (terminal per-item outcome,
   with error text), `itemRemoved` (per-item cancel or skip, §4.4),
   `taskRemoved`. Appends are flushed
-  per line; recovery distinguishes two failure shapes: a **torn** final
+  per line and fsynced on a bounded interval (every ~64 records or
+  ~250 ms, always before that task's history record is appended) — a
+  flush alone survives process death, not power loss, and the compaction
+  bullet's power-loss bar does not extend to this hot path: the accepted
+  residue of an outage is re-transfer of files whose completion hadn't
+  reached an fsync boundary yet, never a lost completion the UI already
+  showed as done within that window; recovery distinguishes two failure shapes: a **torn** final
   record (no terminating newline — a crash mid-append) is dropped and the
   file is truncated to the end of the last complete record before the log
   reopens for append, so malformed bytes are never buried mid-log; a
@@ -893,7 +942,14 @@ app-provided support directory (`EngineConfig`, §5):
   `writeStringAtomically`, hardened to fsync the temp file before the
   rename — and the history append flushed and fsynced before the rewrite
   begins — so the ordering also survives power loss, not just process
-  death). A crash between the two steps loses nothing:
+  death). The whole sequence — and every other append path — is funneled
+  through one single-writer async mutex on the journal, so no append can
+  interleave with a rewrite: a `fileCompleted`/`taskState` record
+  completing while compaction awaits its I/O is queued and appended to
+  the rewritten journal *after* the rename, never written to the
+  pre-rename file or a handle pointing at its now-unlinked inode, where
+  it would silently vanish the moment the rename replaces the path it
+  was targeting. A crash between the two steps loses nothing:
   the next replay re-reads the old journal and skips already-recorded
   ids. The reverse order would have a crash window that silently loses
   finished-task records.
@@ -1097,7 +1153,7 @@ queue). Composition, all `ChangeNotifier`s unless noted:
 | `TransferQueue` UI mirror | app-wide | queue rows, history, throttle state — rebuilt from engine events |
 | `BookmarkStore` | app-wide | sidebar model, persistence, the sync-coordinator seam (04) — store-behind-callback like Séance, so the store stays sync-agnostic |
 | `ConnectionStatus` | app-wide | per-server state from `watchServer` + `ProbeService` for sidebar dots |
-| `SettingsStore` | app-wide | all app settings: one JSON file at `<app-support>/settings.json`, atomic writes (`writeStringAtomically`), quarantine-on-corrupt; immediate-persist with revert-on-failure — the idiom 06 §8 cross-references |
+| `SettingsStore` | app-wide | all app settings: one JSON file at `<app-support>/settings.json`, atomic writes (`writeStringAtomically`), quarantine-on-corrupt; immediate-persist with revert-on-failure — the idiom 06 §8 cross-references — with the immediate-persist path and the debounced-recents path (below) both funneled through one serialized async writer that always encodes the full current in-memory state, so an immediate persist triggered right after a debounced flush can never race it and serialize a stale pre-recents-update snapshot over a newer one |
 
 Every setting this plan names has exactly one home (02 §10's settings
 screen renders them; this table owns storage):
@@ -1195,11 +1251,17 @@ distros backport it; on absence the fallback is parsing
 when `XDG_DATA_HOME` is unset — hardcoding the default breaks restore on
 systems that set it) (`Path=` **percent-decoded** per the FreeDesktop Trash
 spec — raw `%20`-style escapes would silently break restore for any path
-with spaces or non-ASCII — plus the RFC 3339 `DeletionDate=`) and
+with spaces or non-ASCII — plus the RFC 3339 `DeletionDate=`, which is
+also the disambiguator when several entries share one `Path=` — delete,
+restore, delete again under the same name is the normal way this
+happens — restore always picks the newest `DeletionDate=` and moves back
+exactly one file, never an arbitrary or ambiguous pick) and
 moving the file back, Nautilus-style; and if the `gio` binary is absent
 entirely (minimal/GNOME-less distros, some WSL setups), both trash and
 restore fall back to the same spec directly — a home-filesystem path moves
-into `~/.local/share/Trash/files/` with a written `.trashinfo`, while a
+into `$XDG_DATA_HOME/Trash/files/` (`~/.local/share/Trash/files/` when
+`XDG_DATA_HOME` is unset, same rule as the read path above) with a
+written `.trashinfo`, while a
 path on another mounted volume (§7.4) prefers that volume's
 `<topdir>/.Trash/$UID` — only after verifying `.Trash` is a root-owned,
 sticky-bit, non-symlink directory per the spec (a crafted volume could
@@ -1211,9 +1273,18 @@ into home trash from a large removable volume is slow and can exhaust the
 home disk) — so trash never silently degrades to
 nothing). Remote
 deletions from browsing default to confirm-then-permanent with the per-server
-opt-in "move to `.poltergeist-trash/` instead"; sync deletions use
+opt-in "move to `.poltergeist-trash/<runId>/` instead" (00's D15 — same
+per-run layout as sync trash, so it ages and purges under the identical
+30-day rule rather than an unretained flat folder); sync deletions use
 `.poltergeist-trash/<runId>/` (05). One directory name everywhere; the
-default ignore rules exclude `.poltergeist*`.
+default ignore rules exclude `.poltergeist*`. `.poltergeist-trash/` and
+each `<runId>/` subdirectory are created `0700` on the remote — matching
+the local `.Trash-$UID` requirement above, and for the same reason: a
+default `0022` umask would otherwise yield a world-readable `0755`
+directory, widening exposure of files moved out of a possibly-`0700`
+source directory on a shared multi-user server — and a pre-existing
+looser-mode directory is `chmod`'ed `0700` (or the trash operation is
+refused with a per-server error) before anything is moved into it.
 
 ### 7.4 Volumes
 
@@ -1246,7 +1317,12 @@ Policy, fixed: watch **only the directory shown by each pane's active
 tab**, non-recursively — one watcher per pane, retargeted on tab switch
 and navigation, dropped when the pane shows a launcher or remote location;
 background tabs are not watched (their listing refreshes on activation).
-Debounced 300 ms into a refresh. The macOS FSEvents stream reports the whole subtree rooted at the
+Debounced 300 ms into a refresh. Watcher failure is never silent: inotify
+`IN_Q_OVERFLOW`, `IN_DELETE_SELF`/`IN_UNMOUNT`, or a backend
+invalidated-watch error triggers an immediate rescan, and a watched path
+that vanishes out from under its watcher retargets or drops the watcher
+exactly as a navigation away would — a pane never shows a listing it
+silently stopped watching. The macOS FSEvents stream reports the whole subtree rooted at the
 watched path (there is no native directory-only mode), so that backend
 must depth-filter events to the watched directory's direct children.
 Otherwise non-recursive watches work natively on all three
@@ -1316,7 +1392,12 @@ list the carry-over set, including the `_FakeRemoteFileSystem` fixture and
    and new pinned commits; apply relevant upstream fixes and refresh the
    recorded commit.
 4. Never diverge on the safety protocols named in §2.1/§2.3 — those are the
-   shared security story; a change there goes upstream or not at all.
+   shared security story; a change there goes upstream or not at all —
+   with one escape hatch: a security fix may land locally first if
+   PORTS.md records it as a dated divergence, an upstream PR opens in the
+   same change, and a re-diff is scheduled on the next pin bump (§8.1's
+   stalled-PR mechanism, applied to an edit instead of a ref) — a stalled
+   upstream must never be the reason a known vulnerability ships.
 
 ## 9. Séance gotchas inherited
 
