@@ -29,10 +29,7 @@ services:
         published: "2201"
 
   sshd-legacy:
-    image: poltergeist-sshd-legacy:m0
-    build:
-      context: .
-      dockerfile: sshd-legacy/Dockerfile
+    image: ghcr.io/l-k-m/poltergeist-sshd-legacy@sha256:7c3e2ef3c54f27c484e916ce5937297e2429d5f39edcd407bc01d0f1e1eb41dd
     command: /etc/ssh/fixture/sshd_config.modern
     environment:
       FIXTURE_MODE: normal

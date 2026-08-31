@@ -7,10 +7,14 @@ sparse, zero-filled benchmark payloads at runtime, so no large blobs enter Git.
 test/integration/run.sh
 ```
 
-`run.sh` regenerates the user key, builds the images, checks every rendered
-Compose profile for unsafe publishing, waits for real SSH banners, runs the
-OpenSSH smoke checks, then runs tagged Dart integration tests serially. Its
-exit trap removes all services, including the profiled keyswap service.
+`run.sh` regenerates the user key, builds the current image, pulls the frozen
+legacy image by digest, checks every rendered Compose profile for unsafe
+publishing, waits for real SSH banners, runs the OpenSSH smoke checks, then
+runs tagged Dart integration tests serially. Its exit trap removes all
+services, including the profiled keyswap service.
+
+`sshd-legacy/Dockerfile` records how the public GHCR artifact was built. CI
+never rebuilds it, so an archive or package-index change cannot alter M0.
 
 Run a benchmark inside the same lifecycle owner:
 

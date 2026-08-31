@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 import 'check_config.dart';
 
@@ -74,5 +75,21 @@ void main() {
     expect(dockerfile, contains(r'ARG OPENSSH_VERSION='));
     expect(dockerfile, contains(r'openssh-client=${OPENSSH_VERSION}'));
     expect(dockerfile, contains(r'openssh-server=${OPENSSH_VERSION}'));
+  });
+
+  test('pulls the frozen legacy image by digest', () {
+    final compose =
+        loadYaml(File('test/integration/docker-compose.yml').readAsStringSync())
+            as YamlMap;
+    final services = compose['services'] as YamlMap;
+    final legacy = services['sshd-legacy'] as YamlMap;
+
+    expect(
+      legacy['image'],
+      matches(
+        RegExp(r'^ghcr\.io/l-k-m/poltergeist-sshd-legacy@sha256:[a-f0-9]{64}$'),
+      ),
+    );
+    expect(legacy.containsKey('build'), isFalse);
   });
 }

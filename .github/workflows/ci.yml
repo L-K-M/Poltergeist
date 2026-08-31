@@ -84,9 +84,6 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'm0-bench')
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    permissions:
-      contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: dart-lang/setup-dart@v1
@@ -95,19 +92,6 @@ jobs:
       - name: Resolve benchmark harness
         working-directory: tool/bench
         run: dart pub get
-      # Bootstrap the frozen legacy fixture; removed once its digest is pinned.
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish legacy fixture image
-        run: |
-          docker build \
-            --file test/integration/sshd-legacy/Dockerfile \
-            --tag ghcr.io/l-k-m/poltergeist-sshd-legacy:m0-bullseye \
-            test/integration
-          docker push ghcr.io/l-k-m/poltergeist-sshd-legacy:m0-bullseye
       - name: Run fixture and measurements
         run: test/integration/run.sh --lifecycle-only -- tool/bench/run.sh
       # JSON evidence contains no Séance code or executable artifact (D30).
