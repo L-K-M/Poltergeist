@@ -115,7 +115,7 @@ defers it).
 | Total Commander / Krusader | Synchronize-dirs-with-preview lineage; proof Linux users respond to a real synchronizer | 1990s chrome; KDE lock-in; plugin-ecosystem-as-product |
 | QSpace Pro | Evidence there is appetite for polished newcomers even on crowded macOS | Opaque provenance and vague privacy policy — for an app holding server credentials, trust is a feature (§6) |
 | File Pilot / OneCommander | The "instant everything" feel bar our local panes are judged against on Windows (D12, D26) | No remote protocols to learn from; OneCommander's automation-depth creep |
-| Files / Spacedrive | The lesson: polish without speed does not stick; grand abstractions fail before browsing is fast | Virtual-distributed-filesystem ambitions; shipping beauty over a slow lister |
+| Files (Windows) / Spacedrive | The lesson: polish without speed does not stick; grand abstractions fail before browsing is fast | Virtual-distributed-filesystem ambitions; shipping beauty over a slow lister |
 | AeroFTP | Profile import as adoption fuel (D22); zero-telemetry positioning | 25-protocol kitchen sink; webview feel; bundled AI agent |
 | GoodSync / ChronoSync / FreeFileSync | Proof deep sync sells — FreeFileSync in particular ships preview-grade (dry-run comparison) sync across Windows/macOS/Linux | Overwhelming UI as the price of power — our sync power stays inside one previewable plan (D6); automation ambitions parked (D25) |
 | rsync GUIs (Grsync, Acrosync) | Their one beloved feature: dry-run preview before commit — generalized into "the plan is the preview" (D6) and "Copy as rsync command" | rsync as the engine (absent on Windows servers, sftp-only chroots, busybox NAS; bypasses our auth/TOFU stack — D6) |
@@ -476,15 +476,33 @@ assumed**, by this audit procedure:
   landing and on every later pin change (`git grep` takes a tree, not a
   commit range, so there is no `old-pin..new-pin` variant to special-case
   — scanning the whole tree every time is also cumulative-safe: every
-  file present at the pin gets scanned regardless of when it arrived):
-  `git grep -Ii -e copyright -e spdx -e 'apache license' -e 'gnu general'
+  file present at the pin gets scanned regardless of when it arrived),
+  pinned the same way as the log walks above — `--no-replace-objects`
+  (a `refs/replace/` entry in a contributor's clone would otherwise
+  rewrite which commit, and thus which tree, the pin resolves to) and
+  `-c core.quotepath=false` (the default quotes any non-ASCII path byte
+  as octal escapes, while `quotepath=false` emits raw UTF-8; this scan's
+  output is recorded in `docs/PORTS.md` and re-verified across machines
+  just like the log walks, so it needs the same byte stability):
+  `git --no-replace-objects -c core.quotepath=false grep -Ii -e copyright
+  -e spdx -e 'apache license' -e 'gnu general'
   -e 'permission is hereby granted' -e 'redistribution and use'
-  -e 'mozilla public' -e 'creative commons' -e 'public domain' <pin>` —
+  -e 'mozilla public' -e 'creative commons' -e 'public domain'
+  -e 'apache-2' -e 'bsd-2' -e 'bsd-3' -e 'mpl-2' -e '"mit"' -e '"isc"'
+  -e 'licen[cs]e' <pin>` —
   the term list extends past `copyright`/`spdx` because MIT bodies
   ("Permission is hereby granted…"), BSD-2/3 openings
   ("Redistribution and use…"), MPL, and CC0/public-domain dedications
-  can all appear without either of those two words — for foreign license/copyright headers, plus a
-  `git ls-tree -r --name-only <pin>` pass checked against a small
+  can all appear without either of those two words, and because vendored
+  code often carries its license only as a short manifest identifier —
+  `"license": "MIT"` in a `package.json`, `license = "Apache-2.0"` in a
+  `Cargo.toml` — that none of the boilerplate phrases match; the bare
+  `licen[cs]e` catch-all mirrors the bracket-pattern philosophy the email
+  sweep below already uses: noisy hits are fine because the output is
+  recorded and confirmed, while silence is the failure mode that matters
+  — for foreign license/copyright headers, plus a
+  `git --no-replace-objects -c core.quotepath=false ls-tree -r
+  --name-only <pin>` pass checked against a small
   vendored-path list (`third_party/`, `vendor/`, `node_modules/`,
   `ext/`) for new vendored directories — never a manual, unscripted
   read of the whole tree, which is exactly the kind of gate that
@@ -515,11 +533,15 @@ assumed**, by this audit procedure:
   git's default POSIX **basic** regular expressions, where `.`, `[`, and
   `\` (and, rarely, `*` in a generated local part, or `^`/`$` when the
   chosen substring begins or ends with one) are the BRE-active characters
-  in an address and must be escaped — an unescaped `[` is loud (GNU grep's
-  `regcomp` rejects it outright, "Unmatched [, [^, [:, [., or [="), but an
-  unescaped `\` is not: GNU grep recognizes `\s`/`\S`/`\w`/`\W`/`\b`/`\B`
-  as extensions even in BRE mode (verified empirically: `grep 'a\sb'`
-  matches `a b`, a literal space, not a literal backslash-s), so a
+  in an address and must be escaped — an unescaped `[` is loud (verified
+  empirically against the engine these commands actually run on, not a
+  `grep` proxy: on Linux/glibc, `git log --grep='['` aborts with `fatal:
+  command line, '[': Invalid regular expression` rather than silently
+  misinterpreting it), but an
+  unescaped `\` is not: the same engine recognizes `\s`/`\S`/`\w`/`\W`/`\b`/`\B`
+  as GNU extensions even in BRE mode (verified empirically on Linux/glibc:
+  `git log --grep='a\sb'` matches `a b`, a literal space, not a literal
+  backslash-s), so a
   `\` in a quoted-local-part address like `"back\slash"@example.com`
   inserted unescaped would silently change what the pattern matches
   rather than erroring — exactly the failure mode this pinpoint run's
@@ -528,11 +550,13 @@ assumed**, by this audit procedure:
   must never paper over — `+` is a literal BRE character and
   must *not* be escaped, since GNU BRE reads `\+` as a
   one-or-more quantifier that then fails to match a literal `+` (verified
-  empirically on GNU grep: `grep "a+b"` matches a literal `a+b`,
-  `grep "a\+b"` does not — BSD/macOS libc BRE also treats `\+` as literal
-  rather than a quantifier, so the operative rule, never escape `+`,
-  holds on both regex flavors even though the specific failure mode
-  differs) — an address like `user+tag@example.com` therefore needs no
+  empirically against `git log --grep` itself, on Linux/glibc:
+  `git log --grep='a+b'` matches a literal `a+b`,
+  `git log --grep='a\+b'` does not — BSD/macOS libc BRE is expected to
+  treat `\+` as literal rather than a quantifier too, so the operative
+  rule, never escape `+`, should hold on both regex flavors even though
+  the specific failure mode differs, though only the glibc case has
+  been directly verified here) — an address like `user+tag@example.com` therefore needs no
   escaping of its `+` at all, only its BRE-active characters escaped
   (every real domain has at least one `.`, so "match on the
   metacharacter-free domain"
@@ -547,7 +571,15 @@ assumed**, by this audit procedure:
   includes rewinding the dev/CI git dependency to a pin whose ancestry
   excludes it (git ancestry is monotonic, so advancing the pin keeps
   every ancestor embedded; only a rewind to a commit that predates the
-  contribution drops it) or obtaining a grant covering it — and blocks
+  contribution drops it), obtaining a grant covering it, or — when no
+  excluding pin exists (the contribution may be ancestral to every
+  usable pin, sitting in Séance's history before the protocol packages
+  were consumable at all) or a rewind would drop a change Poltergeist
+  already hard-depends on (the `RecordKind.unknown` fix that gates
+  Design A, 04's own upstream-work section, say) —
+  suspending the Séance git dependency entirely until a grant lands, the
+  fallback of last resort when neither of the other two is available —
+  and blocks
   the copy-with-attribution ports until they grant it. A bot-authored hit
   (a merge bot, a CI-triggered commit, Dependabot) fits neither remedy —
   there is no human to rewind past on principle or ask for a grant — so
@@ -617,9 +649,11 @@ fork or clean-room Séance code, which D2 forbids outright.
 - The §9 audit procedure (main identity command, companion sweep,
   external-hit pinpoint, vendored-code scan) is implemented as a script
   (e.g. `scripts/audit-seance-pin.sh`), run by CI whenever the pinned
-  Séance ref changes, against a non-shallow checkout (`fetch-depth: 0`
-  — CI checkouts are shallow by default, which would silently truncate
-  the ancestor walk the Scope bullet already warns about) — §9's prose
+  Séance ref changes, against a **non-shallow clone of the pinned
+  Séance ref specifically** — the script's own Séance fetch must use
+  `fetch-depth: 0`, independent of the depth the Poltergeist checkout
+  itself uses; CI clones are shallow by default, which would silently
+  truncate the ancestor walk the Scope bullet already warns about — §9's prose
   stays the normative description, but the script is its enforced
   implementation, so the two cannot drift apart the way an unscripted,
   hand-retyped command would.

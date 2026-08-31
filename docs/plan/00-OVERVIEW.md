@@ -160,12 +160,18 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   Séance git pin from **every** `pubspec.lock` in the monorepo — the
   revisions a build actually embeds, not one package's `pubspec.yaml`;
   `seance_protocol` and `seance_core`
-  may sit on different revs under D2's rev-pin hatch — and inspect each
+  may sit on different revs under D2's rev-pin hatch — the check MUST run
+  after dependency resolution in the build workspace and MUST fail closed
+  when any `pubspec.yaml` declares a Séance git dependency that no
+  `pubspec.lock` resolves — a missing or stale lockfile must never let the
+  gate pass by seeing nothing — and inspect each
   pinned tree for any of
   `LICENSE`/`LICENSE.txt`/`LICENSE.md`/`LICENCE`/`UNLICENSE`/`COPYING` —
   e.g. `git cat-file -e <rev>:LICENSE` for each name — and requires the
-  file's text to match a permissive allowlist (Unlicense, MIT,
-  Apache-2.0, BSD-2/3-Clause, ISC), not merely to exist: a repo
+  file's text to match the canonical SPDX text of a permissive allowlist
+  (Unlicense, MIT, Apache-2.0, BSD-2/3-Clause, ISC), ignoring the
+  copyright-holder/year line that legally varies in MIT/BSD/ISC texts —
+  not merely to exist or to name a license: a repo
   whose HEAD carries a LICENSE can still have pre-license pinned revs,
   and a *restrictive* license landing in a pinned rev (a `COPYING` file
   with GPL text, say) must fail this gate exactly as a missing one
@@ -179,7 +185,11 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   **Hard ordering rule:** the guard MUST land in `release.yml` no later
   than the first Séance git pin lands in any `pubspec` — a `v*` tag cut
   in the window between that pin and the guard would publish unlicensed
-  revisions the guard exists to block.
+  revisions the guard exists to block. Backed mechanically too, not by
+  discipline alone: a PR-level CI check fails when a diff adds a Séance
+  git dependency to any `pubspec.yaml` while `release.yml` lacks the
+  license-gate step, anchored on a grep-able marker comment inside the
+  workflow so the check stays stable across refactors.
 - **D31 — No volume mounting, ever.** FUSE/WebDAV-mount/network-drive
   presentation of a remote is refused durably, never deferred to v2 —
   unlike everything on the D25 parking lot, there is no future version
@@ -198,9 +208,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 
 - **D6 — Native engine; rsync survives as an exporter.** The sync engine is
   pure Dart over the one VFS: parallel scans, size+mtime comparison with a
-  2 s tolerance (SFTP v3 stores whole-second mtimes, so a preserved
-  sub-second local mtime truncates on upload; FAT-family volumes
-  additionally quantize to 2 s — the two drivers of the window. The
+  tolerance that defaults to 1 s (SFTP v3 stores whole-second mtimes, so a
+  preserved sub-second local mtime truncates on upload) and widens to 2 s
+  only when either endpoint is FAT-family (FAT volumes additionally
+  quantize to 2 s) — the two drivers of the window. The
   window's false-equal hazard is a **documented limitation**, stated
   here rather than discovered: a same-size edit whose mtime lands
   inside the tolerance is classified unchanged and skipped — rsync
@@ -241,7 +252,7 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     pure command-string renderer has no exec channel; D5 gives it none).
   - Emit `--` before the first path argument and `./`-prefix (or
     absolutize) every path: quoting alone stops word-splitting and quote
-    breakout, not argv-level reinterpretation by rsync itself — `-delete`
+    breakout, not argv-level reinterpretation by rsync itself — `--delete`
     must never parse as an option, `host:path` must never reparse as a
     remote spec. Quoting and these prefixes govern the *local* shell
     that parses the pasted command.
@@ -257,7 +268,11 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     the pair's connection settings — a pair using either produces a
     pasted command that connects to the wrong endpoint or with the wrong
     credentials rather than failing loudly. Not fixed here since 05 is
-    a separate, already-merged chapter this PR does not touch.
+    a separate, already-merged chapter this PR does not touch — but per
+    this section's own "hazards get `# note:` lines" rule, the exporter
+    must render a prominent `# note:` line (or refuse to render) whenever
+    the pair's connection settings include an identity file or a jump
+    host, so the gap is loud rather than latent until 05 closes it.
 
   Manual per-item overrides are
   annotated in a comment, never compiled into filters. An opt-in rsync
@@ -446,7 +461,9 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   one setting away from off (01 §6); every
   shorter "zero telemetry" tagline elsewhere in this plan is shorthand
   for this same scoped claim, never a silent contradiction of it.
-  Stated in the README; treated as a feature (the category punishes
+  Stated in the README with this scoped wording itself — "no telemetry
+  beyond an on-by-default, one-setting-off update check" — never a bare
+  "zero telemetry"; treated as a feature (the category punishes
   rent-seeking and opacity).
 - **D23 — Distribution mirrors Séance.**
   - **Artifacts.** GitHub Releases via the existing `release.yml`
@@ -467,8 +484,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     `softprops/action-gh-release` with no `draft:` flag, so a stock
     port of it would go public the instant the workflow finishes, with
     nothing pausing for a human; Poltergeist's copy of the step adds
-    `draft: true` and aborts if a release for this tag already exists,
-    so a stray re-run can never touch a release the first run already
+    `draft: true` and aborts if any release — draft or published —
+    already exists for this tag (the action's default when a release
+    exists is to update it, overwriting same-named assets), so a
+    stray re-run can never touch a release the first run already
     published — producing the assets and the unsigned `SHA256SUMS`
     while still hidden. `SHA256SUMS.asc` is attached by a separate,
     maintainer-approved step (signed locally or via a hardware token),
@@ -492,10 +511,25 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     the step re-verifies against the draft *as it currently stands*
     that the signature validates over the on-release `SHA256SUMS` and
     that those sums still digest-match every attached asset, aborting
-    with the release left drafted on any mismatch, then publishes the
+    with the release left drafted on a retry-confirmed, definitive
+    mismatch (a digest or signature failure that survives one re-fetch);
+    a merely inconclusive check — a transient API or network error —
+    pages the maintainer instead of aborting, since abort here is
+    fail-safe (the release stays drafted either way) but a false abort
+    still wastes a human's attention on a phantom failure. Once
+    confirmed clean, the step publishes the
     draft — and because verify-then-publish is two operations, not one
     atomic one, the step re-verifies the now-live release immediately
-    after publishing too, deleting it on any mismatch (an emergency
+    after publishing too, deleting it only on that same
+    retry-confirmed, definitive mismatch; a merely inconclusive
+    verification here pages the maintainer and leaves the release
+    standing for a human decision, both because an automated delete
+    fired by a flaky check destroys a healthy, correctly signed release
+    — a self-inflicted availability outage baked into the release
+    procedure — and because deletion cannot recall an asset already
+    downloaded, mirrored, or fetched in-flight, so "never left standing"
+    holds only for the release entry itself, not for copies already in
+    the wild, and the tag remains regardless (an emergency
     response, not a routine path: a published release with a valid
     signature over sums that no longer match its assets is worse than
     an unsigned one) — so a race with the local signing step or a
@@ -526,9 +560,16 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     verifiable without paid certificates. Key rotation/revocation (loss
     or compromise of the maintainer key) is not designed here in
     detail, but is not left undefined either: 07 §4 specifies a signed
-    transition statement to a successor key, with the new fingerprint
-    re-announced through the same out-of-band channel as the original —
-    deferred rather than improvised under the pressure of an actual
+    transition statement to a successor key, pre-signed at key creation
+    and stored offline — a statement signed by the old key at the moment
+    of rotation cannot cover either named case: on key *loss* the old
+    key can sign nothing at all, and on key *compromise* an attacker's
+    transition statement to their own successor key is exactly as valid
+    as the maintainer's, so a post-hoc signature carries no evidentiary
+    weight — with the new fingerprint
+    re-announced through the same out-of-band channel as the original,
+    which is the sole trust anchor in the compromise case — deferred
+    rather than improvised under the pressure of an actual
     compromise.
   - **Sandbox posture.** Architecture stays sandbox-ready (a
     `ScopedPathAccess` service fronts all local file access; sidebar
