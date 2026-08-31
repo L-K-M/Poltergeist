@@ -101,8 +101,11 @@ Every error is translated through one funnel (the `_guard` pattern from the
 adapter): `PathNotFoundException` → `notFound`, `FileSystemException` with
 EACCES/EPERM → `permissionDenied` — on Windows, match the raw Windows
 error codes instead (`OSError.errorCode` carries `GetLastError` values
-there, never POSIX errnos: 5 `ERROR_ACCESS_DENIED`, 32
-`ERROR_SHARING_VIOLATION`), or Windows permission failures all land in
+there, never POSIX errnos: 5 `ERROR_ACCESS_DENIED` → `permissionDenied`;
+32 `ERROR_SHARING_VIOLATION` → `other` with an explicit "file is in use
+by another process" message — a lock, not a permission denial, and the
+`replaceLocalFile` rename dance hits it when the target is open in
+another app), or Windows permission failures all land in
 `other` — cancellation → `cancelled`, the rest →
 `other`, message format `'Could not <op> "<path>": <detail>'`. Temp-file
 prefixes are `.poltergeist-` everywhere Séance uses `.seance-` (the research
@@ -331,7 +334,10 @@ Growth rules (the part that must never be improvised):
   transfer must never add up to a permanent failure; after
   `taskRetryLimit` consecutive reconnect failures the task
   fails with the summarized error. A task caught mid-scan restarts its
-  scan from scratch with `plan` and `totalBytes` reset (the walker is
+  scan from scratch with `plan`, `totalBytes`, **and the progress
+  counters `completedFiles`/`transferredBytes`** reset then recomputed
+  from the §4.6 journal (leaving them stale against a reset `totalBytes`
+  would break 02 §5.3's growing-`+` form; the walker is
   not resumable, and a partial re-count would double-count progress),
   not re-dispatching files the §4.6 journal already records as
   completed; user-`paused` tasks stay paused through a reconnect — the
@@ -360,7 +366,11 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   by serverId: `disconnectServer(serverId)` drops that id's reference —
   closing its browse channels and **releasing** its transfer leases:
   a running task whose lease is released this way flips to `queued`
-  (retryable on the next connect), never `failed` — a user-initiated
+  (retryable **immediately** while the shared pool stays alive under a
+  sibling serverId — the queue re-leases by the pool endpoint, not by
+  the disconnected id, so a task never hangs `queued` against a
+  demonstrably-connected endpoint — and otherwise on that serverId's
+  next connect), never `failed` — a user-initiated
   disconnect is not an error, and §3.3's auto-reconnect explicitly
   does **not** fire for it — and teardown lets in-flight writes reach
   the §4.6 journal boundary before closing the transport, so no
@@ -434,7 +444,13 @@ class TransferTask {
 }
 
 class TransferPlan {
-  final List<String> directoriesInOrder;   // sorted by length: parents first
+  final List<String> directoriesInOrder;   // parents first — each entry's
+                                           // planned parent sorts earlier;
+                                           // the length sort is correct only
+                                           // because a normalized child path
+                                           // strictly extends its parent's
+                                           // (asserted by a strict-prefix
+                                           // check in debug builds)
   final List<PlannedFile> files;           // path pair + size + existing stat
   final int skippedSymlinks;               // symlinks are never transferred
 }
@@ -486,12 +502,21 @@ non-negotiable:
   case-insensitive — resolved per endpoint at scan time, never keyed to
   the client OS), emitting directories parents-first and files with sizes
   as it goes. There is **no full eager walk**: the first file starts as
-  soon as its parent directory chain exists, the scan continues
+  soon as its parent directory chain exists **and the scan has closed
+  that directory** — a directory's files become dispatchable only once
+  its own listing is complete, so its case-collision set is final and a
+  late-scanned case-variant sibling can never race an already-dispatched
+  file (the execution-time re-stat is case-folding-aware on
+  case-insensitive destinations as the second net); the scan continues
   concurrently growing `plan`, `totalBytes` is a running total rendered
   as the growing `N+` form (02 §5.3), and both finalize when
   `scanComplete` flips.
-- **Execute** creates directories in order (`stat`-else-`mkdir`; a non-dir in
-  the way is an error), then per file **re-stats the destination at
+- **Execute** creates directories in order (**mkdir-then-classify**:
+  "already exists as a directory" — including one a concurrent task
+  created between check and call — is success, only a non-dir in the
+  way is an error, so two of the app's own tasks sharing a destination
+  tree never spuriously fail on a benign race), then per file
+  **re-stats the destination at
   execution time** and applies the conflict policy against that fresh
   stat — the scanned `existing` is a hint for the UI, not the decision
   basis; on a long queue the destination has had time to change. Uploads
@@ -533,11 +558,16 @@ preservation falls out of the one code path.
 
 ```dart
 class BandwidthLimiter {
-  int? bytesPerSecond;                    // null = unlimited; 0 is invalid —
-                                          // the settings boundary rejects it
-                                          // (clamping to a documented floor),
-                                          // never passes it through: zero
-                                          // refill would hang acquire forever
+  int? bytesPerSecond;                    // null = unlimited; <= 0 is invalid,
+                                          // clamped to the documented floor at
+                                          // EVERY boundary — the settings
+                                          // screen, SettingsStore's load/parse
+                                          // of settings.json (a hand-edited 0
+                                          // parses cleanly and would bypass a
+                                          // screen-only check), and this
+                                          // limiter's own constructor
+                                          // (defense in depth): zero refill
+                                          // would hang acquire forever
   Future<void> acquire(int chunkBytes);   // awaits until tokens available;
                                           // internally splits a request larger
                                           // than the bucket's capacity into
@@ -678,7 +708,10 @@ one thing from the queue on day one:
 
 ```dart
 abstract interface class TransferProducer {
-  /// Enqueue a priority download of [path] from [source] into
+  /// Enqueue a download of [path] from [source], **inserted at the head
+  /// of the queue** — the one programmatic exception to §4.3's
+  /// strict-FIFO dispatch (Quick Look waits on it), stated in both
+  /// places so they agree. Downloads [path] from [source] into
   /// [destination] — the caller computes the destination (the preview
   /// cache path per 06 §5.3) — completing once produced. Used by future
   /// promised-file drag-out and by Quick Look / preview for remote files.
@@ -771,9 +804,11 @@ credential re-resolution, transfer conflicts) by emitting
 exactly one `PromptReplyRequest` per `promptId` — dismissing the dialog
 maps to the cancel/auth-failure reply, and a `conflict` prompt's item stays
 paused until its reply arrives. Progress events are coalesced engine-side
-to ≤ 30 per second per task — defined as keeping only the **latest
-event per item** within the window, so per-file sub-rows stay live
-while the flood is capped — so ports never flood the UI.
+to ≤ 30 **flush windows** per second per task, each flush carrying only
+the **latest event per item** that progressed in that window (bounded by
+§4.3's in-flight caps, so ≤ 6 events per flush, not one event total —
+per-file sub-rows stay live while the flood is capped) — so ports never
+flood the UI.
 
 The app resolves all storage directories via `path_provider` on the UI
 isolate and hands them to the engine in a typed `EngineConfig` message —
@@ -852,7 +887,10 @@ flutter-desktop research's meta-risk finding).
 | `poltergeist/quicklook` | macOS | `QLPreviewPanel` data source + `makeKeyAndOrderFront` (~60–100 lines of Swift) |
 
 Windows trash and volume enumeration go through the `win32` FFI package in
-pure Dart (`IFileOperation` + `FOF_ALLOWUNDO`; `GetLogicalDrives` /
+pure Dart (`IFileOperation` + `FOF_ALLOWUNDO | FOFX_ADDUNDORECORD` — the
+FOFX flag, set via `SetOperationFlags`, is what records the delete on
+Explorer's Ctrl+Z stack; `FOF_ALLOWUNDO` alone only routes to the
+recycle bin; `GetLogicalDrives` /
 `GetVolumeInformationW`) — possibly zero C++, with one eyes-open
 caveat: `IFileOperation` requires COM initialized apartment-threaded
 (`CoInitializeEx(COINIT_APARTMENTTHREADED)`) on its calling thread, and
@@ -886,8 +924,12 @@ One `Trash` service with per-platform backends (§7.1): local deletions from
 panes go to the OS trash with undo where the platform gives it (macOS Put
 Back; Windows Explorer undo; on Linux, `gio trash --list` to find the
 item's `trash://` URI and `gio trash --restore <uri>` — the restore
-option exists in GLib ≥ 2.74; on older GLib the fallback is parsing
-`~/.local/share/Trash/info/*.trashinfo` (`Path=` + `DeletionDate=`) and
+option's availability is probed at runtime (`gio trash --help` lists
+supported flags) rather than trusted from the GLib version, since
+distros backport it; on absence the fallback is parsing
+`$XDG_DATA_HOME/Trash/info/*.trashinfo` (default `~/.local/share/Trash`
+when `XDG_DATA_HOME` is unset — hardcoding the default breaks restore on
+systems that set it) (`Path=` + `DeletionDate=`) and
 moving the file back, Nautilus-style). Remote
 deletions from browsing default to confirm-then-permanent with the per-server
 opt-in "move to `.poltergeist-trash/` instead"; sync deletions use
@@ -896,11 +938,17 @@ default ignore rules exclude `.poltergeist*`.
 
 ### 7.4 Volumes
 
-Own enumeration per the research notes — Windows via `win32` FFI, macOS via
+Own enumeration per the research notes — Windows via `win32` FFI, with
+hot-plug from a `WM_DEVICECHANGE` message window in the §7.1 C++ helper
+(a plain Dart FFI thread has no message pump to receive the broadcast)
+or, failing that, `GetLogicalDrives` polling; macOS via
 `/Volumes` + the `poltergeist/files` channel (`mountedVolumeURLs`, FSEvents
 hot-plug), Linux by parsing `/proc/self/mounts` and showing `/`, `/home`,
 `/media/$USER/*`, `/run/media/$USER/*`, with inotify watches on those
-directories for hot-plug. `disks_desktop` is reference code only, never a
+directories **plus a periodic `/proc/self/mounts` re-read** — inotify
+fires no parent event when a filesystem mounts over an already-existing
+mountpoint directory, the classic gap that leaves fstab/automount
+volumes invisible until an unrelated rescan. `disks_desktop` is reference code only, never a
 dependency (3 years stale).
 
 ### 7.5 Directory watching
@@ -909,7 +957,10 @@ Policy, fixed: watch **only the directory shown by each pane's active
 tab**, non-recursively — one watcher per pane, retargeted on tab switch
 and navigation, dropped when the pane shows a launcher or remote location;
 background tabs are not watched (their listing refreshes on activation).
-Debounced 300 ms into a refresh. Non-recursive watches work natively on all three
+Debounced 300 ms into a refresh. The macOS FSEvents stream reports the whole subtree rooted at the
+watched path (there is no native directory-only mode), so that backend
+must depth-filter events to the watched directory's direct children.
+Otherwise non-recursive watches work natively on all three
 platforms (Linux inotify does not do recursive — this policy sidesteps it).
 The sync engine uses explicit scans, never watchers (05). The checkout
 watcher keeps Séance's separate design untouched: parent-directory watch,
