@@ -163,10 +163,18 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   may sit on different revs under D2's rev-pin hatch — and inspect each
   pinned tree for any of
   `LICENSE`/`LICENSE.txt`/`LICENSE.md`/`LICENCE`/`UNLICENSE`/`COPYING` —
-  e.g. `git cat-file -e <rev>:LICENSE` for each name — because a repo
-  whose HEAD carries a LICENSE can still have pre-license pinned revs),
+  e.g. `git cat-file -e <rev>:LICENSE` for each name — and requires the
+  file's text to match a permissive allowlist (Unlicense, MIT,
+  Apache-2.0, BSD-2/3-Clause, ISC), not merely to exist: a repo
+  whose HEAD carries a LICENSE can still have pre-license pinned revs,
+  and a *restrictive* license landing in a pinned rev (a `COPYING` file
+  with GPL text, say) must fail this gate exactly as a missing one
+  does — an existence-only check would green-light publishing
+  Unlicense-labeled binaries embedding incompatibly-licensed code,
+  precisely the compliance failure this guard exists to make impossible,
   so a prematurely cut tag cannot publish binaries embedding unlicensed
-  code (07 §2 owns wiring the check).
+  **or license-incompatible** code
+  (07 §2 owns wiring the check).
 
   **Hard ordering rule:** the guard MUST land in `release.yml` no later
   than the first Séance git pin lands in any `pubspec` — a `v*` tag cut
@@ -219,8 +227,15 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     exporter's busybox/NAS/macOS-client audience is most likely running
     (rsync ≤ 2.6.9, long the macOS system default and common on NAS
     boxes; macOS 15.4+'s openrsync). Instead backslash-escape every
-    remote-path byte outside a safe allowlist before local
-    POSIX-quoting (05 §2.1's double-escaping rule), closing the
+    remote-path byte outside a safe allowlist — `[A-Za-z0-9._/+@%=:,-]`
+    passes through; everything else is escaped, space and the shell
+    control operators (`; & | < > ( ) { } # ~`, tab, newline) included —
+    before local
+    POSIX-quoting (05 §2.1's double-escaping rule, which owns this
+    allowlist's normative definition and golden tests): this is the
+    single constant the whole no-`-s` design's remote-shell safety rests
+    on, so it is stated explicitly rather than left to infer from the
+    pointer alone, closing the
     remote-shell re-splitting hazard `-s` would have addressed — no
     version floor, and no need to probe the far end's rsync build (a
     pure command-string renderer has no exec channel; D5 gives it none).
@@ -236,6 +251,13 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   - The exported command targets a POSIX shell (bash/zsh); cmd.exe and
     PowerShell are out of contract. Hazards get `# note:` lines; the
     exporter is golden-tested.
+  - **Known gap, tracked as a 05 follow-up, out of this PR's scope**: 05
+    §2.1's already-merged exporter renders a nonstandard port
+    (`-e 'ssh -p <port>'`) but not an identity file or a jump host from
+    the pair's connection settings — a pair using either produces a
+    pasted command that connects to the wrong endpoint or with the wrong
+    credentials rather than failing loudly. Not fixed here since 05 is
+    a separate, already-merged chapter this PR does not touch.
 
   Manual per-item overrides are
   annotated in a comment, never compiled into filters. An opt-in rsync
@@ -259,7 +281,8 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   (Transmit's model) with a per-server opt-in "move to
   `.poltergeist-trash/<runId>/` instead" (same per-run layout as sync's
   trash below, rather than an unretained flat folder, so it ages and
-  purges under the identical 30-day rule); sync deletions *and* the previous versions of files sync
+  purges under the identical 30-day rule); sync deletions *and* the
+  previous versions of files that sync
   overwrites default to the same `.poltergeist-trash/<runId>/` rename-based
   trash — falling back to copy-then-delete when the rename fails
   cross-filesystem (EXDEV for local pairs, mirroring D26's local rule; for
@@ -389,7 +412,9 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 - **D22 — Import is adoption fuel, staged.** v1 imports `~/.ssh/config`
   (Séance's importer, IdentityFile included) **with a preview + dedupe
   + unsupported-directive warnings** — an imported host whose real
-  behavior depends on `ProxyCommand`, `Match`, or `Include` gets an
+  behavior depends on `ProxyCommand`, `ProxyJump`, `Match`, or `Include`
+  (D10 defers ProxyJump *execution* to the first post-1.0 fast-follow,
+  so at v1 it is exactly as unsupported as the others) gets an
   explicit "won't behave as in ssh" badge in the preview rather than
   silently importing as a bookmark that then fails to connect the way
   the user's actual config does; FileZilla `sitemanager.xml`, WinSCP
@@ -449,8 +474,15 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     maintainer-approved step (signed locally or via a hardware token),
     and before that step signs, it first builds the tagged commit
     locally for the maintainer's own primary platform and spot-checks
-    the CI-produced asset for that platform against it (asset size and
-    digest, at minimum) — this is a documented, deliberately partial
+    the CI-produced asset for that platform against it — asset size
+    within a stated tolerance and a local run of the downloaded binary,
+    at minimum; a byte-for-byte digest match against the local rebuild
+    is not the check, and never will be while Flutter builds are
+    non-reproducible (an honest local build and an honest CI build of
+    the same commit are expected to differ), so digest verification
+    stays scoped to what it can actually prove: the on-release
+    `SHA256SUMS` matches the attached assets, not that a rebuild
+    reproduces them bit-for-bit — this is a documented, deliberately partial
     mitigation, not full cross-platform reproducible builds, which
     Flutter's toolchain does not make achievable in v1 at low cost; it
     narrows what a compromised CI runner could get away with without
@@ -535,8 +567,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   byte-preserving *operations* on non-UTF-8 remote filenames — v1's
   policy for them (strict-decode; lossy display with a warning badge,
   paired with a byte-accurate escaped rendering wherever a lossy-render
-  collision could otherwise make two distinct flagged names look
-  identical (02 §13);
+  collision could otherwise make two distinct names — flagged or not —
+  look identical (a flagged name's U+FFFD rendering can just as easily
+  collide with a legitimately-named, fully valid UTF-8 file that
+  contains a literal U+FFFD, not only with another flagged name; 02 §13);
   operations on the flagged name terminally skipped — no retry affordance,
   since retry can never succeed — until byte-preserving handling lands;
   itemized with a tallied count in the same per-file reporting a transfer

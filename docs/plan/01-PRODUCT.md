@@ -166,7 +166,9 @@ decision that makes it real.
    independent path to a YubiKey or similar beyond ssh-agent. State that
    plainly in the user-facing docs — a security-conscious user should not
    discover it at first connect — because the §3 XPipe row criticizes
-   exactly this capability being gated. "Open terminal here" / "open files
+   exactly this capability being gated; §8's non-goals table carries this
+   disclosure's actual user-facing copy, so the mandate here has a
+   concrete home rather than floating unwired. "Open terminal here" / "open files
    here" cross-links follow in v1.x (04 §7.1). Termius bundles both and
    rents the privilege; MobaXterm and Bitvise bundle both too, but as
    Windows-only, terminal-first tools — none pairs a first-class transfer
@@ -282,7 +284,11 @@ The product name is plain ASCII everywhere a file name or identifier appears
 codesign lesson), and identifiers are already fixed:
 `com.lkm.poltergeist_app` (Linux GApplication; reserved, not currently
 used, for the mobile build D29 keeps open),
-`com.lkm.poltergeistApp` (Apple), Linux binary `poltergeist`.
+`com.lkm.poltergeistApp` (Apple), Linux binary `poltergeist`. The
+underscore-vs-camelCase difference between the Linux and Apple ids is
+deliberate, not an inconsistency to "clean up" — each follows that
+platform's own convention, and unifying them would break whichever side
+lost.
 
 Personality is part of the product (D24; Transmit's truck icon and Panic's
 human voice are the precedent — a characterful identity compounds for
@@ -321,6 +327,7 @@ scheduling lives in the last column.
 |---|---|---|
 | Protocol sprawl (S3, WebDAV, FTP, cloud drives) | "Poltergeist is SFTP-first on purpose. Every surface — queue, sync, editor — is built to be excellent over one protocol before any second one is considered. S3/WebDAV are on the v2 list behind a per-backend capability matrix, so a future backend can never silently break a promise the UI makes." | D25; 03 keeps the VFS seam (D3) clean |
 | Mounting remotes as volumes (FUSE and kin) | "Mounting hides transfer state inside the OS, and hidden state is where trust dies — the frozen-'Synchronization ongoing' failure class. Poltergeist always shows you the queue instead." | Refused durably by D31 (§3 Mountain Duck row, §5 trap 3); not on the D25 list |
+| ssh-agent, ProxyJump, and hardware-security-key auth at v1 | "Poltergeist v1 authenticates with identity files, passwords, and 2FA — the same stack Séance uses. ssh-agent and ProxyJump land in the first post-1.0 update; hardware security keys (YubiKey and similar) arrive alongside ssh-agent, since that is the only path the shared auth stack has to them. Coming first, right after 1.0 — not left unplanned." | D10; §4 differentiator 6 mandates this disclosure ship somewhere user-facing — this row is that home |
 | Scheduled, watched, or background sync | "Sync in v1 is a supervised operation: you preview the plan, you run it, you watch it. Automation of an operation that can delete files earns trust only after the manual loop has it. Scheduled/watched sync is on the v2 list." | D25; engine stays open to it (05) |
 | True two-way sync with baseline database | "Two-way sync without a state database cannot distinguish 'deleted here' from 'created there'. v1 ships Update, Mirror, and Additive two-way (never deletes); real bidirectional sync with tombstones and move detection is v2, built on the same plan/preview model." | D6, D25; 05 |
 | Resumable transfers | "In v1, an interrupted transfer restarts from the beginning. Picking up where it left off needs protocol plumbing we haven't built yet; the groundwork is planned and resuming is on the v2 list." | D25; D3 notes ranged read as an upstream addition |
@@ -407,12 +414,21 @@ assumed**, by this audit procedure:
 - **Companion scan**: `%(trailers)` misses an attribution line stranded
   outside the final trailer block, so also run a whole-message sweep and
   reconcile it against the sorted identity record above: `LC_ALL=C git
-  --no-replace-objects -c log.mailmap=false -c i18n.logOutputEncoding=utf-8
+  --no-replace-objects -c grep.patternType=basic -c log.mailmap=false
+  -c i18n.logOutputEncoding=utf-8
   log <pinned-SHA> -i --grep=co-authored-by --grep=signed-off-by
   --grep=reported-by --grep=helped-by --grep=reviewed-by --grep=tested-by
   --grep=suggested-by --grep=co-developed-by --grep=acked-by
   --grep=mentored-by --grep='<[^>]*@[^>]*>' --format='%H %an <%ae>'` —
-  the last pattern is a kind-agnostic catch-all: the enumerated
+  `grep.patternType` is pinned here for the same silent-mismatch reason
+  the external-hit pinpoint run below pins it: with a contributor-local
+  `grep.patternType=fixed`, the kind-agnostic bracket pattern would match
+  that literal text instead of an email-shaped substring, going quietly
+  dead while the enumerated `--grep`s keep working — exactly the
+  invisible-failure class this whole sweep exists to close, and worse
+  here because the bracket pattern is the catch-all for kinds the
+  enumeration doesn't even know about. That pattern is
+  a kind-agnostic catch-all: the enumerated
   `--grep`s only ever catch the trailer kinds this list happens to name,
   but the list is provably open-ended (it already includes non-standard
   kinds like `Mentored-by`), so a stranded line using some other kind —
@@ -456,11 +472,18 @@ assumed**, by this audit procedure:
   conclusion additionally rests on Séance containing no vendored
   third-party code, checked on the same trigger as the audit itself —
   when the pin first lands and whenever the pinned ref changes — by a
-  scripted scan of the tree diff (there is no old pin on first landing,
-  so that run scans the whole tree — `git diff $(git hash-object -t tree
-  /dev/null) <pin>` — and every later run scopes to `old-pin..new-pin`):
-  `git grep -Ii -e copyright -e spdx -e 'apache license' -e 'gnu general' <range>`
-  for foreign license/copyright headers, plus a
+  scripted scan of the whole pinned tree, run identically at first
+  landing and on every later pin change (`git grep` takes a tree, not a
+  commit range, so there is no `old-pin..new-pin` variant to special-case
+  — scanning the whole tree every time is also cumulative-safe: every
+  file present at the pin gets scanned regardless of when it arrived):
+  `git grep -Ii -e copyright -e spdx -e 'apache license' -e 'gnu general'
+  -e 'permission is hereby granted' -e 'redistribution and use'
+  -e 'mozilla public' -e 'creative commons' -e 'public domain' <pin>` —
+  the term list extends past `copyright`/`spdx` because MIT bodies
+  ("Permission is hereby granted…"), BSD-2/3 openings
+  ("Redistribution and use…"), MPL, and CC0/public-domain dedications
+  can all appear without either of those two words — for foreign license/copyright headers, plus a
   `git ls-tree -r --name-only <pin>` pass checked against a small
   vendored-path list (`third_party/`, `vendor/`, `node_modules/`,
   `ext/`) for new vendored directories — never a manual, unscripted
@@ -591,6 +614,15 @@ fork or clean-room Séance code, which D2 forbids outright.
   words it; that gate's normative wording lives only in §9 — every
   other mention of it, in the rest of this chapter and in 02–08, is a
   summary that defers to §9 as the sole normative source.
+- The §9 audit procedure (main identity command, companion sweep,
+  external-hit pinpoint, vendored-code scan) is implemented as a script
+  (e.g. `scripts/audit-seance-pin.sh`), run by CI whenever the pinned
+  Séance ref changes, against a non-shallow checkout (`fetch-depth: 0`
+  — CI checkouts are shallow by default, which would silently truncate
+  the ancestor walk the Scope bullet already warns about) — §9's prose
+  stays the normative description, but the script is its enforced
+  implementation, so the two cannot drift apart the way an unscripted,
+  hand-retyped command would.
 
 ## Explicitly out of scope
 
