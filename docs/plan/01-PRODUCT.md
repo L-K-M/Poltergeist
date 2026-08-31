@@ -87,7 +87,9 @@ ours).
 The field survey covered roughly twenty clients and file managers. The table
 records, per competitor, what Poltergeist takes and what it refuses. "Take"
 means the idea is scheduled somewhere in this plan; "refuse" means the
-refusal is deliberate and durable.
+refusal is deliberate and durable. A third category — deferred to v2
+(D25) — is neither taken nor refused: where a row names a v2 idea, read
+it as parked (§8 keeps deferrals and refusals in separate lists).
 
 | Competitor | What we take | What we refuse |
 |---|---|---|
@@ -346,7 +348,10 @@ only then, and CI can observe the pin moving); patches applied under the
 owner's identity are attributed to their real author by hand. Any
 external contributor it turns up — its exact commits pinpointed by
 re-running the audit scoped to that author (`git log <pinned-SHA>
---author=<email>`) and recorded in PORTS.md, so the block acts on the
+--author=<email> -i --grep="Co-authored-by:.*<email>"` — git ORs
+`--author` with `--grep` by default, so this catches the person as commit
+author *or* trailer co-author, since `--author` alone never matches a
+`Co-authored-by:` trailer) and recorded in PORTS.md, so the block acts on the
 commits actually ancestral to the pin rather than a bare name — makes
 that contribution's code wait for
 the LICENSE like any third party's — which, since the single-holder

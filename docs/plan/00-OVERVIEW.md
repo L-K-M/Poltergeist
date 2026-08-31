@@ -280,7 +280,9 @@ permissions · D29 mobile hooks · D30 Séance license
   (Replace / Replace-if-newer / Keep Both / Skip, Merge for folders, with
   per-direction configurable defaults), bandwidth throttle (token bucket),
   remote→remote piping tasks, **persistent queue and a working history log**
-  across restarts. Hidden or dishonest transfer state is the category's
+  across restarts — the history records endpoints, root names, byte/file
+  counts, timestamps, and outcome (never credentials), caps at 10 000
+  entries, and ships a `Clear History` action (02 §6). Hidden or dishonest transfer state is the category's
   cardinal sin; every long operation is visible, cancellable, inspectable.
 - **D21 — Command registry from day one; palette in v1.** Every user action
   is a registered command (id, label, shortcut, enablement) feeding menus,
@@ -328,7 +330,11 @@ permissions · D29 mobile hooks · D30 Séance license
   bundle, Windows zip, Linux `.deb` + AppImage + bundle, Android APK, and
   unsigned iOS IPA (all already scripted); the mobile product remains
   post-v1 (D29) — the artifacts merely exist. No paid signing
-  in v1 (documented first-launch steps); architecture stays sandbox-ready
+  in v1 (documented first-launch steps) — but every release publishes
+  `SHA256SUMS` beside the assets from `v0.1.0`, and `v1.0.0` on adds
+  `SHA256SUMS.asc`, a detached maintainer-key signature over that list
+  (07 §4), so integrity and provenance are verifiable without paid
+  certificates; architecture stays sandbox-ready
   (a `ScopedPathAccess` service fronts all local file access; sidebar
   bookmarks double as future sandbox grants) but v1 desktop builds are
   unsandboxed. Auto-update stays link-only.
