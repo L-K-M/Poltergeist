@@ -147,8 +147,10 @@ decision that makes it real.
 5. **The complete editor round-trip.** Séance's conflict-aware editor stack
    ported intact (D17): built-in editor with syntax highlighting and find,
    any external editor via `EditorRegistry`, managed checkout with SHA-256
-   conflict authority (D7) — WinSCP's machinery, Cyberduck's breadth, plus a
-   real built-in editor neither has.
+   conflict authority (D7) — WinSCP's machinery, Cyberduck's breadth, plus
+   syntax highlighting: WinSCP's own built-in editor is explicitly
+   Notepad-equivalent (its docs say so), and Cyberduck has no built-in
+   editor at all.
 6. **One SSH stack shared with a terminal sibling.** Identity-file keys,
    known-hosts pins,
    TOFU prompts, and 2FA behave identically in Séance and Poltergeist because
@@ -204,7 +206,8 @@ is no "we" at runtime — that is the point).
 > Poltergeist is open source and free. It has no account to create, no
 > telemetry, no analytics, no crash reporting, and no installer bundleware.
 > Beyond the servers you deliberately connect or back up to, it phones
-> home for exactly one thing: an optional, link-only check that a
+> home for exactly one thing: a link-only check, on by default and one
+> setting away from off, that a
 > newer release exists — it tells you, you decide, nothing auto-installs.
 >
 > Passwords and secrets Poltergeist saves for you are sealed at rest under a
@@ -334,12 +337,15 @@ license from themselves to build their own code.
 That single-holder claim is **verified against recorded authorship, not
 assumed**, by this audit procedure:
 
-- **Command**: `git log <pinned-SHA> --format='%an <%ae>%n%(trailers)' |
+- **Command**: `git log <pinned-SHA> --format='%an <%ae>%n%cn <%ce>%n%(trailers)' |
   LC_ALL=C sort -u` — needs git ≥ 2.22 for the `%(trailers)` placeholder,
   which surfaces every attribution trailer (`Co-authored-by`,
   `Signed-off-by`, `Reported-by`, …), not `Co-authored-by` alone, since
   any of them can be the only automated trace of an external contribution
-  the maintainer committed under their own identity.
+  the maintainer committed under their own identity. Committer identity
+  (`%cn <%ce>`) rides alongside author identity because a rebase, a
+  `git am`, or a merge bot can record a different committer than author —
+  another automated trace the block must not miss.
 - **Scope**: walks **only the pin's ancestors** (the code actually
   embedded) — plain `git log <pinned-SHA>` traverses every parent
   transitively regardless of refs, so **no `--all`**, which would union
@@ -356,12 +362,15 @@ assumed**, by this audit procedure:
   attributed to their real author by hand.
 - **On an external hit**: pinpoint its exact commits by re-running the
   audit scoped to that author (`git log <pinned-SHA> --author=<email> -i
-  --grep="Co-authored-by:.*<email>"` — git ORs `--author` with `--grep`
-  by default, so this catches the person as commit author *or* trailer
-  co-author, since `--author` alone never matches a `Co-authored-by:`
-  trailer; both arguments are regexes, so an address like
-  `user+tag@example.com` needs its `+`/`.` metacharacters escaped, or
-  match on a metacharacter-free substring such as the domain) and record
+  --grep="<email>"` — git ORs `--author` with `--grep` by default, so this
+  catches the person as commit author, committer, *or* trailer co-author
+  under any trailer kind (`Co-authored-by`, `Signed-off-by`,
+  `Reported-by`, …), since `--author` alone never matches a trailer line
+  and a kind-specific grep would miss the very trailers the broadened
+  `%(trailers)` scan above exists to catch; both arguments are regexes,
+  so an address like `user+tag@example.com` needs its `+`/`.`
+  metacharacters escaped, or match on a metacharacter-free substring such
+  as the domain) and record
   them in PORTS.md, so the block acts on the commits actually ancestral
   to the pin rather than a bare name. That contribution's code then waits
   for the LICENSE like any third party's — which, since the
@@ -370,7 +379,13 @@ assumed**, by this audit procedure:
   excludes it (git ancestry is monotonic, so advancing the pin keeps
   every ancestor embedded; only a rewind to a commit that predates the
   contribution drops it) or obtaining a grant covering it — and blocks
-  the copy-with-attribution ports until they grant it.
+  the copy-with-attribution ports until they grant it. A bot-authored hit
+  (a merge bot, a CI-triggered commit, Dependabot) fits neither remedy —
+  there is no human to rewind past on principle or ask for a grant — so
+  PORTS.md records the maintainer's by-hand call instead: content-free
+  bot commits (merges, version bumps with no code change) are noted and
+  cleared, content-bearing ones are attributed to whichever human
+  authored the underlying change the bot merely committed.
 
 The **hard gate** comes first: no Séance source is copied into
 Poltergeist until the D30 license PR (PR-S0) merges on Séance `main`

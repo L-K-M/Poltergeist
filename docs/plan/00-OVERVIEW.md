@@ -191,7 +191,11 @@ permissions · D29 mobile hooks · D30 Séance license
   rsync idea ships as **"Copy as rsync command"**: renders the pair's
   ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
   exporter contract owns the specifics (POSIX single-quoting of every
-  path and argument — the exported command targets a POSIX shell
+  path and argument, including the embedded-quote escape (`'` → `'\''`)
+  and, upstream of the exporter, 09's shared path validator rejecting
+  newlines/control characters from ever reaching it, so an untrusted
+  remote filename can never break out of the quoted argument — the
+  exported command targets a POSIX shell
   (bash/zsh), pasting into cmd.exe or PowerShell being out of contract —
   hazard `# note:` lines, golden-tested); manual
   per-item overrides are
@@ -213,16 +217,24 @@ permissions · D29 mobile hooks · D30 Séance license
   an unconfirmed permanent delete; 07 §6 risk 10 pre-authorizes the same
   fallback per platform).
   Remote deletions from browsing default to confirm-then-permanent
-  (Transmit's model) with a per-server opt-in "move to `.poltergeist-trash/`
-  instead"; sync deletions *and* the previous versions of files sync
+  (Transmit's model) with a per-server opt-in "move to
+  `.poltergeist-trash/<runId>/` instead" (same per-run layout as sync's
+  trash below, rather than an unretained flat folder, so it ages and
+  purges under the identical 30-day rule); sync deletions *and* the previous versions of files sync
   overwrites default to the same `.poltergeist-trash/<runId>/` rename-based
-  trash (overwrite backups sit behind their own `backups` knob — default
+  trash — falling back to copy-then-delete when the rename fails
+  cross-filesystem (EXDEV, mirroring D26's local rule; 05's rail 5 owns
+  this fallback, including the interrupted-copy recovery it tests for) —
+  (overwrite backups sit behind their own `backups` knob — default
   `trash`, matching 05's `BackupPolicy` — independent of the deletion
   policy). One directory name everywhere;
   default ignore rules exclude `.poltergeist*` and `*.poltergeist-*`.
   Sync trash is never reclaimed as a side effect — retention is 05 §8
   rail 5's story: a plan-time notice surfaces trash older than 30 days
-  (orphaned, journal-less run directories included, aged by mtime) with
+  (orphaned, journal-less run directories included, aged by each run's
+  recorded `startedAt` where a journal exists and by the `<runId>`
+  directory's own mtime for journal-less orphans — never by the trashed
+  files' own mtimes, which a rename leaves untouched) with
   a user-confirmed purge, plus the explicit `sync.purgeTrash` command —
   accumulation is visible and reclaim is always a deliberate act,
   matching the no-unguarded-deletes rule (09 §6).
@@ -290,7 +302,12 @@ permissions · D29 mobile hooks · D30 Séance license
   scratch — mid-file resume waits for D25) and a working history log**
   across restarts — the history records endpoints, root names, byte/file
   counts, timestamps, and outcome (never credentials), caps at 10 000
-  entries, and ships a `Clear History` action (02 §6). Hidden or dishonest transfer state is the category's
+  entries, and ships a `Clear History` action (02 §6) — the log lives in
+  the app's regular local data store rather than sealed under D18's OS
+  keystore (that's sized and scoped for small secrets, not a growing log
+  of endpoints/paths), so anyone who wants none of that persisted at all
+  gets a `Disable History` setting alongside `Clear History` (02 §6).
+  Hidden or dishonest transfer state is the category's
   cardinal sin; every long operation is visible, cancellable, inspectable.
 - **D21 — Command registry from day one; palette in v1.** Every user action
   is a registered command (id, label, shortcut, enablement) feeding menus,
@@ -330,7 +347,11 @@ permissions · D29 mobile hooks · D30 Séance license
   protocol and buys nothing at bookmark sizes); credentials resolved
   in-memory at connect; identity-file reads audited. No new crypto.
 - **D19 — Trust stance.** Open source, zero telemetry, no crash reporting
-  in v1, no accounts, link-only update check (Séance's banner pattern).
+  in v1, no accounts, link-only update check (Séance's banner pattern) —
+  the check is the app's only outbound call absent a user-initiated
+  connection, on by default and one setting away from off (01 §6); every
+  shorter "zero telemetry" tagline elsewhere in this plan is shorthand
+  for this same scoped claim, never a silent contradiction of it.
   Stated in the README; treated as a feature (the category punishes
   rent-seeking and opacity).
 - **D23 — Distribution mirrors Séance.** GitHub Releases via the existing
@@ -344,7 +365,13 @@ permissions · D29 mobile hooks · D30 Séance license
   (07 §4): an unsigned checksum alone only catches accidental corruption
   — anyone who can swap a binary can recompute its sum — so the
   signature ships from the first tag rather than waiting for v1.0.0,
-  since generating one costs nothing paid certificates would; integrity
+  since generating one costs nothing paid certificates would; the
+  maintainer key's fingerprint is published out-of-band — a channel
+  independent of this repo and release site, e.g. keyservers plus the
+  app's About box — and INSTALL.md walks users through verifying that
+  fingerprint rather than just fetching the key from the download page
+  (07 §4), since a signature alone only proves internal consistency, not
+  provenance, without that independent check; integrity
   and provenance are both verifiable without paid certificates;
   architecture stays sandbox-ready
   (a `ScopedPathAccess` service fronts all local file access; sidebar
