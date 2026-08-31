@@ -63,7 +63,7 @@ D12 perf budgets · D13 single window · D14 drag & drop · D15 trash ·
 D16 activity panel · D17 editor · D18 security model · D19 trust
 stance · D20 a11y/i18n · D21 commands · D22 import · D23 distribution ·
 D24 name · D25 parking lot · D26 local↔local · D27 archives · D28
-permissions · D29 mobile hooks · D30 Séance license
+permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 
 ### Stack and shape
 
@@ -163,6 +163,19 @@ permissions · D29 mobile hooks · D30 Séance license
   first Séance git pin, since a `v*` tag cut in the window between that pin
   and the guard would publish unlicensed revisions the guard exists to
   block).
+- **D31 — No volume mounting, ever.** FUSE/WebDAV-mount/network-drive
+  presentation of a remote is refused durably, never deferred to v2 —
+  unlike everything on the D25 parking lot, there is no future version
+  where this ships. Mounting hides every transfer behind the OS's own
+  I/O layer (01 §3's Mountain Duck row, the frozen-"Synchronization
+  ongoing" failure class; 01 §5 trap 3), defeating the D16 activity
+  panel's visibility/cancellability/inspectability guarantee at exactly
+  the operations — bulk copies to a remote — where losing it hurts most.
+  This is the one durable refusal in 01 §8's non-goal table that had no
+  governing decision number, leaving it uniquely unprotected by this
+  file's own change-control rule ("changing a decision means editing
+  this file"); recorded here so reversing it requires editing this entry
+  first, exactly like every other refusal.
 
 ### Sync and deletion/trash policy (R6)
 
@@ -192,7 +205,14 @@ permissions · D29 mobile hooks · D30 Séance license
   ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
   exporter contract owns the specifics (POSIX single-quoting of every
   path and argument, including the embedded-quote escape (`'` → `'\''`);
-  a `--` end-of-options separator before the first path argument plus
+  `-s`/`--protect-args` whenever either side of the pair is remote, so
+  the *remote* shell cannot re-split or reinterpret the arguments rsync
+  forwards to it over the transport — quoting and `--`/`./`-prefixing
+  (below) only govern the *local* shell that parses the pasted command,
+  and pre-3.2.4 rsync does not turn protect-args on by default, which the
+  busybox/NAS targets this exporter explicitly serves can easily be
+  running (a documented word-splitting/injection history predates it,
+  CVE-2022-29154); a `--` end-of-options separator before the first path argument plus
   `./`-prefixing (or absolutizing) every path, so a name like `-delete`
   can never be parsed as an rsync option and a name like `host:path` can
   never be reparsed as a remote host spec once the shell strips the
@@ -380,8 +400,12 @@ permissions · D29 mobile hooks · D30 Séance license
   signature ships from the first tag rather than waiting for v1.0.0,
   since generating one costs nothing paid certificates would; the
   maintainer key's fingerprint is published out-of-band — a channel
-  independent of this repo and release site, e.g. keyservers plus the
-  app's About box — and INSTALL.md walks users through verifying that
+  independent of this repo and release site, e.g. keyservers (the app's
+  About box is a convenience cross-check for an already-installed,
+  previously-trusted binary only — it ships inside the very artifact a
+  release-channel compromise would replace, so it cannot bootstrap
+  first-install trust the way an externally hosted keyserver can) — and
+  INSTALL.md walks users through verifying that
   fingerprint rather than just fetching the key from the download page
   (07 §4), since a signature alone only proves internal consistency, not
   provenance, without that independent check; integrity
@@ -421,8 +445,10 @@ permissions · D29 mobile hooks · D30 Séance license
   capability matrix; browsable archives; scheduled/watched sync;
   multi-window; Custom Tools (user scripts); content search on remotes;
   byte-preserving *operations* on non-UTF-8 remote filenames — v1's
-  policy for them (strict-decode, lossy display with a warning badge,
-  operations blocked terminal until then) is already specified, not
+  policy for them (strict-decode; lossy display with a warning badge;
+  operations on the flagged name terminally skipped — no retry affordance,
+  since retry can never succeed — until byte-preserving handling lands)
+  is already specified, not
   deferred (02 §13).
 
 ## The one-sentence product

@@ -98,10 +98,10 @@ defers it).
 | ForkLift 4 (macOS) | The sidebar model wholesale — one global left sidebar, favorites in named groups, a favorite is anything openable (folder, server, workspace, saved sync); Quick Open palette that teaches shortcuts (D21); sync preview with per-item veto; tabs per pane | iCloud-locked favorites sync; shipping a rewrite minus beloved behaviors (keyboard regressions dominated FL4's reception for years); "no bug fixes after license expiry" pricing |
 | WinSCP (Windows) | The best sync UX in the field — checklist with per-row checkboxes, direction indicators, bulk toggles; the model for our `SyncPlan` preview (D6); thorough temp-file editor round-trip | Windows-only reach; visibly dated Win32 chrome; burying power behind dense dialogs. Move-candidate detection and per-pair diff are v2 ideas, not v1 promises |
 | FileZilla (cross-platform) | Its user base — the largest pool of people waiting for something better; directory-comparison coloring as a cheap legibility win | Everything else: alien wxWidgets chrome, six collapsible sub-panes, bundled installer adware (the trust stance in §6 is the direct answer), a transfer history that does not work (D16 mandates one that does) |
-| Cyberduck / Mountain Duck | Editor round-trip breadth (any external editor, re-upload on save); bookmark-as-first-class-object | Single-pane browsing (R2 requires two); the detached Transfers window (activity stays in-window, D16); mounting remotes as volumes — Mountain Duck's frozen "Synchronization ongoing" beachballs are the case study in hidden state (§5, trap 3) |
+| Cyberduck / Mountain Duck | Editor round-trip breadth (any external editor, re-upload on save); bookmark-as-first-class-object | Single-pane browsing (R2 requires two); the detached Transfers window (activity stays in-window, D16); mounting remotes as volumes (D31) — Mountain Duck's frozen "Synchronization ongoing" beachballs are the case study in hidden state (§5, trap 3) |
 | Termius (cross-platform, subscription) | Proof that an E2E-encrypted cross-device vault is loved; SSH+SFTP under one roof validates the Séance pairing (D2, D4) | Renting basic SFTP behind a subscription; mandatory accounts; bolted-on file management with no real queue, sync, or editor loop |
 | MobaXterm / Bitvise (Windows) | Proof that bundling terminal + transfers earns loyalty | Windows-only, terminal-first: the transfer side is a side dish, never the product |
-| XPipe (cross-platform, open-core) | Respect for existing OpenSSH config — import `~/.ssh/config` including IdentityFile (D22 — XPipe fumbled IdentityFile); one-click edit-in-VS-Code energy (D17) | Paywalled security features (YubiKey behind a tier); JavaFX look-and-feel; being a connection hub rather than a transfer client |
+| XPipe (cross-platform, open-core) | Respect for existing OpenSSH config — import `~/.ssh/config` including IdentityFile (D22); one-click edit-in-VS-Code energy (D17) | Paywalled security features (YubiKey behind a tier); JavaFX look-and-feel; being a connection hub rather than a transfer client |
 | Muon / Snowflake | The feature checklist of what web devs do over SSH, minus its looks | Java Swing chrome; toolbox sprawl (terminal + process manager + disk analyzer) ahead of transfer depth |
 | CrossFTP | Nothing beyond a cautionary datapoint | The whole JVM-generic pattern: cross-platform reach with native feel nowhere |
 | Marta | Command-palette discipline: every action keyboard-addressable (D21) | Mouse-hostile spartanism; no remote story |
@@ -190,7 +190,7 @@ to a decision, budget, or milestone that makes the failure hard to ship.
 |---|---|---|
 | 1 | Non-native uncanny valley (FileZilla, CrossFTP, XPipe, Double Commander) | D11 makes per-platform conventions non-negotiable: native titlebar on Windows/Linux, `macos_window_utils` unified toolbar, `PlatformMenuBar` on macOS, platform dialogs, shortcuts, and scroll physics. 02 specifies each; 08 tests keyboard and a11y invariants. One rendering stack (D1) removes the toolkit matrix that sank Double Commander |
 | 2 | Slow basics kill polish (Spacedrive, Files) | D12's numeric budgets are CI benchmarks, not aspirations (10k-entry paint < 150 ms, tab switch < 100 ms, drop-to-transfer < 500 ms…). D8 keeps all heavy work off the UI isolate. D9 makes week one an engine fitness spike — the pool and scan designs are not finalized until M0 reports |
-| 3 | Hidden or dishonest transfer state (Mountain Duck, Nimble, FileZilla history) | D16 declares the activity panel a trust organ: per-item rows always, every long operation visible, cancellable, inspectable; persistent queue and working history. D15 gives deletion one legible story. No mounting (§8) — mounting is where state goes to hide |
+| 3 | Hidden or dishonest transfer state (Mountain Duck, Nimble, FileZilla history) | D16 declares the activity panel a trust organ: per-item rows always, every long operation visible, cancellable, inspectable; persistent queue and working history. D15 gives deletion one legible story. No mounting, ever (D31; §8) — mounting is where state goes to hide |
 | 4 | Monetization that violates the tool contract (Termius, XPipe, FileZilla bundleware) | The Unlicense (§9) plus D19: no account, no telemetry, no paid tiers exist to gate anything. There is no rent to seek — the guard is that the mechanism is absent, not merely unused |
 | 5 | Breadth before depth; sync that surprises (CrossFTP, AeroFTP, GoodSync's UI, Transmit's shallow sync) | SFTP-first scope with D25 as a written parking lot so nobody "helpfully" builds v2 early. D6's executor runs exactly the previewed plan and re-verifies preconditions per item; deletion requires the explicit Mirror mode; Update mode (no deletions) is the default. A sync that surprises the user is treated as a defect of the highest severity (08) |
 
@@ -207,9 +207,9 @@ is no "we" at runtime — that is the point).
 > Poltergeist is open source and free. It has no account to create, no
 > telemetry, no analytics, no crash reporting, and no installer bundleware.
 > Beyond the servers you deliberately connect or back up to, it phones
-> home for exactly one thing: a link-only check, on by default and one
-> setting away from off, that a
-> newer release exists — it tells you, you decide, nothing auto-installs.
+> home for exactly one thing: a link-only check that a newer release
+> exists — on by default, and one setting away from off. It tells you;
+> you decide; nothing auto-installs.
 >
 > Passwords and secrets Poltergeist saves for you are sealed at rest under a
 > master key held in your operating system's keychain — never stored in
@@ -293,7 +293,7 @@ scheduling lives in the last column.
 | Non-goal for v1 | Reasoning given to users | Where it lives |
 |---|---|---|
 | Protocol sprawl (S3, WebDAV, FTP, cloud drives) | "Poltergeist is SFTP-first on purpose. Every surface — queue, sync, editor — is built to be excellent over one protocol before any second one is considered. S3/WebDAV are on the v2 list behind a per-backend capability matrix, so a future backend can never silently break a promise the UI makes." | D25; 03 keeps the VFS seam (D3) clean |
-| Mounting remotes as volumes (FUSE and kin) | "Mounting hides transfer state inside the OS, and hidden state is where trust dies — the frozen-'Synchronization ongoing' failure class. Poltergeist always shows you the queue instead." | Refused durably (§3 Mountain Duck row, §5 trap 3); not on the D25 list |
+| Mounting remotes as volumes (FUSE and kin) | "Mounting hides transfer state inside the OS, and hidden state is where trust dies — the frozen-'Synchronization ongoing' failure class. Poltergeist always shows you the queue instead." | Refused durably by D31 (§3 Mountain Duck row, §5 trap 3); not on the D25 list |
 | Scheduled, watched, or background sync | "Sync in v1 is a supervised operation: you preview the plan, you run it, you watch it. Automation of an operation that can delete files earns trust only after the manual loop has it. Scheduled/watched sync is on the v2 list." | D25; engine stays open to it (05) |
 | True two-way sync with baseline database | "Two-way sync without a state database cannot distinguish 'deleted here' from 'created there'. v1 ships Update, Mirror, and Additive two-way (never deletes); real bidirectional sync with tombstones and move detection is v2, built on the same plan/preview model." | D6, D25; 05 |
 | Resumable transfers | "In v1, an interrupted transfer restarts from the beginning. Picking up where it left off needs protocol plumbing we haven't built yet; the groundwork is planned and resuming is on the v2 list." | D25; D3 notes ranged read as an upstream addition |
@@ -376,9 +376,14 @@ assumed**, by this audit procedure:
   a vendored file, a snippet pasted into a commit the owner authored,
   history predating the repo — is invisible to it, so the single-holder
   conclusion additionally rests on Séance containing no vendored
-  third-party code, checked once by inspecting Séance's tree (vendored
-  directories, foreign license/copyright headers) rather than re-verified
-  on every audit run.
+  third-party code, checked on the same trigger as the audit itself —
+  when the pin first lands and whenever the pinned ref changes — by
+  inspecting the tree diff old-pin..new-pin for new vendored directories
+  or foreign license/copyright headers, never a one-time check: a
+  vendoring commit added after an earlier check lands under the owner's
+  own identity, invisible to the `git log` identity lines, so only
+  re-scanning on every pin change catches it before it flows into a
+  published binary.
 - **On an external hit**: pinpoint its exact commits by re-running the
   audit scoped to that author (`git log <pinned-SHA> -i --author="<email>"
   --committer="<email>" --grep="<email>"` — git ORs `--author`,
@@ -394,8 +399,10 @@ assumed**, by this audit procedure:
   one-or-more quantifier that then fails to match a literal `+` (verified
   empirically: `grep "a+b"` matches a literal `a+b`, `grep "a\+b"` does
   not) — an address like `user+tag@example.com` therefore needs no
-  escaping of its `+` at all, only special care with any literal `.`, or
-  match on a metacharacter-free substring such as the domain) and record
+  escaping of its `+` at all, only its literal `.`s escaped (every real
+  domain has at least one, so "match on the metacharacter-free domain"
+  is not a real escape hatch — escape the dots in whatever substring is
+  chosen, full address included) and record
   them in PORTS.md, so the block acts on the commits actually ancestral
   to the pin rather than a bare name. That contribution's code then waits
   for the LICENSE like any third party's — which, since the
