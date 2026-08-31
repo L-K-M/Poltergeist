@@ -151,10 +151,10 @@ void runRemoteFileSystemContract(
   Future<FsHarness> Function() createHarness,
 );
 
-class FsHarness {
-  final RemoteFileSystem fs;
-  final String root;                       // absolute working directory
-  final FsCapabilities caps;               // supportsMode, supportsSymlinks,
+abstract class FsHarness {
+  RemoteFileSystem get fs;
+  String get root;                         // absolute working directory
+  FsCapabilities get caps;                 // supportsMode, supportsSymlinks,
                                            // supportsOwner, caseSensitive
   Future<void> mutateOutOfBand(String path, List<int> bytes);
   Future<void> dispose();
@@ -216,7 +216,10 @@ real on the CI OS matrix (§8). The four public safety helpers in
 **`InProcessEngineClient`** implements the same `EngineClient` interface
 as the isolate-backed client but fronts injected filesystems directly on
 the caller's isolate — controllers and widget tests use it; a separate
-protocol test (§3.2) proves the real isolate path.
+protocol test (§3.2) proves the real isolate path — and the
+controller-level suites are parameterized over both `EngineClient`
+implementations so behavioral drift (a dropped event, an unforwarded
+request, a cancellation that never crosses the port) fails CI.
 
 ### 3.2 poltergeist_core — queue, pool, bookmarks, protocol
 
@@ -247,7 +250,8 @@ pairs and `fake_async`:
 - Journal replay (03 §4.6): kill-and-replay mid-task restores the queue
   **paused** with remaining items; a corrupt trailing JSONL line is
   dropped; compaction moves finished tasks to history; history caps at
-  10 000 records.
+  10 000 records; a crash injected mid-compaction leaves the previous
+  journal intact and replayable (temp file + atomic rename).
 - `BandwidthLimiter`: with a fake clock — no burst ever grants more
   than one second of tokens, N > L bytes at limit L take
   ≥ (N − L)/L seconds (a full initial bucket makes ≥ N/L unattainable
@@ -257,7 +261,10 @@ pairs and `fake_async`:
   is unattainable by the same arithmetic: a full bucket at window
   start admits L + W·L bytes); plus the §4.3 hang guards — an
   `acquire` larger than bucket capacity drains in capacity-sized
-  grants, and a zero limit is rejected at the settings boundary.
+  grants, a zero limit is rejected at the settings boundary, and a limit
+  change mid-transfer clamps the bucket to the new capacity — subsequent
+  grants respect the new L with no fresh burst, and pending acquires
+  observe the change.
 - Remote→remote piping over two fakes: bytes counted once, both leases
   released on success and on either side's failure, failing side named in
   the error message.
@@ -297,7 +304,8 @@ isolate-sendable and reconstructs intact — **not** closure-freedom,
 since Dart copies closures with sendable captures across isolates;
 function-typed fields in the protocol classes are banned by the §3.3
 AST walker instead); progress coalescing emits
-≤ 30 events/s per task under a flood; a serialized
+≤ 30 events/s per task under a flood, and the merged queue stream stays
+frame-bounded with many tasks transferring concurrently; a serialized
 `RemoteFileException` reconstructs kind + message intact.
 
 The existing product-identity test (ASCII name invariant) stays.
@@ -361,7 +369,10 @@ never-executes promise and 03 §1's dependency rules, machine-checked).
 A sibling walker covers `packages/poltergeist_core/lib/src/engine/**`
 and fails on any function-typed field declared in **any** class under
 that subtree — not just the `EngineRequest`/`EngineEvent` pair, so a
-newly added protocol class cannot quietly escape the §3.2 closure ban —
+newly added protocol class cannot quietly escape the §3.2 closure ban
+(the walker also fails if any `EngineRequest`/`EngineEvent` subtype is
+declared outside the walked subtree, so relocation cannot dodge it
+either) —
 save for a short, **commented allowlist** of engine-internal classes that
 legitimately hold callbacks (the isolate runner's hooks, the client's
 event handlers, test seams): those carry no cross-port payload, so
@@ -452,8 +463,13 @@ test/integration/
                             weak-credential sshds on the LAN). Enforced
                             mechanically, not by prose: run.sh and CI
                             render `docker compose config` (interpolated,
-                            resolved) and fail unless every published
-                            host IP is 127.0.0.1, and no service uses
+                            resolved) with **every profile activated**
+                            (`COMPOSE_PROFILES=$(docker compose config
+                            --profiles | paste -sd,)`), because a plain
+                            render omits profiled services (`sshd-keyswap`,
+                            a future `sshd-netem`) entirely, and fail
+                            unless every published host IP is 127.0.0.1
+                            and no service uses
                             `network_mode: host` (which bypasses the
                             port check and binds every interface) — a
                             raw YAML grep would
@@ -494,9 +510,15 @@ test/integration/
                             but this loopback fixture: host keys need
                             cross-run stability for TOFU determinism,
                             but the USER keypair does not — run.sh
-                            generates it fresh per run (ssh-keygen,
-                            public half installed into each container's
-                            authorized_keys), shrinking the committed
+                            generates it fresh per run (ssh-keygen) and
+                            writes the public half to a gitignored runtime
+                            dir bind-mounted read-only into every service
+                            (keyswap included); each entrypoint appends it
+                            to the user's authorized_keys at container
+                            start (into the chroot-relative home for
+                            sshd-chroot), so services a suite starts
+                            later get the same per-run key, shrinking the
+                            committed
                             secret surface to the keys that actually
                             need committing; a README in the
                             dir marks every key fake/test-only, and the
@@ -660,7 +682,9 @@ Suites:
 M0 reuses this fixture (D9): the throughput comparison against the
 OpenSSH `sftp` CLI baseline and the concurrent-request verification run
 against `sshd-modern` with `tc netem` latency injection for the
-high-latency case — `tc` runs inside the container, so the image installs
+high-latency case — applied identically to both the engine run and the
+`sftp` CLI baseline run, same service, qdisc deleted between them — `tc`
+runs inside the container, so the image installs
 `iproute2`, the compose service adds `cap_add: [NET_ADMIN]` (or the netem
 leg uses a dedicated profiled `sshd-netem` service), and the qdisc is
 deleted in teardown so injected latency never leaks into other suites
@@ -677,7 +701,7 @@ Two tiers, because CI runners cannot honestly measure UI frames:
 
 | Tier | Budgets | Harness | Environment | Enforcement |
 |---|---|---|---|---|
-| A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, compiled AOT (`dart compile exe`) in CI — `dart run` is local iteration only, per Mechanics — against the §5 Docker fixture on loopback (loopback stands in for LAN; for P3 the overhead is computed as a same-connection difference — listing of the target tree minus a control listing of an empty/minimal directory over the identical connection — rather than subtracting a separately measured network baseline) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE_A`, red = failed job) from the milestone that introduces each surface |
+| A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, compiled AOT (`dart compile exe`) in CI — `dart run` is local iteration only, per Mechanics — against the §5 Docker fixture on loopback (the bench job reuses §5's stack lifecycle verbatim — compose up, the banner-exchange readiness wait, `POLTERGEIST_SSHD*` exports, and the same `trap … EXIT` teardown with profiles enabled — factored into a helper shared with run.sh so the two cannot drift; loopback stands in for LAN; for P3 the overhead is computed as a same-connection difference — listing of the target tree minus a control listing of an empty/minimal directory over the identical connection — rather than subtracting a separately measured network baseline) | CI runner pinned to a specific image digest/tag (or tier A run inside a digest-pinned container), so image rotations are deliberate — paired with a recalibration PR — rather than ambient | enforced (`BENCH_ENFORCE_A`, red = failed job) from the milestone that introduces each surface |
 | B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` capturing `FrameTiming`s via `SchedulerBinding.instance.addTimingsCallback` (the stable in-process mechanism; `traceAction` may be used only after verifying it produces summaries under `flutter test integration_test --profile` with the pinned `integration_test` — its Timeline plumbing has a deprecation history), run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression of the median of ≥ 3 in-job repetitions once enforced — Mechanics defines the source); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only until M9 flips to enforced (soft mode lives in `check.dart`, §6 — no blanket `continue-on-error`); absolute at release QA |
 
 Mechanics:
@@ -752,12 +776,15 @@ Mechanics:
   into two axis classes, because `ubuntu-latest` is a heterogeneous pool
   that rotates CPU hardware over time: **controlled axes** (runner image
   digest/tag, arch, Dart/Flutter version, AOT/profile mode, scenario
-  config), whose mismatch is a hard non-zero exit in every mode — in soft
-  mode too, like a missing/errored scenario — **for tier-B baseline
-  comparisons only** (tier-A budget comparisons skip with the loud
-  "hardware drift — recalibrate" notice and exit zero, per the tier-A
-  paragraph above, so a runner-image rotation never reddens the tier-A PR
-  gate), cleared only by a dedicated baseline-refresh PR; and the
+  config), whose mismatch is a hard non-zero exit **once `BENCH_ENFORCE_B`
+  is set** — while soft, a controlled-axis mismatch gets the identical
+  loud "hardware drift — recalibrate" notice and exit-zero treatment as
+  tier-A's controlled-axis skip below, so a routine pre-M9 runner rotation
+  or Dart/Flutter bump never reddens a PR unrelated to the rotation
+  (tier-A budget comparisons skip with that same notice and exit zero in
+  every mode, per the tier-A paragraph above, so a runner-image rotation
+  never reddens the tier-A PR gate either), cleared only by a dedicated
+  baseline-refresh PR; and the
   **uncontrolled CPU-model axis**, whose
   mismatch instead skips the tier-B comparison with a loud non-enforced
   "hardware drift — refresh the baseline" notice on any lane and never
@@ -770,8 +797,14 @@ Mechanics:
   file (the previous state fetched from the latest bench job's artifact via
   the Actions API, or an `actions/cache` entry keyed on the fingerprint —
   documented as the single state store, with retention), updates it each
-  run, and once the same drift notice has fired on ≥ 7 consecutive
-  main-branch runs (any intervening clean run resets the count) the job
+  **main-branch run only** — the artifact fetch is filtered to
+  `branch=main` (the state rides inside `bench-results.json` or its own
+  always-uploaded artifact), PR tier-A runs never write drift state, and a
+  missing/unfetchable state file (cache eviction, artifact expiry) means
+  "count unknown — continue counting conservatively," never a reset — and
+  once the same drift notice has fired on ≥ 7 consecutive
+  main-branch runs (any intervening clean **main-branch** run resets the
+  count) the job
   reddens with "baseline stale — refresh required", so a pool CPU rotation
   cannot leave tier-B enforcement dormant indefinitely. A mismatch of either class still never falls
   through to a cross-hardware comparison, and the refresh-PR procedure is
@@ -891,7 +924,7 @@ section says what each job runs and what gets added when.
 | `dart` | yes | `dart analyze` + `dart test` over `packages/*`, discovered dynamically | `poltergeist_sync` joins automatically when created. **Change at M1**: extend to an OS matrix (`ubuntu-latest`, `macos-latest`, `windows-latest`) once `LocalFileSystem` lands — the platform-conditional contract cases (case-only rename, reserved names, mode unsupported) only mean something on the real OS. All three are required checks; they are cheap (pure Dart). |
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
-| `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): the job runs run.sh end to end — compose up, the §5 readiness wait, `dart test -t integration` with explicit package paths, and the `trap … EXIT` compose-down that fires on success and failure alike (the single-lifecycle-owner rule §5 centralizes; the bench job reuses only its `--lifecycle-only` half, without the `dart test`) | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so absence stays skipped-neutral only for PRs triggered by the `packages/**` source globs or `.github/workflows/ci.yml`; on `main`/dispatch **and on any PR whose diff touches `test/integration/**`** (a deletion or rename of the fixture is exactly the case to catch pre-merge, not first on `main`) an absent fixture fails the job loudly instead, so a deleted fixture can never silently disable the suite — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, `workflow_dispatch`, and PRs touching `packages/**/lib/**`, `packages/**/test/**`, `packages/**/pubspec.yaml`, `test/integration/**`, or `.github/workflows/ci.yml` (source/test-scoped, not a bare `packages/**` that also matches a `README.md` — a 25-minute Docker job has no business on a docs-only PR; the workflow file is in the filter so job edits self-validate, and `workflow_dispatch` is the manual trigger the "on `main`/dispatch an absent fixture fails loudly" guard above names). |
+| `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): the job runs run.sh end to end — compose up, the §5 readiness wait, `dart test -t integration` with explicit package paths, and the `trap … EXIT` compose-down that fires on success and failure alike (the single-lifecycle-owner rule §5 centralizes; the bench job reuses only its `--lifecycle-only` half, without the `dart test`) | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so absence stays skipped-neutral only for PRs triggered by the `packages/**` source globs — a PR whose diff touches `.github/workflows/ci.yml` fails loudly on an absent fixture too, since that file is in the trigger filter precisely so job edits self-validate; on `main`/dispatch **and on any PR whose diff touches `test/integration/**`** (a deletion or rename of the fixture is exactly the case to catch pre-merge, not first on `main`) an absent fixture fails the job loudly instead, so a deleted fixture can never silently disable the suite — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 35 min — the `dart test -t integration` suite alone is quoted at ~25 min (see the `bench` row); compose-up, the §5 readiness wait, and the trap teardown sit on top, and a hard timeout equal to the suite's own duration turns ordinary runner jitter into an ungraded cancellation rather than a graded failure. Runs on push to `main`, `workflow_dispatch`, and PRs touching `packages/**/lib/**`, `packages/**/test/**`, `packages/**/pubspec.yaml`, `test/integration/**`, or `.github/workflows/ci.yml` (source/test-scoped, not a bare `packages/**` that also matches a `README.md` — a 35-minute Docker job has no business on a docs-only PR; the workflow file is in the filter so job edits self-validate, and `workflow_dispatch` is the manual trigger the "on `main`/dispatch an absent fixture fails loudly" guard above names). |
 | `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle via a `--lifecycle-only` mode run.sh grows for this job (compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — but **no `dart test` invocation**, since reusing run.sh verbatim would run the whole ~25-min integration suite inside this 45-min job, while copying the lifecycle into the bench job would fork the trap/readiness logic §5 centralizes) — tier-B under xvfb in profile mode (main/dispatch runs only; skipped on PRs, see gating below), then `test/benchmarks/check.dart` (also `if: always()`, so partial results flushed by a soft-deadline exit are still graded, not skipped when the runner step exits non-zero) with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact via an `if: always()` upload step, so timed-out or failed runs still ship their partial results; because a hard `timeout-minutes` cancellation can kill the upload mid-flight, the runner and check.dart enforce their own soft deadlines below the 45-min cap (flush partial results, exit nonzero) so a slow run surfaces as an ordinary failure rather than a cancellation | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**/lib/**`, `packages/**/test/**`, `packages/**/pubspec.yaml`, `test/benchmarks/**`, `test/integration/**` (the run.sh lifecycle and compose fixture this job reuses via `--lifecycle-only`), or `.github/workflows/ci.yml`** (source/test-scoped, so a docs-only PR under `packages/` does not spin up the 45-min job; a baseline-refresh, a check.dart/budgets.json-only PR, or a job edit is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B` — at which point tier B (still `main`/dispatch-only, never PR-gating) gains the de-flaking policy enforcement requires: median across the >=3 repetitions, one automatic rerun before red, and a pinned/larger runner class so shared-runner contention cannot redden `main` — a controlled-axis change for the whole job (tier A shares the runner), so tier-A budgets are re-calibrated on the new class via the §6 dedicated-PR procedure before the flip lands. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and

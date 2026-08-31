@@ -82,9 +82,9 @@ and that the engine-isolate architecture works (D8).
   working-tree or pub-cache edit, so CI and fresh clones reproduce the
   numbers; measure both anyway — the delta is the D7 evidence).
 - Algorithm audit: connect dartssh2 2.9 against a current OpenSSH sshd in
-  three configs — defaults, `rsa-sha2-256/512`-only, and
+  four configs — defaults, `rsa-sha2-256/512`-only,
   `chacha20-poly1305@openssh.com` + `curve25519`/post-quantum-preferring
-  kex; also an ed25519-hostkey-only config. Record what negotiates, what
+  kex, and an ed25519-hostkey-only config. Record what negotiates, what
   fails, and the exact error text.
 - Pipelining verification: on ONE SFTP channel, issue 8–32 concurrent
   `read`s of one file and 8 concurrent readdirs of sibling directories;
@@ -791,8 +791,8 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with secret-scanner coverage for both** (a `.gitleaksignore` fingerprint entry covers the two paths, and the committed password value is allowlisted once through the repo's GitHub secret-scanning alert — order of operations: the *first* push is blocked until an admin follows the bypass link in the push-protection message to let it through, which creates the alert, then closed as *used in tests* to allowlist the value for every later push (push protection exempts by secret *value*, an admin action, not by path, so there is no path-scoped entry to add) — and thus the mandated push is not permanently blocked; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlists instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the leading-`0.` heuristic `release.yml` must carry actually holds. The APK is a **rehearsal artifact of the desktop codebase**: Android is not a supported v1 target — all Android-specific work and verification (D29, §5) stays post-v1 — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with secret-scanner coverage for both** (the repo's `.gitleaks.toml` `[allowlist]` gains a `paths` regex covering `android/app/ci-release.jks` and `android/key.properties` — `.gitleaksignore` fingerprints are per-commit/line and churn whenever the files are edited, so a path regex is the durable mechanism — and the committed password value is allowlisted once through the repo's GitHub secret-scanning alert — order of operations: the *first* push is blocked until an admin follows the bypass link in the push-protection message to let it through, which creates the alert, then closed as *used in tests* to allowlist the value for every later push (push protection exempts by secret *value*, an admin action, not by path, so there is no path-scoped entry to add) — and thus the mandated push is not permanently blocked; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlists instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the `prerelease` expression `release.yml` must carry (leading-`0.` plus §3.12's hyphen clause) actually holds. The APK is a **rehearsal artifact of the desktop codebase**: Android is not a supported v1 target — all Android-specific work and verification (D29, §5) stays post-v1 — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
@@ -811,7 +811,7 @@ stable committed key, so each release's APK upgrades the installed app
 in place and a missing-secret misconfiguration cannot exist. In-place
 upgrade also requires a strictly increasing Android `versionCode`,
 derived monotonically from `release.sh`'s version argument
-(`v0.2.0` > `v0.1.0` > … > `v1.0.0`), with any pre-release suffix mapped
+(`v1.0.0` > … > `v0.2.0` > `v0.1.0`), with any pre-release suffix mapped
 **below** its final — e.g. `major*1_000_000 + minor*10_000 + patch*100 +
 pre`, `pre` = 99 for a final, 50–98 for `-rcN`, and 1–49 for `-betaN` (so
 `v1.1.0-beta1` (1_010_001) < `v1.1.0-rc1` (1_010_050) < `v1.1.0`
@@ -933,7 +933,12 @@ Per-milestone invariant check (item 5 of §3.12):
       limit stated: same-release checksums detect corruption, not a
       compromised release, so v1.0.0's `SHA256SUMS.asc` (a detached
       maintainer-key signature over the checksum list, §4) is the
-      origin-independent channel that a release-asset swap cannot forge.
+      origin-independent channel that a release-asset swap cannot forge —
+      provided the maintainer key's fingerprint is published via at least
+      one channel independent of this repo and its release site (e.g.,
+      keyservers plus a fingerprint in the app's About box), and INSTALL.md
+      tells users to verify the fingerprint, not just fetch the key from
+      the same download page.
 - [ ] Mobile invariants (07 §5) checked at every milestone close; no v1
       code forecloses single-pane, scoped-access, or suspendable-queue
       mobile.
