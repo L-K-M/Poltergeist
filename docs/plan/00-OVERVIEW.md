@@ -407,7 +407,10 @@ permissions · D29 mobile hooks · D30 Séance license
   transfers (ranged read/write); rsync accelerator; S3/WebDAV behind a
   capability matrix; browsable archives; scheduled/watched sync;
   multi-window; Custom Tools (user scripts); content search on remotes;
-  byte-preserving handling of non-UTF-8 remote filenames.
+  byte-preserving *operations* on non-UTF-8 remote filenames — v1's
+  policy for them (strict-decode, lossy display with a warning badge,
+  operations blocked terminal until then) is already specified, not
+  deferred (02 §13).
 
 ## The one-sentence product
 

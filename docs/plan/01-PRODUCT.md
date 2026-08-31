@@ -89,7 +89,8 @@ records, per competitor, what Poltergeist takes and what it refuses. "Take"
 means the idea is scheduled somewhere in this plan; "refuse" means the
 refusal is deliberate and durable. A third category — deferred to v2
 (D25) — is neither taken nor refused: where a row names a v2 idea, read
-it as parked (§8 marks each non-goal as refused or deferred in place).
+it as parked (§8 lists each non-goal with the decision that refuses or
+defers it).
 
 | Competitor | What we take | What we refuse |
 |---|---|---|
@@ -295,7 +296,7 @@ scheduling lives in the last column.
 | Mounting remotes as volumes (FUSE and kin) | "Mounting hides transfer state inside the OS, and hidden state is where trust dies — the frozen-'Synchronization ongoing' failure class. Poltergeist always shows you the queue instead." | Refused durably (§3 Mountain Duck row, §5 trap 3); not on the D25 list |
 | Scheduled, watched, or background sync | "Sync in v1 is a supervised operation: you preview the plan, you run it, you watch it. Automation of an operation that can delete files earns trust only after the manual loop has it. Scheduled/watched sync is on the v2 list." | D25; engine stays open to it (05) |
 | True two-way sync with baseline database | "Two-way sync without a state database cannot distinguish 'deleted here' from 'created there'. v1 ships Update, Mirror, and Additive two-way (never deletes); real bidirectional sync with tombstones and move detection is v2, built on the same plan/preview model." | D6, D25; 05 |
-| Resumable transfers | "Needs ranged read/write support in the shared VFS first; the seam is planned, the feature is v2." | D25; D3 notes ranged read as an upstream addition |
+| Resumable transfers | "In v1, an interrupted transfer restarts from the beginning. Picking up where it left off needs protocol plumbing we haven't built yet; the groundwork is planned and resuming is on the v2 list." | D25; D3 notes ranged read as an upstream addition |
 | OS drag-out (promised files) | "Dragging out of Poltergeist onto the desktop requires per-OS 'promised file' machinery; it is v1.x, and the queue exposes the hook from day one." | D14 |
 | Archives (create/extract/browse) | "Local zip create/extract lands in v1.x with slip-safe extraction; browsable and remote-side archives are scheduled later." | D27; 07 |
 | Multi-window | "One window with two panes and tabs ships first; the workspace state is architected so multi-window becomes mechanical when Flutter's windowing API stabilizes." | D13, D25 |
@@ -361,16 +362,22 @@ assumed**, by this audit procedure:
   observe the pin moving); patches applied under the owner's identity are
   attributed to their real author by hand.
 - **On an external hit**: pinpoint its exact commits by re-running the
-  audit scoped to that author (`git log <pinned-SHA> --author=<email> -i
-  --grep="<email>"` — git ORs `--author` with `--grep` by default, so this
-  catches the person as commit author, committer, *or* trailer co-author
-  under any trailer kind (`Co-authored-by`, `Signed-off-by`,
-  `Reported-by`, …), since `--author` alone never matches a trailer line
-  and a kind-specific grep would miss the very trailers the broadened
-  `%(trailers)` scan above exists to catch; both arguments are regexes,
-  so an address like `user+tag@example.com` needs its `+`/`.`
-  metacharacters escaped, or match on a metacharacter-free substring such
-  as the domain) and record
+  audit scoped to that author (`git log <pinned-SHA> -i --author="<email>"
+  --committer="<email>" --grep="<email>"` — git ORs `--author`,
+  `--committer`, and `--grep` by default, so this catches the person as
+  commit author, committer, *or* trailer co-author under any trailer kind
+  (`Co-authored-by`, `Signed-off-by`, `Reported-by`, …); `--committer` is
+  not optional here — it is the only one of the three that matches the
+  committer identity the initial audit's `%cn <%ce>` was added to catch,
+  and neither `--author` nor `--grep` matches it. All three patterns are
+  git's default POSIX **basic** regular expressions, where `.` is the
+  only wildcard in an address and must be escaped — `+` is a literal BRE
+  character and must *not* be escaped, since GNU BRE reads `\+` as a
+  one-or-more quantifier that then fails to match a literal `+` (verified
+  empirically: `grep "a+b"` matches a literal `a+b`, `grep "a\+b"` does
+  not) — an address like `user+tag@example.com` therefore needs no
+  escaping of its `+` at all, only special care with any literal `.`, or
+  match on a metacharacter-free substring such as the domain) and record
   them in PORTS.md, so the block acts on the commits actually ancestral
   to the pin rather than a bare name. That contribution's code then waits
   for the LICENSE like any third party's — which, since the
@@ -438,9 +445,9 @@ fork or clean-room Séance code, which D2 forbids outright.
   ported Séance files additionally follow the PORTS.md provenance
   convention and whatever license Séance declares — and carries the D30
   Séance sequencing rule (the content-aware PR-S0 gate) exactly as §9
-  words it; that gate's normative wording lives only in §9 — this
-  chapter summarizes it for context and defers to §9 as the sole
-  normative source.
+  words it; that gate's normative wording lives only in §9 — every
+  other mention of it, in the rest of this chapter and in 02–08, is a
+  summary that defers to §9 as the sole normative source.
 
 ## Explicitly out of scope
 
