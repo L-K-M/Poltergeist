@@ -136,10 +136,12 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   to match). Git-pin *consumption* for development and CI is deliberately
   not gated (pre-license CI must stay ephemeral — no published,
   downloadable artifacts embedding the pinned code — enforced by never
-  uploading embedding binaries as a CI artifact, or by a one-day
-  `retention-days` setting on any workflow step that does, since a public
-  repo's default artifact retention leaves GitHub-hosted builds
-  downloadable by anyone with read access for up to 90 days, the same
+  uploading embedding binaries as a CI artifact at all; a short
+  `retention-days` window is not a substitute — a public repo's default
+  artifact retention leaves GitHub-hosted builds downloadable by anyone
+  with read access for up to 90 days, and even a one-day window still
+  publishes the exact downloadable artifact this rule exists to prevent,
+  just for less time — the same
   leak the `release.yml` guard below exists to close on the release
   side) — both repos share one rights holder, who needs no license
   from themselves (01 §9 records the full rationale and the
@@ -152,11 +154,15 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   (07 §2). Tracked in the Séance-side
   integration notes (04) and the 07 milestone gates. A mechanical guard
   backs the ordering discipline rather than relying on it alone: a
-  pre-publish check in `release.yml` fails any `v*` tag unless **every**
-  pinned Séance revision's **tree** carries a LICENSE file (resolve each
-  Séance git pin in the pubspec — `seance_protocol` and `seance_core`
+  pre-publish check in `release.yml` fails on every publish path — a `v*`
+  tag push or a manual `workflow_dispatch`/re-run alike — unless **every**
+  pinned Séance revision's **tree** carries a license file (resolve each
+  Séance git pin from **every** `pubspec.lock` in the monorepo — the
+  revisions a build actually embeds, not one package's `pubspec.yaml`;
+  `seance_protocol` and `seance_core`
   may sit on different revs under D2's rev-pin hatch — and inspect each
-  pinned tree — e.g. `git cat-file -e <rev>:LICENSE` — because a repo
+  pinned tree for any of `LICENSE`/`LICENSE.md`/`LICENCE`/`COPYING` —
+  e.g. `git cat-file -e <rev>:LICENSE` for each name — because a repo
   whose HEAD carries a LICENSE can still have pre-license pinned revs),
   so a prematurely cut tag cannot publish binaries embedding unlicensed
   code (07 §2 owns wiring the check — which MUST land no later than the
@@ -207,7 +213,11 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   path and argument, including the embedded-quote escape (`'` → `'\''`);
   `-s`/`--protect-args` whenever either side of the pair is remote, so
   the *remote* shell cannot re-split or reinterpret the arguments rsync
-  forwards to it over the transport — quoting and `--`/`./`-prefixing
+  forwards to it over the transport (introduced, optional, in rsync
+  3.0.0 — a floor busybox's minimal rsync applet can plausibly sit below,
+  so the exporter must either detect the failure and re-render without
+  `-s` with an added hazard `# note:` explaining the exposure, or refuse
+  and say why, never guess silently) — quoting and `--`/`./`-prefixing
   (below) only govern the *local* shell that parses the pasted command,
   and pre-3.2.4 rsync does not turn protect-args on by default, which the
   busybox/NAS targets this exporter explicitly serves can easily be
@@ -337,7 +347,11 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   the app's regular local data store rather than sealed under D18's OS
   keystore (that's sized and scoped for small secrets, not a growing log
   of endpoints/paths), so anyone who wants none of that persisted at all
-  gets a `Disable History` setting alongside `Clear History` (02 §6).
+  gets a `Disable History` setting alongside `Clear History` (02 §6) —
+  turning it on stops recording immediately and prompts to purge the
+  already-stored entries too (mirroring `Clear History`'s own action),
+  so "none of that persisted" holds retroactively, not just going
+  forward.
   Hidden or dishonest transfer state is the category's
   cardinal sin; every long operation is visible, cancellable, inspectable.
 - **D21 — Command registry from day one; palette in v1.** Every user action
@@ -398,13 +412,27 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   (07 §4): an unsigned checksum alone only catches accidental corruption
   — anyone who can swap a binary can recompute its sum — so the
   signature ships from the first tag rather than waiting for v1.0.0,
-  since generating one costs nothing paid certificates would; the
-  maintainer key's fingerprint is published out-of-band — a channel
-  independent of this repo and release site, e.g. keyservers (the app's
+  since generating one costs nothing paid certificates would — and the
+  signing key never lives in CI secrets: `release.yml`'s tag-triggered
+  publish produces the assets and the unsigned `SHA256SUMS`, and
+  `SHA256SUMS.asc` is attached by a separate, maintainer-approved step
+  (signed locally or via a hardware token) before the release goes
+  public, since a CI-resident key reduces the whole provenance claim to
+  "trust GitHub/the CI runner" — exactly the release-channel compromise
+  the independent-fingerprint requirement below exists to survive; the
+  maintainer key's fingerprint is published out-of-band — concretely, a
+  personal domain unrelated to this repo and release site, or an
+  email-verified keys.openpgp.org entry: a bare keyserver reference is
+  not enough, since the old SKS pool is gone and a plain keyserver is an
+  unauthenticated directory — if both the key and its expected
+  fingerprint trace back to the same untrusted server, an attacker who
+  can insert one can insert the other, and the comparison proves
+  nothing; keyservers stay a convenience for *fetching* the key, never
+  the source of the *expected* fingerprint (the app's
   About box is a convenience cross-check for an already-installed,
   previously-trusted binary only — it ships inside the very artifact a
   release-channel compromise would replace, so it cannot bootstrap
-  first-install trust the way an externally hosted keyserver can) — and
+  first-install trust the way an independently hosted fingerprint can) — and
   INSTALL.md walks users through verifying that
   fingerprint rather than just fetching the key from the download page
   (07 §4), since a signature alone only proves internal consistency, not
@@ -447,8 +475,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   byte-preserving *operations* on non-UTF-8 remote filenames — v1's
   policy for them (strict-decode; lossy display with a warning badge;
   operations on the flagged name terminally skipped — no retry affordance,
-  since retry can never succeed — until byte-preserving handling lands)
-  is already specified, not
+  since retry can never succeed — until byte-preserving handling lands;
+  itemized with a tallied count in the same per-file reporting a transfer
+  or sync scan already uses for any skip, so a "complete" run can never
+  silently omit one) is already specified, not
   deferred (02 §13).
 
 ## The one-sentence product

@@ -213,7 +213,8 @@ is no "we" at runtime — that is the point).
 >
 > Passwords and secrets Poltergeist saves for you are sealed at rest under a
 > master key held in your operating system's keychain — never stored in
-> plaintext. (Keys
+> plaintext. With no OS keychain available, it will not save secrets at
+> all rather than fall back to something weaker. (Keys
 > you already manage yourself — an imported `~/.ssh` identity file —
 > stay yours, where they are.) Host keys are pinned on first use and a
 > changed key is a hard
@@ -235,10 +236,15 @@ existing encrypted-record protocol (all D18, D4). The update check reuses
 Séance's link-only banner pattern (D19, D23); the "phones home for exactly
 one thing" claim is enforced, not merely asserted — an 08 egress test
 audits the app's outbound destinations and fails on any host beyond the
-user's configured servers, the sync server (only when backup is enabled),
-and the single update-check URL (only when the update check is enabled —
-the same conditional as the sync server, since the check is opt-out per
-D19/D23). Any future change that would
+connections configured in its fixtures (a stub SFTP endpoint and a stub
+sync server standing in for the user's real servers, since a CI test has
+no real user configuration), the fixture sync server (only when backup
+is enabled),
+and the single update-check URL — gated on its own setting, not on
+backup being enabled (they are deliberately different conditions: backup
+is opt-in, the update check is opt-out per D19/D23, and conflating the
+two in the egress test would produce a false pass or false fail on this
+copy's flagship claim). Any future change that would
 falsify a sentence of this copy requires editing the governing decision
 first — D18 (keystore sealing, TOFU, E2E blobs), D4 (bookmark records on
 the sync server), D23 (link-only update distribution), or D19
@@ -346,18 +352,38 @@ license from themselves to build their own code.
 That single-holder claim is **verified against recorded authorship, not
 assumed**, by this audit procedure:
 
-- **Command**: `git log <pinned-SHA> --format='%an <%ae>%n%cn <%ce>%n%(trailers)' |
-  LC_ALL=C sort -u` — needs a git with the bare `%(trailers)` placeholder
+- **Command**: `git --no-replace-objects -c log.mailmap=false log <pinned-SHA>
+  --format='%an <%ae>%n%cn <%ce>%n%(trailers)' |
+  LC_ALL=C sort -u` — `log.mailmap` and `refs/replace` are pinned off
+  because either can rewrite recorded identities per clone (a mailmap
+  entry can canonicalize — or launder — an external contributor's
+  address onto the maintainer's own, and a replace ref changes recorded
+  authorship wholesale, both defeating the byte-stability `LC_ALL=C`
+  buys); needs a git with the bare `%(trailers)` placeholder
   (verified present since at least git 2.17, 2018, via git-scm.com's
   archived pretty-formats docs — far below any git a 2026-era contributor
   runs, so a non-constraint rather than a version floor worth pinning
   precisely), which surfaces every attribution trailer (`Co-authored-by`,
-  `Signed-off-by`, `Reported-by`, …), not `Co-authored-by` alone, since
+  `Signed-off-by`, `Reported-by`, …) *in the message's final trailer
+  block* — git's trailer parser only recognizes that one block (verified
+  empirically: a `Co-authored-by:` line followed by another paragraph is
+  invisible to `%(trailers)` but still matches `--grep`) — not
+  `Co-authored-by` alone, since
   any of them can be the only automated trace of an external contribution
   the maintainer committed under their own identity. Committer identity
   (`%cn <%ce>`) rides alongside author identity because a rebase, a
   `git am`, or a merge bot can record a different committer than author —
   another automated trace the block must not miss.
+- **Companion scan**: `%(trailers)` misses an attribution line stranded
+  outside the final trailer block, so also run a whole-message sweep and
+  reconcile it against the sorted identity record above: `git log
+  <pinned-SHA> -i --grep=co-authored-by --grep=signed-off-by
+  --grep=reported-by --grep=helped-by --grep=reviewed-by --grep=tested-by
+  --grep=suggested-by --format='%H %an <%ae>'` (multiple `--grep`s OR by
+  default, exactly as the external-hit procedure below already relies
+  on). A commit this sweep lists whose attribution line is absent from
+  the sorted identity record means the block parse missed it — treat that
+  attribution exactly like an external hit, below.
 - **Scope**: walks **only the pin's ancestors** (the code actually
   embedded) — plain `git log <pinned-SHA>` traverses every parent
   transitively regardless of refs, so **no `--all`**, which would union
@@ -385,23 +411,32 @@ assumed**, by this audit procedure:
   re-scanning on every pin change catches it before it flows into a
   published binary.
 - **On an external hit**: pinpoint its exact commits by re-running the
-  audit scoped to that author (`git log <pinned-SHA> -i --author="<email>"
-  --committer="<email>" --grep="<email>"` — git ORs `--author`,
+  audit scoped to that author (`git -c grep.patternType=basic log
+  <pinned-SHA> -i --author="<email>"
+  --committer="<email>" --grep="<email>"` — `grep.patternType` is pinned
+  so a contributor's local config (e.g. `perl`) can't silently change
+  what the escaping rule below means; git ORs `--author`,
   `--committer`, and `--grep` by default, so this catches the person as
   commit author, committer, *or* trailer co-author under any trailer kind
   (`Co-authored-by`, `Signed-off-by`, `Reported-by`, …); `--committer` is
   not optional here — it is the only one of the three that matches the
   committer identity the initial audit's `%cn <%ce>` was added to catch,
   and neither `--author` nor `--grep` matches it. All three patterns are
-  git's default POSIX **basic** regular expressions, where `.` is the
-  only wildcard in an address and must be escaped — `+` is a literal BRE
-  character and must *not* be escaped, since GNU BRE reads `\+` as a
+  git's default POSIX **basic** regular expressions, where `.` (and,
+  rarely, `*` in a generated local part) are the BRE-active characters in
+  an address and must be escaped — `+` is a literal BRE character and
+  must *not* be escaped, since GNU BRE reads `\+` as a
   one-or-more quantifier that then fails to match a literal `+` (verified
-  empirically: `grep "a+b"` matches a literal `a+b`, `grep "a\+b"` does
-  not) — an address like `user+tag@example.com` therefore needs no
-  escaping of its `+` at all, only its literal `.`s escaped (every real
-  domain has at least one, so "match on the metacharacter-free domain"
-  is not a real escape hatch — escape the dots in whatever substring is
+  empirically on GNU grep: `grep "a+b"` matches a literal `a+b`,
+  `grep "a\+b"` does not — BSD/macOS libc BRE also treats `\+` as literal
+  rather than a quantifier, so the operative rule, never escape `+`,
+  holds on both regex flavors even though the specific failure mode
+  differs) — an address like `user+tag@example.com` therefore needs no
+  escaping of its `+` at all, only its BRE-active characters escaped
+  (every real domain has at least one `.`, so "match on the
+  metacharacter-free domain"
+  is not a real escape hatch — escape the dots, and any `*`, in whatever
+  substring is
   chosen, full address included) and record
   them in PORTS.md, so the block acts on the commits actually ancestral
   to the pin rather than a bare name. That contribution's code then waits
