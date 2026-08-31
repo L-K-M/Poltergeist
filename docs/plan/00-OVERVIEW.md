@@ -347,7 +347,9 @@ permissions · D29 mobile hooks · D30 Séance license
   protocol and buys nothing at bookmark sizes); credentials resolved
   in-memory at connect; identity-file reads audited. No new crypto.
 - **D19 — Trust stance.** Open source, zero telemetry, no crash reporting
-  in v1, no accounts, link-only update check (Séance's banner pattern) —
+  in v1, no Poltergeist account — the only account ever involved is the
+  user's own opt-in Séance sync account (D4) — link-only update check
+  (Séance's banner pattern) —
   the check is the app's only outbound call absent a user-initiated
   connection, on by default and one setting away from off (01 §6); every
   shorter "zero telemetry" tagline elsewhere in this plan is shorthand
