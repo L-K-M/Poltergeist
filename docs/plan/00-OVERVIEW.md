@@ -153,7 +153,10 @@ permissions · D29 mobile hooks · D30 Séance license
   pinned tree — e.g. `git cat-file -e <rev>:LICENSE` — because a repo
   whose HEAD carries a LICENSE can still have pre-license pinned revs),
   so a prematurely cut tag cannot publish binaries embedding unlicensed
-  code (07 §2 owns wiring the check).
+  code (07 §2 owns wiring the check — which MUST land no later than the
+  first Séance git pin, since a `v*` tag cut in the window between that pin
+  and the guard would publish unlicensed revisions the guard exists to
+  block).
 
 ### Sync and deletion/trash policy (R6)
 

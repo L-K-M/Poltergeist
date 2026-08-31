@@ -127,8 +127,9 @@ decision that makes it real.
    direction and action legible per row, executor runs exactly what was
    reviewed (D6). Nobody ships this combination cross-platform — the
    preview-grade sync, the polish, and all three desktops at once (the §3
-   table's FreeFileSync and rsync GUIs each carry one piece, never the
-   set). Flagship feature.
+   table's FreeFileSync carries two of the three — preview-grade sync and
+   all three desktops — but never the polish, and the rsync GUIs carry only
+   the preview; none carry the set). Flagship feature.
 2. **E2E-encrypted, vendor-neutral bookmark backup.** Bookmark records travel
    inside Séance's existing encrypted-record protocol (`EncryptedRecord`, a
    new `RecordKind`) to a server the user can self-host (D4, D18). Panic Sync
@@ -225,9 +226,16 @@ keystore — and where the OS offers no keystore, as on Linux without a
 secret service, saving secrets **fails closed** rather than falling back
 to any on-disk key, so the claim stays unconditional); bookmark backup is whole-record sealed blobs in the
 existing encrypted-record protocol (all D18, D4). The update check reuses
-Séance's link-only banner pattern (D19, D23). Any future change that would
-falsify a sentence of this copy requires editing D19 first (per the decision
-log's change rule).
+Séance's link-only banner pattern (D19, D23); the "phones home for exactly
+one thing" claim is enforced, not merely asserted — an 08 egress test
+audits the app's outbound destinations and fails on any host beyond the
+user's configured servers, the sync server (only when backup is enabled),
+and the single update-check URL. Any future change that would
+falsify a sentence of this copy requires editing the governing decision
+first — D18 (keystore sealing, TOFU, E2E blobs), D4 (bookmark records on
+the sync server), D23 (link-only update distribution), or D19
+(accounts/telemetry/paid tiers), whichever the change touches — per the
+decision log's change rule.
 
 ## 7. Personality and naming
 
@@ -320,19 +328,27 @@ development and CI — both repos share **one
 rights holder**, who needs no license from themselves to build their own
 code. That single-holder claim is **verified against recorded
 authorship, not assumed**: an
-authorship audit (`git log --all <pinned-SHA> --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | LC_ALL=C sort -u`,
+authorship audit (`git log <pinned-SHA> --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' | LC_ALL=C sort -u`,
 which needs git ≥ 2.26 to surface `Co-authored-by` trailers — the most
-common way an external contribution appears in a small repo — run in a
-**full, non-shallow** clone with the pinned SHA named explicitly, so a
-commit fetched by bare SHA or living only under a `refs/pull/*` ref is
-still traversed and a shallow clone cannot silently stop the walk at its
-truncation boundary; `LC_ALL=C` keeps the recorded output byte-stable
-across machines) is recorded
+common way an external contribution appears in a small repo — walking
+**only the pin's ancestors** (the code actually embedded): plain
+`git log <pinned-SHA>` traverses every parent transitively regardless of
+refs, so **no `--all`** — which would union in every ref's history and
+fold in post-pin commits, unrelated branches, and synthetic
+`refs/pull/*/merge` authors, spuriously tripping the block and making the
+record non-reproducible as upstream advances. Run in a **full,
+non-shallow** clone so the ancestor walk is never silently truncated;
+`LC_ALL=C` keeps the recorded output byte-stable across machines) is
+recorded
 in `docs/PORTS.md` against the audited commit SHA and re-run whenever the
 pinned Séance ref changes (an accepted upstream patch reaches Poltergeist
 only then, and CI can observe the pin moving); patches applied under the
 owner's identity are attributed to their real author by hand. Any
-external contributor it turns up makes that contribution's code wait for
+external contributor it turns up — its exact commits pinpointed by
+re-running the audit scoped to that author (`git log <pinned-SHA>
+--author=<email>`) and recorded in PORTS.md, so the block acts on the
+commits actually ancestral to the pin rather than a bare name — makes
+that contribution's code wait for
 the LICENSE like any third party's — which, since the single-holder
 premise no longer holds for the commits it touches, includes re-pinning
 the dev/CI git dependency past that commit (or obtaining a grant covering
