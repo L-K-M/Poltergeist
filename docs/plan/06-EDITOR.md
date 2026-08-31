@@ -152,15 +152,25 @@ surviving lone `\r`** to `\n` — a `\r\n`-only fold could not produce
 the pinned lone-`\r` normalization below — then expand to CRLF only
 when the target ending is CRLF) and the BOM re-prepended — what the user
 edits is always LF/no-BOM in memory; the disk form is reconstructed.
-**Round-trip byte fidelity is a tested feature** for files with a single
-dominant line ending, asserted byte-for-byte in the ported tests; a file
-with mixed endings (or lone `\r`) is normalized to its majority ending on
-first save, and that normalization is itself pinned by a test.
+**Round-trip byte fidelity is a tested feature** for files that use only
+LF or only CRLF throughout, asserted byte-for-byte in the ported tests;
+any other file — mixed endings or any lone `\r` — is normalized on first
+save (the vote compares `\r\n` against lone-`\n` counts only, so a lone
+`\r` never votes: a CR-majority file with even one `\r\n` saves back
+all-CRLF, and a CR-only file saves back all-LF), and that normalization
+is itself pinned by a test.
 
 Sibling temp names change spelling only: `file.poltergeist-<uuid>.edit` and
 `file.poltergeist-<uuid>.backup` (the `.seance-` → `.poltergeist-` rename
 of 03 §2.2; the D15 ignore rules — `.poltergeist*` and `*.poltergeist-*` —
-already exclude them).
+already exclude them). The listing-ignore glob is deliberately broader
+than the generated shapes (it also hides a user's own
+`notes.poltergeist-old.txt`), while the §2.1 sweep's *deletion* patterns
+stay exact (`*.poltergeist-*.edit`/`.backup` only) — the asymmetry is
+intentional. A basename that the ignore glob hides can still be checked
+out by **direct path entry** (the path bar / Go to Folder bypasses the
+listing filter), so §5's "never the record's own recorded basename"
+decoy guard is production-reachable, not test-only.
 
 ### 2.2 Layer 2 — controller, syntax engine, find bar
 
@@ -342,7 +352,9 @@ abstract class CheckoutManager extends ChangeNotifier {
   Future<void> discard(ManagedRemoteFile copy);      // plaintext, then record
   Future<void> acceptLocal(ManagedRemoteFile copy);  // store.updateBaseline
   Future<void> reconcile(ManagedRemoteFile copy);    // one copy; never throws
-  Future<void> reconcileAll();                       // resume/foreground hook
+  Future<void> reconcileAll();                       // resume/foreground hook;
+                                                     // re-hashes off the main
+                                                     // isolate, rate-limited
   Future<void> migrateRename(String serverId, String oldPath,
       String newPath);                               // §3.5 rename migration
 }
@@ -379,7 +391,11 @@ abstract class CheckoutManager extends ChangeNotifier {
   `/home/me/nginx.conf` and fail the exclusive-create with a raw OS
   error), and — unlike a `serverId+remotePath` hash — the dir never has
   to move on a rename, which §3.5's live-external-editor rule forbids
-  anyway (`migrateRename` rewrites the record, never the dir). The hash
+  anyway (`migrateRename` rewrites the record, never the dir or the file
+  inside it: the sanitized filename is minted once at §3.2 checkout and
+  stored in the record, so `migrateRename` updates only `remotePath` and
+  the stored local path can neither dangle nor force a move under a live
+  external editor's watcher). The hash
   keeps external ids out of path
   components, while the file keeps a human-readable sanitized name for
   external editors — and the sanitizer's contract is pinned: it
@@ -466,21 +482,30 @@ abstract class CheckoutManager extends ChangeNotifier {
    cancellation so the **next** `checkout` for the key starts a fresh
    download; waiters already joined to the failed flight fail with the
    shared error — no automatic retry loop against a persistently
-   failing server, and no waiter ever observes a dead future. Checkouts and destructive mutations share **one per-key
+   failing server, and no waiter ever observes a dead future. Checkouts, uploads, and destructive mutations share **one per-key
    serialization**: `discard` (§3.7's Discard/Forget) and
    `migrateRename`'s record rewrite queue behind any in-flight
-   `checkout` for the same key and vice versa — a `checkout` racing a
+   `checkout` **or `uploadLocalCopy`** for the same key and vice versa — a `checkout` racing a
    `discard` either waits it out or starts fresh after it, and must
    never return a record whose local file is being removed underneath
    the caller (the step-1 stat check closes the dangling-record case
-   only when the file is already gone, not mid-removal).
+   only when the file is already gone, not mid-removal); and §3.4 step 4's
+   "record updated in the store" re-reads the record under the store
+   lock, preserves any `remotePath` a concurrent `migrateRename`
+   migrated, and no-ops when the record was removed (Forgotten) while the
+   upload was in flight — so a discard mid-upload cannot resurrect the
+   record and a rename mid-upload cannot silently revert to the
+   pre-rename path.
 2. Create the checkout file `exclusive: true` after safe-parent creation
    (no symlink traversal — `ensureSafeLocalDirectory`, 03 §2.3). The
    §3.6 epoch marker is already on disk by this point — its rule is
-   written **between mkdir and any download**, under the creation
+   written-or-refreshed **between mkdir (or reuse of the existing
+   hash-keyed dir on the missing-copy re-download path) and any
+   download**, under the creation
    mutex — so a crash anywhere in steps 2–4 leaves a marker-verified
    dir the sweep can classify, never a markerless one holding a
-   partial.
+   partial, and a reused dir is re-stamped with the current epoch rather
+   than left permanently classified old-epoch.
 3. Download as a **priority task through the transfer queue** so it is
    visible and cancellable in the activity panel (D16); the checkout is
    never invisible I/O. When the destination is the built-in editor, the
@@ -561,7 +586,12 @@ Kept exactly from Séance (03 §7.5 already reserves this design):
 
 ### 3.4 Upload-back and conflict escalation
 
-`uploadLocalCopy(copy, {overwriteRemoteChanges})` — the three-way scheme
+`uploadLocalCopy(copy, {overwriteRemoteChanges})` — serialized per
+record: a call for a record with an upload already in flight joins that
+future rather than running its own preflight (the `uploading` set gates
+invocation, not just the toast prompt), so two calls for one record —
+⌘S racing the toast's `Upload` action, or a double trigger — never
+false-conflict against each other's own committed write. The three-way scheme
 (local baseline SHA + remote snapshot stat + explicit overwrite
 escalation), lifted whole:
 
@@ -602,7 +632,10 @@ escalation), lifted whole:
    records (§3.3's local re-hash alone never touches the remote), and
    `uploadLocalCopy` itself re-stats inline before the step-2
    preflight, adopting the server stat only when size and digest still
-   match the synthesized values — a transient stat failure need not
+   match the synthesized values (the digest check is a full remote read,
+   so a needs-reconcile save costs two full remote reads — this repair
+   read plus step 3's CAS — until the mark clears, after which no third
+   read is taken on later saves) — a transient stat failure need not
    coincide with a disconnect, so connect-only repair could leave the
    mark live all session. Until repaired, step 2's stat compare treats
    a snapshot with no server mtime as matching on size + mode (step
@@ -626,8 +659,8 @@ escalation), lifted whole:
    recorded basename, the §2.1 sweep's decoy rule — since a crashed
    upload's plaintext snapshot would otherwise strand invisibly
    forever (the §3.6 sweep only handles unindexed dirs, the watcher
-   ignores the pattern, and §3.7 lists only recordless dirs), though
-   this sentence sits in the success step: an aborted
+   ignores the pattern, and §3.7 lists only recordless dirs): an aborted
+   **or crashed**
    upload must not leave a `.poltergeist-<uuid>.upload` plaintext
    behind that no record references and §3.6/§3.7 can therefore never
    surface or clean (conflicts are a routine path, so the leak would
@@ -719,7 +752,11 @@ kind surfaces normally (toast + activity-panel row).
   which routes the user through the explicit overwrite/discard choice.
 - Deleting a **favorite** with unsaved managed edits quantifies them in
   the confirmation (02 §10, Séance's pattern): `Delete "prod-web-01"?
-  2 files with unsaved local edits will be deleted with it.`
+  2 files with unsaved local edits will be deleted with it.` — unlike a
+  remote-file delete above, which *retains* the checkout; §3.7's Forget
+  is the explicit per-file removal path, so the asymmetry (remote-file
+  delete keeps the copy, favorite delete destroys it after the quantified
+  confirmation) is deliberate, not an oversight.
 
 ### 3.6 Store durability rules
 
@@ -813,7 +850,14 @@ never regress is called out by name in review:
   mismatch — an older epoch, or one *newer* than the parsed index's
   generation (an older index restored over a newer one — the
   manual-tampering case above) — classifies the dir old-epoch, never
-  swept. Older dirs persist until the user discards them
+  swept. A parsed generation older than the newest marker on disk is
+  itself never adopted: the manager treats that rollback as a new
+  lifecycle and mints a fresh generation, so a restored older index
+  cannot re-adopt a prior lifecycle's id and re-classify that
+  lifecycle's still-persisted dirs as current-epoch — which would drop
+  them out of §3.7's recovered-files list entirely (they carry no record
+  either, so they would surface nowhere) and make their empty siblings
+  sweepable again. Older dirs persist until the user discards them
   through §3.7's review dialog, which lists old-epoch dirs as recovered
   files. Port-back candidate.
 - All ops serialized through the promise-chain mutex; index written with
@@ -858,6 +902,11 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
   says so and points the way back (`Recovered files can't upload from
   here — upload the file through a pane when you're done`), so a
   recovered edit is never silently assumed persisted to the server.
+  Old-epoch (recordless) dirs are likewise **outside §3.3's watcher
+  scope**: with no record there is no watch, no dirty tracking, and no
+  `Upload it?` toast — the §3.4 pipeline, which needs a record to act on,
+  never engages for them, so a save to a recovered file can never raise a
+  prompt that cannot upload.
 - Nothing auto-uploads on reconnect — same rule as §3.3.
 
 ## 4. External editors (R9)
@@ -879,7 +928,10 @@ constants `poltergeist.system` and `poltergeist.builtin`.
 `effectiveDefaultFor(path)` resolves the per-extension default;
 `compatibleEditors(path)` builds each file's `Open With ▸` menu (02 §9),
 which always ends with `Other… ` (pick an application) and
-`Configure Editors…` (deep-link to Settings > Editing, §8).
+`Configure Editors…` (deep-link to Settings > Editing, §8). When the
+menu offers the reserved selectors, `poltergeist.builtin` takes §4.2's
+capped built-in row and `poltergeist.system` follows the configured-
+editor row — checkout (no cap, §3.2), then OS-open on the checkout file.
 
 ### 4.2 Open resolution and the double-click setting
 
@@ -917,14 +969,21 @@ reason and the `Open With ▸` router, per §1's refusal-is-a-router
 rule. The Open row's own **pre-download** size refusal follows that
 same router rule: it never auto-falls-back to the system default,
 which would force exactly the full download the early refusal exists
-to avoid — the system-default fallback applies only once a local copy
-already exists.
+to avoid — the system-default fallback applies only once download has
+already begun (the unknown-size `_MaximumByteSink` abort, which then
+re-resolves through a fresh uncapped checkout) or a complete local copy
+already exists. That asymmetry is deliberate: an unknown-size 90 MiB
+file downloads in full (plus the wasted aborted 4 MiB) — the exact
+outcome the *known*-size early refusal is there to avoid, kept only
+because an unknown size cannot be refused before the stream proves it.
 
 ### 4.3 Launch rules per platform
 
 - **macOS** — via the `poltergeist/files` channel (03 §7.1), the ported
-  `seance/files` Swift pattern: `pickApplication` (NSOpenPanel over
-  /Applications, returns `{displayName, bundleIdentifier}` read from the
+  `seance/files` Swift pattern: `pickApplication` (NSOpenPanel rooted at
+  /Applications but permitting /System/Applications and ~/Applications,
+  so modern system apps like Preview and TextEdit remain selectable;
+  returns `{displayName, bundleIdentifier}` read from the
   bundle) and `openWithApplication` (`NSWorkspace.open(urls,
   withApplicationAt:)`, errors surfaced as `FlutterError`, results
   marshalled on the main queue).
@@ -1024,7 +1083,9 @@ is over-threshold, with **confirmation-pending as its own state**
 closing the panel); download in flight → Space is a no-op and Esc
 cancels the download without closing the panel (never a second queued
 task *for that item*); preview rendered (or a promptless card) → Space
-closes; failed or cancelled → the prompt card returns, so Space
+**or Esc** closes (matching §5.1's Quick Look Esc-closes cadence —
+nothing is in flight to protect in this state); failed or cancelled →
+the prompt card returns, so Space
 retries. A focus change re-evaluates
 the new item's state — an uncached previewable remote item shows the
 §5.3 prompt card (Space downloads), a cached or local item renders
@@ -1040,7 +1101,9 @@ every selected path and arrows through them (§5.1 sends the plural
 paths), and the panel staying focus-only there is an accepted v1
 divergence, not a match — with the count + total size summary shown as
 a header above the
-preview.
+preview (size-less entries surfaced explicitly, e.g. `3 items · 142 MB ·
+1 size unknown`, never silently omitted from the total, since §5.3 makes
+the optional SFTP size a first-class case).
 
 Extension matching throughout this table (and §7's detection map) is
 **case-insensitive** — `IMG_0001.JPG` previews like `img_0001.jpg`.
@@ -1049,7 +1112,7 @@ Extension matching throughout this table (and §7's detection map) is
 |---|---|---|
 | Text (anything §7's detection maps, plus unknown-but-UTF-8) | read-only viewer on the document layer + syntax engine (§2.1/§2.2) | first 1 MiB only, via a preview-specific partial read that truncates on a UTF-8 codepoint boundary (not the whole-file 4 MiB loader), with a `Preview truncated — Open in editor` bar; refusal reasons reuse the §1 strings. Remote text previews still transfer the whole file into the §5.3 cache (Quick Look and re-preview need it; the §8 large-download threshold confirms over-threshold downloads, and §5.3's cache-cap refusal still applies from metadata above the cap — two gates, not one) — a documented tradeoff, not an accident |
 | Images: png, jpg/jpeg, gif, webp, bmp | Flutter image decode, fit-to-panel, dimensions caption | decode refused over 64 MiB file size — metadata card instead; for remote files the refusal is applied from the known remote size *before* any download is queued |
-| PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first 20 pages, headed `Page 1–20 of M` with the text row's `Preview truncated — Open in editor`-style bar when M > 20 (a bare total would hide that 180 pages are missing); decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
+| PDF | rasterized pages behind a `PreviewRenderer` seam; the concrete rasterizer package is chosen at implementation time behind that seam, and any platform where it is unavailable shows the metadata card with `Open With ▸` | first `min(20, M)` pages, headed `Page 1–N of M` (so a 5-page PDF never reads `1–20 of 5`) with a `Preview truncated — Open`-style bar when M > 20 that opens **externally** — mirroring the metadata card's `Open With ▸`, since §1's editor refuses binary files and an in-editor CTA would only dead-end on a truncated PDF (a bare total would hide that 180 pages are missing); decode refused over 64 MiB file size — the image row's guard mirrored, because rasterizing an unbounded PDF is memory exhaustion, not just jank: metadata card instead, with the remote refusal applied from the known remote size before any download is queued |
 | Everything else | metadata card: big type icon, name, kind, size, dates + `Open` / `Open With ▸` buttons | — |
 
 As in §4.2, a size-less remote listing entry cannot early-refuse
@@ -1091,7 +1154,10 @@ they clicked another row.
   be the surprise traffic this section forbids)
   into `<app-support>/preview-cache/`, file name
   `<sha256(jsonEncode([serverId, remotePath, mtimeSeconds, size]))>` —
-  `mtimeSeconds` being floored integer Unix seconds, so an int and a
+  `mtimeSeconds` being floored integer Unix seconds (a listing with no
+  mtime attribute — SFTP's ACMODTIME is optional, exactly like size —
+  encodes `null` and keeps that key after download, mirroring the
+  size-less rule below), so an int and a
   fractional double source can never encode the same file to two
   different keys — plus the
   original extension, **sanitized**: kept only when it
@@ -1102,9 +1168,16 @@ they clicked another row.
   names are server-controlled, so an "extension" can carry characters
   illegal in local filenames (Windows `:` `?` `*` `<` `>` `|`, control
   bytes) or unbounded length (executable-looking extensions like
-  `.bat` do pass the charset rule and are deliberately kept — the
-  hash-named cache is never executed, and stripping them would break
-  extension-keyed preview of legitimate batch files); Quick Look and
+  `.bat` do pass the charset rule and are deliberately kept **for
+  preview** — preview and Quick Look never execute the hash-named cache,
+  and stripping them would break extension-keyed preview of legitimate
+  batch files; and the "never executed" invariant is enforced at the
+  open boundary, not merely assumed: `Open` / `Open With ▸` on a remote
+  item (§5.2 cards, §4.2) never shell-launches a `preview-cache/` path —
+  it downloads to a user-disclosed location under the original name with
+  an explicit confirmation, and never re-attaches a Windows-executable
+  extension (`.bat`, `.cmd`, `.com`, `.scr`, `.ps1`, `.js`, `.jse`,
+  `.vbs`, `.hta`, `.exe`) to an OS launch); Quick Look and
   image decoding key type off the extension, so the sanitized form is
   kept whenever safe and an extensionless hash name falls back to
   content sniffing or the metadata card. JSON-encoding the fields
@@ -1145,8 +1218,11 @@ they clicked another row.
   racing the same key's download must never read a partial file; an
   eviction that fails because the file is open (Windows unlink
   semantics — Quick Look or the decoder holding it) is tolerated and
-  retried on the next enforcement pass, never a crash or a silent
-  permanent over-cap. Enforced on every insert, evicting
+  retried on the next enforcement pass **and on a periodic sweep that
+  also runs when a preview surface closes** (releasing the handle that
+  blocked the unlink), never a crash or a silent permanent over-cap —
+  the retry cannot ride on a future insert alone, or a quiet cache would
+  sit over the user's cap for the rest of the session. Enforced on every insert, evicting
   least-recently-**used** first (a Quick Look production or re-preview
   hit refreshes recency — true LRU, not insertion-order FIFO, which
   would evict a hot entry while stale ones survive) until
@@ -1163,10 +1239,10 @@ they clicked another row.
   first bullet), and lowering the cap setting below the confirmation
   threshold narrows what may download rather than ungoverning it; files
   over the §8 large-download threshold (default 100 MiB) but within
-  the cap ask before downloading:
-  `Download 40 MiB to preview "panorama.pdf"?` → `Download` / `Cancel` —
-  an image/PDF example at a user-**lowered** threshold (say 32 MiB),
-  deliberately, because those kinds' 64 MiB caps sit under the default.
+  the cap ask before downloading — illustrated at a user-**lowered**
+  threshold (say 32 MiB), deliberately, because those kinds' 64 MiB caps
+  sit under the default:
+  `Download 40 MiB to preview "panorama.pdf"?` → `Download` / `Cancel`.
   Reachability, §6's analysis applied here — and split by kind, because
   the gates differ: **text is the real default-threshold case** (the
   §5.2 Text row carries no download byte cap and mandates whole-file
@@ -1201,8 +1277,11 @@ the §8
 large-download confirmation is unreachable here **at the default
 threshold**: a side whose known remote size
 exceeds the 4 MiB loader cap is refused *before* any download is
-queued (a side whose remote size is unknown streams under §3.2's byte
-cap instead — aborted at 4 MiB, never fetched whole to a certain
+queued (a side whose remote size is unknown streams through §3.2's
+`_MaximumByteSink` **mechanism** at the same 4 MiB **loader** cap — §1's
+`builtInEditorMaximumBytes`, the limit; §3.2 supplies only the sink that
+enforces it, and its checkouts are not themselves 4 MiB-capped — aborted
+at the limit, never fetched whole to a certain
 refusal), and 4 MiB is far below the 100 MiB default. If the user lowers the §8
 threshold below the cap, the confirmation applies to compare sides as
 usual — §8 lists them among the gated surfaces, and the pre-download
@@ -1241,7 +1320,7 @@ PORTS.md (R10).
 
 | Addition | Kind | Detection | Declaration notes |
 |---|---|---|---|
-| css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments |
+| css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments; the meta pattern also fires on selector pseudos (`a:hover`, `li::before`) and media-query features (`max-width:`), an **accepted gap** too, since the data-only declarative rule has no context scoping to tell a declaration from a selector preamble |
 | ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
 | perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
 | lua | new family | `.lua`; shebangs `lua`, `luajit`, `lua5.1`–`lua5.4` (matched directly and after `env`, without over-capturing other interpreters that merely start with "lua") | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords — equality-level long brackets (`[==[ … ]==]`, `--[==[ … ]==]`) are an **accepted gap**, stated like ruby's `=begin` and perl's POD: `--[==[` falls through to the `--` line-comment rule and a bare `[==[` matches nothing; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
@@ -1345,10 +1424,16 @@ preference.
 - [ ] Preview panel per §5.2 with the kind table, caps, explicit remote
       action, keyed LRU cache, and **render/decode** cancellation on
       selection change (transfers keep running — only the queue row's
-      Cancel or a re-focused Esc cancels a production, per §5.2).
+      Cancel or a re-focused Esc cancels a production, per §5.2) — plus
+      §5.3 reachability tests: a text preview between the 100 MiB default
+      and the cache cap prompts at defaults, image/PDF prompts fire only
+      below the 64 MiB kind caps, and an over-cache-cap file renders the
+      promptless card.
 - [ ] Sync-plan double-click opens the v1 side-by-side compare view with
       the line-ending/BOM notice chips; unloadable sides degrade to
-      reason strings.
+      reason strings, known-size sides over the 4 MiB loader cap are
+      refused before any download is queued, and unknown-size sides abort
+      at the cap rather than fetching whole (§6).
 - [ ] §7 language additions land as data with smoke + detection tests and
       PORTS.md port-back notes.
 - [ ] Settings > Editing implements §8, including deep-links and the
