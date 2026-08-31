@@ -115,8 +115,8 @@ there, never POSIX errnos: 5 `ERROR_ACCESS_DENIED` → `permissionDenied`;
 32 `ERROR_SHARING_VIOLATION` → `other` with an explicit "file is in use
 by another process" message — a lock, not a permission denial, and the
 `replaceLocalFile` rename dance hits it when the target is open in
-another app) — otherwise Windows permission failures all land in
-`other` — cancellation → `cancelled`, the rest →
+another app). Windows error codes not in that map fall through to the
+generic funnel — cancellation → `cancelled`, the rest →
 `other`, message format `'Could not <op> "<path>": <detail>'`. Temp-file
 prefixes are `.poltergeist-` everywhere Séance uses `.seance-` (the research
 notes flag the prefix as the one thing to parameterize).
@@ -347,7 +347,7 @@ Growth rules (the part that must never be improvised):
   keeps sshd logs quiet), then `openAuthenticatedClient` with backoff
   1 s → 2 s → 4 s → … capped at `reconnectBackoffCap`, ±30 % jitter (the probe
   service's hygiene rules). After reconnect the pane re-canonicalizes its
-  current path and refreshes. Running **and scanning** transfer tasks on
+  current path and refreshes. Running **or scanning** transfer tasks on
   that server flip to
   `queued` with a retry counter incremented once per reconnect cycle —
   never per affected file, which would burn the limit in one flap. The
@@ -390,7 +390,9 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   by serverId: `disconnectServer(serverId)` drops that id's reference —
   closing its browse channels and **releasing** its transfer leases:
   a running task whose lease is released this way flips to `queued`
-  (retryable **immediately** while the shared pool stays alive under a
+  (this flip consumes no §3.3 reconnect retry — that counter counts
+  failed reconnect cycles only, and this path can never fail the task; it is
+  retryable **immediately** while the shared pool stays alive under a
   sibling serverId — the queue re-leases by the pool endpoint, not by
   the disconnected id, so a task never hangs `queued` against a
   demonstrably-connected endpoint — and otherwise on that serverId's
@@ -438,10 +440,15 @@ enum TransferTaskState {
 ///
 /// Folder semantics at the engine (02 §5.2 owns the user-facing story):
 /// `merge` = the §4.2 default — stat-else-mkdir, recurse, per-file policy
-/// applies to contents; `replace` = wholesale replacement — remove the
-/// existing destination directory through the D15 delete story (OS trash
-/// locally, the per-server trash opt-in remotely), then recreate and
-/// copy; `skip`/`ask` evaluate on the directory itself before recursing.
+/// applies to contents; `replace` = wholesale replacement — first sweep
+/// §4.2's shared destination-key registry for in-flight entries under the
+/// target subtree (any task's) and defer the removal until they reach a
+/// terminal state, then remove the existing destination directory through
+/// the D15 delete story (OS trash locally, the per-server trash opt-in
+/// remotely), then recreate and copy; a commit that fails because another
+/// task's `replace` removed its parent re-evaluates against the fresh
+/// destination (a conflict, never a retryCount-burning generic failure);
+/// `skip`/`ask` evaluate on the directory itself before recursing.
 class ResolvedConflictPolicy {
   final ConflictResolution files;
   final ConflictResolution folders;
@@ -480,20 +487,28 @@ class TransferPlan {
                                            // the length sort is correct only
                                            // because a normalized child path
                                            // strictly extends its parent's
-                                           // (asserted by a strict-prefix
-                                           // check in debug builds)
+                                           // (enforced by a strict-prefix
+                                           // check when the plan finalizes,
+                                           // always on — O(path components),
+                                           // negligible next to the transfer;
+                                           // the executor's mkdir loop relies
+                                           // on it in every build mode)
   final List<PlannedFile> files;           // path pair + size + existing stat
   final int skippedSymlinks;               // symlinks are never transferred
 }
 
 class PlannedFile {
-  // Identity: destinationPath IS the item id — TransferProgressEvent.itemId,
-  // CancelRequest.targetId (item form), and §4.6's fileCompleted /
-  // fileFailed / itemRemoved records all key on it, because the
-  // mid-scan-crash re-scan merge can only match journaled terminal
-  // outcomes by path, never by a scan-minted uuid (fresh uuids would
-  // resurrect removed/failed files). Enqueue therefore rejects or dedups
-  // nested/duplicate rootPaths so a task's destinationPaths are unique.
+  // Identity: destinationPath is the item id **scoped to its task** —
+  // TransferProgressEvent.itemId always rides with taskId, CancelRequest
+  // (item form) resolves to (taskId, destinationPath), and §4.6's
+  // fileCompleted / fileFailed / itemRemoved records live in the task's
+  // own journal and key on the path there, because the mid-scan-crash
+  // re-scan merge can only match journaled terminal outcomes by path,
+  // never by a scan-minted uuid (fresh uuids would resurrect
+  // removed/failed files). Enqueue rejects or dedups nested/duplicate
+  // rootPaths so a task's destinationPaths are unique **within that task
+  // only** — §4.2 lets two tasks share a destination tree, so no
+  // engine-side map or request routing may key an item on the bare path.
   final String sourcePath;
   final String destinationPath;
   final int? size;                         // from the scan
@@ -541,8 +556,9 @@ non-negotiable:
   the client OS), emitting directories parents-first and files with sizes
   as it goes. There is **no full eager walk**: the first file starts as
   soon as its parent directory chain exists **and the scan has closed
-  that directory** — a directory's files become dispatchable only once
-  its own listing is complete, so its case-collision set is final and a
+  that directory** — a directory's entries (its own mkdir AND its file
+  dispatches) become usable only once its own listing is complete, so its
+  case-collision set — files and subdirectories alike — is final and a
   late-scanned case-variant sibling can never race an already-dispatched
   file (the execution-time re-stat is case-folding-aware on
   case-insensitive destinations as the second net — which only helps once
@@ -552,10 +568,13 @@ non-negotiable:
   case-folded destination-key registry of in-flight and committed targets
   and treats the hit as a conflict resolved through the task's policy,
   exactly like a fresh-stat conflict — `ask` prompts via
-  `EnginePromptEvent.conflict`, `skip`/`replace`/`replaceIfNewer`/`keepBoth`
-  apply their verb once the registry entry commits; only a policy that
-  cannot be evaluated against an in-flight sibling terminal-fails the item
-  with a `conflict` error); the scan continues
+  `EnginePromptEvent.conflict`, and `skip`/`replace`/`replaceIfNewer`/
+  `keepBoth` apply their verb once the registry entry commits — every verb
+  in the v1 `ConflictResolution` enum is evaluable this way, so the
+  terminal-fail-with-`conflict` escape hatch is **empty in v1**; it exists
+  only so a future non-evaluable policy has a defined, non-silent outcome,
+  and any implementer reaching it must first name the verb it covers); the
+  scan continues
   concurrently growing `plan`, `totalBytes` is a running total rendered
   as the growing `N+` form (02 §5.3), and both finalize when
   `scanComplete` flips.
@@ -620,6 +639,11 @@ class BandwidthLimiter {
                                           // (defense in depth): zero refill
                                           // would hang acquire forever
   Future<void> acquire(int chunkBytes);   // awaits until tokens available;
+                                          // returns immediately when
+                                          // bytesPerSecond is null (unlimited
+                                          // bypasses the bucket — and no
+                                          // rate-0 bucket is ever built, since
+                                          // <= 0 is clamped above); otherwise
                                           // internally splits a request larger
                                           // than the bucket's capacity into
                                           // capacity-sized grants, so no
@@ -680,7 +704,15 @@ narrowly: SFTP v3 has **no EXDEV status code** (OpenSSH returns a plain
 on a cross-device-class failure identified from the server's status
 text, and an ambiguous `SSH_FX_FAILURE` (permission denied, target
 exists) is treated as **non-EXDEV** and surfaced as the rename's own
-error rather than silently entering copy-then-delete. The piped fallback
+error rather than silently entering copy-then-delete. **Known limit:**
+OpenSSH's `sftp-server` sends an *empty* message string with
+`SSH_FX_FAILURE` (`send_status`), so on it no status text is available
+and a genuine same-server cross-device move surfaces as the rename's own
+error — the user re-runs it as an explicit copy task; the text-keyed
+fallback engages only on servers that embed errno/detail text in the
+status message. The match stays conservative and is never widened to make
+OpenSSH "work", since that would reintroduce the permission-denied/
+target-exists misclassification the narrow rule prevents. The piped fallback
 still commits under §4.2's fresh-stat/`expectedTarget` guard and deletes
 the source only after a verified copy, so it can never clobber a
 destination that changed since the conflict decision. The task row is
@@ -693,8 +725,10 @@ worker leases one channel on each server, then streams
 `source.download(path, sink)` into `destination.upload(path, stream)` chunk
 by chunk with a small buffer, counting bytes once. Scan phase runs against
 the source as usual; conflict policy applies against the destination. Both
-leases are released on completion or failure; either side's typed error fails
-the file with that side named in the message.
+leases are released on completion, failure, **cancellation, or pause**
+(§4.4's per-attempt token aborts both streams, so neither channel is left
+leased); either side's typed error fails the file with that side named in
+the message.
 
 ### 4.6 Persistence: journal and history (D16)
 
@@ -770,13 +804,19 @@ app-provided support directory (`EngineConfig`, §5):
   finished-task records.
 - **History**: one record per finished task — id, endpoints, root names,
   byte and file counts, `startedAt`/`finishedAt` timestamps, duration,
-  outcome, error text. Capped at 10 000 records;
-  compaction drops the oldest — and runs only at startup replay and
-  clean shutdown, or when the file exceeds the cap by a 10 % slack
-  margin, always via `writeStringAtomically` (never a per-append
-  rewrite of a 10k-line file on the completion hot path, and never a
-  torn history file after a crash mid-compaction). This is the "working history log" FileZilla
-  never had (D16); the activity panel's History tab reads it (02).
+  outcome, error text — **appended at task completion** (single-line
+  append + flush, the journal's discipline, so the History tab is live
+  mid-session and a torn final line is dropped on read), and separately
+  migrated at startup replay / clean shutdown by the compaction step,
+  which idempotently moves any crash-recovered finished tasks out of the
+  journal (keyed by task id — replay skips ids already in history). Capped
+  at 10 000 records; compaction drops the oldest — the cap is checked on
+  each append and the drop runs once the file exceeds it by a 10 % slack
+  margin, always via `writeStringAtomically` (so the completion hot path
+  only appends a line, never rewrites the 10k-line file, and a crash
+  mid-compaction never leaves a torn history file). This is the "working
+  history log" FileZilla never had (D16); the activity panel's History tab
+  reads it (02).
 
 ### 4.7 Produce-on-demand hook (D14)
 
@@ -909,7 +949,8 @@ invites, is exactly what stays out of the engine.)
 multiple SFTP channels function inside a non-root isolate; cross-port
 cancellation latency < 100 ms; coalescing holds headlessly — coalesced
 progress flushes arrive on the UI-side port at ≤ 30/s per task (each ≤ 6
-events per §4.3's in-flight caps, so ≤ 180 events/s total) under a
+events per §4.3's in-flight caps, so ≤ 180 events/s per task — ≤ 720/s
+aggregate across the 4 test transfers) under a
 10k-event/s synthetic flood, and a main-isolate timer probe records no
 event-loop stall > 16 ms during 4 concurrent transfers + one directory
 listing; throughput matches the single-isolate baseline. If M0 finds a
@@ -940,7 +981,7 @@ screen renders them; this table owns storage):
 
 | Home | Settings |
 |---|---|
-| Global (`settings.json`) | density, the conflict matrix (02 §5.2), bandwidth limits, probe opt-out, "new tabs open", reconnect-restored-tabs, recents (capped at 100; persisted **debounced** — trailing ~1–2 s — so a burst of navigation does not rewrite the whole settings file per open, keeping the most-frequently-changing data off the immediate-persist path) |
+| Global (`settings.json`) | density, the conflict matrix (02 §5.2), bandwidth limits, probe opt-out, "new tabs open", reconnect-restored-tabs, recents (capped at 100; persisted **debounced** — trailing ~1–2 s, with a synchronous flush on window close/app quit so the trailing window is never dropped — so a burst of navigation does not rewrite the whole settings file per open, keeping the most-frequently-changing data off the immediate-persist path) |
 | Per-server device-local map inside `settings.json`, keyed by serverId (§3.5) | remote-trash opt-in (D15), per-location view prefs (500-entry LRU, 02 §2.4) |
 | Synced `Bookmark` fields | everything in 04 §2.1's synced list (04 §2.3 fixes the synced/device-local split) |
 
@@ -1005,7 +1046,10 @@ abstract interface class ScopedPathAccess {
 
 v1 desktop builds are unsandboxed, so the default backend is a pass-through —
 but the calls exist from day one, security-scoped bookmark blobs are stored
-device-locally keyed by bookmark id (never synced — 04 §2.3), and
+device-locally in a dedicated `<app-support>/scoped-bookmarks.json` (never
+inside `settings.json`, so that file's immediate-persist atomic rewrite
+stays small and text-only — this is the one home §6's table reserves for
+these binary blobs) keyed by bookmark id (never synced — 04 §2.3), and
 turning on the macOS sandbox later is a backend swap, not a refactor: a
 sandboxed launch begins from `acquireBookmark` (resolving a stored blob into
 live access; a `null` return means the blob is stale, so the caller re-prompts
@@ -1030,8 +1074,13 @@ spec — raw `%20`-style escapes would silently break restore for any path
 with spaces or non-ASCII — plus the RFC 3339 `DeletionDate=`) and
 moving the file back, Nautilus-style; and if the `gio` binary is absent
 entirely (minimal/GNOME-less distros, some WSL setups), both trash and
-restore fall back to the same spec directly — move into `.../Trash/files/`
-and write the `.trashinfo` ourselves — so trash never silently degrades to
+restore fall back to the same spec directly — a home-filesystem path moves
+into `~/.local/share/Trash/files/` with a written `.trashinfo`, while a
+path on another mounted volume (§7.4) prefers that volume's
+`<topdir>/.Trash/$UID` then `<topdir>/.Trash-$UID` per the spec, with a
+cross-filesystem move into home trash only as a last resort (a blind copy
+into home trash from a large removable volume is slow and can exhaust the
+home disk) — so trash never silently degrades to
 nothing). Remote
 deletions from browsing default to confirm-then-permanent with the per-server
 opt-in "move to `.poltergeist-trash/` instead"; sync deletions use

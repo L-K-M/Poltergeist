@@ -192,14 +192,24 @@ class SavedSyncSpec {
                                        // change that keeps old keys, so
                                        // without this check the field
                                        // is decorative
-  final Map<String, Object?> rules;
+  final Map<String, Object?> rules;    // deep-copied at decode, exposed
+                                       // unmodifiable — an in-place edit
+                                       // would change sync behavior with no
+                                       // save, no LWW bump, and no
+                                       // rulesVersion gate; toJson still
+                                       // serializes retained unknown keys
+                                       // verbatim
 }
 
 // Decode contract — fields are kind-gated: `server`/`remotePath` only
 // for remotePath, `localPath` only for localFolder, `left`/`right` only
 // for workspace, `sync` only for savedSync — and each gated field is
 // REQUIRED non-null for its kind (`server`+`remotePath`; `localPath`;
-// `left`+`right`; `sync`). `id`, `kind`, `label`, `sortKey`, `createdAt`,
+// `left`+`right`; `sync`). Inside a `sync` value: `source` and
+// `destination` are required non-null; an absent `rulesVersion` decodes
+// as 1, an absent `rules` as `{}` (every listed default then applies),
+// and an absent `ignoreRules` as `[]`. `id`, `kind`, `label`, `sortKey`,
+// `createdAt`,
 // and `updatedAt` are always required (absent → FormatException);
 // an absent `preferredPane` decodes as `either`. `fromJson` throws
 // FormatException on any violation, and an *unknown* `kind` string leaves
@@ -312,7 +322,16 @@ asking what a wrong guess would cost.
   pin and the vault-resolved credential (§3.2's pin quarantine cannot
   catch this: the *new* host:port has no local pin to conflict with).
   Resolution is therefore **endpoint-pinned per device, checked at
-  connect time, record-agnostically**: the device-local record (§2.3 —
+  connect time, record-agnostically**: each pin is keyed by the bookmark
+  record id plus the location slot it guards (`server` for a remotePath,
+  `left`/`right` for a workspace, `source`/`destination` for a savedSync —
+  each `BookmarkLocation` its own slot, so a two-endpoint bookmark pins
+  both) — never by the resolved host:port or serverConfigId, which a
+  rewritten record changes along with the key and so would defeat the very
+  check, landing on a new unpinned key that reads as first-seen — and it
+  stores the last locally confirmed `(host, port, username)`; any later
+  difference in that tuple (username included) triggers the confirmation
+  below. The device-local record (§2.3 —
   never synced) is written **only by a local user act** — creating the
   bookmark *on this device* (the creation UI displays the resolved
   host:port it seeds the pin from, so a catalog rewrite is user-visible
@@ -368,7 +387,7 @@ Device-local (in Poltergeist's settings/aux files, **never** in records):
 | sidebar hidden-per-favorite flags (same `settings.json` store) | same |
 | window geometry, pane ratios, active tab | same |
 | per-device "path missing" cache (a localFolder that does not exist here) | device fact, not user intent |
-| per-device endpoint pins for bookmarked servers (§2.2 — single slot, written only by a local user act) | the pin's entire value is that no synced record can write it: a synced pin would be LWW-rewritable by the compromised device it guards against |
+| per-device endpoint pins for bookmarked servers (§2.2 — keyed by bookmark record id + location slot, single slot each, written only by a local user act) | the pin's entire value is that no synced record can write it: a synced pin would be LWW-rewritable by the compromised device it guards against |
 | the local TOFU store §3.2's quarantine diffs against | same — the quarantine baseline must be state only local connects wrote, or the warning is cosmetic |
 | sync `deviceId`, bearer token, keystore entries | identity/credentials, per-install by design |
 
@@ -521,7 +540,13 @@ Consequences:
   which may hold the only copy of unpushed dirty edits), the
   store restarts empty, and a **durable** notice appears in Settings → Backup
   (never a toast alone — Séance's SEA-039 lesson). Losing the store loses
-  only unpushed dirty edits, which the quarantine file preserves for rescue;
+  only unpushed dirty edits — **including a pending tombstone: a corruption
+  between a local delete and its push drops that tombstone, so the next full
+  re-pull re-delivers the server's live copy and `applyPulled` upserts it,
+  resurrecting the deleted bookmark (the resurrection bug §3.2's tombstones
+  exist to fix, returning through the corruption path); the durable notice
+  copy must therefore say deleted bookmarks may reappear, not only that
+  edits may be lost** — which the quarantine file preserves for rescue;
   everything else re-pulls.
 - The `deviceId` (uuidV4, minted on first run, stored in app settings) is
   LWW authorship — persist it with the same care Séance's `salvageSettings`
@@ -597,8 +622,8 @@ the decrypted kinds:
 | `bookmark` | upsert into `BookmarkStore`; tombstone → remove. Delta events are applied in seq order, and a pulled record is applied only when its LWW tuple (`updatedAt`, `deviceId`) beats the local record for the same id — a record that does not beat a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly upserted, so a just-deleted bookmark never transiently resurrects and a pending offline edit is never clobbered at the apply layer |
 | `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record **and records a durable local negative pin**: auto-apply requires a present record with no local pin *and no negative pin*. The tombstone alone cannot hold — patched Séance treats prefixed-id tombstones as no-ops (§5.2 item 4, whose `hostkey:` carve-out routes those tombstones to pin-store deletion) yet re-collects and re-pushes its pins with fresh LWW timestamps every round (§3.1/§4.2), so any *still-trusting* Séance device resurrects the record and the diff would auto-apply the key the user just removed under MITM suspicion; that habitual re-seal is not the "genuinely newer pin edit" the LWW carve-out means. The negative pin holds the untrust verdict until the user explicitly re-trusts (accepting the key at connect time). Negative pins persist in **app settings**, never inside the §3.1 record store — so the corrupt-store quarantine (store restarts empty) cannot erase an untrust verdict and let the very next `applyPulled` diff auto-apply a key the user removed under MITM suspicion. PR-S1 item 4 additionally routes `hostkey:`-prefixed tombstones to Séance's pin-store deletion so the two apps' untrust stays symmetric; an acceptance test pins that a Séance round re-pushing the pin does not restore auto-trust |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
-| anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned. The encrypted record simply stays in the store — like the never-decrypted `secret:`/`snippet:`/unrecognized prefixes above |
-| decrypted `kind` ≠ the kind the id prefix implied (e.g. a `bookmark:`-prefixed id whose payload decodes as `secret`, or a prefixless id decoding as anything but `serverConfig`) | skip-and-preserve, identical to malformed: the id prefix gates *which key decrypts*, the decrypted kind gates *what is applied*. The plaintext id is peer-writable on a shared account, so a relabeled blob — a `secret:` ciphertext re-uploaded under a `bookmark:` id — must never be applied (nor even upserted), or the "keeps the vault out of Poltergeist's memory" guarantee is bypassed by relabeling. (Longer term, binding the record id as AEAD associated data in `RecordCodec` makes relabeling fail at decrypt outright.) |
+| anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned — **and, when the decrypt succeeded but strict decode then failed, raises the §4.2 durable tripwire** (a wrong-key decrypt *failure* is a different signal — §4.2/§4.5 — not this), unlike the silent never-decrypted-prefix skips above. Strict decode is **prefix-aware**: a `bookmark:` id must decode as `bookmark`, a prefixless id as `serverConfig`, a `hostkey:` id as `hostKey` (a prefix/kind mismatch is the row below). The encrypted record simply stays in the store |
+| decrypted `kind` ≠ the kind the id prefix implied (e.g. a `bookmark:`-prefixed id whose payload decodes as `secret`, or a prefixless id decoding as anything but `serverConfig`) | skip-and-preserve, and — like malformed — **raises the §4.2 durable tripwire** (decrypt-success + a prefix/kind mismatch is the primary in-place corruption signature: the re-sealed `bookmark:` record §4.2's acceptance test pins): the id prefix gates *which key decrypts*, the decrypted kind gates *what is applied*. The plaintext id is peer-writable on a shared account, so a relabeled blob — a `secret:` ciphertext re-uploaded under a `bookmark:` id — must never be applied (nor even upserted), or the "keeps the vault out of Poltergeist's memory" guarantee is bypassed by relabeling. (Longer term, binding the record id as AEAD associated data in `RecordCodec` makes relabeling fail at decrypt outright.) |
 
 The prefix/kind split above is a two-gate rule, stated once: the
 pre-decryption **prefix** decides whether (and with which key) a record is
@@ -619,17 +644,26 @@ Editing a Séance server happens in Séance.
 Pin-conflict resolution always converges (mirroring the Séance-side
 doc, `docs/POLTERGEIST.md`): **accept** installs the quarantined key
 from the record store — no re-push; the record already won LWW.
-**Keep local** re-pushes the kept pin under a fresh LWW tuple, so the
-reaffirmed pin wins fleet-wide and the quarantine clears on every
-device that never applied the conflicting key (a device that already
-accepted it sees one more warning, and opposite answers ping-pong until
-the affected devices agree — one resolution per affected device is the
-convergence cost). A key rotation the user accepts at connect time
-(`TofuVerifier` changed-key verdict, resolved through 02's changed-key
-flow) pushes the new pin the same way. Without the keep-local re-push,
-one rejected conflict would re-quarantine on every later pull, forever
-— warning fatigue against the exact MITM signal the quarantine exists
-to keep loud.
+**Keep local** re-pushes the kept pin under a fresh LWW tuple **and
+records a durable local "kept" verdict in app settings, symmetric with
+the untrust negative pin**: while the stored `hostkey:` record still
+carries the rejected key, the re-derived quarantine (which re-runs on
+every `applyPulled`) stays resolved instead of re-arming each round —
+without it, a still-conflicting device that habitually re-pushes its pin
+with a fresher LWW tuple would beat the one-time keep-local re-push and
+re-quarantine this device on every pull, the exact pull-side twin of the
+re-push habit that forced negative pins out of the record store. The
+verdict clears when the record's key matches the kept pin or a
+*genuinely different* conflicting key appears (a new conflict must still
+warn). Fleet-wide, the reaffirmed pin still wins on every device that
+never applied the conflicting key; a device that already accepted it
+ping-pongs until its user resolves it there — one resolution per affected
+device is the convergence cost. A key rotation the user accepts at connect
+time (`TofuVerifier` changed-key verdict, resolved through 02's changed-key
+flow) pushes the new pin the same way. Without the keep-local re-push and
+its durable verdict, one rejected conflict would re-quarantine on every
+later pull, forever — warning fatigue against the exact MITM signal the
+quarantine exists to keep loud.
 
 ### 3.3 Scheduling and status
 
@@ -825,8 +859,14 @@ lost) →
 log into the Séance account (§4.5) → mark every local bookmark dirty
 **and re-seal every local TOFU pin as a `hostkey:<host:port>` record**
 (fresh LWW tuple, this deviceId, so hosts verified in separate mode reach
-the shared fleet and a first-switch pin conflict routes through §3.2's
-normal quarantine rather than a surprise enrollment-time warning) →
+the shared fleet. The **local TOFU store is not wiped** — the re-seal reads
+its pins from it — and the enrollment pull (§4.5) runs before the re-seal
+push, so a shared-account `hostkey:` record that conflicts with a
+separate-mode pin legitimately quarantines **at enrollment time** through
+§3.2's normal path; the fresh LWW tuple cannot suppress it, because the
+quarantine is a local record-vs-pin diff on the pull, not a push contest.
+The switch flow's copy presents that enrollment-time quarantine as
+expected — the §3.2 MITM check working, never an error) →
 the next round pushes them — pushes held while `passphraseUnverified`
 is set (§4.5) — under their existing `bookmark:<uuid>` ids (each id is
 a random per-bookmark UUID and the shared account's store has never
@@ -970,7 +1010,12 @@ Scope, all in Séance:
      RecordKind.values.firstWhere((k) => k.name == name,
 -        orElse: () => RecordKind.serverConfig);
 +        orElse: () {
-+          log.debug('recordKindFromName: unknown kind "$name" '
++          // seance_protocol's established logger, at its debug-equivalent
++          // level — package:logging (the common Dart choice) has no
++          // `debug`; `fine` is that tier. Confirm `log` is imported / in
++          // scope in record.dart before applying, and match whatever
++          // logging facility seance_protocol actually uses.
++          log.fine('recordKindFromName: unknown kind "$name" '
 +              '(legacy or newer-schema record)');
 +          return RecordKind.unknown;
 +        });
@@ -1209,7 +1254,7 @@ accent math (the ported appearance module). Poltergeist may propose new enum
 values upstream; until a value ships in the pinned tag it must not be
 written, since older readers decode it to null — and the loss is
 **not display-only**: a pre-pin Séance client re-collects and
-re-pushes everything it pulled (§7.3), so it re-encodes that null and
+re-pushes everything it pulled (§3.1), so it re-encodes that null and
 destroys the value server-side for every device; skip-and-preserve
 does not apply, because the record parses — only the enum field dies.
 The pin floor bounds what Poltergeist may write, and writing a
