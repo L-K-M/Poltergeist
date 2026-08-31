@@ -65,4 +65,14 @@ void main() {
     expect(config, contains('mlkem768x25519-sha256'));
     expect(config, isNot(contains('sntrup761x25519-sha512')));
   });
+
+  test('pins matching legacy OpenSSH client and server packages', () {
+    final dockerfile = File(
+      'test/integration/sshd-legacy/Dockerfile',
+    ).readAsStringSync();
+
+    expect(dockerfile, contains(r'ARG OPENSSH_VERSION='));
+    expect(dockerfile, contains(r'openssh-client=${OPENSSH_VERSION}'));
+    expect(dockerfile, contains(r'openssh-server=${OPENSSH_VERSION}'));
+  });
 }
