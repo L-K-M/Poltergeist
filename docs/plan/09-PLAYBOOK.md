@@ -59,8 +59,10 @@ Restated from [AGENTS.md](../../AGENTS.md) as commands and review-blocking
 rules — AGENTS.md remains the authority on toolchain setup (§1 there).
 
 - **Explicit test/analyze paths, always.** A bare `dart test` or
-  `dart analyze` at the repo root tries to build the Flutter app once it
-  exists, and fails. The commands are:
+  `dart analyze` at the repo root is never correct in this repo: the root
+  package has no tests of its own, and the Flutter app is deliberately
+  outside the root `workspace:` list (see below, 03 §9), so root commands
+  cannot reach it either. The commands are:
 
   ```bash
   dart analyze packages/poltergeist_core packages/poltergeist_sync
@@ -212,9 +214,15 @@ be hazards on a Windows destination — a `:` in a component silently
 writes an NTFS alternate data stream, a `\` is a **Win32 path
 separator** so `a\..\..\b` (no `/`, one component to the split)
 traverses out of the root once joined on Windows, and the Win32-invalid
-`*` `?` `"` `<` `>` `|` plus a trailing dot or space each fail late at
-write time — all rejected in the `windowsDestination` branch, a clean
-boundary error beating a confusing mid-transfer failure. (Backslash is
+`*` `?` `"` `<` `>` `|` and the C0 control characters (`\x00`–`\x1f`), a
+trailing dot or space (which Win32 silently strips into a name the next
+listing won't match), and a component matching a Win32 **reserved device
+name** — `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or
+without an extension, whose write "succeeds" into the device (`nul`
+discards the file's bytes) — are **all rejected in the `windowsDestination`
+branch** (the `_windowsHazard` char class plus `_isWindowsReservedName`
+below), a clean boundary error beating a confusing mid-transfer failure or
+silent loss. (Backslash is
 not in that branch — the sample's shape check rejects it for every
 destination; see its comment.) So the caller
 says where the path is headed. The helper itself absorbs trailing
@@ -251,6 +259,14 @@ void validateRelativeComponents(String relative,
     relative = relative.substring(0, relative.length - 1);
   }
   for (final part in relative.split('/')) {
+    // POSIX NAME_MAX counts UTF-8 bytes; NTFS caps at 255 UTF-16 units —
+    // bound both so an over-long component fails here with a clean
+    // FormatException, not later as an opaque ENAMETOOLONG mid-transfer.
+    final partBytes = utf8.encode(part).length;
+    if (partBytes > 255 || (windowsDestination && part.length > 255)) {
+      throw FormatException('path component too long ($partBytes bytes) in '
+          '${jsonEncode(original)}');
+    }
     // Backslash is rejected for EVERY destination on purpose: these
     // components also feed Windows-rendered previews and exports, and a
     // '\' inside one is overwhelmingly an escaping bug, not a filename —
@@ -265,8 +281,8 @@ void validateRelativeComponents(String relative,
         // C string silently truncates at it — the same escaping-bug
         // class as backslash, rejected for every destination.
         part.contains('\x00')) {
-      throw FormatException(
-          'unsafe path component "$part" in "$original" (shape/traversal)');
+      throw FormatException('unsafe path component ${jsonEncode(part)} in '
+          '${jsonEncode(original)} (shape/traversal)');
     }
     // Destination-filesystem rules: fine on POSIX, hazardous on Windows —
     // ':' writes an alternate data stream, <>"|?* fail CreateFile, C0
@@ -281,7 +297,8 @@ void validateRelativeComponents(String relative,
             _isWindowsReservedName(part) ||
             part.endsWith('.') ||
             part.endsWith(' '))) {
-      throw FormatException('unsafe path component "$part" in "$original"'
+      throw FormatException('unsafe path component ${jsonEncode(part)} in '
+          '${jsonEncode(original)}'
           ' (windows: hazard char / reserved name / trailing dot or space)');
     }
     // Bidi override/isolate controls are rejected for EVERY destination:
@@ -292,8 +309,8 @@ void validateRelativeComponents(String relative,
     // names carry directionality in their characters and never need
     // explicit override controls.
     if (_bidiControls.hasMatch(part)) {
-      throw FormatException(
-          'unsafe path component "$part" in "$original" (bidi control)');
+      throw FormatException('unsafe path component ${jsonEncode(part)} in '
+          '${jsonEncode(original)} (bidi control)');
     }
   }
 }
@@ -312,7 +329,9 @@ final _bidiControls = // ALM/LRM/RLM, LRE..RLO+PDF, LRI..PDI — the full
 Pin `_isWindowsReservedName`'s contract in its tests, since the
 export/preview/drag flows it guards never mkdir and so nothing else would
 catch a divergent stem rule: bare names case-insensitively (`con`, `Aux`,
-`NUL`), stem-plus-extension forms (`CON.txt`, `lpt1.tar`), names that
+`NUL`), superscript-digit forms (`COM¹`, `com².tar`, `LPT³` — reserved
+exactly like the ASCII digits), stem-plus-extension forms (`CON.txt`,
+`lpt1.tar`), names that
 collide only *after* Win32 trailing-dot/space stripping (`NUL.`,
 `COM1 .log`), and `CLOCK$` — and record the chosen stem rule here so 02/05
 cannot state a conflicting one.
@@ -332,6 +351,10 @@ journal, checkout metadata — is written in place. Use the ported
 atomic-file helper (write to a uniquely named temp sibling, flush, rename
 over the target; the editor's saver adds the backup + conflict dance,
 06 §2). Bare `File.writeAsString` to a live path is a review blocker.
+The helper makes each *write* atomic, not concurrent writes serialized:
+every store using it must also be single-writer (route all saves for a
+given path through one async chain or mutex), or overlapping saves race
+the final rename and last-writer-wins silently.
 
 ```dart
 // uuidV4() is the project's one thin helper over package:uuid

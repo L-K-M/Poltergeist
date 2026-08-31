@@ -117,6 +117,11 @@ class BenchResult {
                               // row for an unpatched-Séance one
   final String seanceRev;     // seance_core git-pin rev under test
 
+  // Set by fromJson so a round-trip preserves the original attribution;
+  // null on a fresh result, which toJson() stamps at capture time.
+  final DateTime? timestampUtc;
+  final String? host;
+
   const BenchResult({
     required this.scenario,
     required this.bytes,
@@ -125,6 +130,8 @@ class BenchResult {
     this.note,
     required this.dartssh2Rev,
     required this.seanceRev,
+    this.timestampUtc,
+    this.host,
   });
 
   Map<String, Object?> toJson() => {
@@ -132,27 +139,32 @@ class BenchResult {
         'bytes': bytes,
         'dartssh2Rev': dartssh2Rev,
         'seanceRev': seanceRev,
-        'elapsedMs': elapsed.inMilliseconds,
+        'elapsedUs': elapsed.inMicroseconds, // µs — LAN 1 MB runs finish
+                                             // in single-digit ms; ms would
+                                             // quantize the D7 hashing delta
         'mbPerSec': mbPerSec,
         'note': note,
-        // Rows from different days/machines must stay attributable
-        // once the report merges them (and once M3 moves this to CI).
-        'timestampUtc': DateTime.now().toUtc().toIso8601String(),
-        'host': Platform.localHostname, // dart:io — rows from different
-                                        // machines (dev laptop vs CI
-                                        // runner) must stay attributable
+        // Rows from different days/machines must stay attributable once the
+        // report merges them (and once M3 moves this to CI). A round-trip
+        // preserves them — fromJson reads them back — and only a fresh
+        // result (both null) is stamped here at capture time.
+        'timestampUtc': (timestampUtc ?? DateTime.now().toUtc())
+            .toIso8601String(),
+        'host': host ?? Platform.localHostname, // dart:io
       };
 
   // The report tooling merges rows across runs, so the row round-trips.
   factory BenchResult.fromJson(Map<String, Object?> json) => BenchResult(
         scenario: json['scenario']! as String,
         bytes: json['bytes']! as int,
-        elapsed: Duration(milliseconds: json['elapsedMs']! as int),
+        elapsed: Duration(microseconds: json['elapsedUs']! as int),
         mbPerSec: (json['mbPerSec']! as num).toDouble(),
         note: json['note'] as String?,
         dartssh2Rev: json['dartssh2Rev']! as String,
         seanceRev: json['seanceRev']! as String,
-      ); // timestampUtc/host stay as passthrough report metadata
+        timestampUtc: DateTime.parse(json['timestampUtc']! as String),
+        host: json['host']! as String,
+      );
 }
 ```
 
@@ -754,8 +766,8 @@ assets on `v*` tags; the work is everything around it.
 |---|---|
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
-| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1) — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
+| M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the leading-`0.` heuristic `release.yml` must carry actually holds. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1) — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
@@ -789,7 +801,13 @@ one — CI computes them alongside the artifacts it builds, so they
 catch corrupted downloads and foreign mirrors but can never attest a
 compromised pipeline; origin rests on the signed tag plus this repo's
 CI being the thing that built from it — and INSTALL.md must not
-overstate what either the tag signature or the checksums prove.
+overstate what either the tag signature or the checksums prove. For
+`v1.0.0`, close the loop: after CI publishes, the maintainer downloads
+the assets, recomputes each SHA-256 against the notes, and attaches a
+**detached signature over the checksum list** (`SHA256SUMS.asc`, signed
+with the same local key that signs the tags) to the release — one
+origin-bound checksum source that neither a CI compromise nor a
+release-note edit can silently replace.
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,
@@ -865,8 +883,9 @@ Per-milestone invariant check (item 5 of §3.12):
       code forecloses single-pane, scoped-access, or suspendable-queue
       mobile.
 - [ ] Pre-1.0 milestone tags `v0.<n>.0` exist for M1 through M9 — never a
-      `v0.10.0`; M10 ships `v1.0.0` per §3.12 (the release
-      pipeline never rotted). Inter-milestone hotfixes may append patch
+      `v0.10.0`; M10 ships `v1.0.0` per §3.12, with every tag cut by the
+      release pipeline itself (so the pipeline is exercised at each
+      milestone, not first at v1.0.0). Inter-milestone hotfixes may append patch
       tags (`v0.<n>.<patch>`) without advancing the minor.
 - [ ] No fast-follow or D25 item was built before v1.0 — except the M4
       drag-out produce-on-demand hook (03 §4.7 / D14), the one
@@ -883,4 +902,11 @@ Per-milestone invariant check (item 5 of §3.12):
 | Deep links between the apps | v1.x (04 §7.1) |
 | Signing, notarization, stores, Flatpak, auto-update | Post-v1, each requires amending D23/D19 (§4) |
 | iOS/Android apps | Post-v1 (D29); constraints memo §5 keeps the door open |
-| Everything in the parking lot (two-way sync + baseline DB, byte-level transfer resume beyond journal restart, rsync accelerator, S3/WebDAV, multi-window, scheduled sync, custom tools, remote content search) | v2+ (D25) |
+| Two-way sync + baseline DB | v2+ (D25) |
+| Byte-level transfer resume beyond journal restart | v2+ (D25) |
+| rsync accelerator | v2+ (D25) |
+| S3/WebDAV backends | v2+ (D25) |
+| Multi-window | v2+ (D25) |
+| Scheduled sync | v2+ (D25) |
+| Custom tools | v2+ (D25) |
+| Remote content search | v2+ (D25) |
