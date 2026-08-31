@@ -138,7 +138,12 @@ permissions · D29 mobile hooks · D30 Séance license
   binary gate never actually bites: M2, the first milestone whose shipped
   app consumes Séance code, already hard-gates on the license landing
   (07 §2). Tracked in the Séance-side
-  integration notes (04) and the 07 milestone gates.
+  integration notes (04) and the 07 milestone gates. A mechanical guard
+  backs the ordering discipline rather than relying on it alone: a
+  pre-publish check in `release.yml` fails any `v*` tag whose pinned
+  Séance revision's repository carries no LICENSE file, so a prematurely
+  cut tag cannot publish binaries embedding unlicensed code (07 §2 owns
+  wiring the check).
 
 ### Sync (R6)
 
@@ -149,8 +154,10 @@ permissions · D29 mobile hooks · D30 Séance license
   additionally quantize to 2 s — the two drivers of the window. The
   window's false-equal hazard is a **documented limitation**, stated
   here rather than discovered: a same-size edit whose mtime lands
-  inside the tolerance is classified unchanged and skipped — rsync and
-  WinSCP share the default and document it likewise — with the opt-in
+  inside the tolerance is classified unchanged and skipped — rsync
+  (whose default `--modify-window` is 0/exact, with the window an opt-in
+  documented for FAT) and WinSCP share the *hazard* and document it
+  likewise — with the opt-in
   `contentHash` mode (D7) as the escape hatch and the per-pair
   tolerance adjustable in 05 §6), a typed
   `SyncPlan` that
@@ -165,7 +172,9 @@ permissions · D29 mobile hooks · D30 Séance license
   rsync idea ships as **"Copy as rsync command"**: renders the pair's
   ruleset as the equivalent rsync invocation, shell-safely — 05 §2.1's
   exporter contract owns the specifics (POSIX single-quoting of every
-  path and argument, hazard `# note:` lines, golden-tested); manual
+  path and argument — the exported command targets a POSIX shell
+  (bash/zsh), pasting into cmd.exe or PowerShell being out of contract —
+  hazard `# note:` lines, golden-tested); manual
   per-item overrides are
   annotated in a comment, never compiled into filters. An opt-in rsync
   accelerator remains a documented v2 possibility, driven per-item from our
@@ -319,7 +328,7 @@ permissions · D29 mobile hooks · D30 Séance license
 ### Roadmap posture
 
 - **D10 — Agent auth and ProxyJump are table stakes, not "eventually".**
-  Both are implemented in `seance_core` (serving both apps): ssh-agent via
+  Both will be implemented in `seance_core`, serving both apps — ssh-agent via
   `$SSH_AUTH_SOCK` / Windows named pipe with a custom `SSHKeyPair` signer,
   and ProxyJump execution behind the already-modeled `jumpHostId`.
   Scheduled as the first fast-follow after v1.0 (07), with the transport

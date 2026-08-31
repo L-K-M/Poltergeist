@@ -152,7 +152,7 @@ decision that makes it real.
    they are the same code (D2, D5 — ssh-agent and ProxyJump land in the
    first post-1.0 fast-follow, D10, so at v1 the parity claim is scoped
    to identity-file auth); "open terminal here" / "open files here"
-   cross-links. Termius bundles both and rents the privilege; MobaXterm
+   cross-links (v1.x, 04 §7.1). Termius bundles both and rents the privilege; MobaXterm
    and Bitvise bundle both too, but as Windows-only, terminal-first
    tools — none pairs a first-class transfer client with a first-class
    terminal across platforms.
@@ -202,7 +202,7 @@ is no "we" at runtime — that is the point).
 > newer release exists — it tells you, you decide, nothing auto-installs.
 >
 > Passwords and secrets Poltergeist saves for you are protected through
-> your operating system's keychain, never stored in plain files. (Keys
+> your operating system's keychain, never stored in plaintext. (Keys
 > you already manage yourself — an imported `~/.ssh` identity file —
 > stay yours, where they are.) Host keys are pinned on first use and a
 > changed key is a hard
@@ -214,8 +214,10 @@ is no "we" at runtime — that is the point).
 > and security are not features you rent.
 
 Engineering facts behind the copy, so it stays true: TOFU and the changed-key
-hard block come from Séance's `TofuVerifier`; secrets ride the OS keystore
-holding the master key; bookmark backup is whole-record sealed blobs in the
+hard block come from Séance's `TofuVerifier`; secrets are sealed at rest
+under a master key held in the OS keystore (so "never stored in
+plaintext" is exact — the store on disk is ciphertext, the key is in the
+keystore); bookmark backup is whole-record sealed blobs in the
 existing encrypted-record protocol (all D18, D4). The update check reuses
 Séance's link-only banner pattern (D19, D23). Any future change that would
 falsify a sentence of this copy requires editing D19 first (per the decision
@@ -307,10 +309,13 @@ This is tracked as a Séance-side prerequisite in 04's upstream-work section;
 the porting ledger (`docs/PORTS.md`, per D2) records provenance for every
 ported file regardless. Until Séance's license lands, git-depending on
 pinned tags may proceed for development and CI — both repos share **one
-rights holder**, who needs no license from themselves to build their own
+rights holder** (an assertion that holds only while Séance's git history
+carries no external contributions, so re-verify with `git shortlog -sne`
+whenever Séance accepts a patch), who needs no license from themselves
+to build their own
 code — but *publishing* release binaries that embed the pinned code
 waits for the license too: this repo's Unlicense dedication grants third
-parties no rights to the embedded Séance code, and §6's "do anything you
+parties no rights to the embedded Séance code, and 01 §6's "do anything you
 like with it" must never ship on an artifact it does not cover. In the
 planned sequence this gate never actually bites — the first milestone
 whose shipped app consumes Séance code is M2, and M2 already hard-gates
@@ -343,7 +348,8 @@ to fork or clean-room Séance code, which D2 forbids outright.
 - The competitive table covers Transmit, ForkLift, WinSCP, FileZilla,
   Cyberduck/Mountain Duck, Termius, XPipe, and one-line entries for the rest
   of the surveyed field, each with an explicit take/refuse split.
-- Exactly ten differentiators, each tied to a decision number.
+- One differentiator per decision the competitive analysis identifies,
+  each tied to a decision number (ten as of this plan).
 - All five traps mapped to a concrete structural guard (decision, budget, or
   milestone), not to intentions.
 - Trust stance exists as canonical user-facing copy consistent with D18/D19,
@@ -358,7 +364,10 @@ to fork or clean-room Séance code, which D2 forbids outright.
   ported Séance files additionally follow the PORTS.md provenance
   convention and whatever license Séance declares — and the D30 Séance
   sequencing rule (no Séance source is copied until the D30 license PR,
-  PR-S0, is merged on Séance `main`).
+  PR-S0, is merged on Séance `main` **with a permissive,
+  attribution-compatible license**; if PR-S0 lands anything else, D30
+  reopens rather than proceeding — the gate is content-aware, not a
+  merge-event checkbox).
 
 ## Explicitly out of scope
 
