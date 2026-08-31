@@ -114,12 +114,21 @@ Pair with `_disposed` guards in every async callback and timer (03 §6).
 
 ```dart
 Future<void> _connectTab(PaneTab tab) async {
-  final session = await _engine.connect(tab.serverId);
-  if (_disposed || !identical(_workspace.tabById(tab.id), tab)) {
-    await session.close();          // don't leak the fresh session
-    return;                         // tab was closed/replaced mid-connect
+  try {
+    final session = await _engine.connect(tab.serverId);
+    if (_disposed || !identical(_workspace.tabById(tab.id), tab)) {
+      await session.close();        // don't leak the fresh session
+      return;                       // tab was closed/replaced mid-connect
+    }
+    tab.attach(session);
+  } on RemoteFileException catch (e) {
+    // A connect that throws (refused, auth, timeout) must route into the
+    // tab's error state, never fall through as an unhandled async error
+    // (§3.2's rule) — but only while the tab is still live; a failure on a
+    // tab closed or replaced mid-connect is dropped like a stale listing.
+    if (_disposed || !identical(_workspace.tabById(tab.id), tab)) return;
+    _applyConnectError(tab, e);
   }
-  tab.attach(session);
 }
 ```
 
@@ -217,8 +226,9 @@ traverses out of the root once joined on Windows, and the Win32-invalid
 `*` `?` `"` `<` `>` `|` and the C0 control characters (`\x00`–`\x1f`), a
 trailing dot or space (which Win32 silently strips into a name the next
 listing won't match), and a component matching a Win32 **reserved device
-name** — `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`, with or
-without an extension, whose write "succeeds" into the device (`nul`
+name** — `CON`, `PRN`, `AUX`, `NUL`, `CLOCK$`, `COM1`–`COM9` and superscript
+`COM¹`–`COM³`, `LPT1`–`LPT9` and superscript `LPT¹`–`LPT³`, with or without
+an extension, whose write "succeeds" into the device (`nul`
 discards the file's bytes) — are **all rejected in the `windowsDestination`
 branch** (the `_windowsHazard` char class plus `_isWindowsReservedName`
 below), a clean boundary error beating a confusing mid-transfer failure or
@@ -259,11 +269,13 @@ void validateRelativeComponents(String relative,
     relative = relative.substring(0, relative.length - 1);
   }
   for (final part in relative.split('/')) {
-    // POSIX NAME_MAX counts UTF-8 bytes; NTFS caps at 255 UTF-16 units —
-    // bound both so an over-long component fails here with a clean
-    // FormatException, not later as an opaque ENAMETOOLONG mid-transfer.
+    // POSIX NAME_MAX counts UTF-8 bytes; NTFS caps at 255 UTF-16 units.
+    // UTF-8 byte length is never below UTF-16 code-unit length, so the
+    // byte bound alone subsumes the NTFS unit cap — one check fails an
+    // over-long component here with a clean FormatException, not later as
+    // an opaque ENAMETOOLONG mid-transfer.
     final partBytes = utf8.encode(part).length;
-    if (partBytes > 255 || (windowsDestination && part.length > 255)) {
+    if (partBytes > 255) {
       throw FormatException('path component too long ($partBytes bytes) in '
           '${jsonEncode(original)}');
     }
@@ -513,9 +525,9 @@ is a plan violation. Changing any requires a 00 edit with rationale first.
    sync deletions ride the plan's safety rails (05 §8). No code path may
    remove user data as a side effect.
 6. **No silent uploads on external-editor saves** (06 §4.4). The watcher
-   prompts (`…changed locally. Upload it?`); the built-in editor's ⌘S is
-   the only implicit save-and-upload. Do not add an "auto-upload on save"
-   setting in v1.
+   prompts (`…changed locally. Upload it?`); the built-in editor's save
+   shortcut (⌘S / Ctrl+S) is the only implicit save-and-upload. Do not add
+   an "auto-upload on save" setting in v1.
 7. **No blocking the UI isolate with hashing, scans, archive work, or
    transfer I/O** (D8). Sockets live in the engine isolate; CPU-heavy work
    runs in workers; the UI isolate holds view state only.
@@ -526,9 +538,11 @@ is a plan violation. Changing any requires a 00 edit with rationale first.
    account bricks its sync or spawns phantom servers when it reads a
    `bookmark` record — so the precondition is per-install version coverage,
    confirmed by the user (04 §4.2); the gate is code, not documentation.
-9. **Never fork `seance_core`/`seance_protocol`** (D2). Git-pinned tags
-   only; a stalled upstream PR means pin-to-rev (07 §6 risk 4), never a
-   copy.
+9. **Never fork `seance_core`/`seance_protocol`** (D2). Depend on git pins
+   only — normally an upstream tag; a stalled upstream PR means pinning to
+   a specific rev instead (07 §6 risk 4, and the §1 gate table's "tag
+   preferred, rev permitted"). Never a fork, and never a copied-in version
+   of the source.
 10. **Never build D25 parking-lot or fast-follow items before v1.0**
     (07 §3.13). Two-way sync with baseline DB, resume, drag-out, archives,
     S3/WebDAV, multi-window — building them early is a plan violation.

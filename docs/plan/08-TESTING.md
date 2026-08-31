@@ -106,7 +106,7 @@ export 'src/testing/in_process_engine_client.dart';// EngineClient over any fs
 class InMemoryFileSystem implements RemoteFileSystem {
   InMemoryFileSystem({FaultPlan? faults});
   // Out-of-band mutation for precondition tests:
-  void putFile(String path, List<int> bytes, {int? mtimeSecs, int? mode});
+  void putFile(String path, List<int> bytes, {int? mtimeSecs, int? mode}); // copies bytes
   void deleteEntry(String path);
   Map<String, InMemoryEntry> snapshot();          // for convergence asserts
 }
@@ -158,9 +158,14 @@ class FsHarness {
 }
 ```
 
-It runs against **both** implementations — `LocalFileSystem` on a temp
-directory and `InMemoryFileSystem` — so the fake can never drift from the
-real semantics the queue and sync tests rely on. Cases, at minimum:
+It runs against **both** bundled implementations — `LocalFileSystem` on a
+temp directory and `InMemoryFileSystem` — always, and against a third,
+SFTP-backed harness (`DartSshRemoteFileSystem` over the §5 sshd-in-Docker
+fixture, `mutateOutOfBand` applied through a second channel) whenever
+Docker is present, so the fake is held to the real SFTP v3 semantics the
+queue and sync tests rely on — not only the local filesystem's (the
+adapter's own unit tests stay upstream in `seance_core`, §2; this runs
+Poltergeist's contract against the real adapter). Cases, at minimum:
 
 - `listDirectory` filters `.`/`..`; entries carry name/size/mtime/mode.
 - `stat` follows links by default; `followLinks: false` reports the link.
@@ -186,7 +191,10 @@ real semantics the queue and sync tests rely on. Cases, at minimum:
 - Error funnel: every failure is a `RemoteFileException` with message
   shaped `Could not <op> "<path>": <detail>`.
 - `setTimes`/`setOwner`: local implements both from day one (03 §2.4);
-  the in-memory fake honors `FaultPlan.ignoreSetTimes`/`failSetTimes`.
+  `setOwner` is skipped when `caps.supportsOwner` is false (Windows local
+  has no chown, exactly like `setMode` above), while `setTimes` runs on
+  every platform (Windows supports it); the in-memory fake honors
+  `FaultPlan.ignoreSetTimes`/`failSetTimes`.
 
 Windows- and macOS-specific expectations are keyed off `caps` and run for
 real on the CI OS matrix (§8). The four public safety helpers in
@@ -339,10 +347,22 @@ never-executes promise and 03 §1's dependency rules, machine-checked).
 A sibling walker covers `packages/poltergeist_core/lib/src/engine/**`
 and fails on any function-typed field declared in **any** class under
 that subtree — not just the `EngineRequest`/`EngineEvent` pair, so a
-newly added protocol class cannot quietly escape the §3.2 closure ban.
+newly added protocol class cannot quietly escape the §3.2 closure ban —
+save for a short, **commented allowlist** of engine-internal classes that
+legitimately hold callbacks (the isolate runner's hooks, the client's
+event handlers, test seams): those carry no cross-port payload, so
+allowlisting them removes the false positive without reopening the escape
+a marker-interface-only rule would leave — a new protocol class is never
+on the allowlist, so it is still caught.
 A `dart:io` import ban would be the simpler check but is wrong here:
-`journal.dart` legitimately writes JSONL files — the promise is about
-never *executing* anything, not about file I/O.
+`journal.dart` legitimately writes JSONL files — through an **injected
+base directory** (a unique temp dir per test, a `path_provider` dir in
+production), so replay/idempotence/undo tests stay hermetic and
+parallel-safe, and those writes are the local journal's own,
+deliberately *outside* the `RemoteFileSystem` VFS whose operations the
+mirror-never-writes-outside-the-root fake records — the promise is about
+never *executing* anything, and never writing outside the destination
+root through the VFS, not about banning file I/O in the journal writer.
 
 ## 4. Widget layer
 
@@ -569,6 +589,12 @@ flake.
 
 Suites:
 
+- **VFS contract against real SFTP**: `runRemoteFileSystemContract`
+  (§3.1) runs a third time against `DartSshRemoteFileSystem` on
+  `sshd-modern`, proving the `InMemoryFileSystem` fake against real
+  SFTP v3 semantics (mtime granularity, symlink/mode, rename rules), not
+  only the local filesystem's — the fixture already exists here, so the
+  same cases cost one more harness.
 - **Transfers end-to-end**: recursive upload/download of a generated
   tree against `sshd-modern` and `sshd-legacy`; conflict preflights fire
   against real concurrent modification; cancellation mid-transfer cleans
@@ -674,13 +700,25 @@ Mechanics:
   tier-B comparison after the M9 flip** — the once-on-reference-macOS
   release run (DoD) is a human-readable release-note artifact, not the
   gate; the baseline is fingerprinted to the CI runner so the two are
-  never compared across hardware. The committed baseline is refreshed only via a dedicated
-  PR when the environment fingerprint changes, and `check.dart` exits
-  non-zero — in soft mode too, like a missing/errored scenario — whenever
-  a results file's environment fingerprint does not match the committed
-  baseline's, printing the refresh-PR procedure — shared-runner noise must
-  not train people to ignore a gating check, and a fingerprint mismatch
-  must never fall through to a cross-hardware comparison. The tier-B flip
+  never compared across hardware. The fingerprint-mismatch exit is scoped
+  to **tier-B** results compared against the tier-B baseline — tier A
+  compares against absolute `budgets.json`, never the baseline, so a
+  runner-hardware rotation must not redden it — and the fingerprint splits
+  into two axis classes, because `ubuntu-latest` is a heterogeneous pool
+  that rotates CPU hardware over time: **controlled axes** (runner image
+  digest/tag, arch, Dart/Flutter version, AOT/profile mode, scenario
+  config), whose mismatch is a hard non-zero exit in every mode — in soft
+  mode too, like a missing/errored scenario — cleared only by a dedicated
+  baseline-refresh PR; and the **uncontrolled CPU-model axis**, whose
+  mismatch instead skips the tier-B comparison with a loud non-enforced
+  "hardware drift — refresh the baseline" notice on any lane and never
+  auto-reddens, because CPU identity is not controllable on `ubuntu-latest`
+  — keying the hard-fail on it would fire intermittently on unrelated
+  pushes and train exactly the ignore-the-gate reflex this rule exists to
+  prevent; a human clears the drift by opening the baseline-refresh PR.
+  A mismatch of either class still never falls through to a cross-hardware
+  comparison, and the refresh-PR procedure is printed on every mismatch.
+  The tier-B flip
   is a one-line repository-variable change recorded in 07's M9 exit
   criteria.
 - P5's "no upfront full-tree stat" is asserted structurally as well as
@@ -694,6 +732,12 @@ Mechanics:
   (each scenario also discards a stated number of warmup iterations);
   02 §12's P3/P5/P7 values are quoted against that AOT mode — `dart run`
   is for local iteration only, never a number quoted against a budget.
+  The **machine** is pinned like the mode: each tier-A budget is
+  calibrated on the same runner image the bench job uses (recorded in the
+  results-file fingerprint's controlled axes, below) and re-calibrated
+  through the same dedicated-PR procedure when those axes change — an
+  absolute number measured on a different image is treated like a debug
+  number, never compared against a budget.
 - Tier-B viability is spiked when the M3 PR adds the job, before any
   baseline is committed: the chosen invocation must demonstrably report
   **real rasterizer timings** — the plain `flutter test` device
@@ -759,9 +803,15 @@ Automated, in `flutter test` (semantics enabled via
   `lib/ui/**` — error and summary strings from non-UI layers are equally
   user-facing once shown in a dialog/snackbar) and fails on user-facing
   string literals outside the ARB/l10n pipeline (allowlist for genuinely
-  non-UI literals: keys, ids, format patterns); package-produced
-  user-facing text (the D5 failure summaries) is asserted localized via
-  its own suite rather than exempted by the path scope.
+  non-UI literals: keys, ids, format patterns). Generated code is excluded
+  by **path**, not by literal — the l10n output directory plus
+  `*.g.dart`/`*.freezed.dart` and generated mocks, all dense with literals
+  that are neither keys nor authored UI text — and the test guards that
+  carve-out: it fails if an excluded path has vanished or the generated
+  l10n files are absent, so the exclusion can never silently swallow the
+  whole walk. Package-produced user-facing text (the D5 failure summaries)
+  is asserted localized via its own suite rather than exempted by the path
+  scope.
 
 Manual screen-reader verification is §9's job; Linux screen-reader
 support is broken upstream in Flutter and is documented, not tested.
@@ -776,8 +826,8 @@ section says what each job runs and what gets added when.
 | `dart` | yes | `dart analyze` + `dart test` over `packages/*`, discovered dynamically | `poltergeist_sync` joins automatically when created. **Change at M1**: extend to an OS matrix (`ubuntu-latest`, `macos-latest`, `windows-latest`) once `LocalFileSystem` lands — the platform-conditional contract cases (case-only rename, reserved names, mode unsupported) only mean something on the real OS. All three are required checks; they are cheap (pure Dart). |
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
-| `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, an `if: always()` compose-down teardown (or route through run.sh's trap lifecycle, as the bench job does) | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral on PRs if the fixture is ever absent; on `main`/dispatch an absent fixture fails the job loudly instead, so a deleted fixture can never silently disable the suite — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, and on PRs touching `packages/**` or `test/integration/**` (the bench job's path-filter rationale — a 25-minute Docker job has no business on a docs-only PR; `.github/workflows/ci.yml` is also in the filter so job edits self-validate). |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle via a `--lifecycle-only` mode run.sh grows for this job (compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — but **no `dart test` invocation**, since reusing run.sh verbatim would run the whole ~25-min integration suite inside this 45-min job, while copying the lifecycle into the bench job would fork the trap/readiness logic §5 centralizes) — tier-B under xvfb in profile mode (main/dispatch runs only; skipped on PRs, see gating below), then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact via an `if: always()` upload step, so timed-out or failed runs still ship their partial results; because a hard `timeout-minutes` cancellation can kill the upload mid-flight, the runner and check.dart enforce their own soft deadlines below the 45-min cap (flush partial results, exit nonzero) so a slow run surfaces as an ordinary failure rather than a cancellation | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**` or `test/benchmarks/**`** (so a baseline-refresh or check.dart/budgets.json-only PR is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B` — at which point tier B gains the de-flaking policy the PR gating implies: median across the >=3 repetitions, one automatic rerun before red, and a pinned/larger runner class so shared-runner contention cannot redden `main`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
+| `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): the job runs run.sh end to end — compose up, the §5 readiness wait, `dart test -t integration` with explicit package paths, and the `trap … EXIT` compose-down that fires on success and failure alike (the single-lifecycle-owner rule §5 centralizes; the bench job reuses only its `--lifecycle-only` half, without the `dart test`) | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral on PRs if the fixture is ever absent; on `main`/dispatch an absent fixture fails the job loudly instead, so a deleted fixture can never silently disable the suite — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, `workflow_dispatch`, and PRs touching `packages/**`, `test/integration/**`, or `.github/workflows/ci.yml` (a 25-minute Docker job has no business on a docs-only PR; the workflow file is in the filter so job edits self-validate, and `workflow_dispatch` is the manual trigger the "on `main`/dispatch an absent fixture fails loudly" guard above names). |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle via a `--lifecycle-only` mode run.sh grows for this job (compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — but **no `dart test` invocation**, since reusing run.sh verbatim would run the whole ~25-min integration suite inside this 45-min job, while copying the lifecycle into the bench job would fork the trap/readiness logic §5 centralizes) — tier-B under xvfb in profile mode (main/dispatch runs only; skipped on PRs, see gating below), then `test/benchmarks/check.dart` (also `if: always()`, so partial results flushed by a soft-deadline exit are still graded, not skipped when the runner step exits non-zero) with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact via an `if: always()` upload step, so timed-out or failed runs still ship their partial results; because a hard `timeout-minutes` cancellation can kill the upload mid-flight, the runner and check.dart enforce their own soft deadlines below the 45-min cap (flush partial results, exit nonzero) so a slow run surfaces as an ordinary failure rather than a cancellation | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**`, `test/benchmarks/**`, or `.github/workflows/ci.yml`** (so a baseline-refresh, a check.dart/budgets.json-only PR, or a job edit is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B` — at which point tier B (still `main`/dispatch-only, never PR-gating) gains the de-flaking policy enforcement requires: median across the >=3 repetitions, one automatic rerun before red, and a pinned/larger runner class so shared-runner contention cannot redden `main`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/
@@ -847,8 +897,9 @@ PR); every release records a filled copy in the release PR. Per release:
 - [ ] `packages/poltergeist_core/lib/testing.dart` exists exporting
       `InMemoryFileSystem` (+ `FaultPlan`, `InProcessEngineClient`); the
       shared `runRemoteFileSystemContract` suite passes against both
-      `LocalFileSystem` and the fake, with platform-conditional cases on
-      the CI OS matrix.
+      `LocalFileSystem` and the fake (and against the SFTP adapter over
+      the §5 Docker fixture where present), with platform-conditional
+      cases on the CI OS matrix.
 - [ ] Every ported Séance test asset in the §2 table lands in the same PR
       as its code, renamed suffixes only, PORTS.md entries present.
 - [ ] Queue, pool, bookmark/coordinator, and engine-protocol suites of
@@ -879,9 +930,9 @@ PR); every release records a filled copy in the release PR. Per release:
 - [ ] `ci.yml` carries the §8 additions on schedule: dart-job OS matrix
       at M1, `integration` job at M2 (skip-neutral guarded), `bench` job
       at M3 (main + dispatch for both tiers; tier A additionally on
-      `packages/**` **and `test/benchmarks/**`** PRs with
-      `BENCH_ENFORCE_A`, per §6/§8 — the harness's own PRs are the ones
-      most likely to perturb timings, so they gate too).
+      `packages/**`, `test/benchmarks/**`, **and `.github/workflows/ci.yml`**
+      PRs with `BENCH_ENFORCE_A`, per §6/§8 — the harness's own PRs are the
+      ones most likely to perturb timings, so they gate too).
 - [ ] `docs/qa/RELEASE-CHECKLIST.md` exists (M9) and a filled copy is
       attached to every release PR from then on.
 
