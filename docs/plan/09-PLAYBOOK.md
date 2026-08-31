@@ -160,6 +160,8 @@ Future<void> navigateTo(String path) async {
                           // the pane's error state here — never rethrow from
                           // a UI-invoked async, or the contract would depend
                           // on every (fire-and-forget) call site catching.
+    return; // terminal: the error path must not fall through, or `entries`
+            // is read below while potentially unassigned (analyzer error)
   }
   if (_disposed || generation != _navigationGeneration) return; // stale
   _applyEntries(path, entries);
@@ -196,9 +198,10 @@ Séance's SOL-057 and is rejected in review.
 Any path assembled from external input — remote listings, sync plans,
 archive entries (v1.x), drag payloads, deep links — validates each
 component before it touches a filesystem: no empty component, no `.` or
-`..`, no `/` inside a component (`\` is legal POSIX filename data,
-rejected only for Windows destinations per the destination-aware rule
-below — not an unconditional "separator"), and the joined result must remain
+`..`, no `/` inside a component and no `\` in one (`\` is legal POSIX
+filename data, but a component carrying one is overwhelmingly an
+escaping bug in the exports and previews these names also feed, so the
+sample rejects it for EVERY destination), and the joined result must remain
 inside the intended root — the helper below is the **lexical half only**;
 root containment is enforced where the absolute destination path is
 built (03 §2.3's `ensureSafeLocalDirectory` refuses symlink traversal on
@@ -211,9 +214,9 @@ separator** so `a\..\..\b` (no `/`, one component to the split)
 traverses out of the root once joined on Windows, and the Win32-invalid
 `*` `?` `"` `<` `>` `|` plus a trailing dot or space each fail late at
 write time — all rejected in the `windowsDestination` branch, a clean
-boundary error beating a confusing mid-transfer failure (the backslash
-rejection is destination-aware too, since `\` is a legal POSIX
-filename byte). So the caller
+boundary error beating a confusing mid-transfer failure. (Backslash is
+not in that branch — the sample's shape check rejects it for every
+destination; see its comment.) So the caller
 says where the path is headed. The helper itself absorbs trailing
 separators (`'a/b//'` → `'a/b'`, all of them, not one) before
 validating — a directory entry's trailing `/` is shape, not a
@@ -223,7 +226,7 @@ a caller-side precondition here would make the designated zip-slip
 defense reject legitimate directory entries at whichever call site
 missed a strip (`'/'` still rejects — stripping leaves the empty
 string). Windows reserved device names
-(`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` and superscript
+(`CON`, `PRN`, `AUX`, `NUL`, `CLOCK$`, `COM1`–`COM9` and superscript
 `COM¹`–`COM³`, `LPT1`–`LPT9` and superscript `LPT¹`–`LPT³` — the NT
 path layer accepts superscript digits — with or
 without an extension, `PRN.txt` included) are already rejected
@@ -311,15 +314,15 @@ export/preview/drag flows it guards never mkdir and so nothing else would
 catch a divergent stem rule: bare names case-insensitively (`con`, `Aux`,
 `NUL`), stem-plus-extension forms (`CON.txt`, `lpt1.tar`), names that
 collide only *after* Win32 trailing-dot/space stripping (`NUL.`,
-`COM1 .log`), and `CLOCK$` \u2014 and record the chosen stem rule here so 02/05
+`COM1 .log`), and `CLOCK$` — and record the chosen stem rule here so 02/05
 cannot state a conflicting one.
 
-Corollary on bidi: a string that has passed through 02 \u00a713's display-time
-LRI\u2026PDI isolation is *rendered* text carrying the app's own isolation
+Corollary on bidi: a string that has passed through 02 §13's display-time
+LRI…PDI isolation is *rendered* text carrying the app's own isolation
 marks, so it must never be persisted or fed back into
 `validateRelativeComponents`. Rename and copy flows take user input
 **pre**-isolation, and any isolate arriving in pasted input is stripped at
-the field boundary rather than stored; a display\u2192input round trip that
+the field boundary rather than stored; a display→input round trip that
 reaches the validator is a defect to record, not a reason to loosen it.
 
 ### 3.6 Atomic writes for every persisted file

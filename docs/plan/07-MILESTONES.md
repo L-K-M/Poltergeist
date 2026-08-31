@@ -148,7 +148,7 @@ class BenchResult {
         scenario: json['scenario']! as String,
         bytes: json['bytes']! as int,
         elapsed: Duration(milliseconds: json['elapsedMs']! as int),
-        mbPerSec: json['mbPerSec']! as double,
+        mbPerSec: (json['mbPerSec']! as num).toDouble(),
         note: json['note'] as String?,
         dartssh2Rev: json['dartssh2Rev']! as String,
         seanceRev: json['seanceRev']! as String,
@@ -213,9 +213,10 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 **Exit criteria.**
 
 - [ ] `flutter analyze` and `flutter test` pass in `app/poltergeist_app`.
-- [ ] PR-S2 is filed against Séance (the milestone table's "file S2 now"
-      gate — M2 then requires it merged or rev-bridged), mirroring M0's
-      "PR-S0 and PR-S1 are filed" box so the gate is checkable.
+- [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
+      the milestone table's "file S2 now" gate; M2 then requires it merged
+      or rev-bridged per §3.3, and it must be in review by then — mirroring
+      M0's "PR-S0 and PR-S1 are filed" box so the gate is checkable.
 - [ ] `ci.yml`'s `detect` job activates the `flutter` and `client` jobs and
       the full matrix (android / linux / macos / ios / windows) is green,
       including the `.deb`/AppImage packaging step.
@@ -237,14 +238,12 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
       the box never stalls M1 on the parallel workstream. The fallback
       has a floor: the APK and the Linux `.deb`/AppImage/bundle must
       publish — everything they need (icons, identifiers, the committed
-      keystore — §4's M1 rows, and the "Android signing & checksums"
-      section below states that key's deliberately-public risk posture
-      in full) builds on `ubuntu-latest`, so
+      keystore — §4's M1 rows; §4's "Android signing & checksums"
+      section owns that key's deliberately-public risk posture in full,
+      including same-key update attacks and any pre-v1.0 key rotation)
+      builds on `ubuntu-latest`, so
       their absence is a pipeline bug, not D23 lag, and the tag waits
       for the fix. A rehearsal that publishes nothing rehearses nothing.
-- [ ] PR-S2 (`openAuthenticatedClient`, 04 §5.3) is filed against Séance —
-      the §2 table's "file S2 now" gate; M2 depends on it being in review
-      by then.
 
 **Risks.** Toolchain drift in CI runners — fix versions in the workflow,
 not in prose. And one real dependency the gate column does not show: the
@@ -706,8 +705,11 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
 4. Tag `v0.<milestone>.0` as a pre-release for M1 through M9 — every tag
    is a release-pipeline rehearsal, so `release.yml` never rots — via
    `scripts/release.sh 0.<milestone>.0 --push`, the identical path
-   v1.0.0 uses, marking the GitHub release as a pre-release. M10 ships
-   `v1.0.0` (§3.11) and no `v0.10.0` pre-release.
+   v1.0.0 uses; `release.yml`'s `softprops/action-gh-release` step keys
+   `prerelease` off the leading `0.`, so every `v0.*` tag publishes as a
+   pre-release automatically and a rehearsal tag can never become the
+   repo's latest stable release. M10 ships `v1.0.0` (§3.11) and no
+   `v0.10.0` pre-release.
 5. Re-check the §5 mobile invariant for the milestone (M0 predates the
    app and is exempt; every other milestone has a row in the §5 table).
 
@@ -721,7 +723,7 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
 2. **OS drag-out** (D14): spike `super_drag_and_drop` 0.10.x on current
    Flutter; if it fights the queue or the engine, custom per-platform
    plugins, macOS `NSFilePromiseProvider` first. The produce-on-demand
-   hook has existed since M4.
+   hook has existed since M4 (§3.5 scope, D14 — hook only, no drag-out).
 3. **Archives** (D27): local zip create/extract via `package:archive` in
    `Isolate.run` workers, zip-slip-safe extraction (validate every
    component). Remote-side extraction and browsable archives stay later.
@@ -753,7 +755,7 @@ assets on `v*` tags; the work is everything around it.
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
 | M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1) — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable, self-upgrading APK |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, and checksums are in the notes. The APK is a **best-effort artifact**: the Android app itself stays post-v1 (D29, §5 — its constraints are unverified for v1) — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M4 | Prevent-close queue flush verified in packaged builds, not just `flutter run` |
@@ -859,11 +861,13 @@ Per-milestone invariant check (item 5 of §3.12):
       PR-S1 release, M8's remote work for PR-S3 — verified by pin history.
 - [ ] The distribution checklist (§4) fully ticked at M10, including
       fresh-machine installs from INSTALL.md alone.
-- [ ] Mobile invariants (§5) checked at every milestone close; no v1 code
-      forecloses single-pane, scoped-access, or suspendable-queue mobile.
-- [ ] Pre-release tags `v0.<n>.0` exist for M1 through M9 — never a
+- [ ] Mobile invariants (07 §5) checked at every milestone close; no v1
+      code forecloses single-pane, scoped-access, or suspendable-queue
+      mobile.
+- [ ] Pre-1.0 milestone tags `v0.<n>.0` exist for M1 through M9 — never a
       `v0.10.0`; M10 ships `v1.0.0` per §3.12 (the release
-      pipeline never rotted).
+      pipeline never rotted). Inter-milestone hotfixes may append patch
+      tags (`v0.<n>.<patch>`) without advancing the minor.
 - [ ] No fast-follow or D25 item was built before v1.0 — except the M4
       drag-out produce-on-demand hook (03 §4.7 / D14), the one
       pre-authorized seam, which ships inside v1 by design.

@@ -111,16 +111,20 @@ class InMemoryFileSystem implements RemoteFileSystem {
   Map<String, InMemoryEntry> snapshot();          // for convergence asserts
 }
 
-/// Fault injection per 05 §11. Immutable per test — final fields with a
-/// const constructor, so one test's faults can never leak into another.
+/// Fault injection per 05 §11. Immutable per test: the constructor
+/// defensively copies set arguments into `Set.unmodifiable` views, so
+/// one test's faults can never leak into another. Deliberately not
+/// const — `onOperation` closures capture mutable state by design, and
+/// a const constructor cannot copy its arguments.
 class FaultPlan {
-  const FaultPlan({
-    this.unlistableDirectories = const {},
+  FaultPlan({
+    Set<String> unlistableDirectories = const {},
     this.ignoreSetTimes = false,
     this.failSetTimes = false,
-    this.failRenameTargets = const {},
+    Set<String> failRenameTargets = const {},
     this.onOperation,
-  });
+  })  : unlistableDirectories = Set.unmodifiable(unlistableDirectories),
+        failRenameTargets = Set.unmodifiable(failRenameTargets);
   final Set<String> unlistableDirectories; // listDirectory -> permissionDenied
   final bool ignoreSetTimes;               // setstat silently clamped
   final bool failSetTimes;                 // setstat -> permissionDenied
@@ -329,6 +333,9 @@ position** — comments and string literals excluded, so
 `processedPlan`/`onProcess` and reason strings that merely say "process"
 pass — or any `dart:ffi`, Flutter, or `dartssh2` import (05 §2's
 never-executes promise and 03 §1's dependency rules, machine-checked).
+A sibling walker covers `packages/poltergeist_core/lib/src/engine/**`
+and fails on any function-typed field declared in the `EngineRequest`/
+`EngineEvent` classes — the §3.2 closure ban, machine-checked too.
 A `dart:io` import ban would be the simpler check but is wrong here:
 `journal.dart` legitimately writes JSONL files — the promise is about
 never *executing* anything, not about file I/O.
@@ -403,7 +410,10 @@ test/integration/
                             mechanically, not by prose: run.sh and CI
                             render `docker compose config` (interpolated,
                             resolved) and fail unless every published
-                            host IP is 127.0.0.1 — a raw YAML grep would
+                            host IP is 127.0.0.1, and no service uses
+                            `network_mode: host` (which bypasses the
+                            port check and binds every interface) — a
+                            raw YAML grep would
                             pass quoted (`"2201:22"`), interpolated
                             (`${PORT}:22`), and long-form
                             (`host_ip: 0.0.0.0`) entries that still bind
@@ -497,11 +507,12 @@ The Dart tests live inside the packages (explicit-path rule):
 `packages/poltergeist_core/test/integration/` and
 `packages/poltergeist_sync/test/integration/`, each file tagged
 `@Tags(['integration'])` and self-skipping with an explanatory message
-when **its own** service variable is unset (`POLTERGEIST_SSHD_MODERN`,
-`…_LEGACY`, `…_AUTHMATRIX`, … — never the umbrella `POLTERGEIST_SSHD`
-alone, or a partially-exported local environment would enable a suite
-whose port var is absent and turn a named skip into a confusing
-connection error) — so plain
+unless **both** the umbrella host var (`POLTERGEIST_SSHD`) **and** its
+own service port var (`POLTERGEIST_SSHD_MODERN`, `…_LEGACY`,
+`…_AUTHMATRIX`, …) are set — keying on either alone lets a
+partially-exported local environment enable a suite whose counterpart
+var is absent and turn a named skip into a confusing connection error —
+so plain
 `dart test packages/…` stays green without Docker. `run.sh` starts the
 compose stack, exports `POLTERGEIST_SSHD=127.0.0.1` plus one variable
 per service (`POLTERGEIST_SSHD_MODERN=2201`, `…_LEGACY=2202`, and so on)
@@ -594,7 +605,7 @@ Two tiers, because CI runners cannot honestly measure UI frames:
 
 | Tier | Budgets | Harness | Environment | Enforcement |
 |---|---|---|---|---|
-| A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, compiled AOT (`dart compile exe`) in CI — `dart run` is local iteration only, per Mechanics — against the §5 Docker fixture on loopback (loopback stands in for LAN; network time is measured separately and subtracted for P3) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE_A`, red = failed job) from the milestone that introduces each surface |
+| A — engine-side, absolute | P3 (listing overhead), P5 (drop→start), P7 (scan rate) | pure-Dart entrypoints in `packages/*/benchmark/`, compiled AOT (`dart compile exe`) in CI — `dart run` is local iteration only, per Mechanics — against the §5 Docker fixture on loopback (loopback stands in for LAN; for P3 the overhead is computed as a same-connection difference — listing of the target tree minus a control listing of an empty/minimal directory over the identical connection — rather than subtracting a separately measured network baseline) | `ubuntu-latest` CI runner | enforced (`BENCH_ENFORCE_A`, red = failed job) from the milestone that introduces each surface |
 | B — UI frames, hardware-honest | P1, P2 (first paint), P4 (tab switch), P6 (frame drops) | `integration_test` suites in `app/poltergeist_app/integration_test/perf/` capturing `FrameTiming`s via `SchedulerBinding.instance.addTimingsCallback` (the stable in-process mechanism; `traceAction` may be used only after verifying it produces summaries under `flutter test integration_test --profile` with the pinned `integration_test` — its Timeline plumbing has a deprecation history), run under xvfb on Linux in profile mode | CI: **trend only** vs a committed baseline (fail on > 25 % regression of the median of ≥ 3 in-job repetitions once enforced — Mechanics defines the source); absolute budgets verified on the reference machine — the maintainer's Apple-silicon macOS laptop — during release QA (§9) | trend-only until M9 flips to enforced (soft mode lives in `check.dart`, §6 — no blanket `continue-on-error`); absolute at release QA |
 
 Mechanics:
@@ -747,7 +758,7 @@ section says what each job runs and what gets added when.
 | `detect` + `flutter` | yes | `flutter analyze` + `flutter test` (unit, widget, a11y suites of §4/§7) | self-activates when `app/poltergeist_app` appears; no workflow edit |
 | `client` matrix | yes | release-parity compile of every platform + Linux packaging | unchanged; keep in step with `release.yml` |
 | `integration` | **added in the M2 PR** that lands the connection module | `test/integration/run.sh` on `ubuntu-latest` (Docker available there): compose up, `dart test -t integration` with explicit package paths, compose down | guarded like the Flutter jobs: a `detect`-style step checks `test/integration/docker-compose.yml` exists, so the job stays skipped-neutral if the fixture is ever absent — it lands with M0 (§5), before this job exists, so the guard is defensive, not a schedule. Timeout 25 min. Runs on push to `main`, and on PRs touching `packages/**` or `test/integration/**` (the bench job's path-filter rationale — a 25-minute Docker job has no business on a docs-only PR). |
-| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle via a `--lifecycle-only` mode run.sh grows for this job (compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — but **no `dart test` invocation**, since reusing run.sh verbatim would run the whole ~25-min integration suite inside this 45-min job, while copying the lifecycle into the bench job would fork the trap/readiness logic §5 centralizes) — tier-B under xvfb in profile mode, then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**` or `test/benchmarks/**`** (so a baseline-refresh or check.dart/budgets.json-only PR is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
+| `bench` | **added in the M3 PR** (queue + panes exist) | tier-A benchmarks vs the Docker fixture — brought up through run.sh's own lifecycle via a `--lifecycle-only` mode run.sh grows for this job (compose up, the §5 SSH-banner readiness wait (an immediate benchmark after `up -d` hits the first-connection flake §5 exists to prevent), and the `--profile keyswap` trap teardown — but **no `dart test` invocation**, since reusing run.sh verbatim would run the whole ~25-min integration suite inside this 45-min job, while copying the lifecycle into the bench job would fork the trap/readiness logic §5 centralizes) — tier-B under xvfb in profile mode (main/dispatch runs only; skipped on PRs, see gating below), then `test/benchmarks/check.dart` with the `--tiers` flag matching what ran (§6 — `ab` on main/dispatch, `a` on PR runs); uploads `bench-results.json` as an artifact via an `if: always()` upload step, so timed-out or failed runs still ship their partial results | tier A runs on push to `main`, `workflow_dispatch`, **and PRs touching `packages/**` or `test/benchmarks/**`** (so a baseline-refresh or check.dart/budgets.json-only PR is validated pre-merge, not first on `main`) with `BENCH_ENFORCE_A=1` (red = failed job) from the milestone that introduces each surface — absolute loopback budgets are stable enough to gate pre-merge; tier B runs on push to `main` and `workflow_dispatch` only (frame-timing noise on shared runners would train people to ignore a PR check), soft mode implemented in `check.dart` per tier (§6) — **no `continue-on-error`**, so a scenario that fails to run reddens the job in every mode (within the declared tiers and landed scenarios, §6) — until M9 flips `BENCH_ENFORCE_B`. **Timeout 45 min** (Docker tier A + >=3 xvfb tier-B repetitions + check.dart). |
 
 The GLM review workflow (`zai-code-review.yml`) is orthogonal and
 unchanged. Rules that hold everywhere: explicit paths in every dart/
@@ -788,8 +799,9 @@ PR); every release records a filled copy in the release PR. Per release:
   state, tabs, sidebar groups (expanded state), activity rows
   (completion announced once); operate one full transfer
   keyboard-and-reader only.
-- Linux: not tested (broken upstream); the honest note in the README is
-  verified present.
+- Linux: not tested (broken upstream — the README note links and dates
+  the upstream issue); each release re-checks whether it is still broken
+  and drops the exclusion when upstream fixes land.
 
 **Trust and platform behaviors**
 - First-launch unsigned-app paths (D23): Gatekeeper right-click-open on
