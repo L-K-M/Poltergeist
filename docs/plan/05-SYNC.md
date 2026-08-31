@@ -58,10 +58,16 @@ possibility (D25); it may never be needed.
 ### 2.1 Exporter spec (`lib/src/rsync_export.dart`)
 
 `String buildRsyncCommand(ResolvedSyncEndpoints endpoints, SyncRuleSet
-rules, {int manualOverrides = 0, required DateTime now})` — pure function,
+rules, {int manualOverrides = 0, required List<String> engineSkipPaths,
+required DateTime now})` — pure function,
 golden-string tested (`now` is required precisely so the function stays
 pure: an implicit `DateTime.now()` default would bake wall-clock into the
-timestamped backup-dir and break the goldens). `ResolvedSyncEndpoints`
+timestamped backup-dir and break the goldens). `engineSkipPaths` carries
+the plan's engine-imposed skips (scan-error subtrees and symlink paths,
+§3) so the export can exclude exactly what the plan refused to touch —
+the reason it is a required argument, not an optional one, is that
+omitting it silently reintroduces the mirror-wipes-destination hazard §3
+exists to close. `ResolvedSyncEndpoints`
 also carries a **per-side OS tag** (a small enum; the app layer fills
 the local side from `Platform.operatingSystem` and the remote side from
 connection-time detection cached in §9's `sync_state`) — the
@@ -161,9 +167,16 @@ Additional rules:
   double-escaping works on every version — a considered choice,
   recorded here. IPv6 hosts render **bracketed**
   (`'user@[2001:db8::1]:path/'`), or the host's own colons would be
-  read as the host/path separator. Golden fixtures: a remote path
+  read as the host/path separator. The two escape layers compose in
+  exactly one order: remote-path backslash-escaping against the allowlist
+  **first**, then local POSIX single-quoting (the `'\''` rule) applied to
+  the already-escaped result — any other order corrupts the local
+  quoting and silently reopens the injection the allowlist exists to
+  close. Golden fixtures: a remote path
   containing a space, one containing `;` and `|` (the injection
-  characters asserted escaped), and an IPv6 remote — bracketing is
+  characters asserted escaped), one containing an embedded `'` (pinning
+  that the two layers compose in the safe order), and an IPv6 remote —
+  bracketing is
   applied to the host spec before path escaping, and escaping applies
   to the path portion only.
 - A local **Windows** path is not directly runnable by Cygwin/cwRsync/MSYS
@@ -185,7 +198,21 @@ Additional rules:
 - When the plan carries manual per-item overrides, prepend
   `# note: N manual per-item overrides are not reflected — this command
   applies the ruleset only and may copy or delete items you excluded in
-  the plan`.
+  the plan`. The same divergence, minus any user intent, applies to
+  engine-imposed skips: scan-error subtrees and symlink paths (§3) are
+  excluded from planning **on both sides**, yet the exporter would
+  otherwise see only the ruleset — so `buildRsyncCommand` also receives
+  those paths via `engineSkipPaths` and renders each as a leading
+  `--exclude` ahead of every reversed ruleset filter (first-match-wins,
+  so nothing downstream can re-admit them), plus a
+  `# note: scan-error subtrees and symlinks are excluded to match the
+  plan`. Without this, a pasted Mirror export with `--delete-delay`
+  would plan and delete inside a subtree the app could not list (or that
+  hit a transient scan error) — the exact "second engine whose behavior
+  the preview merely predicts" failure §2 rejects, reintroduced through
+  the exporter's back door and invisible once the clipboard text outlives
+  the plan view. A golden fixture with a scan-error subtree and a symlink
+  asserts both `--exclude` lines appear.
   Per-item edits are deliberately not compiled into `--exclude`/
   `--files-from` lists — rsync's include/exclude ordering is famously
   subtle, and a wrong translation would betray the feature's whole point.
@@ -195,7 +222,13 @@ Additional rules:
   leading-block comment, so the layout contract stays uniform.
 - Surfaced as command `sync.copyRsyncCommand` — a button in the plan view's
   action bar and `Commands > Copy as rsync Command` (02 §9). On copy, toast:
-  `Copied rsync command`.
+  `Copied rsync command`; for a `deletions: permanent` + `backups: none`
+  plan the toast instead reads
+  `Copied rsync command — deletions are permanent when pasted`, so the
+  one lethal configuration warns at copy time and not only inside the
+  pasted `# note:` block (which a clipboard manager or a trimmed paste
+  may drop). 02 §9's command table names the base toast only; this
+  differentiation lives here.
 
 ## 3. Scanning
 
@@ -253,9 +286,12 @@ concurrently in the engine isolate (D8).
   editor offers quick-pick chips for `.git/` and `node_modules/`.
 - **Name hazards are surfaced, never silently "fixed"** — each becomes a
   plan item with a conflict-class reason (§6):
-  - macOS local filesystems return NFD Unicode; Linux servers usually store
+  - macOS HFS+ canonicalizes to NFD, while APFS (the default since 2017)
+    is normalization-insensitive and form-preserving — it returns whatever
+    byte form was stored; Linux servers usually store
     NFC. Paths are NFC-normalized for matching, so `café` pairs correctly
-    across sides; when updating, the destination's existing byte form is
+    across sides whichever form each stored; when updating, the
+    destination's existing byte form is
     kept (no renames). Two entries on *one* side that collide after
     normalization → reason `normalizationCollision`, suggested `skip`.
   - Two entries on a case-sensitive side differing only by case, destined
@@ -268,7 +304,13 @@ concurrently in the engine isolate (D8).
     ever admits — stat its uppercase spelling, delete it; attributes
     lie less than platform guesses; on a root the app cannot write, the
     probe is skipped, the side is treated as case-sensitive, and a
-    `ScanWarning` records the assumption); the remote side defaults
+    `ScanWarning` records the assumption). The probe result is cached
+    per sync root in §9's `sync_state`, keyed by the root path **and**
+    the volume identity and re-probed only when either changes — so
+    steady-state scans stay read-only (no per-scan create/delete that
+    would wake filesystem watchers, cloud-sync, or backup jobs) and two
+    concurrent scans of one root never race on the fixed probe name. The
+    remote side defaults
     to case-sensitive with a per-pair override in the pair editor
     (platform detection over SFTP is guesswork; a wrong "insensitive"
     guess would silently skip legitimate distinct-case files). A
@@ -378,16 +420,32 @@ means either flag). From then on plans for that pair compare
 **`sizeOnly` automatically** — only when the pair's mode is
 `sizeAndMtime`; an explicit `contentHash` opt-in is never downgraded
 (hashes don't depend on mtimes, and D7's thorough-mode contract holds) —
-with a visible notice line in the plan header naming the failing
+with a visible notice line in the plan header — rendered only when the
+downgrade actually applies (pair mode `sizeAndMtime`) — naming the
+failing
 **side** (the direction-agnostic loop above can flag a local mount
 too): `Modification times are not kept on {side} — comparing by size
-only.` — `{side}` rendering the favorite label or `this computer`.
+only.` — `{side}` rendering the favorite label or `this computer`. A
+`contentHash` pair that has the flag recorded never compares size-only,
+so it shows its own line instead — `Modification times are not kept on
+{side} — "newer wins" conflicts need your call.` — surfacing the
+`newerWins`→`ask` degradation (below) that would otherwise happen with
+no visible cause.
 (pair settings offer an override back to `sizeAndMtime`. The flag
 also **self-heals**: `preserveMtime` is unchanged by the downgrade, so
 the executor still runs `setTimes` and the verification re-stat on
-downgraded pairs, and a side's flag clears after one full run with no
-observed divergence on that side — a transient miss (momentary server
-quirk, one bad FUSE session) must not permanently degrade the pair,
+downgraded pairs, and a side's flag clears only after one full run in
+which that side saw **at least one verified `setTimes`** and no
+observed divergence on that side — a run with zero writes to that side
+produces no evidence and leaves the flag set. (Otherwise a quiet
+no-change run on a genuinely clamping `sizeOnly`-downgraded pair — zero
+writes, so zero `setTimes`, so "no observed divergence" vacuously true —
+would clear the flag, revert the pair to `sizeAndMtime`, and re-flag on
+the next real compare against every previously clamped mtime: the exact
+never-converging oscillation this machinery exists to prevent, with
+`newerWins` briefly re-activated on mtimes the engine itself found
+untrustworthy.) A transient miss (momentary server
+quirk, one bad FUSE session) still must not permanently degrade the pair,
 while manually overriding back to `sizeAndMtime` *before* recovery
 still knowingly re-opens the re-flag loop; whenever the
 pair's mtimes are untrusted — `mtimeUnreliable` recorded, or
@@ -707,8 +765,17 @@ class SyncRunRecord {                    // journal header, JSONL (§8)
    every child item would then flip to a spurious rail-7
    `changed since preview` conflict. The pre-delete counts **every file
    it removes** toward `maxDelete` and the delete-fraction warning
-   (never "one item = one deletion"), those files render in the §7
-   replace clause's `{j}` and byte totals, and the journal writes one
+   (never "one item = one deletion"); when `maxDelete` is exhausted
+   mid-phase by pre-deletes (they run in the makeDir/copy phase, ahead
+   of the rule-3 delete phase), every remaining pre-delete-carrying item
+   flips to `skipped` with `Skipped: deletion cap reached` **before its
+   removal step begins** — the item stays whole (no partial removal; the
+   destination entry survives to a later run), so the cap composes with
+   rule 3's failure gate and the "one plan item per path" invariant
+   rather than leaving a half-executed item. Those removed files render
+   per file in the §7
+   replace clause's `{j}` row's toll and byte totals, and the journal
+   writes one
    `trashLocation` line per removed file under the parent item. A
    pre-delete-carrying item keeps its rule-1/rule-2 phase and ordering —
    a makeDir with a pre-delete still runs in the makeDir group,
@@ -790,6 +857,15 @@ patterns (placeholders in braces; destination rendered as
   moved to trash at {trashLocation}).` — the parenthetical becomes
   `(previous versions deleted permanently)` under Mirror's permanent
   opt-in; in no-delete modes it is always the trash form (rule 4).
+  `{j}` counts **rows** (one per replaced path); the files each row's
+  pre-delete removes count **per file** in the `Deletes` chip,
+  `maxDelete`, the >50 % rail, and the typed confirmation's deletion
+  total. `{k}` above is delete-phase files only, so when a `typeDiffers`
+  destination is a non-empty directory its contained files sit in
+  neither `{k}` nor the row-counting `{j}` — the typed confirmation's
+  deletion number is therefore `{k}` plus every pre-delete removed file,
+  which is exactly what the per-file surfaces sum to, keeping the last
+  trust boundary from ever undercounting.
 - Conflicts (amber clause): `{c} conflicts need a decision.`
 - Nothing to do: `Both sides match. Nothing to do.`
 - sizeOnly fallback notice (§4) renders as its own line under the sentence.
@@ -802,7 +878,10 @@ mtime · reason` — a kind-change row carrying an authorized pre-delete
 (§6 rule 4) tints **red** (the removal dominates, matching the header's
 replace clause), counts in the `Deletes` filter chip with its removed
 files so the chips reconcile with the header totals, and keeps its
-copy/mkdir glyph with a small red removal badge.
+copy/mkdir glyph with a small red removal badge that states its file
+toll (e.g. `✕ 5`) — so a filtered `Deletes (N)` view whose visible rows
+sum to fewer than N explains itself in place rather than reading as a
+miscount.
 
 Action glyphs, with color *and* shape carrying the meaning (color-blind
 safe, D20): `→` copy new L→R, `⇒` update L→R, `←` / `⇐` mirrored, `⊞`
@@ -913,11 +992,16 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    `half` at the 0.5 default (so the default sentence reads "more than
    half of that side") and as the numeric percentage for **any** other
    value, raised or lowered — a user-adjusted threshold must never claim
-   "half". When the **≥ 90 % floor** is the clause that tripped
-   (possible only with `deleteFractionWarn` raised above it), `{pct}`
-   names the floor that fired — a 9-of-10 wipe under
-   `deleteFractionWarn: 0.95` must read "more than 90 %", never a
-   percentage the plan did not exceed. The confirm button stays disabled
+   "half"; this `more than {pct}` rendering applies only when the
+   **fraction clause** is what tripped. When the **≥ 90 % floor** is the
+   clause that tripped — possible at any threshold, the 0.5 default
+   included, whenever a side's deletions are ≥ 90 % of it but under the
+   ≥ 10-file fraction floor (a 9-of-10 near-wipe, or the 8-of-8 full
+   wipe above) — the floor clause always wins and the `more than {pct}`
+   segment renders instead as `90 % or more`, so the sentence reads
+   `… — 90 % or more of that side.` — never "more than 90 %" (the floor
+   is inclusive), and never a percentage the plan did not exceed. The
+   confirm button stays disabled
    until the word matches. Precedence: the `maxDelete` cap (rail 4) is
    checked first and dominates — the typed confirmation only ever fires
    for plans whose deletion count is under the cap.
@@ -959,8 +1043,17 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    points out of root (or the pair's policies send nothing to trash on
    that side), and its action opens the trash-path field prefilled with
    an out-of-root suggestion (a dot-directory in the same account's
-   home, outside the docroot — e.g. `~/.poltergeist-trash`), so the
-   fix is one click rather than a settings hunt — dismissing a chip
+   home, outside the docroot — one subdirectory per sync root, e.g.
+   `~/.poltergeist-trash/<root-slug>`, so the per-(host, root) trash
+   invariant the purge/restore machinery in this rail depends on
+   survives the suggestion rather than merging every root's trash into
+   one directory). For an ad-hoc pair, which never passes through the
+   pair editor and so has no field to open, the chip's action instead
+   follows rail 4's `Save as Favorite & Adjust Rules…` pattern (save the
+   pair, open the editor focused on the trash path, rescan on close) —
+   so the "one click" promise holds for exactly the audience the chip
+   exists to serve, not a dead-end on a secrets-over-HTTP warning.
+   Dismissing a chip
    once must not permanently silence a secrets-over-HTTP hazard. No
    code path removes trash as a side effect (09 §6
    rule 5): at plan time, if the pair's trash holds entries older than
@@ -1048,9 +1141,16 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    what releases those journals for pruning (rail 9) and makes the
    retention exception locally evaluable.
 6. **Atomic writes.** Uploads write to an exclusive sibling
-   `.poltergeist-<8 hex>.tmp` and rename over the target; downloads commit
+   `.poltergeist-<12 hex>.tmp` and rename over the target; downloads commit
    via `replaceLocalFile` (03 §2.3). No torn file ever holds the final
-   name; failed temps are cleaned up.
+   name; failed temps are cleaned up, and each run's **startup sweep**
+   removes orphaned `.poltergeist-*.tmp` siblings older than the longest
+   plausible prior run — a crash or a mid-write connection loss must not
+   leave partial file contents in a published docroot that the default
+   `.poltergeist*` scan-ignore rule then hides from every scan forever
+   (rail 5's webroot hazard, in the temp path this time). The
+   exclusive-create suffix is 12 hex rather than 8 because the sibling
+   directory may itself be web-writable.
 7. **Per-item precondition re-stat.** Immediately before acting, each item
    re-verifies against its plan snapshot: copy-new requires the destination
    still absent — except a §6-rule-4 `typeDiffers` item resolved to
@@ -1059,7 +1159,18 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    (same kind; for a file, size plus mtime under the same tolerant
    comparison the update/delete rule below mandates — never exact mtime
    equality, or sub-tolerance drift would flip the item and its
-   conflict would gate the whole delete phase), because the pre-delete
+   conflict would gate the whole delete phase; and when the destination
+   is a **directory**, kind alone is not enough — its recursive entry
+   set must still match the scan snapshot, same names, kinds, and file
+   sizes, mirroring the delete-phase parent's "empty of everything but
+   entries this run already removed" rule below, because the pre-delete
+   removes that tree recursively and anything that appeared under it
+   after the scan would otherwise be deleted without ever showing in the
+   plan, the Replace clause, the `Deletes` chip, `maxDelete`, or the
+   >50 % rail — silent loss that contradicts rail 1's "the executor
+   executes exactly `plan.items`"; any new or changed entry flips the
+   item to `conflicted` with `changed since preview`), because the
+   pre-delete
    is what legalizes
    the write; update and delete require the destination to match the
    snapshot — **for files**, size plus mtime compared with the pair's
@@ -1110,9 +1221,14 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    only when the run is not on the `sizeOnly` path (§4's fallback or
    `preserveMtime: false`, **or any journaled item of this run
    recording `setstatIgnored: true`** — or, when no item of the run has
-   journaled yet (the crash landed in the very first item's
-   commit→journal window, so no sibling line can carry the signal), a
-   destination mtime within tolerance of the run's `startedAt`, the
+   journaled yet (a crash can strand several parallel in-flight items in
+   this commit→journal window at once, so no sibling line can carry the
+   signal), a
+   destination mtime within tolerance of the interval between the run's
+   `startedAt` and the resume-time check — parallel transfers commit at
+   `startedAt` plus their own transfer duration, so a point match on
+   `startedAt` alone would spuriously conflict every slow or large
+   transfer — the
    write-time signature a setstat-ignoring server leaves — a silently setstat-ignoring
    server under `preserveMtime: true` leaves every committed mtime at
    write time *before* §4's fallback has tripped for the pair, and
@@ -1155,7 +1271,12 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    trash under their `relativePath` (rail 5's trash mirror creates
    trash-side parents as needed), the emptied source directories are
    then rmdir'd with their own journal lines, and restore recreates
-   that directory chain from the journal shallowest-first before
+   that directory chain from the journal shallowest-first — tolerating a
+   chain directory already recreated since the run (EEXIST on a strict
+   mkdir is treated as success, not an error) and skip-and-reporting any
+   restore whose chain step is now occupied by a *file* (the child is
+   unplaceable, and Undo never overwrites what took the directory's
+   place) — before
    reversing the file renames — a naive reverse-rename of a deep tree
    would ENOENT on every child whose parent was removed. Each restore
    is conflict-checked with a re-stat per
@@ -1231,12 +1352,22 @@ resolved from the endpoint's stored identity — the catalog/vault that
 resolves §6's `BookmarkServerRef`, specified in 04 §2.1/§3.2 — never
 the ambient local username, which would
 fork every pair on an OS-account rename), plus the absolute
-path without trailing separator, case-folded on any side **known**
+path without trailing separator, Unicode-normalized to NFC on any side
+**known** normalization-insensitive (a separate axis from case:
+case-sensitive APFS is still normalization-insensitive, so the two
+inputs are probed/overridden independently, and a
+normalization-sensitive side is never folded, for the same
+distinct-pairs reason as case below — a root typed NFC and returned NFD
+is one logical pair, and without this fold it would fork into two
+`sync_state`s and journal sets, silently breaking the "Save as
+Favorite… is lossless" claim), and case-folded on any side **known**
 case-insensitive — a local side via §3's definition-time probe, a
 remote side only via the pair editor's explicit override (§3 has no
 remote probe by design; the default-sensitive remote is never folded,
 since folding a case-sensitive root would merge genuinely distinct
-pairs) — with the sensitivity inputs resolved before the first
+pairs; the NFC-normalization input takes the same probe/override home in
+§3) — with the sensitivity and normalization inputs resolved before the
+first
 `sync_state` write, so the id never changes mid-history; flipping the
 remote override later is an identity edit and re-keys state like any
 endpoint change (`/Users/Alice` and `/users/alice` are one root on a
@@ -1373,7 +1504,14 @@ Testing hooks, elaborated in 08:
   conflict item, never auto-fixed); crash-resume re-execution and a
   second `Retry Failed` pass leave the destination convergent, perform
   no duplicate trash moves, and append no duplicate journal line for the
-  same `(runId, relativePath, side, attempt)` — `attempt` starts at 1,
+  same `(runId, relativePath, side, action, attempt)` — `action` is part
+  of the key because a §6-rule-4 dir→file replace journals, at one
+  `relativePath` on one side within one attempt, both the emptied
+  directory's own rmdir line *and* the created file's item line: two
+  legitimately distinct lines the action discriminates (without it the
+  uniqueness property is unsatisfiable for that flagship item shape, and
+  rail 8's "a missing line means the item did not journal" resume lookup
+  would be ambiguous); `attempt` starts at 1,
   and **any** re-execution after a journaled outcome for the same key —
   `Retry Failed`, or crash-resume of an item already journaled at
   attempt n — journals under attempt n+1 (skipping the re-journal
