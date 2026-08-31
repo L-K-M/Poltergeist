@@ -88,7 +88,7 @@ interface is genuinely transport-neutral, so the mapping is direct:
 | `canonicalize` | `resolveSymbolicLinks()` when the path exists; otherwise return the normalized absolute path | never throws just because the path is missing (matches realpath use for home resolution); "home" = the user home via the ported `expandHomePath` |
 | `listDirectory` | `Directory(path).list(followLinks: false)`; classify each entry via `FileSystemEntity.type(…, followLinks: false)` and stat only non-link entries — links report `type: symbolicLink` with `size`/`modifiedAt` null, matching the `stat` row below (a plain `FileStat.stat` would follow the link and report the target's identity) | `FileStat.mode` is synthetic on Windows — populate it best-effort, never render it as authoritative there |
 | `stat` | `FileStat.stat` when `followLinks: true`; with `followLinks: false`, detect symlinks via `FileSystemEntity.type(path, followLinks: false)` | dart:io has no lstat: for a symlink itself, return `type: symbolicLink` with `size`/`modifiedAt` null — callers already treat those as optional |
-| `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', [octal, path])` on macOS/Linux | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
+| `setMode` | refuse symlinks first (lstat-style type check, exactly like the adapter), then `Process.run('chmod', ['--', octal, path])` on macOS/Linux — `--` so a path beginning with `-` can never parse as an option, and a non-zero exit code routes through the §2.2 funnel (`Process.run` failures arrive as exit codes, never `FileSystemException`) | Windows: throw `RemoteFileException(unsupported)` so the permissions UI hides itself for local Windows panes (D28) |
 | `readSymbolicLink` | `Link(path).target()` | |
 | `createSymbolicLink` | exists-preflight (conflict), then `Link(linkPath).create(targetPath)` | Windows needs Developer Mode or elevation — map the OS error to `permissionDenied` with a hint in the message |
 | `createDirectory` | `Directory(path).create(recursive: false)` | parent must exist — same as SFTP mkdir |
@@ -114,8 +114,15 @@ notes flag the prefix as the one thing to parameterize).
 dart:io cannot set directory timestamps — which costs the sync engine
 nothing: it compares directories by existence only and never sets their
 times (05 §4). `setOwner`
-maps to `Process.run('chown')` on Unix — EPERM (the normal non-root
-outcome) translates to `permissionDenied` through the §2.2 funnel — and
+maps to `Process.run('chown', ['--', spec, path])` on Unix — **after
+the same refuse-symlinks-first check as `setMode`**: a bare `chown`
+dereferences a symlink and changes the *target's* owner, so an
+attribute write inside a synced tree could otherwise escape it through
+a link, breaking both the adapter parity rule and the refuse-first
+convention one paragraph up (`-h` is reserved for if link ownership is
+ever supported) — with EPERM (the normal non-root
+outcome) translated to `permissionDenied` through the §2.2 funnel,
+like every other non-zero exit code — and
 `unsupported` on Windows. So the sync
 engine's local half never waits on the upstream PR (§2.4).
 
@@ -209,7 +216,11 @@ identities — their semantics are fixed in §3.5:
 ```dart
 abstract interface class ConnectionManager {
   /// One dedicated SFTP browse channel per pane-tab. Listings stay snappy
-  /// while transfers saturate other channels. `paneTabId` keys the
+  /// while transfers saturate other channels — except on
+  /// interactive-auth servers, where the single-transport cap (growth
+  /// rule 2) shares one TCP connection and saturation slows listings:
+  /// the accepted D5 cost, stated here because this comment ships in
+  /// the interface. `paneTabId` keys the
   /// channel, so two tabs browsing the same server each get their own;
   /// the tab closes its channel via PaneChannel.close() (below) when it
   /// closes or navigates off the server.
@@ -262,11 +273,18 @@ class PoolPolicy {
 Growth rules (the part that must never be improvised):
 
 1. **The first connect is serialized.** One `openAuthenticatedClient` runs per
-   server at a time; nothing else starts until it succeeds. This is the TOFU
+   **pool** (the §3.5 endpoint key, not per serverId — two bookmarks at
+   one endpoint connecting simultaneously must fold into a single
+   first connect, or each would run its own and double the TOFU prompt
+   and the transport) at a time; nothing else starts until it
+   succeeds. This is the TOFU
    single-prompt rule — a `firstUse` host key prompts exactly once, and pool
    growth afterwards verifies silently against the pinned key
    (`TofuVerifier.check` returns `trusted`). A `changed` verdict at any point
-   hard-blocks the whole server (never auto-repin — D18) and aborts growth.
+   hard-blocks the **entire pool and every serverId referencing it** —
+   `watchServer` fans `blocked` out to all of them, or one bookmark
+   would show blocked while a sibling at the same endpoint kept
+   operating (never auto-repin — D18) — and aborts growth.
 2. **Interactive auth caps the pool at one transport.** Record how the first
    connect authenticated. If keyboard-interactive ran or a password was
    prompted interactively, `maxTransports` is effectively 1 — additional
@@ -281,7 +299,10 @@ Growth rules (the part that must never be improvised):
    to `maxTransports`, reusing the resolved in-memory `SshCredentials` from
    the first connect. Credentials are wiped on `disconnectServer` and app
    exit; a reconnect that fails auth re-resolves through the vault/prompt
-   path.
+   path — and if that re-resolve prompts interactively, the pool's
+   recorded auth mode updates to interactive, capping growth per rule 2
+   from then on, so a server that switched to 2FA mid-session can never
+   trigger a second prompt through later pool growth.
 4. Transports are created on demand (a transfer lease that cannot be served by
    existing channels) and torn down when idle (§3.3). The first transport —
    the one carrying browse channels — stays as long as any pane-tab shows the
@@ -337,7 +358,13 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   (host, port, username). Two bookmarks at the same endpoint share a pool
   while keeping distinct serverIds. Shared pools are reference-counted
   by serverId: `disconnectServer(serverId)` drops that id's reference —
-  closing its browse channels and leases — and the transports are torn
+  closing its browse channels and **releasing** its transfer leases:
+  a running task whose lease is released this way flips to `queued`
+  (retryable on the next connect), never `failed` — a user-initiated
+  disconnect is not an error, and §3.3's auto-reconnect explicitly
+  does **not** fire for it — and teardown lets in-flight writes reach
+  the §4.6 journal boundary before closing the transport, so no
+  mid-file state is lost untracked. The transports are torn
   down and the resolved `SshCredentials` wiped only when the **last**
   referencing serverId disconnects; an earlier wipe would silently
   re-prompt the surviving bookmark's next pool growth, violating §3.2
@@ -416,7 +443,11 @@ class PlannedFile {
   final String sourcePath;
   final String destinationPath;
   final int? size;                         // from the scan
-  final RemoteFileEntry? existing;         // destination stat; null = absent
+  final RemoteFileEntry? existing;         // destination stat AT SCAN TIME;
+                                           // null = absent. A UI hint only —
+                                           // §4.2's executor re-stats the
+                                           // destination and decides on the
+                                           // fresh stat, never this field
 }
 ```
 
@@ -502,8 +533,18 @@ preservation falls out of the one code path.
 
 ```dart
 class BandwidthLimiter {
-  int? bytesPerSecond;                    // null = unlimited
-  Future<void> acquire(int chunkBytes);   // awaits until tokens available
+  int? bytesPerSecond;                    // null = unlimited; 0 is invalid —
+                                          // the settings boundary rejects it
+                                          // (clamping to a documented floor),
+                                          // never passes it through: zero
+                                          // refill would hang acquire forever
+  Future<void> acquire(int chunkBytes);   // awaits until tokens available;
+                                          // internally splits a request larger
+                                          // than the bucket's capacity into
+                                          // capacity-sized grants, so no
+                                          // caller — today's chunks or a
+                                          // future larger sink (D27 archive
+                                          // streaming) — can deadlock it
 }
 ```
 
@@ -517,7 +558,11 @@ Bucket capacity is `max(bytesPerSecond, maxChunkBytes)` — one second of
 tokens, but never less than one full chunk — so `acquire` can always
 eventually be satisfied: a capacity below the chunk size would await
 tokens the bucket can never hold and hang the transfer (pinning its
-leased channels) at exactly the low limits the throttle exists for.
+leased channels) at exactly the low limits the throttle exists for —
+with the capacity-splitting `acquire` above as the belt to this
+suspenders: even a request that somehow exceeds capacity drains in
+capacity-sized grants rather than deadlocking (both the oversized-chunk
+and zero-limit cases are pinned by 08's limiter tests).
 Bursts stay bounded and the limit is honored within ±1 s granularity
 (coarser only when a single chunk exceeds one second of tokens).
 
@@ -574,8 +619,15 @@ app-provided support directory (`EngineConfig`, §5):
   file is truncated to the end of the last complete record before the log
   reopens for append, so malformed bytes are never buried mid-log; a
   *complete* line that fails to parse quarantines the journal
-  (timestamped, the 06 §3.6 pattern) and replays the intact prefix, with
-  a banner — never a silent drop of a record that was fully written. On
+  (timestamped, the 06 §3.6 pattern), replays the intact prefix, and
+  **atomically rewrites the live journal to that prefix**
+  (`writeStringAtomically`) before reopening for append — records after
+  the malformed line survive in the quarantine copy and the banner
+  counts them; without the rewrite, appends would land behind a
+  still-malformed line and every later recovery would re-quarantine
+  while the appended records stayed unreachable on replay — never a
+  silent drop of a record that was fully written, never a quarantine
+  loop. On
   startup
   the journal is replayed: unfinished tasks come back with their
   **journaled state** — a per-task `paused` survives restart; only
@@ -591,7 +643,12 @@ app-provided support directory (`EngineConfig`, §5):
   general directory sweep. The user
   is not asked —
   the panel simply shows the restored queue paused, with a "Resume" affordance
-  (restored queues start paused so a reboot never silently re-transfers).
+  (restored queues start paused so a reboot never silently re-transfers:
+  restoration **forces §4.4's queue-level pause flag on** — the flag is
+  not journaled, it is set unconditionally at restore — so even tasks
+  mapped `running`→`queued` cannot dispatch before the user hits
+  Resume; the state-mapping bullet above and this rule are one
+  mechanism, not two).
   Prompt state does not survive restart (promptIds are session-scoped):
   resuming a task whose policy is `ask` re-runs its remaining items'
   execution-time policy check, which re-emits the `conflict`
@@ -607,7 +664,11 @@ app-provided support directory (`EngineConfig`, §5):
 - **History**: one record per finished task — id, endpoints, root names,
   byte and file counts, `startedAt`/`finishedAt` timestamps, duration,
   outcome, error text. Capped at 10 000 records;
-  compaction drops the oldest. This is the "working history log" FileZilla
+  compaction drops the oldest — and runs only at startup replay and
+  clean shutdown, or when the file exceeds the cap by a 10 % slack
+  margin, always via `writeStringAtomically` (never a per-append
+  rewrite of a 10k-line file on the completion hot path, and never a
+  torn history file after a crash mid-compaction). This is the "working history log" FileZilla
   never had (D16); the activity panel's History tab reads it (02).
 
 ### 4.7 Produce-on-demand hook (D14)
@@ -655,7 +716,11 @@ class ListDirectoryRequest extends EngineRequest {
 class EnqueueTransferRequest extends EngineRequest { final TransferTaskSpec spec; }
 class CancelRequest extends EngineRequest { final String targetId; }
 /// Exactly one reply per promptId; a UI-side dismissal sends the
-/// cancel/auth-failure reply for the prompt's kind.
+/// cancel/auth-failure reply for the prompt's kind. A reply whose
+/// promptId is closed or unknown (an answer racing a dismissal, a task
+/// removed mid-prompt) is ignored at debug log level — never an engine
+/// error, and never applied to any other prompt; a second reply to an
+/// answered promptId is dropped the same way.
 class PromptReplyRequest extends EngineRequest {
   final String promptId;
   final EnginePromptKind kind;   // engine validates against the open prompt
@@ -667,7 +732,14 @@ sealed class EngineEvent {}
 /// RemoteFileException — never a bare Object (the protocol stays typed).
 class ResponseEvent extends EngineEvent { final int requestId; }
 class TransferProgressEvent extends EngineEvent {
-  final String taskId; final int transferred; final int? total;
+  final String taskId;
+  final String itemId;      // the §4.1 plan item — per-file sub-rows
+                            // (02 §6) are unrenderable without it, and
+                            // adding it after M4 would be a versioned
+                            // protocol change
+  final int transferred;    // bytes for THIS item
+  final int? total;         // this item's size; the task rollup is
+                            // computed UI-side from the task spec
 }
 class ServerStateEvent extends EngineEvent {
   final String serverId;
@@ -699,7 +771,9 @@ credential re-resolution, transfer conflicts) by emitting
 exactly one `PromptReplyRequest` per `promptId` — dismissing the dialog
 maps to the cancel/auth-failure reply, and a `conflict` prompt's item stays
 paused until its reply arrives. Progress events are coalesced engine-side
-to ≤ 30 per second per task so ports never flood the UI.
+to ≤ 30 per second per task — defined as keeping only the **latest
+event per item** within the window, so per-file sub-rows stay live
+while the flood is capped — so ports never flood the UI.
 
 The app resolves all storage directories via `path_provider` on the UI
 isolate and hands them to the engine in a typed `EngineConfig` message —
@@ -779,7 +853,14 @@ flutter-desktop research's meta-risk finding).
 
 Windows trash and volume enumeration go through the `win32` FFI package in
 pure Dart (`IFileOperation` + `FOF_ALLOWUNDO`; `GetLogicalDrives` /
-`GetVolumeInformationW`) — possibly zero C++. Linux trash shells out to
+`GetVolumeInformationW`) — possibly zero C++, with one eyes-open
+caveat: `IFileOperation` requires COM initialized apartment-threaded
+(`CoInitializeEx(COINIT_APARTMENTTHREADED)`) on its calling thread, and
+a Dart FFI call runs on an arbitrary VM thread — so budget a dedicated
+STA thread (and its spike) in the owning milestone, with a thin C++
+helper as the recorded fallback if the apartment/pump proves unworkable
+from pure Dart; an unpinned thread here means intermittent,
+machine-dependent trash failures that surface late. Linux trash shells out to
 `gio trash` (never through a shell — `Process.run` with an argument list).
 
 ### 7.2 ScopedPathAccess (D23)
@@ -968,9 +1049,12 @@ during M1–M3:
   constants here are declared M0-tunable, not final.
 - **Test strategy details** (conformance suites, sshd-in-Docker matrix,
   benchmarks for D12) — 08.
-- **Deferred features touching this architecture**: resumable transfers via
-  ranged read, OS drag-out promised files, rsync accelerator, multi-window,
-  archives (D25, D27 — the seams exist: `TransferProducer`, ranged-read
-  upstream method, `WorkspaceController`-per-window).
+- **Deferred features touching this architecture** (all D25's parked
+  list, except archives, which are D27's own decision): resumable
+  transfers via
+  ranged read, OS drag-out promised files, rsync accelerator,
+  multi-window, and archives — the seams exist: `TransferProducer`,
+  ranged-read
+  upstream method, `WorkspaceController`-per-window.
 - **Agent auth and ProxyJump transport work** — 07 fast-follow (D10), landing
   in `seance_core` for both apps.
