@@ -94,7 +94,21 @@ differently"):
    write, flush, close, SHA it (that
    digest is the return value and the next baseline).
 2. Verify the target is still a regular file
-   (`FileSystemEntity.type(followLinks: false)`).
+   (`FileSystemEntity.type(followLinks: false)`). The symlink case is
+   **pinned, not left to the equality check**: with `followLinks: false`
+   a symlinked target reports `link`, and steps 3–4's renames would
+   otherwise replace the link with a regular file — destroying the link
+   structure that §1's named dotfile targets rely on (`.bashrc` → a
+   dotfiles repo, `sites-enabled/*`). So a symlinked **local** target is
+   resolved once at load (`resolveSymbolicLinks`) and the editor and this
+   whole dance operate on the resolved real file, leaving the link
+   intact; if the target is nonetheless a `link` (or any non-regular
+   file) *here* — a broken or directory symlink at load, or a race after
+   it — the save **refuses** with a pinned error string joining §1/D20's
+   set rather than replacing anything. Managed checkouts (§3.1) are never
+   symlinks, so this only bears on the plain-local-file path (§1,
+   §4.2); PORTS-noted divergence if Séance's saver leaves the symlink
+   case implicit.
 3. `rename(file → backup)`, then SHA the backup against `expectedSha256`;
    mismatch means another program wrote the local file — rename back and
    throw the "changed in another editor. Reopen it…" conflict.
@@ -130,7 +144,11 @@ differently"):
    a checkout whose recorded name matches the pattern — and asserts it
    survives; same principle as §3.3's pattern-vs-prefix debouncer
    rule) — skipping any modified within the current save
-   window, and **only when the sibling's target file still exists**: a
+   window (the in-flight-save guard: a temp whose owning save is still
+   executing — tracked by the same prompted/uploading bookkeeping §3.3
+   uses and its ~600 ms debounce — is never reaped, so reconcile running
+   mid-save can neither delete that save's temp nor crash-recover a live
+   `.backup`), and **only when the sibling's target file still exists**: a
    `.backup` beside a *missing* target is the sole surviving pre-save
    copy (a crash landed between step 3's `rename(file → backup)` and
    step 4's `rename(temp → file)`), so reconcile renames it back onto
@@ -169,8 +187,8 @@ than the generated shapes (it also hides a user's own
 stay exact (`*.poltergeist-*.edit`/`.backup` only) — the asymmetry is
 intentional. A basename that the ignore glob hides can still be checked
 out by **direct path entry** (the path bar / Go to Folder bypasses the
-listing filter), so §5's "never the record's own recorded basename"
-decoy guard is production-reachable, not test-only.
+listing filter), so §2.1 step 5's "never the record's own recorded
+basename" decoy guard is production-reachable, not test-only.
 
 ### 2.2 Layer 2 — controller, syntax engine, find bar
 
@@ -303,8 +321,13 @@ Séance suite lacks: a `BuiltInTextEditorScreen` widget test with **no**
 `saveDocument` override, saving through the real
 `saveBuiltInTextDocument` onto a real temp file, asserting BOM/CRLF
 reconstruction round-trips and that a modified-on-disk file throws the
-"changed in another editor" conflict — so the TEST-ONLY seam (§2.3) can
-never mask drift in the real save wiring. The only allowed divergences
+"changed in another editor" conflict, and — closing the §2.1 step-1
+promise — statting the temp sibling on its first directory-watch modify
+event to assert group/other permission bits are clear **before** any
+step-4 mode restore (the original file is set to 0644 so a missing chmod
+is observable; the temp is 0600 only between step 1's chmod and step 4's
+restore, so the assertion samples that window) — so the TEST-ONLY seam
+(§2.3) can never mask drift in the real save wiring. The only allowed divergences
 at port time:
 
 | Ported file (destination under `app/poltergeist_app/`) | Source (Séance) | Divergences |
@@ -529,7 +552,16 @@ abstract class CheckoutManager extends ChangeNotifier {
    `_MaximumByteSink` stream cap is then the built-in-editor guard
    (abort and clean up the moment the cap is exceeded, never a full
    download to a certain refusal), and the free-space preflight degrades
-   to surfacing the write failure if the volume fills.
+   to surfacing the write failure if the volume fills. The §8
+   large-download confirmation is metadata-gated too, so it cannot fire
+   up front on an unknown size — but it is not silently skipped: when the
+   caller **owns** the flight, streamed bytes crossing the confirmation
+   threshold cancel that transfer and ask before restart, exactly the
+   capped-waiter byte-count watch of step 1 turned toward consent instead
+   of a cap (joined waiters never cancel the shared flight). So an
+   unknown-size external-editor checkout — the one path with no
+   `_MaximumByteSink` cap — cannot pull gigabytes past the threshold
+   without a prompt.
 4. Record `ManagedRemoteFile{id: /* minted in step 1 */, serverId,
    editSessionId:
    serverId, remotePath, localPath, remoteSnapshot (the download's entry
@@ -576,14 +608,22 @@ Kept exactly from Séance (03 §7.5 already reserves this design):
 - Reconcile events for the pipeline's **own** temp files are ignored by
   the debouncer — matched by the exact generated patterns
   (`.poltergeist-<uuid>.upload`, §2.1's `.poltergeist-<uuid>.edit` /
-  `.backup` siblings), never by a bare `.poltergeist-` prefix test: a
-  remote file legitimately *named* `.poltergeist-notes` checks out
-  under its sanitized name and must keep its dirty detection — so an
+  `.backup` siblings) **and never the record's own recorded basename**
+  (`localPath`) — the same §2.1 / §3.4 decoy rule the load-time sweep
+  applies — never by a bare `.poltergeist-` prefix test: a remote file
+  legitimately *named* `.poltergeist-notes`, **or one whose sanitized
+  name happens to full-match a generated pattern** (the server controls
+  remote filenames, so a hostile one can trivially take a UUID-shaped
+  name — it need not predict any minted UUID, only match the shape),
+  checks out under that name and must keep its dirty detection — so an
   upload cycle's own snapshot create/delete (§3.4 step 1) never
   triggers a needless full re-hash of the unchanged checkout (a small
   divergence from Séance, PORTS-noted, port-back candidate; the
   pattern-vs-prefix distinction is pinned by a test whose checkout is
-  itself named with the prefix).
+  itself named with the prefix, and a second whose sanitized name fully
+  matches a `.poltergeist-<uuid>.upload|edit|backup` pattern still gets
+  dirty detection — an alternative to the carve-out is tracking the live
+  temp filenames in a per-dir set instead of pattern-matching).
 - **External saves are never auto-uploaded.** The built-in editor's ⌘S is
   the one explicit save-and-upload; everything else asks first.
 
@@ -600,7 +640,12 @@ escalation), lifted whole:
 
 1. Copy the checkout to a private sibling snapshot
    `.poltergeist-<uuid>.upload` first (the external editor may keep
-   writing mid-upload); hash and size the snapshot.
+   writing mid-upload); hash and size the snapshot. Preflight free space
+   (≥ the checkout's current size) before the copy — the §3.2 preflight
+   covered only the checkout's own footprint, and this transient sibling
+   doubles it, so a volume that just fit the checkout gets a designed
+   refusal here rather than a raw disk-full mid-copy (the upload-side
+   counterpart of §3.2 step 3's preflight).
 2. Conflict preflight: re-stat the remote path. Unless overwriting, it
    must still match the recorded `remoteSnapshot` (size + mtime + mode;
    Séance's controller deliberately omits type here — keep identical,
@@ -638,7 +683,13 @@ escalation), lifted whole:
    match the synthesized values (the digest check is a full remote read,
    so a needs-reconcile save costs two full remote reads — this repair
    read plus step 3's CAS — until the mark clears, after which no third
-   read is taken on later saves) — a transient stat failure need not
+   read is taken on later saves); when they do **not** match — someone
+   overwrote the remote after the degraded re-stat — the mark persists
+   and the divergence surfaces through the normal conflict paths (a
+   size/mode mismatch trips step 2, a matching size with a differing
+   digest trips step 3's content-hash CAS), so the user reaches the
+   overwrite dialog rather than a silent adoption of a diverged server —
+   a transient stat failure need not
    coincide with a disconnect, so connect-only repair could leave the
    mark live all session. Until repaired, step 2's stat compare treats
    a snapshot with no server mtime as matching on size + mode (step
@@ -799,7 +850,13 @@ never regress is called out by name in review:
   between download completion and `put` sweeps a complete but
   recordless copy — no editor ever opened it, trivially re-downloaded —
   and a crash between `put` and the clear leaves a *referenced* dir,
-  which the sweep never touches regardless of markers — an
+  which the sweep never touches regardless of markers — **and load-time
+  reconciliation, under the creation mutex right after the index parse,
+  clears a stale `abandoned` marker from every referenced dir**, so that
+  crash window cannot leave a complete, recorded (and possibly
+  since-edited) copy carrying the one marker that would later route a
+  record loss (a future bug, a partial index write, a migration
+  collision) to the sweep instead of to §3.7's `Recovered files`; an
   unreferenced dir that still
   holds payload files *without* the marker is never swept but surfaces
   through §3.7's `Recovered files` like an old-epoch dir, because the
@@ -822,8 +879,17 @@ never regress is called out by name in review:
   invisibly forever; no unnamed dead rows
   accumulate. The sweep — the empty-dir check and its remove included —
   runs **only at store load, before the manager accepts any
-  operation**, and holds the creation mutex while it does. The mutex
-  alone would not be the guarantee: downloads and the record's
+  operation**, and holds the creation mutex while it does. That mutex is
+  per-process, so the store also takes an **exclusive cross-process lock
+  on the store directory** for the process lifetime — acquired before the
+  load-time sweep — and a second app instance that cannot acquire it
+  refuses to open the store (surfacing "another instance is using this
+  data") rather than running its own load-time sweep against the first
+  instance's in-flight checkout: without it (no single-instance
+  guarantee is assumed elsewhere in the plan) a second instance's sweep
+  could meet a current-epoch, marker-verified, still-unreferenced live
+  checkout and delete it mid-download. The mutex
+  alone would not be the guarantee even within one process: downloads and the record's
   `store.put` run outside the mkdir→marker-write mutex, and in the span
   between marker-write and the first payload byte a newborn checkout
   dir is current-epoch, marker-verified, unreferenced by the parsed
@@ -883,14 +949,14 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
 - `Review…` — also reachable offline via the favorite's context menu item
   `Local Edits…` — opens a dialog listing each copy: name, remote path,
   last-modified time, `dirty` / `missing` badge, and per-row actions:
-  `Open` (a checkout-specific chain, deliberately *not* §4.2's plain
-  local `Open` row, which goes straight to the OS default:
-  `effectiveDefaultFor(path)` first; when that resolves to the built-in
-  editor and the checkout is > `builtInEditorMaximumBytes` (4 MiB —
-  the §3.2 symbol, named so the two thresholds can never drift apart)
-  or non-UTF-8, fall back to the
+  `Open` (a checkout-specific chain — `effectiveDefaultFor(path)` first;
+  when that resolves to the built-in editor and the checkout is >
+  `builtInEditorMaximumBytes` (4 MiB — the §3.2 symbol, named so the two
+  thresholds can never drift apart) or non-UTF-8, fall back to the
   system default instead of dead-ending in a built-in refusal; every
-  resolution works offline on the local plaintext), `Upload`
+  resolution works offline on the local plaintext — deliberately *not*
+  §4.2's plain local `Open` row, which goes straight to the OS default
+  and **bypasses `effectiveDefaultFor`** (§4.2)), `Upload`
   (disabled while disconnected, tooltip `Connect to upload`), `Discard…`
   (confirms; deletes plaintext then record). A `missing` copy offers
   `Forget` instead of Open/Upload. Old-epoch checkout dirs (§3.6 — files
@@ -1019,7 +1085,10 @@ Preview is read-only and cheap; editing is §2–§4. Space (`file.preview`)
 is the universal trigger; the per-platform surface follows 02 §11's table:
 Quick Look panel on macOS, the in-app preview panel on Windows and Linux
 (the panel also exists on macOS via `view.togglePreview` for users who
-want a docked preview).
+want a docked preview — and while it is visible, Space routes to it and
+Quick Look stays suppressed, so the two macOS surfaces never both claim
+the key; §5.2's Space/Esc state machine then governs on macOS exactly as
+on Windows/Linux, and closing the panel restores Quick Look's Space).
 
 ### 5.1 macOS Quick Look channel
 
@@ -1181,7 +1250,13 @@ they clicked another row.
   it downloads to a user-disclosed location under the original name with
   an explicit confirmation, and never re-attaches a Windows-executable
   extension (`.bat`, `.cmd`, `.com`, `.scr`, `.ps1`, `.js`, `.jse`,
-  `.vbs`, `.hta`, `.exe`) to an OS launch); Quick Look and
+  `.vbs`, `.vbe`, `.wsf`, `.wsh`, `.hta`, `.exe`, `.pif`, `.scf`,
+  `.cpl`, `.msp`, `.mst` — the encoded/Script-Host and control-panel
+  twins double-click-execute and pass the `^[A-Za-z0-9_-]{1,16}$`
+  sanitizer just like the rest, so the list lives as **one named
+  constant with a membership-pinning test** that also asserts every
+  entry matches that charset, keeping sanitizer and blocklist from
+  drifting apart) to an OS launch); Quick Look and
   image decoding key type off the extension, so the sanitized form is
   kept whenever safe and an extensionless hash name falls back to
   content sniffing or the metadata card. JSON-encoding the fields
@@ -1230,7 +1305,11 @@ they clicked another row.
   least-recently-**used** first (a Quick Look production or re-preview
   hit refreshes recency — true LRU, not insertion-order FIFO, which
   would evict a hot entry while stale ones survive) until
-  the new file fits; lowering the setting evicts now-over-cap entries
+  the new file fits — and a completion that cannot fit **even after full
+  eviction** (the cap was lowered below its size while it was in flight)
+  is dropped rather than held over-cap: its temp file is deleted and the
+  failure is surfaced on its queue row, never a silent permanent
+  over-cap; lowering the setting evicts now-over-cap entries
   **immediately when the setting is saved**, with the insert-time pass
   as the backstop (the cache must never itself hold what it would
   refuse to admit — deferring to the next insert would leave it over
@@ -1289,7 +1368,11 @@ at the limit, never fetched whole to a certain
 refusal), and 4 MiB is far below the 100 MiB default. If the user lowers the §8
 threshold below the cap, the confirmation applies to compare sides as
 usual — §8 lists them among the gated surfaces, and the pre-download
-refusal still fires first for over-cap sides.
+refusal still fires first for over-cap sides. An unknown-size side that
+reaches a lowered threshold mid-stream shows §5.3's `Cancel` /
+`Keep downloading` card **inline in its own column** — never a blocking
+modal, so the other side keeps loading (§6's own "leaving the other side
+readable" rule) — resuming from the paused offset on confirmation.
 Each side loads through `loadBuiltInTextDocumentDetails` with the
 4 MiB/UTF-8 limits; a side that refuses to load renders its §1 reason
 string in place, leaving the other side readable. A notice chip surfaces differences the text view cannot
@@ -1325,8 +1408,8 @@ PORTS.md (R10).
 | Addition | Kind | Detection | Declaration notes |
 |---|---|---|---|
 | css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments; the meta pattern also fires on selector pseudos (`a:hover`, `li::before`) and media-query features (`max-width:`), an **accepted gap** too, since the data-only declarative rule has no context scoping to tell a declaration from a selector preamble |
-| ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
-| perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
+| ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` matched directly and after `env` (as lua's row specifies) | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
+| perl | new family | `.pl`, `.pm`; shebang `perl` matched directly and after `env` | `#` line comments, keywords, strings; POD omitted for the same reason |
 | lua | new family | `.lua`; shebangs `lua`, `luajit`, `lua5.1`–`lua5.4` (matched directly and after `env`, without over-capturing other interpreters that merely start with "lua") | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords — equality-level long brackets (`[==[ … ]==]`, `--[==[ … ]==]`) are an **accepted gap**, stated like ruby's `=begin` and perl's POD: `--[==[` falls through to the `--` line-comment rule and a bare `[==[` matches nothing; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
 | Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments cover `.htaccess` (Apache dot-files carry no `[section]` headers, so that rule simply never fires there — coverage is the comment rule alone); `.htpasswd` (`user:hash` lines) matches no ini rule and is mapped only so it opens as text rather than unknown — an accepted gap, stated so the detection tests don't imply coverage |
 
@@ -1366,7 +1449,11 @@ Sections (each with the `?` help-dialog affordance):
   threshold below also gates external-editor checkouts, which nobody
   would hunt for under plain "Preview" — preview-cache size limit
   (default 512 MiB), `Clear
-  Preview Cache` (shows reclaimed bytes in a toast), and the
+  Preview Cache` (open-handle unlink failures — Quick Look or a decoder
+  still holding a file, the same Windows semantics §5.3's eviction
+  tolerates — are tolerated and retried by the periodic sweep, and the
+  toast reports bytes **actually** reclaimed, never the pre-clear
+  total), and the
   **large-download confirmation threshold** (default 100 MiB) — one
   setting shared by remote previews (§5.3), Quick Look productions
   (§5.1), compare sides (§6), and
@@ -1384,7 +1471,11 @@ preference.
       suites (I/O round-trip byte-for-byte, conflict save leaves external
       change intact, mid-save-edit race, find-bar walk, chord tests for
       both Ctrl and Meta) green under Poltergeist names; temp siblings are
-      `.poltergeist-*`.
+      `.poltergeist-*`; the §2.5 production-path save test also asserts the
+      temp's group/other bits are clear before the step-4 mode restore, and
+      a local **symlinked** target saves through to its resolved real file
+      leaving the link intact — never replaced with a regular file — or
+      refuses if the target is a link at save time (§2.1 step 2).
 - [ ] ⌘S/⇧⌘S semantics, the upload `try/finally` contract, and the §2.4
       toast matrix verified by widget tests using injected
       `saveDocument`/`onUpload` fakes; toast strings match verbatim.
@@ -1404,7 +1495,12 @@ preference.
       confirmed-overwrite rename with its plaintext intact, and the
       disposition trail: a cancelled checkout's abandoned-marked dir
       sweeps with no Recovered row, while a dir orphaned by a simulated
-      index regression survives reload into Recovered files).
+      index regression survives reload into Recovered files; a crash
+      between `store.put` and the marker clear followed by a lost record
+      surfaces the dir in Recovered files rather than sweeping it —
+      load-time reconciliation clears the stale `abandoned` marker — and a
+      second app instance refuses the cross-process-locked store instead
+      of running a sweep against an in-flight checkout).
 - [ ] Recovered-edits banner + review dialog work with the server
       disconnected (open/discard offline; upload disabled with reason).
 - [ ] External editors: registry ported with `external_file_opener.dart`
@@ -1426,8 +1522,10 @@ preference.
       control overrides); Space produces remote files through
       `TransferProducer` with progress and Esc-cancel.
 - [ ] Preview panel per §5.2 with the kind table, caps, explicit remote
-      action, keyed LRU cache, and **render/decode** cancellation on
-      selection change (transfers keep running — only the queue row's
+      action, keyed LRU cache (a completion that cannot fit after full
+      eviction — cache cap lowered mid-flight — is dropped, temp deleted,
+      failure surfaced on its queue row), and **render/decode**
+      cancellation on selection change (transfers keep running — only the queue row's
       Cancel or a re-focused Esc cancels a production, per §5.2) — plus
       §5.3 reachability tests: a text preview between the 100 MiB default
       and the cache cap prompts at defaults, image/PDF prompts fire only
