@@ -201,7 +201,10 @@ class SavedSyncSpec {
                                        // verbatim
 }
 
-// Decode contract — fields are kind-gated: `server`/`remotePath` only
+// Decode contract — the payload `id` MUST equal the envelope record id
+// minus its `bookmark:` prefix (FormatException otherwise), so the id
+// §2.2's endpoint pins key on and 05 §6's SyncPair id can never diverge.
+// Fields are kind-gated: `server`/`remotePath` only
 // for remotePath, `localPath` only for localFolder, `left`/`right` only
 // for workspace, `sync` only for savedSync — and each gated field is
 // REQUIRED non-null for its kind (`server`+`remotePath`; `localPath`;
@@ -291,7 +294,13 @@ like `BookmarkKind`, and ref shapes — throw when a *known* field carries
 an unknown value → skip-and-preserve; unknown *field names* are ignored
 and dropped on re-push (§2.5), never thrown on — except inside
 `SavedSyncSpec.rules`, whose unknown keys are retained verbatim (see
-above) so an older device's re-save cannot strip newer sync settings;
+above) so an older device's re-save cannot strip newer sync settings.
+Corollary, stated so future field authors cannot miss it: any future
+top-level synced field is strippable by an older device's re-save — a
+field that must survive mixed fleets rides inside a verbatim-retained
+map (`rules`-style) or behind a new `kind` (skip-preserved), and the
+"survives an older one untouched" claim above holds only for records
+the older device never re-saves;
 **behavior-affecting** values (sync rule
 strings) refuse to run ("created by a newer Poltergeist"); **cosmetic**
 values (`ServerIcon`/`ServerColor`) decode to null — as does an
@@ -353,7 +362,9 @@ asking what a wrong guess would cost.
   hostkey first-seen:** a compromised device can equally *mint a new*
   bookmark record (fresh uuid) pointing at an attacker host, which every
   other device sees as first-connect — so that prompt presents as a
-  first-use confirmation (naming the creating device, flagging the endpoint
+  first-use confirmation (naming the creating device — attribution read
+  from the envelope's `deviceId`, which the compromised device itself
+  controls, so it is a hint, not an endorsement — and flagging the endpoint
   as never-confirmed-here), never routine connect UI — and any later connect
   whose resolved endpoint
   differs —
@@ -402,6 +413,11 @@ Device-local (in Poltergeist's settings/aux files, **never** in records):
 | per-device endpoint pins for bookmarked servers (§2.2 — keyed by bookmark record id + location slot, single slot each, written only by a local user act) | the pin's entire value is that no synced record can write it: a synced pin would be LWW-rewritable by the compromised device it guards against |
 | the local TOFU store §3.2's quarantine diffs against | same — the quarantine baseline must be state only local connects wrote, or the warning is cosmetic |
 | sync `deviceId`, bearer token, keystore entries | identity/credentials, per-install by design |
+
+Scoped-access lifecycle: a security-scoped blob grants a *path*, not a
+bookmark — re-validate it against the current synced `localPath` at open
+time (re-mint on mismatch, 03 §7.2) and purge it when its bookmark record
+is deleted or tombstoned, so stale grants cannot accumulate.
 
 ### 2.4 Record id, payload, and JSON examples
 
@@ -552,14 +568,21 @@ Consequences:
   which may hold the only copy of unpushed dirty edits), the
   store restarts empty, and a **durable** notice appears in Settings → Backup
   (never a toast alone — Séance's SEA-039 lesson). Losing the store loses
-  only unpushed dirty edits — **including a pending tombstone: a corruption
-  between a local delete and its push drops that tombstone, so the next full
-  re-pull re-delivers the server's live copy and `applyPulled` upserts it,
-  resurrecting the deleted bookmark (the resurrection bug §3.2's tombstones
-  exist to fix, returning through the corruption path); the durable notice
-  copy must therefore say deleted bookmarks may reappear, not only that
-  edits may be lost** — which the quarantine file preserves for rescue;
-  everything else re-pulls.
+  only **pending deletions**, not edits: `BookmarkStore` persists
+  independently and still holds both the content and each row's winning
+  `(updatedAt, deviceId)` (§3.2), so recovery re-seals every row through
+  the normal `onBookmarkSaved` path — stamping `b.updatedAt` and the
+  stable `deviceId`, replaying the exact pre-corruption pending state
+  without inflating LWW tuples — and those edits re-push on the next
+  round. Only a **pending tombstone** is unrecoverable this way (the row
+  is gone from `BookmarkStore`): a corruption between a local delete and
+  its push drops that tombstone, so the next full re-pull re-delivers the
+  server's live copy and `applyPulled` upserts it, resurrecting the
+  deleted bookmark (the resurrection bug §3.2's tombstones exist to fix,
+  returning through the corruption path); the durable notice copy must
+  therefore say deleted bookmarks may reappear, not only that edits may be
+  lost. The quarantine file remains a belt-and-braces copy rather than the
+  primary rescue; everything else re-pulls.
 - The `deviceId` (uuidV4, minted on first run, stored in app settings) is
   LWW authorship — persist it with the same care Séance's `salvageSettings`
   shows; never regenerate it casually.
@@ -670,7 +693,10 @@ records a durable local "kept" verdict in app settings, symmetric with
 the untrust negative pin — the verdict persists the rejected key's
 fingerprint next to the kept pin, so "genuinely different conflicting key"
 is decidable on the next diff (the same key re-pushed stays resolved; a new
-key warns)**: while the stored `hostkey:` record still
+key warns — a deliberate quiet-by-default that §4.3's help copy must
+disclose: after Keep local, the identical rejected key returning never
+re-warns, and Forget host is the durable, loud path if suspicion
+persists)**: while the stored `hostkey:` record still
 carries the rejected key, the re-derived quarantine (which re-runs on
 every `applyPulled`) stays resolved instead of re-arming each round —
 without it, a still-conflicting device that habitually re-pushes its pin
@@ -718,7 +744,8 @@ backup is strictly opt-in, matching the trust stance (D19).
 
 Poltergeist registers its own username (default: a user-chosen name; the
 suggestion placeholder is a random-suffix form like `ghost-<8 hex>` —
-eight hex digits, because a 16-bit suffix would make `ghost-*` accounts
+eight hex digits (a 32-bit suffix), because a 4-hex-digit (16-bit) suffix
+would make `ghost-*` accounts
 trivially enumerable on a server whose registration errors reveal taken
 names — never
 derived from the Séance username — Design B allows "any other instance",
@@ -781,7 +808,12 @@ yields a decrypt *failure*, not the decrypt-success + decode-failure this
 tripwire fires on — naming it would send a user with a provably-correct
 passphrase to reset it): the copy names all three candidate
 causes, because blaming only a stale client sends the user hunting a
-device that may not exist — never just
+device that may not exist — and it names the remediation: once the stale
+device is patched or removed, re-saving (or re-dragging) the affected
+bookmark in Poltergeist re-seals the intact local copy under a fresh LWW
+tuple and overwrites the corrupted record server-side, since §3.2's
+skip-and-preserve never repairs it on its own; the warning clears when
+that id next pulls and strict-decodes — never just
 skip-preserved silently. The minimum
 version is recorded once, in
 `kMinimumSharedAccountSeanceVersion` (app constants), filled with the literal
@@ -936,14 +968,16 @@ Mirror Séance's `loginSync` exactly (`app/seance_app/lib/services/
 app_services.dart`): `POST /v1/prelogin` → **refuse any KDF downgrade** below
 `Argon2Params.minimum` (`meetsMinimum()`) → derive both keys → `POST
 /v1/login` → **trial-decrypt the first non-tombstone pulled record on a
-decryptable id — prefixless or `bookmark:`-prefixed, never a
+decryptable id — prefixless, `bookmark:`-prefixed, or `hostkey:`-prefixed
+(TofuVerifier decrypts pins every round anyway, §4.2, so decrypting one
+here exposes nothing extra) — never a
 `secret:`/`snippet:`/unrecognized-prefixed id (§3.2's never-decrypt
 dispatch binds enrollment too: selecting a vault entry as the trial
 candidate would pull the user's Séance password into Poltergeist's
 memory, the exact thing §3.2 promises never happens)** before
 persisting anything (auth success cannot prove the E2E passphrase; the
-check is kind-agnostic *across those ids* — a bookmark or a Séance
-serverConfig both qualify. An **immediate** trial-decrypt failure
+check is kind-agnostic *across those ids* — a bookmark, a host-key pin,
+or a Séance serverConfig all qualify. An **immediate** trial-decrypt failure
 surfaces the **decrypt-failure** three-cause copy — wrong passphrase, corrupt record,
 or newer schema (a genuinely different set from §4.2's decrypt-success
 tripwire, which cannot blame the passphrase) — never a definitive
@@ -954,7 +988,10 @@ first candidate must not block enrollment on an account whose passphrase
 is right, the same reason §4.2 gives; pinned by a test whose first
 decryptable record is corrupt and whose enrollment completes with the
 flag set and pushes held). The same id restriction
-binds the **deferred** foreign-record check below. Enrollment always
+binds the **deferred** foreign-record check below — a pinned test covers
+a foreign `hostkey:` record clearing `passphraseUnverified`, since an
+account whose servers were all deleted can hold pins as its only
+decryptable non-secret records. Enrollment always
 pulls **full** (`since = 0`), never a delta, so
 a retained `highWaterSeq` can never produce an empty pull that skips the
 check. When the account genuinely holds no decryptable record (fresh
@@ -973,7 +1010,10 @@ records no other device could read. A failed deferred check raises the
 durable Settings → Backup error and keeps pushes held. Correcting the
 passphrase re-runs enrollment's **full** pull (`since = 0`) and re-applies
 every record skip-preserved as undecryptable during the wrong-passphrase
-session — `highWaterSeq` advanced past them while they were skipped, so a
+session — and, because quarantine cannot fire on a record that failed to
+decrypt, the §4.4 re-seal hold set is recomputed from that re-pull (never
+snapshotted at enrollment time) before any held push is released.
+`highWaterSeq` advanced past them while they were skipped, so a
 delta pull would never revisit them and the account would stay invisible
 even after the passphrase is fixed (a test pins that records pulled under a
 wrong passphrase apply once it is corrected). While held,
@@ -1049,16 +1089,17 @@ Scope, all in Séance:
      RecordKind.values.firstWhere((k) => k.name == name,
 -        orElse: () => RecordKind.serverConfig);
 +        orElse: () {
-+          // seance_protocol's established logger, at its debug-equivalent
-+          // level — package:logging (the common Dart choice) has no
-+          // `debug`; `fine` is that tier. Confirm `log` is imported / in
-+          // scope in record.dart before applying, and match whatever
-+          // logging facility seance_protocol actually uses.
 +          log.fine('recordKindFromName: unknown kind "$name" '
 +              '(legacy or newer-schema record)');
 +          return RecordKind.unknown;
 +        });
 ```
+
+   Before applying: confirm `log` is imported / in scope in `record.dart`,
+   and log at seance_protocol's established facility and its
+   debug-equivalent level — `package:logging` (the common Dart choice) has
+   no `debug`; `fine` is that tier — substituting whatever logging facility
+   seance_protocol actually uses.
 
 2. `record_codec.dart`: use `RecordKind.unknown` (not `serverConfig`) as the
    tombstone placeholder in `decrypt`; make `encrypt` throw `ArgumentError`
@@ -1262,14 +1303,19 @@ Process and cadence:
   TOFU-pin-and-credential phish that appears to come from the user's own
   app. The host-form handler therefore always shows an interstitial
   naming host, port, and username and requires explicit confirmation
-  before any connection, TOFU prompt, or credential prompt; only
+  before any connection, TOFU prompt, or credential prompt (attacker-chosen
+  strings rendered safe to read: bidi controls stripped, IDN hosts shown
+  punycoded or annotated, mixed-script confusables flagged); only
   `serverId` links that resolve to an existing catalog entry (an
   already-established trust) may skip it. A `serverId` that does
   **not** resolve is a dead end: show an error, never fall back to the
   host form or to any connect, TOFU, or credential prompt — a
   serverId link carries no endpoint to confirm, so a "helpful"
   fallback would reopen the exact induced-prompt phish the
-  interstitial closes.
+  interstitial closes. Launches coalesce: concurrent or rapid-repeat
+  activations of the same (host, port, username) triple surface a single
+  interstitial, and a burst of distinct launches is throttled to one
+  visible notice — the confirmation must not be spam-able into a reflex.
 - "Open Terminal in Séance" in a server bookmark's context menu launches
   `seance://connect?serverId=<uuid>` when the bookmark carries a synced
   serverId, falling back to the host/port/username form only for bookmarks
@@ -1305,7 +1351,10 @@ its own bookmarks; a re-encode there that drops a newer
 posture between Poltergeist versions** (both are cosmetic). To keep even
 that from silently destroying a value fleet-wide, a re-encode whose decoded
 model carries an enum null sourced from an *unknown* value preserves that
-field verbatim from the stored payload rather than pushing the null.
+field verbatim from the stored payload rather than pushing the null. That
+provenance must be observable on the decoded model: unknown enum tokens are
+retained (e.g., an `unknown(raw)` representation), never collapsed to the
+same `null` used for an absent field — the guard keys on that distinction.
 The pin floor bounds what Poltergeist may write, and writing a
 *newly shipped* value still requires an explicit decision-log entry that
 either waits a fixed number of Séance pin bumps or justifies why the
@@ -1332,7 +1381,12 @@ its full cost so nobody "simplifies" the delay away).
   account. Until revocation ships, the documented interim response to a
   suspected leak is **full account deletion — performed from Séance
   itself in shared mode, or from Poltergeist's own account-deletion UI
-  in separate mode (§4.3)** — that guidance goes into mode-matched
+  in separate mode (§4.3)** — with a shared-mode **break-glass** path so a
+  user who has since uninstalled Séance is never stranded: the leak-response
+  security copy exposes a confirm-gated "Delete shared account" action in
+  Poltergeist's Advanced settings, the one shared-mode exception to §4.3's
+  hidden-deletion rule, reached only through this remediation copy and never
+  the routine settings surface. That guidance goes into mode-matched
   security copy so support answers are consistent, and the copy (plus the M6 decision-log entry) spells out
   the Poltergeist aftermath: the local record store survives the
   deletion, the next round detects the dead account (auth failure) and
@@ -1398,6 +1452,11 @@ its full cost so nobody "simplifies" the delay away).
       reproduces Séance's output on a shared golden-fixture test, and a
       serializer guard rejects writing any `ServerColor`/`ServerIcon` value
       absent from the pinned tag (the §7.2 write-floor).
+- [ ] §7.2 round-trip preservation is proven: a stored record carrying a
+      `ServerColor`/`ServerIcon` value absent from the pinned tag survives a
+      pull→decode→re-encode→push round trip with that field preserved
+      verbatim (never nulled) — distinct from the write-floor guard above,
+      which only bounds locally authored values.
 
 ## Explicitly out of scope
 

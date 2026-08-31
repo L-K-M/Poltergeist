@@ -141,7 +141,12 @@ ever supported) — with EPERM (the normal non-root
 outcome) translated to `permissionDenied` through the §2.2 funnel,
 like every other non-zero exit code — and
 `unsupported` on Windows. So the sync
-engine's local half never waits on the upstream PR (§2.4).
+engine's local half never waits on the upstream PR (§2.4). Like the
+`rename` preflight, the refuse-symlinks-first check is advisory, not
+atomic: a path swapped to a symlink between the check and the
+`chmod`/`chown` exec is dereferenced. Either re-stat after the operation
+and fail the write when the entry type changed in flight, or record the
+residual check-then-act race as accepted, as the `rename` row does.
 
 ### 2.3 Local-safety helpers become public utilities
 
@@ -335,11 +340,13 @@ Growth rules (the part that must never be improvised):
    parallel 2FA prompts (D5).
 3. **Non-interactive auth may grow the pool** (key auth, stored password): up
    to `maxTransports`, reusing the resolved in-memory `SshCredentials` from
-   the first connect. Credentials are zeroized when the **last** serverId
-   referencing the pool disconnects (§3.5); the app-exit wipe is best-effort
-   only — crash and SIGKILL paths skip exit hooks, so retention is minimized
-   (pool growth re-resolves from the vault where it can rather than caching
-   the secret); a reconnect
+   the first connect — the secret lives only as long as the pool does.
+   Credential references are dropped when the **last** serverId referencing
+   the pool disconnects (§3.5) — Dart `String`s cannot be securely zeroized,
+   so this clears references rather than wiping memory — and the next first
+   connect re-resolves from the vault (the app-exit wipe is best-effort only
+   — crash and SIGKILL paths skip exit hooks, so retention is minimized); a
+   reconnect
    that fails auth re-resolves through the vault/prompt
    path — and if that re-resolve prompts interactively, the pool's
    recorded auth mode updates to interactive, capping growth per rule 2
@@ -359,7 +366,8 @@ Growth rules (the part that must never be improvised):
 
 - **Keepalive:** `client.ping()` every `keepAliveInterval` on transports with
   no in-flight operation; a ping that times out (30 s operation timeout, same
-  as the adapter's) marks the transport disconnected.
+  as the adapter's) marks the transport disconnected and closes it, so the
+  reconnect path below — which fires on transport closure — triggers.
 - **Idle:** extra transports (beyond the first) close after
   `idleExtraTransportTimeout` with no leased channel. The first transport
   follows pane lifetime, not a timer — but never closes while any of its
@@ -369,7 +377,8 @@ Growth rules (the part that must never be improvised):
 - **Reconnect:** on `RemoteFileErrorKind.disconnected` or transport closure,
   browse channels auto-reconnect: probe first with `TcpBannerProber` (cheap,
   keeps sshd logs quiet), then `openAuthenticatedClient` with backoff
-  1 s → 2 s → 4 s → … capped at `reconnectBackoffCap`, ±30 % jitter (the probe
+  1 s → 2 s → 4 s → … with ±30 % jitter applied before clamping, so a delay
+  never exceeds `reconnectBackoffCap` (the probe
   service's hygiene rules). After reconnect the pane re-canonicalizes its
   current path and refreshes. Running **or scanning** transfer tasks on
   that server flip to
@@ -455,8 +464,9 @@ class FsLocation {
 
 enum TransferTaskState {
   queued, scanning, running, paused, completed, failed, cancelled,
-  // no task-level `skipped`: skips are per-item (§4.4 skip / §4.6
-  // itemRemoved); a task whose every item was skipped ends `completed`
+  // no task-level `skipped`: skips are per-item (the §4.2 conflict verb,
+  // journaled as §4.6 `itemRemoved`); a task whose every item was
+  // skipped ends `completed`
 }
 
 /// Per-task conflict policy, resolved from 02 §5.2's canonical settings
@@ -475,6 +485,13 @@ enum TransferTaskState {
 /// task's `replace` removed its parent re-evaluates against the fresh
 /// destination (a conflict, never a retryCount-burning generic failure);
 /// `skip`/`ask` evaluate on the directory itself before recursing.
+/// `replaceIfNewer` on a folder compares the two directory mtimes and
+/// otherwise behaves as `merge`; `keepBoth` on a folder creates the source
+/// under the first free auto-numbered name (02 §5.2's keep-both), leaving
+/// the existing destination untouched; and a non-dir occupying a planned
+/// directory path routes through the folder policy (`replace` removes it
+/// via the D15 delete story, `skip` skips that subtree) rather than
+/// surfacing as a bare item error — only an unresolvable policy errors.
 class ResolvedConflictPolicy {
   final ConflictResolution files;
   final ConflictResolution folders;
@@ -501,10 +518,15 @@ class TransferTask {
   int retryCount;
   String? error;                   // user-facing RemoteFileException.message
   final RemoteTransferCancellation cancellation; // sticky — reserved for
-                                   // task/item **cancel** (§4.4); each file
-                                   // dispatch mints its own per-attempt token
-                                   // so **pause** stays resumable, since a
-                                   // sticky token can never be un-cancelled
+                                   // **whole-task** cancel only (§4.4); each
+                                   // file dispatch mints its own per-attempt
+                                   // token so **pause** stays resumable, and
+                                   // an **item** cancel mints a per-item
+                                   // sticky token plus an `itemRemoved`
+                                   // record (§4.6) without touching this
+                                   // field — a consumed task token would
+                                   // abort every later dispatch, the pause
+                                   // hazard §4.4 documents
 }
 
 class TransferPlan {
@@ -631,7 +653,17 @@ non-negotiable:
   decision basis (absent, or the same stat the policy was evaluated on) —
   a mismatch re-applies the policy (`ask` prompts) instead of clobbering
   a file that appeared mid-run. Local→local commits get the same guard
-  through the shared code path. Cancellation is checked between every
+  through the shared code path. Uploads get the mirror of the download
+  guarantee: either stream to a server-side `.poltergeist-<uuid>.part`
+  and commit via POSIX rename under the same `expectedTarget` CAS (atomic
+  server-side, so an interrupted attempt never touches the real
+  destination), or — where a server-side temp is ruled out — the
+  per-attempt abort path MUST delete the partially overwritten remote
+  file before the lease is released, and a re-stat matching a journaled
+  non-`fileCompleted` partial (size short of the plan size) is treated as
+  absent, never as a `replaceIfNewer` candidate; a fresh-mtime truncated
+  file must never be classified as a final destination. Cancellation is
+  checked between every
   entry; `.part` temps orphaned by a crash are cleaned at journal
   recovery (§4.6). Completed
   files stay in place on failure (documented Séance behavior, kept).
@@ -651,7 +683,8 @@ preservation falls out of the one code path.
   02's settings screen exposes the two directional bandwidth limits and
   nothing else from this section, matching §6's settings-home table). This
   equals the default per-server limit on purpose: one busy server may
-  briefly own the whole budget, and strict FIFO keeps behavior
+  own the whole budget for that task's entire duration, and strict FIFO
+  keeps behavior
   predictable — the user's reorder is the escape hatch. Cross-server
   round-robin dispatch is a recorded non-goal for v1 (revisit only with
   evidence of real starvation).
@@ -699,6 +732,10 @@ the sink). A remote→remote pipe (§4.5) acquires from **both** buckets per
 chunk — each piped byte genuinely traverses the local machine's downlink
 and uplink, so charging both is the physically honest accounting, not
 double-throttling; progress still counts the byte once.
+A local→local stream (§4.2, D26) acquires from **neither** bucket: both
+limits are network egress/ingress budgets (02) and a disk-to-disk copy
+traverses no network interface — implemented as a no-op limiter instance,
+not a bypass of the `acquire` call, so the shared stream path stays literal.
 Bucket capacity is `max(bytesPerSecond, maxChunkBytes)` — one second of
 tokens, but never less than one full chunk — so `acquire` can always
 eventually be satisfied: a capacity below the chunk size would await
@@ -726,8 +763,16 @@ Bursts stay bounded and the limit is honored within ±1 s granularity
   interrupted file are re-sent — true byte-level resume needs ranged
   read/write and is v2 (D25). The UI copy must not pretend otherwise
   ("Pausing restarts the current file when resumed").
-- **Cancel** (task or item) reuses `RemoteTransferCancellation` unchanged:
-  sticky, instant, cleans temps.
+- **Cancel** reuses `RemoteTransferCancellation`, sticky and instant,
+  cleaning temps — but task and item cancel act on **different** tokens: a
+  **task** cancel trips the task's sticky `cancellation` (§4.1), aborting
+  every remaining dispatch; an **item** cancel mints a per-item sticky
+  token, aborts only that item's in-flight attempt, and appends an
+  `itemRemoved` record (§4.6) **without** touching the task token (a
+  consumed task token would brick every later dispatch — the same hazard
+  that keeps pause off the task token, above); a prompt-park abort (§4.1's
+  `ask`-park) cancels only that item's per-attempt token and journals
+  nothing, so replay never mistakes a parked item for a removed one.
 
 ### 4.5 Remote-to-remote piping
 
@@ -845,7 +890,10 @@ app-provided support directory (`EngineConfig`, §5):
   finished tasks to the history file keyed by task id (idempotent —
   replay skips ids already present in history), then rewrite the
   journal to just the pending tasks (via the ported
-  `writeStringAtomically`). A crash between the two steps loses nothing:
+  `writeStringAtomically`, hardened to fsync the temp file before the
+  rename — and the history append flushed and fsynced before the rewrite
+  begins — so the ordering also survives power loss, not just process
+  death). A crash between the two steps loses nothing:
   the next replay re-reads the old journal and skips already-recorded
   ids. The reverse order would have a crash window that silently loses
   finished-task records.
@@ -862,8 +910,9 @@ app-provided support directory (`EngineConfig`, §5):
   at 10 000 records; compaction drops the oldest — the cap is checked on
   each append and the drop runs once the file exceeds it by a 10 % slack
   margin, always via `writeStringAtomically` (so the completion hot path
-  only appends a line, never rewrites the 10k-line file, and a crash
-  mid-compaction never leaves a torn history file). This is the "working
+  only appends a line — the trim rewrite runs at most once per ~1 000
+  completions, when the 11 000-record slack margin is crossed — and a
+  crash mid-trim never leaves a torn history file). This is the "working
   history log" FileZilla never had (D16); the activity panel's History tab
   reads it (02).
 
@@ -879,11 +928,13 @@ abstract interface class TransferProducer {
   /// strict-FIFO dispatch (Quick Look waits on it), stated in both
   /// places so they agree — and **exempt from §4.4's queue-level pause**
   /// (including the pause §4.6 forces on at restore), **from §4.3's
-  /// in-flight caps, and from the token-bucket throttle**: a foreground,
+  /// in-flight caps, and from the token-bucket throttle — but capped by
+  /// a small dedicated produce-slot limit (2)**: a foreground,
   /// user-initiated preview read must never hang behind a paused *or
   /// slot-saturated* queue, nor crawl at the background bandwidth limit
   /// (the awaited Future would otherwise never complete, or complete too
-  /// late to matter). It emits **no** TransferProgressEvent to the queue
+  /// late to matter); producers cancel superseded requests (06), so
+  /// rapid preview paging cannot stampede the shared SSH connection. It emits **no** TransferProgressEvent to the queue
   /// mirror — its awaited Future is the completion signal, so the §6 mirror
   /// never sees a taskId with no queue row and §5's per-flush event bound
   /// (§4.3-capped queue tasks) is unaffected. Downloads [path] from [source] into
@@ -922,6 +973,11 @@ class ListDirectoryRequest extends EngineRequest {
 /// TransferTaskSpec is the enqueue-time subset of TransferTask (§4.1):
 /// source/destination/rootPaths/destinationDir/policy — no runtime state.
 class EnqueueTransferRequest extends EngineRequest { final TransferTaskSpec spec; }
+/// Cancels the task or in-flight item named by [targetId]: a bare task
+/// uuid trips the task token (§4.4), a `(taskId, destinationPath)` item
+/// id cancels just that item — the two id shapes are disjoint, so the
+/// engine tells them apart — and an unknown id is ignored at debug level
+/// (matching prompt replies). Fixed here before M4 freezes the protocol.
 class CancelRequest extends EngineRequest { final String targetId; }
 /// Queue/connection control — the requests the EngineClient facade below
 /// promises ("plus queue and connection control"): runtime bandwidth-limit
@@ -936,9 +992,11 @@ class SetQueuePausedRequest extends EngineRequest { final bool paused; }
 /// Exactly one reply per promptId; a UI-side dismissal sends the
 /// cancel/auth-failure reply for the prompt's kind. A reply whose
 /// promptId is closed or unknown (an answer racing a dismissal, a task
-/// removed mid-prompt) is ignored at debug log level — never an engine
-/// error, and never applied to any other prompt; a second reply to an
-/// answered promptId is dropped the same way.
+/// removed mid-prompt) is ignored, logged at debug level with promptId
+/// and kind only — never the reply payload, since credentialNeeded
+/// replies carry secrets — never an engine error, and never applied to
+/// any other prompt; a second reply to an answered promptId is dropped
+/// the same way.
 class PromptReplyRequest extends EngineRequest {
   final String promptId;
   final EnginePromptKind kind;   // engine validates against the open prompt
