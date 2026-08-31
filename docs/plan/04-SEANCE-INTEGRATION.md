@@ -211,7 +211,8 @@ class SavedSyncSpec {
 // and an absent `ignoreRules` as `[]`. `id`, `kind`, `label`, `sortKey`,
 // `createdAt`,
 // and `updatedAt` are always required (absent → FormatException);
-// an absent `preferredPane` decodes as `either`. `fromJson` throws
+// an absent or unrecognized `preferredPane` decodes as `either`.
+// `fromJson` throws
 // FormatException on any violation, and an *unknown* `kind` string leaves
 // the record skip-preserved (never decoded or activated by guesswork —
 // the one forward-compat case not already covered by icon→null and the
@@ -293,7 +294,10 @@ and dropped on re-push (§2.5), never thrown on — except inside
 above) so an older device's re-save cannot strip newer sync settings;
 **behavior-affecting** values (sync rule
 strings) refuse to run ("created by a newer Poltergeist"); **cosmetic**
-values (`ServerIcon`/`ServerColor`) decode to null. Pick the tier by
+values (`ServerIcon`/`ServerColor`) decode to null — as does an
+unrecognized `PreferredPane` value, which decodes as `either` (pane
+placement is cosmetic; hiding the whole bookmark over it fails this
+section's own cost-of-a-wrong-guess rule). Pick the tier by
 asking what a wrong guess would cost.
 
 ### 2.2 Server references: when each form is used
@@ -329,8 +333,10 @@ asking what a wrong guess would cost.
   both) — never by the resolved host:port or serverConfigId, which a
   rewritten record changes along with the key and so would defeat the very
   check, landing on a new unpinned key that reads as first-seen — and it
-  stores the last locally confirmed `(host, port, username)`; any later
-  difference in that tuple (username included) triggers the confirmation
+  stores the last locally confirmed `(host, port, username, authMethod)`; any
+  later difference in that tuple (username **and** credential shape included —
+  a rewrite that only flips `authMethod` still changes how the credential is
+  selected) triggers the confirmation
   below. The device-local record (§2.3 —
   never synced) is written **only by a local user act** — creating the
   bookmark *on this device* (the creation UI displays the resolved
@@ -343,7 +349,13 @@ asking what a wrong guess would cost.
   because on a sync-received bookmark it is the only endpoint check the
   endpoint ever gets (seeding from the synced-in record would let a
   fresh device capture an already-rewritten attacker endpoint and then
-  connect silently) — and any later connect whose resolved endpoint
+  connect silently). **Disclosed residual, the endpoint-side twin of §3.2's
+  hostkey first-seen:** a compromised device can equally *mint a new*
+  bookmark record (fresh uuid) pointing at an attacker host, which every
+  other device sees as first-connect — so that prompt presents as a
+  first-use confirmation (naming the creating device, flagging the endpoint
+  as never-confirmed-here), never routine connect UI — and any later connect
+  whose resolved endpoint
   differs —
   whether the change arrived through a `serverConfig` edit *or a
   rewritten `bookmark:` record*, a kind Poltergeist devices
@@ -587,6 +599,11 @@ class BookmarkCoordinator {
 
   /// After each engine run: decrypt and materialize pulled records.
   Future<ApplyReport> applyPulled();
+  // Applies only records with seq > lastAppliedSeq (persisted like
+  // highWaterSeq, reset with it on the full-resync fallback), so per-round
+  // work scales with the delta, not the lifetime record count; the hostkey
+  // quarantine diff deliberately stays a full scan. The no-GC tombstone rule
+  // still grows the store file with lifetime deletions — accepted (§3.1).
 }
 ```
 
@@ -619,17 +636,21 @@ the decrypted kinds:
 
 | Pulled kind | Action |
 |---|---|
-| `bookmark` | upsert into `BookmarkStore`; tombstone → remove. Delta events are applied in seq order, and a pulled record is applied only when its LWW tuple (`updatedAt`, `deviceId`) beats the local record for the same id — a record that does not beat a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly upserted, so a just-deleted bookmark never transiently resurrects and a pending offline edit is never clobbered at the apply layer |
+| `bookmark` | upsert into `BookmarkStore`; tombstone → remove. Delta events are applied in seq order, and a pulled record is applied only when its LWW tuple (`updatedAt`, `deviceId`) beats the tuple **last materialized into `BookmarkStore`**, which the store persists per row (the winning envelope's `(updatedAt, deviceId)`) — after the SyncEngine's merge the §3.1 record store holds only the winner, so there is nothing else to compare against, and `putRemote` never overwrites a dirty local record — a record that does not beat a dirty, not-yet-pushed local tombstone or edit is left for the next round (after the pending dirty record pushes) rather than blindly upserted, so a just-deleted bookmark never transiently resurrects and a pending offline edit is never clobbered at the apply layer |
 | `hostKey` | `hostKeys.put` — pins flow in (both modes) **unless the pulled key conflicts with a locally known pin for that host:port**: a conflicting pin is quarantined unapplied behind a durable MITM warning until the user resolves it — durable meaning the quarantine survives restarts and dismissed dialogs: it is **re-derived on every `applyPulled` by diffing the stored `hostkey:` records against the local TOFU store**, never held only in memory, because the §3.1 store's delta pulls advance past the merged record and never re-deliver it to re-arm a dropped warning (the record store still LWW-merges — only *trusting* the key is gated; an LWW auto-install would let one compromised device displace every device's trusted key, making the warning cosmetic — D4). Poltergeist's own new pins are pushed back as standard `hostkey:<host:port>` records, so a key verified in either app is trusted by both — and a local **untrust** ("forget host") tombstones the matching record **and records a durable local negative pin**: auto-apply requires a present record with no local pin *and no negative pin*. The tombstone alone cannot hold — patched Séance treats prefixed-id tombstones as no-ops (§5.2 item 4, whose `hostkey:` carve-out routes those tombstones to pin-store deletion) yet re-collects and re-pushes its pins with fresh LWW timestamps every round (§3.1/§4.2), so any *still-trusting* Séance device resurrects the record and the diff would auto-apply the key the user just removed under MITM suspicion; that habitual re-seal is not the "genuinely newer pin edit" the LWW carve-out means. The negative pin holds the untrust verdict until the user explicitly re-trusts (accepting the key at connect time). Negative pins persist in **app settings**, never inside the §3.1 record store — so the corrupt-store quarantine (store restarts empty) cannot erase an untrust verdict and let the very next `applyPulled` diff auto-apply a key the user removed under MITM suspicion. PR-S1 item 4 additionally routes `hostkey:`-prefixed tombstones to Séance's pin-store deletion so the two apps' untrust stays symmetric; an acceptance test pins that a Séance round re-pushing the pin does not restore auto-trust |
 | `serverConfig` | shared mode: update the read-only `SeanceServerCatalog`; separate mode: unreachable (the account has none) |
 | anything that throws mid-decrypt/decode (malformed payload of a decrypted prefix) | skip-and-preserve: never applied, never re-encoded, never re-pushed, never tombstoned — **and, when the decrypt succeeded but strict decode then failed, raises the §4.2 durable tripwire** (a wrong-key decrypt *failure* is a different signal — §4.2/§4.5 — not this), unlike the silent never-decrypted-prefix skips above. Strict decode is **prefix-aware**: a `bookmark:` id must decode as `bookmark`, a prefixless id as `serverConfig`, a `hostkey:` id as `hostKey` (a prefix/kind mismatch is the row below). The encrypted record simply stays in the store |
-| decrypted `kind` ≠ the kind the id prefix implied (e.g. a `bookmark:`-prefixed id whose payload decodes as `secret`, or a prefixless id decoding as anything but `serverConfig`) | skip-and-preserve, and — like malformed — **raises the §4.2 durable tripwire** (decrypt-success + a prefix/kind mismatch is the primary in-place corruption signature: the re-sealed `bookmark:` record §4.2's acceptance test pins): the id prefix gates *which key decrypts*, the decrypted kind gates *what is applied*. The plaintext id is peer-writable on a shared account, so a relabeled blob — a `secret:` ciphertext re-uploaded under a `bookmark:` id — must never be applied (nor even upserted), or the "keeps the vault out of Poltergeist's memory" guarantee is bypassed by relabeling. (Longer term, binding the record id as AEAD associated data in `RecordCodec` makes relabeling fail at decrypt outright.) |
+| decrypted `kind` ≠ the kind the id prefix implied (e.g. a `bookmark:`-prefixed id whose payload decodes as `secret`, or a prefixless id decoding as anything but `serverConfig`) | skip-and-preserve, and — like malformed — **raises the §4.2 durable tripwire** (decrypt-success + a prefix/kind mismatch is the primary in-place corruption signature: the re-sealed `bookmark:` record §4.2's acceptance test pins): the id prefix gates *which key decrypts*, the decrypted kind gates *what is applied*. The plaintext id is peer-writable on a shared account, so a relabeled blob — a `secret:` ciphertext re-uploaded under a `bookmark:` id — must never be applied (nor even upserted), or the relabeled secret would be parsed and persisted as bookmark data — though the decrypt itself already places the plaintext in memory, so relabeling does bypass the never-decrypt *courtesy*; only AEAD-binding the id (below) closes that. (Longer term, binding the record id as AEAD associated data in `RecordCodec` makes relabeling fail at decrypt outright.) |
 
 The prefix/kind split above is a two-gate rule, stated once: the
 pre-decryption **prefix** decides whether (and with which key) a record is
 decrypted at all, and the decrypted **kind** decides whether it is applied.
-A shared-account peer can relabel the plaintext id but cannot forge the
-sealed kind, so the second gate is what actually protects application. A
+A **keyless** writer with account write access (or a tampering sync server)
+can relabel the plaintext id but cannot forge the sealed kind, so the second
+gate is what protects application against relabeling; a signed-in peer holds
+the account key (the §4.2 disclosure) and *can* forge kinds — only AEAD
+id-binding will address that, and the relabel-decrypt already exposes the
+plaintext in memory regardless. A
 §3.2 test pins the relabel case (a `secret:` ciphertext re-uploaded under a
 `bookmark:` id is decrypted under the bookmark path yet never applied).
 
@@ -646,7 +667,10 @@ doc, `docs/POLTERGEIST.md`): **accept** installs the quarantined key
 from the record store — no re-push; the record already won LWW.
 **Keep local** re-pushes the kept pin under a fresh LWW tuple **and
 records a durable local "kept" verdict in app settings, symmetric with
-the untrust negative pin**: while the stored `hostkey:` record still
+the untrust negative pin — the verdict persists the rejected key's
+fingerprint next to the kept pin, so "genuinely different conflicting key"
+is decidable on the next diff (the same key re-pushed stays resolved; a new
+key warns)**: while the stored `hostkey:` record still
 carries the rejected key, the re-derived quarantine (which re-runs on
 every `applyPulled`) stays resolved instead of re-arming each round —
 without it, a still-conflicting device that habitually re-pushes its pin
@@ -844,7 +868,10 @@ line) per the D2 copy list.
 
 Offered as "Switch to shared account…" once the user confirms the fleet gate
 (same checkbox). Flow: **retain the separate account's token in the
-keystore across the switch** (it lives in the keystore, not the §3.1
+keystore across the switch, under a distinct slot
+(`poltergeist.apikey.sync.token.retained.v1`)** — §4.5's enrollment writes
+the shared account's token to `poltergeist.apikey.sync.token` and would
+otherwise overwrite it (it lives in the keystore, not the §3.1
 store the wipe below clears, and §7.3's tokens never expire server-side,
 so the optional delete can wait until the switch is proven) → sign out of
 the separate account's session (local forget only, the token kept) →
@@ -862,11 +889,17 @@ log into the Séance account (§4.5) → mark every local bookmark dirty
 the shared fleet. The **local TOFU store is not wiped** — the re-seal reads
 its pins from it — and the enrollment pull (§4.5) runs before the re-seal
 push, so a shared-account `hostkey:` record that conflicts with a
-separate-mode pin legitimately quarantines **at enrollment time** through
-§3.2's normal path; the fresh LWW tuple cannot suppress it, because the
-quarantine is a local record-vs-pin diff on the pull, not a push contest.
-The switch flow's copy presents that enrollment-time quarantine as
-expected — the §3.2 MITM check working, never an error) →
+separate-mode pin quarantines **at enrollment time** through §3.2's normal
+path. Quarantine *detects* the conflict; it does not prevent the re-seal
+from *winning* it — the re-sealed pin's fresh LWW tuple (this deviceId,
+now) would beat the shared account's record on the push and replace the
+fleet pin on every device, propagating a MITM'd separate-mode pin to the
+whole shared fleet (Séance devices included), the exact attack §3.2 exists
+to stop. So the switch **holds the re-seal push for every host whose
+enrollment pull quarantined** until the user resolves it explicitly: adopt
+the fleet pin (no re-seal for that host) or keep the local pin (re-seal and
+push, a deliberate override). The copy presents that as a decision the user
+must make before the switch completes — never a click-through non-error) →
 the next round pushes them — pushes held while `passphraseUnverified`
 is set (§4.5) — under their existing `bookmark:<uuid>` ids (each id is
 a random per-bookmark UUID and the shared account's store has never
@@ -937,7 +970,13 @@ non-tombstone record (`deviceId != ours`): this device's own output
 decrypts under whatever key sealed it, so a self-pushed record would
 vacuously clear the flag and silently bless a wrong passphrase whose
 records no other device could read. A failed deferred check raises the
-durable Settings → Backup error and keeps pushes held; while held,
+durable Settings → Backup error and keeps pushes held. Correcting the
+passphrase re-runs enrollment's **full** pull (`since = 0`) and re-applies
+every record skip-preserved as undecryptable during the wrong-passphrase
+session — `highWaterSeq` advanced past them while they were skipped, so a
+delta pull would never revisit them and the account would stay invisible
+even after the passphrase is fixed (a test pins that records pulled under a
+wrong passphrase apply once it is corrected). While held,
 Settings → Backup shows a visible "backup paused until the passphrase
 is verified against the account's existing data" status rather than a
 silent stall — and the status names the way out, because a
@@ -1209,10 +1248,11 @@ Process and cadence:
   `poltergeist://browse?serverId=<uuid>&path=<url-encoded>` (shared mode —
   the Séance config id is meaningful in both apps) and
   `poltergeist://browse?host=<url-encoded>&port=<p>&username=<url-encoded>&path=<url-encoded>`
-  (`port` is parsed as an integer and range-checked to 1–65535 before the
-  interstitial; a non-numeric or out-of-range port is a dead-end error,
-  never a silent default-port fallback that would change the endpoint the
-  interstitial displays)
+  (`port` is **required**, parsed as an integer, and range-checked to
+  1–65535 before the interstitial; a missing, non-numeric, or out-of-range
+  port is a dead-end error, never a silent default-port fallback — including
+  a missing port silently defaulting to 22 — that would change the endpoint
+  the interstitial displays)
   (all three free-text parameters percent-encoded, exactly as the
   serverId form's `path` already is — usernames and paths routinely
   carry `&`, `#`, `%`, spaces, and IPv6 host literals carry `%`
@@ -1256,7 +1296,16 @@ written, since older readers decode it to null — and the loss is
 **not display-only**: a pre-pin Séance client re-collects and
 re-pushes everything it pulled (§3.1), so it re-encodes that null and
 destroys the value server-side for every device; skip-and-preserve
-does not apply, because the record parses — only the enum field dies.
+does not apply, because the record parses — only the enum field dies. The
+same round-trip runs through Poltergeist whenever it re-encodes a record it
+did not author — but Poltergeist writes only `bookmark` and `hostkey`
+records (§3.2), never `serverConfig`, so the only records it round-trips are
+its own bookmarks; a re-encode there that drops a newer
+`ServerColor`/`ServerIcon` to null is the **accepted §2.5 lossy-downgrade
+posture between Poltergeist versions** (both are cosmetic). To keep even
+that from silently destroying a value fleet-wide, a re-encode whose decoded
+model carries an enum null sourced from an *unknown* value preserves that
+field verbatim from the stored payload rather than pushing the null.
 The pin floor bounds what Poltergeist may write, and writing a
 *newly shipped* value still requires an explicit decision-log entry that
 either waits a fixed number of Séance pin bumps or justifies why the
@@ -1271,7 +1320,13 @@ its full cost so nobody "simplifies" the delay away).
   own token in their own keystore entry and never interfere. "Sign out"
   forgets the token locally only — the server keeps it until account
   deletion (inherited Séance behavior; a revocation endpoint is a recorded
-  port-back candidate, §6 — and an urgent one: tokens never expire and
+  port-back candidate, §6, with two design constraints attached now while it
+  is cheap to state: it must support **self-revocation** (revoke the token
+  making the call, so a user who finds a leaked token kills it without
+  deleting the account), and **revoke-all must be password-authenticated** —
+  a bearer-only revoke-all would let the attacker holding the leaked token
+  lock the owner out of every device — and an urgent one: tokens never
+  expire and
   shared mode hides account deletion by design, so in shared mode a
   leaked token currently has no clean remediation short of deleting the
   account. Until revocation ships, the documented interim response to a
@@ -1287,7 +1342,10 @@ its full cost so nobody "simplifies" the delay away).
   exists is an explicit 00-decision-log entry at the M6 gate, not a
   silent default).
 - **Rate limits**: only `/v1/login` is limited (default 10 attempts / 60 s
-  per username). Poltergeist logs in at enrollment only; sync rounds use the
+  per username — username-only keying lets an attacker hold a victim's
+  window full of failed attempts and block their logins; recorded as a §6
+  port-back candidate to key on (username, IP) and count failures, not
+  attempts). Poltergeist logs in at enrollment only; sync rounds use the
   stored bearer token and are unlimited. In shared mode both apps' logins
   share the window — negligible in practice.
 - **Size caps**: 8 MiB request body, 1000 records per push, 1 MiB per record
@@ -1336,6 +1394,10 @@ its full cost so nobody "simplifies" the delay away).
 - [ ] PR-S2/S3 are filed per the §5 schedule and the pin bumped after each.
 - [ ] `docs/PORTS.md` carries `Port-back candidates` lines and the §6 sweep
       is on the milestone checklist in 07.
+- [ ] §7.2 appearance parity is verified: the ported accent module
+      reproduces Séance's output on a shared golden-fixture test, and a
+      serializer guard rejects writing any `ServerColor`/`ServerIcon` value
+      absent from the pinned tag (the §7.2 write-floor).
 
 ## Explicitly out of scope
 

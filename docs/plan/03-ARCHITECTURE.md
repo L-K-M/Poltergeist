@@ -152,7 +152,10 @@ differently"). Port them into
 with their Séance tests carried over:
 
 - `replaceLocalFile(File part, File target)` — the backup-rename dance:
-  refuse replacing links/non-regular files; rename target → `.backup`, part →
+  refuse replacing links/non-regular files; rename target → a unique
+  `.poltergeist-<8 hex>.backup` sibling (never a fixed `.backup`, which the
+  temp-prefix policy §2.2 states and which would clobber a pre-existing
+  user `<target>.backup`), part →
   target, restore backup on failure, best-effort delete backup.
 - `ensureSafeLocalDirectory(String path)` — create parents while refusing to
   traverse through symlinks or non-directories (`followLinks: false` at every
@@ -204,9 +207,9 @@ excluding `client.shell(pty:)`:
 // Upstream, in seance_core. Behavior byte-identical to today's connect()
 // through the authentication step.
 // Returns the client plus how auth resolved — key, storedPassword,
-// keyboardInteractive, or promptedPassword (AuthKind). §3.2 rules 2–3
-// record it to cap or allow pool growth; Séance's recomposed connect()
-// discards it.
+// keyboardInteractive, or promptedPassword (AuthKind). Callers that pool
+// connections can use it to cap or allow growth; Séance's recomposed
+// connect() discards it.
 Future<(SSHClient, AuthKind)> openAuthenticatedClient({
   required ServerConfig config,
   required SshCredentials credentials,
@@ -253,7 +256,12 @@ abstract interface class ConnectionManager {
   Future<TransferChannelLease> leaseTransferChannel(String serverId);
 
   Stream<ServerConnectionState> watchServer(String serverId);
-  Set<String> get connectedServerIds;        // feeds ProbeService (§3.4)
+  Future<Set<String>> connectedServerIds();  // feeds ProbeService (§3.4);
+                                             // served across the engine
+                                             // isolate (§5) — the app-side
+                                             // proxy keeps a cached replica
+                                             // fed by watchServer for the
+                                             // probe loop's sync reads
   Future<void> disconnectServer(String serverId);
 }
 
@@ -285,6 +293,14 @@ pool design is not final until the dartssh2 fitness spike reports):
 class PoolPolicy {
   final int maxTransports;                    // default 2
   final int maxTransferChannelsPerTransport;  // default 3
+  final int maxChannelsPerTransport;          // default 8 — OpenSSH's
+                                              // MaxSessions defaults to 10
+                                              // session channels per TCP
+                                              // connection, and every SFTP
+                                              // channel (browse and transfer
+                                              // alike) is one; browse +
+                                              // transfer share this budget.
+                                              // M0 finalizes the number (D9)
   final Duration keepAliveInterval;           // 30 s
   final Duration idleExtraTransportTimeout;   // 60 s
   final Duration reconnectBackoffCap;         // 30 s
@@ -319,8 +335,11 @@ Growth rules (the part that must never be improvised):
    parallel 2FA prompts (D5).
 3. **Non-interactive auth may grow the pool** (key auth, stored password): up
    to `maxTransports`, reusing the resolved in-memory `SshCredentials` from
-   the first connect. Credentials are wiped only when the **last** serverId
-   referencing the pool disconnects (§3.5) and on app exit; a reconnect
+   the first connect. Credentials are zeroized when the **last** serverId
+   referencing the pool disconnects (§3.5); the app-exit wipe is best-effort
+   only — crash and SIGKILL paths skip exit hooks, so retention is minimized
+   (pool growth re-resolves from the vault where it can rather than caching
+   the secret); a reconnect
    that fails auth re-resolves through the vault/prompt
    path — and if that re-resolve prompts interactively, the pool's
    recorded auth mode updates to interactive, capping growth per rule 2
@@ -329,7 +348,12 @@ Growth rules (the part that must never be improvised):
 4. Transports are created on demand (a transfer lease that cannot be served by
    existing channels) and torn down when idle (§3.3). The first transport —
    the one carrying browse channels — stays as long as any pane-tab shows the
-   server.
+   server. When a transport reaches `maxChannelsPerTransport` (the
+   MaxSessions ceiling), the next browse or transfer channel opens on another
+   transport where rule 3 allows growth; on an interactive-auth pool capped
+   at one transport, browse requests queue on the existing channels rather
+   than failing a channel open — a many-tab workload never surfaces a raw SSH
+   channel-open failure.
 
 ### 3.3 Keepalive, idle, reconnect
 
@@ -430,7 +454,9 @@ class FsLocation {
 }
 
 enum TransferTaskState {
-  queued, scanning, running, paused, completed, failed, cancelled, skipped,
+  queued, scanning, running, paused, completed, failed, cancelled,
+  // no task-level `skipped`: skips are per-item (§4.4 skip / §4.6
+  // itemRemoved); a task whose every item was skipped ends `completed`
 }
 
 /// Per-task conflict policy, resolved from 02 §5.2's canonical settings
@@ -487,12 +513,16 @@ class TransferPlan {
                                            // the length sort is correct only
                                            // because a normalized child path
                                            // strictly extends its parent's
-                                           // (enforced by a strict-prefix
-                                           // check when the plan finalizes,
-                                           // always on — O(path components),
-                                           // negligible next to the transfer;
-                                           // the executor's mkdir loop relies
-                                           // on it in every build mode)
+                                           // (enforced at APPEND time — a
+                                           // directory is emitted to the
+                                           // executor only after its parent
+                                           // is already present, since §4.2
+                                           // dispatches before scanComplete;
+                                           // a cheap aggregate re-check runs
+                                           // at finalization. O(path
+                                           // components), negligible next to
+                                           // the transfer; the mkdir loop
+                                           // relies on it in every build mode)
   final List<PlannedFile> files;           // path pair + size + existing stat
   final int skippedSymlinks;               // symlinks are never transferred
 }
@@ -530,7 +560,12 @@ the resolver rejects it in file fields, falling back to `ask`,
 mirroring 02 §5.2's constraint. An engine-side `ask` pauses
 the item and round-trips an `EnginePromptEvent.conflict` to the UI (§5),
 whose reply resolves that item (and, when the user asks, the task's
-remaining conflicts).
+remaining conflicts). A prompt-parked item holds **no** §4.3 global slot
+and **no** leased channel: the decision point precedes any committed bytes,
+so the per-attempt token is cancelled, the lease released, and the item
+re-dispatched carrying the reply — prompt-wait never counts against §4.3's
+caps, so unanswered `ask`s (a folder of ≥6 conflicts under the default
+policy) cannot starve other tasks, other servers, or §4.7 produce reads.
 
 The activity panel binds to this model with per-item rows, reorder, per-item
 cancel/retry, queue pause, and the conflict verbs — the D16 mandates. Séance's
@@ -628,16 +663,21 @@ preservation falls out of the one code path.
 
 ```dart
 class BandwidthLimiter {
-  int? bytesPerSecond;                    // null = unlimited; <= 0 is invalid,
+  int? bytesPerSecond;                    // null = unlimited; a hand-edited 0
+                                          // maps to null ("off"/unlimited —
+                                          // the widespread convention; a
+                                          // silent clamp to a floor would read
+                                          // as a bug, "I set 0 and it crawls").
+                                          // A NEGATIVE value is invalid and
                                           // clamped to the documented floor at
                                           // EVERY boundary — the settings
                                           // screen, SettingsStore's load/parse
-                                          // of settings.json (a hand-edited 0
-                                          // parses cleanly and would bypass a
-                                          // screen-only check), and this
-                                          // limiter's own constructor
-                                          // (defense in depth): zero refill
-                                          // would hang acquire forever
+                                          // of settings.json (a hand-edited
+                                          // value bypasses a screen-only
+                                          // check), and this limiter's own
+                                          // constructor (defense in depth); no
+                                          // rate-0 bucket is ever built, so
+                                          // acquire never hangs
   Future<void> acquire(int chunkBytes);   // awaits until tokens available;
                                           // returns immediately when
                                           // bytesPerSecond is null (unlimited
@@ -745,7 +785,10 @@ app-provided support directory (`EngineConfig`, §5):
   it — the `plan` is runtime state per §4.1 and the `TransferTaskSpec` in
   `taskEnqueued` carries none of it, so without these records replay could
   not reconstruct the plan that the "remaining items" computation subtracts
-  from; idempotent on replay),
+  from; idempotent on replay — replay UPSERTS keyed on
+  (taskId, destinationPath) (§4.1's item identity), so a post-crash
+  re-scan's re-appended entries collapse onto the journaled ones instead of
+  duplicating plan items or inflating totalBytes),
   `taskState`, `fileCompleted`, `fileFailed` (terminal per-item outcome,
   with error text), `itemRemoved` (per-item cancel or skip, §4.4),
   `taskRemoved`. Appends are flushed
@@ -794,7 +837,11 @@ app-provided support directory (`EngineConfig`, §5):
   resuming a task whose policy is `ask` re-runs its remaining items'
   execution-time policy check, which re-emits the `conflict`
   `EnginePromptEvent` (§5) — never a remembered answer, never a default.
-- **Compaction**: on clean shutdown and after startup replay, first append
+- **Compaction**: on clean shutdown, after startup replay, and whenever the
+  live journal crosses a finished-task/size threshold within a long session
+  (the same crash-safe ordering below — history append first, atomic rewrite
+  second — so a session moving hundreds of thousands of files does not grow
+  an unbounded journal and a post-crash replay stays short); first append
   finished tasks to the history file keyed by task id (idempotent —
   replay skips ids already present in history), then rewrite the
   journal to just the pending tasks (via the ported
@@ -806,7 +853,9 @@ app-provided support directory (`EngineConfig`, §5):
   byte and file counts, `startedAt`/`finishedAt` timestamps, duration,
   outcome, error text — **appended at task completion** (single-line
   append + flush, the journal's discipline, so the History tab is live
-  mid-session and a torn final line is dropped on read), and separately
+  mid-session; a torn final line is truncated at recovery and its
+  dropped-record count surfaced — the journal's no-silent-drop rule, not a
+  bare read-side drop), and separately
   migrated at startup replay / clean shutdown by the compaction step,
   which idempotently moves any crash-recovered finished tasks out of the
   journal (keyed by task id — replay skips ids already in history). Capped
@@ -828,10 +877,16 @@ abstract interface class TransferProducer {
   /// Enqueue a download of [path] from [source], **inserted at the head
   /// of the queue** — the one programmatic exception to §4.3's
   /// strict-FIFO dispatch (Quick Look waits on it), stated in both
-  /// places so they agree — and **exempt from §4.4's queue-level pause**,
-  /// including the pause §4.6 forces on at restore: a foreground,
-  /// user-initiated preview read must never hang behind a paused queue
-  /// (the awaited Future would otherwise never complete). Downloads [path] from [source] into
+  /// places so they agree — and **exempt from §4.4's queue-level pause**
+  /// (including the pause §4.6 forces on at restore), **from §4.3's
+  /// in-flight caps, and from the token-bucket throttle**: a foreground,
+  /// user-initiated preview read must never hang behind a paused *or
+  /// slot-saturated* queue, nor crawl at the background bandwidth limit
+  /// (the awaited Future would otherwise never complete, or complete too
+  /// late to matter). It emits **no** TransferProgressEvent to the queue
+  /// mirror — its awaited Future is the completion signal, so the §6 mirror
+  /// never sees a taskId with no queue row and §5's per-flush event bound
+  /// (§4.3-capped queue tasks) is unaffected. Downloads [path] from [source] into
   /// [destination] — the caller computes the destination (the preview
   /// cache path per 06 §5.3) — completing once produced. Used by future
   /// promised-file drag-out and by Quick Look / preview for remote files.
@@ -868,6 +923,16 @@ class ListDirectoryRequest extends EngineRequest {
 /// source/destination/rootPaths/destinationDir/policy — no runtime state.
 class EnqueueTransferRequest extends EngineRequest { final TransferTaskSpec spec; }
 class CancelRequest extends EngineRequest { final String targetId; }
+/// Queue/connection control — the requests the EngineClient facade below
+/// promises ("plus queue and connection control"): runtime bandwidth-limit
+/// changes (§6 global settings) and queue pause/resume (§4.4). Left out of
+/// the initial protocol they would become exactly the versioned protocol
+/// change §5 warns against; server disconnect rides its own request too.
+class SetBandwidthLimitsRequest extends EngineRequest {
+  final int? readLimitBytesPerSecond;    // null = unlimited (§4.3)
+  final int? writeLimitBytesPerSecond;
+}
+class SetQueuePausedRequest extends EngineRequest { final bool paused; }
 /// Exactly one reply per promptId; a UI-side dismissal sends the
 /// cancel/auth-failure reply for the prompt's kind. A reply whose
 /// promptId is closed or unknown (an answer racing a dismissal, a task
@@ -1048,8 +1113,9 @@ v1 desktop builds are unsandboxed, so the default backend is a pass-through —
 but the calls exist from day one, security-scoped bookmark blobs are stored
 device-locally in a dedicated `<app-support>/scoped-bookmarks.json` (never
 inside `settings.json`, so that file's immediate-persist atomic rewrite
-stays small and text-only — this is the one home §6's table reserves for
-these binary blobs) keyed by bookmark id (never synced — 04 §2.3), and
+stays small and text-only — their one home is this dedicated file,
+deliberately outside §6's settings table, which reserves no row for these
+binary blobs) keyed by bookmark id (never synced — 04 §2.3), and
 turning on the macOS sandbox later is a backend swap, not a refactor: a
 sandboxed launch begins from `acquireBookmark` (resolving a stored blob into
 live access; a `null` return means the blob is stale, so the caller re-prompts
@@ -1077,7 +1143,11 @@ entirely (minimal/GNOME-less distros, some WSL setups), both trash and
 restore fall back to the same spec directly — a home-filesystem path moves
 into `~/.local/share/Trash/files/` with a written `.trashinfo`, while a
 path on another mounted volume (§7.4) prefers that volume's
-`<topdir>/.Trash/$UID` then `<topdir>/.Trash-$UID` per the spec, with a
+`<topdir>/.Trash/$UID` — only after verifying `.Trash` is a root-owned,
+sticky-bit, non-symlink directory per the spec (a crafted volume could
+otherwise plant it as a symlink and redirect trashed data) — then
+`<topdir>/.Trash-$UID` (verified a non-symlink directory owned by the
+current user, created 0700 otherwise), with a
 cross-filesystem move into home trash only as a last resort (a blind copy
 into home trash from a large removable volume is slow and can exhaust the
 home disk) — so trash never silently degrades to
@@ -1100,7 +1170,11 @@ go/no-go is also driven by volume hot-plug, and descoping it lands on the
 polling fallback below, not on nothing)
 or, failing that, `GetLogicalDrives` polling; macOS via
 `/Volumes` + the `poltergeist/files` channel (`mountedVolumeURLs`, FSEvents
-hot-plug), Linux by parsing `/proc/self/mounts` and showing `/`, `/home`,
+hot-plug), Linux by parsing `/proc/self/mounts` (whose mount-point field
+octal-escapes space/tab/newline/backslash as `\040`/`\011`/`\012`/`\134` —
+decode before matching, watching, or the periodic re-read compare, or
+"SanDisk 64GB" enumerates as a literal `SanDisk\04064GB`) and showing `/`,
+`/home`,
 `/media/$USER/*`, `/run/media/$USER/*`, with inotify watches on those
 directories **plus a periodic `/proc/self/mounts` re-read** — inotify
 fires no parent event when a filesystem mounts over an already-existing
@@ -1258,7 +1332,7 @@ during M1–M3:
 - **Test strategy details** (conformance suites, sshd-in-Docker matrix,
   benchmarks for D12) — 08.
 - **Deferred features touching this architecture** (all D25's parked
-  list, except archives, which are D27's own decision): resumable
+  list, plus archives, which are D27's own decision): resumable
   transfers via
   ranged read, OS drag-out promised files, rsync accelerator,
   multi-window, and archives — the seams exist: `TransferProducer`,
