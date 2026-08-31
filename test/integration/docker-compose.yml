@@ -1,0 +1,114 @@
+name: poltergeist-integration
+
+x-modern-service: &modern-service
+  image: poltergeist-sshd-modern:m0
+  build:
+    context: .
+    dockerfile: sshd-modern/Dockerfile
+  environment:
+    FIXTURE_MODE: normal
+    FIXTURE_PASSWORD: poltergeist-test-only
+  cap_add:
+    - NET_ADMIN
+  volumes:
+    - ./keys:/fixture-hostkeys:ro
+    - ./runtime/id_ed25519.pub:/run/fixture-user/id_ed25519.pub:ro
+    - ./runtime/data:/home/poltergeist/bench/fixtures:ro
+
+x-standard-ports: &standard-port
+  target: 22
+  host_ip: 127.0.0.1
+  protocol: tcp
+
+services:
+  sshd-modern:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.modern
+    ports:
+      - <<: *standard-port
+        published: "2201"
+
+  sshd-legacy:
+    image: poltergeist-sshd-legacy:m0
+    build:
+      context: .
+      dockerfile: sshd-legacy/Dockerfile
+    command: /etc/ssh/fixture/sshd_config.modern
+    environment:
+      FIXTURE_MODE: normal
+      FIXTURE_PASSWORD: poltergeist-test-only
+    volumes:
+      - ./keys:/fixture-hostkeys:ro
+      - ./runtime/id_ed25519.pub:/run/fixture-user/id_ed25519.pub:ro
+      - ./runtime/data:/home/poltergeist/bench/fixtures:ro
+    ports:
+      - <<: *standard-port
+        published: "2202"
+
+  sshd-chroot:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.chroot
+    environment:
+      FIXTURE_MODE: chroot
+      FIXTURE_PASSWORD: poltergeist-test-only
+    volumes:
+      - ./keys:/fixture-hostkeys:ro
+      - ./runtime/id_ed25519.pub:/run/fixture-user/id_ed25519.pub:ro
+      - ./runtime/data:/srv/sftp/home/poltergeist/bench/fixtures:ro
+    ports:
+      - <<: *standard-port
+        published: "2203"
+
+  sshd-restricted:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.restricted
+    ports:
+      - <<: *standard-port
+        published: "2204"
+
+  sshd-authmatrix:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.authmatrix
+    environment:
+      FIXTURE_MODE: authmatrix
+      FIXTURE_PASSWORD: poltergeist-test-only
+    ports:
+      - <<: *standard-port
+        published: "2205"
+
+  # Explicit targeting activates this profile after sshd-modern stops.
+  sshd-keyswap:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.keyswap
+    profiles:
+      - keyswap
+    ports:
+      - <<: *standard-port
+        published: "2201"
+
+  sshd-rsa:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.rsa
+    profiles:
+      - audit
+    ports:
+      - <<: *standard-port
+        published: "2211"
+
+  sshd-chacha:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.chacha
+    profiles:
+      - audit
+    ports:
+      - <<: *standard-port
+        published: "2212"
+
+  sshd-ed25519:
+    <<: *modern-service
+    command: /etc/ssh/fixture/sshd_config.ed25519
+    profiles:
+      - audit
+    ports:
+      - <<: *standard-port
+        published: "2213"

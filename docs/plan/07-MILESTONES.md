@@ -81,8 +81,10 @@ and that the engine-isolate architecture works (D8).
   patch on a rev-pinned branch of a Séance fork, never an uncommitted
   working-tree or pub-cache edit, so CI and fresh clones reproduce the
   numbers; measure both anyway — the delta is the D7 evidence).
-- Algorithm audit: connect dartssh2 2.9 against a current OpenSSH sshd in
-  four configs — defaults, `rsa-sha2-256/512`-only,
+- Algorithm audit: connect the exact dartssh2 version resolved by Séance's
+  committed lock — 2.22.0 at M0 from its `^2.9.0` constraint — against a
+  current OpenSSH sshd in four configs — defaults,
+  `rsa-sha2-256/512`-only,
   `chacha20-poly1305@openssh.com` + `curve25519`/post-quantum-preferring
   kex, and an ed25519-hostkey-only config. Record what negotiates, what
   fails, and the exact error text.
@@ -119,10 +121,9 @@ class BenchResult {
   // bytes/elapsedUs once rows merge across runs.
   double get mbPerSec => bytes / elapsed.inMicroseconds;
   final String? note;         // negotiation details, failure text
-  final String dartssh2Rev;   // dartssh2 rev under test (pin or patched
-                              // fork branch) — structured, so a merged
-                              // report never mistakes a hashing-off fork
-                              // row for an unpatched-Séance one
+  final String dartssh2Version; // exact hosted version in the harness lock —
+                                // structured so dependency drift cannot mix
+                                // unlike rows in one report
   final String seanceRev;     // seance_core git-pin rev under test
   final int? rttMs;           // measured RTT for shaped links (null on
                               // LAN-class rows) — the MEASURED value, never
@@ -140,7 +141,7 @@ class BenchResult {
     required this.bytes,
     required this.elapsed,
     this.note,
-    required this.dartssh2Rev,
+    required this.dartssh2Version,
     required this.seanceRev,
     this.rttMs,
     required this.timestampUtc,
@@ -150,7 +151,7 @@ class BenchResult {
   Map<String, Object?> toJson() => {
         'scenario': scenario,
         'bytes': bytes,
-        'dartssh2Rev': dartssh2Rev,
+        'dartssh2Version': dartssh2Version,
         'seanceRev': seanceRev,
         'rttMs': rttMs,
         'elapsedUs': elapsed.inMicroseconds, // µs — LAN 1 MB runs finish
@@ -172,7 +173,7 @@ class BenchResult {
         bytes: json['bytes']! as int,
         elapsed: Duration(microseconds: json['elapsedUs']! as int),
         note: json['note'] as String?,
-        dartssh2Rev: json['dartssh2Rev']! as String,
+        dartssh2Version: json['dartssh2Version']! as String,
         seanceRev: json['seanceRev']! as String,
         rttMs: json['rttMs'] as int?,
         timestampUtc: DateTime.parse(json['timestampUtc']! as String),

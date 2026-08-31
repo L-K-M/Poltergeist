@@ -1,0 +1,9 @@
+Include /etc/ssh/fixture/sshd_config.common
+HostKey /run/sshd-hostkeys/ssh_host_ed25519_key
+HostKey /run/sshd-hostkeys/ssh_host_rsa_key
+Subsystem sftp internal-sftp
+
+Match User poltergeist
+    ChrootDirectory /srv/sftp
+    ForceCommand internal-sftp -d /home/poltergeist
+    DisableForwarding yes

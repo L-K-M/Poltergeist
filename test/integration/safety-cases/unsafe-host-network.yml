@@ -1,0 +1,4 @@
+services:
+  fixture:
+    image: scratch
+    network_mode: host

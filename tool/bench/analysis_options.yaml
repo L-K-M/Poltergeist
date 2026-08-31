@@ -1,0 +1,13 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+  errors:
+    # The M0 harness intentionally reaches Séance's concrete adapter.
+    implementation_imports: ignore
+
+linter:
+  rules:
+    - prefer_final_locals
+    - unawaited_futures

@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
 
 # Least privilege: the jobs only need to read the repo.
 permissions:
@@ -30,12 +32,22 @@ jobs:
           sdk: stable
       - name: Resolve workspace
         run: dart pub get
+      - name: Resolve M0 benchmark harness
+        working-directory: tool/bench
+        run: dart pub get
       # Packages are discovered dynamically so adding one never needs a
       # workflow edit — but paths stay explicit (never a bare `dart analyze`
       # at the root: once app/poltergeist_app exists it would try to resolve
       # the Flutter app and fail without the Flutter SDK).
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
+      - name: Analyze release gate
+        run: dart analyze tool/license_gate
+      - name: Analyze M0 benchmark harness
+        working-directory: tool/bench
+        run: dart analyze
+      - name: Analyze integration fixture tools
+        run: dart analyze test/integration
       - name: Test
         run: |
           dirs=""
@@ -46,6 +58,66 @@ jobs:
             echo "no package has a test/ directory yet"; exit 1
           fi
           dart test $dirs
+      - name: Test release gate
+        run: dart test tool/license_gate/test
+      - name: Test M0 benchmark harness
+        working-directory: tool/bench
+        run: dart test test
+      - name: Test integration fixture tools
+        run: dart test test/integration/check_config_test.dart
+      - name: Validate rendered integration fixture
+        run: |
+          test/integration/test-fixture-safety.sh
+          source test/integration/lib/fixture.sh
+          check_rendered_config
+      # D30 allows pre-license pins in development, so PR CI checks the
+      # fail-closed release wiring without requiring the upstream license yet.
+      - name: Guard Séance release gate
+        run: dart run tool/license_gate/bin/check.dart --marker-only
+
+  # M0 measurements are expensive and historical, not a standing PR budget.
+  # Label the M0 PR `m0-bench`, or dispatch manually, to reproduce the report.
+  m0_bench:
+    name: M0 SSH fitness measurements
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'm0-bench')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve benchmark harness
+        working-directory: tool/bench
+        run: dart pub get
+      # Bootstrap the frozen legacy fixture; removed once its digest is pinned.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish legacy fixture image
+        run: |
+          docker build \
+            --file test/integration/sshd-legacy/Dockerfile \
+            --tag ghcr.io/l-k-m/poltergeist-sshd-legacy:m0-bullseye \
+            test/integration
+          docker push ghcr.io/l-k-m/poltergeist-sshd-legacy:m0-bullseye
+      - name: Run fixture and measurements
+        run: test/integration/run.sh --lifecycle-only -- tool/bench/run.sh
+      # JSON evidence contains no Séance code or executable artifact (D30).
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m0-bench-results
+          path: tool/bench/bench-results.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # The Flutter jobs below activate themselves the moment app/poltergeist_app
   # lands on the branch under test — no workflow edit needed. Until then they
@@ -158,15 +230,9 @@ jobs:
       - name: Build
         working-directory: app/poltergeist_app
         run: flutter build ${{ matrix.build }}
-      # Exercise the same packaging the release workflow ships (keep the two
-      # in step) and expose the artifacts for inspection on every CI run.
+      # Exercise the same packaging the release workflow ships. Do not upload
+      # binaries from ordinary CI: before PR-S0, a build may embed a permitted
+      # development-only Séance pin whose tree grants recipients no rights.
       - name: Package Linux artifacts (.deb + AppImage)
         if: startsWith(matrix.target, 'linux')
         run: scripts/package-linux.sh --output-dir dist-packages
-      - name: Upload Linux packages
-        if: startsWith(matrix.target, 'linux')
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-${{ matrix.flavor }}-packages
-          path: dist-packages/*
-          if-no-files-found: error

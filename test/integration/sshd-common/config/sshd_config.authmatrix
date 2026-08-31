@@ -1,0 +1,20 @@
+Include /etc/ssh/fixture/sshd_config.common
+HostKey /run/sshd-hostkeys/ssh_host_ed25519_key
+HostKey /run/sshd-hostkeys/ssh_host_rsa_key
+Subsystem sftp internal-sftp
+
+Match User password-only
+    PubkeyAuthentication no
+    KbdInteractiveAuthentication no
+    PasswordAuthentication yes
+
+Match User keyboard-only
+    PubkeyAuthentication no
+    PasswordAuthentication no
+    KbdInteractiveAuthentication yes
+    AuthenticationMethods keyboard-interactive
+
+Match User rejected-key
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PubkeyAuthentication yes

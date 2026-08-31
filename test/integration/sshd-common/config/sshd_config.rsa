@@ -1,0 +1,4 @@
+Include /etc/ssh/fixture/sshd_config.common
+HostKey /run/sshd-hostkeys/ssh_host_rsa_key
+HostKeyAlgorithms rsa-sha2-512,rsa-sha2-256
+Subsystem sftp internal-sftp
