@@ -209,10 +209,13 @@ permissions · D29 mobile hooks · D30 Séance license
   kex); verify concurrent/pipelined requests on one SFTP channel actually
   work in dartssh2. Fallback ladder if it underperforms: contribute upstream
   → multiple channels/connections to compensate → document the ceiling → FFI
-  to **libssh2** (BSD-3-Clause — license-compatible with the
-  Unlicense/D30 stance; deliberately not LGPL `libssh`, whose
-  notice/relinking obligations would contradict D30's friction-free
-  goal at the bottom of the ladder) as a last resort. The connection-pool and sync-scan designs are
+  to **libssh2** (BSD-3-Clause — permissive; its one obligation,
+  carrying the libssh2 notice in a THIRD-PARTY-NOTICES file D23's
+  releases would ship anyway, is acceptable under D30. LGPL `libssh`
+  is avoided because *static FFI embedding* — the form this fallback
+  would take — triggers its heavier relinking/source-availability
+  duties; dynamic linking would be lighter, but is not how a Dart FFI
+  fallback ships) as a last resort. The connection-pool and sync-scan designs are
   not finalized until M0 reports.
 - **D12 — Numeric performance budgets** (tracked as benchmarks in CI, 08):
   first paint of a 10k-entry local directory < 150 ms; 100k entries < 1 s

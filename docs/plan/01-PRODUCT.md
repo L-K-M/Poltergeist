@@ -125,7 +125,10 @@ decision that makes it real.
 1. **WinSCP-grade sync preview with Transmit-grade looks, on all three
    desktops.** A typed `SyncPlan` that *is* the preview — per-item veto,
    direction and action legible per row, executor runs exactly what was
-   reviewed (D6). Nobody ships this cross-platform. Flagship feature.
+   reviewed (D6). Nobody ships this combination cross-platform — the
+   preview-grade sync, the polish, and all three desktops at once (the §3
+   table's FreeFileSync and rsync GUIs each carry one piece, never the
+   set). Flagship feature.
 2. **E2E-encrypted, vendor-neutral bookmark backup.** Bookmark records travel
    inside Séance's existing encrypted-record protocol (`EncryptedRecord`, a
    new `RecordKind`) to a server the user can self-host (D4, D18). Panic Sync
@@ -143,9 +146,12 @@ decision that makes it real.
    any external editor via `EditorRegistry`, managed checkout with SHA-256
    conflict authority (D7) — WinSCP's machinery, Cyberduck's breadth, plus a
    real built-in editor neither has.
-6. **One SSH stack shared with a terminal sibling.** Keys, known-hosts pins,
+6. **One SSH stack shared with a terminal sibling.** Identity-file keys,
+   known-hosts pins,
    TOFU prompts, and 2FA behave identically in Séance and Poltergeist because
-   they are the same code (D2, D5); "open terminal here" / "open files here"
+   they are the same code (D2, D5 — ssh-agent and ProxyJump land in the
+   first post-1.0 fast-follow, D10, so at v1 the parity claim is scoped
+   to identity-file auth); "open terminal here" / "open files here"
    cross-links. Termius bundles both and rents the privilege; MobaXterm
    and Bitvise bundle both too, but as Windows-only, terminal-first
    tools — none pairs a first-class transfer client with a first-class
@@ -191,7 +197,8 @@ is no "we" at runtime — that is the point).
 >
 > Poltergeist is open source and free. It has no account to create, no
 > telemetry, no analytics, no crash reporting, and no installer bundleware.
-> It phones home for exactly one thing: an optional, link-only check that a
+> Beyond the servers you deliberately connect or back up to, it phones
+> home for exactly one thing: an optional, link-only check that a
 > newer release exists — it tells you, you decide, nothing auto-installs.
 >
 > Passwords and secrets Poltergeist saves for you are protected through
@@ -315,7 +322,12 @@ party* needs to consume, fork, or
 redistribute either repo or anything built from it, and what the
 copy-with-attribution step waits for as a **hard gate**: no Séance
 source is copied into Poltergeist until the D30 license PR (PR-S0)
-merges on Séance `main` — sequencing imposed by **D30**, which D2's
+merges on Séance `main` **with a permissive, attribution-compatible
+license** — the gate is content-aware, not a merge-event checkbox: if
+PR-S0 somehow landed anything else (a copyleft term, say), D30 reopens
+rather than proceeding under PORTS.md alone, because provenance records
+conflicts, it does not resolve them — sequencing imposed by **D30**,
+which D2's
 copy-with-attribution step respects. There is no upstream-veto risk to
 plan around: both repos are the same owner's, so a stalled PR-S0 is a
 scheduling risk (07 §6 risk 4), never a rejection — and never a reason
