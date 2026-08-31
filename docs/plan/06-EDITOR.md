@@ -61,8 +61,13 @@ class BuiltInTextDocument {
 - 4 MiB cap checked on `file.length()` **and** on the bytes actually read.
 - Read-stability check: SHA-256 streamed before and after `readAsBytes()`;
   mismatch throws "changed while being opened" (cheap TOCTOU insurance).
-- Strict UTF-8 decode; NUL scan; BOM detected from the first three bytes;
-  CRLF detection by majority vote (`\r\n` count vs lone-`\n` count via
+- Strict UTF-8 decode; NUL scan; BOM detected from the first three
+  bytes **and stripped from the in-memory text**; CRLF majority vote
+  runs on the **raw decoded text first**, then `\r\n` and lone `\r`
+  fold to `\n` for `BuiltInTextDocument.text` — detection before
+  transformation, or `lfCount` would always win — upholding the
+  always-LF/no-BOM in-memory invariant the controller and round-trip
+  tests assume; the vote itself compares (`\r\n` count vs lone-`\n` count via
   `(?<!\r)\n` — valid Dart: `RegExp` lookbehind has been supported since
   Dart 2.4 on the VM — a VM/desktop guarantee, not a dart2js/Flutter-web
   one, where the underlying JS engine decides — and this is Séance's
@@ -94,10 +99,12 @@ differently"):
    mismatch means another program wrote the local file — rename back and
    throw the "changed in another editor. Reopen it…" conflict.
 4. Verify nothing re-created the target mid-save; re-apply the original
-   file's mode to the temp sibling **before** the rename — the temp was
-   created at umask default (typically 0644), and renaming it over a
-   §3.1-hardened 600 checkout would silently make the plaintext
-   group/world-readable on the very first save (PORTS-noted if Séance's
+   file's mode to the temp sibling **before** the rename — with step
+   1's chmod the temp is already 0600, so this restores a 0644
+   original to 0644 rather than silently tightening it (in a saver
+   *lacking* step 1's chmod, this same step is what stops a
+   umask-default 0644 temp landing over a §3.1-hardened 600 checkout —
+   the two chmods guard opposite directions and neither is redundant) (PORTS-noted if Séance's
    saver lacks this; `CheckoutManager.reconcile` re-asserts 600 on
    POSIX when it re-hashes, catching external editors' atomic saves
    too — riding §3.3's existing triggers, which bound the exposure: the
@@ -116,7 +123,13 @@ differently"):
    accumulate invisibly **in app-owned space**: inside checkout dirs
    (§3.1), `CheckoutManager.reconcile` sweeps stale
    `*.poltergeist-*.edit`/`.backup` siblings matched by §3.3's exact
-   generated patterns — skipping any modified within the current save
+   generated patterns — **never the record's own recorded checkout
+   basename**: a remote file legitimately *named* like a temp checks
+   out under that very name, and the record's basename is data, not a
+   sweepable temp (the sweep's test plants exactly that decoy —
+   a checkout whose recorded name matches the pattern — and asserts it
+   survives; same principle as §3.3's pattern-vs-prefix debouncer
+   rule) — skipping any modified within the current save
    window, and **only when the sibling's target file still exists**: a
    `.backup` beside a *missing* target is the sole surviving pre-save
    copy (a crash landed between step 3's `rename(file → backup)` and
@@ -134,7 +147,9 @@ differently"):
 6. `finally`: close any open handle, delete leftover temp. The size cap is
    re-checked on the encoded output.
 
-Line endings are re-normalized on save (fold to `\n`, expand to CRLF only
+Line endings are re-normalized on save (fold `\r\n` **and any
+surviving lone `\r`** to `\n` — a `\r\n`-only fold could not produce
+the pinned lone-`\r` normalization below — then expand to CRLF only
 when the target ending is CRLF) and the BOM re-prepended — what the user
 edits is always LF/no-BOM in memory; the disk form is reconstructed.
 **Round-trip byte fidelity is a tested feature** for files with a single
@@ -245,7 +260,10 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   usage never exercised with a null `onUpload`.
   `onSaved` implementations must not throw: an exception there would
   replace the original upload error (Dart `finally` semantics), so
-  `reconcile` swallows and logs its own failures.
+  `reconcile` swallows and logs its own failures — and never touches
+  content: §3.3 defines it as a local re-hash (plus §3.4's stat-only
+  repair), so a cancelled escalation can never fast-forward the remote
+  over just-saved local edits through this path.
 - Edits made during a save stay unsaved: `_savedText` is set to the value
   captured at save start so the dirty flag re-arms (the ported widget test
   with two `Completer`s guards this race).
@@ -281,7 +299,7 @@ at port time:
 | `lib/ui/built_in_text_editor.dart` | `lib/ui/built_in_text_editor.dart` | temp suffixes `.poltergeist-*`; toast/mono/basename injected as parameters (§2.3) |
 | `lib/ui/editor_syntax.dart` | `lib/ui/editor_syntax.dart` | Poltergeist theme values; §7 language additions |
 | `lib/services/managed_remote_file.dart` | `lib/services/managed_remote_file.dart` | none |
-| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch gate on the orphan sweep** — only current-epoch, marker-verified, abandoned-or-empty unindexed dirs may be removed; old-epoch dirs and markerless dirs holding any file never (§3.6 — fixes Séance issue #55, port-back candidate); filename sanitizer extended with Windows reserved-name handling if Séance's lacks it (§3.1) |
+| `lib/services/managed_remote_file_store.dart` | `lib/services/managed_remote_file_store.dart` | checkout dir `checkouts/` (Séance: `sftp-checkouts/`); **epoch gate on the orphan sweep** — only current-epoch, marker-verified, abandoned-or-empty unindexed dirs may be removed; old-epoch dirs and markerless dirs holding any file never **via the sweep** — their reclaim path is §3.7's user-driven review dialog, which lists them as recovered files and deletes a dir when its last file is discarded, so "never swept" is not "never deletable" (§3.6 — fixes Séance issue #55, port-back candidate); filename sanitizer extended with Windows reserved-name handling if Séance's lacks it (§3.1) |
 | `lib/services/atomic_file.dart` | `lib/services/atomic_file.dart` | temp suffix parameterized (03 §8.2's own example); `quarantineCorruptFile` gets a timestamp suffix (§3.6, port-back candidate) |
 | `lib/services/external_file_opener.dart` | `lib/services/external_file_opener.dart` | channel `poltergeist/files`; reserved ids `poltergeist.system` / `poltergeist.builtin` |
 
@@ -377,8 +395,11 @@ abstract class CheckoutManager extends ChangeNotifier {
   designed refusal path; a Windows checkout test for `nul.conf` pins
   it, and the §2.5 divergence row records it if Séance's helper lacks
   the handling. Linux **and macOS** checkout dirs/files get mode
-  700/600 — and so do `managed_remote_files.json` and the atomic-write
-  temp that replaces it: the index maps server ids to the remote paths
+  700/600 — and so do `managed_remote_files.json`, the atomic-write
+  temp that replaces it, and every `quarantineCorruptFile` destination
+  (an explicit chmod 600 after the move, never rename-preserved modes —
+  a quarantined index predating the restrict helper would otherwise
+  keep whatever laxer mode it had): the index maps server ids to the remote paths
   the user edits (private keys, sensitive configs), a disclosure of its
   own at the umask default (plaintext secrets may pass through the
   checkouts; the macOS default umask
@@ -396,7 +417,15 @@ abstract class CheckoutManager extends ChangeNotifier {
 `checkout(serverId, entry, {maximumBytes})`:
 
 1. Regular files only; symlinks and directories refuse with the typed
-   `unsupported` error. The record's `uuidV4()` id is minted **here**,
+   `unsupported` error. The existing-record and flight-map checks
+   below run **before** any new id is minted — the manager itself
+   enforces one record per `(serverId, remotePath)`, so a second
+   `checkout()` from any entry point returns the existing record
+   rather than minting a duplicate record and directory (§3.1's
+   focus-the-existing-tab rule is the UI face of this guard, not its
+   enforcement; tested: two `checkout()` calls for one key yield one
+   record and one directory). Only for a genuinely new key is the
+   record's `uuidV4()` id then minted,
    first — §3.1 keys the checkout directory by its hash, so the id must
    exist before step 2 touches the filesystem (a same-basename
    collision test pins it: two files named `nginx.conf` at different
@@ -434,8 +463,10 @@ abstract class CheckoutManager extends ChangeNotifier {
    too-large reason string — the built-in editor's loader re-enforces the
    cap at open as the final guard, but the early refusal beats
    open-then-refuse). Flight-map entries are removed on failure or
-   cancellation so concurrent waiters retry instead of observing a dead
-   future. Checkouts and destructive mutations share **one per-key
+   cancellation so the **next** `checkout` for the key starts a fresh
+   download; waiters already joined to the failed flight fail with the
+   shared error — no automatic retry loop against a persistently
+   failing server, and no waiter ever observes a dead future. Checkouts and destructive mutations share **one per-key
    serialization**: `discard` (§3.7's Discard/Forget) and
    `migrateRename`'s record rewrite queue behind any in-flight
    `checkout` for the same key and vice versa — a `checkout` racing a
@@ -505,7 +536,10 @@ Kept exactly from Séance (03 §7.5 already reserves this design):
 - A copy turning dirty queues a **12 s action toast**:
   `"nginx.conf" changed locally. Upload it?` with an `Upload` action —
   guarded by prompted/uploading sets so a built-in save-and-upload racing
-  the watcher never shows a stale prompt. Because the toast is transient,
+  the watcher never shows a stale prompt, and disabled while
+  disconnected (tooltip `Connect to upload`, matching §3.7's dialog —
+  the same act on both surfaces must not dead-end into a raw
+  connection error on one of them). Because the toast is transient,
   dirty copies also raise a **persistent indicator**: a per-file badge on
   the entry in any pane showing it, plus a pane-header chip
   `2 local edits` that opens the §3.7 review dialog — both clear only on
@@ -584,7 +618,16 @@ escalation), lifted whole:
    dirty and the prompt machinery live); record updated in the store;
    temp snapshot deleted in a `finally` on **every** exit path —
    success, the step-2 conflict throw, and a step-3 upload failure
-   alike, though this sentence sits in the success step: an aborted
+   alike — and, for the one exit no `finally` covers, process death:
+   §3.6's load-time pass (creation mutex held, before the manager
+   accepts operations, so no upload can be in flight) also removes
+   `.poltergeist-<uuid>.upload` siblings from managed checkout dirs —
+   matched by the exact generated pattern and never the record's own
+   recorded basename, the §2.1 sweep's decoy rule — since a crashed
+   upload's plaintext snapshot would otherwise strand invisibly
+   forever (the §3.6 sweep only handles unindexed dirs, the watcher
+   ignores the pattern, and §3.7 lists only recordless dirs), though
+   this sentence sits in the success step: an aborted
    upload must not leave a `.poltergeist-<uuid>.upload` plaintext
    behind that no record references and §3.6/§3.7 can therefore never
    surface or clean (conflicts are a routine path, so the leak would
@@ -706,7 +749,18 @@ never regress is called out by name in review:
   are either empty or carry an explicit `abandoned` marker: `remove`
   and a cancelled/failed checkout write that marker (under the same
   mutex as the epoch marker) when they intentionally orphan a dir, so
-  the sweep has a disposition trail — an unreferenced dir that still
+  the sweep has a disposition trail — and a checkout writes the marker
+  **optimistically before the first payload byte, clearing it only
+  after `store.put`**: a crash mid-download then leaves the marker and
+  the sweep removes the truncated partial instead of presenting it in
+  `Recovered files` as if it were the user's edit (which, opened and
+  re-uploaded through a pane, would overwrite the good remote copy
+  with a truncation). The two windows this widens stay safe: a crash
+  between download completion and `put` sweeps a complete but
+  recordless copy — no editor ever opened it, trivially re-downloaded —
+  and a crash between `put` and the clear leaves a *referenced* dir,
+  which the sweep never touches regardless of markers — an
+  unreferenced dir that still
   holds payload files *without* the marker is never swept but surfaces
   through §3.7's `Recovered files` like an old-epoch dir, because the
   paths that produce one (a record lost to a future bug, a partial
@@ -737,9 +791,16 @@ never regress is called out by name in review:
   `reconcileAll`) could meet every deletion criterion against a live
   checkout. Load-time-only closes that window by construction: no
   checkout can be in flight before the manager accepts operations —
-  and the DoD regression test attempts a sweep with a checkout parked
-  between marker-write and first payload byte and asserts the dir
-  survives. A fresh
+  and the DoD regression test pins **the guard, not the routine**:
+  with a checkout parked between marker-write and the step-2 exclusive
+  create, invoking the sweep after the manager has accepted operations
+  is a rejected no-op and the dir survives. Stated plainly because the
+  routine alone would *not* protect it: "empty" means "contains no
+  directory entries", the parked dir satisfies every deletion
+  criterion, and the load-time-only guard is the sole protection —
+  which is exactly what the test must assert (a test that ran the
+  routine and expected survival would be unimplementable; one that ran
+  it before operations began would pass vacuously). A fresh
   index (post-quarantine or first run) starts a new epoch — and the
   generation id is **minted fresh and unique per index lifecycle**: a
   UUIDv4 (or time-ordered UUIDv7, which additionally makes a rollback
@@ -777,7 +838,9 @@ them without a connection (Séance's `_RecoveredLocalEdits`, generalized):
   `Open` (a checkout-specific chain, deliberately *not* §4.2's plain
   local `Open` row, which goes straight to the OS default:
   `effectiveDefaultFor(path)` first; when that resolves to the built-in
-  editor and the checkout is > 4 MiB or non-UTF-8, fall back to the
+  editor and the checkout is > `builtInEditorMaximumBytes` (4 MiB —
+  the §3.2 symbol, named so the two thresholds can never drift apart)
+  or non-UTF-8, fall back to the
   system default instead of dead-ending in a built-in refusal; every
   resolution works offline on the local plaintext), `Upload`
   (disabled while disconnected, tooltip `Connect to upload`), `Discard…`
@@ -826,7 +889,7 @@ default-behavior-as-preference. Resolution of the two editing verbs:
 
 | Verb | Local file | Remote file |
 |---|---|---|
-| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open) — and that over-cap refusal, the early known-size one or §3.2's `_MaximumByteSink` abort when the size was unknown, is itself a fallback trigger, never a dead-end toast: Open re-resolves through the system-default chain (a fresh uncapped checkout, then OS-open); if the downloaded copy instead fails the built-in editor's own checks (non-UTF-8, binary), Open falls back to the system default on the checkout file — §3.7's rule, mirrored: a *default-resolution* chain never dead-ends in a built-in refusal; system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
+| Open | OS default application | `effectiveDefaultFor(path)` first, then checkout: built-in → checkout with the 4 MiB cap, refused from the known remote size *before* any download is queued (§3.2's early-refusal rule — a 90 MiB file must not download in full only to be refused at open) — where §3.2's `_MaximumByteSink` abort on an unknown-size stream is itself a fallback trigger, never a dead-end toast: Open re-resolves through the system-default chain (a fresh uncapped checkout, then OS-open — bandwidth was already being spent when the cap fired, and the §3.2 preflights still gate the fresh checkout), while the early **known-size** over-cap refusal routes per §1's refusal-is-a-router rule with **no** auto-fallback — auto-downloading the 90 MiB the early refusal just declined would defeat it (the paragraph below the table is the authority); if the downloaded copy instead fails the built-in editor's own checks (non-UTF-8, binary), Open falls back to the system default on the checkout file — §3.7's rule, mirrored: a *default-resolution* chain never dead-ends in a built-in refusal; system default / configured editor → checkout (§3.2, no cap), then OS-open / launch on the checkout file |
 | Edit in Poltergeist | built-in editor on the file directly | checkout with the 4 MiB cap — refused from the known remote size *before* any download is queued, same rule as the Open row's built-in branch — then built-in editor |
 | Open With ▸ (context menu) | chosen editor on the file directly | checkout (no cap), then chosen editor — except a choice of `poltergeist.builtin`, which takes the 4 MiB cap with the early refusal from the known remote size before any download is queued (same rule as the Open row's built-in branch) |
 
@@ -1031,12 +1094,17 @@ they clicked another row.
   `mtimeSeconds` being floored integer Unix seconds, so an int and a
   fractional double source can never encode the same file to two
   different keys — plus the
-  original extension, **sanitized**: kept only when it matches
-  `[A-Za-z0-9_-]{1,16}` (case preserved), dropped otherwise — remote
+  original extension, **sanitized**: kept only when it
+  **full-matches** `^[A-Za-z0-9_-]{1,16}$` (anchored — a bare
+  `hasMatch` substring test would pass `jpg:x` or a 100-char extension
+  because some valid slice exists inside it; case preserved), dropped
+  otherwise — remote
   names are server-controlled, so an "extension" can carry characters
   illegal in local filenames (Windows `:` `?` `*` `<` `>` `|`, control
-  bytes) or unbounded length, and the raw form would also write
-  server-chosen `.bat`/`.cmd` names into app-support; Quick Look and
+  bytes) or unbounded length (executable-looking extensions like
+  `.bat` do pass the charset rule and are deliberately kept — the
+  hash-named cache is never executed, and stripping them would break
+  extension-keyed preview of legitimate batch files); Quick Look and
   image decoding key type off the extension, so the sanitized form is
   kept whenever safe and an extensionless hash name falls back to
   content sniffing or the metadata card. JSON-encoding the fields
@@ -1060,11 +1128,25 @@ they clicked another row.
   mandates whole-file transfer — so unknown-size text streams under
   the preview-cache cap), the preview-cache cap otherwise (§5.1 Quick
   Look
-  productions have no kind cap) — and aborts at the limit: never
-  fetched whole to a certain refusal, never past the cache cap (§6's
-  rule, applied to every preview path; DoD covers the abort).
+  productions have no kind cap) — **but never silently past the §8
+  large-download threshold**: an unknown-size stream that reaches the
+  threshold pauses with a confirm-to-continue card (`Cancel` /
+  `Keep downloading` — resuming from the paused offset, up to the
+  abort cap), because "the §8 confirmation gates every production" is
+  only decidable up front from a known size, and without this pause an
+  unknown-size file would transfer up to the 512 MiB cache cap with
+  zero confirmation — and aborts at the limit: never
+  fetched whole to a certain refusal, never past the cache cap
+  (§3.2's byte-cap rule — the `_MaximumByteSink` mechanism — applied
+  to every preview path; DoD covers the abort).
 - Cache is LRU-capped at 512 MiB (setting, §8) with a `Clear Preview
-  Cache` button — enforced on every insert, evicting
+  Cache` button. Inserts download to a temp name and atomically rename
+  into place, with in-flight lookups deduped by key — a re-preview hit
+  racing the same key's download must never read a partial file; an
+  eviction that fails because the file is open (Windows unlink
+  semantics — Quick Look or the decoder holding it) is tolerated and
+  retried on the next enforcement pass, never a crash or a silent
+  permanent over-cap. Enforced on every insert, evicting
   least-recently-**used** first (a Quick Look production or re-preview
   hit refreshes recency — true LRU, not insertion-order FIFO, which
   would evict a hot entry while stale ones survive) until
@@ -1162,8 +1244,8 @@ PORTS.md (R10).
 | css | new family | `.css`, `.scss`, `.less` | block comments `/* */`; strings; numbers on; meta pattern for property names (`[-a-zA-Z]+` before `:`), honoring the engine's documented meta-group invariant; `//` line comments in `.scss`/`.less` are an **accepted gap** — a `//` rule would tokenize unquoted `url(http://…)` values as comments |
 | ruby | new family | `.rb`, `.rake`, `.gemspec`; basenames `Gemfile`, `Rakefile`, `config.ru`; shebang `ruby` | `#` line comments (boundary flag on), keywords, strings; `=begin/=end` deliberately omitted (BOL-anchored block comments are outside the engine's declarative shape — accept the gap, don't grow the engine) |
 | perl | new family | `.pl`, `.pm`; shebang `perl` | `#` line comments, keywords, strings; POD omitted for the same reason |
-| lua | new family | `.lua`; shebang `lua` | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords — equality-level long brackets (`[==[ … ]==]`, `--[==[ … ]==]`) are an **accepted gap**, stated like ruby's `=begin` and perl's POD: `--[==[` falls through to the `--` line-comment rule and a bare `[==[` matches nothing; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
-| Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments and `[section]` meta cover `.htaccess`; `.htpasswd` (`user:hash` lines) matches no ini rule and is mapped only so it opens as text rather than unknown — an accepted gap, stated so the detection tests don't imply coverage |
+| lua | new family | `.lua`; shebangs `lua`, `luajit`, `lua5.1`–`lua5.4` (matched directly and after `env`, without over-capturing other interpreters that merely start with "lua") | `--` line comments, `--[[ ]]` block comments — the block-comment rule declared before **both** the `--` line-comment rule and the `[[` multiline-string rule, so `--[[` is neither consumed as a comment-to-EOL (stranding `]]`) nor as a string — `[[ ]]` multiline strings, keywords — equality-level long brackets (`[==[ … ]==]`, `--[==[ … ]==]`) are an **accepted gap**, stated like ruby's `=begin` and perl's POD: `--[==[` falls through to the `--` line-comment rule and a bare `[==[` matches nothing; the smoke test must pin both `--[[ comment ]]` spanning lines and plain `[[ string ]]` |
+| Apache dot-configs | mapping only | basenames `.htaccess`, `.htpasswd` → ini family | ini's `#`-after-boundary comments cover `.htaccess` (Apache dot-files carry no `[section]` headers, so that rule simply never fires there — coverage is the comment rule alone); `.htpasswd` (`user:hash` lines) matches no ini rule and is mapped only so it opens as text rather than unknown — an accepted gap, stated so the detection tests don't imply coverage |
 
 Already covered upstream, no change needed: `php` maps to the c-family
 soup; nginx-style configs are covered by ini; `sql`, `xml/html`,
@@ -1176,7 +1258,7 @@ scripts pick up their shebang.
 One settings tab, structured like Séance's Files tab (its
 `settings_screen.dart` registry UI is the direct model — "80% reusable"
 per the research), using the immediate-persist model with Séance's
-reference idiom for toggles: capture requested value → save → newer
+reference idiom for **every control** — toggles, dropdowns, and numeric fields alike: capture requested value → save → newer
 in-flight change owns the apply → revert field and memory on failure.
 Sections (each with the `?` help-dialog affordance):
 
@@ -1253,7 +1335,9 @@ preference.
       branch, `Edit in Poltergeist`, and an `Open With ▸` choice of
       `poltergeist.builtin` — refuses over-cap files from the known
       remote size before any download is queued, and streams under
-      §3.2's byte cap when the size is unknown, aborting at the limit
+      §1's in-app cap (`builtInEditorMaximumBytes`, 4 MiB — the limit;
+      §3.2's `_MaximumByteSink` is only the mechanism that enforces
+      it) when the size is unknown, aborting at the limit
       instead of fetching the whole file (both paths tested).
 - [ ] Quick Look channel per §5.1 (show/update/hide/isVisible, panel
       control overrides); Space produces remote files through
@@ -1268,7 +1352,12 @@ preference.
 - [ ] §7 language additions land as data with smoke + detection tests and
       PORTS.md port-back notes.
 - [ ] Settings > Editing implements §8, including deep-links and the
-      immediate-persist revert idiom.
+      immediate-persist revert idiom; tests pin the removal surgery —
+      removing the current default resets it to System default, removing
+      an editor strips every per-extension default pointing at it,
+      removing one extension via Edit Extensions… strips only that
+      binding, and `effectiveDefaultFor` falls back to the global
+      default for each stripped extension.
 - [ ] All §1 refusal strings, dialog copy, and toasts live in ARB (D20)
       with the Séance-verbatim English values.
 
