@@ -161,7 +161,8 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   revisions a build actually embeds, not one package's `pubspec.yaml`;
   `seance_protocol` and `seance_core`
   may sit on different revs under D2's rev-pin hatch — and inspect each
-  pinned tree for any of `LICENSE`/`LICENSE.md`/`LICENCE`/`COPYING` —
+  pinned tree for any of
+  `LICENSE`/`LICENSE.txt`/`LICENSE.md`/`LICENCE`/`UNLICENSE`/`COPYING` —
   e.g. `git cat-file -e <rev>:LICENSE` for each name — because a repo
   whose HEAD carries a LICENSE can still have pre-license pinned revs),
   so a prematurely cut tag cannot publish binaries embedding unlicensed
@@ -261,8 +262,16 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   purges under the identical 30-day rule); sync deletions *and* the previous versions of files sync
   overwrites default to the same `.poltergeist-trash/<runId>/` rename-based
   trash — falling back to copy-then-delete when the rename fails
-  cross-filesystem (EXDEV, mirroring D26's local rule; 05's rail 5 owns
-  this fallback, including the interrupted-copy recovery it tests for) —
+  cross-filesystem (EXDEV for local pairs, mirroring D26's local rule; for
+  a remote pair the SFTP status code carries no errno, so *any* rename
+  failure triggers the fallback rather than one classified as
+  cross-device — including SFTP v3's fail-when-target-exists, which makes
+  trash-name collisions a routine trigger on the v3-only NAS/embedded
+  servers this plan targets, not an edge case; 05's rail 5 owns this
+  fallback, including the interrupted-copy recovery it tests for — 05's
+  own text states the fallback trigger as "cross-filesystem" without this
+  remote/errno distinction, a precision gap worth closing there too as a
+  follow-up, out of this PR's scope) —
   (overwrite backups sit behind their own `backups` knob — default
   `trash`, matching 05's `BackupPolicy` — independent of the deletion
   policy). One directory name everywhere;
@@ -424,7 +433,13 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   `draft: true` — producing the assets and the unsigned `SHA256SUMS`
   while still hidden, and
   `SHA256SUMS.asc` is attached by a separate, maintainer-approved step
-  (signed locally or via a hardware token) that then publishes the draft
+  (signed locally or via a hardware token), which — immediately before
+  publishing — re-verifies against the draft *as it currently stands*
+  that the signature validates over the on-release `SHA256SUMS` and that
+  those sums still digest-match every attached asset, aborting with the
+  release left drafted on any mismatch (so a workflow re-run on the tag,
+  or a race with the local signing step, can never publish a stale
+  signature alongside changed assets), and only then publishes the draft
   — before the release goes
   public, since a CI-resident key reduces the whole provenance claim to
   "trust GitHub/the CI runner" — exactly the release-channel compromise
@@ -482,7 +497,10 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   capability matrix; browsable archives; scheduled/watched sync;
   multi-window; Custom Tools (user scripts); content search on remotes;
   byte-preserving *operations* on non-UTF-8 remote filenames — v1's
-  policy for them (strict-decode; lossy display with a warning badge;
+  policy for them (strict-decode; lossy display with a warning badge,
+  paired with a byte-accurate escaped rendering wherever a lossy-render
+  collision could otherwise make two distinct flagged names look
+  identical (02 §13);
   operations on the flagged name terminally skipped — no retry affordance,
   since retry can never succeed — until byte-preserving handling lands;
   itemized with a tallied count in the same per-file reporting a transfer

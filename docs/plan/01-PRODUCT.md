@@ -84,7 +84,10 @@ ours).
 
 ## 3. Competitive positioning
 
-The field survey covered roughly twenty clients and file managers. The table
+The field survey (conducted August 2026) covered roughly twenty clients and
+file managers — a snapshot, not a standing claim: competitors ship, and a
+statement here about what a named product does or doesn't do is dated
+2026-08, not evergreen. The table
 records, per competitor, what Poltergeist takes and what it refuses. "Take"
 means the idea is scheduled somewhere in this plan; "refuse" means the
 refusal is deliberate and durable. A third category — deferred to v2
@@ -157,7 +160,11 @@ decision that makes it real.
    TOFU prompts, and 2FA behave identically in Séance and Poltergeist because
    they are the same code (D2, D5 — at v1 every shared auth path except
    ssh-agent and ProxyJump is in scope; those two land in the first
-   post-1.0 fast-follow, D10); "open terminal here" / "open files here"
+   post-1.0 fast-follow, D10 — which also defers hardware-security-key
+   auth, since Séance's own auth stack has no independent path to a
+   YubiKey or similar beyond ssh-agent; state this plainly rather than
+   let a security-conscious user discover it at first connect, since the
+   §3 XPipe row criticizes exactly this capability being gated); "open terminal here" / "open files here"
    cross-links (v1.x, 04 §7.1). Termius bundles both and rents the privilege; MobaXterm
    and Bitvise bundle both too, but as Windows-only, terminal-first
    tools — none pairs a first-class transfer client with a first-class
@@ -234,17 +241,27 @@ secret service, saving secrets **fails closed** rather than falling back
 to any on-disk key, so the claim stays unconditional); bookmark backup is whole-record sealed blobs in the
 existing encrypted-record protocol (all D18, D4). The update check reuses
 Séance's link-only banner pattern (D19, D23); the "phones home for exactly
-one thing" claim is enforced, not merely asserted — an 08 egress test
-audits the app's outbound destinations and fails on any host beyond its
-three allowances — the stub SFTP endpoint configured in its fixtures
-(standing in for the user's real servers, since a CI test has no real
-user configuration), the fixture sync server (only when backup is
-enabled),
-and the single update-check URL — gated on its own setting, not on
-backup being enabled (they are deliberately different conditions: backup
-is opt-in, the update check is opt-out per D19/D23, and conflating the
-two in the egress test would produce a false pass or false fail on this
-copy's flagship claim). Any future change that would
+one thing" claim is enforced, not merely asserted. An 08 egress test audits
+the app's outbound destinations and fails on any host beyond three
+allowances, each gated on its own condition:
+
+- the stub SFTP endpoint configured in the test's fixtures, standing in
+  for the user's real servers (a CI test has no real user configuration);
+- the fixture sync server — allowed only when backup is enabled, since
+  backup is opt-in;
+- the single update-check URL — allowed only when the update-check
+  setting is on, since it is opt-out per D19/D23.
+
+Backup and the update check are deliberately different conditions;
+conflating the two in the egress test would produce a false pass or a
+false fail on this copy's flagship claim. Destination alone is not the
+whole claim, either: an allowlisted host can still become a telemetry
+channel if what reaches it carries an identifier, so "link-only" means
+the update request is a plain GET of a static URL with no version
+string, platform hint, install identifier, or other payload — the
+response is compared locally — and the egress test asserts the request
+shape too, failing on any query parameter, non-standard header, or body
+sent to that URL, not just on the destination host. Any future change that would
 falsify a sentence of this copy requires editing the governing decision
 first — D18 (keystore sealing, TOFU, E2E blobs), D4 (bookmark records on
 the sync server), D23 (link-only update distribution), or D19
@@ -386,18 +403,25 @@ assumed**, by this audit procedure:
   another automated trace the block must not miss.
 - **Companion scan**: `%(trailers)` misses an attribution line stranded
   outside the final trailer block, so also run a whole-message sweep and
-  reconcile it against the sorted identity record above: `git
-  --no-replace-objects -c log.mailmap=false log
-  <pinned-SHA> -i --grep=co-authored-by --grep=signed-off-by
+  reconcile it against the sorted identity record above: `LC_ALL=C git
+  --no-replace-objects -c log.mailmap=false -c i18n.logOutputEncoding=utf-8
+  log <pinned-SHA> -i --grep=co-authored-by --grep=signed-off-by
   --grep=reported-by --grep=helped-by --grep=reviewed-by --grep=tested-by
   --grep=suggested-by --grep=co-developed-by --grep=acked-by
-  --grep=mentored-by --format='%H %an <%ae>'` — replace refs and mailmap
-  are pinned off here too, for the same reason as the main command above
-  (multiple `--grep`s OR by
+  --grep=mentored-by --format='%H %an <%ae>'` — the same config as the
+  main command above is pinned here too, `i18n.logOutputEncoding`
+  included: this sweep prints the identical `%an <%ae>` author bytes it
+  reconciles against that record, so an unpinned clone could make an
+  attribution that *is* in the record look absent from this sweep, or
+  vice versa (multiple `--grep`s OR by
   default, exactly as the external-hit procedure below already relies
   on). A commit this sweep lists whose attribution line is absent from
-  the sorted identity record means the block parse missed it — treat that
-  attribution exactly like an external hit, below.
+  the sorted identity record means the block parse missed it — first
+  confirm the matched text is an actual trailer-shaped line (`Kind-By:
+  Name <email>`), not prose merely mentioning a trailer kind (a
+  release-notes commit or a "add Signed-off-by support" tooling change),
+  and only then treat that attribution exactly like an external hit,
+  below.
 - **Scope**: walks **only the pin's ancestors** (the code actually
   embedded) — plain `git log <pinned-SHA>` traverses every parent
   transitively regardless of refs, so **no `--all`**, which would union
@@ -418,19 +442,24 @@ assumed**, by this audit procedure:
   conclusion additionally rests on Séance containing no vendored
   third-party code, checked on the same trigger as the audit itself —
   when the pin first lands and whenever the pinned ref changes — by
-  inspecting the tree diff old-pin..new-pin for new vendored directories
+  inspecting the tree diff (there is no old pin on first landing, so that
+  run diffs against the empty tree — `git diff $(git hash-object -t tree
+  /dev/null) <pin>` — and every later run uses `old-pin..new-pin`) for
+  new vendored directories
   or foreign license/copyright headers, never a one-time check: a
   vendoring commit added after an earlier check lands under the owner's
   own identity, invisible to the `git log` identity lines, so only
   re-scanning on every pin change catches it before it flows into a
   published binary.
 - **On an external hit**: pinpoint its exact commits by re-running the
-  audit scoped to that author (`git --no-replace-objects
-  -c grep.patternType=basic -c log.mailmap=false log
+  audit scoped to that author (`LC_ALL=C git --no-replace-objects
+  -c grep.patternType=basic -c log.mailmap=false
+  -c i18n.logOutputEncoding=utf-8 log
   <pinned-SHA> -i --author="<email>"
-  --committer="<email>" --grep="<email>"` — replace refs and mailmap are
-  pinned off here too, for the same reason as the main command above;
-  `grep.patternType` is pinned
+  --committer="<email>" --grep="<email>"` — the same config as the main
+  command above is pinned here too, for the same reason (this pinpoint
+  run's output feeds directly into `docs/PORTS.md`, so it needs the same
+  byte-stability); `grep.patternType` is pinned
   so a contributor's local config (e.g. `perl`) can't silently change
   what the escaping rule below means; git ORs `--author`,
   `--committer`, and `--grep` by default, so this catches the person as
