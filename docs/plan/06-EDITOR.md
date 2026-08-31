@@ -226,10 +226,13 @@ BuiltInTextEditorScreen({
   required String Function(String) basenameOf,   // remoteBasename from core
                                                  // for remote paths; local
                                                  // callers pass a platform-
-                                                 // aware basename (splits `\`
-                                                 // too — a Windows local
-                                                 // C:\… title must not
-                                                 // render the whole path)
+                                                 // aware basename — on Windows
+                                                 // it splits `\` too (a local
+                                                 // C:\… title must not render
+                                                 // the whole path there); on
+                                                 // POSIX `\` is a legal
+                                                 // filename byte and is never
+                                                 // split
 })
 ```
 
@@ -290,7 +293,7 @@ Kept exactly (02 §8.3 already reserves the editor-scope shortcuts):
   | upload returned false | `Saved locally; not uploaded.` — accompanied by the §3.4 conflict-escalation dialog when the cause was a remote change (false is also the result of cancelling that dialog); never a dead end |
   | upload threw | the local save stands and `onSaved` has reconciled the copy (the `finally`); no success toast — the exception propagates to the screen's normal error surface (Séance's behavior: the throw escapes the inner try) |
   | no upload requested (local-only) | `Saved locally.` |
-  | the local save itself threw (§2.1's size re-check, or the `changed in another editor. Reopen it…` conflict) | no success toast — the thrown error's message shows as a toast (Séance's catch: `showTopToastIn(context, message: error.toString())`, `built_in_text_editor.dart:512`); the ported error types must override `toString()` to return the bare §1/ARB message so this toast renders those strings exactly — never a default `Exception: ` prefix, or D20's localization can never reach the editor's most safety-critical toast (recorded in the §2.5 divergence row if Séance's types lack the override); neither `onUpload` nor `onSaved` runs, and the document stays dirty |
+  | the local save itself threw (§2.1's size re-check, or the `changed in another editor. Reopen it…` conflict) | no success toast — the thrown error's message shows as a toast (Séance's catch: `showTopToastIn(context, message: error.toString())`, `built_in_text_editor.dart:512`); the ported error types must override `toString()` to return the bare §1/ARB message so this toast renders those strings exactly — never a default `Exception: ` prefix, or D20's localization can never reach the editor's most safety-critical toast (recorded in the divergence entry of the port that owns those error types — §1's save-API port, since §2.5's table carries no row for them — if Séance's types lack the override); neither `onUpload` nor `onSaved` runs, and the document stays dirty |
 
 ### 2.5 Port mechanics: renames and PORTS.md entries
 
@@ -807,7 +810,8 @@ never regress is called out by name in review:
   swept, surfaced through §3.7's `Recovered files` — because the failure
   modes that produce one (crash mid-create, manual tampering, a future
   format change) are exactly the cases where deleting is unsafe. One
-  carve-out: a dir verified to contain **no files** — markerless *or*
+  carve-out: a dir verified to contain **no files other than the epoch and
+  abandoned markers themselves** — markerless *or*
   old-epoch — carries
   no payload to lose (a crash between mkdir and the marker write leaves
   the markerless kind; §3.7's per-file discards emptying an old-epoch
