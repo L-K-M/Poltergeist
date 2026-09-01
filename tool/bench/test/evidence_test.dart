@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:poltergeist_m0_bench/evidence.dart';
 import 'package:poltergeist_m0_bench/evidence_store.dart';
+import 'package:poltergeist_m0_bench/monotonic_clock.dart';
 import 'package:poltergeist_m0_bench/result_manifest.dart';
 import 'package:test/test.dart';
 
@@ -23,6 +24,27 @@ void main() {
     expect(decoded['finishedAtUtc'], isNull);
     expect(decoded['rows'], isEmpty);
     expect(decoded['attempts'], isEmpty);
+  });
+
+  test('rejects a lifecycle anchor beyond current uptime', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'm0-future-anchor-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    const currentUptime = Duration(seconds: 10);
+    final store = EvidenceStore(
+      '${directory.path}/bench-shard.json',
+      monotonicClock: () => currentUptime,
+    );
+
+    await expectLater(
+      store.start(
+        _identity(),
+        deadlineStartedAtMonotonic:
+            currentUptime + const Duration(microseconds: 1),
+      ),
+      throwsA(isA<EvidenceException>()),
+    );
   });
 
   test('finalizes success from rows and attempts atomically', () async {
@@ -121,6 +143,7 @@ void main() {
   test('package CLI enriches pending fixture identity at finish', () async {
     final directory = await Directory.systemTemp.createTemp('m0-cli-');
     addTearDown(() => directory.delete(recursive: true));
+    final workflowEnvironment = _workflowEnvironment();
     final envelopePath = '${directory.path}/bench-shard.json';
     final rowsPath = '${directory.path}/rows.json';
     final attemptsPath = '${directory.path}/attempts.json';
@@ -133,7 +156,7 @@ void main() {
       envelopePath,
       '--shard',
       'standard',
-    ], _workflowEnvironment);
+    ], workflowEnvironment);
     expect(started.exitCode, 0);
     final running = await EvidenceStore(envelopePath).read();
     expect(running.state, EvidenceState.running);
@@ -141,14 +164,14 @@ void main() {
     expect(
       running.deadlineStartedAtUtc,
       DateTime.fromMillisecondsSinceEpoch(
-        int.parse(_workflowEnvironment[_deadlineStartVariable]!),
+        int.parse(workflowEnvironment[_deadlineStartVariable]!),
         isUtc: true,
       ),
     );
     expect(
       running.deadlineStartedAtMonotonic,
       Duration(
-        microseconds: int.parse(_workflowEnvironment[_monotonicStartVariable]!),
+        microseconds: int.parse(workflowEnvironment[_monotonicStartVariable]!),
       ),
     );
 
@@ -164,7 +187,7 @@ void main() {
         '--attempts',
         attemptsPath,
       ],
-      {..._workflowEnvironment, ..._fixtureEnvironment},
+      {...workflowEnvironment, ..._fixtureEnvironment},
     );
     expect(finished.exitCode, 0);
     final envelope = await EvidenceStore(envelopePath).read();
@@ -183,6 +206,7 @@ void main() {
         'm0-cli-failure-',
       );
       addTearDown(() => directory.delete(recursive: true));
+      final workflowEnvironment = _workflowEnvironment();
       final envelopePath = '${directory.path}/bench-shard.json';
       final finishArguments = [
         'finish',
@@ -201,26 +225,26 @@ void main() {
         envelopePath,
         '--shard',
         'standard',
-      ], _workflowEnvironment);
+      ], workflowEnvironment);
       expect(started.exitCode, 0);
 
       final firstFinish = await _runPackageSource(
         finishArguments,
-        _workflowEnvironment,
+        workflowEnvironment,
       );
       expect(firstFinish.exitCode, 23);
       final terminalBytes = await File(envelopePath).readAsBytes();
 
       final repeatedFinish = await _runPackageSource(
         finishArguments,
-        _workflowEnvironment,
+        workflowEnvironment,
       );
       expect(repeatedFinish.exitCode, 23);
       expect(await File(envelopePath).readAsBytes(), terminalBytes);
 
       final mismatch = await _runPackageSource(
         [...finishArguments]..[exitStatusValueIndex] = '22',
-        _workflowEnvironment,
+        workflowEnvironment,
       );
       expect(mismatch.exitCode, 65);
       expect(await File(envelopePath).readAsBytes(), terminalBytes);
@@ -381,7 +405,7 @@ void main() {
   });
 }
 
-const _workflowEnvironment = {
+Map<String, String> _workflowEnvironment() => {
   'GITHUB_SHA': '0123456789abcdef0123456789abcdef01234567',
   'GITHUB_RUN_ID': '123',
   'GITHUB_RUN_ATTEMPT': '2',
@@ -391,7 +415,7 @@ const _workflowEnvironment = {
   'ImageOS': 'ubuntu24',
   'ImageVersion': '20260901.1',
   _deadlineStartVariable: '1788220800000',
-  _monotonicStartVariable: '123456789',
+  _monotonicStartVariable: '${HostMonotonicClock.read().inMicroseconds}',
 };
 
 const _deadlineStartVariable = 'POLTERGEIST_M0_STARTED_AT_EPOCH_MS';

@@ -33,12 +33,18 @@ class EvidenceStore {
     }
 
     final startedAtUtc = _clock().toUtc();
+    final startedAtMonotonic = _monotonicClock();
+    final deadlineMonotonic = deadlineStartedAtMonotonic ?? startedAtMonotonic;
+    if (deadlineMonotonic > startedAtMonotonic) {
+      throw const EvidenceException(
+        'Lifecycle deadline anchor exceeds current monotonic time.',
+      );
+    }
     await _write(
       SourceEnvelope.running(
         identity,
         deadlineStartedAtUtc: deadlineStartedAtUtc ?? startedAtUtc,
-        deadlineStartedAtMonotonic:
-            deadlineStartedAtMonotonic ?? _monotonicClock(),
+        deadlineStartedAtMonotonic: deadlineMonotonic,
         startedAtUtc: startedAtUtc,
       ),
     );

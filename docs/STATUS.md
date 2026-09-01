@@ -23,10 +23,12 @@ _Last updated: 2026-09-01 — M0 is in progress in draft PR #7._
    implemented. The measurement-only Séance fork is pinned to
    `142db7b40fd6bdaab35fe295267035dca547d240`, which contains S0 and S1.
    Runs `33458209337`, `33481554062`, and `33504660759` produced no complete
-   canonical artifact; partial rows are inadmissible. The shaped 1 GB cells
-   exceed GitHub-hosted runners' six-hour job limit. The plan and harness now
-   split those cells into twelve attributable single-sample jobs, checkpoint
-   every trial, and verify direction-correct transfers independently. Push the
+   canonical artifact; partial rows are inadmissible. Run `33534298280` stopped
+   in preflight because a test's fixed monotonic anchor exceeded the fresh
+   runner's uptime; no measurement job started. The shaped 1 GB cells exceed
+   GitHub-hosted runners' six-hour job limit. The plan and harness now split
+   those cells into twelve attributable single-sample jobs, checkpoint every
+   trial, and verify direction-correct transfers independently. Push the fixed
    measurement commit, dispatch the exact 13-job matrix, commit its validated
    canonical evidence, fill `docs/M0-DARTSSH2-REPORT.md`, finalize D7/D9 and
    pool defaults, then take the PR through review and merge. M0 closes

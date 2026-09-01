@@ -3,7 +3,8 @@
 <!-- m0-evidence-state: pending -->
 
 <!-- Finalize only from a complete, validated canonical artifact. Runs
-33458209337, 33481554062, and 33504660759 are partial and inadmissible. -->
+33458209337, 33481554062, and 33504660759 are partial; 33534298280 stopped in
+preflight. All are inadmissible. -->
 
 ## Verdict
 
