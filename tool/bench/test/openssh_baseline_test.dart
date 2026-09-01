@@ -28,8 +28,11 @@ while IFS= read -r line; do
   esac
 done
 ''';
-
 void main() {
+  test('budgets one hour for shaped uploads', () {
+    expect(baselineCommandTimeout, const Duration(hours: 1));
+  });
+
   test('completes commands from batch sentinels without a prompt', () async {
     final session = await _startSession();
 

@@ -158,6 +158,7 @@ void main() {
       final options = upload['with'] as YamlMap;
       expect(options['name'], '$_m0ArtifactPrefix-\${{ matrix.shard }}');
       expect(options['path'], _m0ResultsPath);
+      expect(options['if-no-files-found'], 'error');
       expect(options['overwrite'], isTrue);
     }
   });

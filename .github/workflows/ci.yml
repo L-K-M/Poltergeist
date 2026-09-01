@@ -152,7 +152,7 @@ jobs:
         with:
           name: m0-bench-results-${{ matrix.shard }}
           path: tool/bench/bench-results.json
-          if-no-files-found: warn
+          if-no-files-found: error
           overwrite: true
           retention-days: 14
       - name: Retry shard evidence upload
@@ -161,7 +161,7 @@ jobs:
         with:
           name: m0-bench-results-${{ matrix.shard }}
           path: tool/bench/bench-results.json
-          if-no-files-found: warn
+          if-no-files-found: error
           overwrite: true
           retention-days: 14
 

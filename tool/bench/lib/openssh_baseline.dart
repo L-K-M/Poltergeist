@@ -4,7 +4,8 @@ import 'dart:io';
 
 import 'config.dart';
 
-const baselineCommandTimeout = Duration(minutes: 30);
+// Shaped 1 GB uploads exceeded 30 minutes on a shared runner.
+const baselineCommandTimeout = Duration(hours: 1);
 const _baselineShutdownGracePeriod = Duration(seconds: 10);
 const _baselineForcedShutdownGracePeriod = Duration(seconds: 5);
 const _sentinelPrefix = 'POLTERGEIST_M0_SFTP_SENTINEL';
