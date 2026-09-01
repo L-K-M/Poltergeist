@@ -198,7 +198,7 @@ BenchResult _readResult(
   bytes: read.bytes,
   elapsed: read.elapsed,
   note: 'sha256=${read.digest}; $_trialNote',
-  rttMs: config.measuredRttMs,
+  rttEvidence: config.rttEvidence,
 );
 
 BenchResult _listingResult(
@@ -218,7 +218,7 @@ BenchResult _listingResult(
         'entries=${listing.entries}; '
         'entriesPerSecond=${entriesPerSecond.toStringAsFixed(1)}; '
         '$_trialNote',
-    rttMs: config.measuredRttMs,
+    rttEvidence: config.rttEvidence,
   );
 }
 

@@ -1,20 +1,45 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'config.dart';
 import 'fixture_data.dart';
 import 'harness.dart';
+import 'monotonic_clock.dart';
 import 'openssh_baseline.dart';
+import 'result_store.dart';
+import 'src/throughput_execution.dart';
 import 'ssh_driver.dart';
+import 'throughput_attempt.dart';
 
-const _warmupPayload = _Payload(
-  '1mb',
-  fixturePayload1MbBytes,
-  fixturePayload1MbSha256,
+export 'throughput_attempt.dart'
+    show
+        ThroughputLeg,
+        ThroughputReplicate,
+        ThroughputSampleSpec,
+        ThroughputVariant;
+
+const throughputSampleBudget = Duration(minutes: 315);
+const throughputSampleTransferMaximum = Duration(minutes: 240);
+const throughputSampleReserve = Duration(minutes: 30);
+const _warmupTransferMaximum = Duration(minutes: 10);
+const _normalTransferMaximum = throughputSampleTransferMaximum;
+const _warmupPayload = ThroughputExecutionPayload(
+  label: '1mb',
+  bytes: fixturePayload1MbBytes,
+  digest: fixturePayload1MbSha256,
 );
 const _payloads = [
   _warmupPayload,
-  _Payload('100mb', fixturePayload100MbBytes, fixturePayload100MbSha256),
-  _Payload('1gb', fixturePayload1GbBytes, fixturePayload1GbSha256),
+  ThroughputExecutionPayload(
+    label: '100mb',
+    bytes: fixturePayload100MbBytes,
+    digest: fixturePayload100MbSha256,
+  ),
+  ThroughputExecutionPayload(
+    label: '1gb',
+    bytes: fixturePayload1GbBytes,
+    digest: fixturePayload1GbSha256,
+  ),
 ];
 const _trialOrder = [
   ThroughputVariant.dartHashOn,
@@ -25,18 +50,12 @@ const _trialOrder = [
   ThroughputVariant.dartHashOn,
 ];
 const _sampleNote =
-    'samples=2; aggregate=median; pathPrimed=true; '
+    'samples=2; aggregate=floor-midpoint; pathPrimed=true; '
     'variantWarmup=1mb-per-trial; order=ABCCBA';
 
-enum ThroughputVariant { dartHashOn, dartHashOff, openssh }
-
-enum ThroughputLeg { download, upload }
-
-/// Splits the slow 1 GB upload without changing any measured trial.
 enum ThroughputSlice {
   full('full'),
-  withoutOneGigabyteUpload('without-1gb-upload'),
-  onlyOneGigabyteUpload('only-1gb-upload');
+  withoutShapedOneGigabyte('without-shaped-1gb');
 
   final String cliValue;
 
@@ -56,11 +75,84 @@ enum ThroughputSlice {
   bool includes(ThroughputLeg leg, int payloadBytes) {
     return switch (this) {
       full => true,
-      withoutOneGigabyteUpload =>
-        leg != ThroughputLeg.upload || payloadBytes != fixturePayload1GbBytes,
-      onlyOneGigabyteUpload =>
-        leg == ThroughputLeg.upload && payloadBytes == fixturePayload1GbBytes,
+      withoutShapedOneGigabyte => payloadBytes != fixturePayload1GbBytes,
     };
+  }
+}
+
+class ThroughputSampleDeadline {
+  final DateTime startedAtUtc;
+  final Duration _startedAtMonotonic;
+  final MonotonicClock _monotonicNow;
+
+  factory ThroughputSampleDeadline(
+    DateTime startedAtUtc, {
+    required Duration startedAtMonotonic,
+    MonotonicClock? monotonicNow,
+  }) {
+    if (!startedAtUtc.isUtc) {
+      throw ArgumentError.value(
+        startedAtUtc,
+        'startedAtUtc',
+        'The sample deadline must start in UTC.',
+      );
+    }
+    if (startedAtMonotonic.isNegative) {
+      throw ArgumentError.value(
+        startedAtMonotonic,
+        'startedAtMonotonic',
+        'The monotonic deadline anchor cannot be negative.',
+      );
+    }
+    final clock = monotonicNow ?? HostMonotonicClock.read;
+    if (clock() < startedAtMonotonic) {
+      throw StateError('The monotonic deadline clock moved back.');
+    }
+
+    return ThroughputSampleDeadline._(startedAtUtc, startedAtMonotonic, clock);
+  }
+
+  const ThroughputSampleDeadline._(
+    this.startedAtUtc,
+    this._startedAtMonotonic,
+    this._monotonicNow,
+  );
+
+  DateTime get expiresAtUtc => startedAtUtc.add(throughputSampleBudget);
+
+  Duration get remaining {
+    final elapsed = _monotonicNow() - _startedAtMonotonic;
+    if (elapsed.isNegative) {
+      throw StateError('The monotonic deadline clock moved back.');
+    }
+
+    return throughputSampleBudget - elapsed;
+  }
+
+  Duration transferLimit() => _limit(maximum: throughputSampleTransferMaximum);
+
+  Duration warmupLimit() => _limit(maximum: _warmupTransferMaximum);
+
+  void ensureReserve() {
+    if (remaining >= throughputSampleReserve) return;
+
+    throw StateError(
+      'The sample did not retain its ${throughputSampleReserve.inMinutes}-'
+      'minute evidence reserve.',
+    );
+  }
+
+  Duration _limit({required Duration maximum}) {
+    final available = remaining - throughputSampleReserve;
+    if (available <= Duration.zero) {
+      throw StateError(
+        'The sample cannot retain its ${throughputSampleReserve.inMinutes}-'
+        'minute evidence reserve.',
+      );
+    }
+    if (available < maximum) return available;
+
+    return maximum;
   }
 }
 
@@ -107,219 +199,217 @@ Future<List<BenchResult>> runThroughput(
   ThroughputSlice slice = ThroughputSlice.full,
 }) async {
   final scratch = await Directory.systemTemp.createTemp('poltergeist-m0-');
+  final store = ThroughputAttemptStore(
+    throughputAttemptOutputPath(config.outputFile),
+  );
+  final runtime = ThroughputExecutionRuntime(
+    config: config,
+    scratch: scratch,
+    store: store,
+  );
   final results = <BenchResult>[];
+  var succeeded = false;
+  final drivers = await _NormalDriverSet.open(config);
 
   try {
-    final dart = await _DartVariantConnections.open(config.endpoint);
-    try {
-      final openssh = await OpenSshBaseline.connect(
-        endpoint: config.endpoint,
-        identityFile: config.identityFile,
-      );
-      try {
-        final warmupFile = File('${scratch.path}/variant-warmup.bin');
-        await _createSparseFile(warmupFile, _warmupPayload.bytes);
+    for (final payload in _payloads) {
+      for (final direction in ThroughputLeg.values) {
+        if (!slice.includes(direction, payload.bytes)) continue;
 
-        for (final payload in _payloads) {
-          final runDownload = slice.includes(
-            ThroughputLeg.download,
-            payload.bytes,
-          );
-          final runUpload = slice.includes(ThroughputLeg.upload, payload.bytes);
-          if (!runDownload && !runUpload) continue;
-
-          final localFile = File('${scratch.path}/${payload.label}.bin');
-          await _createSparseFile(localFile, payload.bytes);
-
-          await _primeRemotePath(config, payload);
-          if (runDownload) {
-            final downloads = await collectCounterbalancedSamples(
-              (variant) => _download(
-                config: config,
-                dart: dart,
-                openssh: openssh,
-                payload: payload,
-                variant: variant,
-              ),
-              warmup: (variant) => _download(
-                config: config,
-                dart: dart,
-                openssh: openssh,
-                payload: _warmupPayload,
-                variant: variant,
-              ),
-            );
-            results.addAll(
-              _captureSamples(
-                config: config,
-                leg: ThroughputLeg.download,
-                payload: payload,
-                samples: downloads,
-              ),
-            );
-          }
-
-          if (!runUpload) continue;
-
-          await localFile.openRead().drain<void>();
-          final uploads = await collectCounterbalancedSamples(
-            (variant) => _upload(
-              config: config,
-              dart: dart,
-              openssh: openssh,
-              payload: payload,
-              localFile: localFile,
-              variant: variant,
-            ),
-            warmup: (variant) => _upload(
-              config: config,
-              dart: dart,
-              openssh: openssh,
-              payload: _warmupPayload,
-              localFile: warmupFile,
-              variant: variant,
-            ),
-          );
-          results.addAll(
-            _captureSamples(
-              config: config,
-              leg: ThroughputLeg.upload,
-              payload: payload,
-              samples: uploads,
-            ),
-          );
-        }
-      } finally {
-        await openssh.close();
+        final cellResults = await _runCounterbalancedCell(
+          config: config,
+          direction: direction,
+          payload: payload,
+          drivers: drivers,
+          runtime: runtime,
+        );
+        results.addAll(cellResults);
       }
-    } finally {
-      dart.close();
     }
+    succeeded = true;
+    return results;
+  } catch (error) {
+    throw BenchRunFailure('Throughput failed: $error', results);
   } finally {
-    await scratch.delete(recursive: true);
+    await drivers.close();
+    if (succeeded) await scratch.delete(recursive: true);
   }
-
-  return results;
 }
 
-Future<void> _primeRemotePath(BenchConfig config, _Payload payload) async {
-  final connection = await openBenchConnection(config.endpoint);
-  try {
-    final read = await connection.download(
-      path: '${config.remoteRoot}/fixtures/payload-${payload.label}.bin',
-      digestMode: DigestMode.disabled,
+Future<List<BenchResult>> runThroughputSample(
+  BenchConfig config,
+  ThroughputSampleSpec spec,
+) async {
+  final rttEvidence = config.rttEvidence;
+  final deadlineStartedAtUtc = config.deadlineStartedAtUtc;
+  final deadlineStartedAtMonotonic = config.deadlineStartedAtMonotonic;
+  if (config.linkName != 'rtt100' || rttEvidence == null) {
+    throw const BenchRunFailure(
+      'A shaped throughput sample requires seven-probe RTT evidence.',
+      [],
     );
-    if (read.bytes != payload.bytes) {
-      throw StateError(
-        '${payload.label}: primed ${read.bytes} != ${payload.bytes} bytes.',
-      );
-    }
-  } finally {
-    connection.close();
   }
-}
-
-Future<Duration> _download({
-  required BenchConfig config,
-  required _DartVariantConnections dart,
-  required OpenSshBaseline openssh,
-  required _Payload payload,
-  required ThroughputVariant variant,
-}) async {
-  final remotePath =
-      '${config.remoteRoot}/fixtures/payload-${payload.label}.bin';
-  if (variant == ThroughputVariant.openssh) {
-    return openssh.download(remotePath);
-  }
-
-  final hashMode = _hashMode(variant);
-  final sink = File('/dev/null').openWrite();
-  final stopwatch = Stopwatch()..start();
-  try {
-    final entry = await dart
-        .connectionFor(variant)
-        .remoteFileSystem
-        .download(remotePath, sink, computeHash: hashMode == HashMode.on);
-    stopwatch.stop();
-    validateThroughputEntry(
-      actualBytes: entry.size,
-      digest: entry.contentSha256,
-      expectedBytes: payload.bytes,
-      expectedDigest: payload.digest,
-      hashMode: hashMode,
+  if (deadlineStartedAtUtc == null || deadlineStartedAtMonotonic == null) {
+    throw const BenchRunFailure(
+      'A shaped throughput sample requires its fixture-start deadline.',
+      [],
     );
-    return stopwatch.elapsed;
-  } finally {
-    stopwatch.stop();
-    await sink.close();
-  }
-}
-
-Future<Duration> _upload({
-  required BenchConfig config,
-  required _DartVariantConnections dart,
-  required OpenSshBaseline openssh,
-  required _Payload payload,
-  required File localFile,
-  required ThroughputVariant variant,
-}) async {
-  final suffix = _variantName(variant);
-  final remotePath =
-      '${config.remoteRoot}/uploads/$suffix-${payload.label}.bin';
-  if (variant == ThroughputVariant.openssh) {
-    final elapsed = await openssh.upload(localFile.path, remotePath);
-    await openssh.remove(remotePath);
-    return elapsed;
   }
 
-  final hashMode = _hashMode(variant);
-  final stopwatch = Stopwatch()..start();
-  final connection = dart.connectionFor(variant);
-  final entry = await connection.remoteFileSystem.upload(
-    remotePath,
-    localFile.openRead(),
-    length: payload.bytes,
-    overwrite: true,
-    computeHash: hashMode == HashMode.on,
+  final deadline = ThroughputSampleDeadline(
+    deadlineStartedAtUtc,
+    startedAtMonotonic: deadlineStartedAtMonotonic,
   );
-  stopwatch.stop();
-
-  validateThroughputEntry(
-    actualBytes: entry.size,
-    digest: entry.contentSha256,
-    expectedBytes: payload.bytes,
-    expectedDigest: payload.digest,
-    hashMode: hashMode,
+  final scratch = await Directory.systemTemp.createTemp(
+    'poltergeist-m0-sample-',
   );
-  await connection.remoteFileSystem.delete(entry);
-  return stopwatch.elapsed;
+  final store = ThroughputAttemptStore(
+    throughputAttemptOutputPath(config.outputFile),
+  );
+  final runtime = ThroughputExecutionRuntime(
+    config: config,
+    scratch: scratch,
+    store: store,
+  );
+  ThroughputExecutionDriver? driver;
+  var succeeded = false;
+
+  try {
+    // Refuse before hashing 1 GB when the fixture setup spent the reserve.
+    deadline.transferLimit();
+    await runtime.prime(spec.direction, _payloads.last);
+    await runtime.prime(spec.direction, _warmupPayload);
+    driver = await _openDriver(config, spec.variant);
+    final scenario = _scenario(
+      spec.variant,
+      spec.direction,
+      _payloads.last,
+      config.linkName,
+    );
+
+    final evidence = await runtime.runTrial(
+      driver: driver,
+      scenario: scenario,
+      direction: spec.direction,
+      payload: _payloads.last,
+      warmupPayload: _warmupPayload,
+      ordinal: null,
+      replicate: spec.replicate,
+      warmupTimeout: deadline.warmupLimit,
+      trialTimeout: deadline.transferLimit,
+    );
+    deadline.ensureReserve();
+    final result = BenchResult.capture(
+      scenario: scenario,
+      bytes: _payloads.last.bytes,
+      elapsed: evidence.trial.elapsed!,
+      note:
+          'samples=1; aggregate=external-floor-midpoint; pathPrimed=true; '
+          'variantWarmup=1mb; replicate=r${spec.replicate.number}',
+      rttEvidence: rttEvidence,
+      throughputTrials: [evidence],
+    );
+    succeeded = true;
+    return [result];
+  } catch (error) {
+    throw BenchRunFailure('${spec.cliValue} failed: $error', const []);
+  } finally {
+    await driver?.close();
+    if (succeeded) await scratch.delete(recursive: true);
+  }
 }
 
-Iterable<BenchResult> _captureSamples({
+Future<List<BenchResult>> _runCounterbalancedCell({
   required BenchConfig config,
-  required ThroughputLeg leg,
-  required _Payload payload,
-  required CounterbalancedSamples samples,
-}) sync* {
-  for (final variant in ThroughputVariant.values) {
-    final openssh = variant == ThroughputVariant.openssh;
-    final note = openssh
-        ? '$_sampleNote; completion=batch-echo-drain'
-        : _dartSampleNote(variant, payload);
-    yield BenchResult.capture(
-      scenario:
-          '${_variantName(variant)}-${leg.name}-${payload.label}-${config.linkName}',
-      bytes: payload.bytes,
-      elapsed: samples.medianFor(variant),
-      note: note,
-      rttMs: config.measuredRttMs,
+  required ThroughputLeg direction,
+  required ThroughputExecutionPayload payload,
+  required _NormalDriverSet drivers,
+  required ThroughputExecutionRuntime runtime,
+}) async {
+  final trials = {
+    for (final variant in ThroughputVariant.values)
+      variant: <ThroughputTrialEvidence>[],
+  };
+  final replicateCounts = {
+    for (final variant in ThroughputVariant.values) variant: 0,
+  };
+
+  for (var index = 0; index < _trialOrder.length; index++) {
+    final variant = _trialOrder[index];
+    final driver = drivers.forVariant(variant);
+    final ordinal = index + 1;
+    final replicateIndex = replicateCounts[variant]!;
+    replicateCounts[variant] = replicateIndex + 1;
+    final replicate = ThroughputReplicate.values[replicateIndex];
+    final scenario = _scenario(variant, direction, payload, config.linkName);
+    final evidence = await runtime.runTrial(
+      driver: driver,
+      scenario: scenario,
+      direction: direction,
+      payload: payload,
+      warmupPayload: _warmupPayload,
+      ordinal: ordinal,
+      replicate: replicate,
+      warmupTimeout: () => _warmupTransferMaximum,
+      trialTimeout: () => _normalTransferMaximum,
     );
+    trials[variant]!.add(evidence);
   }
+
+  return [
+    for (final variant in ThroughputVariant.values)
+      _captureCellResult(
+        config: config,
+        direction: direction,
+        payload: payload,
+        variant: variant,
+        trials: trials[variant]!,
+      ),
+  ];
+}
+
+Future<ThroughputIntegrityEvidence> inspectLocalFile(
+  File file, {
+  required int expectedBytes,
+  required String expectedDigest,
+}) => inspectThroughputFile(
+  file,
+  expectedBytes: expectedBytes,
+  expectedDigest: expectedDigest,
+);
+
+BenchResult _captureCellResult({
+  required BenchConfig config,
+  required ThroughputLeg direction,
+  required ThroughputExecutionPayload payload,
+  required ThroughputVariant variant,
+  required List<ThroughputTrialEvidence> trials,
+}) {
+  final samples = trials.map((evidence) => evidence.trial.elapsed!).toList()
+    ..sort();
+  final elapsed = Duration(
+    microseconds: (samples[0].inMicroseconds + samples[1].inMicroseconds) ~/ 2,
+  );
+  final openssh = variant == ThroughputVariant.openssh;
+  final note = openssh
+      ? '$_sampleNote; completion=batch-echo-drain'
+      : _dartSampleNote(variant, payload);
+  return BenchResult.capture(
+    scenario: _scenario(variant, direction, payload, config.linkName),
+    bytes: payload.bytes,
+    elapsed: elapsed,
+    note: note,
+    rttEvidence: config.rttEvidence,
+    throughputTrials: trials,
+  );
 }
 
 enum HashMode { on, off }
 
-String _dartSampleNote(ThroughputVariant variant, _Payload payload) {
+String _dartSampleNote(
+  ThroughputVariant variant,
+  ThroughputExecutionPayload payload,
+) {
   final hashMode = _hashMode(variant);
   final digest = hashMode == HashMode.on ? '; sha256=${payload.digest}' : '';
   return '$_sampleNote; hash=${hashMode.name}$digest';
@@ -332,20 +422,12 @@ HashMode _hashMode(ThroughputVariant variant) {
   throw ArgumentError.value(variant, 'variant', 'OpenSSH has no hash mode');
 }
 
-String _variantName(ThroughputVariant variant) {
-  if (variant == ThroughputVariant.dartHashOn) return 'dart-hash-on';
-  if (variant == ThroughputVariant.dartHashOff) return 'dart-hash-off';
-  return 'openssh';
-}
-
-Future<void> _createSparseFile(File file, int bytes) async {
-  final handle = await file.open(mode: FileMode.write);
-  try {
-    await handle.truncate(bytes);
-  } finally {
-    await handle.close();
-  }
-}
+String _scenario(
+  ThroughputVariant variant,
+  ThroughputLeg direction,
+  ThroughputExecutionPayload payload,
+  String linkName,
+) => '${variant.cliValue}-${direction.name}-${payload.label}-$linkName';
 
 void validateThroughputEntry({
   required int? actualBytes,
@@ -365,40 +447,163 @@ void validateThroughputEntry({
   }
 }
 
-class _Payload {
-  final String label;
-  final int bytes;
-  final String digest;
+class _DartThroughputDriver implements ThroughputExecutionDriver {
+  final BenchSshConnection _connection;
 
-  const _Payload(this.label, this.bytes, this.digest);
+  @override
+  final ThroughputVariant variant;
+
+  const _DartThroughputDriver(this._connection, this.variant);
+
+  @override
+  Future<ThroughputTransferResult> download({
+    required String remoteSource,
+    required File localDestination,
+    required ThroughputExecutionPayload payload,
+    required Duration timeout,
+  }) => _connection.downloadToFile(
+    remotePath: remoteSource,
+    destination: localDestination,
+    digestMode: _digestMode,
+    timeout: timeout,
+  );
+
+  @override
+  Future<ThroughputTransferResult> upload({
+    required File localSource,
+    required String remoteDestination,
+    required ThroughputExecutionPayload payload,
+    required Duration timeout,
+  }) => _connection.uploadFile(
+    source: localSource,
+    remotePath: remoteDestination,
+    bytes: payload.bytes,
+    digestMode: _digestMode,
+    timeout: timeout,
+  );
+
+  DigestMode get _digestMode => _hashMode(variant) == HashMode.on
+      ? DigestMode.enabled
+      : DigestMode.disabled;
+
+  @override
+  Future<void> deleteRemote(String path, {required Duration timeout}) =>
+      _connection.deletePath(path).timeout(timeout);
+
+  @override
+  Future<void> close() async => _connection.close();
 }
 
-class _DartVariantConnections {
-  final BenchSshConnection _hashOn;
-  final BenchSshConnection _hashOff;
+class _OpenSshThroughputDriver implements ThroughputExecutionDriver {
+  final OpenSshBaseline _baseline;
+  var _closed = false;
 
-  const _DartVariantConnections._(this._hashOn, this._hashOff);
+  _OpenSshThroughputDriver(this._baseline);
 
-  static Future<_DartVariantConnections> open(BenchEndpoint endpoint) async {
-    final hashOn = await openBenchConnection(endpoint);
+  @override
+  ThroughputVariant get variant => ThroughputVariant.openssh;
+
+  @override
+  Future<ThroughputTransferResult> download({
+    required String remoteSource,
+    required File localDestination,
+    required ThroughputExecutionPayload payload,
+    required Duration timeout,
+  }) => _run(
+    () => _baseline.download(
+      remoteSource,
+      localDestination.path,
+      timeout: timeout,
+    ),
+  );
+
+  @override
+  Future<ThroughputTransferResult> upload({
+    required File localSource,
+    required String remoteDestination,
+    required ThroughputExecutionPayload payload,
+    required Duration timeout,
+  }) => _run(
+    () =>
+        _baseline.upload(localSource.path, remoteDestination, timeout: timeout),
+  );
+
+  Future<ThroughputTransferResult> _run(
+    Future<Duration> Function() transfer,
+  ) async {
     try {
-      final hashOff = await openBenchConnection(endpoint);
-      return _DartVariantConnections._(hashOn, hashOff);
-    } catch (_) {
-      hashOn.close();
+      final elapsed = await transfer();
+      return ThroughputTransferResult(
+        bytes: null,
+        digest: null,
+        elapsed: elapsed,
+      );
+    } on TimeoutException {
+      await close();
       rethrow;
     }
   }
 
-  BenchSshConnection connectionFor(ThroughputVariant variant) {
-    if (variant == ThroughputVariant.dartHashOn) return _hashOn;
-    if (variant == ThroughputVariant.dartHashOff) return _hashOff;
+  @override
+  Future<void> deleteRemote(String path, {required Duration timeout}) =>
+      _baseline.remove(path, timeout: timeout);
 
-    throw ArgumentError.value(variant, 'variant', 'OpenSSH has no Dart link');
+  @override
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    await _baseline.close();
+  }
+}
+
+class _NormalDriverSet {
+  final Map<ThroughputVariant, ThroughputExecutionDriver> _drivers;
+
+  const _NormalDriverSet._(this._drivers);
+
+  static Future<_NormalDriverSet> open(BenchConfig config) async {
+    final drivers = <ThroughputVariant, ThroughputExecutionDriver>{};
+    try {
+      for (final variant in ThroughputVariant.values) {
+        drivers[variant] = await _openDriver(config, variant);
+      }
+      return _NormalDriverSet._(drivers);
+    } catch (_) {
+      for (final driver in drivers.values) {
+        await driver.close();
+      }
+      rethrow;
+    }
   }
 
-  void close() {
-    _hashOn.close();
-    _hashOff.close();
+  ThroughputExecutionDriver forVariant(ThroughputVariant variant) =>
+      _drivers[variant]!;
+
+  Future<void> close() async {
+    Object? firstError;
+    for (final driver in _drivers.values) {
+      try {
+        await driver.close();
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    if (firstError != null) throw firstError;
   }
+}
+
+Future<ThroughputExecutionDriver> _openDriver(
+  BenchConfig config,
+  ThroughputVariant variant,
+) async {
+  if (variant == ThroughputVariant.openssh) {
+    final baseline = await OpenSshBaseline.connect(
+      endpoint: config.endpoint,
+      identityFile: config.identityFile,
+    );
+    return _OpenSshThroughputDriver(baseline);
+  }
+
+  final connection = await openBenchConnection(config.endpoint);
+  return _DartThroughputDriver(connection, variant);
 }

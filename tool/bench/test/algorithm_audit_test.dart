@@ -59,5 +59,7 @@ const _config = BenchConfig(
   identityFile: 'unused',
   outputFile: 'unused',
   linkName: 'lan',
-  measuredRttMs: null,
+  fixtureRoot: 'unused',
+  uploadRoot: 'unused',
+  rttEvidence: null,
 );

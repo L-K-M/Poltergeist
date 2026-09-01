@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly integration_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly data_dir="$integration_dir/runtime/data"
+readonly uploads_dir="$integration_dir/runtime/uploads"
 readonly fixture_version='2'
 readonly one_mb_bytes='1000000'
 readonly hundred_mb_bytes='100000000'
@@ -10,6 +11,19 @@ readonly one_gb_bytes='1000000000'
 readonly large_listing_count='10000'
 readonly sibling_directory_count='8'
 readonly sibling_entry_count='100'
+
+prepare_uploads() {
+  if [[ "$uploads_dir" != "$integration_dir/runtime/uploads" ]]; then
+    echo "refusing unsafe uploads path: $uploads_dir" >&2
+    exit 1
+  fi
+
+  rm -rf -- "$uploads_dir"
+  mkdir -p -- "$uploads_dir"
+
+  # Test-only 0777 supports fixture UID 1000 through host userns remapping.
+  chmod 0777 -- "$uploads_dir"
+}
 
 has_expected_data() {
   [[ -f "$data_dir/.fixture-version" ]] || return 1
@@ -24,6 +38,8 @@ has_expected_data() {
     [[ "$(find "$data_dir/$directory_name" -maxdepth 1 -type f | wc -l)" == "$sibling_entry_count" ]] || return 1
   done
 }
+
+prepare_uploads
 
 if has_expected_data 2>/dev/null; then
   exit 0

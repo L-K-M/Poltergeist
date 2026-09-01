@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'throughput_attempt.dart';
+
 const defaultSshHost = '127.0.0.1';
 const defaultSshPort = 2201;
 const defaultSshUser = 'poltergeist';
@@ -40,7 +42,11 @@ class BenchConfig {
   final String identityFile;
   final String outputFile;
   final String linkName;
-  final int? measuredRttMs;
+  final String fixtureRoot;
+  final String uploadRoot;
+  final RttEvidence? rttEvidence;
+  final DateTime? deadlineStartedAtUtc;
+  final Duration? deadlineStartedAtMonotonic;
 
   const BenchConfig({
     required this.endpoint,
@@ -48,10 +54,19 @@ class BenchConfig {
     required this.identityFile,
     required this.outputFile,
     required this.linkName,
-    required this.measuredRttMs,
+    required this.fixtureRoot,
+    required this.uploadRoot,
+    required this.rttEvidence,
+    this.deadlineStartedAtUtc,
+    this.deadlineStartedAtMonotonic,
   });
 
-  factory BenchConfig.defaults({String linkName = 'lan', int? measuredRttMs}) {
+  int? get measuredRttMs => rttEvidence?.medianMs;
+
+  factory BenchConfig.defaults({
+    String linkName = 'lan',
+    RttEvidence? rttEvidence,
+  }) {
     final repositoryRoot = _findRepositoryRoot(Directory.current);
 
     return BenchConfig(
@@ -61,7 +76,9 @@ class BenchConfig {
           '${repositoryRoot.path}/test/integration/runtime/id_ed25519',
       outputFile: '${repositoryRoot.path}/tool/bench/bench-results.json',
       linkName: linkName,
-      measuredRttMs: measuredRttMs,
+      fixtureRoot: '${repositoryRoot.path}/test/integration/runtime/data',
+      uploadRoot: '${repositoryRoot.path}/test/integration/runtime/uploads',
+      rttEvidence: rttEvidence,
     );
   }
 }

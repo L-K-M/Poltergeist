@@ -40,7 +40,10 @@ The user is `poltergeist`; its test-only password is
 `poltergeist-test-only`. The fresh private key is
 `test/integration/runtime/id_ed25519`. Modern benchmark data is rooted at
 `/home/poltergeist/bench`: read-only inputs are under `fixtures/`, and uploads
-go under `uploads/`.
+that must be visible to the host go under `uploads/host/`. The host source is
+`test/integration/runtime/uploads`; `generate-data.sh` replaces and empties it
+before Compose starts. Its test-only mode is `0777` so fixture UID 1000 can
+write through rootless or user-namespace mappings.
 
 Generated inputs are `payload-1mb.bin`, `payload-100mb.bin`,
 `payload-1gb.bin`, `entries-10000/`, and eight `readdir-00` through
@@ -51,12 +54,15 @@ Toggle latency without restarting sshd:
 ```bash
 test/integration/network-profile.sh rtt100
 test/integration/network-profile.sh measure-rtt-ms
+test/integration/network-profile.sh measure-rtt-json
 test/integration/network-profile.sh lan
 ```
 
 The RTT profile applies 50 ms delay with 25 ms jitter to both ingress and
-egress. `measure-rtt-ms` prints only the median SSH version-to-KEX RTT integer.
-Record that value; configured delay is not a measurement.
+egress. `measure-rtt-ms` prints the rounded median SSH version-to-KEX RTT
+integer. `measure-rtt-json` emits the seven positive microsecond samples in
+capture order, the derived rounded `medianMs`, and the probe UTC. Record the
+measurement; configured delay is not evidence.
 
 Host private keys in `keys/` are fake, loopback-only fixtures. They are stable
 so TOFU tests are repeatable. The user key is deliberately ephemeral.

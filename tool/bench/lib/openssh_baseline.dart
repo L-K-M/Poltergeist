@@ -4,11 +4,29 @@ import 'dart:io';
 
 import 'config.dart';
 
-// Shaped 1 GB uploads exceeded 30 minutes on a shared runner.
 const baselineCommandTimeout = Duration(hours: 1);
+const baselineInitializationTimeout = Duration(minutes: 1);
 const _baselineShutdownGracePeriod = Duration(seconds: 10);
 const _baselineForcedShutdownGracePeriod = Duration(seconds: 5);
 const _sentinelPrefix = 'POLTERGEIST_M0_SFTP_SENTINEL';
+
+class BatchCommandTimeoutException extends TimeoutException {
+  final String command;
+  final String stdout;
+  final String stderr;
+
+  BatchCommandTimeoutException({
+    required this.command,
+    required Duration timeout,
+    required this.stdout,
+    required this.stderr,
+  }) : super('OpenSSH batch command timed out: $command', timeout);
+
+  @override
+  String toString() =>
+      '${super.toString()}; stdout=${jsonEncode(stdout)}; '
+      'stderr=${jsonEncode(stderr)}';
+}
 
 class OpenSshBaseline {
   final BatchCommandSession _session;
@@ -18,6 +36,7 @@ class OpenSshBaseline {
   static Future<OpenSshBaseline> connect({
     required BenchEndpoint endpoint,
     required String identityFile,
+    Duration initializationTimeout = baselineInitializationTimeout,
   }) async {
     final process = await Process.start('sftp', [
       '-q',
@@ -38,18 +57,38 @@ class OpenSshBaseline {
       '${endpoint.username}@${endpoint.host}',
     ]);
     final session = BatchCommandSession(process);
-    await session.initialize();
-    return OpenSshBaseline._(session);
+    try {
+      await session.initialize(timeout: initializationTimeout);
+      return OpenSshBaseline._(session);
+    } catch (_) {
+      await session.close();
+      rethrow;
+    }
   }
 
-  Future<Duration> download(String remotePath) =>
-      _session.run('get $remotePath /dev/null');
+  Future<Duration> download(
+    String remotePath,
+    String localPath, {
+    Duration timeout = baselineCommandTimeout,
+  }) => _session.run(
+    'get ${_batchPath(remotePath)} ${_batchPath(localPath)}',
+    timeout: timeout,
+  );
 
-  Future<Duration> upload(String localPath, String remotePath) =>
-      _session.run('put $localPath $remotePath');
+  Future<Duration> upload(
+    String localPath,
+    String remotePath, {
+    Duration timeout = baselineCommandTimeout,
+  }) => _session.run(
+    'put ${_batchPath(localPath)} ${_batchPath(remotePath)}',
+    timeout: timeout,
+  );
 
-  Future<void> remove(String remotePath) async {
-    await _session.run('rm $remotePath');
+  Future<void> remove(
+    String remotePath, {
+    Duration timeout = baselineCommandTimeout,
+  }) async {
+    await _session.run('rm ${_batchPath(remotePath)}', timeout: timeout);
   }
 
   Future<void> close() => _session.close();
@@ -91,11 +130,16 @@ class BatchCommandSession {
     unawaited(_process.exitCode.then(_onExit));
   }
 
-  Future<void> initialize() async {
-    await _sendSentinel();
+  Future<void> initialize({
+    Duration timeout = baselineInitializationTimeout,
+  }) async {
+    await _sendSentinel(timeout: timeout);
   }
 
-  Future<Duration> run(String command) => _sendSentinel(command: command);
+  Future<Duration> run(
+    String command, {
+    Duration timeout = baselineCommandTimeout,
+  }) => _sendSentinel(command: command, timeout: timeout);
 
   Future<void> close() async {
     final knownExitCode = _exitCode;
@@ -131,7 +175,10 @@ class BatchCommandSession {
     }
   }
 
-  Future<Duration> _sendSentinel({String? command}) async {
+  Future<Duration> _sendSentinel({
+    String? command,
+    Duration timeout = baselineCommandTimeout,
+  }) async {
     final exitCode = _exitCode;
     if (exitCode != null) _throwForExit(exitCode);
     if (_sentinelWaiter != null) {
@@ -150,7 +197,15 @@ class BatchCommandSession {
       if (command != null) _process.stdin.writeln(command);
       _process.stdin.writeln('!echo $sentinel');
       await _process.stdin.flush();
-      return await waiter.future.timeout(baselineCommandTimeout);
+      return await waiter.future.timeout(
+        timeout,
+        onTimeout: () => throw BatchCommandTimeoutException(
+          command: command ?? 'initialize',
+          timeout: timeout,
+          stdout: _stdout.toString(),
+          stderr: _stderr.toString(),
+        ),
+      );
     } finally {
       if (identical(_sentinelWaiter, waiter)) {
         _sentinelWaiter = null;
@@ -206,4 +261,13 @@ class BatchCommandSession {
 
   ProcessException _exitException(int exitCode) =>
       ProcessException('sftp', const [], _stderr.toString(), exitCode);
+}
+
+String _batchPath(String path) {
+  if (path.contains('\n') || path.contains('\r')) {
+    throw ArgumentError.value(path, 'path', 'SFTP paths cannot contain lines.');
+  }
+
+  final escaped = path.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+  return '"$escaped"';
 }

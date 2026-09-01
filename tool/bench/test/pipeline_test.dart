@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:poltergeist_m0_bench/pipeline.dart';
 import 'package:poltergeist_m0_bench/ssh_driver.dart';
 import 'package:test/test.dart';
@@ -7,6 +9,12 @@ const _defaultTransferChannelsPerTransport = 3;
 const _defaultMaxChannelsPerTransport = 8;
 
 void main() {
+  test('every shaped pipeline result retains raw RTT evidence', () async {
+    final source = await File('lib/pipeline.dart').readAsString();
+
+    expect('rttEvidence: config.rttEvidence'.allMatches(source), hasLength(2));
+  });
+
   test('measurement matrix covers every provisional pool default', () {
     expect(
       pipelineChannelCounts,

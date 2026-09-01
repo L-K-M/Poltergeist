@@ -14,6 +14,7 @@ x-modern-service: &modern-service
     - ./keys:/fixture-hostkeys:ro
     - ./runtime/id_ed25519.pub:/run/fixture-user/id_ed25519.pub:ro
     - ./runtime/data:/home/poltergeist/bench/fixtures:ro
+    - ./runtime/uploads:/home/poltergeist/bench/uploads/host:rw
 
 x-standard-ports: &standard-port
   target: 22
@@ -38,6 +39,7 @@ services:
       - ./keys:/fixture-hostkeys:ro
       - ./runtime/id_ed25519.pub:/run/fixture-user/id_ed25519.pub:ro
       - ./runtime/data:/home/poltergeist/bench/fixtures:ro
+      - ./runtime/uploads:/home/poltergeist/bench/uploads/host:rw
     ports:
       - <<: *standard-port
         published: "2202"
@@ -52,6 +54,7 @@ services:
       - ./keys:/fixture-hostkeys:ro
       - ./runtime/id_ed25519.pub:/run/fixture-user/id_ed25519.pub:ro
       - ./runtime/data:/srv/sftp/home/poltergeist/bench/fixtures:ro
+      - ./runtime/uploads:/srv/sftp/home/poltergeist/bench/uploads/host:rw
     ports:
       - <<: *standard-port
         published: "2203"

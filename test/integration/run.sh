@@ -7,6 +7,7 @@ readonly runtime_dir="$integration_dir/runtime"
 readonly user_key="$runtime_dir/id_ed25519"
 readonly full_mode='full'
 readonly lifecycle_mode='lifecycle-only'
+readonly lifecycle_finalizer="${POLTERGEIST_INTEGRATION_LIFECYCLE_FINALIZER:-}"
 readonly services=(
   sshd-modern
   sshd-legacy
@@ -18,21 +19,36 @@ readonly services=(
   sshd-ed25519
 )
 
+# The heavy-sample budget starts before fixture setup, not before transfer.
+export POLTERGEIST_M0_STARTED_AT_EPOCH_MS="${POLTERGEIST_M0_STARTED_AT_EPOCH_MS:-$(date +%s%3N)}"
+
 down() {
   compose --profile audit --profile keyswap down --remove-orphans
 }
 
 on_exit() {
-  test_status="$?"
+  local test_status="$?"
+  local cleanup_status=0
+  local effective_status
+  local finalizer_status=0
+
   trap - EXIT
 
-  cleanup_status=0
   down || cleanup_status="$?"
-  if [[ "$test_status" -ne 0 ]]; then
-    exit "$test_status"
+  effective_status="$test_status"
+  if [[ "$effective_status" -eq 0 ]]; then
+    effective_status="$cleanup_status"
   fi
 
-  exit "$cleanup_status"
+  # Final evidence includes teardown while fixture identity remains exported.
+  if [[ -n "$lifecycle_finalizer" ]]; then
+    "$lifecycle_finalizer" "$effective_status" || finalizer_status="$?"
+  fi
+  if [[ "$effective_status" -ne 0 ]]; then
+    exit "$effective_status"
+  fi
+
+  exit "$finalizer_status"
 }
 
 run_mode="$full_mode"
@@ -57,6 +73,7 @@ fi
 
 command -v docker >/dev/null
 command -v ssh-keygen >/dev/null
+command -v ssh >/dev/null
 command -v sftp >/dev/null
 command -v "$dart_binary" >/dev/null
 docker compose version >/dev/null
@@ -79,6 +96,15 @@ compose --profile audit up --detach --build
 for service_name in "${services[@]}"; do
   wait_for_service "$service_name"
 done
+
+export POLTERGEIST_M0_FIXTURE_IMAGE_ID="$(compose images --quiet sshd-modern)"
+export POLTERGEIST_M0_FIXTURE_TREE="$(
+  git -C "$repo_root" rev-parse HEAD:test/integration
+)"
+export POLTERGEIST_M0_OPENSSH_CLIENT_VERSION="$(ssh -V 2>&1)"
+export POLTERGEIST_M0_OPENSSH_SERVER_VERSION="$(
+  compose exec -T sshd-modern apk info --verbose openssh-server-pam
+)"
 
 export POLTERGEIST_SSHD='127.0.0.1'
 export POLTERGEIST_SSHD_MODERN='2201'

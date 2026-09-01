@@ -50,6 +50,18 @@ class CombinedWorkloadResult {
   });
 }
 
+class ThroughputTransferResult {
+  final int? bytes;
+  final String? digest;
+  final Duration elapsed;
+
+  const ThroughputTransferResult({
+    required this.bytes,
+    required this.digest,
+    required this.elapsed,
+  });
+}
+
 enum DigestMode { enabled, disabled }
 
 typedef WorkloadProgress = void Function(int item, int transferred, int total);
@@ -76,6 +88,99 @@ class BenchSshConnection {
 
   RemoteFileSystem get remoteFileSystem =>
       DartSshRemoteFileSystem(_primarySftp);
+
+  Future<ThroughputTransferResult> downloadToFile({
+    required String remotePath,
+    required File destination,
+    required DigestMode digestMode,
+    required Duration timeout,
+  }) async {
+    final cancellation = RemoteTransferCancellation();
+    var timedOut = false;
+    var sinkClosed = false;
+    Timer? timer;
+    IOSink? sink;
+    final stopwatch = Stopwatch()..start();
+    try {
+      timer = Timer(timeout, () {
+        timedOut = true;
+        cancellation.cancel();
+      });
+      sink = destination.openWrite(mode: FileMode.writeOnly);
+      final entry = await remoteFileSystem.download(
+        remotePath,
+        sink,
+        computeHash: digestMode == DigestMode.enabled,
+        cancellation: cancellation,
+      );
+      await sink.close();
+      sinkClosed = true;
+      stopwatch.stop();
+      if (timedOut) throw TimeoutException('Download timed out.', timeout);
+
+      return ThroughputTransferResult(
+        bytes: entry.size,
+        digest: entry.contentSha256,
+        elapsed: stopwatch.elapsed,
+      );
+    } catch (error) {
+      stopwatch.stop();
+      if (timedOut && error is! TimeoutException) {
+        throw TimeoutException('Download timed out.', timeout);
+      }
+      rethrow;
+    } finally {
+      timer?.cancel();
+      if (!sinkClosed) await sink?.close();
+    }
+  }
+
+  Future<ThroughputTransferResult> uploadFile({
+    required File source,
+    required String remotePath,
+    required int bytes,
+    required DigestMode digestMode,
+    required Duration timeout,
+  }) async {
+    final cancellation = RemoteTransferCancellation();
+    var timedOut = false;
+    final timer = Timer(timeout, () {
+      timedOut = true;
+      cancellation.cancel();
+    });
+    final stopwatch = Stopwatch()..start();
+    try {
+      final entry = await remoteFileSystem.upload(
+        remotePath,
+        source.openRead(),
+        length: bytes,
+        overwrite: false,
+        computeHash: digestMode == DigestMode.enabled,
+        cancellation: cancellation,
+      );
+      stopwatch.stop();
+      if (timedOut) throw TimeoutException('Upload timed out.', timeout);
+
+      return ThroughputTransferResult(
+        bytes: entry.size,
+        digest: entry.contentSha256,
+        elapsed: stopwatch.elapsed,
+      );
+    } catch (error) {
+      stopwatch.stop();
+      if (timedOut && error is! TimeoutException) {
+        throw TimeoutException('Upload timed out.', timeout);
+      }
+      rethrow;
+    } finally {
+      timer.cancel();
+    }
+  }
+
+  Future<void> deletePath(String path) async {
+    final entry = await remoteFileSystem.stat(path, followLinks: false);
+    await remoteFileSystem.delete(entry);
+  }
 
   Future<ReadBatchResult> download({
     required String path,

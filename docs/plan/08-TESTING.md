@@ -675,10 +675,16 @@ Suites:
 M0 reuses this fixture (D9): the throughput comparison against the
 OpenSSH `sftp` CLI baseline and the concurrent-request verification run
 against `sshd-modern` with `tc netem` latency injection for the
-high-latency case. One qdisc is shared by the warmed, counterbalanced
-engine/CLI trials so both see one deterministic profile; deleting it between
-variants would defeat interleaving. The qdisc is deleted before and after
-each combined link leg. `tc` runs inside the container, so the image installs
+high-latency case. One bidirectional shaping profile, implemented by ingress
+and egress netem qdiscs, is shared by the warmed, counterbalanced engine/CLI
+trials so both see one deterministic profile; for an unsplit cell, deleting it
+between variants would defeat interleaving. Under 07 §3.1's hosted-job-cap
+exception, each isolated shaped 1 GB replicate instead owns a fresh profile
+and records all seven raw SSH exchange probes, their UTC capture time, and
+their derived median. Those replicates are reported as cross-runner evidence,
+never as interleaved or same-link trials. Both shaping qdiscs and the ingress
+redirect are deleted after their owning cell or replicate. `tc` runs inside
+the container, so the image installs
 `iproute2`, the compose service adds `cap_add: [NET_ADMIN]` (or the netem
 leg uses a dedicated profiled `sshd-netem` service), and the qdisc is
 deleted in teardown so injected latency never leaks into other suites

@@ -76,10 +76,32 @@ and that the engine-isolate architecture works (D8).
   delays a single direction, halving the effective RTT and skewing the
   pipelining conclusions; in-container `tc` also needs `--cap-add=NET_ADMIN`;
   the report row records the **measured** RTT, not the configured delay).
-  Prime each full local/remote path once, warm the selected persistent variant
-  with a bounded 1 MB operation immediately before each timed trial, measure
-  each twice in mirrored `ABCCBA` order, and report the median so cache and
-  execution order do not choose a winner.
+  Prime and hash only the transfer source: the container-mounted fixture for
+  a download, or the runner-local file for an upload. Priming never sends the
+  full payload over the measured link. Give every warmup and timed trial a
+  unique, initially absent destination; warm the selected persistent variant
+  with a bounded 1 MB operation immediately before each timed trial; and
+  independently verify the timed destination's size and SHA-256 after timing.
+  Measure each variant twice in mirrored `ABCCBA` order and report the floor
+  arithmetic midpoint in microseconds so cache and execution order do not
+  choose a winner. Retain each raw trial's start/end UTC, `ABCCBA` ordinal,
+  warmup reference, integrity result, and shaped-link RTT-probe reference.
+  Only when an immutable hosted-job cap cannot contain one complete
+  high-latency 1 GB direction cell, replace that cell with two isolated
+  hosted-job replicates per variant. Those jobs may execute in any order and
+  share no hosted-VM/runner state, connection, cache, or qdisc state; the
+  service does not promise distinct physical hosts. Their variant/replicate
+  labels imply no `ABCCBA` position. Each uses the full 1,000,000,000-byte
+  payload, the same pinned fixture and bidirectional shaping profile, one
+  direction-matched 1 MB warmup, and one timed transfer. Its 315-minute
+  monotonic deadline begins with fixture setup and includes evidence
+  finalization and fixture teardown; the transfer receives the lesser of 240
+  minutes and the remaining time minus a fixed 30-minute post-transfer
+  reserve. No timed retry is allowed. Aggregation fails unless every variant
+  has exactly two valid replicates, preserves both sources and their seven raw
+  SSH identification-to-KEX RTT probes, and invents no aggregate host,
+  timestamp, or RTT. These cross-runner 1 GB rows are descriptive
+  corroboration only; D7 is decided from the same-run cells.
   Record MB/s with hashing on and off
   (hashing-off requires a patch until PR-S3 — carried as a committed
   patch on a rev-pinned branch of a Séance fork, never an uncommitted
@@ -189,6 +211,23 @@ class BenchResult {
       );
 }
 ```
+
+`BenchResult` is the attributable raw-result seam above. The canonical M0
+artifact embeds every source envelope and its raw throughput trials, then
+contains exactly 78 manifest-ordered results. Every throughput result's sample
+references reproduce its median; split results reference both source jobs
+rather than fabricating the scalar source fields in the sketch. All sources in
+one artifact must share the exact workflow run/attempt, Poltergeist SHA,
+dependency pins, and common fixture identity: committed fixture tree, data
+version, and OpenSSH client/server versions. Each job's built-image ID is
+retained and validated per source, but need not match across runners. Missing,
+extra, duplicate, failed, misassigned, mixed-identity, or bad-integrity
+evidence fails aggregation. The validated canonical JSON and a SHA-256
+manifest of its raw sources are committed beside the report; temporary Actions
+artifacts are transport only. Ordinary CI revalidates and freezes that bundle,
+and rejects measurement-affecting changes between its recorded input SHA and
+the evidence-introduction commit. Later milestone work does not invalidate the
+historical artifact.
 
 **Deliverable.** A written report, `docs/M0-DARTSSH2-REPORT.md`, with the
 tables above, a verdict per D9's fallback ladder (fine as-is → contribute

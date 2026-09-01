@@ -8,8 +8,12 @@ import 'package:poltergeist_m0_bench/isolate_poc.dart';
 import 'package:poltergeist_m0_bench/pipeline.dart';
 import 'package:poltergeist_m0_bench/result_store.dart';
 import 'package:poltergeist_m0_bench/throughput.dart';
+import 'package:poltergeist_m0_bench/throughput_attempt.dart';
 
 enum _Scenario { throughput, algorithms, pipeline, isolate }
+
+const _deadlineStartMillisecondsOption = 'deadline-start-ms';
+const _deadlineStartMonotonicMicrosecondsOption = 'deadline-start-monotonic-us';
 
 Future<void> main(List<String> arguments) async {
   final parser = _parser();
@@ -43,17 +47,68 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
-  final defaults = BenchConfig.defaults();
-  final linkName = parsed['link']! as String;
-  final rttMs = _optionalInt(parsed['rtt-ms'] as String?);
-  final throughputSlice = ThroughputSlice.parse(
-    parsed['throughput-slice']! as String,
-  );
-  if (linkName != 'lan' && rttMs == null) {
-    stderr.writeln('--rtt-ms is required for shaped links.');
+  late final ThroughputSlice throughputSlice;
+  late final ThroughputSampleSpec? throughputSample;
+  late final RttEvidence? rttEvidence;
+  late final DateTime? deadlineStartedAtUtc;
+  late final Duration? deadlineStartedAtMonotonic;
+  try {
+    throughputSlice = ThroughputSlice.parse(
+      parsed['throughput-slice']! as String,
+    );
+    final sampleValue = parsed['throughput-sample'] as String?;
+    throughputSample = sampleValue == null
+        ? null
+        : ThroughputSampleSpec.parse(sampleValue);
+    final rttValue = parsed['rtt-evidence'] as String?;
+    rttEvidence = rttValue == null ? null : RttEvidence.parse(rttValue);
+    deadlineStartedAtUtc = _deadlineStart(
+      parsed[_deadlineStartMillisecondsOption] as String?,
+    );
+    deadlineStartedAtMonotonic = _deadlineStartMonotonic(
+      parsed[_deadlineStartMonotonicMicrosecondsOption] as String?,
+    );
+  } on FormatException catch (error) {
+    stderr.writeln(error.message);
     exitCode = 64;
     return;
   }
+
+  final selectedScenario = scenario.single;
+  final linkName = parsed['link']! as String;
+  if (linkName != 'lan' && rttEvidence == null) {
+    stderr.writeln('--rtt-evidence is required for shaped links.');
+    exitCode = 64;
+    return;
+  }
+  if (linkName == 'lan' && rttEvidence != null) {
+    stderr.writeln('--rtt-evidence is only valid for shaped links.');
+    exitCode = 64;
+    return;
+  }
+  if (throughputSample != null && selectedScenario != _Scenario.throughput) {
+    stderr.writeln('--throughput-sample requires the throughput scenario.');
+    exitCode = 64;
+    return;
+  }
+  if (throughputSample != null &&
+      (linkName != 'rtt100' ||
+          deadlineStartedAtUtc == null ||
+          deadlineStartedAtMonotonic == null)) {
+    stderr.writeln(
+      '--throughput-sample requires --link=rtt100 and both deadline anchors.',
+    );
+    exitCode = 64;
+    return;
+  }
+  if (throughputSample == null &&
+      (deadlineStartedAtUtc != null || deadlineStartedAtMonotonic != null)) {
+    stderr.writeln('Deadline anchors require --throughput-sample.');
+    exitCode = 64;
+    return;
+  }
+
+  final defaults = BenchConfig.defaults();
   final config = BenchConfig(
     endpoint: BenchEndpoint(
       host: parsed['host']! as String,
@@ -65,18 +120,27 @@ Future<void> main(List<String> arguments) async {
     identityFile: parsed['identity'] as String? ?? defaults.identityFile,
     outputFile: parsed['output'] as String? ?? defaults.outputFile,
     linkName: linkName,
-    measuredRttMs: rttMs,
+    fixtureRoot: parsed['fixture-root'] as String? ?? defaults.fixtureRoot,
+    uploadRoot: parsed['upload-root'] as String? ?? defaults.uploadRoot,
+    rttEvidence: rttEvidence,
+    deadlineStartedAtUtc: deadlineStartedAtUtc,
+    deadlineStartedAtMonotonic: deadlineStartedAtMonotonic,
   );
 
   if (parsed['reset'] as bool) {
     final output = File(config.outputFile);
     if (await output.exists()) await output.delete();
+    final attempts = File(throughputAttemptOutputPath(config.outputFile));
+    if (await attempts.exists()) await attempts.delete();
   }
 
   late final List<BenchResult> results;
   try {
     results = await switch (scenario.single) {
-      _Scenario.throughput => runThroughput(config, slice: throughputSlice),
+      _Scenario.throughput =>
+        throughputSample == null
+            ? runThroughput(config, slice: throughputSlice)
+            : runThroughputSample(config, throughputSample),
       _Scenario.algorithms => runAlgorithmAudit(config),
       _Scenario.pipeline => runPipeline(config),
       _Scenario.isolate => runIsolatePoc(config),
@@ -109,12 +173,39 @@ ArgParser _parser() => ArgParser()
   ..addOption('remote-root', defaultsTo: defaultRemoteRoot)
   ..addOption('identity')
   ..addOption('output')
+  ..addOption('fixture-root')
+  ..addOption('upload-root')
   ..addOption('link', defaultsTo: 'lan')
   ..addOption(
     'throughput-slice',
     defaultsTo: ThroughputSlice.full.cliValue,
     allowed: ThroughputSlice.cliValues,
   )
-  ..addOption('rtt-ms');
+  ..addOption('throughput-sample')
+  ..addOption('rtt-evidence')
+  ..addOption(_deadlineStartMillisecondsOption)
+  ..addOption(_deadlineStartMonotonicMicrosecondsOption);
 
-int? _optionalInt(String? value) => value == null ? null : int.parse(value);
+DateTime? _deadlineStart(String? value) {
+  if (value == null) return null;
+
+  final milliseconds = int.tryParse(value);
+  if (milliseconds == null || milliseconds <= 0) {
+    throw const FormatException('--deadline-start-ms must be positive.');
+  }
+
+  return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
+}
+
+Duration? _deadlineStartMonotonic(String? value) {
+  if (value == null) return null;
+
+  final microseconds = int.tryParse(value);
+  if (microseconds == null || microseconds <= 0) {
+    throw const FormatException(
+      '--deadline-start-monotonic-us must be positive.',
+    );
+  }
+
+  return Duration(microseconds: microseconds);
+}

@@ -23,6 +23,32 @@ abstract interface class SshRttProbe {
 typedef SshRttProbeFactory =
     Future<SshRttProbe> Function(String host, int port);
 typedef MonotonicNow = Duration Function();
+typedef SshExchangeMeasurement =
+    Future<Duration> Function(String host, int port);
+typedef UtcNow = DateTime Function();
+
+enum RttOutputFormat { medianMs, json }
+
+class SshRttEvidence {
+  final List<int> samplesUs;
+  final Duration median;
+  final DateTime capturedAtUtc;
+
+  SshRttEvidence({
+    required List<int> samplesUs,
+    required this.median,
+    required DateTime capturedAtUtc,
+  }) : samplesUs = List.unmodifiable(samplesUs),
+       capturedAtUtc = capturedAtUtc.toUtc();
+
+  int get medianMs => roundRttMilliseconds(median);
+
+  Map<String, Object> toJson() => {
+    'samplesUs': samplesUs,
+    'medianMs': medianMs,
+    'capturedAtUtc': capturedAtUtc.toIso8601String(),
+  };
+}
 
 /// Times a request/response that must traverse sshd and in-container netem.
 Future<Duration> measureSshExchange(
@@ -46,33 +72,94 @@ Future<Duration> measureSshExchange(
   }
 }
 
+/// Captures independent SSH identification-to-KEX timings in probe order.
+Future<SshRttEvidence> measureSshRtt(
+  String host,
+  int port, {
+  SshExchangeMeasurement measureExchange = _measureSshExchange,
+  UtcNow utcNow = _utcNow,
+}) async {
+  final capturedAtUtc = utcNow().toUtc();
+  final samples = <Duration>[];
+  for (var index = 0; index < _sampleCount; index++) {
+    final sample = await measureExchange(host, port);
+    if (sample <= Duration.zero) {
+      throw StateError('SSH RTT samples must be positive');
+    }
+
+    samples.add(sample);
+  }
+
+  return SshRttEvidence(
+    samplesUs: [for (final sample in samples) sample.inMicroseconds],
+    median: medianRtt(samples),
+    capturedAtUtc: capturedAtUtc,
+  );
+}
+
+/// Returns the middle sample, or the floored midpoint for an even sample set.
+Duration medianRtt(Iterable<Duration> samples) {
+  final ordered = samples.toList();
+  if (ordered.isEmpty) throw ArgumentError.value(samples, 'samples', 'empty');
+  if (ordered.any((sample) => sample <= Duration.zero)) {
+    throw ArgumentError.value(samples, 'samples', 'must be positive');
+  }
+
+  ordered.sort();
+  final upperIndex = ordered.length ~/ 2;
+  if (ordered.length.isOdd) return ordered[upperIndex];
+
+  final lowerUs = ordered[upperIndex - 1].inMicroseconds;
+  final upperUs = ordered[upperIndex].inMicroseconds;
+  return Duration(microseconds: lowerUs + (upperUs - lowerUs) ~/ 2);
+}
+
+int roundRttMilliseconds(Duration duration) {
+  final microseconds = duration.inMicroseconds;
+  if (microseconds <= 0) {
+    throw ArgumentError.value(duration, 'duration', 'must be positive');
+  }
+
+  return (microseconds + _microsecondsPerMillisecond ~/ 2) ~/
+      _microsecondsPerMillisecond;
+}
+
+String formatRttEvidence(SshRttEvidence evidence, RttOutputFormat format) =>
+    switch (format) {
+      RttOutputFormat.medianMs => '${evidence.medianMs}',
+      RttOutputFormat.json => jsonEncode(evidence.toJson()),
+    };
+
 Future<void> main(List<String> arguments) async {
-  if (arguments.length != 2) {
-    stderr.writeln('usage: measure_rtt.dart HOST PORT');
+  var format = RttOutputFormat.medianMs;
+  var operands = arguments;
+  if (arguments.isNotEmpty && arguments.first == '--json') {
+    format = RttOutputFormat.json;
+    operands = arguments.sublist(1);
+  }
+
+  if (operands.length != 2) {
+    stderr.writeln('usage: measure_rtt.dart [--json] HOST PORT');
     exitCode = 2;
     return;
   }
 
-  final host = arguments[0];
-  final port = int.tryParse(arguments[1]);
+  final host = operands[0];
+  final port = int.tryParse(operands[1]);
   if (port == null) {
     stderr.writeln('invalid port');
     exitCode = 2;
     return;
   }
 
-  final samples = <Duration>[];
-  for (var index = 0; index < _sampleCount; index++) {
-    samples.add(await measureSshExchange(host, port));
-  }
-  samples.sort();
-
-  final medianMicroseconds = samples[samples.length ~/ 2].inMicroseconds;
-  final roundedMilliseconds =
-      (medianMicroseconds + _microsecondsPerMillisecond ~/ 2) ~/
-      _microsecondsPerMillisecond;
-  stdout.writeln(roundedMilliseconds);
+  final evidence = await measureSshRtt(host, port);
+  stdout.writeln(formatRttEvidence(evidence, format));
 }
+
+Future<Duration> _measureSshExchange(String host, int port) =>
+    measureSshExchange(host, port);
+
+DateTime _utcNow() => DateTime.now().toUtc();
 
 class _SocketSshRttProbe implements SshRttProbe {
   final Socket _socket;

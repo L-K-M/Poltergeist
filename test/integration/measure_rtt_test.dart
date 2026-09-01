@@ -18,6 +18,61 @@ void main() {
     expect(probe.calls, ['read-version', 'send-version', 'read-kex', 'close']);
     expect(elapsed, const Duration(milliseconds: 10));
   });
+
+  test('retains seven RTT probes in capture order', () async {
+    const capturedMicroseconds = [
+      100500,
+      99000,
+      150000,
+      100499,
+      100501,
+      50000,
+      200000,
+    ];
+    var sampleIndex = 0;
+    final evidence = await measureSshRtt(
+      'fixture',
+      2201,
+      measureExchange: (_, _) async =>
+          Duration(microseconds: capturedMicroseconds[sampleIndex++]),
+      utcNow: () => DateTime.parse('2026-09-01T14:30:00+02:00'),
+    );
+
+    expect(evidence.samplesUs, capturedMicroseconds);
+    expect(evidence.median, const Duration(microseconds: 100500));
+    expect(evidence.medianMs, 101);
+    expect(evidence.capturedAtUtc, DateTime.utc(2026, 9, 1, 12, 30));
+    expect(evidence.toJson(), {
+      'samplesUs': capturedMicroseconds,
+      'medianMs': 101,
+      'capturedAtUtc': '2026-09-01T12:30:00.000Z',
+    });
+  });
+
+  test('floors an even-sample midpoint before rounding', () {
+    final median = medianRtt(const [
+      Duration(microseconds: 100499),
+      Duration(microseconds: 100500),
+    ]);
+
+    expect(median, const Duration(microseconds: 100499));
+    expect(roundRttMilliseconds(median), 100);
+  });
+
+  test('formats JSON evidence without changing integer output', () {
+    final evidence = SshRttEvidence(
+      samplesUs: const [100000, 100001, 100002],
+      median: const Duration(microseconds: 100001),
+      capturedAtUtc: DateTime.utc(2026, 9, 1),
+    );
+
+    expect(formatRttEvidence(evidence, RttOutputFormat.medianMs), '100');
+    expect(
+      formatRttEvidence(evidence, RttOutputFormat.json),
+      '{"samplesUs":[100000,100001,100002],"medianMs":100,'
+      '"capturedAtUtc":"2026-09-01T00:00:00.000Z"}',
+    );
+  });
 }
 
 class _FakeSshRttProbe implements SshRttProbe {

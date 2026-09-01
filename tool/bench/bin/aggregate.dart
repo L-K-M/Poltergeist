@@ -8,51 +8,67 @@ const _dataExitCode = 65;
 const _ioExitCode = 74;
 
 Future<void> main(List<String> arguments) async {
-  final parser = ArgParser()
-    ..addFlag('help', abbr: 'h', negatable: false)
-    ..addOption('standard')
-    ..addOption('slow')
-    ..addOption('output');
+  final parser = _parser();
   late final ArgResults parsed;
   try {
     parsed = parser.parse(arguments);
   } on FormatException catch (error) {
-    _fail('${error.message}\n${parser.usage}', _usageExitCode);
+    _fail('${error.message}\n${_usage(parser)}', _usageExitCode);
     return;
   }
-
   if (parsed['help'] as bool) {
     stdout.writeln(_usage(parser));
     return;
   }
-  final standardPath = parsed['standard'] as String?;
-  final slowPath = parsed['slow'] as String?;
-  final outputPath = parsed['output'] as String?;
-  if (standardPath == null || slowPath == null || outputPath == null) {
+  final inputRoot = parsed['input-root'] as String?;
+  final outputDirectory = parsed['output-dir'] as String?;
+  final runId = parsed['run-id'] as String?;
+  final runAttemptText = parsed['run-attempt'] as String?;
+  final gitSha = parsed['git-sha'] as String?;
+  final runAttempt = int.tryParse(runAttemptText ?? '');
+  if (inputRoot == null ||
+      outputDirectory == null ||
+      runId == null ||
+      runAttempt == null ||
+      gitSha == null) {
     _fail(_usage(parser), _usageExitCode);
     return;
   }
 
   try {
-    await aggregateResultFiles(
-      standardPath: standardPath,
-      slowPath: slowPath,
-      outputPath: outputPath,
+    await aggregateEvidenceDirectory(
+      inputRoot: inputRoot,
+      outputDirectory: outputDirectory,
+      expectedRunId: runId,
+      expectedRunAttempt: runAttempt,
+      expectedGitSha: gitSha,
     );
   } on ResultAggregationException catch (error) {
     _fail('$error', _dataExitCode);
+    return;
+  } on FormatException catch (error) {
+    _fail(error.message, _dataExitCode);
     return;
   } on FileSystemException catch (error) {
     _fail(error.message, _ioExitCode);
     return;
   }
 
-  stdout.writeln(outputPath);
+  stdout.writeln(outputDirectory);
 }
 
+ArgParser _parser() => ArgParser()
+  ..addFlag('help', abbr: 'h', negatable: false)
+  ..addOption('input-root')
+  ..addOption('output-dir')
+  ..addOption('run-id')
+  ..addOption('run-attempt')
+  ..addOption('git-sha');
+
 String _usage(ArgParser parser) =>
-    'Usage: dart run bin/aggregate.dart '
-    '--standard <path> --slow <path> --output <path>\n${parser.usage}';
+    'Usage: dart run bin/aggregate.dart --input-root <path> '
+    '--output-dir <path> --run-id <id> --run-attempt <number> '
+    '--git-sha <sha>\n${parser.usage}';
 
 void _fail(String message, int code) {
   stderr.writeln(message);
