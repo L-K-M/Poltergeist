@@ -45,6 +45,7 @@ const _integrationFinalizerVariable =
     'POLTERGEIST_INTEGRATION_LIFECYCLE_FINALIZER';
 const _deadlineStartMs = '1788220800000';
 const _deadlineStartMonotonicUs = '123456789';
+const _linuxUptimePath = '/proc/uptime';
 const _cleanupFailureExitCode = 41;
 const _measuredRttJson =
     '{"samplesUs":[99000,100000,101000,101000,102000,103000,104000],'
@@ -601,6 +602,7 @@ void main() {
       'POLTERGEIST_M0_STARTED_AT_EPOCH_MS': _deadlineStartMs,
       'DART_BIN': Platform.resolvedExecutable,
       ..._workflowEnvironment,
+      'POLTERGEIST_M0_STARTED_AT_MONOTONIC_US': _currentMonotonicMicroseconds(),
     };
     final started = await Process.run(
       Platform.resolvedExecutable,
@@ -860,6 +862,13 @@ const _fixtureTree = 'fedcba9876543210fedcba9876543210fedcba98';
 const _fixtureImageId =
     'sha256:0123456789abcdef0123456789abcdef'
     '0123456789abcdef0123456789abcdef';
+
+String _currentMonotonicMicroseconds() {
+  final uptime = File(_linuxUptimePath).readAsStringSync().trimLeft();
+  final seconds = double.parse(uptime.split(RegExp(r'\s+')).first);
+
+  return '${(seconds * Duration.microsecondsPerSecond).floor()}';
+}
 
 YamlMap _stepNamed(Iterable<YamlMap> steps, String name) =>
     steps.singleWhere((step) => step['name'] == name);
