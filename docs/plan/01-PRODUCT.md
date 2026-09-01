@@ -470,10 +470,14 @@ assumed**, by this audit procedure:
   advances. Run in a **full, non-shallow** clone so the ancestor walk is
   never silently truncated; the pinned config above — not `LC_ALL=C`
   alone — is what keeps the recorded output byte-stable across machines.
-- **Record**: the output goes to `docs/PORTS.md` against the audited
-  commit SHA and is re-run whenever the pinned Séance ref changes (an
-  accepted upstream patch reaches Poltergeist only then, and CI can
-  observe the pin moving); patches applied under the owner's identity are
+- **Record**: `docs/PORTS.md` stores the by-hand findings plus each output
+  stream's line count and SHA-256 against the audited commit SHA. This
+  content-addresses the exact output without copying generated model
+  attribution identifiers into docs, which the repository hard rule
+  forbids; the script's `--print-findings` mode reproduces the raw streams
+  for reconciliation. The audit is re-run whenever the pinned Séance ref
+  changes. An accepted upstream patch reaches Poltergeist only then, and CI
+  can observe the pin moving; patches applied under the owner's identity are
   attributed to their real author by hand. The audit bounds what git
   *recorded*, not what exists: content with no authorship trace at all —
   a vendored file, a snippet pasted into a commit the owner authored,
@@ -491,8 +495,8 @@ assumed**, by this audit procedure:
   rewrite which commit, and thus which tree, the pin resolves to),
   `-c core.quotepath=false` (the default quotes any non-ASCII path byte
   as octal escapes, while `quotepath=false` emits raw UTF-8; this scan's
-  output is recorded in `docs/PORTS.md` and re-verified across machines
-  just like the log walks, so it needs the same byte stability), and
+  output is content-addressed in `docs/PORTS.md` and re-verified across
+  machines just like the log walks, so it needs the same byte stability), and
   `-c grep.patternType=basic` (`git grep` honors this config exactly like
   the pinpoint `git log --grep` run below does; a contributor-local
   `patternType=fixed` would silently turn the bracket-pattern catch-all
@@ -528,30 +532,34 @@ assumed**, by this audit procedure:
   `packages/`) for new vendored directories — never a manual, unscripted
   read of the whole tree, which is exactly the kind of gate that
   degrades quietly as the tree grows and leaves no recorded artifact to
-  re-verify against; the scan's output is recorded in `docs/PORTS.md`
+  re-verify against; the scan's output is content-addressed in `docs/PORTS.md`
   next to the identity record, never a one-time check: a
   vendoring commit added after an earlier check lands under the owner's
   own identity, invisible to the `git log` identity lines, so only
   re-scanning on every pin change catches it before it flows into a
   published binary.
 - **On an external hit**: pinpoint its exact commits by re-running the
-  audit scoped to that author (`LC_ALL=C git --no-replace-objects
+  audit scoped to that author: run `LC_ALL=C git --no-replace-objects
   -c grep.patternType=basic -c log.mailmap=false
-  -c i18n.logOutputEncoding=utf-8 log
-  <pinned-SHA> -i --author="<email>"
-  --committer="<email>" --grep="<email>"` — falling back, for a stranded
+  -c i18n.logOutputEncoding=utf-8 log <pinned-SHA> -i <limiter>
+  --format='%H'` once for
+  each of `--author="<email>"`, `--committer="<email>"`, and
+  `--grep="<email>"`, then concatenate and `LC_ALL=C sort -u` the three
+  outputs — falling back, for a stranded
   attribution with no `<email>` at all (a bare `Co-authored-by: Jane Doe`
   with no angle-bracket address), to a `--grep="<Kind-By: Name>"` rerun
   under the same BRE-escaping rules below, since `--author`/`--committer`
   have no name-only equivalent — the same config as the main
   command above is pinned here too, for the same reason (this pinpoint
-  run's output feeds directly into `docs/PORTS.md`, so it needs the same
+  commit-ID stream feeds the `docs/PORTS.md` digest, so it needs the same
   byte-stability); `grep.patternType` is pinned
   so a contributor's local config (e.g. `perl`) can't silently change
-  what the escaping rule below means; git ORs `--author`,
-  `--committer`, and `--grep` by default, so this catches the person as
-  commit author, committer, *or* trailer co-author under any trailer kind
-  (`Co-authored-by`, `Signed-off-by`, `Reported-by`, …); `--committer` is
+  what the escaping rule below means. Git combines author, committer, and
+  message limiters with AND, so one invocation containing all three misses
+  author-only, committer-only, and trailer-only hits; the sorted union is
+  required. This catches the person as commit author, committer, *or*
+  trailer co-author under any trailer kind (`Co-authored-by`,
+  `Signed-off-by`, `Reported-by`, …); `--committer` is
   not optional here — it is the only one of the three that matches the
   committer identity the initial audit's `%cn <%ce>` was added to catch,
   and neither `--author` nor `--grep` matches it. All three patterns are
@@ -570,7 +578,7 @@ assumed**, by this audit procedure:
   `\` in a quoted-local-part address like `"back\slash"@example.com`
   inserted unescaped would silently change what the pattern matches
   rather than erroring — exactly the failure mode this pinpoint run's
-  verbatim-recorded output must not have, since a silent mismatch here
+  content-addressed output must not have, since a silent mismatch here
   means a missed external contribution, the one thing §9 says provenance
   must never paper over — `+` is a literal BRE character and
   must *not* be escaped, since GNU BRE reads `\+` as a
@@ -676,8 +684,9 @@ fork or clean-room Séance code, which D2 forbids outright.
   (e.g. `scripts/audit-seance-pin.sh`), triggered by a paths-filter on
   the file recording the Séance pin (a pinned SHA only ever moves via a
   Poltergeist commit, so this is exact, not a poll), and **failing the
-  build whenever its output does not match the recorded `docs/PORTS.md`
-  entry** — running the script without reconciling its output is not
+  build whenever any output's line count or SHA-256 does not match the
+  recorded `docs/PORTS.md` entry** — the entry also carries the by-hand
+  findings. Running the script without reconciling its output is not
   enforcement, it is exactly the unattended-gate-nobody-reads failure
   mode §9 refuses everywhere else. It runs against a **non-shallow clone of the pinned
   Séance ref specifically** — the script's own Séance fetch must use

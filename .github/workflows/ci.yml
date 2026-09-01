@@ -43,6 +43,8 @@ jobs:
         run: dart analyze $(ls -d packages/*)
       - name: Analyze release gate
         run: dart analyze tool/license_gate
+      - name: Analyze Séance pin audit
+        run: dart analyze tool/seance_pin_audit
       - name: Analyze M0 benchmark harness
         working-directory: tool/bench
         run: dart analyze
@@ -60,6 +62,8 @@ jobs:
           dart test $dirs
       - name: Test release gate
         run: dart test tool/license_gate/test
+      - name: Test Séance pin audit
+        run: dart test tool/seance_pin_audit/test
       - name: Test M0 benchmark harness
         working-directory: tool/bench
         run: dart test test
@@ -74,6 +78,45 @@ jobs:
       # fail-closed release wiring without requiring the upstream license yet.
       - name: Guard Séance release gate
         run: dart run tool/license_gate/bin/check.dart --marker-only
+
+  seance_pin_audit:
+    name: Séance pin audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        if: github.event_name != 'workflow_dispatch'
+        id: changes
+        with:
+          filters: |
+            pin:
+              - '**/pubspec.yaml'
+              - '**/pubspec.lock'
+              - 'docs/PORTS.md'
+              - 'scripts/audit-seance-pin.sh'
+              - 'tool/seance_pin_audit/**'
+              - '.github/workflows/ci.yml'
+      - uses: dart-lang/setup-dart@v1
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          steps.changes.outputs.pin == 'true'
+        with:
+          sdk: stable
+      - name: Resolve audit dependencies
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          steps.changes.outputs.pin == 'true'
+        run: dart pub get
+      # The script clones the locked Séance ref itself, without a depth cap.
+      - name: Verify recorded Séance pin audit
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          steps.changes.outputs.pin == 'true'
+        run: scripts/audit-seance-pin.sh
 
   # M0 measurements are expensive and historical, not a standing PR budget.
   # Label the M0 PR `m0-bench`, or dispatch manually, to reproduce the report.
