@@ -269,8 +269,8 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/seance_core"
-      ref: "0becf8b72771bae1c38aa8f32195ca27d1783797"
-      resolved-ref: "0becf8b72771bae1c38aa8f32195ca27d1783797"
+      ref: "142db7b40fd6bdaab35fe295267035dca547d240"
+      resolved-ref: "142db7b40fd6bdaab35fe295267035dca547d240"
       url: "https://github.com/BigBoyDevBox/Seance.git"
     source: git
     version: "0.8.0"
@@ -278,8 +278,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/seance_protocol"
-      ref: "0becf8b72771bae1c38aa8f32195ca27d1783797"
-      resolved-ref: "0becf8b72771bae1c38aa8f32195ca27d1783797"
+      ref: "142db7b40fd6bdaab35fe295267035dca547d240"
+      resolved-ref: "142db7b40fd6bdaab35fe295267035dca547d240"
       url: "https://github.com/BigBoyDevBox/Seance.git"
     source: git
     version: "0.8.0"
