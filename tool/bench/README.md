@@ -12,6 +12,11 @@ records raw bytes and microseconds, the measured RTT for shaped runs, the exact
 dartssh2 version and Séance revision, UTC capture time, and host. MB/s is
 derived from bytes and microseconds.
 
+CI runs `standard` and `rtt100-1gb-upload` shards in parallel. The slow shard
+keeps its three variants in one counterbalanced cell. `bin/aggregate.dart`
+accepts only the attributable 75 + 3 scenario sets and publishes 78 rows in a
+canonical order.
+
 For focused iteration, start the fixture lifecycle around one command and run
 `dart run bin/bench.dart --help` from `tool/bench/`. `throughput` measures
 1 MB, 100 MB, and 1 GB uploads/downloads through Séance's concrete VFS with

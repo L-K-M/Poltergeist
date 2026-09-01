@@ -17,6 +17,18 @@ while IFS= read -r line; do
 done
 ''';
 
+const _stuckBatchProcess = r'''
+while IFS= read -r line; do
+  case "$line" in
+    "!echo "*)
+      printf 'sftp> %s\n' "$line"
+      printf '%s\n' "${line#!echo }"
+      ;;
+    bye) exec sleep 600 ;;
+  esac
+done
+''';
+
 void main() {
   test('completes commands from batch sentinels without a prompt', () async {
     final session = await _startSession();
@@ -48,6 +60,18 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('terminates a batch process when graceful close stalls', () async {
+    final process = await Process.start('/bin/sh', ['-c', _stuckBatchProcess]);
+    final session = BatchCommandSession(
+      process,
+      shutdownGracePeriod: Duration.zero,
+    );
+
+    await session.initialize();
+
+    await expectLater(session.close(), completes);
   });
 }
 

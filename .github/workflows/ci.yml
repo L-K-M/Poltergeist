@@ -121,11 +121,15 @@ jobs:
   # M0 measurements are expensive and historical, not a standing PR budget.
   # Label the M0 PR `m0-bench`, or dispatch manually, to reproduce the report.
   m0_bench:
-    name: M0 SSH fitness measurements
+    name: M0 SSH fitness measurements (${{ matrix.shard }})
     if: >-
       github.event_name == 'workflow_dispatch' ||
       contains(github.event.pull_request.labels.*.name, 'm0-bench')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [standard, rtt100-1gb-upload]
     # Shaped 1 GB uploads expose dartssh2's sequential write RTT cost.
     timeout-minutes: 360
     steps:
@@ -137,14 +141,83 @@ jobs:
         working-directory: tool/bench
         run: dart pub get
       - name: Run fixture and measurements
-        run: test/integration/run.sh --lifecycle-only -- tool/bench/run.sh
+        run: >-
+          test/integration/run.sh --lifecycle-only --
+          tool/bench/run.sh "${{ matrix.shard }}"
       # JSON evidence contains no Séance code or executable artifact (D30).
       - uses: actions/upload-artifact@v4
+        id: upload_shard
         if: always()
+        continue-on-error: true
+        with:
+          name: m0-bench-results-${{ matrix.shard }}
+          path: tool/bench/bench-results.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+      - name: Retry shard evidence upload
+        if: always() && steps.upload_shard.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-bench-results-${{ matrix.shard }}
+          path: tool/bench/bench-results.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+
+  m0_bench_aggregate:
+    name: M0 SSH fitness evidence
+    needs: m0_bench
+    if: >-
+      always() &&
+      needs.m0_bench.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'm0-bench'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve benchmark harness
+        working-directory: tool/bench
+        run: dart pub get
+      - name: Download standard measurements
+        uses: actions/download-artifact@v4
+        with:
+          name: m0-bench-results-standard
+          path: tool/bench/shards/standard
+      - name: Download rtt100-1gb-upload measurements
+        uses: actions/download-artifact@v4
+        with:
+          name: m0-bench-results-rtt100-1gb-upload
+          path: tool/bench/shards/rtt100-1gb-upload
+      - name: Aggregate M0 measurements
+        working-directory: tool/bench
+        run: >-
+          dart run bin/aggregate.dart
+          --standard shards/standard/bench-results.json
+          --slow shards/rtt100-1gb-upload/bench-results.json
+          --output bench-results.json
+      - name: Upload canonical M0 evidence
+        id: upload_evidence
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: m0-bench-results
           path: tool/bench/bench-results.json
-          if-no-files-found: warn
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - name: Retry canonical M0 evidence upload
+        if: always() && steps.upload_evidence.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-bench-results
+          path: tool/bench/bench-results.json
+          if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   # The Flutter jobs below activate themselves the moment app/poltergeist_app

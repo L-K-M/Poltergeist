@@ -30,6 +30,40 @@ const _sampleNote =
 
 enum ThroughputVariant { dartHashOn, dartHashOff, openssh }
 
+enum ThroughputLeg { download, upload }
+
+/// Splits the slow 1 GB upload without changing any measured trial.
+enum ThroughputSlice {
+  full('full'),
+  withoutOneGigabyteUpload('without-1gb-upload'),
+  onlyOneGigabyteUpload('only-1gb-upload');
+
+  final String cliValue;
+
+  const ThroughputSlice(this.cliValue);
+
+  static Iterable<String> get cliValues =>
+      values.map((slice) => slice.cliValue);
+
+  static ThroughputSlice parse(String value) {
+    for (final slice in values) {
+      if (slice.cliValue == value) return slice;
+    }
+
+    throw FormatException('Unknown throughput slice: $value');
+  }
+
+  bool includes(ThroughputLeg leg, int payloadBytes) {
+    return switch (this) {
+      full => true,
+      withoutOneGigabyteUpload =>
+        leg != ThroughputLeg.upload || payloadBytes != fixturePayload1GbBytes,
+      onlyOneGigabyteUpload =>
+        leg == ThroughputLeg.upload && payloadBytes == fixturePayload1GbBytes,
+    };
+  }
+}
+
 typedef ThroughputTrial = Future<Duration> Function(ThroughputVariant variant);
 
 /// Warms immediately before every trial, then records mirrored samples.
@@ -68,7 +102,10 @@ class CounterbalancedSamples {
   }
 }
 
-Future<List<BenchResult>> runThroughput(BenchConfig config) async {
+Future<List<BenchResult>> runThroughput(
+  BenchConfig config, {
+  ThroughputSlice slice = ThroughputSlice.full,
+}) async {
   final scratch = await Directory.systemTemp.createTemp('poltergeist-m0-');
   final results = <BenchResult>[];
 
@@ -84,34 +121,45 @@ Future<List<BenchResult>> runThroughput(BenchConfig config) async {
         await _createSparseFile(warmupFile, _warmupPayload.bytes);
 
         for (final payload in _payloads) {
+          final runDownload = slice.includes(
+            ThroughputLeg.download,
+            payload.bytes,
+          );
+          final runUpload = slice.includes(ThroughputLeg.upload, payload.bytes);
+          if (!runDownload && !runUpload) continue;
+
           final localFile = File('${scratch.path}/${payload.label}.bin');
           await _createSparseFile(localFile, payload.bytes);
 
           await _primeRemotePath(config, payload);
-          final downloads = await collectCounterbalancedSamples(
-            (variant) => _download(
-              config: config,
-              dart: dart,
-              openssh: openssh,
-              payload: payload,
-              variant: variant,
-            ),
-            warmup: (variant) => _download(
-              config: config,
-              dart: dart,
-              openssh: openssh,
-              payload: _warmupPayload,
-              variant: variant,
-            ),
-          );
-          results.addAll(
-            _captureSamples(
-              config: config,
-              direction: 'download',
-              payload: payload,
-              samples: downloads,
-            ),
-          );
+          if (runDownload) {
+            final downloads = await collectCounterbalancedSamples(
+              (variant) => _download(
+                config: config,
+                dart: dart,
+                openssh: openssh,
+                payload: payload,
+                variant: variant,
+              ),
+              warmup: (variant) => _download(
+                config: config,
+                dart: dart,
+                openssh: openssh,
+                payload: _warmupPayload,
+                variant: variant,
+              ),
+            );
+            results.addAll(
+              _captureSamples(
+                config: config,
+                leg: ThroughputLeg.download,
+                payload: payload,
+                samples: downloads,
+              ),
+            );
+          }
+
+          if (!runUpload) continue;
 
           await localFile.openRead().drain<void>();
           final uploads = await collectCounterbalancedSamples(
@@ -135,7 +183,7 @@ Future<List<BenchResult>> runThroughput(BenchConfig config) async {
           results.addAll(
             _captureSamples(
               config: config,
-              direction: 'upload',
+              leg: ThroughputLeg.upload,
               payload: payload,
               samples: uploads,
             ),
@@ -249,7 +297,7 @@ Future<Duration> _upload({
 
 Iterable<BenchResult> _captureSamples({
   required BenchConfig config,
-  required String direction,
+  required ThroughputLeg leg,
   required _Payload payload,
   required CounterbalancedSamples samples,
 }) sync* {
@@ -260,7 +308,7 @@ Iterable<BenchResult> _captureSamples({
         : _dartSampleNote(variant, payload);
     yield BenchResult.capture(
       scenario:
-          '${_variantName(variant)}-$direction-${payload.label}-${config.linkName}',
+          '${_variantName(variant)}-${leg.name}-${payload.label}-${config.linkName}',
       bytes: payload.bytes,
       elapsed: samples.medianFor(variant),
       note: note,

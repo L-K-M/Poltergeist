@@ -3,6 +3,41 @@ import 'package:poltergeist_m0_bench/throughput.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('ThroughputSlice', () {
+    test('full includes every transfer', () {
+      expect(_selectedTransfers(ThroughputSlice.full), hasLength(6));
+    });
+
+    test('without 1 GB upload keeps the other five transfers', () {
+      expect(_selectedTransfers(ThroughputSlice.withoutOneGigabyteUpload), [
+        (ThroughputLeg.download, fixturePayload1MbBytes),
+        (ThroughputLeg.upload, fixturePayload1MbBytes),
+        (ThroughputLeg.download, fixturePayload100MbBytes),
+        (ThroughputLeg.upload, fixturePayload100MbBytes),
+        (ThroughputLeg.download, fixturePayload1GbBytes),
+      ]);
+    });
+
+    test('only 1 GB upload excludes every other transfer', () {
+      expect(_selectedTransfers(ThroughputSlice.onlyOneGigabyteUpload), [
+        (ThroughputLeg.upload, fixturePayload1GbBytes),
+      ]);
+    });
+
+    test('parses only named CLI values', () {
+      expect(ThroughputSlice.parse('full'), ThroughputSlice.full);
+      expect(
+        ThroughputSlice.parse('without-1gb-upload'),
+        ThroughputSlice.withoutOneGigabyteUpload,
+      );
+      expect(
+        ThroughputSlice.parse('only-1gb-upload'),
+        ThroughputSlice.onlyOneGigabyteUpload,
+      );
+      expect(() => ThroughputSlice.parse('uploads'), throwsFormatException);
+    });
+  });
+
   test('warms variants and records counterbalanced repeated trials', () async {
     final calls = <ThroughputVariant>[];
     var elapsed = 0;
@@ -72,4 +107,18 @@ void main() {
       throwsStateError,
     );
   });
+}
+
+List<(ThroughputLeg, int)> _selectedTransfers(ThroughputSlice slice) {
+  const payloadBytes = [
+    fixturePayload1MbBytes,
+    fixturePayload100MbBytes,
+    fixturePayload1GbBytes,
+  ];
+
+  return [
+    for (final bytes in payloadBytes)
+      for (final leg in ThroughputLeg.values)
+        if (slice.includes(leg, bytes)) (leg, bytes),
+  ];
 }

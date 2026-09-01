@@ -5,6 +5,8 @@ import 'dart:io';
 import 'config.dart';
 
 const baselineCommandTimeout = Duration(minutes: 30);
+const _baselineShutdownGracePeriod = Duration(seconds: 10);
+const _baselineForcedShutdownGracePeriod = Duration(seconds: 5);
 const _sentinelPrefix = 'POLTERGEIST_M0_SFTP_SENTINEL';
 
 class OpenSshBaseline {
@@ -55,6 +57,8 @@ class OpenSshBaseline {
 /// Drives a persistent non-interactive process with local-command sentinels.
 class BatchCommandSession {
   final Process _process;
+  final Duration _shutdownGracePeriod;
+  final Duration _forcedShutdownGracePeriod;
   final StringBuffer _stdout = StringBuffer();
   final StringBuffer _stderr = StringBuffer();
   Completer<Duration>? _sentinelWaiter;
@@ -66,7 +70,21 @@ class BatchCommandSession {
   int _sentinelSequence = 0;
   int? _exitCode;
 
-  BatchCommandSession(this._process) {
+  factory BatchCommandSession(
+    Process process, {
+    Duration shutdownGracePeriod = _baselineShutdownGracePeriod,
+    Duration forcedShutdownGracePeriod = _baselineForcedShutdownGracePeriod,
+  }) => BatchCommandSession._(
+    process,
+    shutdownGracePeriod,
+    forcedShutdownGracePeriod,
+  );
+
+  BatchCommandSession._(
+    this._process,
+    this._shutdownGracePeriod,
+    this._forcedShutdownGracePeriod,
+  ) {
     _process.stdout.transform(utf8.decoder).listen(_onStdout);
     _process.stderr.transform(utf8.decoder).listen(_stderr.write);
     unawaited(_process.exitCode.then(_onExit));
@@ -89,8 +107,27 @@ class BatchCommandSession {
     await _process.stdin.flush();
     await _process.stdin.close();
 
-    final exitCode = await _process.exitCode.timeout(baselineCommandTimeout);
-    _throwForExit(exitCode);
+    final gracefulExit = await _waitForExit(_shutdownGracePeriod);
+    if (gracefulExit != null) {
+      _throwForExit(gracefulExit);
+      return;
+    }
+
+    // Shutdown is untimed evidence cleanup; stop a wedged SSH transport.
+    _process.kill();
+    final terminatedExit = await _waitForExit(_forcedShutdownGracePeriod);
+    if (terminatedExit != null) return;
+
+    _process.kill(ProcessSignal.sigkill);
+    await _process.exitCode.timeout(_forcedShutdownGracePeriod);
+  }
+
+  Future<int?> _waitForExit(Duration timeout) async {
+    try {
+      return await _process.exitCode.timeout(timeout);
+    } on TimeoutException {
+      return null;
+    }
   }
 
   Future<Duration> _sendSentinel({String? command}) async {

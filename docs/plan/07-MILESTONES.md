@@ -193,7 +193,7 @@ class BenchResult {
 **Deliverable.** A written report, `docs/M0-DARTSSH2-REPORT.md`, with the
 tables above, a verdict per D9's fallback ladder (fine as-is → contribute
 upstream → compensate with channels/transports → document the ceiling →
-FFI to libssh as last resort), and the finalized `PoolPolicy` defaults and
+FFI to libssh2 as last resort), and the finalized `PoolPolicy` defaults and
 scan pipelining depth. Rungs 3–5 of the ladder require editing the decision
 log (00) in the same PR — the ladder pre-authorizes the discussion, not a
 silent downgrade.
@@ -916,7 +916,7 @@ Per-milestone invariant check (item 5 of §3.12):
 
 | # | Risk | Mitigation | Pre-authorized fallback / cut line |
 |---|---|---|---|
-| 1 | dartssh2 throughput or algorithm ceiling (D9) | M0 measures before any design hardens | The D9 ladder: upstream fix → channels/transports compensate → document the ceiling (00 edit) → libssh FFI last resort (00 edit) |
+| 1 | dartssh2 throughput or algorithm ceiling (D9) | M0 measures before any design hardens | The D9 ladder: upstream fix → channels/transports compensate → document the ceiling (00 edit) → libssh2 FFI last resort (00 edit) |
 | 2 | dartssh2 single-channel pipelining unsafe | M0 verifies with byte-compares | Compensate with N channels/transports; relax the scan budget with a 00 edit if even that fails |
 | 3 | Isolate model blocker (sockets, latency) | M0 PoC with explicit pass conditions (03 §5) | Connections on UI isolate, transfers/hashing in engine isolate — a 00 edit, never quiet drift |
 | 4 | Séance upstream PR stalls (S1–S3) | Same owner, sibling repos; file early per 04 §5 | Pin to the PR branch rev; S1 sealing shim (04 §5.6); Design B ships without S1; never fork `seance_core` |

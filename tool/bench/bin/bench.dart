@@ -46,6 +46,9 @@ Future<void> main(List<String> arguments) async {
   final defaults = BenchConfig.defaults();
   final linkName = parsed['link']! as String;
   final rttMs = _optionalInt(parsed['rtt-ms'] as String?);
+  final throughputSlice = ThroughputSlice.parse(
+    parsed['throughput-slice']! as String,
+  );
   if (linkName != 'lan' && rttMs == null) {
     stderr.writeln('--rtt-ms is required for shaped links.');
     exitCode = 64;
@@ -73,7 +76,7 @@ Future<void> main(List<String> arguments) async {
   late final List<BenchResult> results;
   try {
     results = await switch (scenario.single) {
-      _Scenario.throughput => runThroughput(config),
+      _Scenario.throughput => runThroughput(config, slice: throughputSlice),
       _Scenario.algorithms => runAlgorithmAudit(config),
       _Scenario.pipeline => runPipeline(config),
       _Scenario.isolate => runIsolatePoc(config),
@@ -107,6 +110,11 @@ ArgParser _parser() => ArgParser()
   ..addOption('identity')
   ..addOption('output')
   ..addOption('link', defaultsTo: 'lan')
+  ..addOption(
+    'throughput-slice',
+    defaultsTo: ThroughputSlice.full.cliValue,
+    allowed: ThroughputSlice.cliValues,
+  )
   ..addOption('rtt-ms');
 
 int? _optionalInt(String? value) => value == null ? null : int.parse(value);
