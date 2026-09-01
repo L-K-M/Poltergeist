@@ -1436,8 +1436,9 @@ its own budget from the same per-task figures rather than reusing 720/s
 as a global constant) under a
 10k-event/s synthetic flood, and a main-isolate timer probe records no
 event-loop stall > 16 ms during 4 concurrent transfers + one directory
-listing; throughput matches the single-isolate baseline. If M0 finds a
-blocker, the fallback is
+listing; after warming both contexts, the median of three interleaved
+throughput samples stays within ±10% of the single-isolate baseline. If M0
+finds a blocker, the fallback is
 transfers-and-hashing in the engine isolate with connections on the UI
 isolate — but that is a decision-log change (00), not a quiet drift.
 

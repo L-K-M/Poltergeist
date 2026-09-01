@@ -13,9 +13,10 @@ dependencies:
   seance_core:
     git:
       url: https://github.com/BigBoyDevBox/Seance.git
-      ref: 43d5d90d39a6b838091f60ddcbacb1a9fb5aea79
+      ref: 0becf8b72771bae1c38aa8f32195ca27d1783797
       path: packages/seance_core
 
 dev_dependencies:
   lints: ^5.0.0
   test: ^1.25.0
+  yaml: ^3.1.3

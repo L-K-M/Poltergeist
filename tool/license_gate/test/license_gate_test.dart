@@ -378,7 +378,12 @@ Copyright © 2026 After
       seance: seance,
     );
 
-    final report = await _verify(project, customSpdx, LicenseGateMode.release);
+    final report = await _verify(
+      project,
+      customSpdx,
+      LicenseGateMode.release,
+      permittedCopyrightHolders: {'Before', 'Middle', 'After'},
+    );
 
     expect(report.matchedLicenseIds, {'Unlicense'});
   });
@@ -433,6 +438,37 @@ second term
     );
   });
 
+  for (final restriction in const [
+    'ACME PERSONAL USE ONLY',
+    'Acme Proprietary',
+    'Acme No Sharing',
+    'Acme Not Free',
+  ]) {
+    test('does not erase notice-shaped restriction: $restriction', () async {
+      final customSpdx = _GitFixture.create(
+        p.join(sandbox.path, 'spdx-custom'),
+        {'text/Unlicense.txt': 'first term\nsecond term'},
+      );
+      final seance = _GitFixture.create(p.join(sandbox.path, 'Seance'), {
+        'LICENSE':
+            '''
+first term
+Copyright 2026 $restriction
+second term
+''',
+      });
+      final project = _ProjectFixture.create(
+        p.join(sandbox.path, 'project'),
+        seance: seance,
+      );
+
+      await expectLater(
+        _verify(project, customSpdx, LicenseGateMode.release),
+        throwsA(isA<LicenseGateException>()),
+      );
+    });
+  }
+
   test('matches an Apache placeholder to an actual notice', () async {
     final customSpdx = _GitFixture.create(p.join(sandbox.path, 'spdx-custom'), {
       'text/Apache-2.0.txt': '''
@@ -458,6 +494,7 @@ second term
       customSpdx,
       LicenseGateMode.release,
       permittedLicenseIds: {'Apache-2.0'},
+      permittedCopyrightHolders: {'Example'},
     );
 
     expect(report.matchedLicenseIds, {'Apache-2.0'});
@@ -790,6 +827,7 @@ Future<LicenseGateReport> _verify(
   _GitFixture spdx,
   LicenseGateMode mode, {
   Set<String> permittedLicenseIds = const {'Unlicense'},
+  Set<String> permittedCopyrightHolders = const {'L-K-M'},
 }) => verifySeanceLicenseGate(
   repositoryRoot: project.directory,
   mode: mode,
@@ -797,6 +835,7 @@ Future<LicenseGateReport> _verify(
     spdxRepository: spdx.directory.path,
     spdxRevision: spdx.revision,
     permittedLicenseIds: permittedLicenseIds,
+    permittedCopyrightHolders: permittedCopyrightHolders,
   ),
 );
 

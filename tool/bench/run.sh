@@ -25,9 +25,8 @@ run_bench() {
 
 run_throughput_leg() {
   local link_name="$1"
-  local implementation="$2"
-  local output_mode="$3"
-  local args=(throughput --implementation "$implementation" --link "$link_name")
+  local output_mode="$2"
+  local args=(throughput --link "$link_name")
 
   "$profile_script" lan
   if [[ "$link_name" != 'lan' ]]; then
@@ -43,15 +42,13 @@ run_throughput_leg() {
   run_bench "${args[@]}"
 }
 
-run_throughput_leg lan dart "$reset_output"
-run_throughput_leg lan openssh "$append_output"
+run_throughput_leg lan "$reset_output"
 
 "$profile_script" lan
 run_bench pipeline
 run_bench algorithms
 
-run_throughput_leg rtt100 dart "$append_output"
-run_throughput_leg rtt100 openssh "$append_output"
+run_throughput_leg rtt100 "$append_output"
 
 "$profile_script" lan
 "$profile_script" rtt100

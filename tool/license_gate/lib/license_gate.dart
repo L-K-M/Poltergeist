@@ -30,6 +30,7 @@ const Set<String> _licenseFileNames = {
   'COPYING',
 };
 const Set<String> _seancePackageNames = {'seance_core', 'seance_protocol'};
+const Set<String> _permittedCopyrightHolders = {'L-K-M'};
 const Set<String> _ignoredDirectoryNames = {
   '.dart_tool',
   '.git',
@@ -49,30 +50,6 @@ final RegExp _copyrightYearPattern = RegExp(
   r'^(?:\d{4}|\[yyyy\]|<year>)(?:\s*[-–,]\s*\d{2,4})?(?:\s+|$)',
   caseSensitive: false,
 );
-final RegExp _copyrightRestrictionPattern = RegExp(
-  r'\b(?:prohibit\w*|forbid\w*|restrict\w*|disallow\w*|den(?:y|ies|ied|ying)|'
-  r'(?:re)?distribut\w*|commercial|noncommercial|licen[cs]\w*|'
-  r'permit\w*|permission|cop(?:y|ies|ied|ying)|modif\w*|sell|sale|'
-  r'may\s+not|must\s+not|not\s+allowed|without\s+permission|'
-  r'provided\s+that|subject\s+to)\b',
-  caseSensitive: false,
-);
-const Set<String> _permittedLowercaseHolderWords = {
-  'and',
-  'authors',
-  'by',
-  'contributors',
-  'corp',
-  'corporation',
-  'for',
-  'inc',
-  'llc',
-  'ltd',
-  'of',
-  'project',
-  'team',
-  'the',
-};
 const Set<String> _copyrightPlaceholders = {
   '<copyright holder>',
   '<copyright holders>',
@@ -93,11 +70,13 @@ final class LicenseGateSettings {
   final String spdxRepository;
   final String spdxRevision;
   final Set<String> permittedLicenseIds;
+  final Set<String> permittedCopyrightHolders;
 
   const LicenseGateSettings({
     this.spdxRepository = _spdxRepository,
     this.spdxRevision = _spdxRevision,
     this.permittedLicenseIds = _permittedLicenseIds,
+    this.permittedCopyrightHolders = _permittedCopyrightHolders,
   });
 }
 
@@ -169,7 +148,11 @@ Future<LicenseGateReport> verifySeanceLicenseGate({
         if (text == null) continue;
 
         found.add(fileName);
-        final licenseId = _matchLicense(text, canonical);
+        final licenseId = _matchLicense(
+          text,
+          canonical,
+          settings.permittedCopyrightHolders,
+        );
         if (licenseId == null) {
           throw LicenseGateException(
             '${pin.packageName} at ${pin.revision} has a non-permitted '
@@ -657,10 +640,15 @@ bool _runsFlutterBuildWithPub(String command) {
   });
 }
 
-String? _matchLicense(String text, Map<String, String> canonical) {
+String? _matchLicense(
+  String text,
+  Map<String, String> canonical,
+  Set<String> permittedCopyrightHolders,
+) {
   final normalized = _normalizeLicense(
     text,
     copyrightSource: _CopyrightSource.candidate,
+    permittedCopyrightHolders: permittedCopyrightHolders,
   );
   for (final entry in canonical.entries) {
     if (entry.value == normalized) return entry.key;
@@ -673,16 +661,22 @@ enum _CopyrightSource { canonical, candidate }
 String _normalizeLicense(
   String text, {
   required _CopyrightSource copyrightSource,
+  Set<String> permittedCopyrightHolders = const {},
 }) {
   final withoutBom = text.startsWith('\ufeff') ? text.substring(1) : text;
   final lines = withoutBom.split(RegExp(r'\r\n?|\n'));
   final substantive = lines.where(
-    (line) => !_isCopyrightNotice(line, copyrightSource),
+    (line) =>
+        !_isCopyrightNotice(line, copyrightSource, permittedCopyrightHolders),
   );
   return substantive.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
-bool _isCopyrightNotice(String line, _CopyrightSource source) {
+bool _isCopyrightNotice(
+  String line,
+  _CopyrightSource source,
+  Set<String> permittedCopyrightHolders,
+) {
   final prefix = _copyrightPrefixPattern.firstMatch(line);
   if (prefix == null) return false;
 
@@ -709,24 +703,19 @@ bool _isCopyrightNotice(String line, _CopyrightSource source) {
       .trim();
   if (source == _CopyrightSource.canonical) return true;
   if (remainder.isEmpty) return true;
-  if (_copyrightRestrictionPattern.hasMatch(remainder)) return false;
 
-  final placeholder = remainder.replaceAll(RegExp(r'[.]$'), '').toLowerCase();
+  final placeholder = _normalizeCopyrightHolder(remainder);
   if (_copyrightPlaceholders.contains(placeholder)) return true;
-
-  final words = RegExp(
-    r'[A-Za-z0-9]+',
-  ).allMatches(remainder).map((match) => match.group(0)!).toList();
-  if (words.isEmpty) return false;
-  for (final word in words) {
-    final lower = word.toLowerCase();
-    if (_permittedLowercaseHolderWords.contains(lower)) continue;
-    if (RegExp(r'[A-Z0-9]').hasMatch(word)) continue;
-
-    return false;
-  }
-  return true;
+  return permittedCopyrightHolders
+      .map(_normalizeCopyrightHolder)
+      .contains(placeholder);
 }
+
+String _normalizeCopyrightHolder(String holder) => holder
+    .replaceFirst(RegExp(r'[.]$'), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim()
+    .toLowerCase();
 
 Map<Object?, Object?> _readYamlMap(File file) {
   try {

@@ -10,7 +10,8 @@ import 'ssh_driver.dart';
 
 const cancellationLatencyLimit = Duration(milliseconds: 100);
 const mainIsolateStallLimit = Duration(milliseconds: 16);
-const isolateThroughputParityFloor = 0.8;
+const isolateThroughputParityTolerance = 0.10;
+const isolateThroughputSampleCount = 3;
 const _timerProbeInterval = Duration(milliseconds: 4);
 const _engineTimeout = Duration(minutes: 30);
 const _isolateTransferCount = 4;
@@ -19,6 +20,64 @@ const _syntheticEvents = 20_000;
 const _syntheticBatchSize = 200;
 const _syntheticBatchPause = Duration(milliseconds: 10);
 const _syntheticMinimumEventsPerSecond = 10_000;
+
+/// Validates that coalesced progress crossed the isolate boundary intact.
+List<String> validateFloodEvidence({
+  required int uiFlushes,
+  required int engineFlushes,
+  required double uiFlushesPerSecond,
+}) {
+  final failures = <String>[];
+  if (uiFlushes == 0) {
+    failures.add('engine isolate delivered no progress flushes');
+  }
+  if (uiFlushes != engineFlushes) {
+    failures.add('UI progress $uiFlushes != engine $engineFlushes');
+  }
+  if (uiFlushesPerSecond > progressFlushesPerSecond) {
+    failures.add(
+      'progress ${uiFlushesPerSecond.toStringAsFixed(2)}/s > '
+      '$progressFlushesPerSecond/s',
+    );
+  }
+  return failures;
+}
+
+/// Compares warmed, interleaved median transfer rates in both isolates.
+List<String> validateThroughputParity({
+  required List<ReadBatchResult> rootSamples,
+  required List<ReadBatchResult> isolateSamples,
+}) {
+  final failures = <String>[];
+  if (rootSamples.length < isolateThroughputSampleCount ||
+      isolateSamples.length < isolateThroughputSampleCount) {
+    failures.add(
+      'isolate parity needs $isolateThroughputSampleCount samples per side',
+    );
+    return failures;
+  }
+
+  final parity = _medianRate(isolateSamples) / _medianRate(rootSamples);
+  final lowerBound = 1 - isolateThroughputParityTolerance;
+  final upperBound = 1 + isolateThroughputParityTolerance;
+  if (parity < lowerBound || parity > upperBound) {
+    failures.add(
+      'isolate parity ${parity.toStringAsFixed(3)} outside '
+      '${lowerBound.toStringAsFixed(2)}–${upperBound.toStringAsFixed(2)}',
+    );
+  }
+  return failures;
+}
+
+/// Returns event-loop delay beyond one expected probe interval.
+Duration timerProbeOverrun({
+  required Duration elapsed,
+  required Duration previousTick,
+  required Duration interval,
+}) {
+  final overrun = elapsed - previousTick - interval;
+  return overrun.isNegative ? Duration.zero : overrun;
+}
 
 enum _EngineCommand {
   singleTransfer,
@@ -46,17 +105,25 @@ enum _ProgressSource { flood, workload }
 Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
   final transferPath = '${config.remoteRoot}/fixtures/payload-100mb.bin';
   final cancellationPath = '${config.remoteRoot}/fixtures/payload-1gb.bin';
-  final rootConnection = await openBenchConnection(config.endpoint);
-  late final ReadBatchResult rootBaseline;
-  try {
-    rootBaseline = await rootConnection.download(path: transferPath);
-  } finally {
-    rootConnection.close();
-  }
+  await _downloadInRoot(config.endpoint, transferPath);
 
   final peer = await _EnginePeer.spawn(config.endpoint, config.remoteRoot);
   try {
-    final isolateTransfer = await peer.runSingleTransfer();
+    await peer.runSingleTransfer();
+    final rootSamples = <ReadBatchResult>[];
+    final isolateSamples = <ReadBatchResult>[];
+    for (var sample = 0; sample < isolateThroughputSampleCount; sample++) {
+      if (sample.isEven) {
+        rootSamples.add(await _downloadInRoot(config.endpoint, transferPath));
+        isolateSamples.add(await peer.runSingleTransfer());
+        continue;
+      }
+
+      isolateSamples.add(await peer.runSingleTransfer());
+      rootSamples.add(await _downloadInRoot(config.endpoint, transferPath));
+    }
+    final rootBaseline = _medianSample(rootSamples);
+    final isolateTransfer = _medianSample(isolateSamples);
     final cancellation = await peer.measureCancellation(cancellationPath);
     final flood = await peer.runFlood();
     final workload = await peer.runWorkloadWithTimerProbe();
@@ -65,18 +132,21 @@ Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
     final isolateRate =
         isolateTransfer.bytes / isolateTransfer.elapsed.inMicroseconds;
     final parity = isolateRate / rootRate;
+    const parityNote =
+        'samples=$isolateThroughputSampleCount; aggregate=median; '
+        'warmed=true; order=interleaved';
     final results = [
       BenchResult.capture(
         scenario: 'isolate-root-baseline',
         bytes: rootBaseline.bytes,
         elapsed: rootBaseline.elapsed,
-        note: 'sha256=${rootBaseline.digest}',
+        note: 'sha256=${rootBaseline.digest}; $parityNote',
       ),
       BenchResult.capture(
         scenario: 'isolate-single-transfer',
         bytes: isolateTransfer.bytes,
         elapsed: isolateTransfer.elapsed,
-        note: 'rootParity=${parity.toStringAsFixed(3)}',
+        note: 'rootParity=${parity.toStringAsFixed(3)}; $parityNote',
       ),
       BenchResult.capture(
         scenario: 'isolate-cancellation',
@@ -91,7 +161,8 @@ Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
         note:
             'events=$_syntheticEvents; '
             'eventsPerSecond=${flood.eventsPerSecond.toStringAsFixed(2)}; '
-            'flushes=${flood.flushes}; '
+            'uiFlushes=${flood.flushes}; '
+            'engineFlushes=${flood.engineFlushes}; '
             'flushesPerSecond=${flood.flushesPerSecond.toStringAsFixed(2)}',
       ),
       BenchResult.capture(
@@ -103,24 +174,25 @@ Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
       ),
     ];
     final failures = <String>[];
-    if (parity < isolateThroughputParityFloor) {
-      failures.add(
-        'isolate parity ${parity.toStringAsFixed(3)} < '
-        '$isolateThroughputParityFloor',
-      );
-    }
+    failures.addAll(
+      validateThroughputParity(
+        rootSamples: rootSamples,
+        isolateSamples: isolateSamples,
+      ),
+    );
     if (cancellation >= cancellationLatencyLimit) {
       failures.add(
         'cancellation ${cancellation.inMicroseconds}µs >= '
         '${cancellationLatencyLimit.inMicroseconds}µs',
       );
     }
-    if (flood.flushesPerSecond > progressFlushesPerSecond) {
-      failures.add(
-        'progress ${flood.flushesPerSecond.toStringAsFixed(2)}/s > '
-        '$progressFlushesPerSecond/s',
-      );
-    }
+    failures.addAll(
+      validateFloodEvidence(
+        uiFlushes: flood.flushes,
+        engineFlushes: flood.engineFlushes,
+        uiFlushesPerSecond: flood.flushesPerSecond,
+      ),
+    );
     if (flood.eventsPerSecond < _syntheticMinimumEventsPerSecond) {
       failures.add(
         'synthetic load ${flood.eventsPerSecond.toStringAsFixed(2)}/s < '
@@ -141,6 +213,30 @@ Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
     await peer.close();
   }
 }
+
+Future<ReadBatchResult> _downloadInRoot(
+  BenchEndpoint endpoint,
+  String path,
+) async {
+  final connection = await openBenchConnection(endpoint);
+  try {
+    return await connection.download(path: path);
+  } finally {
+    connection.close();
+  }
+}
+
+ReadBatchResult _medianSample(List<ReadBatchResult> samples) {
+  final ordered = [...samples]
+    ..sort((left, right) => _rate(left).compareTo(_rate(right)));
+  return ordered[ordered.length ~/ 2];
+}
+
+double _medianRate(List<ReadBatchResult> samples) =>
+    _rate(_medianSample(samples));
+
+double _rate(ReadBatchResult sample) =>
+    sample.bytes / sample.elapsed.inMicroseconds;
 
 class _EnginePeer {
   final ReceivePort _receivePort;
@@ -290,6 +386,7 @@ class _EnginePeer {
     final elapsed = Duration(microseconds: event['elapsedUs']! as int);
     return _FloodResult(
       flushes: flushes,
+      engineFlushes: event['flushes']! as int,
       elapsed: elapsed,
       eventsPerSecond:
           _syntheticEvents *
@@ -311,14 +408,20 @@ class _EnginePeer {
     });
 
     final probe = Stopwatch()..start();
-    var previous = probe.elapsedMicroseconds;
-    var maxStallUs = 0;
-    final timer = Timer.periodic(_timerProbeInterval, (_) {
-      final now = probe.elapsedMicroseconds;
-      final stall = now - previous - _timerProbeInterval.inMicroseconds;
-      if (stall > maxStallUs) maxStallUs = stall;
+    var previous = probe.elapsed;
+    var maxStall = Duration.zero;
+    void sampleTimer() {
+      final now = probe.elapsed;
+      final stall = timerProbeOverrun(
+        elapsed: now,
+        previousTick: previous,
+        interval: _timerProbeInterval,
+      );
+      if (stall > maxStall) maxStall = stall;
       previous = now;
-    });
+    }
+
+    final timer = Timer.periodic(_timerProbeInterval, (_) => sampleTimer());
 
     late final Map<String, Object?> event;
     try {
@@ -326,6 +429,8 @@ class _EnginePeer {
       _send(_EngineCommand.workload);
       event = await done;
     } finally {
+      // A completion message can run before an overdue timer callback.
+      sampleTimer();
       timer.cancel();
       probe.stop();
       await progressSubscription.cancel();
@@ -336,7 +441,7 @@ class _EnginePeer {
       entries: event['entries']! as int,
       elapsed: Duration(microseconds: event['elapsedUs']! as int),
       progressFlushes: progressFlushes,
-      maxStall: Duration(microseconds: maxStallUs),
+      maxStall: maxStall,
     );
   }
 
@@ -366,12 +471,14 @@ class _EnginePeer {
 
 class _FloodResult {
   final int flushes;
+  final int engineFlushes;
   final Duration elapsed;
   final double eventsPerSecond;
   final double flushesPerSecond;
 
   const _FloodResult({
     required this.flushes,
+    required this.engineFlushes,
     required this.elapsed,
     required this.eventsPerSecond,
     required this.flushesPerSecond,

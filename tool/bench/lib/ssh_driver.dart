@@ -121,24 +121,11 @@ class BenchSshConnection {
       if (length == null) {
         throw StateError('The server did not report a size for $path.');
       }
-
-      final stopwatch = Stopwatch()..start();
-      final chunks = await file
-          .read(length: length, maxPendingRequests: pendingRequests)
-          .toList();
-      stopwatch.stop();
-
-      final bytes = BytesBuilder(copy: false);
-      for (final chunk in chunks) {
-        bytes.add(chunk);
-      }
-      final digest = sha256.convert(bytes.takeBytes());
-      _verifyDigests([digest], expectedDigest);
-
-      return ReadBatchResult(
-        bytes: length,
-        elapsed: stopwatch.elapsed,
-        digest: expectedDigest,
+      return await _readFilesAndVerify(
+        files: [file],
+        length: length,
+        expectedDigest: expectedDigest,
+        maxPendingRequests: pendingRequests,
       );
     } finally {
       await file.close();
@@ -168,17 +155,10 @@ class BenchSshConnection {
           throw StateError('The server did not report a size for $path.');
         }
 
-        final stopwatch = Stopwatch()..start();
-        final digests = await Future.wait(
-          files.map((file) => sha256.bind(file.read(length: length)).first),
-        );
-        stopwatch.stop();
-
-        _verifyDigests(digests, expectedDigest);
-        return ReadBatchResult(
-          bytes: length * channels,
-          elapsed: stopwatch.elapsed,
-          digest: expectedDigest,
+        return await _readFilesAndVerify(
+          files: files,
+          length: length,
+          expectedDigest: expectedDigest,
         );
       } finally {
         await Future.wait(files.map((file) => file.close()));
@@ -307,6 +287,7 @@ class BenchSshConnection {
 Future<BenchSshConnection> openBenchConnection(
   BenchEndpoint endpoint, {
   List<String>? diagnostics,
+  SSHAlgorithms algorithms = const SSHAlgorithms(),
 }) async {
   final socket = await SSHSocket.connect(
     endpoint.host,
@@ -318,6 +299,7 @@ Future<BenchSshConnection> openBenchConnection(
     username: endpoint.username,
     onPasswordRequest: () => endpoint.password,
     onVerifyHostKey: (_, _) => true,
+    algorithms: algorithms,
     printDebug: diagnostics == null
         ? null
         : (message) => diagnostics.add('$message'),
@@ -353,17 +335,10 @@ Future<ReadBatchResult> readAcrossTransports({
         throw StateError('The server did not report a size for $path.');
       }
 
-      final stopwatch = Stopwatch()..start();
-      final digests = await Future.wait(
-        files.map((file) => sha256.bind(file.read(length: length)).first),
-      );
-      stopwatch.stop();
-
-      _verifyDigests(digests, expectedDigest);
-      return ReadBatchResult(
-        bytes: length * transports,
-        elapsed: stopwatch.elapsed,
-        digest: expectedDigest,
+      return await _readFilesAndVerify(
+        files: files,
+        length: length,
+        expectedDigest: expectedDigest,
       );
     } finally {
       await Future.wait(files.map((file) => file.close()));
@@ -375,13 +350,56 @@ Future<ReadBatchResult> readAcrossTransports({
   }
 }
 
-Future<AlgorithmAuditResult> auditAlgorithms(BenchEndpoint endpoint) async {
+Future<ReadBatchResult> _readFilesAndVerify({
+  required List<SftpFile> files,
+  required int length,
+  required String expectedDigest,
+  int? maxPendingRequests,
+}) async {
+  // Time network reads only; correctness work must not reshape scaling.
+  final stopwatch = Stopwatch()..start();
+  final chunksByFile = await Future.wait(
+    files.map((file) {
+      final stream = maxPendingRequests == null
+          ? file.read(length: length)
+          : file.read(length: length, maxPendingRequests: maxPendingRequests);
+      return stream.toList();
+    }),
+  );
+  stopwatch.stop();
+
+  final digests = <Digest>[];
+  for (final chunks in chunksByFile) {
+    final bytes = BytesBuilder(copy: false);
+    for (final chunk in chunks) {
+      bytes.add(chunk);
+    }
+    final payload = bytes.takeBytes();
+    if (payload.length != length) {
+      throw StateError('Read ${payload.length} bytes, expected $length.');
+    }
+    digests.add(sha256.convert(payload));
+  }
+  _verifyDigests(digests, expectedDigest);
+
+  return ReadBatchResult(
+    bytes: length * files.length,
+    elapsed: stopwatch.elapsed,
+    digest: expectedDigest,
+  );
+}
+
+Future<AlgorithmAuditResult> auditAlgorithms(
+  BenchEndpoint endpoint, {
+  SSHAlgorithms? algorithms,
+}) async {
   final diagnostics = <String>[];
   final stopwatch = Stopwatch()..start();
   try {
     final connection = await openBenchConnection(
       endpoint,
       diagnostics: diagnostics,
+      algorithms: algorithms ?? const SSHAlgorithms(),
     );
     stopwatch.stop();
     connection.close();

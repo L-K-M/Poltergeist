@@ -37,8 +37,8 @@ class ProgressCoalescer {
 
   void add(ProgressSample sample) {
     final items = _pending.putIfAbsent(sample.taskId, LinkedHashMap.new);
-    if (!items.containsKey(sample.itemId) &&
-        items.length == progressItemsPerFlushCap) {
+    final refreshed = items.remove(sample.itemId) != null;
+    if (!refreshed && items.length == progressItemsPerFlushCap) {
       items.remove(items.keys.first);
     }
     items[sample.itemId] = sample;

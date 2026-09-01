@@ -55,7 +55,7 @@ test/integration/network-profile.sh lan
 ```
 
 The RTT profile applies 50 ms delay with 25 ms jitter to both ingress and
-egress. `measure-rtt-ms` prints only the median TCP-handshake RTT integer.
+egress. `measure-rtt-ms` prints only the median SSH version-to-KEX RTT integer.
 Record that value; configured delay is not a measurement.
 
 Host private keys in `keys/` are fake, loopback-only fixtures. They are stable

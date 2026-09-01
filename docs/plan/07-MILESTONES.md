@@ -76,6 +76,10 @@ and that the engine-isolate architecture works (D8).
   delays a single direction, halving the effective RTT and skewing the
   pipelining conclusions; in-container `tc` also needs `--cap-add=NET_ADMIN`;
   the report row records the **measured** RTT, not the configured delay).
+  Prime each full local/remote path once, warm the selected persistent variant
+  with a bounded 1 MB operation immediately before each timed trial, measure
+  each twice in mirrored `ABCCBA` order, and report the median so cache and
+  execution order do not choose a winner.
   Record MB/s with hashing on and off
   (hashing-off requires a patch until PR-S3 — carried as a committed
   patch on a rev-pinned branch of a Séance fork, never an uncommitted
@@ -91,7 +95,9 @@ and that the engine-isolate architecture works (D8).
 - Pipelining verification: on ONE SFTP channel, issue 8–32 concurrent
   `read`s of one file and 8 concurrent readdirs of sibling directories;
   verify correctness (byte-compare) and measure scaling. Then measure N
-  channels over one `SSHClient` and N separate transports. This arbitrates
+  channels over one `SSHClient` and N separate transports. Warm every depth
+  or count, then run it on fresh connections in forward/reverse order and
+  report the two-sample median. This arbitrates
   the research notes' open question (gaps §3.9) and fixes the numbers in
   `PoolPolicy` (03 §3.2) and the scanner's readdir depth (05 §3).
 - Isolate PoC (03 §5 lists the pass conditions): dartssh2 sockets and
@@ -100,7 +106,9 @@ and that the engine-isolate architecture works (D8).
   events arrive on the UI-side port at ≤ 30/s per task under a
   10k-event/s synthetic flood, and a main-isolate timer probe records no
   event-loop stall > 16 ms during 4 concurrent transfers + one directory
-  listing; throughput parity with the single-isolate baseline.
+  listing; throughput parity with the single-isolate baseline after warming
+  both contexts, then taking three interleaved samples: median rates must be
+  within ±10%, a narrow allowance for shared-runner measurement jitter.
 - Harness code lives at `tool/bench/` (Dart CLI, repo root); the sshd
   Docker fixture lives at `test/integration/` (08 §5's layout:
   `docker-compose.yml`, `sshd-modern/` and friends, `run.sh`) and lands in

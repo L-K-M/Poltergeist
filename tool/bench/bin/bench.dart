@@ -43,17 +43,6 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
-  final throughputImplementationName = parsed['implementation'] as String?;
-  final throughputImplementation = throughputImplementationName == null
-      ? null
-      : ThroughputImplementation.values.byName(throughputImplementationName);
-  if (scenario.single == _Scenario.throughput &&
-      throughputImplementation == null) {
-    stderr.writeln('--implementation is required for throughput.');
-    exitCode = 64;
-    return;
-  }
-
   final defaults = BenchConfig.defaults();
   final linkName = parsed['link']! as String;
   final rttMs = _optionalInt(parsed['rtt-ms'] as String?);
@@ -84,7 +73,7 @@ Future<void> main(List<String> arguments) async {
   late final List<BenchResult> results;
   try {
     results = await switch (scenario.single) {
-      _Scenario.throughput => runThroughput(config, throughputImplementation!),
+      _Scenario.throughput => runThroughput(config),
       _Scenario.algorithms => runAlgorithmAudit(config),
       _Scenario.pipeline => runPipeline(config),
       _Scenario.isolate => runIsolatePoc(config),
@@ -117,10 +106,6 @@ ArgParser _parser() => ArgParser()
   ..addOption('remote-root', defaultsTo: defaultRemoteRoot)
   ..addOption('identity')
   ..addOption('output')
-  ..addOption(
-    'implementation',
-    allowed: ThroughputImplementation.values.map((value) => value.name),
-  )
   ..addOption('link', defaultsTo: 'lan')
   ..addOption('rtt-ms');
 

@@ -57,8 +57,11 @@ class BatchCommandSession {
   final Process _process;
   final StringBuffer _stdout = StringBuffer();
   final StringBuffer _stderr = StringBuffer();
-  Completer<void>? _sentinelWaiter;
+  Completer<Duration>? _sentinelWaiter;
   String? _expectedSentinel;
+  Stopwatch? _sentinelStopwatch;
+  Duration? _commandElapsed;
+  int _sentinelMatches = 0;
   int _scanOffset = 0;
   int _sentinelSequence = 0;
   int? _exitCode;
@@ -73,12 +76,7 @@ class BatchCommandSession {
     await _sendSentinel();
   }
 
-  Future<Duration> run(String command) async {
-    final stopwatch = Stopwatch()..start();
-    await _sendSentinel(command: command);
-    stopwatch.stop();
-    return stopwatch.elapsed;
-  }
+  Future<Duration> run(String command) => _sendSentinel(command: command);
 
   Future<void> close() async {
     final knownExitCode = _exitCode;
@@ -95,7 +93,7 @@ class BatchCommandSession {
     _throwForExit(exitCode);
   }
 
-  Future<void> _sendSentinel({String? command}) async {
+  Future<Duration> _sendSentinel({String? command}) async {
     final exitCode = _exitCode;
     if (exitCode != null) _throwForExit(exitCode);
     if (_sentinelWaiter != null) {
@@ -103,19 +101,25 @@ class BatchCommandSession {
     }
 
     final sentinel = '${_sentinelPrefix}_${_sentinelSequence++}';
-    final waiter = Completer<void>();
+    final waiter = Completer<Duration>();
     _expectedSentinel = sentinel;
     _sentinelWaiter = waiter;
+    _sentinelStopwatch = Stopwatch()..start();
+    _commandElapsed = null;
+    _sentinelMatches = 0;
 
     try {
       if (command != null) _process.stdin.writeln(command);
       _process.stdin.writeln('!echo $sentinel');
       await _process.stdin.flush();
-      await waiter.future.timeout(baselineCommandTimeout);
+      return await waiter.future.timeout(baselineCommandTimeout);
     } finally {
       if (identical(_sentinelWaiter, waiter)) {
         _sentinelWaiter = null;
         _expectedSentinel = null;
+        _sentinelStopwatch = null;
+        _commandElapsed = null;
+        _sentinelMatches = 0;
       }
     }
   }
@@ -127,15 +131,25 @@ class BatchCommandSession {
     if (sentinel == null || waiter == null) return;
 
     final output = _stdout.toString();
-    final match = output.indexOf(sentinel, _scanOffset);
-    if (match < 0) {
-      _scanOffset = output.length - sentinel.length + 1;
-      if (_scanOffset < 0) _scanOffset = 0;
+    while (true) {
+      final match = output.indexOf(sentinel, _scanOffset);
+      if (match < 0) {
+        final nextOffset = output.length - sentinel.length + 1;
+        if (nextOffset > _scanOffset) _scanOffset = nextOffset;
+        return;
+      }
+
+      _scanOffset = match + sentinel.length;
+      _sentinelMatches++;
+      if (_sentinelMatches == 1) {
+        _commandElapsed = _sentinelStopwatch!.elapsed;
+        continue;
+      }
+
+      // Batch sftp first echoes the command, then emits the shell result.
+      waiter.complete(_commandElapsed!);
       return;
     }
-
-    _scanOffset = match + sentinel.length;
-    waiter.complete();
   }
 
   void _onExit(int exitCode) {

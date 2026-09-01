@@ -1,7 +1,7 @@
 import 'dart:io';
 
 const resolvedDartssh2Version = '2.22.0';
-const pinnedSeanceRevision = '43d5d90d39a6b838091f60ddcbacb1a9fb5aea79';
+const pinnedSeanceRevision = '0becf8b72771bae1c38aa8f32195ca27d1783797';
 
 /// One attributable measurement row. Rates stay derived from raw values.
 class BenchResult {

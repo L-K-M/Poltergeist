@@ -5,6 +5,8 @@ import 'package:yaml/yaml.dart';
 
 import 'check_config.dart';
 
+const _minimumM0TimeoutMinutes = 180;
+
 void main() {
   test('accepts loopback long-form publishing', () {
     final errors = findExposureErrors({
@@ -91,5 +93,18 @@ void main() {
       ),
     );
     expect(legacy.containsKey('build'), isFalse);
+  });
+
+  test('budgets enough time for shaped sequential uploads', () {
+    final workflow =
+        loadYaml(File('.github/workflows/ci.yml').readAsStringSync())
+            as YamlMap;
+    final jobs = workflow['jobs'] as YamlMap;
+    final benchmark = jobs['m0_bench'] as YamlMap;
+
+    expect(
+      benchmark['timeout-minutes'],
+      greaterThanOrEqualTo(_minimumM0TimeoutMinutes),
+    );
   });
 }

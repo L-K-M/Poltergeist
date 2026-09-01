@@ -489,19 +489,12 @@ test/integration/
                             OpenSSH (9.x/10.x), bumped deliberately (a
                             floating latest would drift the D9 algorithm
                             audit)
-  sshd-legacy/Dockerfile    ubuntu:20.04 pinned by digest — OpenSSH 8.2p1
-                            (older algorithm defaults; focal is past
-                            standard support, so expect to retarget apt at
-                            old-releases.ubuntu.com or swap to Debian
-                            bullseye (OpenSSH 8.4p1, still on primary/LTS
-                            mirrors — the pre-decided ≤ 8.x candidate,
-                            pinned by digest and re-audited against D9's
-                            algorithm expectations) when the archive
-                            moves —
-                            and once built, the image is pushed to the
+  sshd-legacy/Dockerfile    Debian bullseye pinned by digest — OpenSSH 8.4p1,
+                            the pre-decided ≤ 8.x candidate; once built, the
+                            image is pushed to the
                             project's GHCR and CI pulls that
                             digest-pinned frozen artifact, so archive
-                            outages or focal's eventual removal never
+                            outages never
                             redden the legacy leg for reasons unrelated
                             to the code under test)
   keys/                     committed test-only HOST keys only (incl.
@@ -682,9 +675,10 @@ Suites:
 M0 reuses this fixture (D9): the throughput comparison against the
 OpenSSH `sftp` CLI baseline and the concurrent-request verification run
 against `sshd-modern` with `tc netem` latency injection for the
-high-latency case — applied identically to both the engine run and the
-`sftp` CLI baseline run, same service, qdisc deleted between them — `tc`
-runs inside the container, so the image installs
+high-latency case. One qdisc is shared by the warmed, counterbalanced
+engine/CLI trials so both see one deterministic profile; deleting it between
+variants would defeat interleaving. The qdisc is deleted before and after
+each combined link leg. `tc` runs inside the container, so the image installs
 `iproute2`, the compose service adds `cap_add: [NET_ADMIN]` (or the netem
 leg uses a dedicated profiled `sshd-netem` service), and the qdisc is
 deleted in teardown so injected latency never leaks into other suites
