@@ -1,10 +1,10 @@
-FROM alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1
+FROM alpine:20260805@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000
 
 RUN apk add --no-cache \
-      iproute2=6.15.0-r0 \
-      openssh-client-common=10.0_p1-r10 \
-      openssh-server-pam=10.0_p1-r10 \
-      openssh-sftp-server=10.0_p1-r10
+      iproute2=7.1.0-r0 \
+      openssh-client-common=10.5_p1-r1 \
+      openssh-server-pam=10.5_p1-r1 \
+      openssh-sftp-server=10.5_p1-r1
 
 COPY sshd-common/entrypoint.sh /usr/local/bin/fixture-entrypoint
 COPY sshd-common/netem-profile.sh /usr/local/bin/netem-profile

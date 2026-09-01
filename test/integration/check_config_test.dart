@@ -6,6 +6,15 @@ import 'package:yaml/yaml.dart';
 import 'check_config.dart';
 
 const _minimumM0TimeoutMinutes = 180;
+const _modernAlpineImage =
+    'alpine:20260805@sha256:'
+    '020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000';
+const _modernOpenSshVersion = '10.5_p1-r1';
+const _modernOpenSshPackages = [
+  'openssh-client-common',
+  'openssh-server-pam',
+  'openssh-sftp-server',
+];
 
 void main() {
   test('accepts loopback long-form publishing', () {
@@ -67,6 +76,17 @@ void main() {
 
     expect(config, contains('mlkem768x25519-sha256'));
     expect(config, isNot(contains('sntrup761x25519-sha512')));
+  });
+
+  test('pins the current modern OpenSSH fixture', () {
+    final dockerfile = File(
+      'test/integration/sshd-modern/Dockerfile',
+    ).readAsStringSync();
+
+    expect(dockerfile.split('\n').first, 'FROM $_modernAlpineImage');
+    for (final package in _modernOpenSshPackages) {
+      expect(dockerfile, contains('$package=$_modernOpenSshVersion'));
+    }
   });
 
   test('pins matching legacy OpenSSH client and server packages', () {
