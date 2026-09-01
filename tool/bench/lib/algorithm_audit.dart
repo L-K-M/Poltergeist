@@ -4,30 +4,37 @@ import 'config.dart';
 import 'harness.dart';
 import 'ssh_driver.dart';
 
+const _modernPort = 2201;
+const _legacyPort = 2202;
+const _rsaPort = 2211;
+const _chachaPort = 2212;
+const _ed25519Port = 2213;
+
 const _algorithmProfiles = [
-  _AlgorithmProfile('default', 2201),
+  _AlgorithmProfile('default', _modernPort),
+  _AlgorithmProfile('legacy-default', _legacyPort),
   _AlgorithmProfile(
     'aes128-gcm',
-    2201,
+    _modernPort,
     algorithms: SSHAlgorithms(cipher: [SSHCipherType.aes128gcm]),
   ),
   _AlgorithmProfile(
     'aes256-gcm',
-    2201,
+    _modernPort,
     algorithms: SSHAlgorithms(cipher: [SSHCipherType.aes256gcm]),
   ),
   _AlgorithmProfile(
     'rsa-sha2-512',
-    2211,
+    _rsaPort,
     algorithms: SSHAlgorithms(hostkey: [SSHHostkeyType.rsaSha512]),
   ),
   _AlgorithmProfile(
     'rsa-sha2-256',
-    2211,
+    _rsaPort,
     algorithms: SSHAlgorithms(hostkey: [SSHHostkeyType.rsaSha256]),
   ),
-  _AlgorithmProfile('chacha-curve-pq', 2212),
-  _AlgorithmProfile('ed25519-only', 2213),
+  _AlgorithmProfile('chacha-curve-pq', _chachaPort),
+  _AlgorithmProfile('ed25519-only', _ed25519Port),
 ];
 
 typedef AlgorithmProbe =

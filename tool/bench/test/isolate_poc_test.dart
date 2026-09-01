@@ -33,6 +33,46 @@ void main() {
     );
   });
 
+  test('bounds every workload task and their aggregate flush rate', () {
+    const bounded = {
+      'transfer-0': 30,
+      'transfer-1': 30,
+      'transfer-2': 30,
+      'transfer-3': 30,
+    };
+    const unbounded = {
+      'transfer-0': 31,
+      'transfer-1': 30,
+      'transfer-2': 30,
+      'transfer-3': 30,
+    };
+
+    expect(
+      validateWorkloadFlushEvidence(
+        flushesByTask: bounded,
+        elapsed: const Duration(seconds: 1),
+        expectedTasks: bounded.keys,
+      ),
+      isEmpty,
+    );
+    expect(
+      validateWorkloadFlushEvidence(
+        flushesByTask: unbounded,
+        elapsed: const Duration(seconds: 1),
+        expectedTasks: bounded.keys,
+      ),
+      contains(contains('transfer-0')),
+    );
+    expect(
+      validateWorkloadFlushEvidence(
+        flushesByTask: const {'transfer-0': 1},
+        elapsed: const Duration(seconds: 1),
+        expectedTasks: bounded.keys,
+      ),
+      contains(contains('delivered no workload progress')),
+    );
+  });
+
   test('uses repeated medians for throughput parity', () {
     final failures = validateThroughputParity(
       rootSamples: [_read(300), _read(100), _read(100)],

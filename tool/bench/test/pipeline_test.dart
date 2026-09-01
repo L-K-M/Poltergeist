@@ -2,7 +2,22 @@ import 'package:poltergeist_m0_bench/pipeline.dart';
 import 'package:poltergeist_m0_bench/ssh_driver.dart';
 import 'package:test/test.dart';
 
+const _defaultMaxTransports = 2;
+const _defaultTransferChannelsPerTransport = 3;
+const _defaultMaxChannelsPerTransport = 8;
+
 void main() {
+  test('measurement matrix covers every provisional pool default', () {
+    expect(
+      pipelineChannelCounts,
+      containsAll([
+        _defaultTransferChannelsPerTransport,
+        _defaultMaxChannelsPerTransport,
+      ]),
+    );
+    expect(pipelineTransportCounts, contains(_defaultMaxTransports));
+  });
+
   test('each channel trial owns and closes a fresh transport', () async {
     final connections = <_FakeChannelConnection>[];
 

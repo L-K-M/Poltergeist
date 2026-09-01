@@ -34,6 +34,7 @@ void main() {
       expect(
         results.map((result) => result.scenario),
         containsAll([
+          'algorithm-legacy-default',
           'algorithm-aes128-gcm',
           'algorithm-aes256-gcm',
           'algorithm-rsa-sha2-256',

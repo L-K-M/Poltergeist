@@ -15,6 +15,9 @@ const isolateThroughputSampleCount = 3;
 const _timerProbeInterval = Duration(milliseconds: 4);
 const _engineTimeout = Duration(minutes: 30);
 const _isolateTransferCount = 4;
+final _workloadTaskIds = List<String>.unmodifiable(
+  List.generate(_isolateTransferCount, (index) => 'transfer-$index'),
+);
 const _listingFixtureEntries = 10_000;
 const _syntheticEvents = 20_000;
 const _syntheticBatchSize = 200;
@@ -41,6 +44,69 @@ List<String> validateFloodEvidence({
     );
   }
   return failures;
+}
+
+/// Verifies the real four-transfer workload obeys the per-task flush cap.
+List<String> validateWorkloadFlushEvidence({
+  required Map<String, int> flushesByTask,
+  required Duration elapsed,
+  required Iterable<String> expectedTasks,
+}) {
+  final failures = <String>[];
+  final tasks = expectedTasks.toSet();
+  if (elapsed <= Duration.zero) {
+    return ['workload progress window is not positive'];
+  }
+
+  for (final taskId in tasks) {
+    final flushes = flushesByTask[taskId];
+    if (flushes == null || flushes == 0) {
+      failures.add('$taskId delivered no workload progress');
+      continue;
+    }
+
+    final rate = _ratePerSecond(flushes, elapsed);
+    if (rate > progressFlushesPerSecond) {
+      failures.add(
+        '$taskId progress ${rate.toStringAsFixed(2)}/s > '
+        '$progressFlushesPerSecond/s',
+      );
+    }
+  }
+
+  final unexpected = flushesByTask.keys.toSet().difference(tasks);
+  if (unexpected.isNotEmpty) {
+    failures.add('unexpected workload progress tasks: ${unexpected.join(',')}');
+  }
+
+  final aggregateRate = _ratePerSecond(
+    flushesByTask.values.fold(0, (sum, flushes) => sum + flushes),
+    elapsed,
+  );
+  final aggregateLimit = progressFlushesPerSecond * tasks.length;
+  if (aggregateRate > aggregateLimit) {
+    failures.add(
+      'aggregate progress ${aggregateRate.toStringAsFixed(2)}/s > '
+      '$aggregateLimit/s',
+    );
+  }
+  return failures;
+}
+
+double _ratePerSecond(int events, Duration elapsed) =>
+    events * Duration.microsecondsPerSecond / elapsed.inMicroseconds;
+
+String _workloadFlushRates(_WorkloadResult workload) {
+  final entries = workload.progressFlushesByTask.entries.toList()
+    ..sort((left, right) => left.key.compareTo(right.key));
+  final rates = [
+    for (final entry in entries)
+      '${entry.key}='
+          '${_ratePerSecond(entry.value, workload.progressElapsed).toStringAsFixed(2)}/s',
+    'aggregate='
+        '${_ratePerSecond(workload.progressFlushes, workload.progressElapsed).toStringAsFixed(2)}/s',
+  ];
+  return rates.join(',');
 }
 
 /// Compares warmed, interleaved median transfer rates in both isolates.
@@ -170,7 +236,11 @@ Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
         bytes: workload.bytes,
         elapsed: workload.elapsed,
         note:
-            'entries=${workload.entries}; progressFlushes=${workload.progressFlushes}; maxMainStallUs=${workload.maxStall.inMicroseconds}',
+            'entries=${workload.entries}; '
+            'progressFlushes=${workload.progressFlushes}; '
+            'progressWindowUs=${workload.progressElapsed.inMicroseconds}; '
+            'flushRates=${_workloadFlushRates(workload)}; '
+            'maxMainStallUs=${workload.maxStall.inMicroseconds}',
       ),
     ];
     final failures = <String>[];
@@ -191,6 +261,13 @@ Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
         uiFlushes: flood.flushes,
         engineFlushes: flood.engineFlushes,
         uiFlushesPerSecond: flood.flushesPerSecond,
+      ),
+    );
+    failures.addAll(
+      validateWorkloadFlushEvidence(
+        flushesByTask: workload.progressFlushesByTask,
+        elapsed: workload.progressElapsed,
+        expectedTasks: _workloadTaskIds,
       ),
     );
     if (flood.eventsPerSecond < _syntheticMinimumEventsPerSecond) {
@@ -398,13 +475,19 @@ class _EnginePeer {
   }
 
   Future<_WorkloadResult> runWorkloadWithTimerProbe() async {
-    var progressFlushes = 0;
+    final progressFlushesByTask = <String, int>{};
     final progressSubscription = _events.listen((event) {
       if (event['event'] != _EngineEvent.progress.name ||
           event['source'] != _ProgressSource.workload.name) {
         return;
       }
-      progressFlushes++;
+
+      final taskId = event['taskId']! as String;
+      progressFlushesByTask.update(
+        taskId,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
     });
 
     final probe = Stopwatch()..start();
@@ -424,6 +507,7 @@ class _EnginePeer {
     final timer = Timer.periodic(_timerProbeInterval, (_) => sampleTimer());
 
     late final Map<String, Object?> event;
+    late final Duration progressElapsed;
     try {
       final done = _nextEvent(_events, _EngineEvent.workloadDone, _terminal);
       _send(_EngineCommand.workload);
@@ -432,6 +516,7 @@ class _EnginePeer {
       // A completion message can run before an overdue timer callback.
       sampleTimer();
       timer.cancel();
+      progressElapsed = probe.elapsed;
       probe.stop();
       await progressSubscription.cancel();
     }
@@ -440,7 +525,8 @@ class _EnginePeer {
       bytes: event['bytes']! as int,
       entries: event['entries']! as int,
       elapsed: Duration(microseconds: event['elapsedUs']! as int),
-      progressFlushes: progressFlushes,
+      progressFlushesByTask: progressFlushesByTask,
+      progressElapsed: progressElapsed,
       maxStall: maxStall,
     );
   }
@@ -489,16 +575,21 @@ class _WorkloadResult {
   final int bytes;
   final int entries;
   final Duration elapsed;
-  final int progressFlushes;
+  final Map<String, int> progressFlushesByTask;
+  final Duration progressElapsed;
   final Duration maxStall;
 
-  const _WorkloadResult({
+  _WorkloadResult({
     required this.bytes,
     required this.entries,
     required this.elapsed,
-    required this.progressFlushes,
+    required Map<String, int> progressFlushesByTask,
+    required this.progressElapsed,
     required this.maxStall,
-  });
+  }) : progressFlushesByTask = Map.unmodifiable(progressFlushesByTask);
+
+  int get progressFlushes =>
+      progressFlushesByTask.values.fold(0, (sum, flushes) => sum + flushes);
 }
 
 Future<Map<String, Object?>> _nextEvent(

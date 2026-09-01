@@ -4,8 +4,10 @@ import 'harness.dart';
 import 'ssh_driver.dart';
 
 const _singleChannelReadCounts = [8, 16, 32];
-const _channelCounts = [1, 2, 4, 8];
-const _transportCounts = [1, 2, 4];
+
+/// Counts needed to decide every provisional pool concurrency default.
+const pipelineChannelCounts = [1, 2, 3, 4, 8];
+const pipelineTransportCounts = [1, 2, 4];
 const _readdirConcurrency = 8;
 const _entriesPerFixtureDirectory = 100;
 const _trialNote =
@@ -68,15 +70,15 @@ Future<List<BenchResult>> runPipeline(BenchConfig config) async {
     results.add(_listingResult(config, _readdirConcurrency, concurrent));
 
     final channelReads = await runChannelTrials(
-      channelCounts: _channelCounts,
+      channelCounts: pipelineChannelCounts,
       path: path,
       expectedDigest: expectedDigest,
       openConnection: () async => _SshPipelineChannelConnection(
         await openBenchConnection(config.endpoint),
       ),
     );
-    for (var index = 0; index < _channelCounts.length; index++) {
-      final channels = _channelCounts[index];
+    for (var index = 0; index < pipelineChannelCounts.length; index++) {
+      final channels = pipelineChannelCounts[index];
       final read = channelReads[index];
       results.add(
         _readResult(
@@ -92,8 +94,8 @@ Future<List<BenchResult>> runPipeline(BenchConfig config) async {
       path: path,
       expectedDigest: expectedDigest,
     );
-    for (var index = 0; index < _transportCounts.length; index++) {
-      final transports = _transportCounts[index];
+    for (var index = 0; index < pipelineTransportCounts.length; index++) {
+      final transports = pipelineTransportCounts[index];
       final read = transportReads[index];
       results.add(
         _readResult(
@@ -342,9 +344,9 @@ Future<List<ReadBatchResult>> _runTransportTrials({
   required String expectedDigest,
 }) async {
   final samples = {
-    for (final count in _transportCounts) count: <ReadBatchResult>[],
+    for (final count in pipelineTransportCounts) count: <ReadBatchResult>[],
   };
-  for (final transports in _transportCounts) {
+  for (final transports in pipelineTransportCounts) {
     await readAcrossTransports(
       endpoint: config.endpoint,
       path: path,
@@ -352,7 +354,7 @@ Future<List<ReadBatchResult>> _runTransportTrials({
       expectedDigest: expectedDigest,
     );
   }
-  for (final transports in _mirrored(_transportCounts)) {
+  for (final transports in _mirrored(pipelineTransportCounts)) {
     samples[transports]!.add(
       await readAcrossTransports(
         endpoint: config.endpoint,
@@ -362,7 +364,9 @@ Future<List<ReadBatchResult>> _runTransportTrials({
       ),
     );
   }
-  return [for (final count in _transportCounts) _medianRead(samples[count]!)];
+  return [
+    for (final count in pipelineTransportCounts) _medianRead(samples[count]!),
+  ];
 }
 
 Iterable<int> _mirrored(List<int> values) sync* {
