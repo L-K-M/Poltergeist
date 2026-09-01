@@ -54,6 +54,7 @@ Future<List<BenchResult>> runAlgorithmAudit(
       port: profile.port,
       username: config.endpoint.username,
       password: config.endpoint.password,
+      identityFile: config.endpoint.identityFile,
     );
     final audit = await probe(endpoint, algorithms: profile.algorithms);
     results.add(

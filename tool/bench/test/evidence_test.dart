@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:poltergeist_m0_bench/evidence.dart';
 import 'package:poltergeist_m0_bench/evidence_store.dart';
+import 'package:poltergeist_m0_bench/harness.dart';
 import 'package:poltergeist_m0_bench/monotonic_clock.dart';
 import 'package:poltergeist_m0_bench/result_manifest.dart';
 import 'package:test/test.dart';
@@ -465,8 +466,8 @@ SourceIdentity _identity({String shardId = standardSourceId}) => SourceIdentity(
     runnerImageVersion: '20260901.1',
   ),
   dependencies: DependencyIdentity(
-    dartssh2Version: '2.22.0',
-    seanceRevision: '142db7b40fd6bdaab35fe295267035dca547d240',
+    dartssh2Version: resolvedDartssh2Version,
+    seanceRevision: pinnedSeanceRevision,
   ),
   fixture: FixtureIdentity(
     tree: 'fedcba9876543210fedcba9876543210fedcba98',

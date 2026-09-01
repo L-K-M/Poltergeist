@@ -109,6 +109,19 @@ void main() {
       const Duration(milliseconds: 22),
     );
   });
+
+  test('shutdown surfaces a delayed uncaught isolate error', () async {
+    await expectLater(
+      runIsolateShutdownErrorProbe(),
+      throwsA(
+        isA<StateError>().having(
+          (error) => '$error',
+          'message',
+          contains('delayed shutdown probe error'),
+        ),
+      ),
+    );
+  });
 }
 
 ReadBatchResult _read(int elapsedMicroseconds) => ReadBatchResult(

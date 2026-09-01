@@ -108,7 +108,8 @@ and that the engine-isolate architecture works (D8).
   working-tree or pub-cache edit, so CI and fresh clones reproduce the
   numbers; measure both anyway — the delta is the D7 evidence).
 - Algorithm audit: connect the exact dartssh2 version resolved by Séance's
-  committed lock — 2.22.0 at M0 from its `^2.9.0` constraint — against a
+  committed lock — 3.0.2 at M0, the D9 floor that owns every pipelined read
+  completion during cancellation — against a
   current OpenSSH sshd in four configs — defaults,
   `rsa-sha2-256/512`-only,
   `chacha20-poly1305@openssh.com` + `curve25519`/post-quantum-preferring

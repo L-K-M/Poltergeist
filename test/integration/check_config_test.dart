@@ -680,7 +680,10 @@ final _expectedCiShardCommands = <String, List<String>>{
   'standard': [
     _packageStart('standard'),
     'profile lan',
-    _throughputBench(link: 'lan', outputMode: _OutputMode.reset),
+    'bench cancellation-regression',
+    'bench isolate --reset',
+    'profile lan',
+    _throughputBench(link: 'lan'),
     'profile lan',
     'bench pipeline',
     'bench algorithms',
@@ -694,8 +697,6 @@ final _expectedCiShardCommands = <String, List<String>>{
     'profile measure-rtt-json',
     'bench pipeline --link=rtt100 --rtt-evidence=$_measuredRttJson',
     'profile lan',
-    'profile lan',
-    'bench isolate',
     _packageFinish(0),
   ],
   for (final shard in _m0ShardNames.skip(1))
@@ -712,7 +713,10 @@ final _expectedCiShardCommands = <String, List<String>>{
 
 final _expectedLocalFullCommands = [
   'profile lan',
-  _throughputBench(link: 'lan', outputMode: _OutputMode.reset),
+  'bench cancellation-regression',
+  'bench isolate --reset',
+  'profile lan',
+  _throughputBench(link: 'lan'),
   'profile lan',
   'bench pipeline',
   'bench algorithms',
@@ -726,8 +730,6 @@ final _expectedLocalFullCommands = [
   'profile measure-rtt-json',
   'bench pipeline --link=rtt100 --rtt-evidence=$_measuredRttJson',
   'profile lan',
-  'profile lan',
-  'bench isolate',
 ];
 
 String _throughputBench({

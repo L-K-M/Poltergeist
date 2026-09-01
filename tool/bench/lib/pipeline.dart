@@ -22,7 +22,7 @@ abstract interface class PipelineChannelConnection {
     required String expectedDigest,
   });
 
-  void close();
+  Future<void> close();
 }
 
 typedef PipelineChannelConnectionFactory =
@@ -165,7 +165,7 @@ Future<ReadBatchResult> _readChannelTrial({
       expectedDigest: expectedDigest,
     );
   } finally {
-    connection.close();
+    await connection.close();
   }
 }
 
@@ -186,7 +186,7 @@ class _SshPipelineChannelConnection implements PipelineChannelConnection {
   );
 
   @override
-  void close() => _connection.close();
+  Future<void> close() => _connection.close();
 }
 
 BenchResult _readResult(
@@ -267,7 +267,7 @@ Future<ReadBatchResult> _readDepthTrial({
       expectedDigest: expectedDigest,
     );
   } finally {
-    connection.close();
+    await connection.close();
   }
 }
 
@@ -334,7 +334,7 @@ Future<DirectoryBatchResult> _readListingTrial({
     }
     return listing;
   } finally {
-    connection.close();
+    await connection.close();
   }
 }
 

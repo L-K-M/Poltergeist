@@ -4,7 +4,9 @@
 
 <!-- Finalize only from a complete, validated canonical artifact. Runs
 33458209337, 33481554062, and 33504660759 are partial; 33534298280 stopped in
-preflight. All are inadmissible. -->
+preflight. Run 33535334440 completed all twelve isolated sources, but its
+standard source exposed the dartssh2 2.22.0 cancellation defect. All are
+inadmissible. -->
 
 ## Verdict
 
@@ -17,9 +19,9 @@ Pending final evidence.
 | Poltergeist input | Pending final run. |
 | Workflow | Pending final run. |
 | Canonical artifact | Pending final upload. |
-| dartssh2 | `2.22.0` |
-| Séance | fork `BigBoyDevBox/Seance`, revision `142db7b40fd6bdaab35fe295267035dca547d240` |
-| Séance ancestry | S0 merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`; S1 merge `599ff936b8222e6cd77920495dcdcc4a50643f44` |
+| dartssh2 | `3.0.2` |
+| Séance | fork `BigBoyDevBox/Seance`, revision `0a695971a411a6a754593e7c2598038039440c2f` |
+| Séance ancestry | S0 merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`; S1 merge `599ff936b8222e6cd77920495dcdcc4a50643f44`; cancellation merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`; dependency-doc merge `812b89f182fed162edc27fc0b7022ced2cdd1a50` |
 | Modern fixture | Alpine `20260805` at `sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000`; OpenSSH `10.5_p1-r1`; iproute2 `7.1.0-r0` |
 | Legacy fixture | `ghcr.io/l-k-m/poltergeist-sshd-legacy@sha256:7c3e2ef3c54f27c484e916ce5937297e2429d5f39edcd407bc01d0f1e1eb41dd`; OpenSSH `8.4p1` |
 | Rows | Pending validation: 78 canonical rows. |

@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'throughput_attempt.dart';
 
-const resolvedDartssh2Version = '2.22.0';
-const pinnedSeanceRevision = '142db7b40fd6bdaab35fe295267035dca547d240';
+const resolvedDartssh2Version = '3.0.2';
+const pinnedSeanceRevision = '0a695971a411a6a754593e7c2598038039440c2f';
 
 /// One attributable measurement row. Rates stay derived from raw values.
 class BenchResult {

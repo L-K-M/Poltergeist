@@ -9,11 +9,11 @@ environment:
 dependencies:
   args: ^2.7.0
   crypto: ^3.0.7
-  dartssh2: 2.22.0
+  dartssh2: 3.0.2
   seance_core:
     git:
       url: https://github.com/BigBoyDevBox/Seance.git
-      ref: 142db7b40fd6bdaab35fe295267035dca547d240
+      ref: 0a695971a411a6a754593e7c2598038039440c2f
       path: packages/seance_core
 
 dev_dependencies:

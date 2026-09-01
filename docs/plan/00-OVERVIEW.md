@@ -359,7 +359,12 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   spike measures against and dartssh2 doesn't speak leaves M0 blind to
   its most current-gen compatibility gap); verify concurrent/pipelined
   requests on one SFTP channel actually
-  work in dartssh2. Fallback ladder if it underperforms: contribute upstream
+  work in dartssh2. The minimum tested dependency is dartssh2 3.0.2: earlier
+  releases can abandon pipelined read futures when a consumer cancels the
+  stream, so closing that SFTP session can surface detached abort errors.
+  Version 3.0.2 owns every issued read completion while retaining pipelining;
+  Séance and the M0 harness pin that floor exactly until the spike closes.
+  Fallback ladder if it underperforms: contribute upstream
   → multiple channels/connections to compensate → document the ceiling → FFI
   to **libssh2** (BSD-3-Clause — permissive; its one obligation,
   carrying the libssh2 notice in a THIRD-PARTY-NOTICES file D23's

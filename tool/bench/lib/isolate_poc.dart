@@ -162,11 +162,35 @@ enum _EngineEvent {
   cancelDone,
   floodDone,
   workloadDone,
-  stopped,
   error,
 }
 
 enum _ProgressSource { flood, workload }
+
+enum _EngineShutdownMode { clean, delayedError }
+
+const _shutdownProbeError = 'delayed shutdown probe error';
+
+/// Exercises cancel delivery and the transport cleanup that follows it.
+Future<Duration> runIsolateCancellationProbe(BenchConfig config) async {
+  final path = '${config.remoteRoot}/fixtures/payload-1gb.bin';
+  final peer = await _EnginePeer.spawn(config.endpoint, config.remoteRoot);
+  try {
+    return await peer.measureCancellation(path);
+  } finally {
+    await peer.close();
+  }
+}
+
+/// Verifies that an uncaught error queued during shutdown reaches the caller.
+Future<void> runIsolateShutdownErrorProbe() async {
+  final peer = await _EnginePeer.spawn(
+    const BenchEndpoint(),
+    '',
+    shutdownMode: _EngineShutdownMode.delayedError,
+  );
+  await peer.close();
+}
 
 Future<List<BenchResult>> runIsolatePoc(BenchConfig config) async {
   final transferPath = '${config.remoteRoot}/fixtures/payload-100mb.bin';
@@ -299,7 +323,7 @@ Future<ReadBatchResult> _downloadInRoot(
   try {
     return await connection.download(path: path);
   } finally {
-    connection.close();
+    await connection.close();
   }
 }
 
@@ -317,8 +341,7 @@ double _rate(ReadBatchResult sample) =>
 
 class _EnginePeer {
   final ReceivePort _receivePort;
-  final ReceivePort _errorPort;
-  final ReceivePort _exitPort;
+  final ReceivePort _terminalPort;
   final Isolate _isolate;
   final SendPort _commands;
   final Stream<Map<String, Object?>> _events;
@@ -328,8 +351,7 @@ class _EnginePeer {
 
   _EnginePeer._(
     this._receivePort,
-    this._errorPort,
-    this._exitPort,
+    this._terminalPort,
     this._isolate,
     this._commands,
     StreamController<Map<String, Object?>> controller,
@@ -340,11 +362,11 @@ class _EnginePeer {
 
   static Future<_EnginePeer> spawn(
     BenchEndpoint endpoint,
-    String remoteRoot,
-  ) async {
+    String remoteRoot, {
+    _EngineShutdownMode shutdownMode = _EngineShutdownMode.clean,
+  }) async {
     final receivePort = ReceivePort();
-    final errorPort = ReceivePort();
-    final exitPort = ReceivePort();
+    final terminalPort = ReceivePort();
     final controller = StreamController<Map<String, Object?>>.broadcast(
       sync: true,
     );
@@ -353,16 +375,18 @@ class _EnginePeer {
       receivePort.listen(
         (message) => controller.add((message! as Map).cast<String, Object?>()),
       ),
-      errorPort.listen((message) {
+      terminalPort.listen((message) {
+        if (message == null) {
+          terminal.publishExit(controller);
+          return;
+        }
+
         final parts = message is List ? message : [message];
         terminal.publish(
           controller,
           error: parts.isEmpty ? 'unknown isolate error' : '${parts.first}',
           stack: parts.length > 1 ? '${parts[1]}' : '',
         );
-      }),
-      exitPort.listen((_) {
-        terminal.publishExit(controller);
       }),
     ];
     final readyFuture = _nextEvent(
@@ -378,16 +402,16 @@ class _EnginePeer {
           'events': receivePort.sendPort,
           'endpoint': endpoint.toJson(),
           'remoteRoot': remoteRoot,
+          'shutdownMode': shutdownMode.name,
         },
-        onError: errorPort.sendPort,
-        onExit: exitPort.sendPort,
+        onError: terminalPort.sendPort,
+        onExit: terminalPort.sendPort,
         errorsAreFatal: true,
       );
       final ready = await readyFuture;
       return _EnginePeer._(
         receivePort,
-        errorPort,
-        exitPort,
+        terminalPort,
         isolate,
         ready['commands']! as SendPort,
         controller,
@@ -411,8 +435,7 @@ class _EnginePeer {
         await subscription.cancel();
       }
       receivePort.close();
-      errorPort.close();
-      exitPort.close();
+      terminalPort.close();
       await controller.close();
       rethrow;
     }
@@ -533,20 +556,19 @@ class _EnginePeer {
 
   Future<void> close() async {
     _terminal.expectShutdown();
-    final stopped = _nextEvent(_events, _EngineEvent.stopped, _terminal);
     _send(_EngineCommand.shutdown);
     try {
-      await stopped;
+      await _terminal.waitForExit();
     } finally {
-      _terminal.close();
+      if (!_terminal.hasExited) _isolate.kill();
+
       for (final subscription in _subscriptions) {
         await subscription.cancel();
       }
       _receivePort.close();
-      _errorPort.close();
-      _exitPort.close();
+      _terminalPort.close();
       await _controller.close();
-      _isolate.kill();
+      _terminal.close();
     }
   }
 
@@ -624,8 +646,11 @@ Future<Map<String, Object?>> _nextEvent(
 
 class _EngineTerminal {
   Map<String, Object?>? event;
+  final Completer<Map<String, Object?>?> _exit = Completer();
   bool _accepting = true;
   bool _shutdownExpected = false;
+
+  bool get hasExited => _exit.isCompleted;
 
   void publish(
     StreamController<Map<String, Object?>> controller, {
@@ -644,22 +669,28 @@ class _EngineTerminal {
   }
 
   void publishExit(StreamController<Map<String, Object?>> controller) {
-    if (!_shutdownExpected) {
+    if (!_accepting || _exit.isCompleted) return;
+
+    if (!_shutdownExpected && event == null) {
       publish(
         controller,
         error: 'engine isolate exited unexpectedly',
         stack: '',
       );
-      return;
     }
-    if (!_accepting || event != null) return;
 
-    final stopped = <String, Object?>{'event': _EngineEvent.stopped.name};
-    event = stopped;
-    controller.add(stopped);
+    _accepting = false;
+    _exit.complete(event);
   }
 
   void expectShutdown() => _shutdownExpected = true;
+
+  Future<void> waitForExit() async {
+    final terminalEvent = await _exit.future.timeout(_engineTimeout);
+    if (terminalEvent == null) return;
+
+    throw StateError('${terminalEvent['error']}\n${terminalEvent['stack']}');
+  }
 
   void close() => _accepting = false;
 }
@@ -670,6 +701,9 @@ Future<void> _engineMain(Map<String, Object?> initial) async {
     (initial['endpoint']! as Map).cast<String, Object?>(),
   );
   final remoteRoot = initial['remoteRoot']! as String;
+  final shutdownMode = _EngineShutdownMode.values.byName(
+    initial['shutdownMode']! as String,
+  );
   final commands = ReceivePort();
   final engine = _IsolateEngine(events, endpoint, remoteRoot);
   events.send({
@@ -698,7 +732,9 @@ Future<void> _engineMain(Map<String, Object?> initial) async {
         return;
       case _EngineCommand.shutdown:
         commands.close();
-        events.send({'event': _EngineEvent.stopped.name});
+        if (shutdownMode == _EngineShutdownMode.delayedError) {
+          scheduleMicrotask(() => throw StateError(_shutdownProbeError));
+        }
         return;
     }
   });
@@ -714,19 +750,21 @@ class _IsolateEngine {
 
   Future<void> runSingleTransfer() => _guard(() async {
     final connection = await openBenchConnection(_endpoint);
+    late final ReadBatchResult read;
     try {
-      final read = await connection.download(
+      read = await connection.download(
         path: '$_remoteRoot/fixtures/payload-100mb.bin',
       );
-      _events.send({
-        'event': _EngineEvent.singleDone.name,
-        'bytes': read.bytes,
-        'elapsedUs': read.elapsed.inMicroseconds,
-        'digest': read.digest,
-      });
     } finally {
-      connection.close();
+      await connection.close();
     }
+
+    _events.send({
+      'event': _EngineEvent.singleDone.name,
+      'bytes': read.bytes,
+      'elapsedUs': read.elapsed.inMicroseconds,
+      'digest': read.digest,
+    });
   });
 
   Future<void> startCancellation(String path) => _guard(() async {
@@ -748,12 +786,12 @@ class _IsolateEngine {
       throw StateError('Cancellation transfer completed before cancellation.');
     } on RemoteFileException catch (error) {
       if (error.kind != RemoteFileErrorKind.cancelled) rethrow;
-
-      _events.send({'event': _EngineEvent.cancelDone.name});
     } finally {
       _cancellation = null;
-      connection.close();
+      await connection.close();
     }
+
+    _events.send({'event': _EngineEvent.cancelDone.name});
   });
 
   void cancel() => _cancellation?.cancel();
@@ -805,8 +843,9 @@ class _IsolateEngine {
         'samples': samples.length,
       });
     });
+    late final CombinedWorkloadResult workload;
     try {
-      final workload = await connection.runCombinedWorkload(
+      workload = await connection.runCombinedWorkload(
         transferPath: '$_remoteRoot/fixtures/payload-100mb.bin',
         listingPath: '$_remoteRoot/fixtures/entries-10000',
         transfers: _isolateTransferCount,
@@ -823,15 +862,16 @@ class _IsolateEngine {
         },
       );
       await coalescer.drain();
-      _events.send({
-        'event': _EngineEvent.workloadDone.name,
-        'bytes': workload.bytes,
-        'entries': workload.entries,
-        'elapsedUs': workload.elapsed.inMicroseconds,
-      });
     } finally {
-      connection.close();
+      await connection.close();
     }
+
+    _events.send({
+      'event': _EngineEvent.workloadDone.name,
+      'bytes': workload.bytes,
+      'entries': workload.entries,
+      'elapsedUs': workload.elapsed.inMicroseconds,
+    });
   });
 
   Future<void> _guard(Future<void> Function() body) async {

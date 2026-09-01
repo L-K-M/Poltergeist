@@ -109,15 +109,17 @@ Future<void> main(List<String> arguments) async {
   }
 
   final defaults = BenchConfig.defaults();
+  final identityFile = parsed['identity'] as String? ?? defaults.identityFile;
   final config = BenchConfig(
     endpoint: BenchEndpoint(
       host: parsed['host']! as String,
       port: int.parse(parsed['port']! as String),
       username: parsed['user']! as String,
       password: parsed['password']! as String,
+      identityFile: identityFile,
     ),
     remoteRoot: parsed['remote-root']! as String,
-    identityFile: parsed['identity'] as String? ?? defaults.identityFile,
+    identityFile: identityFile,
     outputFile: parsed['output'] as String? ?? defaults.outputFile,
     linkName: linkName,
     fixtureRoot: parsed['fixture-root'] as String? ?? defaults.fixtureRoot,

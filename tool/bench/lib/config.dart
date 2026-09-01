@@ -13,12 +13,14 @@ class BenchEndpoint {
   final int port;
   final String username;
   final String password;
+  final String? identityFile;
 
   const BenchEndpoint({
     this.host = defaultSshHost,
     this.port = defaultSshPort,
     this.username = defaultSshUser,
     this.password = defaultSshPassword,
+    this.identityFile,
   });
 
   factory BenchEndpoint.fromJson(Map<String, Object?> json) => BenchEndpoint(
@@ -26,6 +28,7 @@ class BenchEndpoint {
     port: json['port']! as int,
     username: json['username']! as String,
     password: json['password']! as String,
+    identityFile: json['identityFile'] as String?,
   );
 
   Map<String, Object?> toJson() => {
@@ -33,6 +36,7 @@ class BenchEndpoint {
     'port': port,
     'username': username,
     'password': password,
+    'identityFile': identityFile,
   };
 }
 
@@ -68,12 +72,13 @@ class BenchConfig {
     RttEvidence? rttEvidence,
   }) {
     final repositoryRoot = _findRepositoryRoot(Directory.current);
+    final identityFile =
+        '${repositoryRoot.path}/test/integration/runtime/id_ed25519';
 
     return BenchConfig(
-      endpoint: const BenchEndpoint(),
+      endpoint: BenchEndpoint(identityFile: identityFile),
       remoteRoot: defaultRemoteRoot,
-      identityFile:
-          '${repositoryRoot.path}/test/integration/runtime/id_ed25519',
+      identityFile: identityFile,
       outputFile: '${repositoryRoot.path}/tool/bench/bench-results.json',
       linkName: linkName,
       fixtureRoot: '${repositoryRoot.path}/test/integration/runtime/data',

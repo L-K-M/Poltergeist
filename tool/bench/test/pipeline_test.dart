@@ -112,7 +112,7 @@ class _FakeChannelConnection implements PipelineChannelConnection {
   }
 
   @override
-  void close() {
+  Future<void> close() async {
     closed = true;
   }
 }

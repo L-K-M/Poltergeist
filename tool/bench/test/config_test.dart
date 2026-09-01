@@ -11,12 +11,13 @@ void main() {
       port: 2201,
       username: 'user',
       password: 'test-only',
+      identityFile: '/fixture/id_ed25519',
     );
 
-    expect(
-      BenchEndpoint.fromJson(endpoint.toJson()).toJson(),
-      endpoint.toJson(),
-    );
+    final decoded = BenchEndpoint.fromJson(endpoint.toJson());
+
+    expect(decoded.toJson(), endpoint.toJson());
+    expect(decoded.identityFile, '/fixture/id_ed25519');
   });
 
   test('parses attributable seven-probe RTT evidence', () {

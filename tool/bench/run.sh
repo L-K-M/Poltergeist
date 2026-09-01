@@ -65,6 +65,19 @@ run_source_package() {
   )
 }
 
+run_cancellation_regression() {
+  if [[ -n "$bench_command" ]]; then
+    "$bench_command" cancellation-regression
+    return
+  fi
+
+  (
+    cd "$bench_dir"
+    "$dart_binary" test --concurrency=1 \
+      test/integration/isolate_cancellation_test.dart
+  )
+}
+
 clear_network_profile() {
   local clear_status=0
 
@@ -183,7 +196,12 @@ run_throughput_leg() {
 run_primary_suite() {
   local shaped_throughput="$1"
 
-  run_throughput_leg "$lan_profile" "$reset_output" "$full_throughput"
+  # Prove isolate cancellation before the long throughput cells run.
+  "$profile_script" "$lan_profile"
+  run_cancellation_regression
+  run_bench isolate --reset
+
+  run_throughput_leg "$lan_profile" "$append_output" "$full_throughput"
 
   "$profile_script" "$lan_profile"
   run_bench pipeline
@@ -192,8 +210,6 @@ run_primary_suite() {
   run_throughput_leg "$shaped_profile" "$append_output" "$shaped_throughput"
   run_rtt_bench pipeline --link="$shaped_profile"
 
-  "$profile_script" "$lan_profile"
-  run_bench isolate
 }
 
 run_isolated_sample() {

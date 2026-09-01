@@ -13,7 +13,12 @@ while IFS= read -r line; do
       sleep 0.02
       printf '%s\n' "${line#!echo }"
       ;;
-    fail) printf 'fixture failure\n' >&2; exit 7 ;;
+    fail)
+      # Drain the queued sentinel so the test exercises process exit, not EPIPE.
+      IFS= read -r _
+      printf 'fixture failure\n' >&2
+      exit 7
+      ;;
     bye) exit 0 ;;
   esac
 done

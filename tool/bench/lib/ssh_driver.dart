@@ -5,10 +5,43 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:seance_core/src/ssh/remote_file_system.dart';
+import 'package:seance_core/src/ssh/sequential_cleanup.dart';
 
 import 'config.dart';
 
 const sshConnectTimeout = Duration(seconds: 15);
+const _closedSinkMessage = 'File closed';
+const _sftpCloseTimeout = Duration(seconds: 5);
+
+/// Bounds peer-dependent SFTP closes before forcing the transport closed.
+Future<void> closeSshResources({
+  required Iterable<FutureOr<void> Function()> sftpCloses,
+  FutureOr<void> Function()? closeTransport,
+  Duration sftpCloseTimeout = _sftpCloseTimeout,
+}) async {
+  Object? firstError;
+  StackTrace? firstStackTrace;
+
+  try {
+    await runSequentialCleanup(sftpCloses, actionTimeout: sftpCloseTimeout);
+  } catch (error, stackTrace) {
+    firstError = error;
+    firstStackTrace = stackTrace;
+  }
+
+  // Transport close destroys pending channels after an SFTP peer stalls.
+  if (closeTransport != null) {
+    try {
+      await Future<void>.sync(closeTransport);
+    } catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+    }
+  }
+
+  if (firstError == null) return;
+  Error.throwWithStackTrace(firstError, firstStackTrace!);
+}
 
 class ReadBatchResult {
   final int bytes;
@@ -210,7 +243,14 @@ class BenchSshConnection {
         digest: entry.contentSha256 ?? 'disabled',
       );
     } finally {
-      await sink.close();
+      try {
+        await sink.close();
+      } on FileSystemException catch (error) {
+        final expectedCancelledClose =
+            cancellation?.isCancelled == true &&
+            error.message == _closedSinkMessage;
+        if (!expectedCancelledClose) rethrow;
+      }
     }
   }
 
@@ -278,9 +318,9 @@ class BenchSshConnection {
         await Future.wait(files.map((file) => file.close()));
       }
     } finally {
-      for (final client in clients.skip(1)) {
-        client.close();
-      }
+      await closeSshResources(
+        sftpCloses: clients.skip(1).map((client) => client.close),
+      );
     }
   }
 
@@ -382,16 +422,16 @@ class BenchSshConnection {
         await Future.wait(files.map((file) => file.close()));
       }
     } finally {
-      for (final client in clients) {
-        client.close();
-      }
+      await closeSshResources(
+        sftpCloses: clients.map((client) => client.close),
+      );
     }
   }
 
-  void close() {
-    _primarySftp.close();
-    _client.close();
-  }
+  Future<void> close() => closeSshResources(
+    sftpCloses: [_primarySftp.close],
+    closeTransport: _client.close,
+  );
 }
 
 Future<BenchSshConnection> openBenchConnection(
@@ -399,6 +439,10 @@ Future<BenchSshConnection> openBenchConnection(
   List<String>? diagnostics,
   SSHAlgorithms algorithms = const SSHAlgorithms(),
 }) async {
+  final identityFile = endpoint.identityFile;
+  final identities = identityFile == null
+      ? null
+      : SSHKeyPair.fromPem(await File(identityFile).readAsString());
   final socket = await SSHSocket.connect(
     endpoint.host,
     endpoint.port,
@@ -407,6 +451,7 @@ Future<BenchSshConnection> openBenchConnection(
   final client = SSHClient(
     socket,
     username: endpoint.username,
+    identities: identities,
     onPasswordRequest: () => endpoint.password,
     onVerifyHostKey: (_, _) => true,
     algorithms: algorithms,
@@ -419,9 +464,11 @@ Future<BenchSshConnection> openBenchConnection(
     final sftp = await client.sftp().timeout(sshConnectTimeout);
     await sftp.handshake.timeout(sshConnectTimeout);
     return BenchSshConnection._(client, sftp);
-  } catch (_) {
-    client.close();
-    rethrow;
+  } catch (error, stack) {
+    try {
+      await client.close();
+    } catch (_) {}
+    Error.throwWithStackTrace(error, stack);
   }
 }
 
@@ -454,9 +501,7 @@ Future<ReadBatchResult> readAcrossTransports({
       await Future.wait(files.map((file) => file.close()));
     }
   } finally {
-    for (final connection in connections) {
-      connection.close();
-    }
+    await Future.wait(connections.map((connection) => connection.close()));
   }
 }
 
@@ -512,7 +557,7 @@ Future<AlgorithmAuditResult> auditAlgorithms(
       algorithms: algorithms ?? const SSHAlgorithms(),
     );
     stopwatch.stop();
-    connection.close();
+    await connection.close();
 
     final selections = diagnostics.where(_isAlgorithmSelection).join('; ');
     return AlgorithmAuditResult(

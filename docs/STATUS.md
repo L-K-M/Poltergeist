@@ -14,6 +14,7 @@ _Last updated: 2026-09-01 — M0 is in progress in draft PR #7._
 | The plan | Complete in [`docs/plan/`](plan/) — overview + decision log (D1–D31), product, UX spec, architecture, Séance integration, sync, editor, milestones, testing, playbook. Reviewed via the GLM PR workflow, internal consistency passes, and a final whole-plan coherence pass (2026-08-31). |
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
 | Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
+| Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
 
 ## Open items
 
@@ -21,18 +22,22 @@ _Last updated: 2026-09-01 — M0 is in progress in draft PR #7._
    [PR #7](https://github.com/L-K-M/Poltergeist/pull/7).** The harness,
    Docker matrix, D30 gate, pin audit, and isolate/pipeline proofs are
    implemented. The measurement-only Séance fork is pinned to
-   `142db7b40fd6bdaab35fe295267035dca547d240`, which contains S0 and S1.
+   `0a695971a411a6a754593e7c2598038039440c2f`, which contains S0, S1,
+   the sanctioned hash-control seam, and Séance PRs #59–#60.
    Runs `33458209337`, `33481554062`, and `33504660759` produced no complete
    canonical artifact; partial rows are inadmissible. Run `33534298280` stopped
-   in preflight because a test's fixed monotonic anchor exceeded the fresh
-   runner's uptime; no measurement job started. The shaped 1 GB cells exceed
-   GitHub-hosted runners' six-hour job limit. The plan and harness now split
-   those cells into twelve attributable single-sample jobs, checkpoint every
-   trial, and verify direction-correct transfers independently. Push the fixed
-   measurement commit, dispatch the exact 13-job matrix, commit its validated
-   canonical evidence, fill `docs/M0-DARTSSH2-REPORT.md`, finalize D7/D9 and
-   pool defaults, then take the PR through review and merge. M0 closes
-   untagged; preserve the measured commit as an ancestor when merging.
+   in preflight before measurement. Run `33535334440`, against the older fork
+   revision `142db7b40fd6bdaab35fe295267035dca547d240`, proved the split design:
+   all twelve isolated 1 GB sources passed, but the standard source failed
+   after its throughput and pipeline work when dartssh2 2.22.0 surfaced a
+   detached `SftpAbortError` while closing a cancelled pipelined read. Its
+   thirteen source artifacts are diagnostic only. D9 now requires dartssh2
+   3.0.2, whose upstream read-completion ownership fixes that defect. The
+   harness and final audited Séance pin now carry that repair together.
+   Dispatch the exact 13-job matrix, commit its validated canonical evidence,
+   fill `docs/M0-DARTSSH2-REPORT.md`, finalize D7/D9 and pool defaults, and
+   take the PR through review and merge. M0 closes untagged; preserve the
+   measured commit as an ancestor when merging.
 2. **Séance upstream PRs S2–S3** (see
    [`docs/plan/04-SEANCE-INTEGRATION.md`](plan/04-SEANCE-INTEGRATION.md)
    §5): file the `openAuthenticatedClient` split during M1 and the VFS
