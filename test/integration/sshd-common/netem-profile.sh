@@ -12,6 +12,24 @@ clear_profile() {
   tc qdisc del dev "$network_interface" ingress 2>/dev/null || true
   tc qdisc del dev "$network_interface" root 2>/dev/null || true
   ip link delete "$ingress_interface" 2>/dev/null || true
+
+  assert_profile_clear
+}
+
+assert_profile_clear() {
+  qdisc_state="$(tc qdisc show dev "$network_interface")" || {
+    echo "cannot inspect qdisc on $network_interface" >&2
+    return 1
+  }
+  if printf '%s\n' "$qdisc_state" \
+    | grep -Eq '(^|[[:space:]])(netem|ingress)([[:space:]]|$)'; then
+    echo "stale qdisc on $network_interface: $qdisc_state" >&2
+    return 1
+  fi
+  if ip link show dev "$ingress_interface" >/dev/null 2>&1; then
+    echo "stale ingress link: $ingress_interface" >&2
+    return 1
+  fi
 }
 
 apply_rtt_profile() {

@@ -40,6 +40,32 @@ void main() {
     );
     expect(results, hasLength(4));
   });
+
+  test('rejects swapped or duplicated concurrent directory replies', () {
+    final swapped = DirectoryBatchResult(
+      entriesByPath: const {
+        '/fixtures/readdir-00': ['readdir-01-entry-000.txt'],
+        '/fixtures/readdir-01': ['readdir-00-entry-000.txt'],
+      },
+      elapsed: Duration.zero,
+    );
+    final duplicated = DirectoryBatchResult(
+      entriesByPath: const {
+        '/fixtures/readdir-00': ['readdir-00-entry-000.txt'],
+        '/fixtures/readdir-01': ['readdir-00-entry-000.txt'],
+      },
+      elapsed: Duration.zero,
+    );
+
+    expect(
+      () => validateDirectoryListings(swapped, entriesPerDirectory: 1),
+      throwsStateError,
+    );
+    expect(
+      () => validateDirectoryListings(duplicated, entriesPerDirectory: 1),
+      throwsStateError,
+    );
+  });
 }
 
 class _FakeChannelConnection implements PipelineChannelConnection {

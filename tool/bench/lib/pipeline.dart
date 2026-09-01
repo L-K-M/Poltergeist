@@ -320,7 +320,16 @@ Future<DirectoryBatchResult> _readListingTrial({
     final listing = trial == _ListingTrial.sequential
         ? await connection.listSequentially(directories)
         : await connection.listConcurrently(directories);
-    _verifyListing(listing, expectedEntries, trial.name);
+    validateDirectoryListings(
+      listing,
+      entriesPerDirectory: _entriesPerFixtureDirectory,
+    );
+    if (listing.entries != expectedEntries) {
+      throw StateError(
+        '${trial.name} readdir returned ${listing.entries}, '
+        'expected $expectedEntries.',
+      );
+    }
     return listing;
   } finally {
     connection.close();
@@ -369,7 +378,7 @@ ReadBatchResult _medianRead(List<ReadBatchResult> samples) => ReadBatchResult(
 
 DirectoryBatchResult _medianListing(List<DirectoryBatchResult> samples) =>
     DirectoryBatchResult(
-      entries: samples.first.entries,
+      entriesByPath: samples.first.entriesByPath,
       elapsed: _medianDuration(samples.map((sample) => sample.elapsed)),
     );
 
@@ -385,14 +394,24 @@ Duration _medianDuration(Iterable<Duration> samples) {
   );
 }
 
-void _verifyListing(
-  DirectoryBatchResult listing,
-  int expectedEntries,
-  String label,
-) {
-  if (listing.entries == expectedEntries) return;
+void validateDirectoryListings(
+  DirectoryBatchResult listing, {
+  required int entriesPerDirectory,
+}) {
+  for (final response in listing.entriesByPath.entries) {
+    final components = response.key.split('/').where((part) => part.isNotEmpty);
+    final directory = components.last;
+    final expected = {
+      for (var index = 0; index < entriesPerDirectory; index++)
+        '$directory-entry-${index.toString().padLeft(3, '0')}.txt',
+    };
+    final actual = response.value.toSet();
+    if (response.value.length == expected.length &&
+        actual.length == expected.length &&
+        actual.containsAll(expected)) {
+      continue;
+    }
 
-  throw StateError(
-    '$label readdir returned ${listing.entries}, expected $expectedEntries.',
-  );
+    throw StateError('$directory returned mismatched directory entries.');
+  }
 }

@@ -23,10 +23,19 @@ class ReadBatchResult {
 }
 
 class DirectoryBatchResult {
-  final int entries;
+  final Map<String, List<String>> entriesByPath;
   final Duration elapsed;
 
-  const DirectoryBatchResult({required this.entries, required this.elapsed});
+  DirectoryBatchResult({
+    required Map<String, List<String>> entriesByPath,
+    required this.elapsed,
+  }) : entriesByPath = Map.unmodifiable({
+         for (final entry in entriesByPath.entries)
+           entry.key: List<String>.unmodifiable(entry.value),
+       });
+
+  int get entries =>
+      entriesByPath.values.fold(0, (sum, names) => sum + names.length);
 }
 
 class CombinedWorkloadResult {
@@ -175,15 +184,13 @@ class BenchSshConnection {
     final results = await Future.wait(paths.map(_primarySftp.listdir));
     stopwatch.stop();
 
-    final entries = results.fold<int>(
-      0,
-      (sum, names) =>
-          sum +
-          names
-              .where((name) => name.filename != '.' && name.filename != '..')
-              .length,
+    return DirectoryBatchResult(
+      entriesByPath: {
+        for (var index = 0; index < paths.length; index++)
+          paths[index]: _listingNames(results[index]),
+      },
+      elapsed: stopwatch.elapsed,
     );
-    return DirectoryBatchResult(entries: entries, elapsed: stopwatch.elapsed);
   }
 
   Future<DirectoryBatchResult> listSequentially(List<String> paths) async {
@@ -194,15 +201,13 @@ class BenchSshConnection {
     }
     stopwatch.stop();
 
-    final entries = results.fold<int>(
-      0,
-      (sum, names) =>
-          sum +
-          names
-              .where((name) => name.filename != '.' && name.filename != '..')
-              .length,
+    return DirectoryBatchResult(
+      entriesByPath: {
+        for (var index = 0; index < paths.length; index++)
+          paths[index]: _listingNames(results[index]),
+      },
+      elapsed: stopwatch.elapsed,
     );
-    return DirectoryBatchResult(entries: entries, elapsed: stopwatch.elapsed);
   }
 
   Future<CombinedWorkloadResult> runCombinedWorkload({
@@ -435,3 +440,8 @@ bool _isAlgorithmSelection(String line) =>
     line.contains('SSHTransport._serverCipherType:') ||
     line.contains('SSHTransport._clientMacType:') ||
     line.contains('SSHTransport._serverMacType:');
+
+List<String> _listingNames(List<SftpName> names) => names
+    .where((name) => name.filename != '.' && name.filename != '..')
+    .map((name) => name.filename)
+    .toList(growable: false);

@@ -44,7 +44,7 @@ go under `uploads/`.
 
 Generated inputs are `payload-1mb.bin`, `payload-100mb.bin`,
 `payload-1gb.bin`, `entries-10000/`, and eight `readdir-00` through
-`readdir-07` directories with 100 entries each.
+`readdir-07` directories with 100 path-prefixed entries each.
 
 Toggle latency without restarting sshd:
 
