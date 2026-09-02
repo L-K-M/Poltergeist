@@ -3,6 +3,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -78,32 +79,7 @@ void main() {
   test('sync stages every rewrite before replacing metadata', () {
     final pubspecPath = 'app/poltergeist_app/pubspec.yaml';
     final original = _read(root, pubspecPath);
-    final blockedTarget = File(p.join(root.path, _appleInfoPlistPaths.first));
-    final staleTemporary = File(
-      '${blockedTarget.path}.$pid.release-version.tmp',
-    )..writeAsStringSync('stale');
-
-    expect(
-      () => ReleaseVersionWorkspace(root).syncAppMetadata(
-        version: ReleaseVersion.parse('1.1.0'),
-        pubspecPath: pubspecPath,
-      ),
-      throwsA(isA<ReleaseVersionStateException>()),
-    );
-    expect(_read(root, pubspecPath), original);
-    expect(staleTemporary.readAsStringSync(), 'stale');
-  });
-
-  test('sync removes a temporary file after staged validation fails', () {
-    const pubspecPath = 'app/poltergeist_app/pubspec.yaml';
-    final target = File(p.join(root.path, pubspecPath));
-    final temporary = File('${target.path}.$pid.release-version.tmp');
-    final invalidatingTemporary = _InvalidatingFile(temporary);
-    final files = {
-      target.path: target,
-      for (final path in _appleInfoPlistPaths)
-        p.join(root.path, path): File(p.join(root.path, path)),
-    };
+    var temporaryCount = 0;
 
     expect(
       () => IOOverrides.runZoned(
@@ -112,13 +88,36 @@ void main() {
           pubspecPath: pubspecPath,
         ),
         createFile: (path) {
-          final normalized = p.normalize(p.absolute(path));
-          if (p.equals(normalized, temporary.path)) {
-            return invalidatingTemporary;
-          }
+          final file = _unoverriddenFile(path);
+          if (!_isReleaseTemporary(path)) return file;
 
-          return files[normalized] ??
-              (throw StateError('unexpected test file: $normalized'));
+          temporaryCount++;
+          if (temporaryCount == 2) return _CreateFailingFile(file);
+
+          return file;
+        },
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(_read(root, pubspecPath), original);
+  });
+
+  test('sync removes a temporary file after staged validation fails', () {
+    const pubspecPath = 'app/poltergeist_app/pubspec.yaml';
+    late File temporary;
+
+    expect(
+      () => IOOverrides.runZoned(
+        () => ReleaseVersionWorkspace(root).syncAppMetadata(
+          version: ReleaseVersion.parse('1.1.0'),
+          pubspecPath: pubspecPath,
+        ),
+        createFile: (path) {
+          final file = _unoverriddenFile(path);
+          if (!_isReleaseTemporary(path)) return file;
+
+          temporary = file;
+          return _InvalidatingFile(file, _DeleteMode.delegate);
         },
       ),
       throwsA(
@@ -131,6 +130,53 @@ void main() {
     );
     expect(temporary.existsSync(), isFalse);
   });
+
+  test('sync preserves the primary error when temporary cleanup fails', () {
+    const pubspecPath = 'app/poltergeist_app/pubspec.yaml';
+    late File temporary;
+
+    expect(
+      () => IOOverrides.runZoned(
+        () => ReleaseVersionWorkspace(root).syncAppMetadata(
+          version: ReleaseVersion.parse('1.1.0'),
+          pubspecPath: pubspecPath,
+        ),
+        createFile: (path) {
+          final file = _unoverriddenFile(path);
+          if (!_isReleaseTemporary(path)) return file;
+
+          temporary = file;
+          return _InvalidatingFile(file, _DeleteMode.fail);
+        },
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('missing or non-string version'),
+        ),
+      ),
+    );
+    expect(temporary.existsSync(), isTrue);
+  });
+
+  test('sync does not follow a predictable dangling temporary link', () {
+    const pubspecPath = 'app/poltergeist_app/pubspec.yaml';
+    final target = File(p.join(root.path, pubspecPath));
+    final predictableTemporary = Link(
+      '${target.path}.$pid.release-version.tmp',
+    );
+    final outside = File(p.join(sandbox.path, 'outside-pubspec.yaml'));
+    predictableTemporary.createSync(outside.path);
+
+    ReleaseVersionWorkspace(root).syncAppMetadata(
+      version: ReleaseVersion.parse('1.1.0'),
+      pubspecPath: pubspecPath,
+    );
+
+    expect(outside.existsSync(), isFalse);
+    expect(_read(root, pubspecPath), contains('version: 1.1.0+1010099'));
+  }, skip: Platform.isWindows ? 'requires symbolic-link permission' : false);
 
   test('sync rejects a path through a symlink outside the repository', () {
     final outside = Directory(p.join(sandbox.path, 'outside'))..createSync();
@@ -451,16 +497,55 @@ void _write(Directory root, String path, String contents) {
   file.writeAsStringSync(contents);
 }
 
-final class _InvalidatingFile implements File {
+final RegExp _releaseTemporaryNamePattern = RegExp(
+  r'^\.poltergeist-[0-9a-f]{32}\.tmp$',
+);
+
+bool _isReleaseTemporary(String path) {
+  return _releaseTemporaryNamePattern.hasMatch(p.basename(path));
+}
+
+File _unoverriddenFile(String path) {
+  return File.fromRawPath(Uint8List.fromList(utf8.encode(path)));
+}
+
+final class _CreateFailingFile implements File {
   final File _delegate;
 
-  const _InvalidatingFile(this._delegate);
+  const _CreateFailingFile(this._delegate);
+
+  @override
+  String get path => _delegate.path;
+
+  @override
+  void createSync({bool recursive = false, bool exclusive = false}) {
+    throw FileSystemException('temporary creation failed', path);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    return super.noSuchMethod(invocation);
+  }
+}
+
+enum _DeleteMode { delegate, fail }
+
+final class _InvalidatingFile implements File {
+  final File _delegate;
+  final _DeleteMode _deleteMode;
+
+  const _InvalidatingFile(this._delegate, this._deleteMode);
 
   @override
   String get path => _delegate.path;
 
   @override
   bool existsSync() => _delegate.existsSync();
+
+  @override
+  void createSync({bool recursive = false, bool exclusive = false}) {
+    _delegate.createSync(recursive: recursive, exclusive: exclusive);
+  }
 
   @override
   void writeAsStringSync(
@@ -482,6 +567,10 @@ final class _InvalidatingFile implements File {
 
   @override
   void deleteSync({bool recursive = false}) {
+    if (_deleteMode == _DeleteMode.fail) {
+      throw FileSystemException('temporary cleanup failed', path);
+    }
+
     _delegate.deleteSync(recursive: recursive);
   }
 

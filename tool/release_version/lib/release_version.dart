@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
@@ -11,6 +12,12 @@ const int _patchMultiplier = 100;
 const int _androidVersionCodeLimit = 2_100_000_000;
 const int _majorComponentLimit =
     (_androidVersionCodeLimit - _finalOrdinal) ~/ _majorMultiplier;
+const int _temporaryTokenByteCount = 16;
+const int _byteValueCount = 256;
+const int _hexRadix = 16;
+const int _hexByteWidth = 2;
+const String _temporaryPrefix = '.poltergeist-';
+const String _temporarySuffix = '.tmp';
 const String _appPubspecPath = 'app/poltergeist_app/pubspec.yaml';
 const String _appLockPath = 'app/poltergeist_app/pubspec.lock';
 const String _readmePath = 'README.md';
@@ -33,6 +40,7 @@ final RegExp _readmeVersionPattern = RegExp(
 final RegExp _appleBundleVersionPattern = RegExp(
   r'(<key>CFBundleVersion</key>\s*<string>)([^<]*)(</string>)',
 );
+final Random _secureRandom = Random.secure();
 const Set<String> _ignoredDirectories = {
   '.dart_tool',
   '.git',
@@ -177,7 +185,7 @@ final class ReleaseVersionWorkspace {
       }
     } finally {
       for (final rewrite in staged) {
-        if (rewrite.temporary.existsSync()) rewrite.temporary.deleteSync();
+        _deleteTemporaryBestEffort(rewrite.temporary);
       }
     }
   }
@@ -261,18 +269,28 @@ final class ReleaseVersionWorkspace {
   }
 
   _StagedRewrite _stageRewrite(_PreparedRewrite rewrite) {
-    final temporary = File('${rewrite.file.path}.$pid.release-version.tmp');
-    if (temporary.existsSync()) {
+    final temporary = File(
+      p.join(rewrite.file.parent.path, _newTemporaryFileName()),
+    );
+    final temporaryType = FileSystemEntity.typeSync(
+      temporary.path,
+      followLinks: false,
+    );
+    if (temporaryType != FileSystemEntityType.notFound) {
       throw ReleaseVersionStateException(
         'stale release-version file exists: ${temporary.path}',
       );
     }
 
+    var created = false;
     try {
+      // Exclusive creation also closes the lstat/create collision window.
+      temporary.createSync(exclusive: true);
+      created = true;
       temporary.writeAsStringSync(rewrite.contents, flush: true);
       rewrite.validate(temporary);
     } on Object {
-      if (temporary.existsSync()) temporary.deleteSync();
+      if (created) _deleteTemporaryBestEffort(temporary);
 
       rethrow;
     }
@@ -605,6 +623,29 @@ final class _StagedRewrite {
   final File temporary;
 
   const _StagedRewrite({required this.target, required this.temporary});
+}
+
+String _newTemporaryFileName() {
+  final token = StringBuffer();
+  for (var index = 0; index < _temporaryTokenByteCount; index++) {
+    token.write(
+      _secureRandom
+          .nextInt(_byteValueCount)
+          .toRadixString(_hexRadix)
+          .padLeft(_hexByteWidth, '0'),
+    );
+  }
+
+  return '$_temporaryPrefix$token$_temporarySuffix';
+}
+
+void _deleteTemporaryBestEffort(File temporary) {
+  try {
+    final type = FileSystemEntity.typeSync(temporary.path, followLinks: false);
+    if (type != FileSystemEntityType.notFound) temporary.deleteSync();
+  } on Object {
+    // Preserve the write, validation, or rename failure that matters.
+  }
 }
 
 _AppVersion _parseAppVersion(_PubspecVersion declaration) {
