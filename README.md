@@ -36,7 +36,7 @@ the porting policy is part of the plan.
 
 The repository carries infrastructure (CI, review workflow, build and
 release scripts) and the design plan. M0 is complete. The M1 app scaffold is
-implemented, but remains open until CI is green and the v0.1.0 rehearsal
+implemented and green in CI, but remains open until the v0.1.0 rehearsal
 completes. Implementation follows the plan in
 [`docs/plan/`](docs/plan/) — start with
 [`00-OVERVIEW.md`](docs/plan/00-OVERVIEW.md), the decision log. Current state
