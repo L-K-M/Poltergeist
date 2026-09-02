@@ -48,6 +48,8 @@ jobs:
         run: dart analyze $(ls -d packages/*)
       - name: Analyze release gate
         run: dart analyze tool/license_gate
+      - name: Analyze release version tool
+        run: dart analyze tool/release_version
       - name: Analyze Séance pin audit
         run: dart analyze tool/seance_pin_audit
       - name: Analyze M0 benchmark harness
@@ -67,6 +69,10 @@ jobs:
           dart test $dirs
       - name: Test release gate
         run: dart test tool/license_gate/test
+      - name: Test release version tool
+        run: dart test tool/release_version/test
+      - name: Verify release versions
+        run: dart run tool/release_version/bin/release_version.dart check
       - name: Test Séance pin audit
         run: dart test tool/seance_pin_audit/test
       - name: Test M0 benchmark harness
@@ -374,6 +380,22 @@ jobs:
       - name: Build
         working-directory: app/poltergeist_app
         run: flutter build ${{ matrix.build }}
+      # Prove Gradle consumed the synchronized pubspec code in the real APK.
+      - name: Verify Android version code
+        if: matrix.target == 'android'
+        working-directory: app/poltergeist_app
+        shell: bash
+        run: |
+          expected_code="$(sed -n 's/^version: [^+]*+//p' pubspec.yaml)"
+          actual_code="$(
+            "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" \
+              manifest version-code \
+              build/app/outputs/flutter-apk/app-release.apk
+          )"
+          if [[ "$actual_code" != "$expected_code" ]]; then
+            echo "APK versionCode $actual_code, expected $expected_code" >&2
+            exit 1
+          fi
       # Exercise the same packaging the release workflow ships. Do not upload
       # binaries from ordinary CI: before PR-S0, a build may embed a permitted
       # development-only Séance pin whose tree grants recipients no rights.
