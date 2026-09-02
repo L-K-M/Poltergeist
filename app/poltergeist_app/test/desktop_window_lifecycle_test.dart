@@ -99,6 +99,30 @@ void main() {
     expect(window.callbacksRegistered, isTrue);
   });
 
+  test('prepare does not register callbacks after close completes', () async {
+    final window = FakeWindowAdapter()..blockEnsureInitialized = true;
+    final lifecycle = _lifecycle(window: window);
+
+    final preparing = lifecycle.prepare();
+    await window.ensureInitializedStarted.future;
+    await lifecycle.close();
+    window.releaseEnsureInitialized();
+    await preparing;
+
+    expect(window.callbacksRegistered, isFalse);
+  });
+
+  test('prepare stays idle after close has started', () async {
+    final window = FakeWindowAdapter();
+    final lifecycle = _lifecycle(window: window);
+
+    await lifecycle.close();
+    await lifecycle.prepare();
+
+    expect(window.ensureInitializedCalls, 0);
+    expect(window.callbacksRegistered, isFalse);
+  });
+
   test('show returns window presentation failures', () async {
     final window = FakeWindowAdapter()..failShow = true;
     final lifecycle = _lifecycle(window: window);
@@ -223,15 +247,21 @@ void main() {
   });
 
   test('move and resize save through the debounced path', () async {
+    const saveDelay = Duration(milliseconds: 37);
     final window = FakeWindowAdapter();
     final debounce = FakeDebounceScheduler();
-    final lifecycle = _lifecycle(window: window, debounce: debounce);
+    final lifecycle = _lifecycle(
+      window: window,
+      debounce: debounce,
+      saveDelay: saveDelay,
+    );
 
     await lifecycle.prepare();
     window.emitMove();
     window.emitResize();
 
     expect(debounce.cancelCount, 1);
+    expect(debounce.lastDelay, saveDelay);
     expect(await _settingsFile.exists(), isFalse);
 
     await debounce.fire();
@@ -344,6 +374,18 @@ void main() {
     await lifecycle.close();
 
     expect(window.events.last, 'destroy');
+  });
+
+  test('close stays idempotent after window destruction succeeds', () async {
+    final window = FakeWindowAdapter();
+    final lifecycle = _lifecycle(window: window);
+
+    await lifecycle.prepare();
+    await lifecycle.close();
+    await lifecycle.close();
+
+    expect(window.events.where((event) => event == 'destroy'), hasLength(1));
+    expect(window.callsAfterDestroy, isEmpty);
   });
 }
 
@@ -539,10 +581,12 @@ final class FakeMacTitlebarAdapter implements MacTitlebarAdapter {
 
 final class FakeDebounceScheduler {
   int cancelCount = 0;
+  Duration? lastDelay;
   Future<void> Function()? _callback;
   final _activeCallbacks = <Future<void> Function()>{};
 
   void Function() schedule(Duration delay, Future<void> Function() callback) {
+    lastDelay = delay;
     _callback = callback;
     _activeCallbacks.add(callback);
     return () {
@@ -554,9 +598,12 @@ final class FakeDebounceScheduler {
   }
 
   Future<void> fire() async {
-    final callback = _callback;
+    final pending = _activeCallbacks.toList(growable: false);
+    _activeCallbacks.clear();
     _callback = null;
-    _activeCallbacks.remove(callback);
-    if (callback != null) await callback();
+
+    for (final callback in pending) {
+      await callback();
+    }
   }
 }

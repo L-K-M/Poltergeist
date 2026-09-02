@@ -56,4 +56,16 @@ void main() {
 
     expect(await preferences.loadPaneRatio(), 0.7);
   });
+
+  test('uses default window placement while settings recover', () async {
+    final blockedParent = File(p.join(temporaryDirectory.path, 'blocked'));
+    await blockedParent.writeAsString('not a directory');
+    final preferences = AppPreferences(
+      store: SettingsStore(
+        path: p.join(blockedParent.path, 'settings.json'),
+      ),
+    );
+
+    expect(await preferences.loadWindowBounds(), isNull);
+  });
 }

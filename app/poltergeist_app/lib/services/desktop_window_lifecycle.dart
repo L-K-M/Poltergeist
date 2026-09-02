@@ -126,7 +126,7 @@ final class DesktopWindowLifecycle {
   var _calibrationRevision = 0;
 
   Future<void> prepare() {
-    if (_platform == DesktopPlatform.other || _prepared) {
+    if (_platform == DesktopPlatform.other || _prepared || _closing) {
       return Future.value();
     }
 
@@ -138,11 +138,22 @@ final class DesktopWindowLifecycle {
   Future<void> _prepare() async {
     try {
       await _window.ensureInitialized();
-      if (_platform == DesktopPlatform.macos) await _titlebar.initialize();
+      if (_closing) return;
+
+      if (_platform == DesktopPlatform.macos) {
+        await _titlebar.initialize();
+        if (_closing) return;
+      }
 
       final primaryWorkArea = await _displays.primaryWorkArea();
+      if (_closing) return;
+
       final workAreas = await _displays.workAreas();
+      if (_closing) return;
+
       final storedBounds = await _preferences.loadWindowBounds();
+      if (_closing) return;
+
       if (storedBounds != null) {
         _restoredBounds = clampWindowBounds(
           bounds: storedBounds,
@@ -157,6 +168,8 @@ final class DesktopWindowLifecycle {
         onClose: _onWindowClose,
       );
       await _window.enableCloseInterception();
+      if (_closing) return;
+
       _prepared = true;
     } catch (_) {
       _window.unregisterCallbacks();
@@ -262,8 +275,9 @@ final class DesktopWindowLifecycle {
   Future<void> _runClose() async {
     try {
       await _enqueueWindowOperation(_close);
-    } finally {
+    } catch (_) {
       _closeFuture = null;
+      rethrow;
     }
   }
 

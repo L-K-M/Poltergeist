@@ -41,12 +41,19 @@ class AppPreferences {
   }
 
   Future<Rect?> loadWindowBounds() async {
-    final storedValues = await Future.wait<num?>([
-      _store.get<num>(_windowLeftKey),
-      _store.get<num>(_windowTopKey),
-      _store.get<num>(_windowWidthKey),
-      _store.get<num>(_windowHeightKey),
-    ]);
+    late final List<num?> storedValues;
+    try {
+      storedValues = await Future.wait<num?>([
+        _store.get<num>(_windowLeftKey),
+        _store.get<num>(_windowTopKey),
+        _store.get<num>(_windowWidthKey),
+        _store.get<num>(_windowHeightKey),
+      ]);
+    } catch (_) {
+      // An unreadable store must not prevent default window placement.
+      return null;
+    }
+
     if (storedValues.any((value) => value == null || !value.isFinite)) {
       return null;
     }

@@ -13,6 +13,7 @@ const _linuxStartupWmClass = 'Com.lkm.poltergeist_app';
 const _macBundleName = 'Poltergeist.app';
 const _macExecutableName = 'Poltergeist';
 const _productName = 'Poltergeist';
+const _pngSignature = <int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 final _flutterEphemeralPath = RegExp(
   r'[/\\]flutter[/\\]ephemeral[/\\]',
   caseSensitive: false,
@@ -53,8 +54,13 @@ void main() {
 
   test('contains no default organization identifiers', () {
     final offenders = <String>[];
-    for (final entity in Directory.current.listSync(recursive: true)) {
+    for (final entity in Directory.current.listSync(
+      recursive: true,
+      followLinks: false,
+    )) {
       if (entity is! File || !_isTextProjectFile(entity.path)) continue;
+
+      // Interpolated so this scan does not flag its own source file.
       if (_read(entity.path).contains('com${'.'}example')) {
         offenders.add(entity.path);
       }
@@ -214,9 +220,9 @@ void main() {
     final bytes = File(
       '../../media-sources/poltergeist-icon.png',
     ).readAsBytesSync();
-    final data = ByteData.sublistView(Uint8List.fromList(bytes));
+    final data = ByteData.sublistView(bytes);
 
-    expect(bytes.sublist(1, 4), [0x50, 0x4e, 0x47]);
+    expect(bytes.sublist(0, _pngSignature.length), _pngSignature);
     expect(data.getUint32(16), 1024);
     expect(data.getUint32(20), 1024);
   });

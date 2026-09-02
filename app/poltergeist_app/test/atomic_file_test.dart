@@ -5,12 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/services/atomic_file.dart';
 
-final _temporaryFileName = RegExp(
-  r'^\.poltergeist-'
-  r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-'
-  r'[0-9a-f]{12}\.tmp$',
-);
-
 void main() {
   late Directory temporaryDirectory;
 
@@ -43,7 +37,7 @@ void main() {
     await writeStringAtomically(target, 'second');
 
     expect(await target.readAsString(), 'second');
-    expect(await _temporaryFiles(temporaryDirectory), isEmpty);
+    expect(await _entryNames(temporaryDirectory), ['data.json']);
   });
 
   test('removes the temporary sibling after rename fails', () async {
@@ -55,12 +49,16 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
 
-    expect(await _temporaryFiles(temporaryDirectory), isEmpty);
+    expect(await _entryNames(temporaryDirectory), ['data.json']);
   });
 }
 
-Future<List<FileSystemEntity>> _temporaryFiles(Directory directory) async =>
-    directory
-        .list()
-        .where((entry) => _temporaryFileName.hasMatch(p.basename(entry.path)))
-        .toList();
+Future<List<String>> _entryNames(Directory directory) async {
+  final names = await directory
+      .list()
+      .map((entry) => p.basename(entry.path))
+      .toList();
+  names.sort();
+
+  return names;
+}

@@ -3,6 +3,7 @@ import 'package:poltergeist_app/ui/layout/pane_allocation.dart';
 
 const _desktopBoundary = 1080.0;
 const _mobileBoundary = 680.0;
+const _splitterExtent = 16.0;
 
 void main() {
   group('allocatePanes', () {
@@ -68,8 +69,16 @@ void main() {
         secondPaneIntent: SecondPaneIntent.shown,
       );
 
+      expect(allocation.stage, LayoutStage.compact);
       expect(allocation.primaryWidth, 464);
+      expect(allocation.splitterWidth, _splitterExtent);
       expect(allocation.secondaryWidth, 240);
+      expect(
+        allocation.primaryWidth +
+            allocation.splitterWidth +
+            allocation.secondaryWidth,
+        allocation.totalWidth,
+      );
       expect(allocation.totalWidth, 720);
     });
   });

@@ -28,7 +28,9 @@ void main() {
       final workflow = File(path).readAsStringSync();
 
       expect(
-        RegExp("FLUTTER_VERSION: '$_flutterVersion'").allMatches(workflow),
+        RegExp(
+          RegExp.escape("FLUTTER_VERSION: '$_flutterVersion'"),
+        ).allMatches(workflow),
         hasLength(1),
         reason: path,
       );
