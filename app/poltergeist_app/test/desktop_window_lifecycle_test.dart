@@ -99,17 +99,52 @@ void main() {
     expect(window.callbacksRegistered, isTrue);
   });
 
-  test('prepare does not register callbacks after close completes', () async {
+  test('close waits for in-flight prepare before destroying', () async {
     final window = FakeWindowAdapter()..blockEnsureInitialized = true;
     final lifecycle = _lifecycle(window: window);
 
     final preparing = lifecycle.prepare();
     await window.ensureInitializedStarted.future;
-    await lifecycle.close();
-    window.releaseEnsureInitialized();
-    await preparing;
+    final closing = lifecycle.close();
+    await Future<void>.delayed(Duration.zero);
 
+    final closeStartedDuringPrepare = window.getBoundsStarted.isCompleted;
+    final destroyedDuringPrepare = window.events.contains('destroy');
+
+    window.releaseEnsureInitialized();
+    await Future.wait([preparing, closing]);
+
+    expect(closeStartedDuringPrepare, isFalse);
+    expect(destroyedDuringPrepare, isFalse);
     expect(window.callbacksRegistered, isFalse);
+    expect(window.events.last, 'destroy');
+    expect(window.callsAfterDestroy, isEmpty);
+  });
+
+  test('close tears down after in-flight prepare fails', () async {
+    final window = FakeWindowAdapter()
+      ..blockEnsureInitialized = true
+      ..failEnsureInitialized = true;
+    final lifecycle = _lifecycle(window: window);
+
+    final preparing = lifecycle.prepare();
+    final prepareFailure = expectLater(preparing, throwsA(isA<StateError>()));
+    await window.ensureInitializedStarted.future;
+    final closing = lifecycle.close();
+    await Future<void>.delayed(Duration.zero);
+
+    final closeStartedDuringPrepare = window.getBoundsStarted.isCompleted;
+    final destroyedDuringPrepare = window.events.contains('destroy');
+
+    window.releaseEnsureInitialized();
+    await prepareFailure;
+    await closing;
+
+    expect(closeStartedDuringPrepare, isFalse);
+    expect(destroyedDuringPrepare, isFalse);
+    expect(window.callbacksRegistered, isFalse);
+    expect(window.events.last, 'destroy');
+    expect(window.callsAfterDestroy, isEmpty);
   });
 
   test('prepare stays idle after close has started', () async {
@@ -370,6 +405,10 @@ void main() {
 
     expect(window.callbacksRegistered, isTrue);
 
+    await lifecycle.show();
+
+    expect(window.events, containsAllInOrder(['ready', 'show', 'focus']));
+
     window.failDestroy = false;
     await lifecycle.close();
 
@@ -492,7 +531,10 @@ final class FakeWindowAdapter implements DesktopWindowAdapter {
   }
 
   @override
-  Future<void> enableCloseInterception() async => preventClose = true;
+  Future<void> enableCloseInterception() async {
+    _recordCall('enableCloseInterception');
+    preventClose = true;
+  }
 
   @override
   Future<void> waitUntilReadyToShow(WindowShowOptions options) async {
@@ -533,6 +575,7 @@ final class FakeWindowAdapter implements DesktopWindowAdapter {
     required void Function() onResize,
     required void Function() onClose,
   }) {
+    _recordCall('registerCallbacks');
     callbacksRegistered = true;
     _onMove = onMove;
     _onResize = onResize;

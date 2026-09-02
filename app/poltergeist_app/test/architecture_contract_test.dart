@@ -2,12 +2,29 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+// D3 reserves every FileSystem-named abstraction, including wrappers.
 final _fileSystemDeclaration = RegExp(
-  r'\b(?:abstract\s+)?(?:interface\s+)?class\s+\w*FileSystem\b',
+  r'\b(?:class|mixin|typedef)\s+\w*FileSystem\w*\b',
 );
 const _packageDeclaration = 'name: poltergeist_app';
 
 void main() {
+  test('recognizes reserved filesystem declaration variants', () {
+    const declarations = [
+      'class FileSystemAdapter {}',
+      'mixin CachedFileSystem {}',
+      'typedef LocalFileSystemPort = Object;',
+    ];
+
+    for (final declaration in declarations) {
+      expect(
+        _fileSystemDeclaration.hasMatch(declaration),
+        isTrue,
+        reason: declaration,
+      );
+    }
+  });
+
   test('declares no app-local filesystem abstraction', () {
     final pubspec = File('pubspec.yaml');
     if (!pubspec.existsSync() ||

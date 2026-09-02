@@ -67,6 +67,15 @@ class AppPreferences {
   }
 
   Future<void> saveWindowBounds(Rect bounds) async {
+    final values = [bounds.left, bounds.top, bounds.width, bounds.height];
+
+    // Ignore transient invalid geometry reported during native window changes.
+    if (values.any((value) => !value.isFinite) ||
+        bounds.width <= 0 ||
+        bounds.height <= 0) {
+      return;
+    }
+
     await _store.setAll({
       _windowLeftKey: bounds.left,
       _windowTopKey: bounds.top,

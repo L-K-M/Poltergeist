@@ -5,9 +5,10 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _generatedLocalizationPrefix = 'lib/l10n/app_localizations';
 const _generatedLocalizationPaths = {
-  'lib/l10n/app_localizations.dart',
-  'lib/l10n/app_localizations_en.dart',
+  '$_generatedLocalizationPrefix.dart',
+  '${_generatedLocalizationPrefix}_en.dart',
 };
 
 const _generatedDartSuffixes = {'.freezed.dart', '.g.dart', '.mocks.dart'};
@@ -171,6 +172,27 @@ import 'default.dart'
     );
   });
 
+  test('ignores generated output for every locale', () {
+    const source = "String get actionLabel => 'Copier';";
+
+    expect(
+      _findDisallowedLiterals(
+        path: 'lib/l10n/app_localizations_fr.dart',
+        source: source,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('rejects source with parser diagnostics', () {
+    const malformedSource = "void fixture() { Text('Hidden');";
+
+    expect(
+      () => _scanStringLiterals(malformedSource),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('authors user-facing strings only in ARB', () {
     final offenders = <String>[];
     for (final entity in Directory('lib').listSync(recursive: true)) {
@@ -220,17 +242,20 @@ List<({int line, String lexeme})> _findDisallowedLiterals({
 }
 
 bool _isGeneratedPath(String path) {
-  if (_generatedLocalizationPaths.contains(path)) return true;
+  if (path.startsWith(_generatedLocalizationPrefix)) return true;
 
   return _generatedDartSuffixes.any(path.endsWith);
 }
 
 Iterable<({int offset, String lexeme})> _scanStringLiterals(String source) {
   final collector = _StringLiteralCollector();
-  parseString(
-    content: source,
-    throwIfDiagnostics: false,
-  ).unit.accept(collector);
+  final result = parseString(content: source, throwIfDiagnostics: false);
+  // Malformed code must fail this gate instead of hiding literals.
+  if (result.errors.isNotEmpty) {
+    throw StateError('source has parse errors; refusing to scan it');
+  }
+
+  result.unit.accept(collector);
   return collector.literals;
 }
 

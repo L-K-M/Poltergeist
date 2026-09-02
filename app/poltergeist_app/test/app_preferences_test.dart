@@ -68,4 +68,33 @@ void main() {
 
     expect(await preferences.loadWindowBounds(), isNull);
   });
+
+  test('does not persist invalid window bounds', () async {
+    const invalidBounds = <({String name, Rect bounds})>[
+      (
+        name: 'non-finite origin',
+        bounds: Rect.fromLTWH(double.nan, 60, 1180, 760),
+      ),
+      (
+        name: 'non-finite size',
+        bounds: Rect.fromLTWH(80, 60, double.infinity, 760),
+      ),
+      (name: 'zero width', bounds: Rect.fromLTWH(80, 60, 0, 760)),
+      (name: 'negative height', bounds: Rect.fromLTWH(80, 60, 1180, -1)),
+    ];
+
+    for (final fixture in invalidBounds) {
+      final fixtureFile = File(p.join(temporaryDirectory.path, fixture.name));
+      final preferences = AppPreferences(
+        store: SettingsStore(path: fixtureFile.path),
+      );
+
+      await expectLater(
+        preferences.saveWindowBounds(fixture.bounds),
+        completes,
+        reason: fixture.name,
+      );
+      expect(fixtureFile.existsSync(), isFalse, reason: fixture.name);
+    }
+  });
 }

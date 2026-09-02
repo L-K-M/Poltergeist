@@ -6,7 +6,7 @@ and built as a sibling of [Séance](https://github.com/L-K-M/Seance).
 
 *The ghost that moves your files.*
 
-**Current version:** v<!-- version -->0.1.0<!-- /version --> · no tag or binaries yet — M0 is complete; the M1 scaffold is implemented, pending CI and the v0.1.0 rehearsal.
+**Current version:** v<!-- version -->0.1.0<!-- /version --> · no tag or binaries yet — M0 is complete; the M1 scaffold is implemented and green in CI, pending the v0.1.0 rehearsal.
 
 ## What Poltergeist will be
 

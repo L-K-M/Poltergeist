@@ -273,9 +273,19 @@ final class DesktopWindowLifecycle {
   }
 
   Future<void> _runClose() async {
+    final preparing = _prepareFuture;
+    if (preparing != null) {
+      try {
+        await preparing;
+      } catch (_) {
+        // Failed preparation must not prevent native teardown.
+      }
+    }
+
     try {
       await _enqueueWindowOperation(_close);
     } catch (_) {
+      _closing = false;
       _closeFuture = null;
       rethrow;
     }
