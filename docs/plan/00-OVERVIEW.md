@@ -293,10 +293,15 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   annotated in a comment, never compiled into filters. An opt-in rsync
   accelerator remains a documented v2 possibility, driven per-item from our
   own plan; it may never be needed. Full analysis: 05.
-- **D7 — Hashing policy.** The managed-checkout/edit pipeline keeps
-  Séance's mandatory streamed SHA-256 (it is the conflict authority). Bulk
-  transfers and sync make hashing **opt-in** ("verify after transfer"
-  setting; `contentHash` comparison mode), pending D8/D9 measurements.
+- **D7 — Hashing policy, finalized by M0.** The managed-checkout/edit
+  pipeline keeps Séance's mandatory streamed SHA-256 (it is the conflict
+  authority). Bulk transfers default to hashing off and expose the opt-in
+  "verify after transfer" setting; sync defaults to `sizeAndMtime` and keeps
+  `contentHash` as its opt-in thorough mode. M0's same-run 100 MB and 1 GB LAN
+  cells measured a 19.8–21.2% throughput cost from streamed hashing, while
+  the shaped same-run cells were mixed and showed no stable compensating
+  benefit. Paying that LAN cost for every bulk operation is therefore not
+  justified; the user selects it when content verification outweighs speed.
 - **D15 — One trash story.** Local deletions go to the OS trash via a thin
   in-repo plugin (macOS `FileManager.trashItem` with Put Back; Windows
   `IFileOperation`+`FOF_ALLOWUNDO` via `win32` FFI; Linux `gio trash`,
@@ -345,37 +350,46 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
 
 ### Engine and performance
 
-- **D8 — Isolate architecture.** Transfer workers, hashing, archive work,
-  and sync scan/diff run off the UI isolate. The connection pool and its
-  SSH/SFTP sockets live in a dedicated I/O isolate (or isolate group) with a
-  message-port API; the UI isolate holds only view state. M0 validates the
-  design empirically before it hardens.
-- **D9 — M0 is a dartssh2 fitness spike, week one.** Measure throughput vs
-  the OpenSSH `sftp` baseline on LAN and high-latency links; audit algorithm
-  coverage against 2026-era sshd (rsa-sha2-256/512, ed25519, aes128/256-gcm
-  and chacha20-poly1305 ciphers, curve25519-sha256 kex, and the
-  mlkem768x25519-sha256 post-quantum hybrid kex OpenSSH 10.0 made its
-  default — verified against openssh.org's own release notes; a sshd this
-  spike measures against and dartssh2 doesn't speak leaves M0 blind to
-  its most current-gen compatibility gap); verify concurrent/pipelined
-  requests on one SFTP channel actually
-  work in dartssh2. The minimum tested dependency is dartssh2 3.0.2: earlier
-  releases can abandon pipelined read futures when a consumer cancels the
-  stream, so closing that SFTP session can surface detached abort errors.
-  Version 3.0.2 owns every issued read completion while retaining pipelining;
-  Séance and the M0 harness pin that floor exactly until the spike closes.
-  Fallback ladder if it underperforms: contribute upstream
-  → multiple channels/connections to compensate → document the ceiling → FFI
-  to **libssh2** (BSD-3-Clause — permissive; its one obligation,
-  carrying the libssh2 notice in a THIRD-PARTY-NOTICES file D23's
-  releases would ship anyway, is acceptable under D30. LGPL `libssh`
-  is avoided because *static FFI embedding* — the form this fallback
-  would take — triggers its heavier relinking/source-availability
-  duties; note that dynamic linking via `DynamicLibrary.open` — the normal
-  Dart FFI pattern on desktop, which keeps the library user-replaceable —
-  is the lighter LGPL path if `libssh` is ever reconsidered) as a last
-  resort. The connection-pool and sync-scan designs are
-  not finalized until M0 reports.
+- **D8 — Isolate architecture, confirmed by M0.** The engine isolate owns
+  the connection pool, every SSH/SFTP socket, transfer execution, inline
+  hashing, and sync scan/diff; short-lived `Isolate.run` workers own archive
+  work and later non-stream-shaped CPU bursts. The UI isolate holds only view
+  state and talks to the engine through the typed message-port API. M0 measured
+  0.997 throughput parity, 40.938 ms cancellation, 22.83 progress flushes/s,
+  and a 4.401 ms maximum UI-isolate timer stall, all inside D8's gates, so the
+  single engine-isolate split is final for v1.
+- **D9 — M0 ends at fallback rung 4: keep dartssh2 3.0.2 and document the
+  ceiling.** Version 3.0.2 is the minimum: earlier releases can abandon
+  pipelined read futures when a consumer cancels the stream, while 3.0.2 owns
+  every issued read completion and retains pipelining. The canonical M0
+  evidence established three boundaries:
+  - Modern and legacy OpenSSH defaults, rsa-sha2-256/512, ed25519,
+    aes128/256-gcm, and curve25519-sha256 all connected. dartssh2 lacks
+    chacha20-poly1305 and mlkem768x25519-sha256, so a strict server requiring
+    that cipher/KEX pair failed; strict Chacha/PQ-only servers are a documented
+    compatibility ceiling.
+  - On LAN, hashing-off 1 GB dartssh2 transfers reached 22.79 MB/s download
+    and 21.98 MB/s upload, while OpenSSH reached 225.46 and 249.15 MB/s. That
+    roughly 10–11× single-large-file gap is a documented throughput ceiling;
+    shaped downloads were competitive and shaped uploads remained slower.
+  - Pooling materially recovers aggregate throughput. Four transfer channels
+    beat three by 23.9% on LAN and were the shaped-link maximum; eight
+    regressed on the shaped link. Two transports nearly doubled the LAN
+    aggregate; although four transports recovered shaped aggregate after two
+    did not, 2 transports × 4 channels already expose 8 transfer slots above
+    the global dispatch cap of 6. More transports cannot raise v1 dispatch
+    concurrency. The final `PoolPolicy` is therefore 2 transports, 4 transfer
+    channels per transport, and 8 total channels per transport; the scanner
+    uses 8 outstanding readdirs.
+
+  **Rung-4 rationale:** the 3.0.2 correctness fix, passing modern-default
+  compatibility, passing D8 proof, and bounded pool compensation satisfy v1's
+  required behavior. Native libssh2 FFI would add three-platform packaging,
+  security-audit, and maintenance surface without removing the product's need
+  for the Dart engine and one VFS. That cost is not justified solely to close
+  a LAN single-file ceiling and support strict Chacha/PQ-only configurations,
+  neither of which violates a v1 budget. Keep those limits explicit and
+  revisit libssh2 only with user compatibility failures or workload evidence.
 - **D12 — Numeric performance budgets** (tracked as benchmarks in CI, 08):
   first paint of a 10k-entry local directory < 150 ms; 100k entries < 1 s
   (virtualized); remote listing = network time + < 50 ms overhead, always

@@ -238,10 +238,10 @@ concurrently in the engine isolate (D8).
 - **Remote**: SFTP v3 `READDIR` returns names *with* attributes (size,
   mtime, mode), so a full tree walk costs about one round trip per directory
   page with no per-file stat. Pipeline directory listings with bounded
-  concurrency — 8 outstanding `listDirectory` calls by default, tunable
-  8–16 after M0 reports (D9) — over one browse channel leased from the
-  connection pool (03 §3.2). Budget P7: ≥ 1 000 remote entries/s on LAN
-  (D12; benchmark in 08).
+  concurrency — 8 outstanding `listDirectory` calls over one browse channel
+  leased from the connection pool (03 §3.2). Depth 8 yields 3,639 LAN
+  entries/s versus 482 serially, clearing budget P7's ≥ 1,000 remote
+  entries/s on LAN (D9, D12; benchmark in 08).
 - **Local**: `LocalFileSystem.listDirectory` (03 §2.2); cheap.
 - Output per side: `ScanResult` = flat map
   `relativePath → EntrySnapshot` (§6) plus a list of `ScanWarning`s.
@@ -1591,7 +1591,7 @@ Testing hooks, elaborated in 08:
 
 - [ ] `poltergeist_sync` exists with the §11 layout; no Flutter, no
       dartssh2, no `Process` usage anywhere in the package.
-- [ ] Scanner: pipelined remote readdirs (8 outstanding, M0-tuned), live
+- [ ] Scanner: pipelined remote readdirs (8 outstanding), live
       progress counters, both-sides subtree exclusion on scan error,
       symlinks skipped and counted, gitignore-style rules with the
       `.poltergeist*` defaults applied.
