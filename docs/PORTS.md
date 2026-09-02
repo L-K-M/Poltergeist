@@ -1,6 +1,27 @@
 # Séance ports and pin audits
 
-No Séance source has been copied into Poltergeist.
+## app/poltergeist_app/lib/services/atomic_file.dart
+
+- Source: app/seance_app/lib/services/atomic_file.dart
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0)
+- Ported: 2026-09-02
+- Divergences: unique `.poltergeist-<uuid>.tmp` siblings prevent collisions
+  and basename overflow; failed writes remove their temporary sibling without
+  masking the original failure; the source's delete-target Windows fallback is
+  omitted per 09 §3.6; corrupt quarantine is store-owned, UTC-stamped, and
+  reports move failures.
+- Port-back candidates: unique bounded temp names, best-effort cleanup, and
+  timestamped quarantine.
+
+## app/poltergeist_app/test/atomic_file_test.dart
+
+- Source: app/seance_app/test/atomic_file_test.dart
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0)
+- Ported: 2026-09-02
+- Divergences: uses the Poltergeist temp-file contract, adds failed-rename
+  cleanup, and maps source store round-trip/quarantine cases to
+  `settings_store_test.dart`.
+- Port-back candidates: none.
 
 ## Pin findings
 

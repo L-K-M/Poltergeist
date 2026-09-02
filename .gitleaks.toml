@@ -2,8 +2,10 @@
 useDefault = true
 
 [allowlist]
-description = "Loopback-only deterministic OpenSSH host keys"
+description = "Deliberately public CI fixture and Android signing keys"
 paths = [
+  '''^app/poltergeist_app/android/app/ci-release\.jks$''',
+  '''^app/poltergeist_app/android/key\.properties$''',
   '''^test/integration/keys/ssh_host_ed25519_key$''',
   '''^test/integration/keys/ssh_host_ed25519_key_swap$''',
   '''^test/integration/keys/ssh_host_rsa_key$''',

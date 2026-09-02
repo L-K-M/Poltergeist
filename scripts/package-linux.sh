@@ -47,6 +47,10 @@ PROFILE="release"
 OUT_DIR="$ROOT/dist"
 APPIMAGE_MODE="required"   # required | best-effort | skip
 PRINT_DEPS=false
+BUNDLE_EXECUTABLE="poltergeist"
+LINUX_APPLICATION_ID="com.lkm.poltergeist_app"
+LINUX_STARTUP_WM_CLASS="${LINUX_APPLICATION_ID^}"
+LINUX_DESKTOP_FILE="$LINUX_APPLICATION_ID.desktop"
 
 usage() {
   awk 'NR==1 && /^#!/ {next} /^#/ {sub(/^# ?/,""); print; next} {exit}' "$SELF"
@@ -88,16 +92,16 @@ if [[ -z "$BUNDLE" ]]; then
   done
   [[ -n "$BUNDLE" ]] || die "no built bundle found under $APP_DIR/build/linux/*/…/bundle — run 'flutter build linux --release' first (or pass --bundle)"
 fi
-[[ -f "$BUNDLE/poltergeist_app" ]] || die "$BUNDLE has no poltergeist_app executable — not a Poltergeist Linux bundle?"
+[[ -f "$BUNDLE/$BUNDLE_EXECUTABLE" ]] || die "$BUNDLE has no $BUNDLE_EXECUTABLE executable — not a Poltergeist Linux bundle?"
 
 case "$BUNDLE" in
   */linux/x64/*|*/linux-x64/*) FLUTTER_ARCH="x64" ;;
   */linux/arm64/*|*/linux-arm64/*) FLUTTER_ARCH="arm64" ;;
   *) # Custom --bundle path: ask the ELF itself.
-     case "$(readelf -h "$BUNDLE/poltergeist_app" | sed -n 's/.*Machine:[[:space:]]*//p')" in
+     case "$(readelf -h "$BUNDLE/$BUNDLE_EXECUTABLE" | sed -n 's/.*Machine:[[:space:]]*//p')" in
        *"X86-64"*) FLUTTER_ARCH="x64" ;;
        *"AArch64"*) FLUTTER_ARCH="arm64" ;;
-       *) die "cannot determine architecture of $BUNDLE/poltergeist_app" ;;
+       *) die "cannot determine architecture of $BUNDLE/$BUNDLE_EXECUTABLE" ;;
      esac ;;
 esac
 case "$FLUTTER_ARCH" in
@@ -120,7 +124,7 @@ echo "  bundle: $BUNDLE"
 # cover the 64-bit-time_t package renames in Ubuntu 24.04/Debian 13 — the
 # library files and sonames are identical, only the package names changed.
 # ---------------------------------------------------------------------------
-ELFS=("$BUNDLE/poltergeist_app")
+ELFS=("$BUNDLE/$BUNDLE_EXECUTABLE")
 while IFS= read -r so; do ELFS+=("$so"); done < <(find "$BUNDLE/lib" -name '*.so*' -type f | sort)
 
 declare -A SONAME_TO_DEP=(
@@ -278,10 +282,9 @@ Exec=$2
 Icon=poltergeist
 Terminal=false
 Categories=Network;FileTransfer;FileManager;
-# The GApplication id is also the prgname GTK reports to the session (seen
-# in its warnings: "(com.lkm.poltergeist_app:pid): …"), hence StartupWMClass —
-# that's what lets desktops map windows onto this entry.
-StartupWMClass=com.lkm.poltergeist_app
+# The packaged build reports this X11 WM_CLASS class (the instance is the
+# lowercase application id); StartupWMClass is case-sensitive.
+StartupWMClass=$LINUX_STARTUP_WM_CLASS
 EOF
 }
 
@@ -312,19 +315,20 @@ install -d "$DEBROOT/usr/lib/poltergeist" "$DEBROOT/usr/bin" \
 # stripped).
 cp -a "$BUNDLE/." "$DEBROOT/usr/lib/poltergeist/"
 if command -v strip >/dev/null 2>&1; then
-  strip --strip-unneeded "$DEBROOT/usr/lib/poltergeist/poltergeist_app" 2>/dev/null || true
+  strip --strip-unneeded "$DEBROOT/usr/lib/poltergeist/$BUNDLE_EXECUTABLE" 2>/dev/null || true
 fi
 
 # A wrapper rather than a symlink: the runner computes its data/lib paths from
 # its own executable location, and a wrapper keeps `poltergeist` on PATH
 # trivially.
-cat > "$DEBROOT/usr/bin/poltergeist" <<'EOF'
+cat > "$DEBROOT/usr/bin/poltergeist" <<EOF
 #!/bin/sh
-exec /usr/lib/poltergeist/poltergeist_app "$@"
+exec /usr/lib/poltergeist/$BUNDLE_EXECUTABLE "\$@"
 EOF
 chmod 755 "$DEBROOT/usr/bin/poltergeist"
 
-write_desktop_file "$DEBROOT/usr/share/applications/poltergeist.desktop" "poltergeist"
+# Wayland matches the desktop-file id to GApplication's application id.
+write_desktop_file "$DEBROOT/usr/share/applications/$LINUX_DESKTOP_FILE" "poltergeist"
 install_icons "$DEBROOT/usr"
 
 cat > "$DEBROOT/usr/share/doc/poltergeist/copyright" <<EOF
@@ -417,19 +421,19 @@ build_appimage() {
   rm -rf "${appdir:?}/usr/bin"   # the deb's wrapper hardcodes /usr/lib — dead
                                # weight here; AppRun is the entry point
 
-  write_desktop_file "$appdir/poltergeist.desktop" "AppRun"
+  write_desktop_file "$appdir/$LINUX_DESKTOP_FILE" "AppRun"
   # appimagetool wants the icon named after Icon= at the AppDir root, plus
   # .DirIcon for file managers.
   make_icon "$MASTER_ICON" "$appdir/poltergeist.png" 512 \
     || cp "$MASTER_ICON" "$appdir/poltergeist.png"
   cp "$appdir/poltergeist.png" "$appdir/.DirIcon"
 
-  cat > "$appdir/AppRun" <<'EOF'
+  cat > "$appdir/AppRun" <<EOF
 #!/bin/sh
 # AppImages mount read-only at a random path; resolve through symlinks so the
-# runner's $ORIGIN-relative lib/ and data/ lookups work.
-HERE="$(dirname "$(readlink -f "$0")")"
-exec "$HERE/usr/lib/poltergeist/poltergeist_app" "$@"
+# runner's \$ORIGIN-relative lib/ and data/ lookups work.
+HERE="\$(dirname "\$(readlink -f "\$0")")"
+exec "\$HERE/usr/lib/poltergeist/$BUNDLE_EXECUTABLE" "\$@"
 EOF
   chmod 755 "$appdir/AppRun"
 

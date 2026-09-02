@@ -1,0 +1,36 @@
+{
+  "@@locale": "en",
+  "appTitle": "Poltergeist",
+  "@appTitle": {
+    "description": "Application and main window title."
+  },
+  "paneAName": "Pane A",
+  "@paneAName": {
+    "description": "Label for the left file pane."
+  },
+  "paneBName": "Pane B",
+  "@paneBName": {
+    "description": "Label for the right file pane."
+  },
+  "emptyPanePrompt": "Choose a location",
+  "@emptyPanePrompt": {
+    "description": "Prompt shown before a pane has a location."
+  },
+  "resizePanes": "Resize panes",
+  "@resizePanes": {
+    "description": "Accessibility label for the pane splitter."
+  },
+  "paneRatioPercent": "{value}%",
+  "@paneRatioPercent": {
+    "description": "Current pane splitter position as a whole percentage.",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
+  "readyStatus": "Ready",
+  "@readyStatus": {
+    "description": "Idle application status."
+  }
+}

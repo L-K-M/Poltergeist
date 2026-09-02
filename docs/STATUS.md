@@ -3,7 +3,8 @@
 Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) first for how to build/test.
 
-_Last updated: 2026-09-02 — M0 is complete; M1 is next._
+_Last updated: 2026-09-02 — M0 is complete; the M1 scaffold and client matrix
+are green, but M1 remains open pending the v0.1.0 rehearsal._
 
 ## Done
 
@@ -15,20 +16,33 @@ _Last updated: 2026-09-02 — M0 is complete; M1 is next._
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
 | Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
 | Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
+| Séance PR-S2 | `openAuthenticatedClient` split merged in [Séance #61](https://github.com/L-K-M/Seance/pull/61), merge `dad6d4f66dbfba6c170b98c204980e5801a890cb`. |
 | M0 — engine fitness | Complete from workflow-dispatch run [`33563514640`](https://github.com/L-K-M/Poltergeist/actions/runs/33563514640), attempt 1, measured commit `6b8873eafdaaa3a4157e265dee838ab3b47219b3`. The 78-row canonical bundle is committed at [`docs/evidence/m0`](evidence/m0); `m0-evidence.json` SHA-256 is `b93660b9f1c06bac206096d25c6fff472bcb31d13589a4d81bd5a3df70fa7fcc`. D7 is final: managed checkouts always hash; bulk transfers and sync hashing are opt-in. D8 passed every isolate gate, so sockets, SFTP, transfers, and hashing stay in the engine isolate. D9 adopts dartssh2 3.0.2 at ladder rung 4: document the roughly 10–11× single-file LAN ceiling versus OpenSSH, compensate with bounded channels/transports, and do not adopt libssh2. `PoolPolicy` is finalized at 2 transports, 4 transfer channels per transport, 8 total channels per transport, 6 global in-flight transfers, and remote readdir depth 8. Keepalive remains 30 seconds, extra idle 60 seconds, reconnect cap 30 seconds, and retry limit 5; these are retained design defaults, not M0-tuned values. Earlier runs `33458209337`, `33481554062`, and `33504660759` were partial; `33534298280` stopped in preflight; `33535334440` diagnosed dartssh2 2.22.0's detached cancellation error. None is admissible evidence. M0 closes untagged. |
+| M1 — app scaffold implementation | Implemented with Flutter 3.47.2, exact dependency pins, generated platform icons from the 1024×1024 master, and the verified platform identity contract. Flutter tests and all five client builds passed in [CI run 33634443453](https://github.com/L-K-M/Poltergeist/actions/runs/33634443453). M1 is not closed: the v0.1.0 rehearsal remains. |
 
 ## Open items
 
-1. **2026-09-02 — begin M1.** M1 is the Flutter app scaffold in 07 §3.2,
-   including the master
-   icon, committed platform folders, first-widget i18n/a11y foundations, and
-   the empirically resolved Linux `StartupWMClass`. File Séance PR-S2 during
-   M1 before M2 remote browsing.
-2. **Séance upstream PRs S2–S3** (see
+1. **2026-09-02 — close M1.** The scaffold, Flutter checks, and full client
+   matrix are green. Follow the [implementation playbook](plan/09-PLAYBOOK.md)
+   to bring `release.yml` to D23, then run the v0.1.0 rehearsal with its
+   required client assets. The release work must add the draft/pre-release
+   gate, checksums and signed-list handoff, monotonic Android version codes,
+   and the unsigned `.xcarchive` → IPA path. Before publishing Linux assets,
+   include the verbatim Unlicense in the Debian copyright file and replace
+   ABI-tag-derived dependency floors with Debian package-version mapping.
+   The observed Linux
+   X11 identity is instance `com.lkm.poltergeist_app`, class
+   `Com.lkm.poltergeist_app`; `StartupWMClass` uses the case-sensitive class.
+   The app requires Flutter 3.47.2 and uses the exact pins recorded in its
+   [README](../app/poltergeist_app/README.md); its icon source is the master
+   at `media-sources/poltergeist-icon.png`.
+2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
+   `LocalFileSystem` lands; this is not an M1 closure claim.
+3. **Séance upstream PR-S3** (see
    [`docs/plan/04-SEANCE-INTEGRATION.md`](plan/04-SEANCE-INTEGRATION.md)
-   §5): file the `openAuthenticatedClient` split during M1 and the VFS
-   additions at its planned cadence. Tag S1 before M6 Design A.
-3. **2026-08-31 — rsync-exporter `# note:` interim patch (00 D6).** The
+   §5): file the VFS additions at their planned cadence. Tag S1 before M6
+   Design A.
+4. **2026-08-31 — rsync-exporter `# note:` interim patch (00 D6).** The
    "Copy as rsync command" exporter (05 §2) must render a prominent
    `# note:` line — or refuse to render — whenever the pair's connection
    settings include an identity file or a jump host, so the pasted
@@ -36,7 +50,7 @@ _Last updated: 2026-09-02 — M0 is complete; M1 is next._
    wrong path. 05's merged text doesn't state this yet; per 00 D6 this
    **blocks "Copy as rsync command" from shipping in any milestone**
    until it lands in 05.
-4. **2026-08-31 — 05 rail-5 precision alignment (00 D15).** 05 states the
+5. **2026-08-31 — 05 rail-5 precision alignment (00 D15).** 05 states the
    trash-rename fallback trigger as "cross-filesystem" without D15's
    remote/errno distinction (EXDEV is classifiable only for local pairs;
    for a remote pair *any* rename failure not resolved by the sequence
