@@ -9,6 +9,8 @@ const int _majorMultiplier = 1_000_000;
 const int _minorMultiplier = 10_000;
 const int _patchMultiplier = 100;
 const int _androidVersionCodeLimit = 2_100_000_000;
+const int _majorComponentLimit =
+    (_androidVersionCodeLimit - _finalOrdinal) ~/ _majorMultiplier;
 const String _appPubspecPath = 'app/poltergeist_app/pubspec.yaml';
 const String _appLockPath = 'app/poltergeist_app/pubspec.lock';
 const String _readmePath = 'README.md';
@@ -74,6 +76,12 @@ final class ReleaseVersion {
       throw ReleaseVersionFormatException(
         'release version "$source" requires minor and patch values '
         'between 0 and $_componentLimit',
+      );
+    }
+    if (major > _majorComponentLimit) {
+      throw ReleaseVersionFormatException(
+        'release version "$source" exceeds Android versionCode '
+        '$_androidVersionCodeLimit',
       );
     }
 
@@ -156,9 +164,21 @@ final class ReleaseVersionWorkspace {
         _prepareAppleInfoPlist(version: version, path: path),
     ];
 
-    // Validate every source before replacing any release metadata.
-    for (final rewrite in rewrites) {
-      _commitRewrite(rewrite);
+    final staged = <_StagedRewrite>[];
+    try {
+      // Validate every rewrite before replacing any release metadata.
+      for (final rewrite in rewrites) {
+        if (!rewrite.changed) continue;
+
+        staged.add(_stageRewrite(rewrite));
+      }
+      for (final rewrite in staged) {
+        rewrite.temporary.renameSync(rewrite.target.path);
+      }
+    } finally {
+      for (final rewrite in staged) {
+        if (rewrite.temporary.existsSync()) rewrite.temporary.deleteSync();
+      }
     }
   }
 
@@ -240,9 +260,7 @@ final class ReleaseVersionWorkspace {
     );
   }
 
-  void _commitRewrite(_PreparedRewrite rewrite) {
-    if (!rewrite.changed) return;
-
+  _StagedRewrite _stageRewrite(_PreparedRewrite rewrite) {
     final temporary = File('${rewrite.file.path}.$pid.release-version.tmp');
     if (temporary.existsSync()) {
       throw ReleaseVersionStateException(
@@ -250,15 +268,16 @@ final class ReleaseVersionWorkspace {
       );
     }
 
-    // Validate a sibling temporary file before replacing release metadata.
     try {
       temporary.writeAsStringSync(rewrite.contents, flush: true);
       rewrite.validate(temporary);
-
-      temporary.renameSync(rewrite.file.path);
-    } finally {
+    } on Object {
       if (temporary.existsSync()) temporary.deleteSync();
+
+      rethrow;
     }
+
+    return _StagedRewrite(target: rewrite.file, temporary: temporary);
   }
 
   ReleaseVersionReport check({ReleaseVersion? expected}) {
@@ -403,14 +422,27 @@ final class ReleaseVersionWorkspace {
         ? pathFromRoot
         : p.join(_root.path, pathFromRoot);
     final resolved = File(p.normalize(p.absolute(candidate)));
-    if (p.equals(resolved.path, _root.path) ||
-        p.isWithin(_root.path, resolved.path)) {
+
+    // Resolve links before containment so root/link -> outside cannot escape.
+    final rootPath = _root.resolveSymbolicLinksSync();
+    final resolvedPath = _canonicalPath(resolved);
+    if (p.equals(resolvedPath, rootPath) ||
+        p.isWithin(rootPath, resolvedPath)) {
       return resolved;
     }
 
     throw ReleaseVersionStateException(
       'path leaves repository root: $pathFromRoot',
     );
+  }
+
+  String _canonicalPath(File file) {
+    if (file.existsSync()) return file.resolveSymbolicLinksSync();
+
+    final parent = file.parent;
+    if (!parent.existsSync()) return file.path;
+
+    return p.join(parent.resolveSymbolicLinksSync(), p.basename(file.path));
   }
 
   int _checkAppLock(
@@ -479,7 +511,7 @@ final class ReleaseVersionWorkspace {
         .toList();
     if (matches.length != 1 || matches.single[1] != expected.semantic) {
       throw ReleaseVersionStateException(
-        'README version marker must contain ${expected.semantic}',
+        'README version marker must equal ${expected.semantic}',
       );
     }
   }
@@ -566,6 +598,13 @@ final class _PreparedRewrite {
     required this.changed,
     required this.validate,
   });
+}
+
+final class _StagedRewrite {
+  final File target;
+  final File temporary;
+
+  const _StagedRewrite({required this.target, required this.temporary});
 }
 
 _AppVersion _parseAppVersion(_PubspecVersion declaration) {

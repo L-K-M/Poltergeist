@@ -385,17 +385,7 @@ jobs:
         if: matrix.target == 'android'
         working-directory: app/poltergeist_app
         shell: bash
-        run: |
-          expected_code="$(sed -n 's/^version: [^+]*+//p' pubspec.yaml)"
-          actual_code="$(
-            "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" \
-              manifest version-code \
-              build/app/outputs/flutter-apk/app-release.apk
-          )"
-          if [[ "$actual_code" != "$expected_code" ]]; then
-            echo "APK versionCode $actual_code, expected $expected_code" >&2
-            exit 1
-          fi
+        run: bash "$GITHUB_WORKSPACE/scripts/verify-android-version.sh"
       # Exercise the same packaging the release workflow ships. Do not upload
       # binaries from ordinary CI: before PR-S0, a build may embed a permitted
       # development-only Séance pin whose tree grants recipients no rights.

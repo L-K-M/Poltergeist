@@ -164,7 +164,9 @@ final class _CommandArguments {
     };
 
     return switch (command) {
-      _ReleaseVersionCommand.validate => version != null && present.length == 1,
+      _ReleaseVersionCommand.validate =>
+        version != null &&
+            present.difference(const {'--version', '--root'}).isEmpty,
       _ReleaseVersionCommand.sync =>
         version != null &&
             pubspec != null &&

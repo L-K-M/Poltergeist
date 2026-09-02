@@ -48,6 +48,11 @@ void main() {
     expect(errors.single, contains('invalid release version'));
   });
 
+  test('validate accepts the common root option', () {
+    expect(run(['validate', '--version', '1.0.0', '--root', root.path]), 0);
+    expect(errors, isEmpty);
+  });
+
   test('missing command arguments return usage failure', () {
     expect(run(['sync', '--version', '0.1.0']), 64);
     expect(errors.single, startsWith('usage:'));
@@ -82,6 +87,11 @@ void main() {
   test('check-tag verifies tag grammar and repository synchronization', () {
     expect(run(['check-tag', '--tag', 'v0.1.0']), 0);
     expect(output.single, contains('v0.1.0'));
+  });
+
+  test('check-tag reports malformed tags without crashing', () {
+    expect(run(['check-tag', '--tag', '0.1.0']), 1);
+    expect(errors.single, contains('invalid release tag'));
   });
 
   test('check-order verifies tree and repeated prior tags', () {

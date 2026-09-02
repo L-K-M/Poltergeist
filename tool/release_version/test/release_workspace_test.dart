@@ -1,6 +1,7 @@
 // Release tooling stays outside the shipped application.
 // ignore_for_file: avoid_relative_lib_imports
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -74,6 +75,85 @@ void main() {
     expect(_read(root, pubspecPath), original);
   });
 
+  test('sync stages every rewrite before replacing metadata', () {
+    final pubspecPath = 'app/poltergeist_app/pubspec.yaml';
+    final original = _read(root, pubspecPath);
+    final blockedTarget = File(p.join(root.path, _appleInfoPlistPaths.first));
+    final staleTemporary = File(
+      '${blockedTarget.path}.$pid.release-version.tmp',
+    )..writeAsStringSync('stale');
+
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: pubspecPath,
+      ),
+      throwsA(isA<ReleaseVersionStateException>()),
+    );
+    expect(_read(root, pubspecPath), original);
+    expect(staleTemporary.readAsStringSync(), 'stale');
+  });
+
+  test('sync removes a temporary file after staged validation fails', () {
+    const pubspecPath = 'app/poltergeist_app/pubspec.yaml';
+    final target = File(p.join(root.path, pubspecPath));
+    final temporary = File('${target.path}.$pid.release-version.tmp');
+    final invalidatingTemporary = _InvalidatingFile(temporary);
+    final files = {
+      target.path: target,
+      for (final path in _appleInfoPlistPaths)
+        p.join(root.path, path): File(p.join(root.path, path)),
+    };
+
+    expect(
+      () => IOOverrides.runZoned(
+        () => ReleaseVersionWorkspace(root).syncAppMetadata(
+          version: ReleaseVersion.parse('1.1.0'),
+          pubspecPath: pubspecPath,
+        ),
+        createFile: (path) {
+          final normalized = p.normalize(p.absolute(path));
+          if (p.equals(normalized, temporary.path)) {
+            return invalidatingTemporary;
+          }
+
+          return files[normalized] ??
+              (throw StateError('unexpected test file: $normalized'));
+        },
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('version'),
+        ),
+      ),
+    );
+    expect(temporary.existsSync(), isFalse);
+  });
+
+  test('sync rejects a path through a symlink outside the repository', () {
+    final outside = Directory(p.join(sandbox.path, 'outside'))..createSync();
+    const outsideContents = 'name: outside\nversion: 0.1.0\n';
+    _write(outside, 'pubspec.yaml', outsideContents);
+    Link(p.join(root.path, 'linked')).createSync(outside.path);
+
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: 'linked/pubspec.yaml',
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('path leaves repository root'),
+        ),
+      ),
+    );
+    expect(_read(outside, 'pubspec.yaml'), outsideContents);
+  }, skip: Platform.isWindows ? 'requires symbolic-link permission' : false);
+
   test('sync keeps the maximum Apple build version within bounds', () {
     ReleaseVersionWorkspace(root).syncAppMetadata(
       version: ReleaseVersion.parse('2099.99.99'),
@@ -118,6 +198,21 @@ void main() {
       );
     });
   }
+
+  test('check rejects whitespace inside the README version marker', () {
+    _replace(root, 'README.md', '>0.1.0<', '> 0.1.0 <');
+
+    expect(
+      () => ReleaseVersionWorkspace(root).check(),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('must equal 0.1.0'),
+        ),
+      ),
+    );
+  });
 
   test('check-tag accepts canonical tag and synchronized tree', () {
     final report = ReleaseVersionWorkspace(root).checkTag('v0.1.0');
@@ -188,6 +283,15 @@ void main() {
       ),
       throwsA(isA<ReleaseVersionStateException>()),
     );
+  });
+
+  test('release order accepts duplicate prior tags', () {
+    final checked = ReleaseVersionWorkspace(root).checkReleaseOrder(
+      target: ReleaseVersion.parse('0.2.0'),
+      priorTags: const ['v0.1.0', 'v0.1.0'],
+    );
+
+    expect(checked.semantic, '0.2.0');
   });
 
   test('check rejects a missing path dependency pubspec', () {
@@ -345,4 +449,44 @@ void _write(Directory root, String path, String contents) {
   final file = File(p.join(root.path, path));
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(contents);
+}
+
+final class _InvalidatingFile implements File {
+  final File _delegate;
+
+  const _InvalidatingFile(this._delegate);
+
+  @override
+  String get path => _delegate.path;
+
+  @override
+  bool existsSync() => _delegate.existsSync();
+
+  @override
+  void writeAsStringSync(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) {
+    _delegate.writeAsStringSync(
+      contents,
+      mode: mode,
+      encoding: encoding,
+      flush: flush,
+    );
+  }
+
+  @override
+  String readAsStringSync({Encoding encoding = utf8}) => ': malformed';
+
+  @override
+  void deleteSync({bool recursive = false}) {
+    _delegate.deleteSync(recursive: recursive);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    return super.noSuchMethod(invocation);
+  }
 }

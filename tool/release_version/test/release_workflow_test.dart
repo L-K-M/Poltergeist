@@ -68,7 +68,8 @@ void main() {
     final result = await _runReleaseGate(sandbox, _GitScenario.tagHistoryError);
 
     expect(result.exitCode, isNot(0));
-  });
+    expect(result.stderr, contains('could not read release tag history'));
+  }, skip: _posixOnly);
 
   test('release gate fails when tag existence cannot be checked', () async {
     final result = await _runReleaseGate(
@@ -77,22 +78,22 @@ void main() {
     );
 
     expect(result.exitCode, isNot(0));
-  });
+  }, skip: _posixOnly);
 
   test('release gate rejects a tag that does not point to a commit', () async {
     final result = await _runReleaseGate(sandbox, _GitScenario.nonCommitTag);
 
     expect(result.exitCode, isNot(0));
-  });
+  }, skip: _posixOnly);
 
   test('release gate rejects a tag on another commit', () async {
     final result = await _runReleaseGate(sandbox, _GitScenario.mismatchedTag);
 
     expect(result.exitCode, isNot(0));
-  });
+  }, skip: _posixOnly);
 
   test('Android consumes Flutter release version metadata', () {
-    final gradle = File(
+    final gradle = _repositoryFile(
       'app/poltergeist_app/android/app/build.gradle.kts',
     ).readAsStringSync();
 
@@ -106,7 +107,7 @@ void main() {
   });
 
   test('Windows keeps the Android code out of 16-bit version fields', () {
-    final resource = File(
+    final resource = _repositoryFile(
       'app/poltergeist_app/windows/runner/Runner.rc',
     ).readAsStringSync();
 
@@ -122,7 +123,11 @@ void main() {
 
   test('Apple keeps the Android code out of bundle version fields', () {
     final pubspec =
-        loadYaml(File('app/poltergeist_app/pubspec.yaml').readAsStringSync())
+        loadYaml(
+              _repositoryFile(
+                'app/poltergeist_app/pubspec.yaml',
+              ).readAsStringSync(),
+            )
             as YamlMap;
     final semantic = '${pubspec['version']}'.split('+').first;
     final components = semantic.split('.').map(int.parse).toList();
@@ -133,7 +138,7 @@ void main() {
       'app/poltergeist_app/ios/Runner/Info.plist',
       'app/poltergeist_app/macos/Runner/Info.plist',
     ]) {
-      final plist = File(path).readAsStringSync();
+      final plist = _repositoryFile(path).readAsStringSync();
 
       expect(
         plist,
@@ -185,10 +190,29 @@ void main() {
       expect(verifier['if'], "matrix.target == 'android'");
       expect(
         '${verifier['run']}',
-        allOf(contains('apkanalyzer'), contains('expected_code')),
+        contains(r'bash "$GITHUB_WORKSPACE/scripts/verify-android-version.sh"'),
       );
     }
   });
+
+  test('Android version verifier accepts the synchronized code', () async {
+    final result = await _runAndroidVersionVerifier(
+      sandbox,
+      code: _expectedAndroidCode(),
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+  }, skip: _posixOnly);
+
+  test('Android version verifier rejects manifest drift', () async {
+    final result = await _runAndroidVersionVerifier(sandbox, code: '1');
+
+    expect(result.exitCode, isNot(0));
+    expect(
+      result.stderr,
+      contains('APK versionCode 1, expected ${_expectedAndroidCode()}'),
+    );
+  }, skip: _posixOnly);
 
   test('zero-major versions publish as pre-releases', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
@@ -254,6 +278,36 @@ exit 0
       'PATH': '${fakeBin.path}:${Platform.environment['PATH']}',
       'RELEASE_TAG': 'v0.1.0',
     },
+    workingDirectory: _repositoryRoot.path,
+  );
+}
+
+Future<ProcessResult> _runAndroidVersionVerifier(
+  Directory sandbox, {
+  required String code,
+}) {
+  final analyzer = File(
+    p.join(sandbox.path, 'android', 'cmdline-tools/latest/bin/apkanalyzer'),
+  );
+  analyzer.parent.createSync(recursive: true);
+  analyzer.writeAsStringSync(r'''#!/usr/bin/env bash
+[[ "$*" == "manifest version-code $FAKE_EXPECTED_APK_PATH" ]] || exit 64
+printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
+''');
+  Process.runSync('chmod', ['+x', analyzer.path]);
+
+  return Process.run(
+    'bash',
+    [_repositoryFile('scripts/verify-android-version.sh').path],
+    environment: {
+      ...Platform.environment,
+      'ANDROID_HOME': p.join(sandbox.path, 'android'),
+      'FAKE_ANDROID_VERSION_CODE': code,
+      'FAKE_EXPECTED_APK_PATH': _repositoryFile(
+        'app/poltergeist_app/build/app/outputs/flutter-apk/app-release.apk',
+      ).path,
+    },
+    workingDirectory: sandbox.path,
   );
 }
 
@@ -265,10 +319,43 @@ enum _GitScenario {
 }
 
 YamlMap _workflow(String path) {
-  final parsed = loadYaml(File(path).readAsStringSync());
+  final parsed = loadYaml(_repositoryFile(path).readAsStringSync());
   if (parsed is YamlMap) return parsed;
 
   throw StateError('$path is not a YAML map');
+}
+
+final Directory _repositoryRoot = _findRepositoryRoot();
+
+final Object _posixOnly = Platform.isWindows
+    ? 'requires POSIX bash and executable scripts'
+    : false;
+
+File _repositoryFile(String path) {
+  return File(p.join(_repositoryRoot.path, path));
+}
+
+String _expectedAndroidCode() {
+  final line = _repositoryFile(
+    'app/poltergeist_app/pubspec.yaml',
+  ).readAsLinesSync().singleWhere((line) => line.startsWith('version:'));
+  return line.split('+').last.trim();
+}
+
+Directory _findRepositoryRoot() {
+  var candidate = Directory.current.absolute;
+  while (true) {
+    if (File(p.join(candidate.path, '.github/workflows/ci.yml')).existsSync() &&
+        File(p.join(candidate.path, 'pubspec.yaml')).existsSync()) {
+      return candidate;
+    }
+
+    final parent = candidate.parent;
+    if (p.equals(parent.path, candidate.path)) {
+      throw StateError('repository root not found from ${Directory.current}');
+    }
+    candidate = parent;
+  }
 }
 
 YamlList _jobSteps(String path, String jobName) {

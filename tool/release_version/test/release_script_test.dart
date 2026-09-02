@@ -1,3 +1,6 @@
+@TestOn('posix')
+library;
+
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -204,7 +207,7 @@ Future<ProcessResult> _runRelease(
   String priorTags = '',
   String remoteTags = '',
 }) {
-  final root = Directory.current;
+  final root = _repositoryRoot();
   return Process.run(
     'bash',
     ['scripts/release.sh', ...arguments],
@@ -230,7 +233,23 @@ enum _PostBumpMode { skip, failSynchronization }
 
 String _currentSemanticVersion() {
   final line = File(
-    'app/poltergeist_app/pubspec.yaml',
+    p.join(_repositoryRoot().path, 'app/poltergeist_app/pubspec.yaml'),
   ).readAsLinesSync().singleWhere((line) => line.startsWith('version:'));
   return line.substring('version:'.length).trim().split('+').first;
+}
+
+Directory _repositoryRoot() {
+  var candidate = Directory.current.absolute;
+  while (true) {
+    if (File(p.join(candidate.path, 'scripts/release.sh')).existsSync() &&
+        File(p.join(candidate.path, 'pubspec.yaml')).existsSync()) {
+      return candidate;
+    }
+
+    final parent = candidate.parent;
+    if (p.equals(parent.path, candidate.path)) {
+      throw StateError('repository root not found from ${Directory.current}');
+    }
+    candidate = parent;
+  }
 }
