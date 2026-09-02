@@ -1,0 +1,392 @@
+{
+  "schemaVersion": 3,
+  "state": "succeeded",
+  "identity": {
+    "poltergeistSha": "6b8873eafdaaa3a4157e265dee838ab3b47219b3",
+    "workflowRunId": "33563514640",
+    "workflowRunAttempt": 1,
+    "workflowJob": "m0_bench",
+    "shardId": "rtt100-1gb-upload-openssh-r1",
+    "host": "runnervmgx7h7",
+    "runtime": {
+      "dartVersion": "3.13.3 (stable) (Tue Sep 1 01:07:17 2026 -0700) on \"linux_x64\"",
+      "operatingSystem": "linux",
+      "operatingSystemVersion": "Linux 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026",
+      "architecture": "X64",
+      "runnerName": "GitHub Actions 1000020997",
+      "runnerImage": "ubuntu24",
+      "runnerImageVersion": "20260823.283.1"
+    },
+    "dependencies": {
+      "dartssh2Version": "3.0.2",
+      "seanceRevision": "0a695971a411a6a754593e7c2598038039440c2f"
+    },
+    "fixture": {
+      "tree": "f32dd38916909c5f51ff8d2c8ec9de7dfa225387",
+      "imageId": "39cb795beb795d6f6337bf742e6cf5a077594b174b32ab63ab2b50d900bf78be",
+      "openSshClientVersion": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.18, OpenSSL 3.0.13 30 Jan 2024",
+      "openSshServerVersion": "openssh-server-pam: OpenSSH server with pam support\nopenssh-server-pam: https://www.openssh.com/portable.html\nopenssh-server-pam: 2145 KiB",
+      "dataVersion": 2
+    }
+  },
+  "deadlineStartedAtUtc": "2026-09-01T21:55:37.699Z",
+  "deadlineStartedAtMonotonicUs": 234140000,
+  "startedAtUtc": "2026-09-01T21:55:38.133843Z",
+  "finishedAtUtc": "2026-09-01T23:31:16.016455Z",
+  "lifecycleElapsedUs": 5738320000,
+  "exitStatus": 0,
+  "failure": null,
+  "rows": [
+    {
+      "scenario": "openssh-upload-1gb-rtt100",
+      "bytes": 1000000000,
+      "dartssh2Version": "3.0.2",
+      "seanceRev": "0a695971a411a6a754593e7c2598038039440c2f",
+      "rttMs": 83,
+      "rttEvidence": {
+        "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+        "samplesUs": [
+          210766,
+          92322,
+          100061,
+          81059,
+          72857,
+          17969,
+          82575
+        ],
+        "medianMs": 83,
+        "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+      },
+      "elapsedUs": 5668574950,
+      "note": "samples=1; aggregate=external-floor-midpoint; pathPrimed=true; variantWarmup=1mb; replicate=r1",
+      "timestampUtc": "2026-09-01T23:31:14.708074Z",
+      "host": "runnervmgx7h7",
+      "throughputTrials": [
+        {
+          "sourcePrime": {
+            "reference": "upload-1gb-rtt100-source-prime-prime-1788299775096029-0",
+            "scenario": "upload-1gb-rtt100-source-prime",
+            "direction": "upload",
+            "variant": null,
+            "replicate": null,
+            "ordinal": null,
+            "phase": "prime",
+            "payloadBytes": 1000000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:15.096231Z",
+            "endedAtUtc": "2026-09-01T21:56:28.021534Z",
+            "elapsedUs": 12916985,
+            "primeReference": null,
+            "warmupReference": null,
+            "rttEvidence": {
+              "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+              "samplesUs": [
+                210766,
+                92322,
+                100061,
+                81059,
+                72857,
+                17969,
+                82575
+              ],
+              "medianMs": 83,
+              "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000000,
+              "actualBytes": 1000000000,
+              "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1gb.bin",
+              "detail": null
+            },
+            "error": null
+          },
+          "warmupSourcePrime": {
+            "reference": "upload-1mb-rtt100-source-prime-prime-1788299788026291-1",
+            "scenario": "upload-1mb-rtt100-source-prime",
+            "direction": "upload",
+            "variant": null,
+            "replicate": null,
+            "ordinal": null,
+            "phase": "prime",
+            "payloadBytes": 1000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:28.026300Z",
+            "endedAtUtc": "2026-09-01T21:56:28.041297Z",
+            "elapsedUs": 13200,
+            "primeReference": null,
+            "warmupReference": null,
+            "rttEvidence": {
+              "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+              "samplesUs": [
+                210766,
+                92322,
+                100061,
+                81059,
+                72857,
+                17969,
+                82575
+              ],
+              "medianMs": 83,
+              "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000,
+              "actualBytes": 1000000,
+              "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1mb.bin",
+              "detail": null
+            },
+            "error": null
+          },
+          "warmup": {
+            "reference": "openssh-upload-1gb-rtt100-warmup-1788299789605859-2",
+            "scenario": "openssh-upload-1gb-rtt100",
+            "direction": "upload",
+            "variant": "openssh",
+            "replicate": 1,
+            "ordinal": null,
+            "phase": "warmup",
+            "payloadBytes": 1000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:29.605980Z",
+            "endedAtUtc": "2026-09-01T21:56:32.863105Z",
+            "elapsedUs": 3235609,
+            "primeReference": "upload-1mb-rtt100-source-prime-prime-1788299788026291-1",
+            "warmupReference": null,
+            "rttEvidence": {
+              "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+              "samplesUs": [
+                210766,
+                92322,
+                100061,
+                81059,
+                72857,
+                17969,
+                82575
+              ],
+              "medianMs": 83,
+              "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000,
+              "actualBytes": 1000000,
+              "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/uploads/openssh-upload-1gb-rtt100-warmup-1788299789605859-2.bin",
+              "detail": null
+            },
+            "error": null
+          },
+          "trial": {
+            "reference": "openssh-upload-1gb-rtt100-trial-1788299793131291-3",
+            "scenario": "openssh-upload-1gb-rtt100",
+            "direction": "upload",
+            "variant": "openssh",
+            "replicate": 1,
+            "ordinal": null,
+            "phase": "trial",
+            "payloadBytes": 1000000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:33.131345Z",
+            "endedAtUtc": "2026-09-01T23:31:14.457268Z",
+            "elapsedUs": 5668574950,
+            "primeReference": "upload-1gb-rtt100-source-prime-prime-1788299775096029-0",
+            "warmupReference": "openssh-upload-1gb-rtt100-warmup-1788299789605859-2",
+            "rttEvidence": {
+              "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+              "samplesUs": [
+                210766,
+                92322,
+                100061,
+                81059,
+                72857,
+                17969,
+                82575
+              ],
+              "medianMs": 83,
+              "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000000,
+              "actualBytes": 1000000000,
+              "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/uploads/openssh-upload-1gb-rtt100-trial-1788299793131291-3.bin",
+              "detail": null
+            },
+            "error": null
+          }
+        }
+      ]
+    }
+  ],
+  "attempts": [
+    {
+      "reference": "upload-1gb-rtt100-source-prime-prime-1788299775096029-0",
+      "scenario": "upload-1gb-rtt100-source-prime",
+      "direction": "upload",
+      "variant": null,
+      "replicate": null,
+      "ordinal": null,
+      "phase": "prime",
+      "payloadBytes": 1000000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:15.096231Z",
+      "endedAtUtc": "2026-09-01T21:56:28.021534Z",
+      "elapsedUs": 12916985,
+      "primeReference": null,
+      "warmupReference": null,
+      "rttEvidence": {
+        "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+        "samplesUs": [
+          210766,
+          92322,
+          100061,
+          81059,
+          72857,
+          17969,
+          82575
+        ],
+        "medianMs": 83,
+        "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000000,
+        "actualBytes": 1000000000,
+        "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1gb.bin",
+        "detail": null
+      },
+      "error": null
+    },
+    {
+      "reference": "upload-1mb-rtt100-source-prime-prime-1788299788026291-1",
+      "scenario": "upload-1mb-rtt100-source-prime",
+      "direction": "upload",
+      "variant": null,
+      "replicate": null,
+      "ordinal": null,
+      "phase": "prime",
+      "payloadBytes": 1000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:28.026300Z",
+      "endedAtUtc": "2026-09-01T21:56:28.041297Z",
+      "elapsedUs": 13200,
+      "primeReference": null,
+      "warmupReference": null,
+      "rttEvidence": {
+        "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+        "samplesUs": [
+          210766,
+          92322,
+          100061,
+          81059,
+          72857,
+          17969,
+          82575
+        ],
+        "medianMs": 83,
+        "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000,
+        "actualBytes": 1000000,
+        "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1mb.bin",
+        "detail": null
+      },
+      "error": null
+    },
+    {
+      "reference": "openssh-upload-1gb-rtt100-warmup-1788299789605859-2",
+      "scenario": "openssh-upload-1gb-rtt100",
+      "direction": "upload",
+      "variant": "openssh",
+      "replicate": 1,
+      "ordinal": null,
+      "phase": "warmup",
+      "payloadBytes": 1000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:29.605980Z",
+      "endedAtUtc": "2026-09-01T21:56:32.863105Z",
+      "elapsedUs": 3235609,
+      "primeReference": "upload-1mb-rtt100-source-prime-prime-1788299788026291-1",
+      "warmupReference": null,
+      "rttEvidence": {
+        "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+        "samplesUs": [
+          210766,
+          92322,
+          100061,
+          81059,
+          72857,
+          17969,
+          82575
+        ],
+        "medianMs": 83,
+        "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000,
+        "actualBytes": 1000000,
+        "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/uploads/openssh-upload-1gb-rtt100-warmup-1788299789605859-2.bin",
+        "detail": null
+      },
+      "error": null
+    },
+    {
+      "reference": "openssh-upload-1gb-rtt100-trial-1788299793131291-3",
+      "scenario": "openssh-upload-1gb-rtt100",
+      "direction": "upload",
+      "variant": "openssh",
+      "replicate": 1,
+      "ordinal": null,
+      "phase": "trial",
+      "payloadBytes": 1000000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:33.131345Z",
+      "endedAtUtc": "2026-09-01T23:31:14.457268Z",
+      "elapsedUs": 5668574950,
+      "primeReference": "upload-1gb-rtt100-source-prime-prime-1788299775096029-0",
+      "warmupReference": "openssh-upload-1gb-rtt100-warmup-1788299789605859-2",
+      "rttEvidence": {
+        "reference": "rtt-sha256:d5836de83dce071f75e5c74269f903643a24ce02610a241cc3063c13b0eebcb7",
+        "samplesUs": [
+          210766,
+          92322,
+          100061,
+          81059,
+          72857,
+          17969,
+          82575
+        ],
+        "medianMs": 83,
+        "capturedAtUtc": "2026-09-01T21:56:09.866017Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000000,
+        "actualBytes": 1000000000,
+        "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/uploads/openssh-upload-1gb-rtt100-trial-1788299793131291-3.bin",
+        "detail": null
+      },
+      "error": null
+    }
+  ]
+}

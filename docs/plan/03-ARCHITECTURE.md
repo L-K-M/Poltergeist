@@ -235,7 +235,7 @@ to `RemoteFileSystem`:
 |---|---|---|
 | set timestamps | `Future<void> setTimes(String path, {DateTime? accessedAt, DateTime? modifiedAt})` | the **sync engine** (05) — hard prerequisite for convergence; also "preserve mtime on transfer" |
 | set ownership | `Future<void> setOwner(String path, {int? uid, int? gid})` | the chown/chgrp UI (D28) — ships only after the pin containing it |
-| optional hashing | `bool computeHash = true` parameter on `download`/`upload` | the D7 opt-in "verify after transfer" default for bulk work — until then bulk transfers pay the always-on SHA-256 |
+| optional hashing | `bool computeHash = true` parameter on `download`/`upload` | D7's opt-in "verify after transfer" policy for bulk work; pins before this addition necessarily retain always-on SHA-256 |
 
 Ranged read is deliberately absent: D3 defers it to D25's
 resumable-transfer work as its own upstream PR at that time — nothing in
@@ -349,13 +349,12 @@ Behind each `serverId` — via its endpoint-keyed pool (§3.5), shared by every
 transports, each carrying SFTP channels (`client.sftp()` opens a fresh channel
 per call — Séance caches one per session as policy; Poltergeist opens
 several). Pool policy constants live in one file,
-`connection/pool_policy.dart`, because **M0 finalizes the numbers** (D9 — the
-pool design is not final until the dartssh2 fitness spike reports):
+`connection/pool_policy.dart`, with D9's defaults:
 
 ```dart
 class PoolPolicy {
   final int maxTransports;                    // default 2
-  final int maxTransferChannelsPerTransport;  // default 3
+  final int maxTransferChannelsPerTransport;  // default 4
   final int maxChannelsPerTransport;          // default 8 — OpenSSH's
                                               // MaxSessions defaults to 10
                                               // session channels per TCP
@@ -363,13 +362,20 @@ class PoolPolicy {
                                               // channel (browse and transfer
                                               // alike) is one; browse +
                                               // transfer share this budget.
-                                              // M0 finalizes the number (D9)
   final Duration keepAliveInterval;           // 30 s
   final Duration idleExtraTransportTimeout;   // 60 s
   final Duration reconnectBackoffCap;         // 30 s
   final int taskRetryLimit;                   // 5
 }
 ```
+
+The `2 / 4 / 8` defaults reflect the empirical gates. Four transfer channels
+beat three by 23.9% on LAN and were the shaped-link maximum; eight regressed
+there, so eight remains the total channel ceiling rather than the transfer
+default. Two transports retain the near-linear LAN gain; at four channels
+each they already expose eight transfer slots, above the global dispatch cap
+of six. Four authenticated transports therefore cannot raise v1 dispatch
+concurrency.
 
 Growth rules (the part that must never be improvised):
 
@@ -916,15 +922,16 @@ preservation falls out of the one code path.
 - **Per-server limit** = what `leaseTransferChannel` will grant:
   `effectiveTransports × maxTransferChannelsPerTransport`, where
   `effectiveTransports` is 1 for interactively-authenticated servers
-  (§3.2 rule 2) and `maxTransports` otherwise (default 2 × 3, M0-tuned).
+  (§3.2 rule 2) and `maxTransports` otherwise (default capacity 2 × 4).
 - **Global limit**: at most 6 files in flight across all tasks and servers
   (a compile-time constant next to `PoolPolicy`, not user-configurable —
   02's settings screen exposes the two directional bandwidth limits and
   nothing else from this section, matching §6's settings-home table). This
-  equals the default per-server limit on purpose: one busy server may
-  own the whole budget for that task's entire duration, and strict FIFO
-  keeps behavior
-  predictable — the user's reorder is the escape hatch. Cross-server
+  deliberately stays below the default per-server pool capacity of 8: the
+  two extra channel slots are headroom, not permission to raise process-wide
+  work. One busy server may own all 6 global slots for that task's entire
+  duration, and strict FIFO keeps behavior predictable — the user's reorder
+  is the escape hatch. Cross-server
   round-robin dispatch is a recorded non-goal for v1 (revisit only with
   evidence of real starvation).
 - Dispatch order: queue order (user-reorderable), one task's files dispatched
@@ -1422,24 +1429,14 @@ reach platform channels since Flutter 3.7 via
 not an SDK impossibility: that plumbing, and the plugin coupling it
 invites, is exactly what stays out of the engine.)
 
-**M0 must validate before this hardens** (D8, D9): dartssh2 sockets and
+The v1 split is fixed by D8 and D9's empirical gates: dartssh2 sockets and
 multiple SFTP channels function inside a non-root isolate; cross-port
-cancellation latency < 100 ms; coalescing holds headlessly — coalesced
-progress flushes arrive on the UI-side port at ≤ 30/s per task (≤ 6
-events per §4.3's in-flight caps as a soft bound — slot rotation can
-exceed it, which is why each flush also carries its own hard cap with
-oldest-drop coalescing per the §5 protocol note above — so ≤ 180
-events/s per task in the steady state the 4-task fixture exercises, ≤ 720/s
-aggregate across those 4 test transfers specifically; the aggregate
-scales with concurrent task count, so a higher-concurrency run derives
-its own budget from the same per-task figures rather than reusing 720/s
-as a global constant) under a
-10k-event/s synthetic flood, and a main-isolate timer probe records no
-event-loop stall > 16 ms during 4 concurrent transfers + one directory
-listing; throughput matches the single-isolate baseline. If M0 finds a
-blocker, the fallback is
-transfers-and-hashing in the engine isolate with connections on the UI
-isolate — but that is a decision-log change (00), not a quiet drift.
+cancellation is 40.938 ms; coalescing delivers 22.83 progress flushes/s under
+a 17,564-event/s synthetic flood; the four-transfer-plus-listing workload's
+UI-isolate timer stall is 4.401 ms; and the median of three warmed, interleaved
+throughput samples gives 0.997 isolate/root parity. These values clear the
+respective 100 ms, 30 flushes/s, 16 ms, and ±10% gates. The ownership table
+and typed message-port boundary above are the v1 design.
 
 ## 6. App state architecture
 
@@ -1777,8 +1774,8 @@ during M1–M3:
       remote→remote piping, JSONL journal + compacted history at the §4.6
       paths, and `TransferProducer`.
 - [ ] The engine isolate owns all sockets; `EngineClient` is the only path
-      from controllers to filesystems; M0's isolate validation items (§5)
-      are measured and reported before the design is declared hard.
+      from controllers to filesystems; its protocol preserves the
+      cancellation, coalescing, timer-stall, and throughput gates (§5).
 - [ ] Controllers follow §6: split notifiers, generation counters,
       `identical()` rechecks — enforced in review.
 - [ ] The five channel names of §7.1 are the only platform channels;
@@ -1797,8 +1794,8 @@ during M1–M3:
   places `CheckoutManager` and the channels only.
 - **UX specification** of panes, sidebar, activity panel, menus, dialogs —
   02 (D11, D16, D21).
-- **M0 spike protocol and milestone sequencing** — 07 (D9); pool and isolate
-  constants here are declared M0-tunable, not final.
+- **M0 spike protocol and milestone sequencing** — 07 (D9); this chapter
+  consumes D9's pool constants and D8's isolate split.
 - **Test strategy details** (conformance suites, sshd-in-Docker matrix,
   benchmarks for D12) — 08.
 - **Deferred features touching this architecture** (all D25's parked

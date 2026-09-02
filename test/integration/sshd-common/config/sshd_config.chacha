@@ -1,0 +1,5 @@
+Include /etc/ssh/fixture/sshd_config.common
+HostKey /run/sshd-hostkeys/ssh_host_ed25519_key
+Ciphers chacha20-poly1305@openssh.com
+KexAlgorithms mlkem768x25519-sha256,curve25519-sha256,curve25519-sha256@libssh.org
+Subsystem sftp internal-sftp

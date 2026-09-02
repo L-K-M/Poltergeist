@@ -1,0 +1,22 @@
+name: poltergeist_m0_bench
+description: Reproducible M0 SSH fitness measurements for Poltergeist.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  args: ^2.7.0
+  crypto: ^3.0.7
+  dartssh2: 3.0.2
+  seance_core:
+    git:
+      url: https://github.com/BigBoyDevBox/Seance.git
+      ref: 0a695971a411a6a754593e7c2598038039440c2f
+      path: packages/seance_core
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
+  yaml: ^3.1.3

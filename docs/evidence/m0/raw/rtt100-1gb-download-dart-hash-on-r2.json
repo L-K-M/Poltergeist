@@ -1,0 +1,392 @@
+{
+  "schemaVersion": 3,
+  "state": "succeeded",
+  "identity": {
+    "poltergeistSha": "6b8873eafdaaa3a4157e265dee838ab3b47219b3",
+    "workflowRunId": "33563514640",
+    "workflowRunAttempt": 1,
+    "workflowJob": "m0_bench",
+    "shardId": "rtt100-1gb-download-dart-hash-on-r2",
+    "host": "runnervmgx7h7",
+    "runtime": {
+      "dartVersion": "3.13.3 (stable) (Tue Sep 1 01:07:17 2026 -0700) on \"linux_x64\"",
+      "operatingSystem": "linux",
+      "operatingSystemVersion": "Linux 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026",
+      "architecture": "X64",
+      "runnerName": "GitHub Actions 1000021005",
+      "runnerImage": "ubuntu24",
+      "runnerImageVersion": "20260823.283.1"
+    },
+    "dependencies": {
+      "dartssh2Version": "3.0.2",
+      "seanceRevision": "0a695971a411a6a754593e7c2598038039440c2f"
+    },
+    "fixture": {
+      "tree": "f32dd38916909c5f51ff8d2c8ec9de7dfa225387",
+      "imageId": "f5c51101d6dca08c4caecc64f64fe39ec860b2fa619d909cddc5bae9f5ab16cc",
+      "openSshClientVersion": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.18, OpenSSL 3.0.13 30 Jan 2024",
+      "openSshServerVersion": "openssh-server-pam: OpenSSH server with pam support\nopenssh-server-pam: https://www.openssh.com/portable.html\nopenssh-server-pam: 2145 KiB",
+      "dataVersion": 2
+    }
+  },
+  "deadlineStartedAtUtc": "2026-09-01T21:55:46.121Z",
+  "deadlineStartedAtMonotonicUs": 58050000,
+  "startedAtUtc": "2026-09-01T21:55:46.460390Z",
+  "finishedAtUtc": "2026-09-01T23:19:55.448653Z",
+  "lifecycleElapsedUs": 5049330000,
+  "exitStatus": 0,
+  "failure": null,
+  "rows": [
+    {
+      "scenario": "dart-hash-on-download-1gb-rtt100",
+      "bytes": 1000000000,
+      "dartssh2Version": "3.0.2",
+      "seanceRev": "0a695971a411a6a754593e7c2598038039440c2f",
+      "rttMs": 77,
+      "rttEvidence": {
+        "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+        "samplesUs": [
+          119539,
+          176056,
+          127755,
+          71594,
+          76540,
+          59042,
+          47333
+        ],
+        "medianMs": 77,
+        "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+      },
+      "elapsedUs": 4996413025,
+      "note": "samples=1; aggregate=external-floor-midpoint; pathPrimed=true; variantWarmup=1mb; replicate=r2",
+      "timestampUtc": "2026-09-01T23:19:54.292437Z",
+      "host": "runnervmgx7h7",
+      "throughputTrials": [
+        {
+          "sourcePrime": {
+            "reference": "download-1gb-rtt100-source-prime-prime-1788299774565743-0",
+            "scenario": "download-1gb-rtt100-source-prime",
+            "direction": "download",
+            "variant": null,
+            "replicate": null,
+            "ordinal": null,
+            "phase": "prime",
+            "payloadBytes": 1000000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:14.565889Z",
+            "endedAtUtc": "2026-09-01T21:56:24.285950Z",
+            "elapsedUs": 9714186,
+            "primeReference": null,
+            "warmupReference": null,
+            "rttEvidence": {
+              "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+              "samplesUs": [
+                119539,
+                176056,
+                127755,
+                71594,
+                76540,
+                59042,
+                47333
+              ],
+              "medianMs": 77,
+              "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000000,
+              "actualBytes": 1000000000,
+              "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1gb.bin",
+              "detail": null
+            },
+            "error": null
+          },
+          "warmupSourcePrime": {
+            "reference": "download-1mb-rtt100-source-prime-prime-1788299784290310-1",
+            "scenario": "download-1mb-rtt100-source-prime",
+            "direction": "download",
+            "variant": null,
+            "replicate": null,
+            "ordinal": null,
+            "phase": "prime",
+            "payloadBytes": 1000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:24.290321Z",
+            "endedAtUtc": "2026-09-01T21:56:24.302598Z",
+            "elapsedUs": 10269,
+            "primeReference": null,
+            "warmupReference": null,
+            "rttEvidence": {
+              "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+              "samplesUs": [
+                119539,
+                176056,
+                127755,
+                71594,
+                76540,
+                59042,
+                47333
+              ],
+              "medianMs": 77,
+              "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000,
+              "actualBytes": 1000000,
+              "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1mb.bin",
+              "detail": null
+            },
+            "error": null
+          },
+          "warmup": {
+            "reference": "dart-hash-on-download-1gb-rtt100-warmup-1788299785222895-2",
+            "scenario": "dart-hash-on-download-1gb-rtt100",
+            "direction": "download",
+            "variant": "dart-hash-on",
+            "replicate": 2,
+            "ordinal": null,
+            "phase": "warmup",
+            "payloadBytes": 1000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:25.222973Z",
+            "endedAtUtc": "2026-09-01T21:56:28.046471Z",
+            "elapsedUs": 2803082,
+            "primeReference": "download-1mb-rtt100-source-prime-prime-1788299784290310-1",
+            "warmupReference": null,
+            "rttEvidence": {
+              "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+              "samplesUs": [
+                119539,
+                176056,
+                127755,
+                71594,
+                76540,
+                59042,
+                47333
+              ],
+              "medianMs": 77,
+              "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000,
+              "actualBytes": 1000000,
+              "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+              "destination": "/tmp/poltergeist-m0-sample-WLYBJS/dart-hash-on-download-1gb-rtt100-warmup-1788299785222895-2.bin",
+              "detail": null
+            },
+            "error": null
+          },
+          "trial": {
+            "reference": "dart-hash-on-download-1gb-rtt100-trial-1788299788050040-3",
+            "scenario": "dart-hash-on-download-1gb-rtt100",
+            "direction": "download",
+            "variant": "dart-hash-on",
+            "replicate": 2,
+            "ordinal": null,
+            "phase": "trial",
+            "payloadBytes": 1000000000,
+            "status": "success",
+            "startedAtUtc": "2026-09-01T21:56:28.050065Z",
+            "endedAtUtc": "2026-09-01T23:19:54.242867Z",
+            "elapsedUs": 4996413025,
+            "primeReference": "download-1gb-rtt100-source-prime-prime-1788299774565743-0",
+            "warmupReference": "dart-hash-on-download-1gb-rtt100-warmup-1788299785222895-2",
+            "rttEvidence": {
+              "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+              "samplesUs": [
+                119539,
+                176056,
+                127755,
+                71594,
+                76540,
+                59042,
+                47333
+              ],
+              "medianMs": 77,
+              "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+            },
+            "integrity": {
+              "status": "verified",
+              "expectedBytes": 1000000000,
+              "actualBytes": 1000000000,
+              "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+              "destination": "/tmp/poltergeist-m0-sample-WLYBJS/dart-hash-on-download-1gb-rtt100-trial-1788299788050040-3.bin",
+              "detail": null
+            },
+            "error": null
+          }
+        }
+      ]
+    }
+  ],
+  "attempts": [
+    {
+      "reference": "download-1gb-rtt100-source-prime-prime-1788299774565743-0",
+      "scenario": "download-1gb-rtt100-source-prime",
+      "direction": "download",
+      "variant": null,
+      "replicate": null,
+      "ordinal": null,
+      "phase": "prime",
+      "payloadBytes": 1000000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:14.565889Z",
+      "endedAtUtc": "2026-09-01T21:56:24.285950Z",
+      "elapsedUs": 9714186,
+      "primeReference": null,
+      "warmupReference": null,
+      "rttEvidence": {
+        "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+        "samplesUs": [
+          119539,
+          176056,
+          127755,
+          71594,
+          76540,
+          59042,
+          47333
+        ],
+        "medianMs": 77,
+        "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000000,
+        "actualBytes": 1000000000,
+        "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1gb.bin",
+        "detail": null
+      },
+      "error": null
+    },
+    {
+      "reference": "download-1mb-rtt100-source-prime-prime-1788299784290310-1",
+      "scenario": "download-1mb-rtt100-source-prime",
+      "direction": "download",
+      "variant": null,
+      "replicate": null,
+      "ordinal": null,
+      "phase": "prime",
+      "payloadBytes": 1000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:24.290321Z",
+      "endedAtUtc": "2026-09-01T21:56:24.302598Z",
+      "elapsedUs": 10269,
+      "primeReference": null,
+      "warmupReference": null,
+      "rttEvidence": {
+        "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+        "samplesUs": [
+          119539,
+          176056,
+          127755,
+          71594,
+          76540,
+          59042,
+          47333
+        ],
+        "medianMs": 77,
+        "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000,
+        "actualBytes": 1000000,
+        "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "destination": "/home/runner/work/Poltergeist/Poltergeist/test/integration/runtime/data/payload-1mb.bin",
+        "detail": null
+      },
+      "error": null
+    },
+    {
+      "reference": "dart-hash-on-download-1gb-rtt100-warmup-1788299785222895-2",
+      "scenario": "dart-hash-on-download-1gb-rtt100",
+      "direction": "download",
+      "variant": "dart-hash-on",
+      "replicate": 2,
+      "ordinal": null,
+      "phase": "warmup",
+      "payloadBytes": 1000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:25.222973Z",
+      "endedAtUtc": "2026-09-01T21:56:28.046471Z",
+      "elapsedUs": 2803082,
+      "primeReference": "download-1mb-rtt100-source-prime-prime-1788299784290310-1",
+      "warmupReference": null,
+      "rttEvidence": {
+        "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+        "samplesUs": [
+          119539,
+          176056,
+          127755,
+          71594,
+          76540,
+          59042,
+          47333
+        ],
+        "medianMs": 77,
+        "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000,
+        "actualBytes": 1000000,
+        "expectedSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "actualSha256": "d29751f2649b32ff572b5e0a9f541ea660a50f94ff0beedfb0b692b924cc8025",
+        "destination": "/tmp/poltergeist-m0-sample-WLYBJS/dart-hash-on-download-1gb-rtt100-warmup-1788299785222895-2.bin",
+        "detail": null
+      },
+      "error": null
+    },
+    {
+      "reference": "dart-hash-on-download-1gb-rtt100-trial-1788299788050040-3",
+      "scenario": "dart-hash-on-download-1gb-rtt100",
+      "direction": "download",
+      "variant": "dart-hash-on",
+      "replicate": 2,
+      "ordinal": null,
+      "phase": "trial",
+      "payloadBytes": 1000000000,
+      "status": "success",
+      "startedAtUtc": "2026-09-01T21:56:28.050065Z",
+      "endedAtUtc": "2026-09-01T23:19:54.242867Z",
+      "elapsedUs": 4996413025,
+      "primeReference": "download-1gb-rtt100-source-prime-prime-1788299774565743-0",
+      "warmupReference": "dart-hash-on-download-1gb-rtt100-warmup-1788299785222895-2",
+      "rttEvidence": {
+        "reference": "rtt-sha256:a4f96633c8a4d1a128a9986c6093399ae95edcb6ffe49ddccacb506935c9f194",
+        "samplesUs": [
+          119539,
+          176056,
+          127755,
+          71594,
+          76540,
+          59042,
+          47333
+        ],
+        "medianMs": 77,
+        "capturedAtUtc": "2026-09-01T21:56:09.973444Z"
+      },
+      "integrity": {
+        "status": "verified",
+        "expectedBytes": 1000000000,
+        "actualBytes": 1000000000,
+        "expectedSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "actualSha256": "bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca",
+        "destination": "/tmp/poltergeist-m0-sample-WLYBJS/dart-hash-on-download-1gb-rtt100-trial-1788299788050040-3.bin",
+        "detail": null
+      },
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+services:
+  fixture:
+    image: scratch
+    ports:
+      - target: 22
+        published: "2201"
+        host_ip: 127.0.0.1

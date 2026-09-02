@@ -76,20 +76,51 @@ and that the engine-isolate architecture works (D8).
   delays a single direction, halving the effective RTT and skewing the
   pipelining conclusions; in-container `tc` also needs `--cap-add=NET_ADMIN`;
   the report row records the **measured** RTT, not the configured delay).
+  Prime and hash only the transfer source: the container-mounted fixture for
+  a download, or the runner-local file for an upload. Priming never sends the
+  full payload over the measured link. Give every warmup and timed trial a
+  unique, initially absent destination; warm the selected persistent variant
+  with a bounded 1 MB operation immediately before each timed trial; and
+  independently verify the timed destination's size and SHA-256 after timing.
+  Measure each variant twice in mirrored `ABCCBA` order and report the floor
+  arithmetic midpoint in microseconds so cache and execution order do not
+  choose a winner. Retain each raw trial's start/end UTC, `ABCCBA` ordinal,
+  warmup reference, integrity result, and shaped-link RTT-probe reference.
+  Only when an immutable hosted-job cap cannot contain one complete
+  high-latency 1 GB direction cell, replace that cell with two isolated
+  hosted-job replicates per variant. Those jobs may execute in any order and
+  share no hosted-VM/runner state, connection, cache, or qdisc state; the
+  service does not promise distinct physical hosts. Their variant/replicate
+  labels imply no `ABCCBA` position. Each uses the full 1,000,000,000-byte
+  payload, the same pinned fixture and bidirectional shaping profile, one
+  direction-matched 1 MB warmup, and one timed transfer. Its 315-minute
+  monotonic deadline begins with fixture setup and includes evidence
+  finalization and fixture teardown; the transfer receives the lesser of 240
+  minutes and the remaining time minus a fixed 30-minute post-transfer
+  reserve. No timed retry is allowed. Aggregation fails unless every variant
+  has exactly two valid replicates, preserves both sources and their seven raw
+  SSH identification-to-KEX RTT probes, and invents no aggregate host,
+  timestamp, or RTT. These cross-runner 1 GB rows are descriptive
+  corroboration only; D7 is decided from the same-run cells.
   Record MB/s with hashing on and off
   (hashing-off requires a patch until PR-S3 — carried as a committed
   patch on a rev-pinned branch of a Séance fork, never an uncommitted
   working-tree or pub-cache edit, so CI and fresh clones reproduce the
   numbers; measure both anyway — the delta is the D7 evidence).
-- Algorithm audit: connect dartssh2 2.9 against a current OpenSSH sshd in
-  four configs — defaults, `rsa-sha2-256/512`-only,
+- Algorithm audit: connect the exact dartssh2 version resolved by Séance's
+  committed lock — 3.0.2 at M0, the D9 floor that owns every pipelined read
+  completion during cancellation — against a
+  current OpenSSH sshd in four configs — defaults,
+  `rsa-sha2-256/512`-only,
   `chacha20-poly1305@openssh.com` + `curve25519`/post-quantum-preferring
   kex, and an ed25519-hostkey-only config. Record what negotiates, what
   fails, and the exact error text.
 - Pipelining verification: on ONE SFTP channel, issue 8–32 concurrent
   `read`s of one file and 8 concurrent readdirs of sibling directories;
   verify correctness (byte-compare) and measure scaling. Then measure N
-  channels over one `SSHClient` and N separate transports. This arbitrates
+  channels over one `SSHClient` and N separate transports. Warm every depth
+  or count, then run it on fresh connections in forward/reverse order and
+  report the two-sample median. This arbitrates
   the research notes' open question (gaps §3.9) and fixes the numbers in
   `PoolPolicy` (03 §3.2) and the scanner's readdir depth (05 §3).
 - Isolate PoC (03 §5 lists the pass conditions): dartssh2 sockets and
@@ -98,7 +129,9 @@ and that the engine-isolate architecture works (D8).
   events arrive on the UI-side port at ≤ 30/s per task under a
   10k-event/s synthetic flood, and a main-isolate timer probe records no
   event-loop stall > 16 ms during 4 concurrent transfers + one directory
-  listing; throughput parity with the single-isolate baseline.
+  listing; throughput parity with the single-isolate baseline after warming
+  both contexts, then taking three interleaved samples: median rates must be
+  within ±10%, a narrow allowance for shared-runner measurement jitter.
 - Harness code lives at `tool/bench/` (Dart CLI, repo root); the sshd
   Docker fixture lives at `test/integration/` (08 §5's layout:
   `docker-compose.yml`, `sshd-modern/` and friends, `run.sh`) and lands in
@@ -119,10 +152,9 @@ class BenchResult {
   // bytes/elapsedUs once rows merge across runs.
   double get mbPerSec => bytes / elapsed.inMicroseconds;
   final String? note;         // negotiation details, failure text
-  final String dartssh2Rev;   // dartssh2 rev under test (pin or patched
-                              // fork branch) — structured, so a merged
-                              // report never mistakes a hashing-off fork
-                              // row for an unpatched-Séance one
+  final String dartssh2Version; // exact hosted version in the harness lock —
+                                // structured so dependency drift cannot mix
+                                // unlike rows in one report
   final String seanceRev;     // seance_core git-pin rev under test
   final int? rttMs;           // measured RTT for shaped links (null on
                               // LAN-class rows) — the MEASURED value, never
@@ -140,7 +172,7 @@ class BenchResult {
     required this.bytes,
     required this.elapsed,
     this.note,
-    required this.dartssh2Rev,
+    required this.dartssh2Version,
     required this.seanceRev,
     this.rttMs,
     required this.timestampUtc,
@@ -150,7 +182,7 @@ class BenchResult {
   Map<String, Object?> toJson() => {
         'scenario': scenario,
         'bytes': bytes,
-        'dartssh2Rev': dartssh2Rev,
+        'dartssh2Version': dartssh2Version,
         'seanceRev': seanceRev,
         'rttMs': rttMs,
         'elapsedUs': elapsed.inMicroseconds, // µs — LAN 1 MB runs finish
@@ -172,7 +204,7 @@ class BenchResult {
         bytes: json['bytes']! as int,
         elapsed: Duration(microseconds: json['elapsedUs']! as int),
         note: json['note'] as String?,
-        dartssh2Rev: json['dartssh2Rev']! as String,
+        dartssh2Version: json['dartssh2Version']! as String,
         seanceRev: json['seanceRev']! as String,
         rttMs: json['rttMs'] as int?,
         timestampUtc: DateTime.parse(json['timestampUtc']! as String),
@@ -181,10 +213,27 @@ class BenchResult {
 }
 ```
 
+`BenchResult` is the attributable raw-result seam above. The canonical M0
+artifact embeds every source envelope and its raw throughput trials, then
+contains exactly 78 manifest-ordered results. Every throughput result's sample
+references reproduce its median; split results reference both source jobs
+rather than fabricating the scalar source fields in the sketch. All sources in
+one artifact must share the exact workflow run/attempt, Poltergeist SHA,
+dependency pins, and common fixture identity: committed fixture tree, data
+version, and OpenSSH client/server versions. Each job's built-image ID is
+retained and validated per source, but need not match across runners. Missing,
+extra, duplicate, failed, misassigned, mixed-identity, or bad-integrity
+evidence fails aggregation. The validated canonical JSON and a SHA-256
+manifest of its raw sources are committed beside the report; temporary Actions
+artifacts are transport only. Ordinary CI revalidates and freezes that bundle,
+and rejects measurement-affecting changes between its recorded input SHA and
+the evidence-introduction commit. Later milestone work does not invalidate the
+historical artifact.
+
 **Deliverable.** A written report, `docs/M0-DARTSSH2-REPORT.md`, with the
 tables above, a verdict per D9's fallback ladder (fine as-is → contribute
 upstream → compensate with channels/transports → document the ceiling →
-FFI to libssh as last resort), and the finalized `PoolPolicy` defaults and
+FFI to libssh2 as last resort), and the finalized `PoolPolicy` defaults and
 scan pipelining depth. Rungs 3–5 of the ladder require editing the decision
 log (00) in the same PR — the ladder pre-authorizes the discussion, not a
 silent downgrade.
@@ -907,7 +956,7 @@ Per-milestone invariant check (item 5 of §3.12):
 
 | # | Risk | Mitigation | Pre-authorized fallback / cut line |
 |---|---|---|---|
-| 1 | dartssh2 throughput or algorithm ceiling (D9) | M0 measures before any design hardens | The D9 ladder: upstream fix → channels/transports compensate → document the ceiling (00 edit) → libssh FFI last resort (00 edit) |
+| 1 | dartssh2 throughput or algorithm ceiling (D9) | M0 measures before any design hardens | The D9 ladder: upstream fix → channels/transports compensate → document the ceiling (00 edit) → libssh2 FFI last resort (00 edit) |
 | 2 | dartssh2 single-channel pipelining unsafe | M0 verifies with byte-compares | Compensate with N channels/transports; relax the scan budget with a 00 edit if even that fails |
 | 3 | Isolate model blocker (sockets, latency) | M0 PoC with explicit pass conditions (03 §5) | Connections on UI isolate, transfers/hashing in engine isolate — a 00 edit, never quiet drift |
 | 4 | Séance upstream PR stalls (S1–S3) | Same owner, sibling repos; file early per 04 §5 | Pin to the PR branch rev; S1 sealing shim (04 §5.6); Design B ships without S1; never fork `seance_core` |

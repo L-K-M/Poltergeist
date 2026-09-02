@@ -6,7 +6,7 @@ and built as a sibling of [Séance](https://github.com/L-K-M/Seance).
 
 *The ghost that moves your files.*
 
-**Latest release:** v<!-- version -->0.1.0<!-- /version --> · no binaries yet — Poltergeist is in the planning/scaffolding phase.
+**Current version:** v<!-- version -->0.1.0<!-- /version --> · no tag or binaries yet — M0 implementation is in progress.
 
 ## What Poltergeist will be
 

@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 # Least privilege: the jobs only need to read the repo.
 permissions:
@@ -25,10 +27,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
       - name: Resolve workspace
+        run: dart pub get
+      - name: Resolve M0 benchmark harness
+        working-directory: tool/bench
         run: dart pub get
       # Packages are discovered dynamically so adding one never needs a
       # workflow edit — but paths stay explicit (never a bare `dart analyze`
@@ -36,6 +43,15 @@ jobs:
       # the Flutter app and fail without the Flutter SDK).
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
+      - name: Analyze release gate
+        run: dart analyze tool/license_gate
+      - name: Analyze Séance pin audit
+        run: dart analyze tool/seance_pin_audit
+      - name: Analyze M0 benchmark harness
+        working-directory: tool/bench
+        run: dart analyze
+      - name: Analyze integration fixture tools
+        run: dart analyze test/integration
       - name: Test
         run: |
           dirs=""
@@ -46,6 +62,202 @@ jobs:
             echo "no package has a test/ directory yet"; exit 1
           fi
           dart test $dirs
+      - name: Test release gate
+        run: dart test tool/license_gate/test
+      - name: Test Séance pin audit
+        run: dart test tool/seance_pin_audit/test
+      - name: Test M0 benchmark harness
+        working-directory: tool/bench
+        run: dart test test
+      - name: Validate committed M0 evidence
+        working-directory: tool/bench
+        run: >-
+          dart run bin/validate_bundle.dart
+          --bundle ../../docs/evidence/m0
+          --report ../../docs/M0-DARTSSH2-REPORT.md
+          --repo ../..
+      - name: Test integration fixture tools
+        run: dart test test/integration
+      - name: Validate rendered integration fixture
+        run: |
+          test/integration/test-fixture-safety.sh
+          source test/integration/lib/fixture.sh
+          check_rendered_config
+      # D30 allows pre-license pins in development, so PR CI checks the
+      # fail-closed release wiring without requiring the upstream license yet.
+      - name: Guard Séance release gate
+        run: dart run tool/license_gate/bin/check.dart --marker-only
+
+  seance_pin_audit:
+    name: Séance pin audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        if: github.event_name != 'workflow_dispatch'
+        id: changes
+        with:
+          filters: |
+            pin:
+              - '**/pubspec.yaml'
+              - '**/pubspec.lock'
+              - 'docs/PORTS.md'
+              - 'scripts/audit-seance-pin.sh'
+              - 'tool/seance_pin_audit/**'
+              - '.github/workflows/ci.yml'
+      - uses: dart-lang/setup-dart@v1
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          steps.changes.outputs.pin == 'true'
+        with:
+          sdk: stable
+      - name: Resolve audit dependencies
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          steps.changes.outputs.pin == 'true'
+        run: dart pub get
+      # The script clones the locked Séance ref itself, without a depth cap.
+      - name: Verify recorded Séance pin audit
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          steps.changes.outputs.pin == 'true'
+        run: scripts/audit-seance-pin.sh
+
+  # M0 measurements are expensive and historical, not a standing PR budget.
+  # Dispatch a branch commit so the durable evidence keeps an ancestor SHA.
+  m0_bench:
+    name: M0 SSH fitness measurements (${{ matrix.shard }})
+    needs: [dart, seance_pin_audit]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - standard
+          - rtt100-1gb-download-dart-hash-on-r1
+          - rtt100-1gb-download-dart-hash-on-r2
+          - rtt100-1gb-download-dart-hash-off-r1
+          - rtt100-1gb-download-dart-hash-off-r2
+          - rtt100-1gb-download-openssh-r1
+          - rtt100-1gb-download-openssh-r2
+          - rtt100-1gb-upload-dart-hash-on-r1
+          - rtt100-1gb-upload-dart-hash-on-r2
+          - rtt100-1gb-upload-dart-hash-off-r1
+          - rtt100-1gb-upload-dart-hash-off-r2
+          - rtt100-1gb-upload-openssh-r1
+          - rtt100-1gb-upload-openssh-r2
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve benchmark harness
+        working-directory: tool/bench
+        run: dart pub get
+      - name: Start M0 source evidence
+        working-directory: tool/bench
+        run: |
+          readonly microseconds_per_second=1000000
+          read -r monotonic_seconds _ < /proc/uptime
+          monotonic_whole="${monotonic_seconds%%.*}"
+          monotonic_fraction="${monotonic_seconds#*.}000000"
+          monotonic_fraction="${monotonic_fraction:0:6}"
+          POLTERGEIST_M0_STARTED_AT_EPOCH_MS="$(date +%s%3N)"
+          POLTERGEIST_M0_STARTED_AT_MONOTONIC_US="$((
+            10#$monotonic_whole * microseconds_per_second +
+            10#$monotonic_fraction
+          ))"
+          export POLTERGEIST_M0_STARTED_AT_EPOCH_MS
+          export POLTERGEIST_M0_STARTED_AT_MONOTONIC_US
+          printf '%s\n%s\n' \
+            "POLTERGEIST_M0_STARTED_AT_EPOCH_MS=$POLTERGEIST_M0_STARTED_AT_EPOCH_MS" \
+            "POLTERGEIST_M0_STARTED_AT_MONOTONIC_US=$POLTERGEIST_M0_STARTED_AT_MONOTONIC_US" \
+            >> "$GITHUB_ENV"
+          dart run bin/package_source.dart start \
+            --output bench-shard.json \
+            --shard "${{ matrix.shard }}"
+      - name: Run fixture and measurements
+        id: measurements
+        timeout-minutes: 330
+        run: tool/bench/run-ci-shard.sh "${{ matrix.shard }}"
+      # JSON evidence contains no Séance code or executable artifact (D30).
+      - uses: actions/upload-artifact@v4
+        id: upload_shard
+        if: always()
+        continue-on-error: true
+        with:
+          name: m0-bench-source-${{ matrix.shard }}
+          path: tool/bench/bench-shard.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - name: Retry shard evidence upload
+        if: always() && steps.upload_shard.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-bench-source-${{ matrix.shard }}
+          path: tool/bench/bench-shard.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  m0_bench_aggregate:
+    name: M0 SSH fitness evidence
+    needs: m0_bench
+    if: >-
+      always() &&
+      needs.m0_bench.result == 'success' &&
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve benchmark harness
+        working-directory: tool/bench
+        run: dart pub get
+      - name: Download M0 source evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: m0-bench-source-*
+          path: tool/bench/shards
+          merge-multiple: false
+      - name: Aggregate M0 measurements
+        working-directory: tool/bench
+        run: |
+          dart run bin/aggregate.dart \
+            --input-root shards \
+            --output-dir evidence \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --git-sha "${{ github.sha }}"
+      - name: Upload canonical M0 evidence
+        id: upload_evidence
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: m0-bench-results
+          path: tool/bench/evidence
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+      - name: Retry canonical M0 evidence upload
+        if: always() && steps.upload_evidence.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: m0-bench-results
+          path: tool/bench/evidence
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
   # The Flutter jobs below activate themselves the moment app/poltergeist_app
   # lands on the branch under test — no workflow edit needed. Until then they
@@ -158,15 +370,9 @@ jobs:
       - name: Build
         working-directory: app/poltergeist_app
         run: flutter build ${{ matrix.build }}
-      # Exercise the same packaging the release workflow ships (keep the two
-      # in step) and expose the artifacts for inspection on every CI run.
+      # Exercise the same packaging the release workflow ships. Do not upload
+      # binaries from ordinary CI: before PR-S0, a build may embed a permitted
+      # development-only Séance pin whose tree grants recipients no rights.
       - name: Package Linux artifacts (.deb + AppImage)
         if: startsWith(matrix.target, 'linux')
         run: scripts/package-linux.sh --output-dir dist-packages
-      - name: Upload Linux packages
-        if: startsWith(matrix.target, 'linux')
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-${{ matrix.flavor }}-packages
-          path: dist-packages/*
-          if-no-files-found: error

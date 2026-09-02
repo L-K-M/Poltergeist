@@ -8,6 +8,14 @@ dist/
 .pub-cache/
 .pub/
 pubspec_overrides.yaml
+tool/bench/bench-results.json
+tool/bench/bench-shard.json
+tool/bench/bench-results.json.attempts.json
+tool/bench/shards/
+tool/bench/evidence/
+
+# Generated SFTP integration payloads and ephemeral user credentials.
+test/integration/runtime/
 
 # Flutter (app lives at app/poltergeist_app once scaffolded)
 app/poltergeist_app/.flutter-plugins

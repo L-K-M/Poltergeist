@@ -54,8 +54,17 @@ jobs:
           sdk: stable
       - name: Resolve workspace
         run: dart pub get
+      - name: Resolve M0 benchmark harness
+        if: hashFiles('tool/bench/pubspec.yaml') != ''
+        working-directory: tool/bench
+        run: dart pub get
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
+      - name: Analyze release gate
+        run: dart analyze tool/license_gate
+      - name: Analyze M0 benchmark harness
+        working-directory: tool/bench
+        run: dart analyze
       - name: Test
         run: |
           dirs=""
@@ -66,6 +75,11 @@ jobs:
             echo "no package has a test/ directory yet"; exit 1
           fi
           dart test $dirs
+      - name: Test release gate
+        run: dart test tool/license_gate/test
+      - name: Test M0 benchmark harness
+        working-directory: tool/bench
+        run: dart test test
 
   # The app, once per client platform. `flutter build` is host-locked
   # (linux/windows only build on their own OS, macos/ios only on a Mac) —
@@ -154,12 +168,19 @@ jobs:
             -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/' \
             -e 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/' \
             app/poltergeist_app/macos/Runner.xcodeproj/project.pbxproj
+      - name: Resolve workspace
+        run: dart pub get
+      - name: Resolve M0 benchmark harness
+        working-directory: tool/bench
+        run: dart pub get
       - name: Resolve app dependencies
         working-directory: app/poltergeist_app
         run: flutter pub get
+      - name: Verify pinned Séance licenses
+        run: dart run tool/license_gate/bin/check.dart # SEANCE_LICENSE_GATE_V1
       - name: Build
         working-directory: app/poltergeist_app
-        run: flutter build ${{ matrix.build }}
+        run: flutter build ${{ matrix.build }} --no-pub
       # Stage each platform's product under its release asset name: product +
       # platform, no version (the release page already carries the version) —
       # except the .deb, whose filename is Debian's versioned convention.
