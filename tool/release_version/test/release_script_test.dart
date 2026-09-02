@@ -31,6 +31,7 @@ printf 'pubspecs=%s\n' "\$RELEASE_PUBSPECS"
 printf 'regex=%s\n' "\$RELEASE_VERSION_REGEX"
 printf 'post=%s\n' "\$RELEASE_POST_BUMP"
 printf 'args=%s\n' "\$*"
+printf 'cwd=%s\n' "\$PWD"
 ''');
     fakeGit = File(p.join(sandbox.path, 'git'));
     fakeGit.writeAsStringSync(r'''#!/usr/bin/env bash
@@ -195,6 +196,19 @@ exec "$REAL_GIT" "$@"
     expect(result.stdout, contains('preserves release order'));
     expect(result.stdout, contains('args=\n'));
   });
+
+  test('runs the engine from the script repository', () async {
+    final result = await _runRelease(
+      fakeEngine,
+      ['2099.99.99'],
+      git: fakeGit,
+      invocationDirectory: _InvocationDirectory.caller,
+      realGit: realGit,
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+    expect(result.stdout, contains('cwd=${_repositoryRoot().path}\n'));
+  });
 }
 
 Future<ProcessResult> _runRelease(
@@ -203,6 +217,7 @@ Future<ProcessResult> _runRelease(
   required File git,
   required String realGit,
   _GitFailure gitFailure = _GitFailure.none,
+  _InvocationDirectory invocationDirectory = _InvocationDirectory.repository,
   _PostBumpMode postBumpMode = _PostBumpMode.skip,
   String priorTags = '',
   String remoteTags = '',
@@ -210,8 +225,11 @@ Future<ProcessResult> _runRelease(
   final root = _repositoryRoot();
   return Process.run(
     'bash',
-    ['scripts/release.sh', ...arguments],
-    workingDirectory: root.path,
+    [p.join(root.path, 'scripts/release.sh'), ...arguments],
+    workingDirectory: switch (invocationDirectory) {
+      _InvocationDirectory.caller => git.parent.path,
+      _InvocationDirectory.repository => root.path,
+    },
     environment: {
       ...Platform.environment,
       'FAKE_GIT_FAILURE': gitFailure.name,
@@ -228,6 +246,8 @@ Future<ProcessResult> _runRelease(
 }
 
 enum _GitFailure { localTags, none, remoteTags }
+
+enum _InvocationDirectory { caller, repository }
 
 enum _PostBumpMode { skip, failSynchronization }
 

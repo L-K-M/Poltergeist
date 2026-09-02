@@ -151,4 +151,7 @@ command -v "$BIN" >/dev/null 2>&1 || {
   echo "error: lkm-release not found — clone https://github.com/L-K-M/release-tool and run ./install.sh" >&2
   exit 1
 }
+
+# The engine discovers its target from cwd, including for absolute invocations.
+cd "$ROOT"
 exec "$BIN" "$@"
