@@ -20,16 +20,14 @@ packages/
   poltergeist_core/       pure Dart — scaffold today; connections, transfers,
                           sync engine, and bookmark model per the plan
 app/
-  poltergeist_app/        Flutter — NOT created yet; scaffolded in milestone
-                          M1 per docs/plan/07-MILESTONES.md (M0 is a spike
-                          that creates no app), and NOT a workspace
-                          member (it needs the Flutter SDK; members must not)
+  poltergeist_app/        Flutter client — NOT a workspace member (it needs
+                          the Flutter SDK; members must not)
 docs/plan/                the design plan (read 00-OVERVIEW.md first —
                           it is the decision log; 09-PLAYBOOK.md is the
                           implementation operating manual)
 docs/STATUS.md            what's done / tested / still open
 scripts/                  build.sh, release.sh, package-linux.sh
-media-sources/            master icon (poltergeist-icon.png; created with the app)
+media-sources/            master icon (poltergeist-icon.png)
 ```
 
 The layout deliberately mirrors Séance's proven shape (`packages/` + `app/`),
@@ -39,17 +37,17 @@ decision D2) — don't preempt it by copying code ad hoc.
 
 ## Build & test
 
-Requires the Dart SDK (3.12+) for the pure-Dart packages and the Flutter SDK
-for the app (once it exists).
+Requires the Dart SDK (3.12+) for the pure-Dart packages and Flutter 3.47.2
+for the app.
 
 ```bash
 # Pure-Dart packages — always with explicit paths (a bare `dart test` at the
-# repo root would try to resolve the Flutter app once it exists, and fail)
+# repo root tries to resolve the Flutter app and fails without Flutter)
 dart pub get
 dart analyze packages/poltergeist_core
 dart test    packages/poltergeist_core
 
-# Flutter app (after it is scaffolded per the plan)
+# Flutter app
 cd app/poltergeist_app
 flutter pub get && flutter analyze && flutter test
 flutter run -d linux    # or macos / windows / a device
@@ -59,10 +57,8 @@ scripts/build.sh          # app + apk; missing toolchains are skipped
 scripts/build.sh --install  # build + install the app for this host
 ```
 
-CI (`.github/workflows/ci.yml`) runs the Dart analyze+test on every push/PR.
-The Flutter analyze/test job and the per-platform client build matrix
-activate automatically once `app/poltergeist_app` exists — no workflow edit
-needed when the app lands.
+CI (`.github/workflows/ci.yml`) runs Dart and Flutter analyze+test on every
+push/PR. Its client matrix compiles all five platform projects.
 
 ## Releasing
 
@@ -82,9 +78,6 @@ scripts/release.sh 0.2.0          # bump + commit, tag v0.2.0
 scripts/release.sh 0.2.0 --push   # …also push branch + tag (CI then publishes)
 ```
 
-Note: tagging a release before `app/poltergeist_app` exists fails the client
-build jobs by design — there is nothing to release yet.
-
 ---
 
 ## 1. Environment (nothing is pre-installed)
@@ -99,8 +92,8 @@ curl -sSL -o /tmp/dartsdk.zip \
 unzip -q /tmp/dartsdk.zip -d /opt
 export PATH=/opt/dart-sdk/bin:$PATH   # latest stable Dart (3.12+ required)
 
-# Flutter SDK (for the app). Its bundled Dart must match the ^3.12 constraint.
-git clone --depth 1 -b stable https://github.com/flutter/flutter.git /opt/flutter
+# Flutter SDK (for the app). Keep this pin aligned with CI and the app pubspec.
+git clone --depth 1 --branch 3.47.2 https://github.com/flutter/flutter.git /opt/flutter
 export PATH=/opt/flutter/bin:$PATH
 flutter --version                      # first run bootstraps Dart + engine
 ```
@@ -148,11 +141,12 @@ Environment facts that carry over from Séance's containers (same family):
   Planned identifiers: Android application id `com.lkm.poltergeist_app`,
   Apple bundle id `com.lkm.poltergeistApp`, Linux binary/package name
   `poltergeist`, Linux GApplication id (`APPLICATION_ID` in
-  `linux/CMakeLists.txt`) `com.lkm.poltergeist_app` — that last one must
-  match the `StartupWMClass` hard-coded in `scripts/package-linux.sh`, so
-  scaffold with `flutter create --org com.lkm` or edit the CMakeLists (the
-  flutter-create default `com.example.poltergeist_app` would break
-  window-to-desktop-entry mapping in the .deb/AppImage).
+  `linux/CMakeLists.txt`) `com.lkm.poltergeist_app`. The packaged build
+  reports X11 `WM_CLASS` as instance `com.lkm.poltergeist_app`, class
+  `Com.lkm.poltergeist_app`; the case-sensitive class must match
+  `StartupWMClass` in `scripts/package-linux.sh` (the flutter-create default
+  `com.example.poltergeist_app` would break window-to-desktop-entry mapping
+  in the .deb/AppImage).
 - Cross-repo work: UX or engine improvements that apply to Séance are ported
   back — see the porting policy in the plan. Never fork shared concepts
   silently.

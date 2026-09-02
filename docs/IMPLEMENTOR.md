@@ -158,14 +158,11 @@ commit SHAs and CI must never upload artifacts embedding the pinned code
 ## Repo-specific traps (each is documented; none is a suggestion)
 
 - Scaffold the app at M1 with `flutter create --org com.lkm` — the `--org`
-  fixes the three platform ids (07 §3.2). **Known in-repo contradiction to
-  resolve at M1**: 07 §3.2 says the `.desktop` `StartupWMClass` must be the
-  binary name `poltergeist_app` (X11 `WM_CLASS` follows CMake
-  `BINARY_NAME`), while AGENTS.md §3 and `scripts/package-linux.sh` (which
-  hard-codes `StartupWMClass=com.lkm.poltergeist_app`) claim the dotted id
-  — each side documents a mechanism. Verify empirically on the packaged
-  build (`xprop WM_CLASS`) and fix the wrong side — script or chapter — in
-  the same PR per 09 §8.2; never leave the two disagreeing.
+  fixes the three platform ids (07 §3.2). The packaged build reports X11
+  `WM_CLASS` as instance `com.lkm.poltergeist_app`, class
+  `Com.lkm.poltergeist_app`; the desktop entry must carry the literal
+  `StartupWMClass=Com.lkm.poltergeist_app`. Keep the script, test, and docs
+  aligned.
 - Create `media-sources/poltergeist-icon.png` with the scaffold —
   packaging hard-fails without it. Do **not** add `app/poltergeist_app` to
   the root pubspec `workspace:` list.
@@ -180,11 +177,9 @@ commit SHAs and CI must never upload artifacts embedding the pinned code
   github.com/L-K-M/release-tool) and bumps all version markers in
   lockstep — never hand-edit one of them. `ci.yml` and `release.yml`
   client matrices are kept in lockstep by hand.
-- Platform folders are committed. `scripts/build.sh` silently *regenerates*
-  a missing one via `flutter create` as a deleted-folder fallback — and the
-  regenerated folder loses the committed name/icons/entitlements — so never
-  delete a platform folder and never let that fallback fire on a real
-  build. Only the app directory itself is never auto-created.
+- Platform folders are committed. `scripts/build.sh` fails closed when one
+  is missing because stock regeneration loses the committed identity, icons,
+  and entitlements. Restore a deleted platform folder from Git.
 
 ## When stuck (09 §8)
 

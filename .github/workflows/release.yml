@@ -37,6 +37,9 @@ concurrency:
 permissions:
   contents: write       # create the GitHub Release
 
+env:
+  FLUTTER_VERSION: '3.47.2'
+
 jobs:
   # Gate the release on the pure-Dart suite. A tag on a broken commit must
   # not publish a release. (The Flutter app's analyze+test and a per-platform
@@ -152,7 +155,7 @@ jobs:
           libsecret-1-dev libjsoncpp-dev imagemagick file
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
       # If the committed project signs Release with a developer identity the
       # runner doesn't have (the scripts/build.sh local path), switch the

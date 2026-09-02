@@ -6,7 +6,7 @@ and built as a sibling of [Séance](https://github.com/L-K-M/Seance).
 
 *The ghost that moves your files.*
 
-**Current version:** v<!-- version -->0.1.0<!-- /version --> · no tag or binaries yet — M0 implementation is in progress.
+**Current version:** v<!-- version -->0.1.0<!-- /version --> · no tag or binaries yet — M0 is complete; the M1 scaffold is implemented and green in CI, pending the v0.1.0 rehearsal.
 
 ## What Poltergeist will be
 
@@ -35,7 +35,9 @@ the porting policy is part of the plan.
 ## Where things stand
 
 The repository carries infrastructure (CI, review workflow, build and
-release scripts) and the design plan. Implementation follows the plan in
+release scripts) and the design plan. M0 is complete. The M1 app scaffold is
+implemented and green in CI, but remains open until the v0.1.0 rehearsal
+completes. Implementation follows the plan in
 [`docs/plan/`](docs/plan/) — start with
 [`00-OVERVIEW.md`](docs/plan/00-OVERVIEW.md), the decision log. Current state
 and next steps live in [`docs/STATUS.md`](docs/STATUS.md); the working

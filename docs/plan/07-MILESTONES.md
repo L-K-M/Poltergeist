@@ -264,17 +264,19 @@ CI, and looks like the beginning of Poltergeist, not a counter demo.
 - `flutter create --org com.lkm app/poltergeist_app` — the `--org` is
   load-bearing: it yields Android id `com.lkm.poltergeist_app`, Apple
   bundle id `com.lkm.poltergeistApp`, and Linux `APPLICATION_ID`
-  `com.lkm.poltergeist_app`; the `.desktop` `StartupWMClass`, however,
-  must be the **binary name** `poltergeist_app` (X11 `WM_CLASS` follows
-  CMake `BINARY_NAME`, not the dotted application id) — kept in sync in
+  `com.lkm.poltergeist_app`; the packaged build reports X11 `WM_CLASS` as
+  instance `com.lkm.poltergeist_app`, class `Com.lkm.poltergeist_app`, so
+  the `.desktop` entry must carry the literal
+  `StartupWMClass=Com.lkm.poltergeist_app` — kept in sync in
   `scripts/package-linux.sh` (AGENTS.md §3). Commit the
   platform folders. The app is NOT added to the root workspace `members`;
   it path-depends on `packages/poltergeist_core` (AGENTS.md §4).
 - Create the master icon `media-sources/poltergeist-icon.png` (1024×1024,
-  the ghost — D24 personality) and generate all platform icons with
-  `flutter_launcher_icons`; keep the generation config in the app pubspec
-  so regeneration is one command. `scripts/package-linux.sh` requires the
-  master file.
+  the ghost — D24 personality) and generate the Android, Apple, and Windows
+  icons with `flutter_launcher_icons`; keep the generation config in the app
+  pubspec so their regeneration is one command. Linux package icons are
+  generated at their required sizes by `scripts/package-linux.sh` from that
+  same required master file.
 - `window_manager` (pin the exact version) for min/initial size, remembered
   geometry, and the prevent-close hook (wired to the queue in M4);
   `macos_window_utils` for the macOS titlebar treatment (D11).

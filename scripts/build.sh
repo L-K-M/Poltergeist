@@ -6,9 +6,9 @@
 # component, so unlike Séance's build.sh there are only client targets:
 #
 #   app    — Flutter desktop app for THIS host (linux/macos/windows); platform
-#            folders are committed once the app is scaffolded (missing ones
-#            are regenerated as a fallback). On Linux, release builds are also
-#            packaged into installable artifacts (.deb + AppImage) via
+#            folders are committed once the app is scaffolded. On Linux,
+#            release builds are also packaged into installable artifacts
+#            (.deb + AppImage) via
 #            scripts/package-linux.sh → dist/
 #   apk    — Android APK (needs flutter + an Android SDK)
 #
@@ -132,16 +132,14 @@ skip_or_fail() {
 }
 
 # ---------------------------------------------------------------------------
-# The platform folders are committed once the app is scaffolded (they carry
-# the app name, icons, and entitlements); regenerating here is only a
-# fallback for a deleted folder, and such a regenerated folder loses those
-# customizations. The app directory itself is NOT auto-created: scaffolding
-# the app is a deliberate plan milestone, not a build side effect.
+# Platform folders carry identity, icons, and entitlements. Never replace a
+# missing committed scaffold with Flutter's stock output.
 ensure_platform() {
   local platform="$1"
   [[ -d "$APP_DIR/$platform" ]] && return 0
-  echo "-- platform folder $APP_DIR/$platform missing; generating (flutter create)"
-  ( cd "$APP_DIR" && flutter create --platforms="$platform" --project-name poltergeist_app . )
+
+  echo "!! $APP_DIR/$platform platform scaffold is missing; restore it from git" >&2
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -186,8 +184,7 @@ build_app() {
   fi
   if ! have flutter; then skip_or_fail app "Flutter SDK (flutter) not found"; return; fi
   if ! ensure_platform "$HOST"; then
-    echo "!! app: flutter create failed" >&2
-    record "app: FAILED (flutter create)"; return 1
+    record "app: FAILED (platform scaffold missing)"; return 1
   fi
   local mode_flag=""
   [[ "$PROFILE" == "debug" ]] && mode_flag="--debug"
@@ -267,7 +264,7 @@ build_app() {
           rm -rf "$HOME/.local/opt/poltergeist" && mkdir -p "$HOME/.local/opt"
           if cp -R "$out" "$HOME/.local/opt/poltergeist"; then
             INSTALLED="$HOME/.local/opt/poltergeist"
-            record "app: installed -> ~/.local/opt/poltergeist (binary: poltergeist_app)"
+            record "app: installed -> ~/.local/opt/poltergeist (binary: poltergeist)"
           else
             record "app: install FAILED (copy)"; return 1
           fi
@@ -308,8 +305,7 @@ build_apk() {
   fi
   echo "-- Android SDK: $sdk"
   if ! ensure_platform android; then
-    echo "!! apk: flutter create failed" >&2
-    record "apk: FAILED (flutter create)"; return 1
+    record "apk: FAILED (platform scaffold missing)"; return 1
   fi
   local mode_flag=""
   [[ "$PROFILE" == "debug" ]] && mode_flag="--debug"

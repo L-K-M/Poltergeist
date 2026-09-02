@@ -1,0 +1,48 @@
+name: poltergeist_app
+description: Poltergeist cross-platform file transfer client.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+  flutter: '>=3.47.2'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: 0.20.3
+  macos_window_utils: 1.9.1
+  path: 1.9.1
+  path_provider: 2.1.6
+  poltergeist_core:
+    path: ../../packages/poltergeist_core
+  screen_retriever: 0.2.2
+  uuid: 4.6.0
+  window_manager: 0.5.2
+
+dev_dependencies:
+  analyzer: 14.1.0
+  flutter_launcher_icons: 0.14.4
+  flutter_lints: 6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  generate: true
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: ../../media-sources/poltergeist-icon.png
+  min_sdk_android: 24
+  remove_alpha_ios: true
+  windows:
+    generate: true
+    image_path: ../../media-sources/poltergeist-icon.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: ../../media-sources/poltergeist-icon.png
