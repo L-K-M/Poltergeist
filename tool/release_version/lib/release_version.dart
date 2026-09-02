@@ -173,6 +173,7 @@ final class ReleaseVersionWorkspace {
     ];
 
     final staged = <_StagedRewrite>[];
+    var committedCount = 0;
     try {
       // Validate every rewrite before replacing any release metadata.
       for (final rewrite in rewrites) {
@@ -182,10 +183,12 @@ final class ReleaseVersionWorkspace {
       }
       for (final rewrite in staged) {
         rewrite.temporary.renameSync(rewrite.target.path);
+        committedCount++;
       }
     } finally {
-      for (final rewrite in staged) {
-        _deleteTemporaryBestEffort(rewrite.temporary);
+      // A successful rename ends ownership of the vacated temporary path.
+      for (var index = committedCount; index < staged.length; index++) {
+        _deleteTemporaryBestEffort(staged[index].temporary);
       }
     }
   }

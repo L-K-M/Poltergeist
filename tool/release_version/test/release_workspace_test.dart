@@ -178,6 +178,30 @@ void main() {
     expect(_read(root, pubspecPath), contains('version: 1.1.0+1010099'));
   }, skip: Platform.isWindows ? 'requires symbolic-link permission' : false);
 
+  test('sync does not delete a path recreated after its rename', () {
+    const foreignContents = 'concurrent file';
+    final recreated = <File>[];
+
+    IOOverrides.runZoned(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: 'app/poltergeist_app/pubspec.yaml',
+      ),
+      createFile: (path) {
+        final file = _unoverriddenFile(path);
+        if (!_isReleaseTemporary(path)) return file;
+
+        recreated.add(file);
+        return _RecreatingRenameFile(file, foreignContents);
+      },
+    );
+
+    expect(recreated, hasLength(3));
+    for (final file in recreated) {
+      expect(file.readAsStringSync(), foreignContents);
+    }
+  });
+
   test('sync rejects a path through a symlink outside the repository', () {
     final outside = Directory(p.join(sandbox.path, 'outside'))..createSync();
     const outsideContents = 'name: outside\nversion: 0.1.0\n';
@@ -520,6 +544,61 @@ final class _CreateFailingFile implements File {
   @override
   void createSync({bool recursive = false, bool exclusive = false}) {
     throw FileSystemException('temporary creation failed', path);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    return super.noSuchMethod(invocation);
+  }
+}
+
+final class _RecreatingRenameFile implements File {
+  final File _delegate;
+  final String _foreignContents;
+
+  const _RecreatingRenameFile(this._delegate, this._foreignContents);
+
+  @override
+  String get path => _delegate.path;
+
+  @override
+  bool existsSync() => _delegate.existsSync();
+
+  @override
+  void createSync({bool recursive = false, bool exclusive = false}) {
+    _delegate.createSync(recursive: recursive, exclusive: exclusive);
+  }
+
+  @override
+  void writeAsStringSync(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) {
+    _delegate.writeAsStringSync(
+      contents,
+      mode: mode,
+      encoding: encoding,
+      flush: flush,
+    );
+  }
+
+  @override
+  String readAsStringSync({Encoding encoding = utf8}) {
+    return _delegate.readAsStringSync(encoding: encoding);
+  }
+
+  @override
+  File renameSync(String newPath) {
+    final renamed = _delegate.renameSync(newPath);
+    _delegate.writeAsStringSync(_foreignContents);
+    return renamed;
+  }
+
+  @override
+  void deleteSync({bool recursive = false}) {
+    _delegate.deleteSync(recursive: recursive);
   }
 
   @override
