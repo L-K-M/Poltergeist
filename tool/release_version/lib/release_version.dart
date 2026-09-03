@@ -506,6 +506,9 @@ final class ReleaseVersionWorkspace {
         false => _DependencyPathKind.absolute,
         _ => null,
       };
+      final declaredPathKind = p.isAbsolute(dependency.value)
+          ? _DependencyPathKind.absolute
+          : _DependencyPathKind.relative;
       final packageDirectory = matchingPubspec.single.file.parent;
       final declaredDirectory = _resolveDependencyDirectory(
         appPubspec,
@@ -522,6 +525,7 @@ final class ReleaseVersionWorkspace {
           locked['source'] != 'path' ||
           locked['version'] != expected.semantic ||
           !_sameDirectory(declaredDirectory, packageDirectory) ||
+          lockedPathKind != declaredPathKind ||
           lockedDirectory == null ||
           !_sameDirectory(lockedDirectory, packageDirectory)) {
         throw ReleaseVersionStateException(

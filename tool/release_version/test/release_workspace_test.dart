@@ -466,11 +466,32 @@ void main() {
       '../../packages/poltergeist_core',
       '../../../other_core',
     );
+
+    expect(
+      () => ReleaseVersionWorkspace(root).check(),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('app lock'),
+        ),
+      ),
+    );
+  });
+
+  test('check rejects an absolute lock for a relative dependency', () {
+    final packagePath = p.join(root.path, 'packages', 'poltergeist_core');
     _replace(
       root,
       'app/poltergeist_app/pubspec.lock',
-      '../../packages/poltergeist_core',
-      '../../../other_core',
+      '"../../packages/poltergeist_core"',
+      '"$packagePath"',
+    );
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.lock',
+      'relative: true',
+      'relative: false',
     );
 
     expect(
