@@ -3,7 +3,7 @@
 ## app/poltergeist_app/lib/services/atomic_file.dart
 
 - Source: app/seance_app/lib/services/atomic_file.dart
-- Séance commit: 2f99f4efb25a83340605464635bdf0f3ba95d931 (re-diffed 2026-09-03: source unchanged since the port)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at 2f99f4efb25a83340605464635bdf0f3ba95d931 (2026-09-03)
 - Ported: 2026-09-02
 - Divergences: unique `.poltergeist-<uuid>.tmp` siblings prevent collisions
   and basename overflow; failed writes remove their temporary sibling without
@@ -16,7 +16,7 @@
 ## app/poltergeist_app/test/atomic_file_test.dart
 
 - Source: app/seance_app/test/atomic_file_test.dart
-- Séance commit: 2f99f4efb25a83340605464635bdf0f3ba95d931 (re-diffed 2026-09-03: source unchanged since the port)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at 2f99f4efb25a83340605464635bdf0f3ba95d931 (2026-09-03)
 - Ported: 2026-09-02
 - Divergences: uses the Poltergeist temp-file contract, adds failed-rename
   cleanup, and maps source store round-trip/quarantine cases to
