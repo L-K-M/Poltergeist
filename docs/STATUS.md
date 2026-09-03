@@ -6,7 +6,8 @@ next. Read [AGENTS.md](../AGENTS.md) first for how to build/test.
 _Last updated: 2026-09-03 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 release pipeline are implemented, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
-M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1)._
+Séance PR-S3 is merged (open item 3); M1 remains open pending the
+owner-signed v0.1.0 rehearsal (open item 1)._
 
 ## Done
 
@@ -19,6 +20,7 @@ M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1)._
 | Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
 | Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
 | Séance PR-S2 | `openAuthenticatedClient` split merged in [Séance #61](https://github.com/L-K-M/Seance/pull/61), merge `dad6d4f66dbfba6c170b98c204980e5801a890cb`. |
+| Séance PR-S3 | `RemoteFileSystem` additions (`setTimes`, `setOwner`, opt-out `computeHash` on transfers) merged in [Séance #62](https://github.com/L-K-M/Seance/pull/62), merge `2f99f4efb25a83340605464635bdf0f3ba95d931`. The M8 remote-sync / chown / opt-in-hashing gate now only needs the pin bump. |
 | M0 — engine fitness | Complete from workflow-dispatch run [`33563514640`](https://github.com/L-K-M/Poltergeist/actions/runs/33563514640), attempt 1, measured commit `6b8873eafdaaa3a4157e265dee838ab3b47219b3`. The 78-row canonical bundle is committed at [`docs/evidence/m0`](evidence/m0); `m0-evidence.json` SHA-256 is `b93660b9f1c06bac206096d25c6fff472bcb31d13589a4d81bd5a3df70fa7fcc`. D7 is final: managed checkouts always hash; bulk transfers and sync hashing are opt-in. D8 passed every isolate gate, so sockets, SFTP, transfers, and hashing stay in the engine isolate. D9 adopts dartssh2 3.0.2 at ladder rung 4: document the roughly 10–11× single-file LAN ceiling versus OpenSSH, compensate with bounded channels/transports, and do not adopt libssh2. `PoolPolicy` is finalized at 2 transports, 4 transfer channels per transport, 8 total channels per transport, 6 global in-flight transfers, and remote readdir depth 8. Keepalive remains 30 seconds, extra idle 60 seconds, reconnect cap 30 seconds, and retry limit 5; these are retained design defaults, not M0-tuned values. Earlier runs `33458209337`, `33481554062`, and `33504660759` were partial; `33534298280` stopped in preflight; `33535334440` diagnosed dartssh2 2.22.0's detached cancellation error. None is admissible evidence. M0 closes untagged. |
 | M1 — app scaffold implementation | Implemented in [PR #8](https://github.com/L-K-M/Poltergeist/pull/8) with Flutter 3.47.2, exact dependency pins, generated platform icons from the 1024×1024 master, and the verified platform identity contract. Flutter analysis, 108 tests, and all five client builds pass; see the [PR checks](https://github.com/L-K-M/Poltergeist/pull/8/checks). M1 is not closed: the v0.1.0 rehearsal remains. |
 | M1 — release versions | Release versions accept canonical `X.Y.Z` only, derive ordered Android codes, keep every versioned pubspec plus the app lock, Apple metadata, and README synchronized, and gate CI and release tags against drift or downgrade. Stable-only is the selected 07 §3.12 rule; suffixed releases are unsupported. The app starts at `0.1.0+10099`; CI verifies that code in the built APK, while Apple and Windows use bounded semantic mappings. |
@@ -45,10 +47,13 @@ M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1)._
      it are already in place from the scaffold PR.
 2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
-3. **Séance upstream PR-S3** (see
+3. **Séance upstream PR-S3 follow-through** (see
    [`docs/plan/04-SEANCE-INTEGRATION.md`](plan/04-SEANCE-INTEGRATION.md)
-   §5): file the VFS additions at their planned cadence. Tag S1 before M6
-   Design A.
+   §5): merged 2026-09-03 (see the Done table). At the next Séance pin bump
+   (M2's routine chore): re-pin past `2f99f4e` and retire the M0 bench
+   harness's hashing-off fork patch (`BigBoyDevBox/Seance@0a69597` in
+   `tool/bench/pubspec.yaml`) — upstream `computeHash` replaces it. Tag S1
+   before M6 Design A.
 
 ## Housekeeping
 
