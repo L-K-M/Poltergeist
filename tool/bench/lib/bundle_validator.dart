@@ -6,6 +6,15 @@ import 'package:crypto/crypto.dart';
 import 'result_aggregator.dart';
 import 'result_manifest.dart';
 
+/// Dependency pins the canonical M0 bundle was measured against. Committed
+/// evidence is frozen history: it must keep validating after the live
+/// harness pin moves past what M0 measured (the routine Séance re-pin,
+/// plan 04 §5), so bundle re-aggregation checks these constants — recorded
+/// in docs/M0-DARTSSH2-REPORT.md's dependency table — instead of the live
+/// ones. A re-measured bundle replaces this evidence and updates both.
+const m0MeasuredDartssh2Version = '3.0.2';
+const m0MeasuredSeanceRevision = '0a695971a411a6a754593e7c2598038039440c2f';
+
 const reportDigestMarkerPrefix = '<!-- m0-evidence-sha256: ';
 const reportEvidenceStateMarkerPrefix = '<!-- m0-evidence-state: ';
 const reportEvidencePendingMarker =
@@ -488,6 +497,8 @@ Future<void> _reaggregate(
         expectedRunId: runId,
         expectedRunAttempt: runAttempt,
         expectedGitSha: recordedSha,
+        expectedDartssh2Version: m0MeasuredDartssh2Version,
+        expectedSeanceRevision: m0MeasuredSeanceRevision,
       );
     } on ResultAggregationException catch (error) {
       throw BundleValidationException('Canonical evidence is invalid: $error');

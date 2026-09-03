@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:poltergeist_m0_bench/harness.dart';
 import 'package:poltergeist_m0_bench/result_aggregator.dart';
 
 const _usageExitCode = 64;
@@ -42,6 +43,10 @@ Future<void> main(List<String> arguments) async {
       expectedRunId: runId,
       expectedRunAttempt: runAttempt,
       expectedGitSha: gitSha,
+      // Measurement aggregation always binds to the live pins: a fresh run
+      // must be produced by the revisions the harness currently declares.
+      expectedDartssh2Version: resolvedDartssh2Version,
+      expectedSeanceRevision: pinnedSeanceRevision,
     );
   } on ResultAggregationException catch (error) {
     _fail('$error', _dataExitCode);

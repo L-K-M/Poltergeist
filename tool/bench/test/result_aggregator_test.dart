@@ -24,6 +24,11 @@ const _hundredMbDigest =
 const _oneGbDigest =
     'bc17f06f9d9b5f6f79ca189a1772b1a3a38d6e40c45bec50f9c4f28144efddca';
 
+// Stand-ins for a pin the live constants have moved past: committed M0
+// evidence was measured on revisions later re-pins superseded.
+const _supersededDartssh2 = '9.9.9';
+const _supersededSeance = 'ffffffffffffffffffffffffffffffffffffffff';
+
 void main() {
   test('writes 78 canonical rows, raw sources, and sorted digests', () async {
     final fixture = await _EvidenceFixture.create();
@@ -35,6 +40,8 @@ void main() {
       expectedRunId: _runId,
       expectedRunAttempt: _runAttempt,
       expectedGitSha: _sha,
+      expectedDartssh2Version: resolvedDartssh2Version,
+      expectedSeanceRevision: pinnedSeanceRevision,
     );
 
     expect(bundle.results, hasLength(m0ScenarioCount));
@@ -284,6 +291,72 @@ void main() {
     },
   );
 
+  test(
+    'aggregates evidence measured on superseded dependency pins',
+    () async {
+      final fixture = await _EvidenceFixture.create(
+        dartssh2Version: _supersededDartssh2,
+        seanceRevision: _supersededSeance,
+      );
+      addTearDown(fixture.delete);
+
+      final bundle = await fixture.aggregate(
+        expectedDartssh2Version: _supersededDartssh2,
+        expectedSeanceRevision: _supersededSeance,
+      );
+
+      final dependencies = (bundle.identity['dependencies']! as Map)
+          .cast<String, Object?>();
+      expect(dependencies['dartssh2Version'], _supersededDartssh2);
+      expect(dependencies['seanceRevision'], _supersededSeance);
+    },
+  );
+
+  test(
+    'rejects evidence whose pins differ from the expected pins',
+    () async {
+      final fixture = await _EvidenceFixture.create(
+        dartssh2Version: _supersededDartssh2,
+        seanceRevision: _supersededSeance,
+      );
+      addTearDown(fixture.delete);
+
+      await expectLater(
+        fixture.aggregate(),
+        throwsA(
+          isA<ResultAggregationException>().having(
+            (error) => error.message,
+            'message',
+            contains('unexpected dependency pins'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test('rejects rows whose pins differ from the expected pins', () async {
+    final fixture = await _EvidenceFixture.create(
+      seanceRevision: _supersededSeance,
+    );
+    addTearDown(fixture.delete);
+    final sourceId = isolatedSourceSpecs.first.id;
+    final source = await fixture.read(sourceId);
+    ((source['rows']! as List).first as Map)['seanceRev'] =
+        pinnedSeanceRevision;
+    await fixture.write(sourceId, source);
+
+    await expectLater(
+      fixture.aggregate(expectedSeanceRevision: _supersededSeance),
+      throwsA(
+        isA<ResultAggregationException>().having(
+          (error) => error.message,
+          'message',
+          contains('invalid dependency attribution'),
+        ),
+      ),
+    );
+  });
+
   test('aggregate CLI writes the canonical evidence directory', () async {
     final fixture = await _EvidenceFixture.create();
     addTearDown(fixture.delete);
@@ -324,20 +397,40 @@ class _EvidenceFixture {
   final Directory root;
   final Directory input;
   final Directory output;
+  final String dartssh2Version;
+  final String seanceRevision;
 
-  const _EvidenceFixture(this.root, this.input, this.output);
+  const _EvidenceFixture(
+    this.root,
+    this.input,
+    this.output, {
+    this.dartssh2Version = resolvedDartssh2Version,
+    this.seanceRevision = pinnedSeanceRevision,
+  });
 
-  static Future<_EvidenceFixture> create() async {
+  static Future<_EvidenceFixture> create({
+    String dartssh2Version = resolvedDartssh2Version,
+    String seanceRevision = pinnedSeanceRevision,
+  }) async {
     final root = await Directory.systemTemp.createTemp('m0-aggregate-');
     final fixture = _EvidenceFixture(
       root,
       Directory('${root.path}/input'),
       Directory('${root.path}/output'),
+      dartssh2Version: dartssh2Version,
+      seanceRevision: seanceRevision,
     );
     await fixture.input.create();
     for (final source in m0SourceManifest) {
       await fixture.artifact(source.id).create();
-      await fixture.write(source.id, _sourceEnvelope(source));
+      await fixture.write(
+        source.id,
+        _sourceEnvelope(
+          source,
+          dartssh2Version: dartssh2Version,
+          seanceRevision: seanceRevision,
+        ),
+      );
     }
 
     return fixture;
@@ -359,18 +452,27 @@ class _EvidenceFixture {
     '${artifact(sourceId).path}/$sourceEnvelopeFileName',
   ).writeAsString(jsonEncode(envelope));
 
-  Future<CanonicalEvidenceBundle> aggregate() => aggregateEvidenceDirectory(
+  Future<CanonicalEvidenceBundle> aggregate({
+    String expectedDartssh2Version = resolvedDartssh2Version,
+    String expectedSeanceRevision = pinnedSeanceRevision,
+  }) => aggregateEvidenceDirectory(
     inputRoot: input.path,
     outputDirectory: output.path,
     expectedRunId: _runId,
     expectedRunAttempt: _runAttempt,
     expectedGitSha: _sha,
+    expectedDartssh2Version: expectedDartssh2Version,
+    expectedSeanceRevision: expectedSeanceRevision,
   );
 
   Future<void> delete() => root.delete(recursive: true);
 }
 
-Map<String, Object?> _sourceEnvelope(M0SourceSpec source) {
+Map<String, Object?> _sourceEnvelope(
+  M0SourceSpec source, {
+  String dartssh2Version = resolvedDartssh2Version,
+  String seanceRevision = pinnedSeanceRevision,
+}) {
   final attempts = <Map<String, Object?>>[];
   final primes = <String, Map<String, Object?>>{};
   final rows = <Map<String, Object?>>[];
@@ -380,14 +482,29 @@ Map<String, Object?> _sourceEnvelope(M0SourceSpec source) {
           .where((trial) => trial.scenario == scenario)
           .toList();
       if (specs.isEmpty) {
-        rows.add(_row(scenario, source.id));
+        rows.add(
+          _row(
+            scenario,
+            source.id,
+            dartssh2Version: dartssh2Version,
+            seanceRevision: seanceRevision,
+          ),
+        );
         continue;
       }
       final bundles = [
         for (final spec in specs)
           _trialBundle(source.id, spec, attempts: attempts, primes: primes),
       ];
-      rows.add(_row(scenario, source.id, bundles: bundles));
+      rows.add(
+        _row(
+          scenario,
+          source.id,
+          bundles: bundles,
+          dartssh2Version: dartssh2Version,
+          seanceRevision: seanceRevision,
+        ),
+      );
     }
   } else {
     final scenario = source.scenarios.single;
@@ -409,7 +526,15 @@ Map<String, Object?> _sourceEnvelope(M0SourceSpec source) {
       attempts: attempts,
       primes: primes,
     );
-    rows.add(_row(scenario, source.id, bundles: [bundle]));
+    rows.add(
+      _row(
+        scenario,
+        source.id,
+        bundles: [bundle],
+        dartssh2Version: dartssh2Version,
+        seanceRevision: seanceRevision,
+      ),
+    );
   }
 
   return {
@@ -432,8 +557,8 @@ Map<String, Object?> _sourceEnvelope(M0SourceSpec source) {
         'runnerImageVersion': '20260901.1',
       },
       'dependencies': {
-        'dartssh2Version': resolvedDartssh2Version,
-        'seanceRevision': pinnedSeanceRevision,
+        'dartssh2Version': dartssh2Version,
+        'seanceRevision': seanceRevision,
       },
       'fixture': {
         'tree': _fixtureTree,
@@ -495,6 +620,8 @@ Map<String, Object?> _row(
   String scenario,
   String sourceId, {
   List<Map<String, Object?>>? bundles,
+  String dartssh2Version = resolvedDartssh2Version,
+  String seanceRevision = pinnedSeanceRevision,
 }) {
   final elapsed = bundles == null
       ? (scenario.startsWith('algorithm-client-support-') ? 0 : 10)
@@ -507,8 +634,8 @@ Map<String, Object?> _row(
   final row = <String, Object?>{
     'scenario': scenario,
     'bytes': expectedBytesForScenario(scenario),
-    'dartssh2Version': resolvedDartssh2Version,
-    'seanceRev': pinnedSeanceRevision,
+    'dartssh2Version': dartssh2Version,
+    'seanceRev': seanceRevision,
     'rttMs': scenario.endsWith('-rtt100') ? 100 : null,
     'elapsedUs': elapsed,
     'note': 'source=$sourceId',
