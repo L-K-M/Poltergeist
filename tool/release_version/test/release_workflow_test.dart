@@ -214,6 +214,16 @@ void main() {
     );
   }, skip: _posixOnly);
 
+  test('Android version verifier finds apkanalyzer on PATH', () async {
+    final result = await _runAndroidVersionVerifier(
+      sandbox,
+      code: _expectedAndroidCode(),
+      analyzerLocation: _AnalyzerLocation.path,
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+  }, skip: _posixOnly);
+
   test('zero-major versions publish as pre-releases', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
@@ -285,10 +295,16 @@ exit 0
 Future<ProcessResult> _runAndroidVersionVerifier(
   Directory sandbox, {
   required String code,
+  _AnalyzerLocation analyzerLocation = _AnalyzerLocation.androidHome,
 }) {
-  final analyzer = File(
-    p.join(sandbox.path, 'android', 'cmdline-tools/latest/bin/apkanalyzer'),
-  );
+  final androidHome = p.join(sandbox.path, 'android');
+  final analyzer = File(switch (analyzerLocation) {
+    _AnalyzerLocation.androidHome => p.join(
+      androidHome,
+      'cmdline-tools/latest/bin/apkanalyzer',
+    ),
+    _AnalyzerLocation.path => p.join(sandbox.path, 'bin', 'apkanalyzer'),
+  });
   analyzer.parent.createSync(recursive: true);
   analyzer.writeAsStringSync(r'''#!/usr/bin/env bash
 [[ "$*" == "manifest version-code $FAKE_EXPECTED_APK_PATH" ]] || exit 64
@@ -301,11 +317,19 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
     [_repositoryFile('scripts/verify-android-version.sh').path],
     environment: {
       ...Platform.environment,
-      'ANDROID_HOME': p.join(sandbox.path, 'android'),
+      'ANDROID_HOME': switch (analyzerLocation) {
+        _AnalyzerLocation.androidHome => androidHome,
+        _AnalyzerLocation.path => '',
+      },
       'FAKE_ANDROID_VERSION_CODE': code,
       'FAKE_EXPECTED_APK_PATH': _repositoryFile(
         'app/poltergeist_app/build/app/outputs/flutter-apk/app-release.apk',
       ).path,
+      'PATH': switch (analyzerLocation) {
+        _AnalyzerLocation.androidHome => '${Platform.environment['PATH']}',
+        _AnalyzerLocation.path =>
+          '${analyzer.parent.path}:${Platform.environment['PATH']}',
+      },
     },
     workingDirectory: sandbox.path,
   );
@@ -317,6 +341,8 @@ enum _GitScenario {
   tagExistenceError,
   tagHistoryError,
 }
+
+enum _AnalyzerLocation { androidHome, path }
 
 YamlMap _workflow(String path) {
   final parsed = loadYaml(_repositoryFile(path).readAsStringSync());
@@ -336,10 +362,19 @@ File _repositoryFile(String path) {
 }
 
 String _expectedAndroidCode() {
-  final line = _repositoryFile(
-    'app/poltergeist_app/pubspec.yaml',
-  ).readAsLinesSync().singleWhere((line) => line.startsWith('version:'));
-  return line.split('+').last.trim();
+  final pubspec =
+      loadYaml(
+            _repositoryFile(
+              'app/poltergeist_app/pubspec.yaml',
+            ).readAsStringSync(),
+          )
+          as YamlMap;
+  final version = '${pubspec['version']}';
+  if (!version.contains('+')) {
+    throw StateError('app pubspec version has no build code: $version');
+  }
+
+  return version.split('+').last;
 }
 
 Directory _findRepositoryRoot() {

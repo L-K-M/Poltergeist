@@ -70,7 +70,7 @@ if $has_version || ! $skip_repository_check; then
     remote_tag_output="$(
       git -C "$ROOT" ls-remote --tags --refs origin 'v*'
     )" || {
-      echo "error: could not read remote release tags" >&2
+      echo "error: could not read release tags from 'origin'" >&2
       exit 1
     }
 

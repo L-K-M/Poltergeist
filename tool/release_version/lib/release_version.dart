@@ -94,6 +94,7 @@ final class ReleaseVersion {
     }
 
     final version = ReleaseVersion._(major: major, minor: minor, patch: patch);
+    // Keep the platform ceiling explicit if component constants drift.
     if (version.androidVersionCode > _androidVersionCodeLimit) {
       throw ReleaseVersionFormatException(
         'release version "$source" exceeds Android versionCode '
@@ -115,7 +116,7 @@ final class ReleaseVersion {
 
   String get appVersion => '$semantic+$androidVersionCode';
 
-  // Apple requires a positive, four-digit first build component.
+  // Offset zero-major releases because Apple's first component is positive.
   String get _appleBundleVersion => '${_major + 1}.$_minor.$_patch';
 }
 
@@ -471,7 +472,7 @@ final class ReleaseVersionWorkspace {
     List<_PubspecVersion> declarations,
     ReleaseVersion expected,
   ) {
-    final dependencies = _pathDependencyNames(appPubspec);
+    final dependencies = _pathDependencies(appPubspec);
     final lock = _resolveInsideRoot(_appLockPath);
     final lockYaml = _readYamlMap(lock, 'app lock');
     final packages = lockYaml['packages'];
@@ -480,25 +481,51 @@ final class ReleaseVersionWorkspace {
     }
 
     var checked = 0;
-    for (final dependency in dependencies) {
+    for (final dependency in dependencies.entries) {
       final matchingPubspec = declarations
           .where(
-            (declaration) => _readPubspecName(declaration.file) == dependency,
+            (declaration) =>
+                _readPubspecName(declaration.file) == dependency.key,
           )
           .toList();
       if (matchingPubspec.length != 1) {
         throw ReleaseVersionStateException(
-          'app path dependency $dependency must resolve to exactly one '
+          'app path dependency ${dependency.key} must resolve to exactly one '
           'versioned pubspec',
         );
       }
 
-      final locked = packages[dependency];
+      final locked = packages[dependency.key];
+      final description = locked is YamlMap ? locked['description'] : null;
+      final lockedPath = description is YamlMap ? description['path'] : null;
+      final lockedRelative = description is YamlMap
+          ? description['relative']
+          : null;
+      final lockedPathKind = switch (lockedRelative) {
+        true => _DependencyPathKind.relative,
+        false => _DependencyPathKind.absolute,
+        _ => null,
+      };
+      final packageDirectory = matchingPubspec.single.file.parent;
+      final declaredDirectory = _resolveDependencyDirectory(
+        appPubspec,
+        dependency.value,
+      );
+      final lockedDirectory = lockedPath is String && lockedPathKind != null
+          ? _resolveLockedDependencyDirectory(
+              appPubspec,
+              lockedPath,
+              lockedPathKind,
+            )
+          : null;
       if (locked is! YamlMap ||
           locked['source'] != 'path' ||
-          locked['version'] != expected.semantic) {
+          locked['version'] != expected.semantic ||
+          !_sameDirectory(declaredDirectory, packageDirectory) ||
+          lockedDirectory == null ||
+          !_sameDirectory(lockedDirectory, packageDirectory)) {
         throw ReleaseVersionStateException(
-          'app lock does not pin path dependency $dependency at '
+          'app lock does not pin path dependency ${dependency.key} at '
           '${expected.semantic}',
         );
       }
@@ -507,18 +534,59 @@ final class ReleaseVersionWorkspace {
     return checked;
   }
 
-  Set<String> _pathDependencyNames(File appPubspec) {
+  Map<String, String> _pathDependencies(File appPubspec) {
     final yaml = _readYamlMap(appPubspec, 'app pubspec');
     final dependencies = yaml['dependencies'];
     if (dependencies is! YamlMap) return const {};
 
-    return {
-      for (final entry in dependencies.entries)
-        if (entry.key is String &&
-            entry.value is YamlMap &&
-            (entry.value as YamlMap).containsKey('path'))
-          entry.key as String,
-    };
+    final paths = <String, String>{};
+    for (final entry in dependencies.entries) {
+      if (entry.key is! String || entry.value is! YamlMap) continue;
+
+      final declaration = entry.value as YamlMap;
+      if (!declaration.containsKey('path')) continue;
+
+      final path = declaration['path'];
+      if (path is! String) {
+        throw ReleaseVersionStateException(
+          'app path dependency ${entry.key} has a non-string path',
+        );
+      }
+      paths[entry.key as String] = path;
+    }
+
+    return paths;
+  }
+
+  Directory _resolveDependencyDirectory(File appPubspec, String path) {
+    final candidate = p.isAbsolute(path)
+        ? path
+        : p.join(appPubspec.parent.path, path);
+
+    return Directory(p.normalize(p.absolute(candidate)));
+  }
+
+  Directory? _resolveLockedDependencyDirectory(
+    File appPubspec,
+    String path,
+    _DependencyPathKind kind,
+  ) {
+    final pathIsAbsolute = p.isAbsolute(path);
+    if (kind == _DependencyPathKind.relative && pathIsAbsolute) return null;
+    if (kind == _DependencyPathKind.absolute && !pathIsAbsolute) return null;
+
+    return _resolveDependencyDirectory(appPubspec, path);
+  }
+
+  bool _sameDirectory(Directory left, Directory right) {
+    final leftPath = left.existsSync()
+        ? left.resolveSymbolicLinksSync()
+        : left.path;
+    final rightPath = right.existsSync()
+        ? right.resolveSymbolicLinksSync()
+        : right.path;
+
+    return p.equals(leftPath, rightPath);
   }
 
   void _checkReadme(ReleaseVersion expected) {
@@ -686,6 +754,8 @@ ReleaseVersion _parsePubspecSemantic(String value, String source) {
 }
 
 enum _VersionRequirement { optional, required }
+
+enum _DependencyPathKind { absolute, relative }
 
 String? _readPubspecVersion(
   File file, {

@@ -37,7 +37,7 @@ printf 'cwd=%s\n' "\$PWD"
     fakeGit.writeAsStringSync(r'''#!/usr/bin/env bash
 if [[ "$1" == "-C" && "$3" == "tag" && "$4" == "--list" ]]; then
   [[ "${FAKE_GIT_FAILURE:-none}" == localTags ]] && exit 2
-  printf '%s\n' "${FAKE_RELEASE_TAGS:-}"
+  [[ -n "${FAKE_RELEASE_TAGS:-}" ]] && printf '%s\n' "$FAKE_RELEASE_TAGS"
   exit 0
 fi
 if [[ "$1" == "-C" && "$3" == "ls-remote" ]]; then
@@ -153,7 +153,10 @@ exec "$REAL_GIT" "$@"
     );
 
     expect(result.exitCode, isNot(0));
-    expect(result.stderr, contains('could not read remote release tags'));
+    expect(
+      result.stderr,
+      contains("could not read release tags from 'origin'"),
+    );
     expect(result.stdout, isNot(contains('pubspecs=')));
   });
 

@@ -53,6 +53,19 @@ void main() {
     expect(errors, isEmpty);
   });
 
+  test('check resolves a relative root from the working directory', () {
+    final result = runReleaseVersionCommand(
+      ['check', '--root', p.basename(root.path)],
+      workingDirectory: sandbox,
+      writeOutput: output.add,
+      writeError: errors.add,
+    );
+
+    expect(result, 0);
+    expect(output.single, contains('3 pubspecs'));
+    expect(errors, isEmpty);
+  });
+
   test('missing command arguments return usage failure', () {
     expect(run(['sync', '--version', '0.1.0']), 64);
     expect(errors.single, startsWith('usage:'));
@@ -141,6 +154,7 @@ packages:
     dependency: "direct main"
     description:
       path: "../../packages/poltergeist_core"
+      relative: true
     source: path
     version: "0.1.0"
 ''');

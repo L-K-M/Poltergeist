@@ -8,8 +8,20 @@ readonly repository_root="$(
 readonly app_root="$repository_root/app/poltergeist_app"
 readonly pubspec="$app_root/pubspec.yaml"
 readonly apk="$app_root/build/app/outputs/flutter-apk/app-release.apk"
-readonly android_tools="${ANDROID_HOME:?ANDROID_HOME is required}/cmdline-tools/latest/bin"
-readonly analyzer="$android_tools/apkanalyzer"
+
+analyzer=""
+if [[ -n "${ANDROID_HOME:-}" ]]; then
+  candidate="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+  [[ -x "$candidate" ]] && analyzer="$candidate"
+fi
+if [[ -z "$analyzer" ]]; then
+  analyzer="$(command -v apkanalyzer || true)"
+fi
+if [[ -z "$analyzer" ]]; then
+  echo "apkanalyzer not found; set ANDROID_HOME or PATH" >&2
+  exit 1
+fi
+readonly analyzer
 
 expected_code="$(sed -n 's/^version: [^+]*+//p' "$pubspec")"
 if [[ ! "$expected_code" =~ ^[0-9]+$ ]]; then

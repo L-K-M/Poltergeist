@@ -100,6 +100,14 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
     expect(_read(root, pubspecPath), original);
+    expect(
+      root
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((file) => _isReleaseTemporary(file.path)),
+      isEmpty,
+      reason: 'staging failure must not leak temporary files',
+    );
   });
 
   test('sync removes a temporary file after staged validation fails', () {
@@ -223,6 +231,26 @@ void main() {
     );
     expect(_read(outside, 'pubspec.yaml'), outsideContents);
   }, skip: Platform.isWindows ? 'requires symbolic-link permission' : false);
+
+  test('sync rejects a path outside the repository', () {
+    const outsideContents = 'name: outside\nversion: 0.1.0\n';
+    _write(sandbox, 'outside-pubspec.yaml', outsideContents);
+
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: '../outside-pubspec.yaml',
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('path leaves repository root'),
+        ),
+      ),
+    );
+    expect(_read(sandbox, 'outside-pubspec.yaml'), outsideContents);
+  });
 
   test('sync keeps the maximum Apple build version within bounds', () {
     ReleaseVersionWorkspace(root).syncAppMetadata(
@@ -396,6 +424,102 @@ void main() {
           (error) => error.message,
           'message',
           contains('app lock'),
+        ),
+      ),
+    );
+  });
+
+  test('check rejects a lock path outside its workspace package', () {
+    _write(
+      sandbox,
+      'other_core/pubspec.yaml',
+      'name: poltergeist_core\nversion: 0.1.0\n',
+    );
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.lock',
+      '../../packages/poltergeist_core',
+      '../../../other_core',
+    );
+
+    expect(
+      () => ReleaseVersionWorkspace(root).check(),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('app lock'),
+        ),
+      ),
+    );
+  });
+
+  test('check rejects a dependency path outside its workspace package', () {
+    _write(
+      sandbox,
+      'other_core/pubspec.yaml',
+      'name: poltergeist_core\nversion: 0.1.0\n',
+    );
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.yaml',
+      '../../packages/poltergeist_core',
+      '../../../other_core',
+    );
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.lock',
+      '../../packages/poltergeist_core',
+      '../../../other_core',
+    );
+
+    expect(
+      () => ReleaseVersionWorkspace(root).check(),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('app lock'),
+        ),
+      ),
+    );
+  });
+
+  test('check rejects a lock path with the wrong relative marker', () {
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.lock',
+      'relative: true',
+      'relative: false',
+    );
+
+    expect(
+      () => ReleaseVersionWorkspace(root).check(),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('app lock'),
+        ),
+      ),
+    );
+  });
+
+  test('check rejects a non-string path dependency', () {
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.yaml',
+      'path: ../../packages/poltergeist_core',
+      'path: 7',
+    );
+
+    expect(
+      () => ReleaseVersionWorkspace(root).check(),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('path dependency'),
         ),
       ),
     );
