@@ -18,12 +18,88 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 export RELEASE_APP_NAME="Poltergeist"
 export RELEASE_KIND="pubspec"
+export RELEASE_VERSION_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
-# The workspace packages, plus the app pubspec once the app is scaffolded —
-# built dynamically so this stub needs no edit when packages or the app land.
+VERSION_TOOL="tool/release_version/bin/release_version.dart"
+DART_BIN="${DART_BIN:-dart}"
+
+run_version_tool() {
+  (
+    cd "$ROOT"
+    "$DART_BIN" run "$VERSION_TOOL" "$@"
+  )
+}
+
+# Bash checks the shape; Dart enforces canonical decimals and component bounds.
+has_version=false
+requested_version=""
+check_only=false
+skip_repository_check=false
+for argument in "$@"; do
+  case "$argument" in
+    --check) check_only=true ;;
+    --help|-h|--version) skip_repository_check=true ;;
+    -*) ;;
+    *)
+      if $has_version; then
+        echo "error: only one release version is allowed" >&2
+        exit 1
+      fi
+      has_version=true
+      requested_version="$argument"
+      ;;
+  esac
+done
+if $has_version || ! $skip_repository_check; then
+  command -v "$DART_BIN" >/dev/null 2>&1 || {
+    echo "error: Dart SDK not found" >&2
+    exit 1
+  }
+
+  if $has_version; then
+    run_version_tool validate --version "$requested_version"
+  fi
+
+  if $check_only; then
+    run_version_tool check
+  else
+    local_tag_output="$(git -C "$ROOT" tag --list 'v*')" || {
+      echo "error: could not read local release tags" >&2
+      exit 1
+    }
+    remote_tag_output="$(
+      git -C "$ROOT" ls-remote --tags --refs origin 'v*'
+    )" || {
+      echo "error: could not read release tags from 'origin'" >&2
+      exit 1
+    }
+
+    order_arguments=(check-order)
+    if $has_version; then
+      order_arguments+=(--version "$requested_version")
+    fi
+    while IFS= read -r tag; do
+      [[ -n "$tag" ]] || continue
+      order_arguments+=(--prior-tag "$tag")
+    done <<< "$local_tag_output"
+    while read -r _ tag_ref; do
+      [[ -n "${tag_ref:-}" ]] || continue
+      order_arguments+=(--prior-tag "${tag_ref#refs/tags/}")
+    done <<< "$remote_tag_output"
+
+    run_version_tool "${order_arguments[@]}"
+  fi
+fi
+export RELEASE_DART_BIN="$DART_BIN"
+
+# Every versioned package, tool, and app pubspec stays in release lockstep.
 PUBSPECS=""
-for p in "$ROOT"/packages/*/pubspec.yaml "$ROOT"/app/poltergeist_app/pubspec.yaml; do
+for p in \
+  "$ROOT"/packages/*/pubspec.yaml \
+  "$ROOT"/tool/*/pubspec.yaml \
+  "$ROOT"/app/*/pubspec.yaml; do
   [[ -f "$p" ]] || continue
+  grep -q '^version:' "$p" || continue
   PUBSPECS+="${PUBSPECS:+ }${p#"$ROOT"/}"
 done
 [[ -n "$PUBSPECS" ]] || { echo "error: no pubspecs found to bump" >&2; exit 1; }
@@ -44,6 +120,13 @@ export RELEASE_PUBSPECS="$PUBSPECS"
 # until the app (and its lockfile) exist.
 # shellcheck disable=SC2016
 export RELEASE_POST_BUMP='
+  set -euo pipefail
+
+  "${RELEASE_DART_BIN}" run tool/release_version/bin/release_version.dart \
+    sync \
+    --version "${RELEASE_NEW_VERSION}" \
+    --pubspec app/poltergeist_app/pubspec.yaml
+
   LOCK=app/poltergeist_app/pubspec.lock
   if [ -f "$LOCK" ]; then
     if sed --version 2>/dev/null | head -n 1 | grep -q "GNU sed"; then
@@ -68,4 +151,7 @@ command -v "$BIN" >/dev/null 2>&1 || {
   echo "error: lkm-release not found — clone https://github.com/L-K-M/release-tool and run ./install.sh" >&2
   exit 1
 }
+
+# The engine discovers its target from cwd, including for absolute invocations.
+cd "$ROOT"
 exec "$BIN" "$@"

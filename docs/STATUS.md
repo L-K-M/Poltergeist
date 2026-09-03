@@ -3,8 +3,8 @@
 Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) first for how to build/test.
 
-_Last updated: 2026-09-02 — M0 is complete; the M1 scaffold and client matrix
-are green, but M1 remains open pending the v0.1.0 rehearsal._
+_Last updated: 2026-09-02 — M0 is complete; the M1 scaffold and deterministic
+release versions are implemented, but M1 remains open pending v0.1.0._
 
 ## Done
 
@@ -19,17 +19,21 @@ are green, but M1 remains open pending the v0.1.0 rehearsal._
 | Séance PR-S2 | `openAuthenticatedClient` split merged in [Séance #61](https://github.com/L-K-M/Seance/pull/61), merge `dad6d4f66dbfba6c170b98c204980e5801a890cb`. |
 | M0 — engine fitness | Complete from workflow-dispatch run [`33563514640`](https://github.com/L-K-M/Poltergeist/actions/runs/33563514640), attempt 1, measured commit `6b8873eafdaaa3a4157e265dee838ab3b47219b3`. The 78-row canonical bundle is committed at [`docs/evidence/m0`](evidence/m0); `m0-evidence.json` SHA-256 is `b93660b9f1c06bac206096d25c6fff472bcb31d13589a4d81bd5a3df70fa7fcc`. D7 is final: managed checkouts always hash; bulk transfers and sync hashing are opt-in. D8 passed every isolate gate, so sockets, SFTP, transfers, and hashing stay in the engine isolate. D9 adopts dartssh2 3.0.2 at ladder rung 4: document the roughly 10–11× single-file LAN ceiling versus OpenSSH, compensate with bounded channels/transports, and do not adopt libssh2. `PoolPolicy` is finalized at 2 transports, 4 transfer channels per transport, 8 total channels per transport, 6 global in-flight transfers, and remote readdir depth 8. Keepalive remains 30 seconds, extra idle 60 seconds, reconnect cap 30 seconds, and retry limit 5; these are retained design defaults, not M0-tuned values. Earlier runs `33458209337`, `33481554062`, and `33504660759` were partial; `33534298280` stopped in preflight; `33535334440` diagnosed dartssh2 2.22.0's detached cancellation error. None is admissible evidence. M0 closes untagged. |
 | M1 — app scaffold implementation | Implemented in [PR #8](https://github.com/L-K-M/Poltergeist/pull/8) with Flutter 3.47.2, exact dependency pins, generated platform icons from the 1024×1024 master, and the verified platform identity contract. Flutter analysis, 108 tests, and all five client builds pass; see the [PR checks](https://github.com/L-K-M/Poltergeist/pull/8/checks). M1 is not closed: the v0.1.0 rehearsal remains. |
+| M1 — release versions | Release versions accept canonical `X.Y.Z` only, derive ordered Android codes, keep every versioned pubspec plus the app lock, Apple metadata, and README synchronized, and gate CI and release tags against drift or downgrade. Stable-only is the selected 07 §3.12 rule; suffixed releases are unsupported. The app starts at `0.1.0+10099`; CI verifies that code in the built APK, while Apple and Windows use bounded semantic mappings. |
 
 ## Open items
 
 1. **2026-09-02 — close M1.** The scaffold, Flutter checks, and full client
    matrix are green. Follow the [implementation playbook](plan/09-PLAYBOOK.md)
    to bring `release.yml` to D23, then run the v0.1.0 rehearsal with its
-   required client assets. The release work must add the draft/pre-release
-   gate, checksums and signed-list handoff, monotonic Android version codes,
-   and the unsigned `.xcarchive` → IPA path. Before publishing Linux assets,
+   required client assets. Deterministic Android version codes are complete.
+   The remaining release work must add the draft publication gate, checksums
+   and signed-list handoff, and the unsigned `.xcarchive` → IPA path. Before
+   publishing Linux assets,
    include the verbatim Unlicense in the Debian copyright file and replace
    ABI-tag-derived dependency floors with Debian package-version mapping.
+   The signed tag, signed checksum list, and independently published
+   fingerprint require the owner's OpenPGP key; this environment has none.
    The observed Linux
    X11 identity is instance `com.lkm.poltergeist_app`, class
    `Com.lkm.poltergeist_app`; `StartupWMClass` uses the case-sensitive class.
