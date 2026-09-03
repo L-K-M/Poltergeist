@@ -397,16 +397,8 @@ class _EvidenceFixture {
   final Directory root;
   final Directory input;
   final Directory output;
-  final String dartssh2Version;
-  final String seanceRevision;
 
-  const _EvidenceFixture(
-    this.root,
-    this.input,
-    this.output, {
-    this.dartssh2Version = resolvedDartssh2Version,
-    this.seanceRevision = pinnedSeanceRevision,
-  });
+  const _EvidenceFixture(this.root, this.input, this.output);
 
   static Future<_EvidenceFixture> create({
     String dartssh2Version = resolvedDartssh2Version,
@@ -417,8 +409,6 @@ class _EvidenceFixture {
       root,
       Directory('${root.path}/input'),
       Directory('${root.path}/output'),
-      dartssh2Version: dartssh2Version,
-      seanceRevision: seanceRevision,
     );
     await fixture.input.create();
     for (final source in m0SourceManifest) {
