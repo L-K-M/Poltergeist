@@ -485,7 +485,7 @@ void main() {
       root,
       'app/poltergeist_app/pubspec.lock',
       '"../../packages/poltergeist_core"',
-      '"$packagePath"',
+      jsonEncode(packagePath),
     );
     _replace(
       root,
@@ -500,7 +500,7 @@ void main() {
         isA<ReleaseVersionStateException>().having(
           (error) => error.message,
           'message',
-          contains('app lock'),
+          contains('does not pin path dependency'),
         ),
       ),
     );
