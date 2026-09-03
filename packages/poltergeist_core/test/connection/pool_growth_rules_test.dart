@@ -105,8 +105,7 @@ void main() {
 
     // A burst beyond the per-transport transfer budget: 5th and 6th block.
     final leases = [
-      for (var i = 0; i < 6; i++)
-        harness.manager.leaseTransferChannel('s1').then((l) => l),
+      for (var i = 0; i < 6; i++) harness.manager.leaseTransferChannel('s1'),
     ];
     await Future.wait(leases.take(4));
 
@@ -163,6 +162,8 @@ void main() {
         .then((_) => ninthServed = true));
     await Future<void>.delayed(Duration.zero);
     expect(ninthServed, isFalse);
+    // No third growth attempt began — the pool is at maxTransports.
+    expect(harness.opener.calls, hasLength(2));
   });
 
   test('a growth auth challenge marks the pool interactive-capped',
@@ -242,6 +243,7 @@ void main() {
       harness.manager.leaseTransferChannel('s1'),
       throwsA(isA<RemoteFileException>()),
     );
+    await flushEvents();
 
     expect(states.last, ServerConnectionState.blocked);
 

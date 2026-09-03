@@ -167,10 +167,24 @@ class PooledConnectionManager implements ConnectionManager {
     // the home resolution below awaits inside that window.
     handle.use = _ChannelUse.browse;
 
-    // Séance-style home resolution at open. A shared handle already has
-    // it, so this runs once per channel, not once per tab.
-    final homePath = handle.homePath;
-    handle.homePath = homePath ?? await handle.channel.fs.canonicalize('.');
+    // A failed home resolution must not strand a budget-counted handle.
+    try {
+      final homePath = handle.homePath;
+      handle.homePath =
+          homePath ?? await handle.channel.fs.canonicalize('.');
+    } on Object {
+      await _closeHandle(pool, handle);
+      rethrow;
+    }
+
+    // A concurrent openBrowseChannel for the same tab may have bound a
+    // channel while this one was opening — the loser closes its handle so
+    // the binding map never orphans one.
+    final raced = pool.browseByClient[clientKey];
+    if (raced != null && !identical(raced, handle)) {
+      await _closeHandle(pool, handle);
+      return _PaneChannelView(this, pool, serverId, paneTabId, raced);
+    }
 
     _bindBrowse(pool, clientKey, handle);
     return _PaneChannelView(this, pool, serverId, paneTabId, handle);
@@ -334,17 +348,23 @@ class PooledConnectionManager implements ConnectionManager {
     final idle = _takeIdleTransfer(pool);
     if (idle != null) return idle;
 
-    var slot = _transferSlot(pool);
-    if (slot == null && _canGrow(pool)) {
+    // Growth first when no existing transport has room; then one slot per
+    // transport — an open refusal (a fake or real MaxSessions ceiling)
+    // tries the next transport with capacity before queueing.
+    if (_transferSlot(pool) == null && _canGrow(pool)) {
       await _growTransport(pool);
       _throwIfBlocked(pool);
-      slot = _transferSlot(pool);
     }
 
-    if (slot != null) {
+    final attempted = <_TransportSlot>{};
+    var slot = _transferSlot(pool);
+    while (slot != null && attempted.add(slot)) {
       final opened =
           await _openChannelOn(pool, slot, use: _ChannelUse.transferLeased);
       if (opened != null) return opened;
+
+      _throwIfBlocked(pool);
+      slot = _transferSlot(pool);
     }
 
     // At capacity: block until a lease comes back (03 §3.2).
@@ -412,6 +432,18 @@ class PooledConnectionManager implements ConnectionManager {
     slot.pendingOpens++;
     try {
       final channel = await slot.transport.openChannel();
+
+      // The pool may have been hard-blocked while the open was in flight;
+      // a channel landing after the block's handle-closing loop would be
+      // the one thing on a blocked pool that still looks live.
+      if (pool.blocked || !pool.transports.contains(slot)) {
+        final orphan = _ChannelHandle(
+            slot: slot, channel: channel, use: use);
+        slot.channels.add(orphan);
+        await _closeHandle(pool, orphan);
+        return null;
+      }
+
       final handle = _ChannelHandle(slot: slot, channel: channel, use: use);
       slot.channels.add(handle);
       return handle;

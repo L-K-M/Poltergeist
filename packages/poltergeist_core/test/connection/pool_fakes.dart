@@ -83,7 +83,8 @@ class FakeTransport implements SshTransport {
         message: 'The SSH transport is disconnected.',
       );
     }
-    if (openLimit != null && channels.length >= openLimit!) {
+    if (openLimit != null &&
+        channels.where((c) => !c.closed).length >= openLimit!) {
       throw const RemoteFileException(
         kind: RemoteFileErrorKind.other,
         operation: 'open SFTP',
