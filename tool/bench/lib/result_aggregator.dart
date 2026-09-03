@@ -106,6 +106,7 @@ Future<CanonicalEvidenceBundle> aggregateEvidenceDirectory({
     );
   }
   if (expectedDartssh2Version.trim().isEmpty ||
+      expectedDartssh2Version != expectedDartssh2Version.trim() ||
       !_gitShaPattern.hasMatch(expectedSeanceRevision)) {
     throw const ResultAggregationException(
       'Invalid expected dependency pins.',

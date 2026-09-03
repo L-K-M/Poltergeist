@@ -12,6 +12,8 @@ import 'result_manifest.dart';
 /// plan 04 §5), so bundle re-aggregation checks these constants — recorded
 /// in docs/M0-DARTSSH2-REPORT.md's dependency table — instead of the live
 /// ones. A re-measured bundle replaces this evidence and updates both.
+/// The Séance revision is the retired fork-bridge commit
+/// (BigBoyDevBox/Seance), not an upstream one.
 const m0MeasuredDartssh2Version = '3.0.2';
 const m0MeasuredSeanceRevision = '0a695971a411a6a754593e7c2598038039440c2f';
 
