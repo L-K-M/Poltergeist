@@ -4,6 +4,12 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
+/// Steps are selected by action name, never by tag: these tests assert step
+/// *inputs* (`fetch-depth`, `prerelease`), so a routine `@v4` → `@v5` bump
+/// must not turn them into an opaque `singleWhere` "No element" failure.
+const _checkoutAction = 'actions/checkout';
+const _releaseAction = 'softprops/action-gh-release';
+
 void main() {
   late Directory sandbox;
 
@@ -40,7 +46,7 @@ void main() {
     final client = jobs['client'] as YamlMap;
     final testSteps = (jobs['test'] as YamlMap)['steps'] as YamlList;
     final checkout = testSteps.whereType<YamlMap>().singleWhere(
-      (step) => step['uses'] == 'actions/checkout@v4',
+      (step) => '${step['uses']}'.startsWith('$_checkoutAction@'),
     );
     final gate = _step(testSteps, 'Verify release tag and versions');
     final gateEnvironment = gate['env'] as YamlMap;
@@ -300,7 +306,7 @@ void main() {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
     final publisher = clientSteps.whereType<YamlMap>().singleWhere(
-      (step) => step['uses'] == 'softprops/action-gh-release@v2',
+      (step) => '${step['uses']}'.startsWith('$_releaseAction@'),
     );
     final inputs = publisher['with'] as YamlMap;
 
