@@ -198,15 +198,17 @@ Additional rules:
   open), yet a pair using either must never paste into a silent
   misconnection: the command would authenticate differently or bypass
   the jump path while looking correct. `ResolvedSyncEndpoints`
-  therefore carries a small per-side `connectionShape` enum
-  (`plain` / `identityFile` / `jumpHost` — filled by the app layer from
-  the connection settings it resolved, the local side always `plain`),
-  and whenever a side is not `plain` the leading `# note:` block names
-  the gap — `# note: this pair authenticates with an identity file —
-  the command below does not pass -i and will use your OpenSSH defaults
-  instead` / `# note: this pair connects through a jump host — the
-  command below connects directly and will not traverse it` — golden
-  fixtures pin both notes. Render-with-note is chosen over D6's
+  therefore carries a small per-side `connectionShape` — a set of
+  flags (`identityFile`, `jumpHost`; an empty set is the `plain` case —
+  filled by the app layer from the connection settings it resolved, the
+  local side always empty), and whenever a side's set is non-empty the
+  leading `# note:` block names every flagged gap — `# note: this pair
+  authenticates with an identity file — the command below does not
+  pass -i and will use your OpenSSH defaults instead` / `# note: this
+  pair connects through a jump host — the command below connects
+  directly and will not traverse it` (a side with both flags renders
+  both notes) — golden fixtures pin all three variants.
+  Render-with-note is chosen over D6's
   refusal alternative so the command stays usable once the user adjusts
   it (the note says exactly what to adjust), with the divergence loud
   on the clipboard rather than latent — 00 D6's recorded interim
@@ -1060,10 +1062,13 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    rule is **per side** (`trashPathLeft`/`trashPathRight`, §6 — each
    resolved on that side's host; one shared string could not be
    same-filesystem on both machines) and moves that side's trash outside
-   that side's root (when the rename fails anyway, copy-then-delete is
-   the fallback, and its trigger is a precision point: EXDEV is
-   classifiable only for a local pair, mirroring D26's local rule; a
-   remote pair's SFTP status code carries no errno, so *any* rename
+   that side's root (a rename onto that out-of-root trash can still
+   fail — copy-then-delete is the fallback, and its trigger is a
+   precision point: for a local pair EXDEV is the classifiable trigger
+   (mirroring D26's local rule) and falls back, while any other local
+   rename failure surfaces as an error — copy-then-delete would hit the
+   same permission or existence problem and only mask the cause; for a
+   remote pair the SFTP status code carries no errno, so *any* rename
    failure not prevented by the sequence prefix triggers the fallback
    rather than being classified as cross-device), and the
    docroot warning — trash in-root while the destination path looks like
