@@ -191,6 +191,27 @@ Additional rules:
   string ever grows) — the
   port travels in `ResolvedSyncEndpoints` and must reach the command, or
   the copy silently talks to port 22.
+- An identity file or a jump host configured for the pair's connection
+  is not representable in the rendered command (that would mean
+  threading `-i` paths and jump topology into generated text — a second
+  surface that spreads credential configuration the exporter must not
+  open), yet a pair using either must never paste into a silent
+  misconnection: the command would authenticate differently or bypass
+  the jump path while looking correct. `ResolvedSyncEndpoints`
+  therefore carries a small per-side `connectionShape` enum
+  (`plain` / `identityFile` / `jumpHost` — filled by the app layer from
+  the connection settings it resolved, the local side always `plain`),
+  and whenever a side is not `plain` the leading `# note:` block names
+  the gap — `# note: this pair authenticates with an identity file —
+  the command below does not pass -i and will use your OpenSSH defaults
+  instead` / `# note: this pair connects through a jump host — the
+  command below connects directly and will not traverse it` — golden
+  fixtures pin both notes. Render-with-note is chosen over D6's
+  refusal alternative so the command stays usable once the user adjusts
+  it (the note says exactly what to adjust), with the divergence loud
+  on the clipboard rather than latent — 00 D6's recorded interim
+  ruling, which blocked "Copy as rsync command" from shipping in any
+  milestone until it landed here.
 - When both endpoints are remote, rsync refuses to run ("The source and
   destination cannot both be remote"); the exporter emits a comment saying
   the command is not directly runnable (Poltergeist routes such pairs via
@@ -1020,20 +1041,31 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    of files an update overwrites are backed up per `backups` (`trash` by
    default; `none` skips overwrite backups). Both use a cheap
    same-filesystem rename into
-   `.poltergeist-trash/<runId>/<relativePath>` under the sync root of the
-   side being changed, on both local and remote sides (sync uses the
-   rename trash even locally so undo is journal-driven and symmetric).
-   Because the trash lives under the sync root, the rename never crosses
-   devices, and the default ignore rules (`.poltergeist*`, §3) keep it out
-   of every scan. **Webroot caveat:** when the sync root is a published
+   `.poltergeist-trash/<runId>/` under the sync root of the side being
+   changed, on both local and remote sides (sync uses the rename trash
+   even locally so undo is journal-driven and symmetric). Entries are
+   flat — `<seq>-<basename>`, a zero-padded per-run sequence prefix
+   assigned in plan order (`000042-index.html`) — never the trashed
+   file's directory structure: a flat name needs no trash-side parents,
+   so the rename stays the one cheap common path, and same-basename
+   items from different source directories cannot collide even against
+   SFTP v3's fail-when-target-exists (the mapping back to each entry's
+   origin is its journal line's `relativePath` + `trashLocation`, rail
+   9). Because the trash lives under the sync root, the rename never
+   crosses devices, and the default ignore rules (`.poltergeist*`, §3)
+   keep it out of every scan. **Webroot caveat:** when the sync root is a published
    HTTP docroot (the flagship `Blog → webserver` pair!), in-root trash
    means previous versions of overwritten/deleted files — old configs,
    secrets — may be retrievable over HTTP until purged. The `trashPath`
    rule is **per side** (`trashPathLeft`/`trashPathRight`, §6 — each
    resolved on that side's host; one shared string could not be
    same-filesystem on both machines) and moves that side's trash outside
-   that side's root (a
-   cross-filesystem rename falls back to copy-then-delete), and the
+   that side's root (when the rename fails anyway, copy-then-delete is
+   the fallback, and its trigger is a precision point: EXDEV is
+   classifiable only for a local pair, mirroring D26's local rule; a
+   remote pair's SFTP status code carries no errno, so *any* rename
+   failure not prevented by the sequence prefix triggers the fallback
+   rather than being classified as cross-device), and the
    docroot warning — trash in-root while the destination path looks like
    a docroot (`public_html`, `www`, `htdocs`, `/var/www`) — appears both
    in the pair editor *and* as a plan-view notice chip: ad-hoc pairs (§9)
@@ -1268,10 +1300,11 @@ heavy set (`node_modules`, `.git`, `build`, `target`, `__pycache__`):
    `Restore Trashed Files…` restores every trashed/backed-up file by
    reversing the recorded renames — with the parent chain handled for
    the general case, not only the rule-4 replace: files rename into
-   trash under their `relativePath` (rail 5's trash mirror creates
-   trash-side parents as needed), the emptied source directories are
-   then rmdir'd with their own journal lines, and restore recreates
-   that directory chain from the journal shallowest-first — tolerating a
+   trash as flat sequence-prefixed entries (rail 5's layout creates no
+   trash-side parents, so the reverse-rename needs none either), the
+   emptied source directories are then rmdir'd with their own journal
+   lines, and restore recreates that directory chain from the journal
+   shallowest-first — tolerating a
    chain directory already recreated since the run (EEXIST on a strict
    mkdir is treated as success, not an error) and skip-and-reporting any
    restore whose chain step is now occupied by a *file* (the child is
