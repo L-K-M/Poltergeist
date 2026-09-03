@@ -78,18 +78,33 @@ void main() {
     );
 
     expect(result.exitCode, isNot(0));
+    expect(result.stderr, contains('could not inspect release tag'));
   }, skip: _posixOnly);
 
   test('release gate rejects a tag that does not point to a commit', () async {
     final result = await _runReleaseGate(sandbox, _GitScenario.nonCommitTag);
 
     expect(result.exitCode, isNot(0));
+    expect(result.stderr, contains('release tag does not point at a commit'));
   }, skip: _posixOnly);
 
   test('release gate rejects a tag on another commit', () async {
     final result = await _runReleaseGate(sandbox, _GitScenario.mismatchedTag);
 
     expect(result.exitCode, isNot(0));
+    expect(result.stderr, contains('release tag points at'));
+  }, skip: _posixOnly);
+
+  test('release gate accepts a matching tag', () async {
+    final result = await _runReleaseGate(sandbox, _GitScenario.ok);
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+  }, skip: _posixOnly);
+
+  test('release gate accepts a missing dispatch tag', () async {
+    final result = await _runReleaseGate(sandbox, _GitScenario.missingTag);
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
   }, skip: _posixOnly);
 
   test('Android consumes Flutter release version metadata', () {
@@ -224,6 +239,17 @@ void main() {
     expect(result.exitCode, 0, reason: result.stderr as String);
   }, skip: _posixOnly);
 
+  test('Android version verifier rejects a missing APK', () async {
+    final result = await _runAndroidVersionVerifier(
+      sandbox,
+      code: _expectedAndroidCode(),
+      apkState: _ApkState.missing,
+    );
+
+    expect(result.exitCode, isNot(0));
+    expect(result.stderr, contains('expected APK not found'));
+  }, skip: _posixOnly);
+
   test('zero-major versions publish as pre-releases', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
@@ -252,7 +278,8 @@ case "$1" in
   show-ref)
     [[ "$FAKE_GIT_SCENARIO" == tagExistenceError ]] && exit 2
     if [[ "$FAKE_GIT_SCENARIO" == nonCommitTag ||
-          "$FAKE_GIT_SCENARIO" == mismatchedTag ]]; then
+          "$FAKE_GIT_SCENARIO" == mismatchedTag ||
+          "$FAKE_GIT_SCENARIO" == ok ]]; then
       exit 0
     fi
     exit 1
@@ -268,9 +295,11 @@ case "$1" in
       exit 0
     fi
     printf '%040d\n' 0
+    exit 0
     ;;
 esac
-exit 0
+echo "fake git: unexpected invocation: $*" >&2
+exit 1
 ''');
   Process.runSync('chmod', ['+x', fakeDart.path, fakeGit.path]);
 
@@ -296,7 +325,36 @@ Future<ProcessResult> _runAndroidVersionVerifier(
   Directory sandbox, {
   required String code,
   _AnalyzerLocation analyzerLocation = _AnalyzerLocation.androidHome,
+  _ApkState apkState = _ApkState.present,
 }) {
+  final repository = Directory(p.join(sandbox.path, 'repository'))
+    ..createSync();
+  final verifier = File(
+    p.join(repository.path, 'scripts/verify-android-version.sh'),
+  );
+  verifier.parent.createSync(recursive: true);
+  _repositoryFile('scripts/verify-android-version.sh').copySync(verifier.path);
+
+  final expectedCode = _expectedAndroidCode();
+  final pubspec = File(
+    p.join(repository.path, 'app/poltergeist_app/pubspec.yaml'),
+  );
+  pubspec.parent.createSync(recursive: true);
+  pubspec.writeAsStringSync(
+    'name: poltergeist_app\nversion: 0.1.0+$expectedCode\n',
+  );
+
+  final apk = File(
+    p.join(
+      repository.path,
+      'app/poltergeist_app/build/app/outputs/flutter-apk/app-release.apk',
+    ),
+  );
+  if (apkState == _ApkState.present) {
+    apk.parent.createSync(recursive: true);
+    apk.createSync();
+  }
+
   final androidHome = p.join(sandbox.path, 'android');
   final analyzer = File(switch (analyzerLocation) {
     _AnalyzerLocation.androidHome => p.join(
@@ -312,9 +370,20 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
 ''');
   Process.runSync('chmod', ['+x', analyzer.path]);
 
+  var executablePath = '${Platform.environment['PATH']}';
+  if (analyzerLocation == _AnalyzerLocation.androidHome) {
+    final decoy = File(p.join(sandbox.path, 'bin', 'apkanalyzer'));
+    decoy.parent.createSync(recursive: true);
+    decoy.writeAsStringSync('#!/usr/bin/env bash\nexit 1\n');
+    Process.runSync('chmod', ['+x', decoy.path]);
+    executablePath = '${decoy.parent.path}:$executablePath';
+  } else {
+    executablePath = '${analyzer.parent.path}:$executablePath';
+  }
+
   return Process.run(
     'bash',
-    [_repositoryFile('scripts/verify-android-version.sh').path],
+    [verifier.path],
     environment: {
       ...Platform.environment,
       'ANDROID_HOME': switch (analyzerLocation) {
@@ -322,14 +391,8 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
         _AnalyzerLocation.path => '',
       },
       'FAKE_ANDROID_VERSION_CODE': code,
-      'FAKE_EXPECTED_APK_PATH': _repositoryFile(
-        'app/poltergeist_app/build/app/outputs/flutter-apk/app-release.apk',
-      ).path,
-      'PATH': switch (analyzerLocation) {
-        _AnalyzerLocation.androidHome => '${Platform.environment['PATH']}',
-        _AnalyzerLocation.path =>
-          '${analyzer.parent.path}:${Platform.environment['PATH']}',
-      },
+      'FAKE_EXPECTED_APK_PATH': apk.path,
+      'PATH': executablePath,
     },
     workingDirectory: sandbox.path,
   );
@@ -337,12 +400,16 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
 
 enum _GitScenario {
   mismatchedTag,
+  missingTag,
   nonCommitTag,
+  ok,
   tagExistenceError,
   tagHistoryError,
 }
 
 enum _AnalyzerLocation { androidHome, path }
+
+enum _ApkState { missing, present }
 
 YamlMap _workflow(String path) {
   final parsed = loadYaml(_repositoryFile(path).readAsStringSync());

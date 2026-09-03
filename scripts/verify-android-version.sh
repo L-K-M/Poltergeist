@@ -29,6 +29,11 @@ if [[ ! "$expected_code" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
+if [[ ! -f "$apk" ]]; then
+  echo "expected APK not found: $apk" >&2
+  exit 1
+fi
+
 actual_code="$("$analyzer" manifest version-code "$apk")"
 if [[ "$actual_code" == "$expected_code" ]]; then
   exit 0

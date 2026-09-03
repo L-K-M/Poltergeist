@@ -232,6 +232,25 @@ void main() {
     expect(_read(outside, 'pubspec.yaml'), outsideContents);
   }, skip: Platform.isWindows ? 'requires symbolic-link permission' : false);
 
+  test('sync resolves links before a missing path tail', () {
+    final outside = Directory(p.join(sandbox.path, 'outside'))..createSync();
+    Link(p.join(root.path, 'linked')).createSync(outside.path);
+
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: 'linked/missing/pubspec.yaml',
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('path leaves repository root'),
+        ),
+      ),
+    );
+  }, skip: Platform.isWindows ? 'requires symbolic-link permission' : false);
+
   test('sync rejects a path outside the repository', () {
     const outsideContents = 'name: outside\nversion: 0.1.0\n';
     _write(sandbox, 'outside-pubspec.yaml', outsideContents);
@@ -544,6 +563,48 @@ void main() {
         ),
       ),
     );
+  });
+
+  for (final section in const ['dev_dependencies', 'dependency_overrides']) {
+    test('check validates path dependencies in $section', () {
+      _replace(
+        root,
+        'app/poltergeist_app/pubspec.yaml',
+        'dependencies:',
+        '$section:',
+      );
+      _replace(
+        root,
+        'app/poltergeist_app/pubspec.lock',
+        'version: "0.1.0"',
+        'version: "0.2.0"',
+      );
+
+      expect(
+        () => ReleaseVersionWorkspace(root).check(),
+        throwsA(
+          isA<ReleaseVersionStateException>().having(
+            (error) => error.message,
+            'message',
+            contains('does not pin path dependency'),
+          ),
+        ),
+      );
+    });
+  }
+
+  test('dependency override path takes precedence', () {
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.yaml',
+      '    path: ../../packages/poltergeist_core',
+      '''    path: ../../packages/missing_core
+dependency_overrides:
+  poltergeist_core:
+    path: ../../packages/poltergeist_core''',
+    );
+
+    expect(ReleaseVersionWorkspace(root).check().lockedPackageCount, 1);
   });
 }
 

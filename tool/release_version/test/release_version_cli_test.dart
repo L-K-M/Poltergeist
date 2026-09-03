@@ -1,7 +1,9 @@
 // Release tooling stays outside the shipped application.
 // ignore_for_file: avoid_relative_lib_imports
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -69,6 +71,33 @@ void main() {
   test('missing command arguments return usage failure', () {
     expect(run(['sync', '--version', '0.1.0']), 64);
     expect(errors.single, startsWith('usage:'));
+  });
+
+  test('options cannot consume another option as their value', () {
+    expect(run(['check', '--root', '--version']), 64);
+    expect(errors.single, startsWith('usage:'));
+
+    errors.clear();
+
+    expect(run(['validate', '--version', '--pubspec']), 64);
+    expect(errors.single, startsWith('usage:'));
+  });
+
+  test('file-system failures identify the affected path', () {
+    final readmePath = p.join(root.path, 'README.md');
+    final result = IOOverrides.runZoned(
+      () => run(['check']),
+      createFile: (path) {
+        if (p.equals(path, readmePath)) {
+          throw FileSystemException('forced read failure', path);
+        }
+
+        return File.fromRawPath(Uint8List.fromList(utf8.encode(path)));
+      },
+    );
+
+    expect(result, 1);
+    expect(errors.single, contains(readmePath));
   });
 
   test('sync writes deterministic app metadata', () {

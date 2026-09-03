@@ -70,7 +70,7 @@ int runReleaseVersionCommand(
     error(exception.message);
     return _failureExitCode;
   } on FileSystemException catch (exception) {
-    error(exception.message);
+    error(exception.toString());
     return _failureExitCode;
   }
 }
@@ -134,6 +134,8 @@ final class _CommandArguments {
       }.contains(option)) {
         return null;
       }
+      if (arguments[index + 1].startsWith('--')) return null;
+
       if (option == '--prior-tag') {
         priorTags.add(arguments[index + 1]);
         continue;

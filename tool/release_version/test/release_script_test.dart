@@ -10,7 +10,6 @@ void main() {
   late Directory sandbox;
   late File fakeEngine;
   late File fakeGit;
-  late String realGit;
 
   setUp(() {
     sandbox = Directory.systemTemp.createTempSync(
@@ -48,10 +47,9 @@ if [[ "$1" == "-C" && "$3" == "ls-remote" ]]; then
   done <<< "${FAKE_REMOTE_TAGS:-}"
   exit 0
 fi
-exec "$REAL_GIT" "$@"
+echo "fake git: unexpected invocation: $*" >&2
+exit 1
 ''');
-    realGit = (Process.runSync('sh', ['-c', 'command -v git']).stdout as String)
-        .trim();
     Process.runSync('chmod', ['+x', fakeEngine.path, fakeGit.path]);
   });
 
@@ -60,12 +58,10 @@ exec "$REAL_GIT" "$@"
   });
 
   test('validates and forwards a supported version family', () async {
-    final result = await _runRelease(
-      fakeEngine,
-      ['2099.99.99', '--push'],
-      git: fakeGit,
-      realGit: realGit,
-    );
+    final result = await _runRelease(fakeEngine, [
+      '2099.99.99',
+      '--push',
+    ], git: fakeGit);
 
     expect(result.exitCode, 0, reason: result.stderr as String);
     expect(result.stdout, contains('tool/bench/pubspec.yaml'));
@@ -76,12 +72,9 @@ exec "$REAL_GIT" "$@"
   });
 
   test('rejects an invalid version before invoking the engine', () async {
-    final result = await _runRelease(
-      fakeEngine,
-      ['0.2.0-alpha1'],
-      git: fakeGit,
-      realGit: realGit,
-    );
+    final result = await _runRelease(fakeEngine, [
+      '0.2.0-alpha1',
+    ], git: fakeGit);
 
     expect(result.exitCode, isNot(0));
     expect(result.stderr, contains('invalid release version'));
@@ -89,12 +82,7 @@ exec "$REAL_GIT" "$@"
   });
 
   test('rejects a version-code downgrade before invoking the engine', () async {
-    final result = await _runRelease(
-      fakeEngine,
-      ['0.0.1'],
-      git: fakeGit,
-      realGit: realGit,
-    );
+    final result = await _runRelease(fakeEngine, ['0.0.1'], git: fakeGit);
 
     expect(result.exitCode, isNot(0));
     expect(result.stderr, contains('current tree'));
@@ -107,7 +95,6 @@ exec "$REAL_GIT" "$@"
       ['2099.99.98'],
       git: fakeGit,
       priorTags: 'v2099.99.99',
-      realGit: realGit,
     );
 
     expect(result.exitCode, isNot(0));
@@ -120,7 +107,6 @@ exec "$REAL_GIT" "$@"
       fakeEngine,
       ['2099.99.98'],
       git: fakeGit,
-      realGit: realGit,
       remoteTags: 'v2099.99.99',
     );
 
@@ -135,7 +121,6 @@ exec "$REAL_GIT" "$@"
       ['2099.99.99'],
       git: fakeGit,
       gitFailure: _GitFailure.localTags,
-      realGit: realGit,
     );
 
     expect(result.exitCode, isNot(0));
@@ -149,7 +134,6 @@ exec "$REAL_GIT" "$@"
       ['2099.99.99'],
       git: fakeGit,
       gitFailure: _GitFailure.remoteTags,
-      realGit: realGit,
     );
 
     expect(result.exitCode, isNot(0));
@@ -167,7 +151,6 @@ exec "$REAL_GIT" "$@"
       ['--check'],
       git: fakeGit,
       priorTags: 'v$current',
-      realGit: realGit,
     );
 
     expect(result.exitCode, 0, reason: result.stderr as String);
@@ -179,7 +162,6 @@ exec "$REAL_GIT" "$@"
       fakeEngine,
       ['2099.99.99'],
       git: fakeGit,
-      realGit: realGit,
       postBumpMode: _PostBumpMode.failSynchronization,
     );
 
@@ -188,12 +170,7 @@ exec "$REAL_GIT" "$@"
   });
 
   test('checks the current version before a no-argument release', () async {
-    final result = await _runRelease(
-      fakeEngine,
-      const [],
-      git: fakeGit,
-      realGit: realGit,
-    );
+    final result = await _runRelease(fakeEngine, const [], git: fakeGit);
 
     expect(result.exitCode, 0, reason: result.stderr as String);
     expect(result.stdout, contains('preserves release order'));
@@ -206,7 +183,6 @@ exec "$REAL_GIT" "$@"
       ['2099.99.99'],
       git: fakeGit,
       invocationDirectory: _InvocationDirectory.caller,
-      realGit: realGit,
     );
 
     expect(result.exitCode, 0, reason: result.stderr as String);
@@ -218,7 +194,6 @@ Future<ProcessResult> _runRelease(
   File engine,
   List<String> arguments, {
   required File git,
-  required String realGit,
   _GitFailure gitFailure = _GitFailure.none,
   _InvocationDirectory invocationDirectory = _InvocationDirectory.repository,
   _PostBumpMode postBumpMode = _PostBumpMode.skip,
@@ -243,7 +218,6 @@ Future<ProcessResult> _runRelease(
       'LKM_RELEASE_BIN': engine.path,
       'DART_BIN': Platform.resolvedExecutable,
       'PATH': '${git.parent.path}:${Platform.environment['PATH']}',
-      'REAL_GIT': realGit,
     },
   );
 }

@@ -25,6 +25,11 @@ const List<String> _appleInfoPlistPaths = [
   'app/poltergeist_app/ios/Runner/Info.plist',
   'app/poltergeist_app/macos/Runner/Info.plist',
 ];
+const List<String> _dependencySections = [
+  'dependencies',
+  'dev_dependencies',
+  'dependency_overrides',
+];
 
 final RegExp _versionPattern = RegExp(
   r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$',
@@ -461,10 +466,19 @@ final class ReleaseVersionWorkspace {
   String _canonicalPath(File file) {
     if (file.existsSync()) return file.resolveSymbolicLinksSync();
 
-    final parent = file.parent;
-    if (!parent.existsSync()) return file.path;
+    var ancestor = file.parent;
+    while (!ancestor.existsSync()) {
+      final parent = ancestor.parent;
+      if (p.equals(ancestor.path, parent.path)) return file.path;
 
-    return p.join(parent.resolveSymbolicLinksSync(), p.basename(file.path));
+      ancestor = parent;
+    }
+
+    // Resolve the existing prefix so links cannot hide in a missing tail.
+    return p.join(
+      ancestor.resolveSymbolicLinksSync(),
+      p.relative(file.path, from: ancestor.path),
+    );
   }
 
   int _checkAppLock(
@@ -540,23 +554,25 @@ final class ReleaseVersionWorkspace {
 
   Map<String, String> _pathDependencies(File appPubspec) {
     final yaml = _readYamlMap(appPubspec, 'app pubspec');
-    final dependencies = yaml['dependencies'];
-    if (dependencies is! YamlMap) return const {};
-
     final paths = <String, String>{};
-    for (final entry in dependencies.entries) {
-      if (entry.key is! String || entry.value is! YamlMap) continue;
+    for (final section in _dependencySections) {
+      final dependencies = yaml[section];
+      if (dependencies is! YamlMap) continue;
 
-      final declaration = entry.value as YamlMap;
-      if (!declaration.containsKey('path')) continue;
+      for (final entry in dependencies.entries) {
+        if (entry.key is! String || entry.value is! YamlMap) continue;
 
-      final path = declaration['path'];
-      if (path is! String) {
-        throw ReleaseVersionStateException(
-          'app path dependency ${entry.key} has a non-string path',
-        );
+        final declaration = entry.value as YamlMap;
+        if (!declaration.containsKey('path')) continue;
+
+        final path = declaration['path'];
+        if (path is! String) {
+          throw ReleaseVersionStateException(
+            'app path dependency ${entry.key} has a non-string path',
+          );
+        }
+        paths[entry.key as String] = path;
       }
-      paths[entry.key as String] = path;
     }
 
     return paths;
