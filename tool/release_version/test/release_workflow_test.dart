@@ -107,6 +107,12 @@ void main() {
     expect(result.exitCode, 0, reason: result.stderr as String);
   }, skip: _posixOnly);
 
+  test('release gate forwards prior tags except the target', () async {
+    final result = await _runReleaseGate(sandbox, _GitScenario.priorHistory);
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+  }, skip: _posixOnly);
+
   for (final mode in const [
     _VersionToolMode.checkTag,
     _VersionToolMode.checkOrder,
@@ -238,6 +244,16 @@ void main() {
     expect(result.exitCode, 0, reason: result.stderr as String);
   }, skip: _posixOnly);
 
+  test('Android version verifier accepts a trailing version comment', () async {
+    final result = await _runAndroidVersionVerifier(
+      sandbox,
+      code: _expectedAndroidCode(),
+      pubspecState: _PubspecState.commented,
+    );
+
+    expect(result.exitCode, 0, reason: result.stderr as String);
+  }, skip: _posixOnly);
+
   test('Android version verifier rejects manifest drift', () async {
     final result = await _runAndroidVersionVerifier(sandbox, code: '1');
 
@@ -308,8 +324,23 @@ set -euo pipefail
 
 readonly version_tool=tool/release_version/bin/release_version.dart
 readonly command_argument_count=3
+readonly history_command_argument_count=5
+readonly expected_prior_tag=v0.0.1
 readonly expected_tag=v0.1.0
 readonly expected_version=0.1.0
+
+check_order_arguments() {
+  [[ "$1" == check-order && "$2" == --version &&
+     "$3" == "$expected_version" ]] || return 1
+
+  if [[ "$FAKE_GIT_SCENARIO" == priorHistory ]]; then
+    [[ "$#" -eq "$history_command_argument_count" &&
+       "$4" == --prior-tag && "$5" == "$expected_prior_tag" ]]
+    return
+  fi
+
+  [[ "$#" -eq "$command_argument_count" ]]
+}
 
 if [[ "$1" != run || "$2" != "$version_tool" ]]; then
   echo "fake dart: unexpected invocation: $*" >&2
@@ -329,8 +360,7 @@ case "$1" in
     fi
     ;;
   check-order)
-    if [[ "$#" -eq "$command_argument_count" &&
-          "$2" == --version && "$3" == "$expected_version" ]]; then
+    if check_order_arguments "$@"; then
       if [[ "$FAKE_VERSION_TOOL_MODE" == checkOrder ]]; then
         echo "fake version tool failure: checkOrder" >&2
         exit 1
@@ -359,6 +389,7 @@ case "$1" in
     [[ "$FAKE_GIT_SCENARIO" == tagExistenceError ]] && exit 2
     if [[ "$FAKE_GIT_SCENARIO" == nonCommitTag ||
           "$FAKE_GIT_SCENARIO" == mismatchedTag ||
+          "$FAKE_GIT_SCENARIO" == priorHistory ||
           "$FAKE_GIT_SCENARIO" == ok ]]; then
       exit 0
     fi
@@ -367,6 +398,9 @@ case "$1" in
   tag)
     [[ "$#" -eq 3 && "$2" == --list && "$3" == 'v*' ]] || unexpected "$@"
     [[ "$FAKE_GIT_SCENARIO" == tagHistoryError ]] && exit 2
+    if [[ "$FAKE_GIT_SCENARIO" == priorHistory ]]; then
+      printf '%s\n' v0.1.0 v0.0.1
+    fi
     exit 0
     ;;
   rev-parse)
@@ -430,10 +464,14 @@ Future<ProcessResult> _runAndroidVersionVerifier(
   final pubspec = File(
     p.join(repository.path, 'app/poltergeist_app/pubspec.yaml'),
   );
-  if (pubspecState == _PubspecState.present) {
+  if (pubspecState != _PubspecState.missing) {
+    final comment = switch (pubspecState) {
+      _PubspecState.commented => ' # release metadata',
+      _PubspecState.missing || _PubspecState.present => '',
+    };
     pubspec.parent.createSync(recursive: true);
     pubspec.writeAsStringSync(
-      'name: poltergeist_app\nversion: 0.1.0+$expectedCode\n',
+      'name: poltergeist_app\nversion: 0.1.0+$expectedCode$comment\n',
     );
   }
 
@@ -504,6 +542,7 @@ enum _GitScenario {
   missingTag,
   nonCommitTag,
   ok,
+  priorHistory,
   tagExistenceError,
   tagHistoryError,
 }
@@ -512,7 +551,7 @@ enum _AnalyzerLocation { androidHome, path }
 
 enum _ApkState { missing, present }
 
-enum _PubspecState { missing, present }
+enum _PubspecState { commented, missing, present }
 
 enum _VersionToolMode { checkOrder, checkTag, normal }
 

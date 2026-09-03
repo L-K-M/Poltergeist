@@ -8,6 +8,7 @@ readonly repository_root="$(
 readonly app_root="$repository_root/app/poltergeist_app"
 readonly pubspec="$app_root/pubspec.yaml"
 readonly apk="$app_root/build/app/outputs/flutter-apk/app-release.apk"
+readonly version_code_sed='s/^version:[[:blank:]]*[^+[:blank:]]+\+([0-9]+)[[:blank:]]*(#.*)?$/\1/p'
 
 if [[ ! -f "$pubspec" ]]; then
   echo "expected app pubspec not found: $pubspec" >&2
@@ -28,7 +29,7 @@ if [[ -z "$analyzer" ]]; then
 fi
 readonly analyzer
 
-expected_code="$(sed -n 's/^version: [^+]*+//p' "$pubspec")"
+expected_code="$(sed -En "$version_code_sed" "$pubspec")"
 if [[ ! "$expected_code" =~ ^[0-9]+$ ]]; then
   echo "app pubspec has no numeric version code" >&2
   exit 1
