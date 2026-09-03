@@ -369,20 +369,22 @@ void main() {
         isA<ResultAggregationException>().having(
           (error) => error.message,
           'message',
-          contains('Invalid expected dependency pins'),
+          contains('Invalid expected Seance revision pin'),
         ),
       ),
     );
-    await expectLater(
-      fixture.aggregate(expectedDartssh2Version: ' '),
-      throwsA(
-        isA<ResultAggregationException>().having(
-          (error) => error.message,
-          'message',
-          contains('Invalid expected dependency pins'),
+    for (final version in [' ', ' 3.0.2 ']) {
+      await expectLater(
+        fixture.aggregate(expectedDartssh2Version: version),
+        throwsA(
+          isA<ResultAggregationException>().having(
+            (error) => error.message,
+            'message',
+            contains('Invalid expected dartssh2 version pin'),
+          ),
         ),
-      ),
-    );
+      );
+    }
   });
 
   test('aggregate CLI writes the canonical evidence directory', () async {

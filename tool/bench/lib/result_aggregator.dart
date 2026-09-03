@@ -106,10 +106,15 @@ Future<CanonicalEvidenceBundle> aggregateEvidenceDirectory({
     );
   }
   if (expectedDartssh2Version.trim().isEmpty ||
-      expectedDartssh2Version != expectedDartssh2Version.trim() ||
-      !_gitShaPattern.hasMatch(expectedSeanceRevision)) {
+      expectedDartssh2Version != expectedDartssh2Version.trim()) {
     throw const ResultAggregationException(
-      'Invalid expected dependency pins.',
+      'Invalid expected dartssh2 version pin.',
+    );
+  }
+  if (_gitShaPattern.stringMatch(expectedSeanceRevision) !=
+      expectedSeanceRevision) {
+    throw const ResultAggregationException(
+      'Invalid expected Seance revision pin; expected a 40-char commit SHA.',
     );
   }
 
