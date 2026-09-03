@@ -21,11 +21,12 @@ for d in "$repo_root/packages" "$repo_root/app"; do
   fi
 done
 
-# dartssh2 containment over the product's Dart sources. Both directives and
-# both quote styles match — an `export` outside the connection module
-# re-exposes dartssh2 just as much as an import.
+# dartssh2 containment over the product's Dart sources. Comment lines are
+# stripped first and the URI may appear anywhere on a line, so a
+# conditional import's fallback URI cannot slip past. Generated build
+# output and Flutter's per-platform ephemeral dirs are not source.
 while IFS= read -r file; do
-  if grep -qE "^[^/]*(import|export)[[:space:]]+['\"]package:dartssh2/" "$file"; then
+  if grep -vE '^[[:space:]]*//' "$file" | grep -qE "package:dartssh2/"; then
     case "$file" in
       "$repo_root"/packages/poltergeist_core/lib/src/connection/*) ;;
       *)
@@ -34,14 +35,18 @@ while IFS= read -r file; do
         ;;
     esac
   fi
-done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' -not -path '*/.dart_tool/*' -type f)
+done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' \
+  -not -path '*/.dart_tool/*' -not -path '*/build/*' \
+  -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f)
 
-# Pure-Dart packages stay Flutter-free (their tests run under dart test).
+# Pure-Dart packages stay Flutter-free (their tests run under dart test) —
+# Flutter's libraries and dart:ui both.
 while IFS= read -r file; do
-  if grep -qE "^[^/]*(import|export)[[:space:]]+['\"]package:flutter(_test|_localizations)?/" "$file"; then
+  if grep -qE "^[^/]*(import|export)[[:space:]]+['\"](package:flutter(_test|_localizations)?/|dart:ui['\"])" "$file"; then
     echo "error: Flutter import in a pure-Dart package: $file" >&2
     status=1
   fi
-done < <(find "$repo_root/packages" -name '*.dart' -not -path '*/.dart_tool/*' -type f)
+done < <(find "$repo_root/packages" -name '*.dart' \
+  -not -path '*/.dart_tool/*' -not -path '*/build/*' -type f)
 
 exit "$status"

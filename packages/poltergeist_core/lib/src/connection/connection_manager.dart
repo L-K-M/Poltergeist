@@ -802,7 +802,7 @@ class PooledConnectionManager implements ConnectionManager {
     while (pool.waiters.isNotEmpty) {
       final waiter = pool.waiters.first;
       if (waiter.completer.isCompleted) {
-        pool.waiters.removeFirst();
+        pool.waiters.remove(waiter);
         continue;
       }
 
@@ -826,7 +826,15 @@ class PooledConnectionManager implements ConnectionManager {
       // the queue predictable (03 §4.3).
       if (handle == null) return;
 
-      pool.waiters.removeFirst();
+      // The awaits above can race a disconnect-driven fail: this waiter
+      // may already be completed and dequeued. Completing it twice throws,
+      // and removeFirst would drop the *new* head instead.
+      if (waiter.completer.isCompleted || pool.waiters.first != waiter) {
+        await _closeHandle(pool, handle);
+        continue;
+      }
+
+      pool.waiters.remove(waiter);
       waiter.completer.complete(handle);
     }
   }
@@ -838,7 +846,9 @@ class PooledConnectionManager implements ConnectionManager {
       if (waiter.serverId == serverId) {
         waiter.completer.completeError(RemoteFileException(
           kind: RemoteFileErrorKind.disconnected,
-          operation: 'lease transfer channel',
+          operation: waiter.browse
+              ? 'open browse channel'
+              : 'lease transfer channel',
           message: 'The server was disconnected while waiting for a channel.',
         ));
       } else {

@@ -257,12 +257,19 @@ void main() {
     expect(harness.store.pins['example.com:22']!.fingerprintSha256,
         'SHA256:old');
 
-    // Every operation fails while blocked — a decline keeps it blocked.
-    harness.onHostKey = (_) async => false;
+    // Every operation fails while blocked — a decline keeps it blocked, and
+    // the retry went through the review prompt (the one clearing path).
+    var promptsAfterBlock = 0;
+    harness.onHostKey = (_) async {
+      promptsAfterBlock++;
+      return false;
+    };
     await expectLater(
       harness.manager.openBrowseChannel('s1', paneTabId: 't2'),
       throwsA(isA<RemoteFileException>()),
     );
+    await flushEvents();
+    expect(promptsAfterBlock, 1);
     expect(states.last, ServerConnectionState.blocked);
     expect(harness.store.pins['example.com:22']!.fingerprintSha256,
         'SHA256:old');
@@ -525,10 +532,7 @@ void main() {
     await Future.wait(leases);
 
     // The 5th lease triggers a growth connect that parks on the gate.
-    final fifthLease = Completer<TransferChannelLease>();
-    final fifth = harness.manager
-        .leaseTransferChannel('s1')
-        .then(fifthLease.complete);
+    final fifth = harness.manager.leaseTransferChannel('s1');
     await Future<void>.delayed(Duration.zero);
 
     // Everything releases while the growth connect is in flight: teardown
@@ -541,8 +545,7 @@ void main() {
     expect(harness.opener.transports.first.closed, isFalse);
 
     gate.complete();
-    final lease = await fifthLease.future;
-    await fifth;
+    final lease = await fifth;
 
     // The grown transport served its one lease and died with the next
     // teardown trigger — no zombie connection outliving its demand.

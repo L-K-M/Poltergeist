@@ -38,7 +38,10 @@ class StubRemoteFileSystem implements RemoteFileSystem {
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+      throw UnimplementedError(
+        'StubRemoteFileSystem only implements canonicalize("."), got '
+        '${invocation.memberName}.',
+      );
 }
 
 class FakeChannel implements SftpChannel {
