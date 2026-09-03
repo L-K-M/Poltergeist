@@ -5,7 +5,6 @@ import 'package:crypto/crypto.dart';
 
 import 'evidence.dart';
 import 'fixture_data.dart';
-import 'harness.dart';
 import 'result_manifest.dart';
 
 const sourceArtifactPrefix = 'm0-bench-source';
@@ -93,6 +92,8 @@ Future<CanonicalEvidenceBundle> aggregateEvidenceDirectory({
   required String expectedRunId,
   required int expectedRunAttempt,
   required String expectedGitSha,
+  required String expectedDartssh2Version,
+  required String expectedSeanceRevision,
 }) async {
   if (!_gitShaPattern.hasMatch(expectedGitSha)) {
     throw ResultAggregationException(
@@ -104,6 +105,18 @@ Future<CanonicalEvidenceBundle> aggregateEvidenceDirectory({
       'Invalid expected workflow identity.',
     );
   }
+  if (expectedDartssh2Version.trim().isEmpty ||
+      expectedDartssh2Version != expectedDartssh2Version.trim()) {
+    throw const ResultAggregationException(
+      'Invalid expected dartssh2 version pin.',
+    );
+  }
+  if (_gitShaPattern.stringMatch(expectedSeanceRevision) !=
+      expectedSeanceRevision) {
+    throw const ResultAggregationException(
+      'Invalid expected Seance revision pin; expected a 40-char commit SHA.',
+    );
+  }
 
   final sources = await _readSources(inputRoot);
   _validateSourceIdentities(
@@ -111,8 +124,17 @@ Future<CanonicalEvidenceBundle> aggregateEvidenceDirectory({
     expectedRunId: expectedRunId,
     expectedRunAttempt: expectedRunAttempt,
     expectedGitSha: expectedGitSha,
+    expectedDartssh2Version: expectedDartssh2Version,
+    expectedSeanceRevision: expectedSeanceRevision,
   );
-  final validated = [for (final source in sources) _validateSource(source)];
+  final validated = [
+    for (final source in sources)
+      _validateSource(
+        source,
+        expectedDartssh2Version: expectedDartssh2Version,
+        expectedSeanceRevision: expectedSeanceRevision,
+      ),
+  ];
   final results = _canonicalResults(validated);
   final bundle = CanonicalEvidenceBundle(
     identity: sources.first.envelope.identity.commonJson(),
@@ -220,6 +242,8 @@ void _validateSourceIdentities(
   required String expectedRunId,
   required int expectedRunAttempt,
   required String expectedGitSha,
+  required String expectedDartssh2Version,
+  required String expectedSeanceRevision,
 }) {
   String? commonIdentity;
   for (final source in sources) {
@@ -283,8 +307,8 @@ void _validateSourceIdentities(
         '${source.spec.id} has malformed workflow identity.',
       );
     }
-    if (identity.dependencies.dartssh2Version != resolvedDartssh2Version ||
-        identity.dependencies.seanceRevision != pinnedSeanceRevision) {
+    if (identity.dependencies.dartssh2Version != expectedDartssh2Version ||
+        identity.dependencies.seanceRevision != expectedSeanceRevision) {
       throw ResultAggregationException(
         '${source.spec.id} has unexpected dependency pins.',
       );
@@ -304,7 +328,11 @@ void _validateSourceIdentities(
   }
 }
 
-_ValidatedSource _validateSource(_SourceArtifact artifact) {
+_ValidatedSource _validateSource(
+  _SourceArtifact artifact, {
+  required String expectedDartssh2Version,
+  required String expectedSeanceRevision,
+}) {
   final envelope = artifact.envelope;
   final expectedScenarios = artifact.spec.scenarios.toSet();
   final rows = <String, Map<String, Object?>>{};
@@ -320,7 +348,13 @@ _ValidatedSource _validateSource(_SourceArtifact artifact) {
         '${artifact.spec.id} duplicates $scenario.',
       );
     }
-    _validateRow(row, scenario, envelope);
+    _validateRow(
+      row,
+      scenario,
+      envelope,
+      expectedDartssh2Version: expectedDartssh2Version,
+      expectedSeanceRevision: expectedSeanceRevision,
+    );
     rows[scenario] = row;
   }
   final missingRows = expectedScenarios.difference(rows.keys.toSet());
@@ -426,8 +460,10 @@ _ValidatedSource _validateSource(_SourceArtifact artifact) {
 void _validateRow(
   Map<String, Object?> row,
   String scenario,
-  SourceEnvelope envelope,
-) {
+  SourceEnvelope envelope, {
+  required String expectedDartssh2Version,
+  required String expectedSeanceRevision,
+}) {
   final fields = row.keys.toSet();
   final missing = _baseRowFields.difference(fields);
   final extra = fields.difference({..._baseRowFields, ..._optionalRowFields});
@@ -451,8 +487,8 @@ void _validateRow(
     );
   }
   if (_requiredString(row, 'dartssh2Version', scenario) !=
-          resolvedDartssh2Version ||
-      _requiredString(row, 'seanceRev', scenario) != pinnedSeanceRevision) {
+          expectedDartssh2Version ||
+      _requiredString(row, 'seanceRev', scenario) != expectedSeanceRevision) {
     throw ResultAggregationException(
       '$scenario has invalid dependency attribution.',
     );

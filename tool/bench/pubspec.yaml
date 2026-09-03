@@ -12,8 +12,8 @@ dependencies:
   dartssh2: 3.0.2
   seance_core:
     git:
-      url: https://github.com/BigBoyDevBox/Seance.git
-      ref: 0a695971a411a6a754593e7c2598038039440c2f
+      url: https://github.com/L-K-M/Seance.git
+      ref: 2f99f4efb25a83340605464635bdf0f3ba95d931
       path: packages/seance_core
 
 dev_dependencies:

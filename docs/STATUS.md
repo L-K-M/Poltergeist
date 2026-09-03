@@ -6,8 +6,8 @@ next. Read [AGENTS.md](../AGENTS.md) first for how to build/test.
 _Last updated: 2026-09-03 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 release pipeline are implemented, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
-Séance PR-S3 is merged (open item 3); M1 remains open pending the
-owner-signed v0.1.0 rehearsal (open item 1)._
+the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3);
+M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1)._
 
 ## Done
 
@@ -16,6 +16,7 @@ owner-signed v0.1.0 rehearsal (open item 1)._
 | Repo infrastructure | CI (`ci.yml`: Dart analyze+test now; Flutter + client-matrix jobs self-activate when `app/poltergeist_app` appears), GLM PR review workflow, release workflow (`v*` tags → per-platform client assets), `scripts/build.sh` / `release.sh` / `package-linux.sh` adapted from Séance, Unlicense, analyzer config, pub workspace. |
 | `poltergeist_core` | Scaffold only: product identity constants + a test guarding the ASCII-name invariant (macOS codesign rejects accented bundle file names). Real modules land per the plan. |
 | The plan | Complete in [`docs/plan/`](plan/) — overview + decision log (D1–D31), product, UX spec, architecture, Séance integration, sync, editor, milestones, testing, playbook. Reviewed via the GLM PR workflow, internal consistency passes, and a final whole-plan coherence pass (2026-08-31). |
+| Séance pin | Upstream `L-K-M/Seance@2f99f4e` (main, PR-S3 merge) — the M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's `computeHash` calls now resolve against upstream, its test suite passes on the new pin, and the PORTS.md audit record is regenerated. Committed-bundle validation now binds to the pins M0 actually measured instead of the live pin, so future re-pins cannot invalidate frozen evidence. Ported `atomic_file` sources re-diffed clean through the new pin. |
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
 | Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
 | Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
@@ -47,13 +48,11 @@ owner-signed v0.1.0 rehearsal (open item 1)._
      it are already in place from the scaffold PR.
 2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
-3. **Séance upstream PR-S3 follow-through** (see
-   [`docs/plan/04-SEANCE-INTEGRATION.md`](plan/04-SEANCE-INTEGRATION.md)
-   §5): merged 2026-09-03 (see the Done table). At the next Séance pin bump
-   (M2's routine chore): re-pin past `2f99f4e` and retire the M0 bench
-   harness's hashing-off fork patch (`BigBoyDevBox/Seance@0a69597` in
-   `tool/bench/pubspec.yaml`) — upstream `computeHash` replaces it. Tag S1
-   before M6 Design A.
+3. **Séance pin: flip to the next tag.** The fork bridge is retired (see
+   the Done table) and the pin sits at upstream main `2f99f4e` — no Séance
+   tag contains the PR-S3 merge yet. When Séance cuts its next release
+   (the same S1 release the M6 Design A gate needs), re-pin to that tag
+   (D2's steady state) and drop the rev pin. Tag S1 before M6 Design A.
 
 ## Housekeeping
 

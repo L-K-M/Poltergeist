@@ -3,7 +3,7 @@
 ## app/poltergeist_app/lib/services/atomic_file.dart
 
 - Source: app/seance_app/lib/services/atomic_file.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at 2f99f4efb25a83340605464635bdf0f3ba95d931 (2026-09-03)
 - Ported: 2026-09-02
 - Divergences: unique `.poltergeist-<uuid>.tmp` siblings prevent collisions
   and basename overflow; failed writes remove their temporary sibling without
@@ -16,7 +16,7 @@
 ## app/poltergeist_app/test/atomic_file_test.dart
 
 - Source: app/seance_app/test/atomic_file_test.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at 2f99f4efb25a83340605464635bdf0f3ba95d931 (2026-09-03)
 - Ported: 2026-09-02
 - Divergences: uses the Poltergeist temp-file contract, adds failed-rename
   cleanup, and maps source store round-trip/quarantine cases to
@@ -48,13 +48,13 @@ Full, non-shallow ancestor and tree audit. Raw streams are
 content-addressed by SHA-256; line counts aid review. Use
 `--print-findings` to reproduce them without adding names to docs.
 
-- Pin: `0a695971a411a6a754593e7c2598038039440c2f` from `https://github.com/BigBoyDevBox/Seance.git`
-- Identity: 37 lines; `sha256:6e545d2b6fdba2a3603a7b2110be1af105ef6161271c6d261c23b2f836df9803`
-- Companion: 213 lines; `sha256:4ba94159a6bc284a1ca73c54edf8804b9c6ad85c218cfc05ff58b404a8323d97`
-- Companion orphans: 3 lines; `sha256:b6da03e73f10c5ad1f796d95f1e994c3b2d4877290e7bceabcfcf57164adc805`
-- Pinpoints: 381 lines; `sha256:d11fc1ec4387a23ec66251e40c3456ab3b324bb891a2bd85398b6b9a51294cdf`
-- License scan: 29 lines; `sha256:283f2dc12212e8ddbe3c6a0224db27f68a0981b171e1df5c95180fd2807bdf24`
-- Vendored paths: 192 lines; `sha256:c40fbe5c8fe1f036e0d8002cc6e670f08775e9b691b8390d9ed973f55529a88e`
-- Gitlinks: 0 lines; `sha256:1cf88ed73fdedae40c735fb7053a93aa47ca48eebb46eace223de1cb92333504`
-- Tree: 437 lines; `sha256:5d13ec5982f78d3503d8c4b88f9baef22885f27e33aa1e8ad4c768cab27fe235`
+- Pin: `2f99f4efb25a83340605464635bdf0f3ba95d931` from `https://github.com/L-K-M/Seance.git`
+- Identity: 38 lines; `sha256:4ceaeaf3dab51c345975bf8085195d8f7ac8205eb6a7510f746cf9c72da251f4`
+- Companion: 213 lines; `sha256:8e123bcae01bb2412c412c7b1ff297f13b9b029685943fcb73835faa124552e9`
+- Companion orphans: 3 lines; `sha256:c144f63fd03bfb4cffd41748b8281e2b4e119cbc236c092bd0beb582bf377417`
+- Pinpoints: 387 lines; `sha256:295ee7ffd74cb8cb6b6a277bd785a5c63392dc61ffbe4def641a24b6af3adc54`
+- License scan: 29 lines; `sha256:61e18e16f5f0c91c3d07b749daf4dc9f4417924abb44cf6bc7b08eb5bd785813`
+- Vendored paths: 192 lines; `sha256:d49e9b6907d05d3db90884f504dacc48a6aedf38770ed0c417902f47c2103304`
+- Gitlinks: 0 lines; `sha256:28c900f0ad82ab353471bf2e21c3b74bf23f9cd2b158c4f944f3d8534d7fc908`
+- Tree: 437 lines; `sha256:b5c61cd90ebc7421fa6c675b0fa0960d287e54650fd7136d5a07aa9f75570f98`
 <!-- SEANCE_PIN_AUDIT_V1:END -->

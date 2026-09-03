@@ -269,18 +269,18 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/seance_core"
-      ref: "0a695971a411a6a754593e7c2598038039440c2f"
-      resolved-ref: "0a695971a411a6a754593e7c2598038039440c2f"
-      url: "https://github.com/BigBoyDevBox/Seance.git"
+      ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      resolved-ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      url: "https://github.com/L-K-M/Seance.git"
     source: git
     version: "0.8.0"
   seance_protocol:
     dependency: transitive
     description:
       path: "packages/seance_protocol"
-      ref: "0a695971a411a6a754593e7c2598038039440c2f"
-      resolved-ref: "0a695971a411a6a754593e7c2598038039440c2f"
-      url: "https://github.com/BigBoyDevBox/Seance.git"
+      ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      resolved-ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      url: "https://github.com/L-K-M/Seance.git"
     source: git
     version: "0.8.0"
   shelf:

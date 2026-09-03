@@ -3,7 +3,12 @@ import 'dart:io';
 import 'throughput_attempt.dart';
 
 const resolvedDartssh2Version = '3.0.2';
-const pinnedSeanceRevision = '0a695971a411a6a754593e7c2598038039440c2f';
+
+/// Upstream main commit (the PR-S3 merge) that no Séance tag contains yet.
+/// Re-pin to the next Séance release tag per docs/STATUS.md open item 3;
+/// tool/bench/pubspec.yaml's git ref must stay in sync (harness_test
+/// asserts it equals the lock's resolved-ref).
+const pinnedSeanceRevision = '2f99f4efb25a83340605464635bdf0f3ba95d931';
 
 /// One attributable measurement row. Rates stay derived from raw values.
 class BenchResult {
