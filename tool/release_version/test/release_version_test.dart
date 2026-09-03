@@ -76,6 +76,13 @@ void main() {
         '1.0.0',
         '1.1.0',
         '1.1.1',
+        '9.99.99',
+        '10.0.0',
+        '99.99.99',
+        '100.0.0',
+        '999.99.99',
+        '1000.0.0',
+        '2099.99.99',
       ].map((version) => ReleaseVersion.parse(version).androidVersionCode);
 
       expect(codes, orderedEquals(codes.toList()..sort()));

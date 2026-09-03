@@ -9,6 +9,11 @@ readonly app_root="$repository_root/app/poltergeist_app"
 readonly pubspec="$app_root/pubspec.yaml"
 readonly apk="$app_root/build/app/outputs/flutter-apk/app-release.apk"
 
+if [[ ! -f "$pubspec" ]]; then
+  echo "expected app pubspec not found: $pubspec" >&2
+  exit 1
+fi
+
 analyzer=""
 if [[ -n "${ANDROID_HOME:-}" ]]; then
   candidate="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"

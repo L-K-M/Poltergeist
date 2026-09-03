@@ -49,12 +49,87 @@ void main() {
     expect(_read(root, 'README.md'), readme);
   });
 
+  test('sync preserves a trailing app version comment', () {
+    const pubspecPath = 'app/poltergeist_app/pubspec.yaml';
+    _replace(
+      root,
+      pubspecPath,
+      'version: 0.1.0+10099',
+      'version: 0.1.0+10099 # release metadata',
+    );
+
+    ReleaseVersionWorkspace(root).syncAppMetadata(
+      version: ReleaseVersion.parse('1.1.0'),
+      pubspecPath: pubspecPath,
+    );
+
+    expect(
+      _read(root, pubspecPath),
+      contains('version: 1.1.0+1010099 # release metadata'),
+    );
+  });
+
+  test('sync rejects a non-app pubspec before writing', () {
+    const packagePath = 'packages/poltergeist_core/pubspec.yaml';
+    final package = _read(root, packagePath);
+    final apple = _read(root, _appleInfoPlistPaths.first);
+
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: packagePath,
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('must target'),
+        ),
+      ),
+    );
+    expect(_read(root, packagePath), package);
+    expect(_read(root, _appleInfoPlistPaths.first), apple);
+  });
+
+  test('sync rejects the repository root as a file target', () {
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
+        pubspecPath: '.',
+      ),
+      throwsA(
+        isA<ReleaseVersionStateException>().having(
+          (error) => error.message,
+          'message',
+          contains('must identify a file inside repository root'),
+        ),
+      ),
+    );
+  });
+
   test('sync rejects a missing top-level version', () {
     _write(root, 'app/poltergeist_app/pubspec.yaml', 'name: poltergeist_app\n');
 
     expect(
       () => ReleaseVersionWorkspace(root).syncAppMetadata(
         version: ReleaseVersion.parse('0.1.0'),
+        pubspecPath: 'app/poltergeist_app/pubspec.yaml',
+      ),
+      throwsA(isA<ReleaseVersionStateException>()),
+    );
+  });
+
+  test('sync rejects a bare version value', () {
+    _replace(
+      root,
+      'app/poltergeist_app/pubspec.yaml',
+      'version: 0.1.0+10099',
+      'version:',
+    );
+
+    expect(
+      () => ReleaseVersionWorkspace(root).syncAppMetadata(
+        version: ReleaseVersion.parse('1.1.0'),
         pubspecPath: 'app/poltergeist_app/pubspec.yaml',
       ),
       throwsA(isA<ReleaseVersionStateException>()),
@@ -566,6 +641,17 @@ void main() {
   });
 
   for (final section in const ['dev_dependencies', 'dependency_overrides']) {
+    test('check discovers path dependencies in $section', () {
+      _replace(
+        root,
+        'app/poltergeist_app/pubspec.yaml',
+        'dependencies:',
+        '$section:',
+      );
+
+      expect(ReleaseVersionWorkspace(root).check().lockedPackageCount, 1);
+    });
+
     test('check validates path dependencies in $section', () {
       _replace(
         root,

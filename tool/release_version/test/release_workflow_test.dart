@@ -107,6 +107,25 @@ void main() {
     expect(result.exitCode, 0, reason: result.stderr as String);
   }, skip: _posixOnly);
 
+  for (final mode in const [
+    _VersionToolMode.checkTag,
+    _VersionToolMode.checkOrder,
+  ]) {
+    test('release gate stops when ${mode.name} fails', () async {
+      final result = await _runReleaseGate(
+        sandbox,
+        _GitScenario.ok,
+        versionToolMode: mode,
+      );
+
+      expect(result.exitCode, isNot(0));
+      expect(
+        result.stderr,
+        contains('fake version tool failure: ${mode.name}'),
+      );
+    }, skip: _posixOnly);
+  }
+
   test('Android consumes Flutter release version metadata', () {
     final gradle = _repositoryFile(
       'app/poltergeist_app/android/app/build.gradle.kts',
@@ -250,6 +269,17 @@ void main() {
     expect(result.stderr, contains('expected APK not found'));
   }, skip: _posixOnly);
 
+  test('Android version verifier rejects a missing pubspec', () async {
+    final result = await _runAndroidVersionVerifier(
+      sandbox,
+      code: _expectedAndroidCode(),
+      pubspecState: _PubspecState.missing,
+    );
+
+    expect(result.exitCode, isNot(0));
+    expect(result.stderr, contains('expected app pubspec not found'));
+  }, skip: _posixOnly);
+
   test('zero-major versions publish as pre-releases', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
@@ -267,15 +297,65 @@ void main() {
 
 Future<ProcessResult> _runReleaseGate(
   Directory sandbox,
-  _GitScenario scenario,
-) {
+  _GitScenario scenario, {
+  _VersionToolMode versionToolMode = _VersionToolMode.normal,
+}) {
   final fakeBin = Directory(p.join(sandbox.path, 'bin'))..createSync();
   final fakeDart = File(p.join(fakeBin.path, 'dart'));
   final fakeGit = File(p.join(fakeBin.path, 'git'));
-  fakeDart.writeAsStringSync('#!/usr/bin/env bash\nexit 0\n');
+  fakeDart.writeAsStringSync(r'''#!/usr/bin/env bash
+set -euo pipefail
+
+readonly version_tool=tool/release_version/bin/release_version.dart
+readonly command_argument_count=3
+readonly expected_tag=v0.1.0
+readonly expected_version=0.1.0
+
+if [[ "$1" != run || "$2" != "$version_tool" ]]; then
+  echo "fake dart: unexpected invocation: $*" >&2
+  exit 1
+fi
+
+shift 2
+case "$1" in
+  check-tag)
+    if [[ "$#" -eq "$command_argument_count" &&
+          "$2" == --tag && "$3" == "$expected_tag" ]]; then
+      if [[ "$FAKE_VERSION_TOOL_MODE" == checkTag ]]; then
+        echo "fake version tool failure: checkTag" >&2
+        exit 1
+      fi
+      exit 0
+    fi
+    ;;
+  check-order)
+    if [[ "$#" -eq "$command_argument_count" &&
+          "$2" == --version && "$3" == "$expected_version" ]]; then
+      if [[ "$FAKE_VERSION_TOOL_MODE" == checkOrder ]]; then
+        echo "fake version tool failure: checkOrder" >&2
+        exit 1
+      fi
+      exit 0
+    fi
+    ;;
+esac
+
+echo "fake dart: unexpected release-version arguments: $*" >&2
+exit 1
+''');
   fakeGit.writeAsStringSync(r'''#!/usr/bin/env bash
+unexpected() {
+  echo "fake git: unexpected invocation: $*" >&2
+  exit 1
+}
+
+readonly expected_ref=refs/tags/v0.1.0
+readonly expected_commit_ref="${expected_ref}^{commit}"
+
 case "$1" in
   show-ref)
+    [[ "$#" -eq 4 && "$2" == --verify && "$3" == --quiet &&
+       "$4" == "$expected_ref" ]] || unexpected "$@"
     [[ "$FAKE_GIT_SCENARIO" == tagExistenceError ]] && exit 2
     if [[ "$FAKE_GIT_SCENARIO" == nonCommitTag ||
           "$FAKE_GIT_SCENARIO" == mismatchedTag ||
@@ -285,21 +365,29 @@ case "$1" in
     exit 1
     ;;
   tag)
+    [[ "$#" -eq 3 && "$2" == --list && "$3" == 'v*' ]] || unexpected "$@"
     [[ "$FAKE_GIT_SCENARIO" == tagHistoryError ]] && exit 2
     exit 0
     ;;
   rev-parse)
-    [[ "$FAKE_GIT_SCENARIO" == nonCommitTag ]] && exit 1
-    if [[ "$FAKE_GIT_SCENARIO" == mismatchedTag && "$2" == HEAD ]]; then
+    if [[ "$#" -eq 3 && "$2" == --verify &&
+          "$3" == "$expected_commit_ref" ]]; then
+      [[ "$FAKE_GIT_SCENARIO" == nonCommitTag ]] && exit 1
+      printf '%040d\n' 0
+      exit 0
+    fi
+    if [[ "$#" -eq 2 && "$2" == HEAD ]]; then
+      if [[ "$FAKE_GIT_SCENARIO" != mismatchedTag ]]; then
+        printf '%040d\n' 0
+        exit 0
+      fi
       printf '%040d\n' 1
       exit 0
     fi
-    printf '%040d\n' 0
-    exit 0
+    unexpected "$@"
     ;;
 esac
-echo "fake git: unexpected invocation: $*" >&2
-exit 1
+unexpected "$@"
 ''');
   Process.runSync('chmod', ['+x', fakeDart.path, fakeGit.path]);
 
@@ -313,8 +401,10 @@ exit 1
     ['-euo', 'pipefail', '-c', script],
     environment: {
       ...Platform.environment,
+      'GITHUB_WORKSPACE': p.join(sandbox.path, 'unrelated-workspace'),
       'FAKE_GIT_SCENARIO': scenario.name,
-      'PATH': '${fakeBin.path}:${Platform.environment['PATH']}',
+      'FAKE_VERSION_TOOL_MODE': versionToolMode.name,
+      'PATH': _prependExecutablePath(fakeBin.path),
       'RELEASE_TAG': 'v0.1.0',
     },
     workingDirectory: _repositoryRoot.path,
@@ -326,6 +416,7 @@ Future<ProcessResult> _runAndroidVersionVerifier(
   required String code,
   _AnalyzerLocation analyzerLocation = _AnalyzerLocation.androidHome,
   _ApkState apkState = _ApkState.present,
+  _PubspecState pubspecState = _PubspecState.present,
 }) {
   final repository = Directory(p.join(sandbox.path, 'repository'))
     ..createSync();
@@ -339,10 +430,12 @@ Future<ProcessResult> _runAndroidVersionVerifier(
   final pubspec = File(
     p.join(repository.path, 'app/poltergeist_app/pubspec.yaml'),
   );
-  pubspec.parent.createSync(recursive: true);
-  pubspec.writeAsStringSync(
-    'name: poltergeist_app\nversion: 0.1.0+$expectedCode\n',
-  );
+  if (pubspecState == _PubspecState.present) {
+    pubspec.parent.createSync(recursive: true);
+    pubspec.writeAsStringSync(
+      'name: poltergeist_app\nversion: 0.1.0+$expectedCode\n',
+    );
+  }
 
   final apk = File(
     p.join(
@@ -370,15 +463,15 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
 ''');
   Process.runSync('chmod', ['+x', analyzer.path]);
 
-  var executablePath = '${Platform.environment['PATH']}';
+  late final String executablePath;
   if (analyzerLocation == _AnalyzerLocation.androidHome) {
     final decoy = File(p.join(sandbox.path, 'bin', 'apkanalyzer'));
     decoy.parent.createSync(recursive: true);
     decoy.writeAsStringSync('#!/usr/bin/env bash\nexit 1\n');
     Process.runSync('chmod', ['+x', decoy.path]);
-    executablePath = '${decoy.parent.path}:$executablePath';
+    executablePath = _prependExecutablePath(decoy.parent.path);
   } else {
-    executablePath = '${analyzer.parent.path}:$executablePath';
+    executablePath = _prependExecutablePath(analyzer.parent.path);
   }
 
   return Process.run(
@@ -386,6 +479,7 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
     [verifier.path],
     environment: {
       ...Platform.environment,
+      'GITHUB_WORKSPACE': p.join(sandbox.path, 'unrelated-workspace'),
       'ANDROID_HOME': switch (analyzerLocation) {
         _AnalyzerLocation.androidHome => androidHome,
         _AnalyzerLocation.path => '',
@@ -394,8 +488,15 @@ printf '%s\n' "$FAKE_ANDROID_VERSION_CODE"
       'FAKE_EXPECTED_APK_PATH': apk.path,
       'PATH': executablePath,
     },
-    workingDirectory: sandbox.path,
+    workingDirectory: repository.path,
   );
+}
+
+String _prependExecutablePath(String directory) {
+  final inherited = Platform.environment['PATH'];
+  if (inherited == null || inherited.isEmpty) return directory;
+
+  return '$directory:$inherited';
 }
 
 enum _GitScenario {
@@ -410,6 +511,10 @@ enum _GitScenario {
 enum _AnalyzerLocation { androidHome, path }
 
 enum _ApkState { missing, present }
+
+enum _PubspecState { missing, present }
+
+enum _VersionToolMode { checkOrder, checkTag, normal }
 
 YamlMap _workflow(String path) {
   final parsed = loadYaml(_repositoryFile(path).readAsStringSync());

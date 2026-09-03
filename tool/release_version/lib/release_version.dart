@@ -36,7 +36,7 @@ final RegExp _versionPattern = RegExp(
 );
 final RegExp _appVersionPattern = RegExp(r'^(.+)\+([0-9]+)$');
 final RegExp _versionLinePattern = RegExp(
-  r'^version:[ \t]*[^\r\n]*$',
+  r'^(version:[ \t]*)([^#\s]+)([ \t]*(?:#[^\r\n]*)?)$',
   multiLine: true,
 );
 final RegExp _readmeVersionPattern = RegExp(
@@ -172,6 +172,14 @@ final class ReleaseVersionWorkspace {
     required ReleaseVersion version,
     required String pubspecPath,
   }) {
+    final requestedPubspec = _resolveInsideRoot(pubspecPath);
+    final appPubspec = _resolveInsideRoot(_appPubspecPath);
+    if (!p.equals(requestedPubspec.path, appPubspec.path)) {
+      throw ReleaseVersionStateException(
+        'sync must target $_appPubspecPath; got $pubspecPath',
+      );
+    }
+
     final rewrites = [
       _prepareAppPubspec(version: version, pubspecPath: pubspecPath),
       for (final path in _appleInfoPlistPaths)
@@ -222,7 +230,7 @@ final class ReleaseVersionWorkspace {
     final rewritten = original.replaceRange(
       matches.single.start,
       matches.single.end,
-      'version: ${version.appVersion}',
+      '${matches.single[1]}${version.appVersion}${matches.single[3]}',
     );
 
     return _PreparedRewrite(
@@ -453,8 +461,12 @@ final class ReleaseVersionWorkspace {
     // Resolve links before containment so root/link -> outside cannot escape.
     final rootPath = _root.resolveSymbolicLinksSync();
     final resolvedPath = _canonicalPath(resolved);
-    if (p.equals(resolvedPath, rootPath) ||
-        p.isWithin(rootPath, resolvedPath)) {
+    if (p.equals(resolvedPath, rootPath)) {
+      throw ReleaseVersionStateException(
+        'path must identify a file inside repository root: $pathFromRoot',
+      );
+    }
+    if (p.isWithin(rootPath, resolvedPath)) {
       return resolved;
     }
 
