@@ -62,6 +62,17 @@ void main() {
       });
     }
 
+    test('pre-3.4.21 GLIBCXX tags carry no floor', () async {
+      // The real Flutter 3.47.2 bundle floors at the base tag GLIBCXX_3.4 —
+      // CI proved it on the first run of this mapping.
+      for (final tag in const ['3.4', '3.4.9', '3.4.13', '3.4.20']) {
+        final result = await _sourceAndCall(block, 'glibcxx_gcc $tag');
+
+        expect(result.exitCode, 0, reason: tag);
+        expect(result.stdout.trim(), isEmpty, reason: tag);
+      }
+    });
+
     test('pre-libgcc-s1 GCC tags carry no floor', () async {
       final result = await _sourceAndCall(block, 'gcc_gcc 3.0');
 

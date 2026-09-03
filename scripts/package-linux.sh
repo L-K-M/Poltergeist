@@ -229,7 +229,9 @@ GCC_TAG="$(floor_of GCC_)"
 # map through the upstream GCC release that introduced them, per GCC's ABI
 # policy table: https://gcc.gnu.org/onlinedocs/libstdc++/manual/abi.html
 
-# GLIBCXX_x.y.z → the first GCC release shipping the tag.
+# GLIBCXX_x.y.z → the first GCC release shipping the tag; empty for the
+# pre-3.4.21 family — those predate every libstdc++6 still installable, and
+# the soname map already emits an unversioned libstdc++6 dependency.
 glibcxx_gcc() {  # $1 = tag without the GLIBCXX_ prefix → GCC version
   case "$1" in
     3.4.21) echo 5.1  ;;  3.4.22) echo 6.1  ;;  3.4.23) echo 7.1  ;;
@@ -237,6 +239,7 @@ glibcxx_gcc() {  # $1 = tag without the GLIBCXX_ prefix → GCC version
     3.4.27) echo 9.2  ;;  3.4.28) echo 9.3  ;;  3.4.29) echo 11.1 ;;
     3.4.30) echo 12.1 ;;  3.4.31) echo 13.1 ;;  3.4.32) echo 13.2 ;;
     3.4.33) echo 14.1 ;;  3.4.34) echo 15.1 ;;
+    3.4|3.4.[1-9]|3.4.1[0-9]|3.4.20) ;;
     *) return 1 ;;
   esac
 }
