@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
@@ -315,6 +317,133 @@ void main() {
       allOf(contains('startsWith('), contains("'v0.'")),
     );
   });
+
+  test('publishes attach to a draft that only the maintainer releases', () {
+    final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+    final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
+    final publisher = clientSteps.whereType<YamlMap>().singleWhere(
+      (step) => '${step['uses']}'.startsWith('$_releaseAction@'),
+    );
+
+    expect((publisher['with'] as YamlMap)['draft'], true);
+  });
+
+  test('release runs serialize on the tag, queuing never cancelling', () {
+    final concurrency =
+        _workflow('.github/workflows/release.yml')['concurrency'] as YamlMap;
+
+    // The full ref differs between a tag push and a dispatch for the same
+    // tag; the group must not, or the two could race the release guard.
+    expect(
+      '${concurrency['group']}',
+      r'release-${{ inputs.tag || github.ref_name }}',
+    );
+    expect(concurrency['cancel-in-progress'], false);
+  });
+
+  test('release gate refuses to overwrite an existing release', () async {
+    final steps = _jobSteps('.github/workflows/release.yml', 'test');
+    final guard = _step(steps, 'Refuse to overwrite an existing release');
+    final environment = guard['env'] as YamlMap;
+    final run = '${guard['run']}';
+
+    expect(environment['GH_TOKEN'], isNotNull);
+    expect('${environment['REPO']}', r'${{ github.repository }}');
+    expect(run, contains('gh api --paginate'));
+    expect(run, contains('select(.tag_name'));
+    expect(run, isNot(contains(r'${{')));
+
+    final absent = await _runReleaseGuardStep(_ExistingRelease.none);
+    expect(absent.exitCode, 0, reason: absent.stderr as String);
+
+    final present = await _runReleaseGuardStep(_ExistingRelease.draft);
+    expect(present.exitCode, isNot(0));
+    expect(present.stderr, contains('already exists'));
+    expect(present.stderr, contains('delete it first'));
+  }, skip: _posixOnly);
+
+  test(
+    'draft checksums enforce the rehearsal floor and cover every asset',
+    () async {
+      final jobs =
+          _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+      final sums = jobs['sums'] as YamlMap;
+
+      expect(sums['needs'], 'client');
+      final run = _stepRun(
+        sums['steps'] as YamlList,
+        "Compute SHA256SUMS over the draft's assets",
+      );
+      expect(run, contains('poltergeist-android.apk'));
+      expect(run, contains('poltergeist_*.deb'));
+      expect(run, contains('poltergeist-linux-x64.AppImage'));
+      expect(run, contains('poltergeist-linux-x64.tar.gz'));
+      expect(run, contains('sha256sum'));
+      expect(run, contains('gh release upload'));
+      expect(run, contains('--notes-file'));
+      expect(run, isNot(contains(r'${{')));
+
+      final complete = await _runChecksumStep(_DraftAssets.complete);
+      expect(
+        complete.result.exitCode,
+        0,
+        reason: complete.result.stderr as String?,
+      );
+
+      final sumsText = complete.sums.readAsStringSync();
+      for (final asset in _DraftAssets.complete.names) {
+        expect(sumsText, contains(asset));
+      }
+      final apkHash = sha256
+          .convert(utf8.encode('poltergeist-android.apk'))
+          .toString();
+      expect(sumsText, contains('$apkHash  poltergeist-android.apk'));
+
+      expect(complete.uploadLog.readAsStringSync(), contains('SHA256SUMS'));
+      final notes = complete.notes.readAsStringSync();
+      expect(notes, contains('rehearsal artifact'));
+      expect(notes, contains('unsigned'));
+      expect(notes, contains('## SHA256 checksums'));
+      expect(notes, contains('$apkHash  poltergeist-android.apk'));
+
+      final floorBroken = await _runChecksumStep(_DraftAssets.missingApk);
+      expect(floorBroken.result.exitCode, isNot(0));
+      expect(floorBroken.result.stderr, contains('floor asset(s) missing'));
+      expect(floorBroken.result.stderr, contains('poltergeist-android.apk'));
+      expect(floorBroken.sums.existsSync(), isFalse);
+      expect(floorBroken.uploadLog.existsSync(), isFalse);
+    },
+    skip: _posixOnly,
+  );
+
+  test('iOS IPAs build from and zip out of the unsigned xcarchive', () {
+    for (final path in [
+      '.github/workflows/ci.yml',
+      '.github/workflows/release.yml',
+    ]) {
+      final matrix =
+          (((_workflow(path)['jobs'] as YamlMap)['client']
+                      as YamlMap)['strategy']
+                  as YamlMap)['matrix']
+              as YamlMap;
+      final entries = matrix['include'] as YamlList;
+      final ios = entries.whereType<YamlMap>().singleWhere(
+        (entry) => '${entry['target']}' == 'ios',
+      );
+
+      expect('${ios['build']}', 'ipa --release --no-codesign');
+    }
+
+    final packageRun = _stepRun(
+      _jobSteps('.github/workflows/release.yml', 'client'),
+      'Package',
+    );
+    expect(
+      packageRun,
+      contains('build/ios/archive/Runner.xcarchive/Products/Applications'),
+    );
+    expect(packageRun, isNot(contains('build/ios/iphoneos')));
+  });
 }
 
 Future<ProcessResult> _runReleaseGate(
@@ -626,4 +755,191 @@ YamlMap _step(YamlList steps, String name) {
   expect(matches, hasLength(1), reason: 'missing or duplicate step: $name');
 
   return matches.single;
+}
+
+// --- Sandboxed runs of the two gh-backed steps, against a fake gh CLI ------
+
+/// The assets a complete draft carries (the client matrix's full set, minus
+/// the sums the step itself is about to add).
+enum _DraftAssets {
+  complete([
+    'poltergeist-android.apk',
+    'poltergeist_0.1.0-1_amd64.deb',
+    'poltergeist-linux-x64.AppImage',
+    'poltergeist-linux-x64.tar.gz',
+    'poltergeist-macos-universal.zip',
+    'poltergeist-ios-unsigned.ipa',
+    'poltergeist-windows-x64.zip',
+  ]),
+  missingApk([
+    'poltergeist_0.1.0-1_amd64.deb',
+    'poltergeist-linux-x64.AppImage',
+    'poltergeist-linux-x64.tar.gz',
+    'poltergeist-macos-universal.zip',
+    'poltergeist-ios-unsigned.ipa',
+    'poltergeist-windows-x64.zip',
+  ]);
+
+  const _DraftAssets(this.names);
+
+  final List<String> names;
+}
+
+enum _ExistingRelease { draft, none }
+
+/// A gh stand-in: the `api` subcommand reports one release for the tag when
+/// [existing] is set; `release download` materializes the fake assets (file
+/// content = asset name, so the test can predict each sum); `upload`/`edit`
+/// append to a log, and `edit` also copies the notes file for inspection.
+File _writeFakeGh(
+  Directory sandbox, {
+  _DraftAssets assets = _DraftAssets.complete,
+  _ExistingRelease existing = _ExistingRelease.none,
+}) {
+  final fakeGh = File(p.join(sandbox.path, 'bin', 'gh'))
+    ..writeAsStringSync(r'''
+#!/usr/bin/env bash
+set -euo pipefail
+
+log="${FAKE_GH_LOG:?}"
+[[ "${GH_TOKEN:-}" == fake-token ]] || { echo "fake gh: GH_TOKEN missing" >&2; exit 64; }
+
+case "$1" in
+  api)
+    [[ "$2" == --paginate && "$3" == "repos/${FAKE_REPO:?}/releases" ]] \
+      || { echo "fake gh: unexpected api call: $*" >&2; exit 64; }
+    if [[ "${FAKE_EXISTING_RELEASE:-none}" != none ]]; then
+      echo "https://github.com/$FAKE_REPO/releases (draft=true)"
+    fi
+    ;;
+  release)
+    cmd="$2"; tag="$3"; shift 3
+    details="$*"
+    [[ "$tag" == "${FAKE_RELEASE_TAG:?}" ]] \
+      || { echo "fake gh: wrong tag: $tag" >&2; exit 64; }
+    dir=""; notes=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --dir)        dir="$2";   shift 2 ;;
+        --notes-file) notes="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    case "$cmd" in
+      download)
+        [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
+        for name in ${FAKE_ASSETS:?}; do printf '%s' "$name" > "$dir/$name"; done
+        ;;
+      upload) printf 'upload %s\n' "$details" >> "$log" ;;
+      edit)
+        [[ -n "$notes" ]] || { echo "fake gh: no --notes-file" >&2; exit 64; }
+        cp "$notes" "${FAKE_NOTES_COPY:?}"
+        printf 'edit %s\n' "$details" >> "$log"
+        ;;
+      *) echo "fake gh: unexpected release command: $cmd" >&2; exit 64 ;;
+    esac
+    ;;
+  *) echo "fake gh: unexpected subcommand: $1" >&2; exit 64 ;;
+esac
+''');
+  Process.runSync('chmod', ['+x', fakeGh.path]);
+
+  return fakeGh;
+}
+
+Map<String, String> _fakeGhEnvironment({
+  required Directory sandbox,
+  required Map<String, String> extra,
+}) {
+  return {
+    ...Platform.environment,
+    'GH_TOKEN': 'fake-token',
+    'FAKE_REPO': 'owner/repo',
+    'FAKE_RELEASE_TAG': 'v0.1.0',
+    'FAKE_GH_LOG': p.join(sandbox.path, 'gh.log'),
+    'FAKE_NOTES_COPY': p.join(sandbox.path, 'notes-copy.md'),
+    'PATH': _prependExecutablePath(p.join(sandbox.path, 'bin')),
+    ...extra,
+  };
+}
+
+Future<ProcessResult> _runReleaseGuardStep(_ExistingRelease existing) {
+  final sandbox = Directory.systemTemp.createTempSync(
+    'poltergeist-release-guard-test-',
+  );
+  addTearDown(() {
+    if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+  });
+  Directory(p.join(sandbox.path, 'bin')).createSync();
+  _writeFakeGh(sandbox, existing: existing);
+
+  final steps = _jobSteps('.github/workflows/release.yml', 'test');
+  final script =
+      '${_step(steps, 'Refuse to overwrite an existing release')['run']}';
+
+  return Process.run(
+    'bash',
+    ['-euo', 'pipefail', '-c', script],
+    environment: _fakeGhEnvironment(
+      sandbox: sandbox,
+      extra: {
+        'REPO': 'owner/repo',
+        'RELEASE_TAG': 'v0.1.0',
+        'FAKE_EXISTING_RELEASE': existing.name,
+      },
+    ),
+    workingDirectory: sandbox.path,
+  );
+}
+
+Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
+  final sandbox = Directory.systemTemp.createTempSync(
+    'poltergeist-release-sums-test-',
+  );
+  addTearDown(() {
+    if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+  });
+  Directory(p.join(sandbox.path, 'bin')).createSync();
+  _writeFakeGh(sandbox, assets: assets);
+
+  final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+  final script = _stepRun(
+    (jobs['sums'] as YamlMap)['steps'] as YamlList,
+    "Compute SHA256SUMS over the draft's assets",
+  );
+
+  final result = await Process.run(
+    'bash',
+    ['-euo', 'pipefail', '-c', script],
+    environment: _fakeGhEnvironment(
+      sandbox: sandbox,
+      extra: {
+        'REPO': 'owner/repo',
+        'RELEASE_TAG': 'v0.1.0',
+        'FAKE_ASSETS': assets.names.join(' '),
+      },
+    ),
+    workingDirectory: sandbox.path,
+  );
+
+  return _ChecksumOutcome(
+    result: result,
+    sums: File(p.join(sandbox.path, 'SHA256SUMS')),
+    uploadLog: File(p.join(sandbox.path, 'gh.log')),
+    notes: File(p.join(sandbox.path, 'notes-copy.md')),
+  );
+}
+
+class _ChecksumOutcome {
+  const _ChecksumOutcome({
+    required this.result,
+    required this.sums,
+    required this.uploadLog,
+    required this.notes,
+  });
+
+  final ProcessResult result;
+  final File sums;
+  final File uploadLog;
+  final File notes;
 }
