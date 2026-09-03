@@ -260,7 +260,9 @@ gcc_gcc() {  # $1 = tag without the GCC_ prefix
 if [[ -n "$GLIBCXX_TAG" ]]; then
   mapped="$(glibcxx_gcc "$GLIBCXX_TAG")" \
     || die "no GCC mapping for GLIBCXX_$GLIBCXX_TAG — extend glibcxx_gcc in $SELF (source: GCC's ABI policy table)"
-  dep_version libstdc++6 "libstdc++6 (>= $mapped)"
+  # An empty mapping keeps the soname map's unversioned dependency —
+  # "libstdc++6 (>= )" would not parse.
+  [[ -n "$mapped" ]] && dep_version libstdc++6 "libstdc++6 (>= $mapped)"
 fi
 if [[ -n "$GCC_TAG" ]]; then
   mapped="$(gcc_gcc "$GCC_TAG")" \

@@ -93,6 +93,12 @@ void main() {
       expect(script, contains(r'no GCC mapping for GCC_$'));
       expect(script, isNot(contains(r'libstdc++6 (>= $GLIBCXX')));
       expect(script, isNot(contains(r'libgcc-s1 (>= $GCC')));
+      // An empty mapping (pre-3.4.21 tags) must keep the unversioned
+      // dependency, not emit "(>= )" — dpkg-deb rejects an empty version.
+      expect(
+        script,
+        contains(r'[[ -n "$mapped" ]] && dep_version libstdc++6'),
+      );
     });
   });
 
