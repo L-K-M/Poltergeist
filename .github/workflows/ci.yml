@@ -336,7 +336,9 @@ jobs:
             build: macos --release
           - os: macos-latest
             target: ios
-            build: ios --release --no-codesign
+            # Lockstep with release.yml's ios leg: `build ipa --no-codesign`
+            # stops at the unsigned .xcarchive, the asset release.yml zips.
+            build: ipa --release --no-codesign
           - os: windows-latest
             target: windows
             build: windows --release
