@@ -33,6 +33,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.0"
+  asn1lib:
+    dependency: transitive
+    description:
+      name: asn1lib
+      sha256: "9a8f69025044eb466b9b60ef3bc3ac99b4dc6c158ae9c56d25eeccf5bc56d024"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.5"
   async:
     dependency: transitive
     description:
@@ -113,6 +121,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  cryptography:
+    dependency: transitive
+    description:
+      name: cryptography
+      sha256: "3eda3029d34ec9095a27a198ac9785630fe525c0eb6a49f3d575272f8e792ef0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.9.0"
+  dartssh2:
+    dependency: transitive
+    description:
+      name: dartssh2
+      sha256: fdc8e5e47c88473525e90ba11fbc2234a47d3788de010061d0b49de7e12a3c24
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.2"
   fake_async:
     dependency: transitive
     description:
@@ -192,6 +216,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.2"
+  http:
+    dependency: transitive
+    description:
+      name: http
+      sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.0"
+  http_parser:
+    dependency: transitive
+    description:
+      name: http_parser
+      sha256: "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.1.2"
   image:
     dependency: transitive
     description:
@@ -384,6 +424,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.0"
+  pinenacl:
+    dependency: transitive
+    description:
+      name: pinenacl
+      sha256: "57e907beaacbc3c024a098910b6240758e899674de07d6949a67b52fd984cbdf"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.6.0"
   platform:
     dependency: transitive
     description:
@@ -400,6 +448,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
+  pointycastle:
+    dependency: transitive
+    description:
+      name: pointycastle
+      sha256: "92aa3841d083cc4b0f4709b5c74fd6409a3e6ba833ffc7dc6a8fee096366acf5"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
   poltergeist_core:
     dependency: "direct main"
     description:
@@ -471,6 +527,24 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.2.2"
+  seance_core:
+    dependency: transitive
+    description:
+      path: "packages/seance_core"
+      ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      resolved-ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      url: "https://github.com/L-K-M/Seance.git"
+    source: git
+    version: "0.8.0"
+  seance_protocol:
+    dependency: transitive
+    description:
+      path: "packages/seance_protocol"
+      ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      resolved-ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      url: "https://github.com/L-K-M/Seance.git"
+    source: git
+    version: "0.8.0"
   sky_engine:
     dependency: transitive
     description: flutter
@@ -564,6 +638,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.1"
+  web:
+    dependency: transitive
+    description:
+      name: web
+      sha256: "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.1.1"
   window_manager:
     dependency: "direct main"
     description:

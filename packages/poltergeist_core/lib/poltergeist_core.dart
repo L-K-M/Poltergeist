@@ -1,10 +1,45 @@
 /// Platform-agnostic core for Poltergeist.
 ///
-/// Scaffold: the real modules (connections, transfers, sync engine, bookmark
-/// model) land per the plan in `docs/plan/`. What lives here today is the
-/// product identity, exported so every layer — UI, packaging, tests — names
-/// the product from one place.
+/// The barrel exports only neutral types — connection management, task and
+/// bookmark models, plus the re-exported `RemoteFileSystem` VFS. dartssh2
+/// types stop inside `src/connection/` (03 §1) and never reach callers.
 library;
+
+export 'package:seance_core/seance_core.dart'
+    show
+        AuthKind,
+        AuthMethod,
+        HostKey,
+        HostKeyDecision,
+        HostKeyPrompter,
+        HostKeyVerdict,
+        KeyboardInteractiveResponder,
+        RemoteFileEntry,
+        RemoteFileErrorKind,
+        RemoteFileException,
+        RemoteFileSystem,
+        RemoteTransferCancellation,
+        RemoteTransferProgress,
+        ServerConfig,
+        SshConnectException,
+        SshConnectionLog,
+        SshCredentials,
+        TofuVerifier,
+        remoteBasename,
+        remoteJoin,
+        remoteParent;
+
+export 'src/connection/connection_manager.dart';
+export 'src/connection/pool_key.dart';
+export 'src/connection/pool_policy.dart';
+export 'src/connection/ssh_transport.dart'
+    show
+        AuthChallengeRequiredError,
+        ConnectPrompting,
+        SftpChannel,
+        SshTransport,
+        SshTransportOpener,
+        openDartSshTransport;
 
 /// The user-facing product name.
 ///

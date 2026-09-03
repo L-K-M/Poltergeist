@@ -46,6 +46,8 @@ jobs:
       # the Flutter app and fail without the Flutter SDK).
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
+      - name: Check dependency boundaries (03 §1)
+        run: scripts/check-imports.sh
       - name: Analyze release gate
         run: dart analyze tool/license_gate
       - name: Analyze release version tool

@@ -3,18 +3,20 @@
 Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) first for how to build/test.
 
-_Last updated: 2026-09-03 — M0 is complete; the M1 scaffold, deterministic
+_Last updated: 2026-09-04 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 release pipeline are implemented, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3);
-M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1)._
+M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1), and
+M2 has started: the pooled `ConnectionManager` growth rules are in (open
+item 4 tracks the remaining M2 slices)._
 
 ## Done
 
 | Area | State |
 |---|---|
 | Repo infrastructure | CI (`ci.yml`: Dart analyze+test now; Flutter + client-matrix jobs self-activate when `app/poltergeist_app` appears), GLM PR review workflow, release workflow (`v*` tags → per-platform client assets), `scripts/build.sh` / `release.sh` / `package-linux.sh` adapted from Séance, Unlicense, analyzer config, pub workspace. |
-| `poltergeist_core` | Scaffold only: product identity constants + a test guarding the ASCII-name invariant (macOS codesign rejects accented bundle file names). Real modules land per the plan. |
+| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `2f99f4e`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Growth-rule suite (18 tests) runs socket-free per 08 §3.2. |
 | The plan | Complete in [`docs/plan/`](plan/) — overview + decision log (D1–D31), product, UX spec, architecture, Séance integration, sync, editor, milestones, testing, playbook. Reviewed via the GLM PR workflow, internal consistency passes, and a final whole-plan coherence pass (2026-08-31). |
 | Séance pin | Upstream `L-K-M/Seance@2f99f4e` (main, PR-S3 merge) — the M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's `computeHash` calls now resolve against upstream, its test suite passes on the new pin, and the PORTS.md audit record is regenerated. Committed-bundle validation now binds to the pins M0 actually measured instead of the live pin, so future re-pins cannot invalidate frozen evidence. Ported `atomic_file` sources re-diffed clean through the new pin. |
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
@@ -50,9 +52,27 @@ M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1)._
    `LocalFileSystem` lands; this is not an M1 closure claim.
 3. **Séance pin: flip to the next tag.** The fork bridge is retired (see
    the Done table) and the pin sits at upstream main `2f99f4e` — no Séance
-   tag contains the PR-S3 merge yet. When Séance cuts its next release
-   (the same S1 release the M6 Design A gate needs), re-pin to that tag
-   (D2's steady state) and drop the rev pin. Tag S1 before M6 Design A.
+   tag contains the PR-S3 merge yet. `poltergeist_core` now carries the
+   same rev pin (first workspace-package pin; the M0 bench pin set is
+   unchanged, and the pin audit record still matches). When Séance cuts its
+   next release (the same S1 release the M6 Design A gate needs), re-pin
+   both declarations to that tag (D2's steady state) and drop the rev pins.
+   Tag S1 before M6 Design A.
+4. **2026-09-04 — M2 remaining slices.** The pooled connection manager's
+   growth rules, TOFU gate, and channel budgets are in. Still open, in
+   roughly this order:
+   - keepalive pings, idle extra-transport teardown, and auto-reconnect
+     with backoff + downward-only jitter (03 §3.3; `PoolPolicy` constants
+     already land with this PR), incl. the 08 §3.2 backoff-sequence tests;
+   - engine isolate + `EngineClient` + the typed port protocol (03 §5),
+     incl. the protocol round-trip and coalescing tests;
+   - prompt UI (host-key dialogs, keyboard-interactive, credential prompt,
+     live `SshConnectionLog` transcript) over the protocol;
+   - `ProbeService` wiring + interim server list status dots;
+   - ssh_config import with preview + dedupe (D22);
+   - the debug-only connect → SFTP → `listDirectory` demo surface;
+   - then the Docker-integration legs of 08 §5's pool suite (growth,
+     keepalive, reconnect against real sshd) — the matrix exists from M0.
 
 ## Housekeeping
 

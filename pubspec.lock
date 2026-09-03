@@ -25,6 +25,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.0"
+  asn1lib:
+    dependency: transitive
+    description:
+      name: asn1lib
+      sha256: "9a8f69025044eb466b9b60ef3bc3ac99b4dc6c158ae9c56d25eeccf5bc56d024"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.5"
   async:
     dependency: transitive
     description:
@@ -81,6 +89,30 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  cryptography:
+    dependency: transitive
+    description:
+      name: cryptography
+      sha256: "3eda3029d34ec9095a27a198ac9785630fe525c0eb6a49f3d575272f8e792ef0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.9.0"
+  dartssh2:
+    dependency: transitive
+    description:
+      name: dartssh2
+      sha256: fdc8e5e47c88473525e90ba11fbc2234a47d3788de010061d0b49de7e12a3c24
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.2"
+  ffi:
+    dependency: transitive
+    description:
+      name: ffi
+      sha256: "6d7fd89431262d8f3125e81b50d3847a091d846eafcd4fdb88dd06f36d705a45"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.2.0"
   file:
     dependency: transitive
     description:
@@ -105,6 +137,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
+  http:
+    dependency: transitive
+    description:
+      name: http
+      sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.6.0"
   http_multi_server:
     dependency: transitive
     description:
@@ -193,6 +233,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
+  pinenacl:
+    dependency: transitive
+    description:
+      name: pinenacl
+      sha256: "57e907beaacbc3c024a098910b6240758e899674de07d6949a67b52fd984cbdf"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.6.0"
+  pointycastle:
+    dependency: transitive
+    description:
+      name: pointycastle
+      sha256: "92aa3841d083cc4b0f4709b5c74fd6409a3e6ba833ffc7dc6a8fee096366acf5"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0"
   pool:
     dependency: transitive
     description:
@@ -209,6 +265,24 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.1"
+  seance_core:
+    dependency: transitive
+    description:
+      path: "packages/seance_core"
+      ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      resolved-ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      url: "https://github.com/L-K-M/Seance.git"
+    source: git
+    version: "0.8.0"
+  seance_protocol:
+    dependency: transitive
+    description:
+      path: "packages/seance_protocol"
+      ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      resolved-ref: "2f99f4efb25a83340605464635bdf0f3ba95d931"
+      url: "https://github.com/L-K-M/Seance.git"
+    source: git
+    version: "0.8.0"
   shelf:
     dependency: transitive
     description:
