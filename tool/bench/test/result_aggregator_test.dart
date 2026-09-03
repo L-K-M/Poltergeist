@@ -357,6 +357,34 @@ void main() {
     );
   });
 
+  test('rejects invalid expected dependency pins', () async {
+    final fixture = await _EvidenceFixture.create();
+    addTearDown(fixture.delete);
+
+    // A tag-like revision is exactly the typo the SHA guard exists to
+    // catch: the lock's resolved-ref is always a commit SHA, never a tag.
+    await expectLater(
+      fixture.aggregate(expectedSeanceRevision: 'v0.4.0'),
+      throwsA(
+        isA<ResultAggregationException>().having(
+          (error) => error.message,
+          'message',
+          contains('Invalid expected dependency pins'),
+        ),
+      ),
+    );
+    await expectLater(
+      fixture.aggregate(expectedDartssh2Version: ' '),
+      throwsA(
+        isA<ResultAggregationException>().having(
+          (error) => error.message,
+          'message',
+          contains('Invalid expected dependency pins'),
+        ),
+      ),
+    );
+  });
+
   test('aggregate CLI writes the canonical evidence directory', () async {
     final fixture = await _EvidenceFixture.create();
     addTearDown(fixture.delete);
