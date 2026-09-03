@@ -1,8 +1,9 @@
 /// Platform-agnostic core for Poltergeist.
 ///
-/// The barrel exports only neutral types — connection management, task and
-/// bookmark models, plus the re-exported `RemoteFileSystem` VFS. dartssh2
-/// types stop inside `src/connection/` (03 §1) and never reach callers.
+/// The barrel exports only neutral types — today the connection layer plus
+/// the re-exported `RemoteFileSystem` VFS; task and bookmark models join as
+/// they land per the plan (03 §1). dartssh2 types stop inside
+/// `src/connection/` and never reach callers.
 library;
 
 export 'package:seance_core/seance_core.dart'

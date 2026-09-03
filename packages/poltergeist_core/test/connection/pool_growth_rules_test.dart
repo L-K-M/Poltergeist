@@ -5,6 +5,10 @@ import 'package:test/test.dart';
 
 import 'pool_fakes.dart';
 
+/// Lets queued (async) stream deliveries land before asserting on them —
+/// watchServer delivers with standard async stream semantics.
+Future<void> flushEvents() => Future<void>.delayed(Duration.zero);
+
 /// The 03 §3.2 growth rules, one named behavior each (08 §3.2's "Pool
 /// growth rules" suite). Keepalive, idle teardown, and reconnect land with
 /// their own milestone slice.
@@ -316,6 +320,7 @@ void main() {
       harness.manager.openBrowseChannel('s1', paneTabId: 't'),
       throwsA(isA<SshConnectException>()),
     );
+    await flushEvents();
 
     expect(states.last, ServerConnectionState.disconnected);
     expect(harness.store.pins, isEmpty);
@@ -454,5 +459,94 @@ void main() {
     expect(browse.fs, same(leaseFs));
     expect(harness.opener.transports.single.channels, hasLength(2));
     await keeper.close();
+  });
+
+  test('a disconnect racing the first connect tears the pool down', () async {
+    final harness = PoolHarness()..addServer('s1');
+    final gate = Completer<void>();
+    harness.resolveGate = gate;
+
+    // The connect parks inside the resolver — the widest window there is
+    // (vault read, TOFU prompt, 2FA all sit behind it).
+    final opening = harness.manager.openBrowseChannel('s1', paneTabId: 't');
+    await Future<void>.delayed(Duration.zero);
+
+    await harness.manager.disconnectServer('s1');
+    gate.complete();
+
+    await expectLater(opening, throwsA(isA<RemoteFileException>()));
+
+    // The transport that landed after the disconnect is closed, not live;
+    // no reference, no credentials, nothing connected.
+    expect(harness.opener.transports.single.closed, isTrue);
+    expect(await harness.manager.connectedServerIds(), isEmpty);
+  });
+
+  test('a shared-pool joiner watches as connected', () async {
+    final harness = PoolHarness()
+      ..addServer('s1')
+      ..addServer('s2');
+
+    await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+
+    // s2 joins the already-connected pool: no connect runs, no state event
+    // fires for it — the initial watch value must derive from the pool.
+    await harness.manager.openBrowseChannel('s2', paneTabId: 't');
+    expect(harness.opener.calls, hasLength(1));
+
+    final seen = await harness.manager.watchServer('s2').first;
+    expect(seen, ServerConnectionState.connected);
+  });
+
+  test('the initial watch value is read at listen time', () async {
+    final harness = PoolHarness()..addServer('s1');
+
+    final stream = harness.manager.watchServer('s1');
+    await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+
+    final seen = <ServerConnectionState>[];
+    stream.listen(seen.add);
+    await flushEvents();
+    expect(seen.single, ServerConnectionState.connected);
+  });
+
+  test('a growth connect that outlives its demand leaves no zombie',
+      () async {
+    final harness = PoolHarness()..addServer('s1');
+    final gate = Completer<void>();
+    harness.opener.growthGate = gate;
+
+    final browse = await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+    final leases = [
+      for (var i = 0; i < 4; i++) harness.manager.leaseTransferChannel('s1'),
+    ];
+    await Future.wait(leases);
+
+    // The 5th lease triggers a growth connect that parks on the gate.
+    final fifthLease = Completer<TransferChannelLease>();
+    final fifth = harness.manager
+        .leaseTransferChannel('s1')
+        .then(fifthLease.complete);
+    await Future<void>.delayed(Duration.zero);
+
+    // Everything releases while the growth connect is in flight: teardown
+    // is deferred (the growth guard), so the pool is not torn mid-connect.
+    await browse.close();
+    for (final lease in leases) {
+      await (await lease).release();
+    }
+    await Future<void>.delayed(Duration.zero);
+    expect(harness.opener.transports.first.closed, isFalse);
+
+    gate.complete();
+    final lease = await fifthLease.future;
+    await fifth;
+
+    // The grown transport served its one lease and died with the next
+    // teardown trigger — no zombie connection outliving its demand.
+    await lease.release();
+    await Future<void>.delayed(Duration.zero);
+    expect(harness.opener.transports.last.closed, isTrue);
+    expect(harness.opener.transports.first.closed, isTrue);
   });
 }

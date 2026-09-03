@@ -148,6 +148,8 @@ class PooledConnectionManager implements ConnectionManager {
 
     // Idempotent per pane-tab: re-opening re-uses the channel and refreshes
     // its LRU position (navigation within the server keeps its channel).
+    // A blocked pool has no bindings — `_blockPool` clears them with the
+    // transports — so this fast path can never bypass the blocked check.
     final existing = pool.browseByClient[clientKey];
     if (existing != null) {
       pool.browseByClient.remove(clientKey);
@@ -159,6 +161,11 @@ class PooledConnectionManager implements ConnectionManager {
     _throwIfBlocked(pool);
 
     final handle = await _acquireBrowseChannel(pool, serverId);
+
+    // Count against the browse budget from the moment the handle is ours —
+    // an idle-transfer steal stays `transferIdle` until `_bindBrowse`, and
+    // the home resolution below awaits inside that window.
+    handle.use = _ChannelUse.browse;
 
     // Séance-style home resolution at open. A shared handle already has
     // it, so this runs once per channel, not once per tab.
@@ -187,9 +194,33 @@ class PooledConnectionManager implements ConnectionManager {
 
   @override
   Stream<ServerConnectionState> watchServer(String serverId) {
-    final live = _eventsFor(serverId).stream;
-    final initial = _lastStates[serverId] ?? ServerConnectionState.disconnected;
-    return _InitialThenLiveStream(initial, live);
+    // Current value first, then live updates, with plain async stream
+    // semantics (`.first`, `await for`, and `listen` all behave normally).
+    // The initial value is computed at listen time — a caller that stores
+    // the stream and listens later must not start from a snapshot taken
+    // before intermediate state changes.
+    return Stream.multi((listener) {
+      listener.add(_currentStateOf(serverId));
+      final subscription = _eventsFor(serverId).stream
+          .listen(listener.add, onError: listener.addError);
+      listener.onCancel = subscription.cancel;
+    });
+  }
+
+  /// The server's state derived from the live pool when one exists — more
+  /// honest than the emitted-state cache for a serverId that joined an
+  /// already-connected shared pool (no emission fires for the joiner) and
+  /// for the dead-transport window reconnect (03 §3.3) will own.
+  ServerConnectionState _currentStateOf(String serverId) {
+    final reference = _references[serverId];
+    if (reference != null) {
+      final pool = reference.pool;
+      if (pool.blocked) return ServerConnectionState.blocked;
+      if (pool.transports.isNotEmpty) return ServerConnectionState.connected;
+      if (pool.firstConnect != null) return ServerConnectionState.connecting;
+    }
+
+    return _lastStates[serverId] ?? ServerConnectionState.disconnected;
   }
 
   @override
@@ -206,8 +237,23 @@ class PooledConnectionManager implements ConnectionManager {
 
   @override
   Future<void> disconnectServer(String serverId) async {
+    final pending = _pendingReferences.remove(serverId);
     final reference = _references.remove(serverId);
-    if (reference == null) return;
+    if (reference == null) {
+      if (pending == null) return;
+
+      // Disconnect raced the first connect (the widest window there is:
+      // TOFU prompt, credential prompt, 2FA). When the pending resolve
+      // lands and registers, disconnect it too — the pool must not
+      // outlive this call with its credentials retained.
+      unawaited(pending.then((resolved) async {
+        if (identical(_references[serverId], resolved)) {
+          await disconnectServer(serverId);
+        }
+      }).catchError((Object _) {}));
+      _emit(serverId, ServerConnectionState.disconnected);
+      return;
+    }
 
     final pool = reference.pool;
     pool.references.remove(serverId);
@@ -244,6 +290,12 @@ class PooledConnectionManager implements ConnectionManager {
     }
 
     _emit(serverId, ServerConnectionState.disconnected);
+
+    // The emitted-state cache is a fallback for ids without a live pool;
+    // a disconnected id has none, and ids cycle over a long session.
+    // (The event controllers stay: existing subscribers keep their
+    // subscription across a disconnect/reconnect cycle.)
+    _lastStates.remove(serverId);
   }
 
   // ── Channel acquisition ────────────────────────────────────────────────
@@ -365,7 +417,12 @@ class PooledConnectionManager implements ConnectionManager {
       return handle;
     } on Exception {
       // Channel-open failure falls back to the caller's next strategy
-      // (idle steal, LRU share, or queue) — never surfaces raw.
+      // (idle steal, LRU share, or queue) — never surfaces raw. A transport
+      // that died mid-open is evicted, or its corpse keeps occupying a
+      // transport slot (and blocking growth) forever.
+      if (slot.transport.isClosed) {
+        pool.transports.remove(slot);
+      }
       return null;
     } finally {
       slot.pendingOpens--;
@@ -417,6 +474,23 @@ class PooledConnectionManager implements ConnectionManager {
         onKeyboardInteractive: _onKeyboardInteractive,
         prompting: ConnectPrompting.enabled,
       );
+
+      // Every serverId may have disconnected while the connect was in
+      // flight (the disconnect hook tears the pool down immediately). A
+      // landed transport must not resurrect a torn-down pool — close it
+      // and fail the callers.
+      if (pool.references.isEmpty) {
+        try {
+          await transport.close();
+        } on Exception {
+          // Swallow: the disconnect error below is the story that matters.
+        }
+        throw const RemoteFileException(
+          kind: RemoteFileErrorKind.disconnected,
+          operation: 'connect',
+          message: 'The server was disconnected while connecting.',
+        );
+      }
 
       pool.resolvedCredentials = reference.credentials;
 
@@ -552,7 +626,13 @@ class PooledConnectionManager implements ConnectionManager {
     _failAllWaiters(pool);
     _setState(pool, ServerConnectionState.blocked);
 
+    // Mirror normal teardown exactly on the security-critical path: close
+    // every channel handle, then the transports (D18's hard block leaves
+    // nothing that looks live).
     for (final slot in slots) {
+      for (final handle in List<_ChannelHandle>.of(slot.channels)) {
+        await _closeHandle(pool, handle);
+      }
       try {
         await slot.transport.close();
       } on Exception {
@@ -606,6 +686,11 @@ class PooledConnectionManager implements ConnectionManager {
     handle.slot.channels.remove(handle);
     pool.idleTransfer.remove(handle);
 
+    // Structural invariant: a closed handle is never bookkept as leased —
+    // callers clear `leasedTransfer` first today, and this keeps a future
+    // close path from silently breaking that convention.
+    pool.leasedTransfer.remove(handle);
+
     try {
       await handle.channel.close();
     } on Exception {
@@ -615,6 +700,14 @@ class PooledConnectionManager implements ConnectionManager {
 
   Future<void> _maybeTearDown(_EndpointPool pool) async {
     if (pool.firstConnect != null) return;
+
+    // Same race class as the first-connect guard: a growth connect that
+    // lands after teardown would resurrect a transport on a torn-down
+    // pool. Deferred teardowns rerun on the next release/close trigger;
+    // a grown transport nobody uses is the idle-timeout slice's case
+    // (03 §3.3 — lands with keepalive).
+    if (pool.growth != null) return;
+
     if (pool.transports.isEmpty) return;
 
     // The first transport follows pane lifetime (03 §3.3): it stays while
@@ -773,13 +866,14 @@ class PooledConnectionManager implements ConnectionManager {
     }
   }
 
-  /// Sync broadcast per serverId: a state change and the operation that
-  /// caused it are observed in one turn — a caller awaiting a failing
-  /// connect sees the final state, never a stale one.
+  /// Per-serverId broadcast. Async delivery on purpose: synchronous
+  /// emission breaks the standard stream consumers (`.first`, `await for`);
+  /// ordering within this controller is FIFO, and watchServer prepends the
+  /// current value on subscribe.
   StreamController<ServerConnectionState> _eventsFor(String serverId) =>
       _events.putIfAbsent(
         serverId,
-        () => StreamController<ServerConnectionState>.broadcast(sync: true),
+        () => StreamController<ServerConnectionState>.broadcast(),
       );
 
   void _emit(String serverId, ServerConnectionState state) {
@@ -787,30 +881,6 @@ class PooledConnectionManager implements ConnectionManager {
 
     final controller = _events[serverId];
     if (controller != null && !controller.isClosed) controller.add(state);
-  }
-}
-
-/// The current state, then live updates — the initial value is delivered
-/// synchronously inside [listen], like a sync broadcast controller would.
-class _InitialThenLiveStream extends Stream<ServerConnectionState> {
-  final ServerConnectionState _initial;
-  final Stream<ServerConnectionState> _live;
-
-  _InitialThenLiveStream(this._initial, this._live);
-
-  @override
-  bool get isBroadcast => true;
-
-  @override
-  StreamSubscription<ServerConnectionState> listen(
-    void Function(ServerConnectionState)? onData, {
-    Function? onError,
-    void Function()? onDone,
-    bool? cancelOnError,
-  }) {
-    if (onData != null) onData(_initial);
-    return _live.listen(onData,
-        onError: onError, onDone: onDone, cancelOnError: cancelOnError);
   }
 }
 

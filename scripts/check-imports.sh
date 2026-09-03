@@ -11,7 +11,7 @@ status=0
 
 # dartssh2 containment over every Dart source in the monorepo.
 while IFS= read -r file; do
-  if grep -qE "^[^/]*import\s+'package:dartssh2/" "$file"; then
+  if grep -qE "^[^/]*(import|export)\s+['\"]package:dartssh2/" "$file"; then
     case "$file" in
       "$repo_root"/packages/poltergeist_core/lib/src/connection/*) ;;
       *)
@@ -20,11 +20,11 @@ while IFS= read -r file; do
         ;;
     esac
   fi
-done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' -not -path '*/.dart_tool/*' -type f 2>/dev/null)
+done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' -not -path '*/.dart_tool/*' -type f)
 
 # Pure-Dart packages stay Flutter-free (their tests run under dart test).
 while IFS= read -r file; do
-  if grep -qE "^[^/]*import\s+'package:flutter/" "$file"; then
+  if grep -qE "^[^/]*(import|export)\s+['\"]package:flutter/" "$file"; then
     echo "error: Flutter import in a pure-Dart package: $file" >&2
     status=1
   fi

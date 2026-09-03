@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:dartssh2/dartssh2.dart';
+import 'package:meta/meta.dart';
 import 'package:seance_core/seance_core.dart';
 // The barrel deliberately hides the concrete adapter (UI must not see
 // dartssh2), but the connection module IS its sanctioned consumer.
@@ -113,6 +116,42 @@ Future<SshTransport> openDartSshTransport({
   }
 }
 
+/// Maps a channel-open failure to the VFS error funnel. Transient causes
+/// (timeout, transport death) must stay `disconnected` — the pool's
+/// fallbacks and (later) reconnect treat them as retryable, while
+/// `unsupported` means "this server cannot do SFTP at all".
+@visibleForTesting
+RemoteFileException classifySftpOpenFailure(
+  Object error, {
+  required bool transportClosed,
+}) {
+  if (error is RemoteFileException) return error;
+
+  if (error is TimeoutException) {
+    return const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'open SFTP',
+      message: 'Opening the SFTP channel timed out.',
+    );
+  }
+
+  if (transportClosed) {
+    return RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'open SFTP',
+      message: 'The SSH transport disconnected while SFTP was opening.',
+      cause: error,
+    );
+  }
+
+  return RemoteFileException(
+    kind: RemoteFileErrorKind.unsupported,
+    operation: 'open SFTP',
+    message: 'Could not open SFTP on this server: $error',
+    cause: error,
+  );
+}
+
 class _DartSshTransport implements SshTransport {
   final SSHClient _client;
 
@@ -153,21 +192,7 @@ class _DartSshTransport implements SshTransport {
           // Swallow: the rethrow below carries the failure that matters.
         }
       }
-      if (error is RemoteFileException) rethrow;
-      if (isClosed) {
-        throw RemoteFileException(
-          kind: RemoteFileErrorKind.disconnected,
-          operation: 'open SFTP',
-          message: 'The SSH transport disconnected while SFTP was opening.',
-          cause: error,
-        );
-      }
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.unsupported,
-        operation: 'open SFTP',
-        message: 'Could not open SFTP on this server: $error',
-        cause: error,
-      );
+      throw classifySftpOpenFailure(error, transportClosed: isClosed);
     }
   }
 

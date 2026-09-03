@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:seance_core/seance_core.dart';
 
@@ -23,7 +25,16 @@ class StubRemoteFileSystem implements RemoteFileSystem {
   StubRemoteFileSystem(this.home);
 
   @override
-  Future<String> canonicalize(String path) async => home;
+  Future<String> canonicalize(String path) async {
+    // The pool only ever resolves the home — anything else means production
+    // code drifted, and the stub must fail loudly, not invent a path.
+    if (path != '.') {
+      throw StateError(
+        'StubRemoteFileSystem only supports canonicalize("."), got "$path".',
+      );
+    }
+    return home;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>
@@ -133,6 +144,10 @@ class FakeTransportOpener {
   /// channels (a fake MaxSessions ceiling).
   final int? transportOpenLimit;
 
+  /// When set, every prompting-disabled (growth) connect parks on this
+  /// completer before returning — for teardown-race tests.
+  Completer<void>? growthGate;
+
   final List<RecordedOpenCall> calls = [];
 
   FakeTransportOpener({
@@ -162,6 +177,11 @@ class FakeTransportOpener {
         );
         calls.add(call);
 
+        // An empty script is a test bug; fail with a clear message instead
+        // of a mid-connect RangeError.
+        if (presentedFingerprints.isEmpty) {
+          throw StateError('presentedFingerprints must not be empty');
+        }
         final fingerprint = presentedFingerprints[index
             < presentedFingerprints.length
             ? index
@@ -189,6 +209,7 @@ class FakeTransportOpener {
         }
 
         if (prompting == ConnectPrompting.disabled) {
+          if (growthGate != null) await growthGate!.future;
           if (growthRequiresChallenge) {
             throw const AuthChallengeRequiredError(
               'The server requires interactive authentication.',
@@ -221,6 +242,10 @@ class PoolHarness {
   final Map<String, ResolvedServerConnection> servers = {};
   int resolveCalls = 0;
 
+  /// When set, every resolve parks on this completer — for tests that race
+  /// a disconnect against an in-flight first connect.
+  Completer<void>? resolveGate;
+
   /// Set per test; defaults to approving every host key.
   Future<bool> Function(HostKeyDecision decision) onHostKey =
       (_) async => true;
@@ -244,6 +269,7 @@ class PoolHarness {
   }
 
   Future<ResolvedServerConnection> _resolve(String serverId) async {
+    if (resolveGate != null) await resolveGate!.future;
     resolveCalls++;
 
     final resolved = servers[serverId];
