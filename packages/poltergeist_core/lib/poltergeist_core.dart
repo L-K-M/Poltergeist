@@ -30,9 +30,16 @@ export 'package:seance_core/seance_core.dart'
         remoteJoin,
         remoteParent;
 
-export 'src/connection/connection_manager.dart';
-export 'src/connection/pool_key.dart';
-export 'src/connection/pool_policy.dart';
+export 'src/connection/connection_manager.dart'
+    show
+        ConnectionManager,
+        PaneChannel,
+        PooledConnectionManager,
+        ResolvedServerConnection,
+        ServerConnectionState,
+        TransferChannelLease;
+export 'src/connection/pool_key.dart' show PoolKey;
+export 'src/connection/pool_policy.dart' show PoolPolicy;
 export 'src/connection/ssh_transport.dart'
     show
         AuthChallengeRequiredError,

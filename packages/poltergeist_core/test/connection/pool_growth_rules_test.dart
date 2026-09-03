@@ -157,9 +157,10 @@ void main() {
     // 2 transports x 4 transfer channels are all leased; the 9th blocks.
     var ninthServed = false;
     // Deliberately left dangling: the point is that it never completes.
-    unawaited(harness.manager
+    harness.manager
         .leaseTransferChannel('s1')
-        .then((_) => ninthServed = true));
+        .then((_) => ninthServed = true)
+        .ignore();
     await Future<void>.delayed(Duration.zero);
     expect(ninthServed, isFalse);
     // No third growth attempt began — the pool is at maxTransports.

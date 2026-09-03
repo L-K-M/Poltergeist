@@ -21,12 +21,19 @@ for d in "$repo_root/packages" "$repo_root/app"; do
   fi
 done
 
-# dartssh2 containment over the product's Dart sources. Comment lines are
-# stripped first and the URI may appear anywhere on a line, so a
-# conditional import's fallback URI cannot slip past. Generated build
-# output and Flutter's per-platform ephemeral dirs are not source.
+# Comment-looking lines are stripped and the URI may then appear anywhere on
+# the remaining line — including inside string literals or trailing
+# comments, a deliberate over-approximation — so a conditional import's
+# fallback URI cannot slip past. The second grep reads its whole input (no
+# `-q`): under `pipefail`, `-q`'s early exit SIGPIPEs the stripping grep and
+# the pipeline reports "no match" on exactly the violations that matter.
+dartssh2_violation() {
+  grep -vE '^[[:space:]]*(//|/\*|\*|\*/)' "$1" \
+    | grep -E 'package:dartssh2/' > /dev/null
+}
+
 while IFS= read -r file; do
-  if grep -vE '^[[:space:]]*//' "$file" | grep -qE "package:dartssh2/"; then
+  if dartssh2_violation "$file"; then
     case "$file" in
       "$repo_root"/packages/poltergeist_core/lib/src/connection/*) ;;
       *)
@@ -40,13 +47,19 @@ done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' \
   -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f)
 
 # Pure-Dart packages stay Flutter-free (their tests run under dart test) —
-# Flutter's libraries and dart:ui both.
+# Flutter's libraries, its test libs, and dart:ui / dart:ui_web alike.
+flutter_violation() {
+  grep -vE '^[[:space:]]*(//|/\*|\*|\*/)' "$1" \
+    | grep -E "(package:flutter(_test|_localizations)?/|dart:ui(_web)?)['\"]" > /dev/null
+}
+
 while IFS= read -r file; do
-  if grep -qE "^[^/]*(import|export)[[:space:]]+['\"](package:flutter(_test|_localizations)?/|dart:ui['\"])" "$file"; then
+  if flutter_violation "$file"; then
     echo "error: Flutter import in a pure-Dart package: $file" >&2
     status=1
   fi
 done < <(find "$repo_root/packages" -name '*.dart' \
-  -not -path '*/.dart_tool/*' -not -path '*/build/*' -type f)
+  -not -path '*/.dart_tool/*' -not -path '*/build/*' \
+  -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f)
 
 exit "$status"
