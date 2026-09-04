@@ -52,12 +52,15 @@ class FakeChannel implements SftpChannel {
   final RemoteFileSystem fs;
 
   bool closed = false;
+  Object? closeFailure;
 
   FakeChannel(this.fs);
 
   @override
   Future<void> close() async {
     closed = true;
+    final failure = closeFailure;
+    if (failure != null) throw failure;
   }
 }
 
@@ -76,6 +79,7 @@ class FakeTransport implements SshTransport {
   bool closed = false;
   Completer<void>? openGate;
   Completer<void>? canonicalizeGate;
+  Object? closeFailure;
 
   FakeTransport({required this.authKind, this.openLimit});
 
@@ -117,6 +121,8 @@ class FakeTransport implements SshTransport {
     for (final channel in List<FakeChannel>.of(channels)) {
       await channel.close();
     }
+    final failure = closeFailure;
+    if (failure != null) throw failure;
   }
 }
 

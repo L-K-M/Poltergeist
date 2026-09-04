@@ -132,4 +132,47 @@ void main() {
       expect(harness.openChannels.single.fs, same(current.fs));
     },
   );
+
+  test(
+    'channel cleanup cannot replace a disconnected acquisition error',
+    () async {
+      await harness.manager.openBrowseChannel('s2', paneTabId: 'keep');
+      final transport = harness.opener.transports.single;
+      final gate = transport.openGate = Completer<void>();
+      final opening = harness.manager.leaseTransferChannel('s1');
+      final outcome = expectLater(opening, _disconnected);
+      await _flush();
+      transport.channels.last.closeFailure = StateError('channel cleanup');
+
+      await harness.manager.disconnectServer('s1');
+      gate.complete();
+      try {
+        await outcome;
+      } finally {
+        transport.channels.last.closeFailure = null;
+      }
+    },
+  );
+
+  test(
+    'pool cleanup cannot replace a disconnected acquisition error',
+    () async {
+      final keeper = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 'keep',
+      );
+      final transport = harness.opener.transports.single;
+      final gate = transport.canonicalizeGate = Completer<void>();
+      final opening = harness.manager.openBrowseChannel('s1', paneTabId: 'new');
+      final outcome = expectLater(opening, _disconnected);
+      await _flush();
+      await keeper.close();
+
+      // Death invalidates the open; failing cleanup must preserve that cause.
+      transport.closed = true;
+      transport.closeFailure = StateError('transport cleanup');
+      gate.complete();
+      await outcome;
+    },
+  );
 }

@@ -219,7 +219,11 @@ class PooledConnectionManager implements ConnectionManager {
     try {
       _checkAcquisition(reference, handle);
     } on Object {
-      await _closeHandle(pool, handle);
+      try {
+        await _closeHandle(pool, handle);
+      } on Object {
+        // Preserve the acquisition failure, even if cleanup is broken.
+      }
       rethrow;
     }
     handle.use = _ChannelUse.transferLeased;
@@ -239,7 +243,11 @@ class PooledConnectionManager implements ConnectionManager {
       return await acquire(reference);
     } finally {
       pool.acquisitions--;
-      await _maybeTearDown(pool);
+      try {
+        await _maybeTearDown(pool);
+      } on Object {
+        // Teardown must not replace the acquisition's outcome.
+      }
     }
   }
 
@@ -485,10 +493,6 @@ class PooledConnectionManager implements ConnectionManager {
         if (opened != null) return opened;
       }
     }
-
-    // A block may have landed during the grown transport's open await —
-    // the only await since the last check that reaches this enqueue.
-    _throwIfBlocked(pool);
 
     // At capacity: block until a lease comes back (03 §3.2), unless the
     // requesting session disappeared during an open or growth await.
