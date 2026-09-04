@@ -4,6 +4,11 @@
 /// the re-exported `RemoteFileSystem` VFS; task and bookmark models join as
 /// they land per the plan (03 §1). dartssh2 types stop inside
 /// `src/connection/` and never reach callers.
+///
+/// The `seance_core` re-exports are part of this package's public API and
+/// move in lockstep with the pinned Séance rev (docs/STATUS.md open item 3):
+/// consumers use these types via this barrel, never a direct
+/// `package:seance_core/...` import.
 library;
 
 export 'package:seance_core/seance_core.dart'

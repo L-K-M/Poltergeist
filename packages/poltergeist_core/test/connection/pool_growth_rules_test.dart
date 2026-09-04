@@ -126,11 +126,14 @@ void main() {
     final fifth = leases[4].then((_) => fifthServed = true);
     await Future<void>.delayed(Duration.zero);
     expect(fifthServed, isFalse);
-
     final released = await leases[0];
     await released.release();
     await fifth;
     expect(fifthServed, isTrue);
+
+    // The 6th lease deliberately never completes — ignore it like the
+    // ninth-lease case below so a later teardown error can't leak unhandled.
+    leases[5].ignore();
   });
 
   test('non-interactive auth grows transports reusing resolved credentials',
