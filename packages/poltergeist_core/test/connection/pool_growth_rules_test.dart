@@ -170,7 +170,7 @@ void main() {
         .leaseTransferChannel('s1')
         .then((_) => ninthServed = true)
         .ignore();
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
     expect(ninthServed, isFalse);
     // No third growth attempt began — the pool is at maxTransports.
     expect(harness.opener.calls, hasLength(2));
@@ -195,7 +195,7 @@ void main() {
     final fifth = harness.manager
         .leaseTransferChannel('s1')
         .then((_) => fifthServed = true);
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
 
     expect(harness.opener.calls, hasLength(2));
     expect(harness.opener.transports, hasLength(1));
@@ -315,7 +315,8 @@ void main() {
 
     // The user reviews and accepts: the next connect attempt prompts, the
     // approval pins the new key, and the pool comes back.
-    harness.onHostKey = (decision) async => decision.verdict == HostKeyVerdict.changed;
+    harness.onHostKey =
+        (decision) async => decision.verdict == HostKeyVerdict.changed;
     final channel =
         await harness.manager.openBrowseChannel('s1', paneTabId: 't2');
 

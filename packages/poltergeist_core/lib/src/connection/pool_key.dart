@@ -2,6 +2,11 @@ import 'package:seance_core/seance_core.dart';
 
 /// The key a connection pool is shared under (03 §3.5).
 ///
+/// Credentials are deliberately not part of the key: the first bookmark to
+/// connect authenticates the shared transports for every sibling at the
+/// same (host, port, username) — if that auth fails, siblings sharing the
+/// pool fail with it (03 §3.2 rule 3 reuses the resolved credentials).
+///
 /// Pools are shared *by endpoint*, not by bookmark id: two bookmarks at the
 /// same (host, port, username) with the same connection-security context are
 /// one server behind one reference-counted pool, so the TOFU prompt fires

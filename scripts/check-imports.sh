@@ -32,13 +32,21 @@ done
 # `pipefail`, `-q`'s early exit SIGPIPEs the stripping grep and the
 # pipeline reports "no match" on exactly the violations that matter.
 strip_comments() {
-  grep -vE '^[[:space:]]*(//|\*|/\*.*\*/[[:space:]]*$)'
+  # Takes the file as an argument — a stdin-reading helper piped inside a
+  # `while read` loop would consume the loop's own input (the scan list)
+  # instead of the file's content, silently neutering the whole guard.
+  grep -vE '^[[:space:]]*(//|\*|/\*.*\*/[[:space:]]*$)' "$1"
 }
 
 # Grep exit codes: 0 match, 1 no match, 2 error. A scan error must fail
 # closed — under a plain `if`, exit 2 would read as "compliant". The
 # comment strip is checked separately so its failures cannot be masked
 # either.
+# Set by _violation on a match: the offending line(s), indented, for the
+# caller's error branch to print. Matching alone is not yet a violation —
+# the connection module's own dartssh2 imports are legal.
+matched_lines=''
+
 _violation() {
   local pattern="$1" file="$2" rc=0 stripped
   # grep -v exits 1 when every line is stripped (an all-comment file) —
@@ -49,7 +57,7 @@ _violation() {
     exit 2
   fi
   rc=0
-  printf '%s\n' "$stripped" | grep -E "$pattern" > /dev/null || rc=$?
+  matched_lines="$(printf '%s\n' "$stripped" | grep -E "$pattern" | sed 's/^/    /')" || rc=$?
   if [ "$rc" -ge 2 ]; then
     echo "error: could not scan $file (grep exit $rc)" >&2
     exit 2
@@ -76,7 +84,8 @@ while IFS= read -r file; do
     case "$file" in
       "$repo_root"/packages/poltergeist_core/lib/src/connection/*) ;;
       *)
-        echo "error: dartssh2 reference outside poltergeist_core/lib/src/connection (import, export, or string/trailing-comment mention): $file" >&2
+        echo "error: dartssh2 reference outside poltergeist_core/lib/src/connection: $file" >&2
+        echo "$matched_lines" >&2
         status=1
         ;;
     esac
@@ -96,7 +105,8 @@ find "$repo_root/packages" -name '*.dart' \
 
 while IFS= read -r file; do
   if flutter_violation "$file"; then
-    echo "error: Flutter reference in a pure-Dart package (import, export, or string/trailing-comment mention): $file" >&2
+    echo "error: Flutter reference in a pure-Dart package: $file" >&2
+    echo "$matched_lines" >&2
     status=1
   fi
 done < "$tmpdir/flutter_scan.txt"
@@ -104,11 +114,28 @@ done < "$tmpdir/flutter_scan.txt"
 # Close the declaration gap: a pure-Dart package that declares a Flutter
 # SDK dependency fails even before any import exists (its tests could not
 # run under dart test anyway — fail at the boundary instead).
+found_pubspec=0
 for pubspec in "$repo_root/packages"/*/pubspec.yaml; do
-  if grep -qE 'sdk:[[:space:]]*flutter' "$pubspec"; then
+  if [ ! -e "$pubspec" ]; then
+    echo "error: no pubspec.yaml found under $repo_root/packages" >&2
+    exit 2
+  fi
+  found_pubspec=1
+  rc=0
+  grep -E '^[[:space:]]*sdk:[[:space:]]*flutter([[:space:]]|$)' "$pubspec" \
+    > /dev/null || rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "error: could not scan $pubspec" >&2
+    exit 2
+  fi
+  if [ "$rc" -eq 0 ]; then
     echo "error: Flutter SDK dependency declared in a pure-Dart package: $pubspec" >&2
     status=1
   fi
 done
+if [ "$found_pubspec" -ne 1 ]; then
+  echo "error: no pure-Dart packages found under $repo_root/packages" >&2
+  exit 2
+fi
 
 exit "$status"

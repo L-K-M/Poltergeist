@@ -62,7 +62,7 @@ class AuthChallengeRequiredError implements Exception {
   const AuthChallengeRequiredError(this.message, {this.cause});
 
   @override
-  String toString() => message;
+  String toString() => cause == null ? message : '$message (cause: $cause)';
 }
 
 /// The pool's seam over seance_core's `openAuthenticatedClient` (03 §3.1):
