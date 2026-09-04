@@ -87,7 +87,8 @@ item 4 tracks the remaining M2 slices)._
   A server rejecting every SFTP open fails requests with the typed open error
   instead of waiting for an impossible release. Three regressions failed
   before and pass after the repair (`channel_waiters_test.dart`); 03 §3.2
-  clarifies capacity exhaustion versus unavailable SFTP.
+  clarifies capacity exhaustion versus unavailable SFTP. Transfer refusal
+  and reconnect after refusal have additional coverage.
 
 - **2026-09-04 — acquisition lifecycle.** Disconnect invalidates pending
   resolver identities and rejects late browse/transfer acquisitions, including

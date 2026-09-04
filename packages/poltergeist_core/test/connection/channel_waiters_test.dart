@@ -11,6 +11,12 @@ const _singleChannel = PoolPolicy(
   maxChannelsPerTransport: 1,
 );
 
+final _unsupported = isA<RemoteFileException>().having(
+  (error) => error.kind,
+  'kind',
+  RemoteFileErrorKind.unsupported,
+);
+
 void main() {
   test('first browse binding wakes concurrent browse waiters', () async {
     final harness = PoolHarness(policy: _singleChannel)..addServer('s1');
@@ -70,17 +76,45 @@ void main() {
 
       await Future<void>.delayed(Duration.zero);
       expect(errors, hasLength(2));
-      expect(
-        errors,
-        everyElement(
-          isA<RemoteFileException>().having(
-            (error) => error.kind,
-            'kind',
-            RemoteFileErrorKind.unsupported,
-          ),
-        ),
-      );
+      expect(errors, everyElement(_unsupported));
       expect(await harness.manager.connectedServerIds(), isEmpty);
     },
   );
+
+  test('stranded transfer requests fail with the typed SFTP error', () async {
+    final harness = PoolHarness(
+      policy: _singleChannel,
+      opener: FakeTransportOpener(transportOpenLimit: 0),
+    )..addServer('s1');
+    addTearDown(() => harness.manager.disconnectServer('s1'));
+
+    await expectLater(
+      harness.manager.leaseTransferChannel('s1'),
+      throwsA(_unsupported),
+    );
+    expect(await harness.manager.connectedServerIds(), isEmpty);
+  });
+
+  test('a stranded pool reconnects once the server permits SFTP', () async {
+    final opener = FakeTransportOpener(transportOpenLimit: 0);
+    final harness = PoolHarness(policy: _singleChannel, opener: opener)
+      ..addServer('s1');
+    addTearDown(() => harness.manager.disconnectServer('s1'));
+
+    await expectLater(
+      harness.manager.openBrowseChannel('s1', paneTabId: 'refused'),
+      throwsA(_unsupported),
+    );
+    expect(opener.transports.single.closed, isTrue);
+
+    // The server enables SFTP; the next request must use a fresh transport.
+    opener.transportOpenLimit = null;
+    final recovered = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'recovered',
+    );
+    expect(opener.transports, hasLength(2));
+    expect(harness.openChannels.single.fs, same(recovered.fs));
+    expect(await harness.manager.connectedServerIds(), {'s1'});
+  });
 }

@@ -163,7 +163,7 @@ class FakeTransportOpener {
 
   /// Handed to every created transport: refuse opens past this many
   /// channels (a fake MaxSessions ceiling).
-  final int? transportOpenLimit;
+  int? transportOpenLimit;
 
   /// When set, every prompting-disabled (growth) connect parks on this
   /// completer before returning — for teardown-race tests.
