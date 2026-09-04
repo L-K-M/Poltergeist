@@ -22,7 +22,9 @@ class FakeHostKeyStore implements HostKeyStore {
 class StubRemoteFileSystem implements RemoteFileSystem {
   final String home;
 
-  StubRemoteFileSystem(this.home);
+  final Completer<void>? canonicalizeGate;
+
+  StubRemoteFileSystem(this.home, {this.canonicalizeGate});
 
   @override
   Future<String> canonicalize(String path) async {
@@ -33,6 +35,7 @@ class StubRemoteFileSystem implements RemoteFileSystem {
         'StubRemoteFileSystem only supports canonicalize("."), got "$path".',
       );
     }
+    await canonicalizeGate?.future;
     return home;
   }
 
@@ -71,6 +74,8 @@ class FakeTransport implements SshTransport {
 
   final List<FakeChannel> channels = [];
   bool closed = false;
+  Completer<void>? openGate;
+  Completer<void>? canonicalizeGate;
 
   FakeTransport({required this.authKind, this.openLimit});
 
@@ -97,8 +102,12 @@ class FakeTransport implements SshTransport {
       );
     }
 
-    final channel = FakeChannel(StubRemoteFileSystem('/home/test'));
+    final channel = FakeChannel(StubRemoteFileSystem(
+      '/home/test',
+      canonicalizeGate: canonicalizeGate,
+    ));
     channels.add(channel);
+    await openGate?.future;
     return channel;
   }
 
