@@ -74,6 +74,14 @@ item 4 tracks the remaining M2 slices)._
    - then the Docker-integration legs of 08 §5's pool suite (growth,
      keepalive, reconnect against real sshd) — the matrix exists from M0.
 
+## Audit repairs
+
+- **2026-09-04 — channel ownership.** Pane views now own a specific binding;
+  stale closes cannot remove a replacement, even when it shares the same SFTP
+  channel. Lease release is borrower-scoped, so a delayed second release
+  cannot free another worker's lease. Four regressions failed before the fix
+  and pass afterward (`channel_ownership_test.dart`).
+
 ## Housekeeping
 
 - No server component is planned: bookmark backup uses Séance's sync server

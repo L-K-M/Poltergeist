@@ -154,7 +154,7 @@ class PooledConnectionManager implements ConnectionManager {
     if (existing != null) {
       pool.browseByClient.remove(clientKey);
       pool.browseByClient[clientKey] = existing;
-      return _PaneChannelView(this, pool, serverId, paneTabId, existing);
+      return existing;
     }
 
     await _ensureFirstTransport(pool, reference);
@@ -189,14 +189,13 @@ class PooledConnectionManager implements ConnectionManager {
     if (raced != null) {
       // `handle` may be a channel another pane-tab still shares (the LRU
       // path) — only an exclusively-owned channel may close here.
-      if (!identical(raced, handle) && handle.browseClients == 0) {
+      if (!identical(raced._handle, handle) && handle.browseClients == 0) {
         await _closeHandle(pool, handle);
       }
-      return _PaneChannelView(this, pool, serverId, paneTabId, raced);
+      return raced;
     }
 
-    _bindBrowse(pool, clientKey, handle);
-    return _PaneChannelView(this, pool, serverId, paneTabId, handle);
+    return _bindBrowse(pool, clientKey, handle);
   }
 
   @override
@@ -389,7 +388,7 @@ class PooledConnectionManager implements ConnectionManager {
     // Exhausted with no growth possible: never fail, never hang — share
     // the least-recently-used browse channel (03 §3.2).
     if (pool.browseByClient.isNotEmpty) {
-      return pool.browseByClient.values.first;
+      return pool.browseByClient.values.first._handle;
     }
 
     // No browse channel exists to share (every channel is a leased
@@ -547,11 +546,14 @@ class PooledConnectionManager implements ConnectionManager {
     }
   }
 
-  void _bindBrowse(
+  _PaneChannelView _bindBrowse(
       _EndpointPool pool, (String, String) clientKey, _ChannelHandle handle) {
     handle.use = _ChannelUse.browse;
     handle.browseClients++;
-    pool.browseByClient[clientKey] = handle;
+    final binding =
+        _PaneChannelView(this, pool, clientKey.$1, clientKey.$2, handle);
+    pool.browseByClient[clientKey] = binding;
+    return binding;
   }
 
   // ── First connect (growth rule 1) ──────────────────────────────────────
@@ -789,9 +791,10 @@ class PooledConnectionManager implements ConnectionManager {
 
   Future<void> _closeBrowseClient(
       _EndpointPool pool, (String, String) clientKey) async {
-    final handle = pool.browseByClient.remove(clientKey);
-    if (handle == null) return;
+    final binding = pool.browseByClient.remove(clientKey);
+    if (binding == null) return;
 
+    final handle = binding._handle;
     handle.browseClients--;
     if (handle.browseClients > 0) return;
 
@@ -823,7 +826,8 @@ class PooledConnectionManager implements ConnectionManager {
     // bound to a pane-tab — callers remove those first today, and this
     // keeps a future close path from silently breaking that convention.
     pool.leasedTransfer.remove(handle);
-    pool.browseByClient.removeWhere((_, bound) => identical(bound, handle));
+    pool.browseByClient
+        .removeWhere((_, bound) => identical(bound._handle, handle));
 
     try {
       await handle.channel.close();
@@ -1053,7 +1057,7 @@ class _EndpointPool {
 
   /// Browse bindings in LRU order: the first entry is the
   /// least-recently-used pane-tab channel — the exhaustion-sharing victim.
-  final Map<(String, String), _ChannelHandle> browseByClient = {};
+  final Map<(String, String), _PaneChannelView> browseByClient = {};
 
   final List<_ChannelHandle> idleTransfer = [];
   final Set<_ChannelHandle> leasedTransfer = {};
@@ -1122,8 +1126,14 @@ class _PaneChannelView implements PaneChannel {
   String get homePath => _handle.homePath!;
 
   @override
-  Future<void> close() =>
-      _manager._closeBrowseClient(_pool, (_serverId, _paneTabId));
+  Future<void> close() async {
+    final key = (_serverId, _paneTabId);
+
+    // A tab can rebind to the same shared channel; only this binding owns it.
+    if (!identical(_pool.browseByClient[key], this)) return;
+
+    await _manager._closeBrowseClient(_pool, key);
+  }
 }
 
 class _LeaseView implements TransferChannelLease {
@@ -1131,11 +1141,19 @@ class _LeaseView implements TransferChannelLease {
   final _EndpointPool _pool;
   final _ChannelHandle _handle;
 
+  bool _released = false;
+
   _LeaseView(this._manager, this._pool, this._handle);
 
   @override
   RemoteFileSystem get fs => _handle.channel.fs;
 
   @override
-  Future<void> release() => _manager._releaseLease(_pool, _handle);
+  Future<void> release() async {
+    // Release belongs to this borrower, not the reusable channel handle.
+    if (_released) return;
+
+    _released = true;
+    await _manager._releaseLease(_pool, _handle);
+  }
 }
