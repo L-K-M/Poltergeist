@@ -82,6 +82,13 @@ item 4 tracks the remaining M2 slices)._
   cannot free another worker's lease. Four regressions failed before the fix
   and pass afterward (`channel_ownership_test.dart`).
 
+- **2026-09-04 — changed-key block.** Transfer workers cannot trigger a
+  changed-key prompt or clear a block. A returning trusted key alone cannot
+  clear it either; the first-connect path requires explicit changed-key
+  approval. The pool reports blocked while review is pending. Three
+  regressions failed before and pass after the repair (`pool_trust_test.dart`);
+  growth-triggered blocking is also asserted for both sibling serverIds.
+
 ## Housekeeping
 
 - No server component is planned: bookmark backup uses Séance's sync server

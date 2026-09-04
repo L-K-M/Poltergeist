@@ -203,6 +203,8 @@ class PooledConnectionManager implements ConnectionManager {
     final reference = await _referenceFor(serverId);
     final pool = reference.pool;
 
+    // A worker request is not the explicit changed-key review action.
+    _throwIfBlocked(pool);
     await _ensureFirstTransport(pool, reference);
     _throwIfBlocked(pool);
 
@@ -584,13 +586,21 @@ class PooledConnectionManager implements ConnectionManager {
     // A clearing attempt on a blocked pool stays "blocked" until it
     // succeeds — the block is the truth users act on, not the retry.
     if (!pool.blocked) _setState(pool, ServerConnectionState.connecting);
+    var changedKeyApproved = false;
+    final prompt = _hostKeyPrompterFor(pool, ConnectPrompting.enabled);
 
     try {
       final transport = await _openTransport(
         config: reference.config,
         credentials: reference.credentials,
         tofu: _tofu,
-        onHostKey: _hostKeyPrompterFor(pool, ConnectPrompting.enabled),
+        onHostKey: (decision) async {
+          final accepted = await prompt(decision);
+          if (accepted && decision.verdict == HostKeyVerdict.changed) {
+            changedKeyApproved = true;
+          }
+          return accepted;
+        },
         onKeyboardInteractive: _onKeyboardInteractive,
         prompting: ConnectPrompting.enabled,
       );
@@ -599,12 +609,15 @@ class PooledConnectionManager implements ConnectionManager {
       // flight (the disconnect hook tears the pool down immediately). A
       // landed transport must not resurrect a torn-down pool — close it
       // and fail the callers.
-      if (pool.references.isEmpty) {
+      // A trusted key can reappear without invoking the prompter; that is
+      // not approval to clear a previously observed changed-key block.
+      if (pool.references.isEmpty || (pool.blocked && !changedKeyApproved)) {
         try {
           await transport.close();
         } on Exception {
-          // Swallow: the disconnect error below is the story that matters.
+          // Swallow: the trust/disconnect error below remains authoritative.
         }
+        _throwIfBlocked(pool);
         throw const RemoteFileException(
           kind: RemoteFileErrorKind.disconnected,
           operation: 'connect',
@@ -713,19 +726,12 @@ class PooledConnectionManager implements ConnectionManager {
           return true;
 
         case HostKeyVerdict.changed:
-          if (prompting == ConnectPrompting.enabled) {
-            // The hard "host key changed" review. Accepting is the one
-            // path that re-pins — the opener pins on approval; declining
-            // blocks the pool (rule 1).
-            final accepted = await _onHostKey(decision);
-            if (!accepted) await _blockPool(pool, decision);
-            return accepted;
-          }
-
-          // Background connects never prompt: hard-block (D18 — never
-          // auto-repin, even mid-growth).
+          // Block at detection, not after the user finishes reviewing it.
           await _blockPool(pool, decision);
-          return false;
+          if (prompting == ConnectPrompting.disabled) return false;
+
+          // Only explicit approval permits the opener to re-pin (D18).
+          return _onHostKey(decision);
 
         case HostKeyVerdict.firstUse:
           if (prompting == ConnectPrompting.enabled) {
