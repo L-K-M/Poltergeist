@@ -6,8 +6,13 @@ import 'package:test/test.dart';
 import 'pool_fakes.dart';
 
 /// Lets queued (async) stream deliveries land before asserting on them —
-/// watchServer delivers with standard async stream semantics.
-Future<void> flushEvents() => Future<void>.delayed(Duration.zero);
+/// watchServer delivers with standard async stream semantics, and some
+/// chains need more than one event-loop turn.
+Future<void> flushEvents({int turns = 3}) async {
+  for (var i = 0; i < turns; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
 
 /// The 03 §3.2 growth rules, one named behavior each (08 §3.2's "Pool
 /// growth rules" suite). Keepalive, idle teardown, and reconnect land with

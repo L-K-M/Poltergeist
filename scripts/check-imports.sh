@@ -36,10 +36,16 @@ strip_comments() {
 }
 
 # Grep exit codes: 0 match, 1 no match, 2 error. A scan error must fail
-# closed — under a plain `if`, exit 2 would read as "compliant".
+# closed — under a plain `if`, exit 2 would read as "compliant". The
+# comment strip is checked separately so its failures cannot be masked
+# either.
 _violation() {
-  local pattern="$1" file="$2" rc=0
-  strip_comments "$file" | grep -E "$pattern" > /dev/null || rc=$?
+  local pattern="$1" file="$2" rc=0 stripped
+  if ! stripped="$(strip_comments "$file")"; then
+    echo "error: could not scan $file (comment strip failed)" >&2
+    exit 2
+  fi
+  printf '%s\n' "$stripped" | grep -E "$pattern" > /dev/null || rc=$?
   if [ "$rc" -ge 2 ]; then
     echo "error: could not scan $file (grep exit $rc)" >&2
     exit 2
@@ -76,7 +82,7 @@ done < "$tmpdir/dartssh2_scan.txt"
 # Pure-Dart packages stay Flutter-free (their tests run under dart test) —
 # Flutter's libraries, its test libs, and dart:ui / dart:ui_web alike.
 flutter_violation() {
-  _violation "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_[a-z0-9_]+)?['\"])" "$1"
+  _violation "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_[a-z0-9_]+)?([^a-z0-9_]|\$))" "$1"
 }
 
 find "$repo_root/packages" -name '*.dart' \
@@ -90,5 +96,15 @@ while IFS= read -r file; do
     status=1
   fi
 done < "$tmpdir/flutter_scan.txt"
+
+# Close the declaration gap: a pure-Dart package that declares a Flutter
+# SDK dependency fails even before any import exists (its tests could not
+# run under dart test anyway — fail at the boundary instead).
+for pubspec in "$repo_root/packages"/*/pubspec.yaml; do
+  if grep -qE 'sdk:[[:space:]]*flutter' "$pubspec"; then
+    echo "error: Flutter SDK dependency declared in a pure-Dart package: $pubspec" >&2
+    status=1
+  fi
+done
 
 exit "$status"

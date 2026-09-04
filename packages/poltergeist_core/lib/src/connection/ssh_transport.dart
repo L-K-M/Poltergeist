@@ -55,7 +55,11 @@ enum ConnectPrompting { enabled, disabled }
 class AuthChallengeRequiredError implements Exception {
   final String message;
 
-  const AuthChallengeRequiredError(this.message);
+  /// The original connect failure (an `SshConnectException` carrying the
+  /// attempt log), kept so growth failures stay diagnosable.
+  final Object? cause;
+
+  const AuthChallengeRequiredError(this.message, {this.cause});
 
   @override
   String toString() => message;
@@ -102,9 +106,11 @@ Future<SshTransport> openDartSshTransport({
       credentials: credentials,
       tofu: tofu,
       onHostKey: onHostKey,
-      // The opener is the enforcement point of "prompting disabled means
-      // no prompts": even a caller that passed a responder gets none when
-      // this connect must not interact.
+      // The opener is the enforcement point of "prompting disabled means no
+      // auth prompts": even a caller that passed a responder gets none when
+      // this connect must not interact. Host-key verification is
+      // deliberately not suppressed — a changed key must surface to the
+      // caller (the pool hard-blocks on it), never be silently bypassed.
       onKeyboardInteractive:
           prompting == ConnectPrompting.enabled ? onKeyboardInteractive : null,
       timeout: timeout,
@@ -115,7 +121,7 @@ Future<SshTransport> openDartSshTransport({
   } on SshConnectException catch (error) {
     if (prompting == ConnectPrompting.disabled &&
         error.cause is SSHAuthFailError) {
-      throw AuthChallengeRequiredError(error.message);
+      throw AuthChallengeRequiredError(error.message, cause: error);
     }
     rethrow;
   }
