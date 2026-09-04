@@ -36,9 +36,31 @@ strip_comments() {
   grep -vE '^[[:space:]]*(//|/\*|\*|\*/)'
 }
 
-dartssh2_violation() {
-  strip_comments "$1" | grep -E 'package:dartssh2/' > /dev/null
+# Grep exit codes: 0 match, 1 no match, 2 error. A scan error must fail
+# closed — under a plain `if`, exit 2 would read as "compliant".
+_violation() {
+  local pattern="$1" file="$2" rc=0
+  strip_comments "$file" | grep -E "$pattern" > /dev/null || rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "error: could not scan $file (grep exit $rc)" >&2
+    exit 2
+  fi
+  return "$rc"
 }
+
+dartssh2_violation() {
+  _violation 'package:dartssh2/' "$1"
+}
+
+# find failures inside a process substitution are invisible (its exit
+# status is discarded); materialize the file lists and fail hard instead.
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+find "$repo_root/packages" "$repo_root/app" -name '*.dart' \
+  -not -path '*/.dart_tool/*' -not -path '*/build/*' \
+  -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f \
+  > "$tmpdir/dartssh2_scan.txt" || exit 1
 
 while IFS= read -r file; do
   if dartssh2_violation "$file"; then
@@ -50,25 +72,24 @@ while IFS= read -r file; do
         ;;
     esac
   fi
-done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' \
-  -not -path '*/.dart_tool/*' -not -path '*/build/*' \
-  -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f)
+done < "$tmpdir/dartssh2_scan.txt"
 
 # Pure-Dart packages stay Flutter-free (their tests run under dart test) —
 # Flutter's libraries, its test libs, and dart:ui / dart:ui_web alike.
 flutter_violation() {
-  strip_comments "$1" \
-    | grep -E "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_web)?['\"])" \
-    > /dev/null
+  _violation "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_web)?['\"])" "$1"
 }
+
+find "$repo_root/packages" -name '*.dart' \
+  -not -path '*/.dart_tool/*' -not -path '*/build/*' \
+  -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f \
+  > "$tmpdir/flutter_scan.txt" || exit 1
 
 while IFS= read -r file; do
   if flutter_violation "$file"; then
     echo "error: Flutter reference in a pure-Dart package (import, export, or string/trailing-comment mention): $file" >&2
     status=1
   fi
-done < <(find "$repo_root/packages" -name '*.dart' \
-  -not -path '*/.dart_tool/*' -not -path '*/build/*' \
-  -not -path '*/.symlinks/*' -not -path '*/ephemeral/*' -type f)
+done < "$tmpdir/flutter_scan.txt"
 
 exit "$status"

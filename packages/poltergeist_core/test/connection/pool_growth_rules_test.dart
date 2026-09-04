@@ -435,6 +435,12 @@ void main() {
 
     await second.close();
     expect(harness.channels.where((c) => !c.closed), hasLength(2));
+
+    // Release the outstanding transfer leases so nothing dangles past the
+    // end of the test.
+    for (final lease in leases) {
+      await (await lease).release();
+    }
   });
 
   test('a refused channel open falls back to sharing', () async {
