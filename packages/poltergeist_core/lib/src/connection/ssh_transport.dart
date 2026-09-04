@@ -87,8 +87,11 @@ typedef SshTransportOpener = Future<SshTransport> Function({
 /// prompting is disabled: a first-connect auth failure is a plain user-facing
 /// failure (wrong key, wrong password — its summarized message must reach
 /// the user), while a growth connect already holds credentials that worked
-/// on transport 1, so the only new reason it can fail is an interaction the
-/// disabled prompting refused.
+/// on transport 1, so the expected new failure is an interaction the
+/// disabled prompting refused. The signal is imperfect — any auth rejection
+/// on a growth connect (a since-revoked key, fail2ban throttling of the
+/// second connection) classifies identically — and the pool's
+/// share-channels fallback keeps that case safe.
 Future<SshTransport> openDartSshTransport({
   required ServerConfig config,
   required SshCredentials credentials,
@@ -219,7 +222,10 @@ class _DartSshTransport implements SshTransport {
       }
       if (opening != null) {
         try {
-          await opening.close();
+          // Bounded: a stalled close must not hang the error path past the
+          // operation timeout; the abandoned close continuing in the
+          // background is acceptable best-effort.
+          await opening.close().timeout(timeout, onTimeout: () {});
         } on Object {
           // Swallow: the rethrow below carries the failure that matters.
         }
