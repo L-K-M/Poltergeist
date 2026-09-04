@@ -224,6 +224,9 @@ class FakeTransportOpener {
         }
 
         final transport = FakeTransport(
+          // Growth (prompting-disabled) connects re-authenticate
+          // non-interactively, so they report a non-interactive kind even
+          // when `authKind` scripts an interactive server.
           authKind: prompting == ConnectPrompting.disabled
               ? AuthKind.key
               : authKind,

@@ -391,6 +391,20 @@ class PooledConnectionManager implements ConnectionManager {
       slot = _transferSlot(pool, attempted);
     }
 
+    // Every existing transport refused or filled: one growth attempt
+    // before queueing — a fresh transport is the MaxSessions remedy.
+    if (attempted.isNotEmpty && _canGrow(pool)) {
+      await _growTransport(pool);
+      _throwIfBlocked(pool);
+
+      final grown = _transferSlot(pool, attempted);
+      if (grown != null) {
+        final opened =
+            await _openChannelOn(pool, grown, use: _ChannelUse.transferLeased);
+        if (opened != null) return opened;
+      }
+    }
+
     // At capacity: block until a lease comes back (03 §3.2).
     return _enqueueWaiter(pool, browse: false, serverId: serverId);
   }
@@ -625,6 +639,19 @@ class PooledConnectionManager implements ConnectionManager {
         onKeyboardInteractive: null,
         prompting: ConnectPrompting.disabled,
       );
+
+      // The pool may have torn down (every reference disconnected) or
+      // hard-blocked while this connect was in flight — mirror
+      // _firstConnect's guard so growth can never resurrect a dead pool.
+      if (pool.references.isEmpty || pool.blocked) {
+        try {
+          await transport.close();
+        } on Exception {
+          // Swallow: there is no caller left to receive this failure.
+        }
+        return;
+      }
+
       pool.transports.add(_TransportSlot(transport));
     } on AuthChallengeRequiredError {
       pool.interactiveOnly = true;

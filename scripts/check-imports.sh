@@ -41,10 +41,14 @@ strip_comments() {
 # either.
 _violation() {
   local pattern="$1" file="$2" rc=0 stripped
-  if ! stripped="$(strip_comments "$file")"; then
+  # grep -v exits 1 when every line is stripped (an all-comment file) —
+  # that is a successful strip, not a scan error; only 2+ fails.
+  stripped="$(strip_comments "$file" || rc=$?)"
+  if [ "$rc" -ge 2 ]; then
     echo "error: could not scan $file (comment strip failed)" >&2
     exit 2
   fi
+  rc=0
   printf '%s\n' "$stripped" | grep -E "$pattern" > /dev/null || rc=$?
   if [ "$rc" -ge 2 ]; then
     echo "error: could not scan $file (grep exit $rc)" >&2
