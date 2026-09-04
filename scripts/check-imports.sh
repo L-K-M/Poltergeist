@@ -50,7 +50,8 @@ done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' \
 # Flutter's libraries, its test libs, and dart:ui / dart:ui_web alike.
 flutter_violation() {
   grep -vE '^[[:space:]]*(//|/\*|\*|\*/)' "$1" \
-    | grep -E "(package:flutter(_test|_localizations)?/|dart:ui(_web)?['\"])" > /dev/null
+    | grep -E "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_web)?['\"])" \
+    > /dev/null
 }
 
 while IFS= read -r file; do

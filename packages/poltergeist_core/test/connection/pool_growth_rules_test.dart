@@ -56,9 +56,9 @@ void main() {
       ..addServer('s1', host: 'example.com')
       // Case difference only: DNS names are case-insensitive.
       ..addServer('s2', host: 'EXAMPLE.com');
-    final prompts = <int>[];
-    harness.onHostKey = (_) async {
-      prompts.add(1);
+    final prompts = <HostKeyDecision>[];
+    harness.onHostKey = (decision) async {
+      prompts.add(decision);
       return true;
     };
 
@@ -254,6 +254,7 @@ void main() {
     // The whole pool is dead: transport closed, channels closed, the id no
     // longer counts as connected.
     expect(harness.opener.transports.single.closed, isTrue);
+    expect(harness.channels, isNotEmpty);
     expect(harness.channels.every((channel) => channel.closed), isTrue);
     expect(await harness.manager.connectedServerIds(), isEmpty);
 

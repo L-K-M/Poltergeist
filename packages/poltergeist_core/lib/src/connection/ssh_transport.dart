@@ -102,7 +102,11 @@ Future<SshTransport> openDartSshTransport({
       credentials: credentials,
       tofu: tofu,
       onHostKey: onHostKey,
-      onKeyboardInteractive: onKeyboardInteractive,
+      // The opener is the enforcement point of "prompting disabled means
+      // no prompts": even a caller that passed a responder gets none when
+      // this connect must not interact.
+      onKeyboardInteractive:
+          prompting == ConnectPrompting.enabled ? onKeyboardInteractive : null,
       timeout: timeout,
       log: attemptLog,
     );

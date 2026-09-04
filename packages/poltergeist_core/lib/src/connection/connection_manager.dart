@@ -340,6 +340,9 @@ class PooledConnectionManager implements ConnectionManager {
 
     // No browse channel exists to share (every channel is a leased
     // transfer): queue behind the next release — still queue-don't-fail.
+    // A block may have landed mid-open (killing every binding), in which
+    // case there is nothing to queue behind.
+    _throwIfBlocked(pool);
     return _enqueueWaiter(pool, browse: true, serverId: serverId);
   }
 
@@ -364,7 +367,7 @@ class PooledConnectionManager implements ConnectionManager {
       if (opened != null) return opened;
 
       _throwIfBlocked(pool);
-      slot = _transferSlot(pool);
+      slot = _transferSlot(pool, attempted);
     }
 
     // At capacity: block until a lease comes back (03 §3.2).
@@ -374,9 +377,11 @@ class PooledConnectionManager implements ConnectionManager {
   /// A transport with room for one more channel of any kind — browse
   /// channels count only against the total ceiling (03 §3.2 rule 4).
   /// [pendingOpens] is included so concurrent acquisitions cannot each
-  /// spend the same last slot while their opens are in flight.
+  /// spend the same last slot while their opens are in flight. Dead
+  /// transports are skipped (their eviction is open-failure driven).
   _TransportSlot? _browseSlot(_EndpointPool pool) {
     for (final slot in pool.transports) {
+      if (slot.transport.isClosed) continue;
       if (slot.channels.length + slot.pendingOpens <
           _policy.maxChannelsPerTransport) {
         return slot;
@@ -388,8 +393,14 @@ class PooledConnectionManager implements ConnectionManager {
   /// A transport with room for one more *transfer* channel: both the
   /// per-transport transfer budget and the shared total ceiling must hold —
   /// browse + transfer channels draw on one MaxSessions budget.
-  _TransportSlot? _transferSlot(_EndpointPool pool) {
+  /// [exclude] skips transports a caller already tried and whose open was
+  /// refused, so a multi-transport pool rotates instead of retrying the
+  /// same refusing transport forever.
+  _TransportSlot? _transferSlot(_EndpointPool pool,
+      [Set<_TransportSlot>? exclude]) {
     for (final slot in pool.transports) {
+      if (slot.transport.isClosed) continue;
+      if (exclude != null && exclude.contains(slot)) continue;
       final total = slot.channels.length + slot.pendingOpens;
       final withinTotal = total < _policy.maxChannelsPerTransport;
       final withinTransfer = total - _browseCount(slot) <
@@ -718,10 +729,11 @@ class PooledConnectionManager implements ConnectionManager {
     handle.slot.channels.remove(handle);
     pool.idleTransfer.remove(handle);
 
-    // Structural invariant: a closed handle is never bookkept as leased —
-    // callers clear `leasedTransfer` first today, and this keeps a future
-    // close path from silently breaking that convention.
+    // Structural invariant: a closed handle is never bookkept as leased or
+    // bound to a pane-tab — callers remove those first today, and this
+    // keeps a future close path from silently breaking that convention.
     pool.leasedTransfer.remove(handle);
+    pool.browseByClient.removeWhere((_, bound) => identical(bound, handle));
 
     try {
       await handle.channel.close();
@@ -843,6 +855,10 @@ class PooledConnectionManager implements ConnectionManager {
     final remaining = <_ChannelWaiter>[];
 
     for (final waiter in pool.waiters) {
+      if (waiter.completer.isCompleted) {
+        remaining.add(waiter);
+        continue;
+      }
       if (waiter.serverId == serverId) {
         waiter.completer.completeError(RemoteFileException(
           kind: RemoteFileErrorKind.disconnected,
