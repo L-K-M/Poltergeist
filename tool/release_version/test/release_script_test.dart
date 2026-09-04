@@ -28,7 +28,6 @@ fi
 
 printf 'pubspecs=%s\n' "\$RELEASE_PUBSPECS"
 printf 'regex=%s\n' "\$RELEASE_VERSION_REGEX"
-printf 'sign=%s\n' "\${RELEASE_SIGN_TAG:-}"
 printf 'post=%s\n' "\$RELEASE_POST_BUMP"
 printf 'args=%s\n' "\$*"
 printf 'cwd=%s\n' "\$PWD"
@@ -68,7 +67,6 @@ exit 1
     expect(result.stdout, contains('tool/bench/pubspec.yaml'));
     expect(result.stdout, contains('app/poltergeist_app/pubspec.yaml'));
     expect(result.stdout, contains('release_version/bin/release_version.dart'));
-    expect(result.stdout, contains('sign=required'));
     expect(result.stdout, contains('    sync'));
     expect(result.stdout, contains('args=2099.99.99 --push'));
   });

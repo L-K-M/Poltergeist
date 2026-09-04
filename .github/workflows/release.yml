@@ -15,11 +15,11 @@ name: Release
 # No tag handy? The workflow_dispatch trigger below cuts the same release from
 # a chosen commit and creates the tag for you (see its comment).
 #
-# Nothing here goes public: D23's draft publication gate. The client jobs
-# attach their assets to a draft release — created once, never updated — the
-# sums job adds SHA256SUMS beside the assets and the same sums to the notes,
-# and publishing (after the maintainer verifies and attaches SHA256SUMS.asc
-# with the local key) is a human step. Runbook: docs/RELEASE.md.
+# Releases publish directly from CI (00 D23's 2026-09-03 decision change —
+# Séance's posture): the client jobs attach assets to the release, the sums
+# job adds SHA256SUMS beside them and the same sums to the notes. The sums
+# are an integrity channel (corruption, foreign mirrors), not an origin
+# one. Runbook: docs/RELEASE.md.
 
 on:
   push:
@@ -65,12 +65,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # D23: this workflow only ever creates a release; it must never update
-      # one. action-gh-release's default when a release for the tag exists is
-      # to update it (overwriting same-named assets), so fail first — for
-      # drafts as well as published releases. Check-then-act is safe because
-      # the workflow-level concurrency group serializes every run for the
-      # tag; recovery from a failed run is delete the draft, re-run.
+      # Releases are created once and never updated: action-gh-release's
+      # default when a release for the tag exists is to update it
+      # (overwriting same-named assets), so fail first — for drafts as well
+      # as published releases. Check-then-act is safe because the
+      # workflow-level concurrency group serializes every run for the tag;
+      # recovery from a failed run is delete the release, re-run.
       - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -333,29 +333,23 @@ jobs:
           # job to get here create the tag at the dispatched commit.
           tag_name: ${{ inputs.tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
-          # D23: the release is created — and stays — a draft. Assets and
-          # SHA256SUMS are attached while hidden; publishing is the
-          # maintainer's verified, signed step (docs/RELEASE.md).
-          draft: true
           prerelease: >-
             ${{ startsWith(inputs.tag || github.ref_name, 'v0.') }}
           files: ${{ matrix.files }}
 
-  # D23: from v0.1.0 on, every release carries SHA-256 checksums for all
-  # assets — SHA256SUMS beside the assets, the same sums in the notes —
-  # computed while the release is still a draft. The detached signature
-  # (SHA256SUMS.asc, the maintainer's local key — never a CI secret) is
-  # attached outside CI per docs/RELEASE.md. Runs only when every client
-  # leg succeeded: sums over a partial asset set would certify a broken
-  # rehearsal, and the floor check below makes even a silent upload miss
-  # loud.
+  # Every release carries SHA-256 checksums for all assets — SHA256SUMS
+  # beside the assets, the same sums in the notes — computed by CI after
+  # all assets attach (00 D23's decision change: an integrity channel,
+  # not an origin one). Runs only when every client leg succeeded: sums
+  # over a partial asset set would certify a broken rehearsal, and the
+  # floor check below makes even a silent upload miss loud.
   sums:
-    name: Checksums (draft)
+    name: Checksums
     needs: client
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Compute SHA256SUMS over the draft's assets
+      - name: Compute SHA256SUMS over the release's assets
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -370,7 +364,7 @@ jobs:
           # Rehearsal floor (07 §3.2): the APK and the Linux
           # .deb/AppImage/bundle must publish; everything they need builds on
           # ubuntu-latest, so a miss here is a pipeline bug the tag must wait
-          # for — not D23 lag.
+          # for.
           floor_missing=()
           for asset in 'poltergeist-android.apk' 'poltergeist_*.deb' \
                        'poltergeist-linux-x64.AppImage' \
@@ -379,7 +373,7 @@ jobs:
               || floor_missing+=("$asset")
           done
           if ((${#floor_missing[@]} > 0)); then
-            echo "floor asset(s) missing from the draft: ${floor_missing[*]}" >&2
+            echo "floor asset(s) missing from the release: ${floor_missing[*]}" >&2
             exit 1
           fi
 
@@ -395,9 +389,7 @@ jobs:
           **iOS IPA** — unsigned; re-sign to sideload. iOS is not a supported
           target of this release.
 
-          `SHA256SUMS` ships beside the assets. `SHA256SUMS.asc` — the detached
-          maintainer-key signature over that list — is attached before this
-          draft is published; see docs/RELEASE.md.
+          `SHA256SUMS` ships beside the assets; the same sums follow below.
 
           ## SHA256 checksums
 

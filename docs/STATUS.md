@@ -27,27 +27,21 @@ item 4 tracks the remaining M2 slices)._
 | M0 — engine fitness | Complete from workflow-dispatch run [`33563514640`](https://github.com/L-K-M/Poltergeist/actions/runs/33563514640), attempt 1, measured commit `6b8873eafdaaa3a4157e265dee838ab3b47219b3`. The 78-row canonical bundle is committed at [`docs/evidence/m0`](evidence/m0); `m0-evidence.json` SHA-256 is `b93660b9f1c06bac206096d25c6fff472bcb31d13589a4d81bd5a3df70fa7fcc`. D7 is final: managed checkouts always hash; bulk transfers and sync hashing are opt-in. D8 passed every isolate gate, so sockets, SFTP, transfers, and hashing stay in the engine isolate. D9 adopts dartssh2 3.0.2 at ladder rung 4: document the roughly 10–11× single-file LAN ceiling versus OpenSSH, compensate with bounded channels/transports, and do not adopt libssh2. `PoolPolicy` is finalized at 2 transports, 4 transfer channels per transport, 8 total channels per transport, 6 global in-flight transfers, and remote readdir depth 8. Keepalive remains 30 seconds, extra idle 60 seconds, reconnect cap 30 seconds, and retry limit 5; these are retained design defaults, not M0-tuned values. Earlier runs `33458209337`, `33481554062`, and `33504660759` were partial; `33534298280` stopped in preflight; `33535334440` diagnosed dartssh2 2.22.0's detached cancellation error. None is admissible evidence. M0 closes untagged. |
 | M1 — app scaffold implementation | Implemented in [PR #8](https://github.com/L-K-M/Poltergeist/pull/8) with Flutter 3.47.2, exact dependency pins, generated platform icons from the 1024×1024 master, and the verified platform identity contract. Flutter analysis, 108 tests, and all five client builds pass; see the [PR checks](https://github.com/L-K-M/Poltergeist/pull/8/checks). M1 is not closed: the v0.1.0 rehearsal remains. |
 | M1 — release versions | Release versions accept canonical `X.Y.Z` only, derive ordered Android codes, keep every versioned pubspec plus the app lock, Apple metadata, and README synchronized, and gate CI and release tags against drift or downgrade. Stable-only is the selected 07 §3.12 rule; suffixed releases are unsupported. The app starts at `0.1.0+10099`; CI verifies that code in the built APK, while Apple and Windows use bounded semantic mappings. |
-| M1 — release pipeline (D23) | `release.yml` never publishes on its own: client builds attach to a draft release (created once — a release-existence guard refuses updates, and the concurrency group is keyed on the tag so a tag push and a dispatch can never race it), a sums job attaches `SHA256SUMS` and writes the same sums plus the unsupported-platform labels into the notes, enforcing the rehearsal floor (APK + Linux set) before certifying anything. The iOS IPA is zipped out of the `--no-codesign` `.xcarchive` (`flutter build ipa`, ci.yml in lockstep). The Debian copyright file embeds the verbatim Unlicense, and Depends floors map ABI symbol tags to Debian package versions (a raw `GLIBCXX_3.4.30` floor is unsatisfiable under dpkg's ordering — the previous shape would not install). `scripts/release.sh` requires a signed tag (`RELEASE_SIGN_TAG=required`); the maintainer's draft-to-published dance lives in [`docs/RELEASE.md`](RELEASE.md). |
+| M1 — release pipeline (D23) | Releases publish directly from CI (00 D23's 2026-09-03 decision change — Séance's posture; the draft/signature/fingerprint ceremony was removed by owner decision, recorded with rationale in 00). What survives: releases are created once and never updated (a release-existence guard refuses any run whose tag already has a release; the concurrency group is keyed on the tag so a tag push and a dispatch can never race it), a sums job attaches `SHA256SUMS` and writes the same sums plus the unsupported-platform labels into the notes, enforcing the rehearsal floor (APK + Linux set) before certifying anything. The iOS IPA is zipped out of the `--no-codesign` `.xcarchive` (`flutter build ipa`, ci.yml in lockstep). The Debian copyright file embeds the verbatim Unlicense, and Depends floors map ABI symbol tags to Debian package versions (a raw `GLIBCXX_3.4.30` floor is unsatisfiable under dpkg's ordering — the previous shape would not install). Runbook: [`docs/RELEASE.md`](RELEASE.md). |
 | Plan precision patches | Closed the two dated 05 items: §2.1's exporter spec now carries 00 D6's interim ruling — a per-side `connectionShape` flag set on `ResolvedSyncEndpoints` and a prominent `# note:` per flagged gap whenever the pair's connection settings include an identity file or a jump host (golden fixtures pin the identity-file, jump-host, and both-flags variants) — and §8 rail 5 states 00 D15's trash naming (flat `<runId>/<seq>-<basename>` entries, journal-mapped origins) and the copy-then-delete fallback trigger (local pairs fall back only on EXDEV; other local rename failures surface as errors; for a remote pair any rename failure the sequence prefix did not prevent falls back), with rail 9's restore passage aligned. |
 
 ## Open items
 
-1. **2026-09-02 — close M1.** The scaffold, Flutter checks, the full client
-   matrix, and the D23 release pipeline are done (see the Done table). What
-   remains is the v0.1.0 rehearsal itself, and it is gated on the owner's
-   OpenPGP key — this environment has none:
-   - cut `v0.1.0` with `scripts/release.sh 0.1.0 --push` on a host with the
-     signing key (the script refuses to tag unsigned);
-   - after `release.yml` turns green, walk [`docs/RELEASE.md`](RELEASE.md):
-     recompute the sums, spot-check one platform against a local build,
-     attach `SHA256SUMS.asc`, verify, publish the draft, re-verify;
-   - publish the key fingerprint out-of-band (personal domain or a verified
-     keys.openpgp.org entry — 00 D23 has the rationale);
-   - then tick the remaining M1 exit box (rehearsal assets verified,
-     pre-release marking confirmed) and run the §3.12 close chores
-     (STATUS sweep, PORTS sweep — no ports yet, tag `v0.1.0` itself is the
-     chore item). The Android keystore and secret-scanner allowlisting for
-     it are already in place from the scaffold PR.
+1. **2026-09-03 — close M1.** The scaffold, Flutter checks, the full client
+   matrix, and the release pipeline are done (see the Done table). The
+   v0.1.0 rehearsal is verified end-to-end: the draft release carries the
+   full seven-asset set, all sums recompute cleanly, the APK's signer
+   certificate is byte-identical to the committed CI keystore, and it is
+   flagged pre-release. With D23's decision change to direct publish, what
+   remains is mechanical: land this decision-change PR, publish the v0.1.0
+   release from the verified draft (keep the pre-release flag), and sweep
+   STATUS to flip M1 closed with M2 as the next milestone. No owner key
+   steps remain.
 2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
 3. **Séance pin: flip to the next tag.** The fork bridge is retired (see

@@ -843,7 +843,7 @@ assets on `v*` tags; the work is everything around it.
 | M1 | Master icon `media-sources/poltergeist-icon.png`; `flutter_launcher_icons` config; per-platform icons committed |
 | M1 | Identifier audit (org ids, `StartupWMClass`, ASCII names) |
 | M1 (before `v0.1.0`) | Commit the public debug-grade keystore `android/app/ci-release.jks` **plus its public store/key passwords and alias** (a committed `android/key.properties`, equally public, headed by an in-file comment — *public debug-grade CI key; never place a production secret in this file*) **together, in the same commit, with secret-scanner coverage for both** (the repo's `.gitleaks.toml` `[allowlist]` gains a `paths` regex covering `android/app/ci-release.jks` and `android/key.properties` — `.gitleaksignore` fingerprints are per-commit/line and churn whenever the files are edited, so a path regex is the durable mechanism — and the committed password value is allowlisted once through the repo's GitHub secret-scanning alert — order of operations: the *first* push is blocked until an admin follows the bypass link in the push-protection message to let it through, which creates the alert, then closed as *used in tests* to allowlist the value for every later push (push protection exempts by secret *value*, an admin action, not by path, so there is no path-scoped entry to add) — and thus the mandated push is not permanently blocked; never "fixed" by deleting, moving, or rotating the files, which would break identical fork/PR signing and in-place upgrades — extend the allowlists instead, the same discipline 08 §5 applies to the committed host keys), so fork and PR builds sign identically with no CI secret; every build signs with it (policy: **Android signing & checksums**, below the table) |
-| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, `SHA256SUMS.asc` is attached and verifies against the maintainer key (§4 — signing starts at this first tag, not v1.0.0), and the release is marked **pre-release** — not promoted to "Latest" — proving the `prerelease` expression `release.yml` must carry (leading-`0.` plus §3.12's hyphen clause) actually holds. The APK is a **rehearsal artifact of the desktop codebase**: Android is not a supported v1 target — all Android-specific work and verification (D29, §5) stays post-v1 — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
+| M1 | First rehearsal tag `v0.1.0`; verify all release assets appear, the APK is signed with the committed key, checksums are in the notes **and one downloaded asset's recomputed SHA-256 matches them**, and the release is marked **pre-release** — not promoted to "Latest" — proving the `prerelease` expression `release.yml` must carry (leading-`0.` plus §3.12's hyphen clause) actually holds. The APK is a **rehearsal artifact of the desktop codebase**: Android is not a supported v1 target — all Android-specific work and verification (D29, §5) stays post-v1 — **every release's notes label it as such from `v0.1.0` on** (not only the M10 INSTALL.md), since pre-release tags already publish a downloadable APK that upgrades an existing install in place |
 | M1+ | Keep `ci.yml` and `release.yml` build matrices in lockstep (AGENTS.md §2) |
 | M2 | macOS entitlements minimal and unsandboxed for v1 (D23); legacy login keychain option set (AGENTS.md §4 gotcha) |
 | M2 (before the first tag whose build embeds Séance code — `v0.2.0`) | D30's fail-closed license gate lands in `release.yml`: after dependency resolution, resolve every Séance git pin from **every** `pubspec.lock`, fail on any declared-but-unresolved pin, and verify each pinned tree carries a license file matching the canonical SPDX text of D30's allowlist — anchored on the grep-able marker comment, with the PR-level CI backstop watching the marker bidirectionally. Full spec: 00 D30 |
@@ -889,25 +889,14 @@ to download only from this repo's Releases page, verify against the
 notes, and treat any "update available" prompt as fake by definition — the
 app never prompts for or auto-installs updates (D19), and a correctly-signed
 APK offered anywhere other than Releases still installs cleanly over an
-existing install precisely because the key is public. The release tag is
-signed (`git tag -s`, the maintainer's local
-key — never a CI secret); the signature attests the **source commit**,
-not the CI-built artifacts. Absent reproducible builds, the
-release-notes checksums are an **integrity** channel, not an origin
-one — CI computes them alongside the artifacts it builds, so they
-catch corrupted downloads and foreign mirrors but can never attest a
-compromised pipeline; origin rests on the signed tag plus this repo's
-CI being the thing that built from it — and INSTALL.md must not
-overstate what either the tag signature or the checksums prove. From
-`v0.1.0` on — an unsigned checksum alone only catches accidental
-corruption, not a swapped binary, and signing costs nothing paid
-certificates would, so there is no reason to wait for v1.0.0 — close the
-loop on every tag: after CI publishes, the maintainer downloads
-the assets, recomputes each SHA-256 against the notes, and attaches a
-**detached signature over the checksum list** (`SHA256SUMS.asc`, signed
-with the same local key that signs the tags) to the release — one
-origin-bound checksum source that neither a CI compromise nor a
-release-note edit can silently replace.
+existing install precisely because the key is public. Tags are plain
+annotated tags and releases publish directly from CI (00 D23's
+2026-09-03 decision change): the release-notes checksums are an
+**integrity** channel, not an origin one — CI computes them alongside
+the artifacts it builds, so they catch corrupted downloads and foreign
+mirrors but can never attest a compromised pipeline; origin rests on
+this repo's CI being the thing that built from the pushed tag, and
+INSTALL.md must not overstate what the checksums prove.
 
 Explicitly not in this track for v1 (each would amend D23): paid
 Developer ID signing + notarization, Windows code signing/MSIX, Flatpak,
@@ -985,15 +974,10 @@ Per-milestone invariant check (item 5 of §3.12):
       §4 already publishes SHA-256 checksums beside every asset from
       `v0.1.0`, linked from INSTALL.md next to the bypass steps, so the
       download is verifiable before the OS gate is bypassed — with the
-      limit stated: same-release checksums detect corruption, not a
-      compromised release, so `SHA256SUMS.asc` from `v0.1.0` on (a
-      detached maintainer-key signature over the checksum list, §4) is the
-      origin-independent channel that a release-asset swap cannot forge —
-      provided the maintainer key's fingerprint is published via at least
-      one channel independent of this repo and its release site (e.g.,
-      keyservers plus a fingerprint in the app's About box), and INSTALL.md
-      tells users to verify the fingerprint, not just fetch the key from
-      the same download page.
+      limit stated: the checksums detect corruption and foreign mirrors,
+      not a compromised release or pipeline (00 D23's decision change —
+      direct publish, no detached signature — records what was given up),
+      and INSTALL.md must not overstate them.
 - [ ] Mobile invariants (07 §5) checked at every milestone close; no v1
       code forecloses single-pane, scoped-access, or suspendable-queue
       mobile.

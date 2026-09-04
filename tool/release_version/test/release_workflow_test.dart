@@ -318,14 +318,16 @@ void main() {
     );
   });
 
-  test('publishes attach to a draft that only the maintainer releases', () {
+  test('publishes go out directly, with no draft pause', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
     final publisher = clientSteps.whereType<YamlMap>().singleWhere(
       (step) => '${step['uses']}'.startsWith('$_releaseAction@'),
     );
 
-    expect((publisher['with'] as YamlMap)['draft'], true);
+    // D23's 2026-09-03 decision change: direct publish, Séance's posture —
+    // an explicit draft flag must never reappear.
+    expect((publisher['with'] as YamlMap).containsKey('draft'), isFalse);
   });
 
   test('release runs serialize on the tag, queuing never cancelling', () {
@@ -362,59 +364,53 @@ void main() {
     expect(present.stderr, contains('delete it first'));
   }, skip: _posixOnly);
 
-  test(
-    'draft checksums enforce the rehearsal floor and cover every asset',
-    () async {
-      final jobs =
-          _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
-      final sums = jobs['sums'] as YamlMap;
+  test('checksums enforce the rehearsal floor and cover every asset', () async {
+    final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+    final sums = jobs['sums'] as YamlMap;
 
-      expect(sums['needs'], 'client');
-      final run = _stepRun(
-        sums['steps'] as YamlList,
-        "Compute SHA256SUMS over the draft's assets",
-      );
-      expect(run, contains('poltergeist-android.apk'));
-      expect(run, contains('poltergeist_*.deb'));
-      expect(run, contains('poltergeist-linux-x64.AppImage'));
-      expect(run, contains('poltergeist-linux-x64.tar.gz'));
-      expect(run, contains('sha256sum'));
-      expect(run, contains('gh release upload'));
-      expect(run, contains('--notes-file'));
-      expect(run, isNot(contains(r'${{')));
+    expect(sums['needs'], 'client');
+    final run = _stepRun(
+      sums['steps'] as YamlList,
+      "Compute SHA256SUMS over the release's assets",
+    );
+    expect(run, contains('poltergeist-android.apk'));
+    expect(run, contains('poltergeist_*.deb'));
+    expect(run, contains('poltergeist-linux-x64.AppImage'));
+    expect(run, contains('poltergeist-linux-x64.tar.gz'));
+    expect(run, contains('sha256sum'));
+    expect(run, contains('gh release upload'));
+    expect(run, contains('--notes-file'));
+    expect(run, isNot(contains(r'${{')));
 
-      final complete = await _runChecksumStep(_DraftAssets.complete);
-      expect(
-        complete.result.exitCode,
-        0,
-        reason: complete.result.stderr as String?,
-      );
+    final complete = await _runChecksumStep(_DraftAssets.complete);
+    expect(
+      complete.result.exitCode,
+      0,
+      reason: complete.result.stderr as String?,
+    );
 
-      final sumsText = complete.sums.readAsStringSync();
-      for (final asset in _DraftAssets.complete.names) {
-        expect(sumsText, contains(asset));
-      }
-      final apkHash = sha256
-          .convert(utf8.encode('poltergeist-android.apk'))
-          .toString();
-      expect(sumsText, contains('$apkHash  poltergeist-android.apk'));
+    final sumsText = complete.sums.readAsStringSync();
+    for (final asset in _DraftAssets.complete.names) {
+      expect(sumsText, contains(asset));
+    }
+    final apkHash = sha256
+        .convert(utf8.encode('poltergeist-android.apk'))
+        .toString();
+    expect(sumsText, contains('$apkHash  poltergeist-android.apk'));
 
-      expect(complete.uploadLog.readAsStringSync(), contains('SHA256SUMS'));
-      final notes = complete.notes.readAsStringSync();
-      expect(notes, contains('rehearsal artifact'));
-      expect(notes, contains('unsigned'));
-      expect(notes, contains('## SHA256 checksums'));
-      expect(notes, contains('$apkHash  poltergeist-android.apk'));
+    expect(complete.uploadLog.readAsStringSync(), contains('SHA256SUMS'));
+    final notes = complete.notes.readAsStringSync();
+    expect(notes, contains('rehearsal artifact'));
+    expect(notes, contains('unsigned'));
+    expect(notes, contains('## SHA256 checksums'));
+    expect(notes, contains('$apkHash  poltergeist-android.apk'));
 
-      final floorBroken = await _runChecksumStep(_DraftAssets.missingApk);
-      expect(floorBroken.result.exitCode, isNot(0));
-      expect(floorBroken.result.stderr, contains('floor asset(s) missing'));
-      expect(floorBroken.result.stderr, contains('poltergeist-android.apk'));
-      expect(floorBroken.sums.existsSync(), isFalse);
-      expect(floorBroken.uploadLog.existsSync(), isFalse);
-    },
-    skip: _posixOnly,
-  );
+    final floorBroken = await _runChecksumStep(_DraftAssets.missingApk);
+    expect(floorBroken.result.exitCode, isNot(0));
+    expect(floorBroken.result.stderr, contains('floor asset(s) missing'));
+    expect(floorBroken.sums.existsSync(), isFalse);
+    expect(floorBroken.uploadLog.existsSync(), isFalse);
+  }, skip: _posixOnly);
 
   test('iOS IPAs build from and zip out of the unsigned xcarchive', () {
     for (final path in [
@@ -905,7 +901,7 @@ Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
   final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
   final script = _stepRun(
     (jobs['sums'] as YamlMap)['steps'] as YamlList,
-    "Compute SHA256SUMS over the draft's assets",
+    "Compute SHA256SUMS over the release's assets",
   );
 
   final result = await Process.run(
