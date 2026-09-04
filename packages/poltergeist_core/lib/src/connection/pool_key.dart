@@ -37,7 +37,7 @@ class PoolKey {
   factory PoolKey.of(ServerConfig config) => PoolKey(
         host: config.host.trim().toLowerCase(),
         port: config.port,
-        username: config.username,
+        username: config.username.trim(),
         jumpHostId: config.jumpHostId,
       );
 

@@ -113,7 +113,8 @@ Future<SshTransport> openDartSshTransport({
 
     return _DartSshTransport(client, authKind);
   } on SshConnectException catch (error) {
-    if (prompting == ConnectPrompting.disabled && error.cause is SSHAuthFailError) {
+    if (prompting == ConnectPrompting.disabled &&
+        error.cause is SSHAuthFailError) {
       throw AuthChallengeRequiredError(error.message);
     }
     rethrow;
@@ -183,12 +184,31 @@ class _DartSshTransport implements SshTransport {
     // adapter's safety protocols (double-stat, CAS, sticky cancellation)
     // ride inside DartSshRemoteFileSystem, inherited verbatim per D3.
     SftpClient? opening;
+    Future<SftpClient>? pending;
     try {
-      opening = await _client.sftp().timeout(timeout);
+      // The timeout abandons the open but cannot cancel it: hold the
+      // underlying future so a channel arriving after the timeout is
+      // closed instead of leaking.
+      pending = _client.sftp();
+      opening = await pending.timeout(timeout);
       final sftp = opening;
       await sftp.handshake.timeout(timeout);
       return _DartSftpChannel(DartSshRemoteFileSystem(sftp), sftp.close);
     } catch (error) {
+      if (opening == null && pending != null) {
+        // The open was abandoned before a channel existed (timeout).
+        // Whatever arrives late on the abandoned open — immediately, if
+        // it already has — is owned by nobody; close it.
+        unawaited(pending.then<void>((lateChannel) async {
+          try {
+            await lateChannel.close();
+          } on Exception {
+            // Swallow: best-effort hygiene for an abandoned open.
+          }
+        }, onError: (Object _) {
+          // The abandoned open failed on its own — nothing to close.
+        }));
+      }
       if (opening != null) {
         try {
           await opening.close();

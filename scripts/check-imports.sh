@@ -23,13 +23,17 @@ done
 
 # Comment-looking lines are stripped and the URI may then appear anywhere on
 # the remaining line — including inside string literals or trailing
-# comments, a deliberate over-approximation — so a conditional import's
-# fallback URI cannot slip past. The second grep reads its whole input (no
-# `-q`): under `pipefail`, `-q`'s early exit SIGPIPEs the stripping grep and
-# the pipeline reports "no match" on exactly the violations that matter.
+# comments, a deliberate one-sided over-approximation — so a conditional
+# import's fallback URI cannot slip past. The pattern grep reads its whole
+# input (no `-q`): under `pipefail`, `-q`'s early exit SIGPIPEs the stripping
+# grep and the pipeline reports "no match" on exactly the violations that
+# matter.
+strip_comments() {
+  grep -vE '^[[:space:]]*(//|/\*|\*|\*/)'
+}
+
 dartssh2_violation() {
-  grep -vE '^[[:space:]]*(//|/\*|\*|\*/)' "$1" \
-    | grep -E 'package:dartssh2/' > /dev/null
+  strip_comments "$1" | grep -E 'package:dartssh2/' > /dev/null
 }
 
 while IFS= read -r file; do
@@ -49,7 +53,7 @@ done < <(find "$repo_root/packages" "$repo_root/app" -name '*.dart' \
 # Pure-Dart packages stay Flutter-free (their tests run under dart test) —
 # Flutter's libraries, its test libs, and dart:ui / dart:ui_web alike.
 flutter_violation() {
-  grep -vE '^[[:space:]]*(//|/\*|\*|\*/)' "$1" \
+  strip_comments "$1" \
     | grep -E "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_web)?['\"])" \
     > /dev/null
 }

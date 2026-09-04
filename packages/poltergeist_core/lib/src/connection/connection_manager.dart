@@ -217,6 +217,8 @@ class PooledConnectionManager implements ConnectionManager {
       listener.add(_currentStateOf(serverId));
       final subscription = _eventsFor(serverId).stream
           .listen(listener.add, onError: listener.addError);
+      listener.onPause = subscription.pause;
+      listener.onResume = subscription.resume;
       listener.onCancel = subscription.cancel;
     });
   }
@@ -243,7 +245,12 @@ class PooledConnectionManager implements ConnectionManager {
 
     for (final entry in _references.entries) {
       final pool = entry.value.pool;
-      if (pool.transports.isNotEmpty && !pool.blocked) connected.add(entry.key);
+
+      // Transports die asynchronously and are evicted lazily — count only
+      // pools that still hold a live one.
+      final hasLiveTransport =
+          pool.transports.any((slot) => !slot.transport.isClosed);
+      if (hasLiveTransport && !pool.blocked) connected.add(entry.key);
     }
 
     return connected;
@@ -567,7 +574,9 @@ class PooledConnectionManager implements ConnectionManager {
   bool _canGrow(_EndpointPool pool) =>
       !pool.blocked &&
       !pool.interactiveOnly &&
-      pool.transports.length < _policy.maxTransports;
+      // Dead-but-not-yet-evicted transports must not consume a growth slot.
+      pool.transports.where((slot) => !slot.transport.isClosed).length <
+          _policy.maxTransports;
 
   Future<void> _growTransport(_EndpointPool pool) async {
     final inFlight = pool.growth;
