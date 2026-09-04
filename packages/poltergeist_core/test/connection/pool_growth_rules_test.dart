@@ -516,9 +516,8 @@ void main() {
 
     await expectLater(opening, throwsA(isA<RemoteFileException>()));
 
-    // The transport that landed after the disconnect is closed, not live;
-    // no reference, no credentials, nothing connected.
-    expect(harness.opener.transports.single.closed, isTrue);
+    // Cancelled resolution never reaches the transport opener.
+    expect(harness.opener.transports, isEmpty);
     expect(await harness.manager.connectedServerIds(), isEmpty);
   });
 

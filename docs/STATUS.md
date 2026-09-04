@@ -89,6 +89,16 @@ item 4 tracks the remaining M2 slices)._
   before and pass after the repair (`channel_waiters_test.dart`); 03 §3.2
   clarifies capacity exhaustion versus unavailable SFTP.
 
+- **2026-09-04 — acquisition lifecycle.** Disconnect invalidates pending
+  resolver identities and rejects late browse/transfer acquisitions, including
+  when a sibling keeps the pool alive. A new session cannot join an abandoned
+  first connect. Pending acquisitions hold pane-lifetime teardown until they
+  bind or fail. Cleanup failures preserve the acquisition error. Seven
+  regressions failed before and pass after the repair
+  (`pool_lifecycle_test.dart`). This supplies new evidence against PR #14's
+  round-2 decline of post-await reference checks; transfer revival belongs to
+  the future queue, not an untracked lease for a disconnected serverId.
+
 ## Housekeeping
 
 - No server component is planned: bookmark backup uses Séance's sync server
