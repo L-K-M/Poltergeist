@@ -133,10 +133,11 @@ RemoteFileException classifySftpOpenFailure(
   if (error is RemoteFileException) return error;
 
   if (error is TimeoutException) {
-    return const RemoteFileException(
+    return RemoteFileException(
       kind: RemoteFileErrorKind.disconnected,
       operation: 'open SFTP',
       message: 'Opening the SFTP channel timed out.',
+      cause: error,
     );
   }
 
@@ -202,8 +203,9 @@ class _DartSshTransport implements SshTransport {
         unawaited(pending.then<void>((lateChannel) async {
           try {
             await lateChannel.close();
-          } on Exception {
-            // Swallow: best-effort hygiene for an abandoned open.
+          } on Object {
+            // Swallow: best-effort hygiene for an abandoned open — its
+            // failure must never surface as an unhandled async error.
           }
         }, onError: (Object _) {
           // The abandoned open failed on its own — nothing to close.

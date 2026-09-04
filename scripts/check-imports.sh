@@ -45,7 +45,7 @@ while IFS= read -r file; do
     case "$file" in
       "$repo_root"/packages/poltergeist_core/lib/src/connection/*) ;;
       *)
-        echo "error: dartssh2 import outside poltergeist_core/lib/src/connection: $file" >&2
+        echo "error: dartssh2 reference outside poltergeist_core/lib/src/connection (import, export, or string/trailing-comment mention): $file" >&2
         status=1
         ;;
     esac
@@ -64,7 +64,7 @@ flutter_violation() {
 
 while IFS= read -r file; do
   if flutter_violation "$file"; then
-    echo "error: Flutter import in a pure-Dart package: $file" >&2
+    echo "error: Flutter reference in a pure-Dart package (import, export, or string/trailing-comment mention): $file" >&2
     status=1
   fi
 done < <(find "$repo_root/packages" -name '*.dart' \

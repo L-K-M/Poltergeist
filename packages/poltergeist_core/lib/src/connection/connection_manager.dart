@@ -167,13 +167,18 @@ class PooledConnectionManager implements ConnectionManager {
     // the home resolution below awaits inside that window.
     handle.use = _ChannelUse.browse;
 
-    // A failed home resolution must not strand a budget-counted handle.
+    // A failed home resolution must not strand a budget-counted handle —
+    // and the cleanup must never mask the original failure.
     try {
       final homePath = handle.homePath;
       handle.homePath =
           homePath ?? await handle.channel.fs.canonicalize('.');
     } on Object {
-      await _closeHandle(pool, handle);
+      try {
+        await _closeHandle(pool, handle);
+      } on Object {
+        // Best-effort cleanup on the error path.
+      }
       rethrow;
     }
 
@@ -232,7 +237,12 @@ class PooledConnectionManager implements ConnectionManager {
     if (reference != null) {
       final pool = reference.pool;
       if (pool.blocked) return ServerConnectionState.blocked;
-      if (pool.transports.isNotEmpty) return ServerConnectionState.connected;
+
+      // Transports die asynchronously and are evicted lazily — report
+      // connected only while one is actually alive.
+      final hasLiveTransport =
+          pool.transports.any((slot) => !slot.transport.isClosed);
+      if (hasLiveTransport) return ServerConnectionState.connected;
       if (pool.firstConnect != null) return ServerConnectionState.connecting;
     }
 
