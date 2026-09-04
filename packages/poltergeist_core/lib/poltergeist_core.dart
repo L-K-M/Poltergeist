@@ -1,10 +1,61 @@
 /// Platform-agnostic core for Poltergeist.
 ///
-/// Scaffold: the real modules (connections, transfers, sync engine, bookmark
-/// model) land per the plan in `docs/plan/`. What lives here today is the
-/// product identity, exported so every layer — UI, packaging, tests — names
-/// the product from one place.
+/// The barrel exports only neutral types — today the connection layer plus
+/// the re-exported `RemoteFileSystem` VFS; task and bookmark models join as
+/// they land per the plan (03 §1). dartssh2 types stop inside
+/// `src/connection/` and never reach callers — a property
+/// `scripts/check-imports.sh` enforces for this repo's own sources; the
+/// re-exported Séance types stay dartssh2-free only as long as the pinned
+/// rev keeps them so (re-audit on every re-pin, docs/STATUS.md open item 3).
+///
+/// The `seance_core` re-exports are part of this package's public API and
+/// move in lockstep with the pinned Séance rev (docs/STATUS.md open item 3):
+/// consumers use these types via this barrel, never a direct
+/// `package:seance_core/...` import.
 library;
+
+export 'package:seance_core/seance_core.dart'
+    show
+        AuthKind,
+        AuthMethod,
+        HostKey,
+        HostKeyDecision,
+        HostKeyPrompter,
+        HostKeyVerdict,
+        KeyboardInteractiveResponder,
+        RemoteFileEntry,
+        RemoteFileErrorKind,
+        RemoteFileException,
+        RemoteFileSystem,
+        RemoteTransferCancellation,
+        RemoteTransferProgress,
+        ServerConfig,
+        SshConnectException,
+        SshConnectionLog,
+        SshCredentials,
+        TofuVerifier,
+        remoteBasename,
+        remoteJoin,
+        remoteParent;
+
+export 'src/connection/connection_manager.dart'
+    show
+        ConnectionManager,
+        PaneChannel,
+        PooledConnectionManager,
+        ResolvedServerConnection,
+        ServerConnectionState,
+        TransferChannelLease;
+export 'src/connection/pool_key.dart' show PoolKey;
+export 'src/connection/pool_policy.dart' show PoolPolicy;
+export 'src/connection/ssh_transport.dart'
+    show
+        AuthChallengeRequiredError,
+        ConnectPrompting,
+        SftpChannel,
+        SshTransport,
+        SshTransportOpener,
+        openDartSshTransport;
 
 /// The user-facing product name.
 ///

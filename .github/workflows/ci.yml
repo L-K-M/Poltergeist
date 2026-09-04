@@ -44,6 +44,11 @@ jobs:
       # workflow edit — but paths stay explicit (never a bare `dart analyze`
       # at the root: once app/poltergeist_app exists it would try to resolve
       # the Flutter app and fail without the Flutter SDK).
+      # Contract: the script must exit non-zero on any 03 §1 violation —
+      # including scan errors and a missing scan root — so this gate fails
+      # closed.
+      - name: Check dependency boundaries (03 §1)
+        run: bash scripts/check-imports.sh
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
       - name: Analyze release gate
