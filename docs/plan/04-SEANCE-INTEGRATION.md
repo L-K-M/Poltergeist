@@ -1181,7 +1181,8 @@ git-pin consumption for development and ephemeral CI may proceed before the
 license, subject to the single-rights-holder audit. **No release binaries or
 downloadable CI artifacts embedding the pinned packages may be published**
 until every embedded revision carries a compatible permissive license;
-`release.yml` enforces D30 against resolved, committed locks. **No Séance
+each `release.yml` client leg runs **Verify pinned Séance licenses** against
+resolved, committed locks before building or attaching assets. **No Séance
 source is copied into Poltergeist until the LICENSE lands on Séance `main`**
 (PR-S0). This gates every D2 copy, including a helper needed by an earlier
 milestone; M2 retains the explicit gate in 07.
