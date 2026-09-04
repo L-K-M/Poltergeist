@@ -366,6 +366,9 @@ class PooledConnectionManager implements ConnectionManager {
       final opened = await _openChannelOn(pool, slot, use: _ChannelUse.browse);
       if (opened != null) return opened;
 
+      // Mirrors the transfer loop: a block that landed mid-open surfaces
+      // here instead of after two more fallback steps.
+      _throwIfBlocked(pool);
       slot = _browseSlot(pool, attempted);
     }
 

@@ -34,8 +34,9 @@ abstract interface class SshTransport {
 
   bool get isClosed;
 
-  /// Opens one more SFTP channel on this transport, bounded by [timeout] —
-  /// callers own the budget they are willing to spend on an open.
+  /// Opens one more SFTP channel on this transport. Each stage (channel
+  /// open, handshake) is individually bounded by [timeout] — callers own
+  /// the per-stage budget they are willing to spend on an open.
   Future<SftpChannel> openChannel({Duration timeout = defaultOpenTimeout});
 
   Future<void> close();

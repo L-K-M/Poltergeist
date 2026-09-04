@@ -180,6 +180,12 @@ void main() {
     expect(ninthServed, isFalse);
     // No third growth attempt began — the pool is at maxTransports.
     expect(harness.opener.calls, hasLength(2));
+
+    // Return the granted leases so nothing dangles past the test's end; a
+    // freed slot may serve the ignored 9th — its future is already ignored.
+    for (final lease in leases) {
+      await (await lease).release();
+    }
   });
 
   test('a growth auth challenge marks the pool interactive-capped',
@@ -492,6 +498,7 @@ void main() {
     expect(browse.fs, same(leaseFs));
     expect(harness.opener.transports.single.channels, hasLength(2));
     await keeper.close();
+    await browse.close();
   });
 
   test('a disconnect racing the first connect tears the pool down', () async {
