@@ -137,6 +137,12 @@ void main() {
     await fifth;
     expect(fifthServed, isTrue);
 
+    // Return the granted leases so nothing dangles past the test's end;
+    // freed slots may serve the ignored 6th — its future is already ignored.
+    for (final pending in leases.sublist(1, 5)) {
+      await (await pending).release();
+    }
+
     // The 6th lease deliberately never completes — ignore it like the
     // ninth-lease case below so a later teardown error can't leak unhandled.
     leases[5].ignore();

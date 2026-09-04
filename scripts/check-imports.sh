@@ -138,4 +138,25 @@ if [ "$found_pubspec" -ne 1 ]; then
   exit 2
 fi
 
+# Same declaration gap, dartssh2 side: only poltergeist_core may declare the
+# dependency at all (03 §1 — the app and sync consume it transitively or not
+# at all).
+for pubspec in "$repo_root/packages"/*/pubspec.yaml \
+  "$repo_root/app"/*/pubspec.yaml; do
+  [ -e "$pubspec" ] || continue
+  case "$pubspec" in
+    "$repo_root"/packages/poltergeist_core/pubspec.yaml) continue ;;
+  esac
+  rc=0
+  grep -E '^[[:space:]]*dartssh2:' "$pubspec" > /dev/null || rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "error: could not scan $pubspec" >&2
+    exit 2
+  fi
+  if [ "$rc" -eq 0 ]; then
+    echo "error: dartssh2 dependency declared outside poltergeist_core: $pubspec" >&2
+    status=1
+  fi
+done
+
 exit "$status"

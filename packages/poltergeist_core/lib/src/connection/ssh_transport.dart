@@ -102,7 +102,7 @@ Future<SshTransport> openDartSshTransport({
   required HostKeyPrompter onHostKey,
   KeyboardInteractiveResponder? onKeyboardInteractive,
   required ConnectPrompting prompting,
-  Duration timeout = const Duration(seconds: 15),
+  Duration timeout = SshTransport.defaultOpenTimeout,
   SshConnectionLog? log,
 }) async {
   final attemptLog = log ?? SshConnectionLog();
