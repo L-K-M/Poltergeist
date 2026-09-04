@@ -248,6 +248,12 @@ class PooledConnectionManager implements ConnectionManager {
           pool.transports.any((slot) => !slot.transport.isClosed);
       if (hasLiveTransport) return ServerConnectionState.connected;
       if (pool.firstConnect != null) return ServerConnectionState.connecting;
+
+      // A reference with no live transport and no in-flight connect is not
+      // connected — the emitted-state cache may still say `connected` from
+      // before the death, so it must not win here. Reconnect (03 §3.3) will
+      // make this window report `reconnecting` instead.
+      if (pool.transports.isNotEmpty) return ServerConnectionState.disconnected;
     }
 
     return _lastStates[serverId] ?? ServerConnectionState.disconnected;
@@ -345,16 +351,36 @@ class PooledConnectionManager implements ConnectionManager {
     final idle = _takeIdleTransfer(pool);
     if (idle != null) return idle;
 
-    var slot = _browseSlot(pool);
-    if (slot == null && _canGrow(pool)) {
+    // Growth first when no existing transport has room; then one slot per
+    // transport — an open refusal (a fake or real MaxSessions ceiling)
+    // tries the next transport with capacity before sharing or queueing,
+    // mirroring the transfer acquire.
+    if (_browseSlot(pool) == null && _canGrow(pool)) {
       await _growTransport(pool);
       _throwIfBlocked(pool);
-      slot = _browseSlot(pool);
     }
 
-    if (slot != null) {
+    final attempted = <_TransportSlot>{};
+    var slot = _browseSlot(pool, attempted);
+    while (slot != null && attempted.add(slot)) {
       final opened = await _openChannelOn(pool, slot, use: _ChannelUse.browse);
       if (opened != null) return opened;
+
+      slot = _browseSlot(pool, attempted);
+    }
+
+    // Every existing transport refused or filled: one growth attempt
+    // before sharing or queueing.
+    if (attempted.isNotEmpty && _canGrow(pool)) {
+      await _growTransport(pool);
+      _throwIfBlocked(pool);
+
+      final grown = _browseSlot(pool, attempted);
+      if (grown != null) {
+        final opened =
+            await _openChannelOn(pool, grown, use: _ChannelUse.browse);
+        if (opened != null) return opened;
+      }
     }
 
     // Exhausted with no growth possible: never fail, never hang — share
@@ -409,6 +435,10 @@ class PooledConnectionManager implements ConnectionManager {
       }
     }
 
+    // A block may have landed during the grown transport's open await —
+    // the only await since the last check that reaches this enqueue.
+    _throwIfBlocked(pool);
+
     // At capacity: block until a lease comes back (03 §3.2).
     return _enqueueWaiter(pool, browse: false, serverId: serverId);
   }
@@ -417,10 +447,13 @@ class PooledConnectionManager implements ConnectionManager {
   /// channels count only against the total ceiling (03 §3.2 rule 4).
   /// [pendingOpens] is included so concurrent acquisitions cannot each
   /// spend the same last slot while their opens are in flight. Dead
-  /// transports are skipped (their eviction is open-failure driven).
-  _TransportSlot? _browseSlot(_EndpointPool pool) {
+  /// transports are skipped (their eviction is open-failure driven), and
+  /// [exclude] skips transports a caller already tried.
+  _TransportSlot? _browseSlot(_EndpointPool pool,
+      [Set<_TransportSlot>? exclude]) {
     for (final slot in pool.transports) {
       if (slot.transport.isClosed) continue;
+      if (exclude != null && exclude.contains(slot)) continue;
       if (slot.channels.length + slot.pendingOpens <
           _policy.maxChannelsPerTransport) {
         return slot;

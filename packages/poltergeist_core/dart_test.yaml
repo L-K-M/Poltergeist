@@ -1,0 +1,4 @@
+# A wedged async loop (an accidental infinite microtask/timer chain) can
+# pin the VM so hard an external kill is the only way out — cap every test
+# inside the VM instead.
+timeout: 30s

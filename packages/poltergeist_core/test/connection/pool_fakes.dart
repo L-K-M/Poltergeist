@@ -78,7 +78,7 @@ class FakeTransport implements SshTransport {
   bool get isClosed => closed;
 
   @override
-  Future<SftpChannel> openChannel() async {
+  Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
     if (closed) {
       throw const RemoteFileException(
         kind: RemoteFileErrorKind.disconnected,

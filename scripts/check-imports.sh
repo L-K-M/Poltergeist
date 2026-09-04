@@ -122,7 +122,7 @@ for pubspec in "$repo_root/packages"/*/pubspec.yaml; do
   fi
   found_pubspec=1
   rc=0
-  grep -E '^[[:space:]]*sdk:[[:space:]]*flutter([[:space:]]|$)' "$pubspec" \
+  grep -E "^[[:space:]]*sdk:[[:space:]]*['\"]?flutter['\"]?([[:space:]]|\$)" "$pubspec" \
     > /dev/null || rc=$?
   if [ "$rc" -ge 2 ]; then
     echo "error: could not scan $pubspec" >&2

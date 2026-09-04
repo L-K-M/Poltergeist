@@ -25,6 +25,8 @@ abstract interface class SftpChannel {
 /// An interface, not the dartssh2 client itself, so pool tests run without
 /// sockets (08 §3.2's "pool and lease logic without sockets" pattern).
 abstract interface class SshTransport {
+  /// Default channel-open budget when a caller does not specify one.
+  static const Duration defaultOpenTimeout = Duration(seconds: 15);
   /// How the transport authenticated. Interactive kinds
   /// (`keyboardInteractive`, `promptedPassword`) cap the pool at one
   /// transport (growth rule 2).
@@ -32,8 +34,9 @@ abstract interface class SshTransport {
 
   bool get isClosed;
 
-  /// Opens one more SFTP channel on this transport.
-  Future<SftpChannel> openChannel();
+  /// Opens one more SFTP channel on this transport, bounded by [timeout] —
+  /// callers own the budget they are willing to spend on an open.
+  Future<SftpChannel> openChannel({Duration timeout = defaultOpenTimeout});
 
   Future<void> close();
 }
@@ -180,7 +183,7 @@ class _DartSshTransport implements SshTransport {
 
   @override
   Future<SftpChannel> openChannel({
-    Duration timeout = const Duration(seconds: 15),
+    Duration timeout = SshTransport.defaultOpenTimeout,
   }) async {
     if (isClosed) {
       throw const RemoteFileException(
