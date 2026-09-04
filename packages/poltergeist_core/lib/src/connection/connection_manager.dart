@@ -675,7 +675,7 @@ class PooledConnectionManager implements ConnectionManager {
     pool.leasedTransfer.clear();
     pool.resolvedCredentials = null;
 
-    _failAllWaiters(pool);
+    _failAllWaiters(pool, message: pool.blockDetail);
     _setState(pool, ServerConnectionState.blocked);
 
     // Mirror normal teardown exactly on the security-critical path: close
@@ -886,13 +886,13 @@ class PooledConnectionManager implements ConnectionManager {
       ..addAll(remaining);
   }
 
-  void _failAllWaiters(_EndpointPool pool) {
+  void _failAllWaiters(_EndpointPool pool, {String? message}) {
     for (final waiter in pool.waiters) {
       if (waiter.completer.isCompleted) continue;
       waiter.completer.completeError(RemoteFileException(
         kind: RemoteFileErrorKind.disconnected,
         operation: 'wait for channel',
-        message: 'The connection pool was torn down.',
+        message: message ?? 'The connection pool was torn down.',
       ));
     }
     pool.waiters.clear();

@@ -11,6 +11,10 @@
 # and is deliberately not scanned.
 set -euo pipefail
 
+# Deterministic grep behavior regardless of the runner's locale — character
+# ranges like [_a-z0-9] must mean the same thing everywhere.
+export LC_ALL=C
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 status=0
 

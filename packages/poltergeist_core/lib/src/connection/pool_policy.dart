@@ -62,4 +62,9 @@ class PoolPolicy {
           'the total channel ceiling must cover the transfer budget',
         ),
         assert(taskRetryLimit >= 0, 'taskRetryLimit must not be negative');
+
+  // Duration invariants are deliberately not asserted: the constructor
+  // must stay const (it is a default parameter value), and const asserts
+  // can only evaluate num/string/bool operands — Duration comparisons
+  // fail const evaluation even though they compile in non-const contexts.
 }
