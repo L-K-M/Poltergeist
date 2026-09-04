@@ -314,4 +314,9 @@ class PoolHarness {
   List<FakeChannel> get channels => [
         for (final transport in opener.transports) ...transport.channels,
       ];
+
+  /// Channels not yet closed — for "currently open" assertions that must
+  /// not count channels a teardown already closed.
+  Iterable<FakeChannel> get openChannels =>
+      channels.where((channel) => !channel.closed);
 }

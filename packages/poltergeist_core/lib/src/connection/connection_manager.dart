@@ -293,6 +293,12 @@ class PooledConnectionManager implements ConnectionManager {
     final pool = reference.pool;
     pool.references.remove(serverId);
 
+    // Fail this server's queued waiters before any await below: closing
+    // channels frees capacity and can resume a waiter for this serverId
+    // mid-teardown, letting it acquire a channel the disconnect must
+    // release.
+    _failWaiters(pool, serverId);
+
     // Close this id's browse bindings (shared channels outlive one tab).
     final clientKeys = [
       for (final key in pool.browseByClient.keys)
@@ -314,8 +320,6 @@ class PooledConnectionManager implements ConnectionManager {
       handle.leaseServerId = null;
       await _closeHandle(pool, handle);
     }
-
-    _failWaiters(pool, serverId);
 
     if (pool.references.isEmpty) {
       // Last reference out: transports down, resolved credentials wiped.

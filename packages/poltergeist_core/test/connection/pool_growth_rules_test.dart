@@ -438,10 +438,10 @@ void main() {
 
     // Sharing is refcounted: one tab closing does not kill the other's view.
     await first.close();
-    expect(harness.channels.where((c) => !c.closed), hasLength(3));
+    expect(harness.openChannels, hasLength(3));
 
     await second.close();
-    expect(harness.channels.where((c) => !c.closed), hasLength(2));
+    expect(harness.openChannels, hasLength(2));
 
     // Release the outstanding transfer leases so nothing dangles past the
     // end of the test.
