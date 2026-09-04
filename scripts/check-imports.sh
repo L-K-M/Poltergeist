@@ -25,15 +25,14 @@ for d in "$repo_root/packages" "$repo_root/app"; do
   fi
 done
 
-# Comment-looking lines are stripped and the URI may then appear anywhere on
-# the remaining line — including inside string literals or trailing
-# comments, a deliberate one-sided over-approximation — so a conditional
-# import's fallback URI cannot slip past. The pattern grep reads its whole
-# input (no `-q`): under `pipefail`, `-q`'s early exit SIGPIPEs the stripping
-# grep and the pipeline reports "no match" on exactly the violations that
-# matter.
+# Comment stripping is deliberately coarse but one-sided safe: pure
+# line/doc comments are dropped; a whole-line block comment is dropped
+# too, while `/* note */ import …` on one line stays visible (its import
+# is real code). The pattern grep reads its whole input (no `-q`): under
+# `pipefail`, `-q`'s early exit SIGPIPEs the stripping grep and the
+# pipeline reports "no match" on exactly the violations that matter.
 strip_comments() {
-  grep -vE '^[[:space:]]*(//|/\*|\*|\*/)'
+  grep -vE '^[[:space:]]*(//|\*|/\*.*\*/[[:space:]]*$)'
 }
 
 # Grep exit codes: 0 match, 1 no match, 2 error. A scan error must fail
@@ -77,7 +76,7 @@ done < "$tmpdir/dartssh2_scan.txt"
 # Pure-Dart packages stay Flutter-free (their tests run under dart test) —
 # Flutter's libraries, its test libs, and dart:ui / dart:ui_web alike.
 flutter_violation() {
-  _violation "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_web)?['\"])" "$1"
+  _violation "(package:(flutter[_a-z0-9]*|integration_test)/|dart:ui(_[a-z0-9_]+)?['\"])" "$1"
 }
 
 find "$repo_root/packages" -name '*.dart' \

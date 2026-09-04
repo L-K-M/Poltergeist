@@ -28,6 +28,7 @@ void main() {
       harness.manager.openBrowseChannel('s1', paneTabId: 'tab1'),
       harness.manager.openBrowseChannel('s1', paneTabId: 'tab2'),
     ]);
+    await flushEvents();
 
     // One connect, one first-use prompt — growth rule 1 (D5, D18).
     expect(harness.opener.calls, hasLength(1));

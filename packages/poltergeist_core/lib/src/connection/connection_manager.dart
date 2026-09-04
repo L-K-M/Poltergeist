@@ -186,8 +186,12 @@ class PooledConnectionManager implements ConnectionManager {
     // channel while this one was opening — the loser closes its handle so
     // the binding map never orphans one.
     final raced = pool.browseByClient[clientKey];
-    if (raced != null && !identical(raced, handle)) {
-      await _closeHandle(pool, handle);
+    if (raced != null) {
+      // `handle` may be a channel another pane-tab still shares (the LRU
+      // path) — only an exclusively-owned channel may close here.
+      if (!identical(raced, handle) && handle.browseClients == 0) {
+        await _closeHandle(pool, handle);
+      }
       return _PaneChannelView(this, pool, serverId, paneTabId, raced);
     }
 

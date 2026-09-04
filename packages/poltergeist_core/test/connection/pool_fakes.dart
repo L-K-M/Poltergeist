@@ -88,8 +88,10 @@ class FakeTransport implements SshTransport {
     }
     if (openLimit != null &&
         channels.where((c) => !c.closed).length >= openLimit!) {
+      // Aligned with the production funnel: a channel-open refusal is not
+      // a RemoteFileException, so the transport maps it to `unsupported`.
       throw const RemoteFileException(
-        kind: RemoteFileErrorKind.other,
+        kind: RemoteFileErrorKind.unsupported,
         operation: 'open SFTP',
         message: 'Channel open refused (fake MaxSessions limit).',
       );
