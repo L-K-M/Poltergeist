@@ -523,30 +523,36 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     (documented first-launch steps).
   - **Publishing and checksums (decision change 2026-09-03, owner —
     replaces "Drafts and signing" and "Key trust").** Releases
-    publish **directly from CI**, Séance's posture. The original text
-    specified a per-release ceremony — draft pause, maintainer-local
-    build spot-check, a detached `SHA256SUMS.asc` signature, an
-    out-of-band key fingerprint — and the owner, having walked the
-    first (`v0.1.0`) rehearsal, decided its cost exceeds what a
-    single-maintainer personal project gets back. The mechanical
-    safety survived the cut where the ceremony did not: `release.yml`
-    still refuses to update an existing release for a tag
-    (action-gh-release's default would overwrite same-named assets)
-    and still serializes runs behind a concurrency group keyed on the
-    tag — check-then-act protection that never depended on signing —
-    and every release still carries `SHA256SUMS` beside the assets
-    with the same sums in the notes, computed by CI after all assets
-    attach, plus the notes' unsupported-platform labels. Tags are
-    plain annotated tags; `scripts/release.sh` does not require a
-    signer (the v0.1.0 tag happened to be cut signed, hours before
-    this change; it stays as cut). **The honestly stated residual:**
-    the checksums are an integrity channel only — they catch
-    corrupted downloads and foreign mirrors — and a compromised CI
-    runner or stolen repo token can publish arbitrary binaries *and*
-    matching sums; origin assurance is "this repo's CI built from the
-    pushed tag", nothing more, and INSTALL.md must not overstate it.
-    Reversing any of this requires editing this entry first, exactly
-    like every other D-number.
+    publish straight from CI with **no human step**, Séance's posture.
+    The original text specified a per-release ceremony — draft pause
+    for a maintainer-local build spot-check, a detached
+    `SHA256SUMS.asc` signature, an out-of-band key fingerprint — and
+    the owner, having walked the first (`v0.1.0`) rehearsal, decided
+    its cost exceeds what a single-maintainer personal project gets
+    back. The mechanical safety survived the cut where the ceremony
+    did not: `release.yml` still refuses to update an existing release
+    for a tag — an explicit existence check in its own step,
+    independent of any draft flag (action-gh-release's default would
+    overwrite same-named assets) — and still serializes runs behind a
+    concurrency group keyed on the tag that *queues*, never cancels
+    in progress (a cancelled mid-publish run would strand a
+    half-attached release). The release is created hidden while the
+    client matrix attaches its assets; CI publishes it once
+    `SHA256SUMS` (computed over the complete asset set), the notes
+    with the same sums and the unsupported-platform labels, and the
+    rehearsal-floor check are all done — a public release is never
+    partial or sum-less, and a failed run leaves only an invisible
+    draft (recovery: delete it, re-run). Tags are plain annotated
+    tags; `scripts/release.sh` does not require a signer (the v0.1.0
+    tag happened to be cut signed, hours before this change; it stays
+    as cut). **The honestly stated residual:** the checksums are an
+    integrity channel only — they catch corrupted downloads and
+    foreign mirrors — and a compromised CI runner or stolen repo
+    token can publish arbitrary binaries *and* matching sums; origin
+    assurance is "this repo's CI built from the pushed tag", nothing
+    more, and INSTALL.md must not overstate it. Reversing any of this
+    requires editing this entry first, exactly like every other
+    D-number.
   - **Sandbox posture.** Architecture stays sandbox-ready (a
     `ScopedPathAccess` service fronts all local file access; sidebar
     bookmarks double as future sandbox grants) but v1 desktop builds

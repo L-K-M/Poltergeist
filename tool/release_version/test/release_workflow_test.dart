@@ -318,16 +318,27 @@ void main() {
     );
   });
 
-  test('publishes go out directly, with no draft pause', () {
+  test('releases stay hidden until CI has attached sums and notes', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
     final publisher = clientSteps.whereType<YamlMap>().singleWhere(
       (step) => '${step['uses']}'.startsWith('$_releaseAction@'),
     );
 
-    // D23's 2026-09-03 decision change: direct publish, Séance's posture —
-    // an explicit draft flag must never reappear.
-    expect((publisher['with'] as YamlMap).containsKey('draft'), isFalse);
+    // D23's 2026-09-03 decision change: no human step, but also never a
+    // public partial release — the sums job publishes once complete.
+    expect((publisher['with'] as YamlMap)['draft'], true);
+
+    final sumsSteps = (jobs['sums'] as YamlMap)['steps'] as YamlList;
+    final publish = _step(sumsSteps, 'Publish');
+    // Publish must come after the floor-checked checksum step.
+    expect(
+      sumsSteps.whereType<YamlMap>().toList().indexOf(publish),
+      sumsSteps.whereType<YamlMap>().length - 1,
+    );
+    final publishRun = '${publish['run']}';
+    expect(publishRun, contains('--draft=false'));
+    expect(publishRun, isNot(contains(r'${{')));
   });
 
   test('release runs serialize on the tag, queuing never cancelling', () {

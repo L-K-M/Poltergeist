@@ -890,8 +890,10 @@ notes, and treat any "update available" prompt as fake by definition — the
 app never prompts for or auto-installs updates (D19), and a correctly-signed
 APK offered anywhere other than Releases still installs cleanly over an
 existing install precisely because the key is public. Tags are plain
-annotated tags and releases publish directly from CI (00 D23's
-2026-09-03 decision change): the release-notes checksums are an
+annotated tags and releases publish straight from CI with no human step
+(00 D23's 2026-09-03 decision change) — created hidden while the client
+matrix attaches assets, made public once the checksums, notes, and
+rehearsal-floor check are done. The release-notes checksums are an
 **integrity** channel, not an origin one — CI computes them alongside
 the artifacts it builds, so they catch corrupted downloads and foreign
 mirrors but can never attest a compromised pipeline; origin rests on

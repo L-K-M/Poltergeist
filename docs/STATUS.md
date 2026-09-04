@@ -37,11 +37,13 @@ item 4 tracks the remaining M2 slices)._
    v0.1.0 rehearsal is verified end-to-end: the draft release carries the
    full seven-asset set, all sums recompute cleanly, the APK's signer
    certificate is byte-identical to the committed CI keystore, and it is
-   flagged pre-release. With D23's decision change to direct publish, what
-   remains is mechanical: land this decision-change PR, publish the v0.1.0
-   release from the verified draft (keep the pre-release flag), and sweep
-   STATUS to flip M1 closed with M2 as the next milestone. No owner key
-   steps remain.
+   flagged pre-release. With D23's decision change to no-ceremony
+   publishing, what remains is mechanical: land this decision-change PR,
+   edit the verified draft's notes to drop the stale `SHA256SUMS.asc`
+   paragraph (the pre-change template promised a signature that will
+   never be attached), publish the v0.1.0 release (keep the pre-release
+   flag), and sweep STATUS to flip M1 closed with M2 as the next
+   milestone. No owner key steps remain.
 2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
 3. **Séance pin: flip to the next tag.** The fork bridge is retired (see
