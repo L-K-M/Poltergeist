@@ -25,7 +25,10 @@ sums job. `v0.*` tags publish as pre-releases automatically.
    exist — their absence is a pipeline bug), attaches `SHA256SUMS`, writes
    the same sums plus the unsupported-platform labels (Android APK and iOS
    IPA are rehearsal artifacts of the desktop codebase; D29) into the
-   notes, and **publishes** the release.
+   notes.
+3. Re-downloads every asset and re-checks each digest against
+   `SHA256SUMS`, then **publishes** the release — a corrupted upload
+   never goes public.
 
 The public never sees a partial or sum-less release. A failed run leaves
 an invisible draft.
@@ -47,11 +50,14 @@ When the workflow is green, the release is already public. Worth a minute:
   has a release — draft or published — fails instead of overwriting
   same-named assets, and runs serialize behind a concurrency group keyed
   on the tag.
-- Recovery from a broken run: fix on `main`, delete the release **and the
-  tag**, then dispatch the workflow on the fixed commit (the dispatch path
-  recreates the tag there) — re-running against the old tag only rebuilds
-  the broken commit. Deleting a published release never recalls assets
-  that were already downloaded.
+- Transient failure (flaky runner, network): just re-run the failed
+  jobs. The guard already passed, the draft keeps its assets, and a
+  re-run re-attaches anything missing.
+- Broken commit: fix on `main`, delete the release **and the tag**, then
+  dispatch the workflow on the fixed commit (the dispatch path recreates
+  the tag there) — re-running against the old tag only rebuilds the
+  broken commit. Deleting a published release never recalls assets that
+  were already downloaded.
 - Never rotate, move, or delete the committed Android keystore — in-place
   APK upgrades depend on it (07 §4's signing policy covers the public-key
   risk posture).

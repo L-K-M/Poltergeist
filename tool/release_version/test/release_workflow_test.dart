@@ -331,12 +331,15 @@ void main() {
 
     final sumsSteps = (jobs['sums'] as YamlMap)['steps'] as YamlList;
     final publish = _step(sumsSteps, 'Publish');
-    // Publish must come after the floor-checked checksum step.
+    // Publish must be the sums job's final step: it runs only after the
+    // floor-checked checksum step, and nothing may run after publication.
     expect(sumsSteps.whereType<YamlMap>().last, same(publish));
     // A step that opts out of failure would not stop Publish — the
     // never-partial guarantee needs every sums step to fail loudly.
     for (final step in sumsSteps.whereType<YamlMap>()) {
-      expect('${step['continue-on-error']}', isNot(contains('true')));
+      final coe = '${step['continue-on-error']}'.toLowerCase();
+      expect(coe, isNot(contains('true')), reason: 'step ${step['name']}');
+      expect(coe, isNot(contains(r'${{')), reason: 'step ${step['name']}');
     }
     final publishRun = '${publish['run']}';
     expect(publishRun, contains('release ready'));

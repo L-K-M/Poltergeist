@@ -421,7 +421,15 @@ jobs:
         run: |
           mkdir -p verify && cd verify
           gh release download "$RELEASE_TAG" --repo "$REPO" --clobber
-          sha256sum -c SHA256SUMS
+          # Sums and files must be a bijection: sha256sum -c alone passes
+          # on a truncated sums list, leaving assets unchecked.
+          listed=$(wc -l < SHA256SUMS)
+          files=$(find . -maxdepth 1 -type f ! -name SHA256SUMS | wc -l)
+          if [ "$listed" -ne "$files" ]; then
+            echo "SHA256SUMS covers $listed of $files downloaded assets" >&2
+            exit 1
+          fi
+          sha256sum -c --strict SHA256SUMS
       # The publish itself: no human step, but only now that the floor
       # check passed and the sums and notes are attached. `gh release
       # ready` refuses a non-draft, so the created-once invariant holds;
