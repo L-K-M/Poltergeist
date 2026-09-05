@@ -157,7 +157,7 @@ class RecordedOpenCall {
 /// through the verifier, prompt when untrusted, pin on approval. Growth
 /// behavior is scripted per test.
 class FakeTransportOpener {
-  final AuthKind authKind;
+  AuthKind authKind;
 
   /// A prompting-disabled connect behaves as if the server demanded
   /// interaction: auth fails without a prompt (rule 3's growth case).
@@ -174,6 +174,9 @@ class FakeTransportOpener {
   /// When set, every prompting-disabled (growth) connect parks on this
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
+
+  /// Hold a growth verdict before it reaches the pool's trust gate.
+  Completer<void>? growthVerificationGate;
 
   /// Fail authentication after TOFU has persisted any approved key.
   Object? connectFailure;
@@ -229,6 +232,10 @@ class FakeTransportOpener {
         );
 
         final decision = await tofu.check(presented);
+        final verificationGate = growthVerificationGate;
+        if (prompting == ConnectPrompting.disabled && verificationGate != null) {
+          await verificationGate.future;
+        }
         if (!decision.isTrusted) {
           final approved = await onHostKey(decision);
           if (!approved) {
@@ -241,9 +248,6 @@ class FakeTransportOpener {
           await tofu.pin(presented);
         }
 
-        final failure = connectFailure;
-        if (failure != null) throw failure;
-
         if (prompting == ConnectPrompting.disabled) {
           if (growthGate != null) await growthGate!.future;
           if (growthRequiresChallenge) {
@@ -252,6 +256,9 @@ class FakeTransportOpener {
             );
           }
         }
+
+        final failure = connectFailure;
+        if (failure != null) throw failure;
 
         final transport = FakeTransport(
           // Growth (prompting-disabled) connects re-authenticate

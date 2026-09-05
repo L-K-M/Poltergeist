@@ -127,6 +127,7 @@ class PooledConnectionManager implements ConnectionManager {
   final Map<String, _ServerReference> _references = {};
   final Map<String, Future<_ServerReference>> _pendingReferences = {};
   final Map<PoolKey, _EndpointPool> _pools = {};
+  final Map<PoolKey, _HostKeyIncident> _incidents = {};
   final Map<String, StreamController<ServerConnectionState>> _events = {};
   final Map<String, ServerConnectionState> _lastStates = {};
 
@@ -212,6 +213,8 @@ class PooledConnectionManager implements ConnectionManager {
     final serverId = reference.serverId;
     final pool = reference.pool;
 
+    // A worker request is not the explicit changed-key review action.
+    _throwIfBlocked(pool);
     await _ensureFirstTransport(pool, reference);
     _checkAcquisition(reference);
 
@@ -656,9 +659,10 @@ class PooledConnectionManager implements ConnectionManager {
 
   Future<void> _firstConnect(
       _EndpointPool pool, _ServerReference reference) async {
-    // A clearing attempt on a blocked pool stays "blocked" until it
-    // succeeds — the block is the truth users act on, not the retry.
-    if (!pool.blocked) _setState(pool, ServerConnectionState.connecting);
+    // A replacement session must publish the inherited block before review.
+    _setState(pool, pool.blocked
+        ? ServerConnectionState.blocked
+        : ServerConnectionState.connecting);
 
     try {
       final transport = await _openTransport(
@@ -674,12 +678,15 @@ class PooledConnectionManager implements ConnectionManager {
       // flight (the disconnect hook tears the pool down immediately). A
       // landed transport must not resurrect a torn-down pool — close it
       // and fail the callers.
-      if (pool.references.isEmpty) {
+      // A trusted key can reappear without invoking the prompter; that is
+      // not approval to clear a previously observed changed-key block.
+      if (pool.references.isEmpty || pool.blocked) {
         try {
           await transport.close();
         } on Exception {
-          // Swallow: the disconnect error below is the story that matters.
+          // Swallow: the trust/disconnect error below remains authoritative.
         }
+        _throwIfBlocked(pool);
         throw const RemoteFileException(
           kind: RemoteFileErrorKind.disconnected,
           operation: 'connect',
@@ -697,12 +704,10 @@ class PooledConnectionManager implements ConnectionManager {
 
       pool.transports.add(_TransportSlot(transport));
 
-      // An accepted changed key re-pins inside the opener; reaching here
-      // means the user cleared the block (rule 1's only clearing path).
-      pool.blocked = false;
-      pool.blockDetail = null;
       _setState(pool, ServerConnectionState.connected);
     } on Object {
+      // A rejected stale prompt is cancellation, not an authentication failure.
+      if (pool.references.isEmpty) throw _disconnectedAcquisition();
       if (pool.blocked) {
         // A declined changed key: surface the block, not the raw auth
         // failure behind it.
@@ -743,6 +748,7 @@ class PooledConnectionManager implements ConnectionManager {
     if (pool.references.isEmpty || pool.resolvedCredentials == null) return;
 
     final reference = pool.references.values.first;
+    final trustEpoch = pool._trustEpoch;
 
     try {
       final transport = await _openTransport(
@@ -757,10 +763,9 @@ class PooledConnectionManager implements ConnectionManager {
         prompting: ConnectPrompting.disabled,
       );
 
-      // The pool may have torn down (every reference disconnected) or
-      // hard-blocked while this connect was in flight — mirror
-      // _firstConnect's guard so growth can never resurrect a dead pool.
-      if (pool.references.isEmpty || pool.blocked) {
+      // Approval cannot revive an older handshake. A concurrent first connect
+      // may also have imposed a stricter interactive-auth cap.
+      if (!_isCurrentTrustEpoch(pool, trustEpoch) || !_canGrow(pool)) {
         try {
           await transport.close();
         } on Exception {
@@ -771,6 +776,7 @@ class PooledConnectionManager implements ConnectionManager {
 
       pool.transports.add(_TransportSlot(transport));
     } on AuthChallengeRequiredError {
+      if (!_isCurrentTrustEpoch(pool, trustEpoch)) return;
       pool.interactiveOnly = true;
     } on Exception {
       // Transient growth failure: fall back to sharing existing channels;
@@ -780,48 +786,67 @@ class PooledConnectionManager implements ConnectionManager {
 
   // ── Host-key gate (D18) ────────────────────────────────────────────────
 
+  bool _isCurrentPool(_EndpointPool pool) =>
+      identical(_pools[pool.key], pool);
+
+  bool _isCurrentTrustEpoch(_EndpointPool pool, Object epoch) =>
+      _isCurrentPool(pool) && identical(pool._trustEpoch, epoch);
+
+  bool _isCurrentIncident(_EndpointPool pool, _HostKeyIncident? incident) =>
+      _isCurrentPool(pool) && identical(_incidents[pool.key], incident);
+
   HostKeyPrompter _hostKeyPrompterFor(
       _EndpointPool pool, ConnectPrompting prompting) {
+    var trustEpoch = pool._trustEpoch;
     return (decision) async {
+      if (!_isCurrentTrustEpoch(pool, trustEpoch)) return false;
+
       switch (decision.verdict) {
         case HostKeyVerdict.trusted:
           return true;
 
         case HostKeyVerdict.changed:
-          if (prompting == ConnectPrompting.enabled) {
-            // The hard "host key changed" review. Accepting is the one
-            // path that re-pins — the opener pins on approval; declining
-            // blocks the pool (rule 1).
-            final accepted = await _onHostKey(decision);
-            if (!accepted) await _blockPool(pool, decision);
-            return accepted;
-          }
+          // Every detection gets a fresh identity, even for the same key.
+          final incident = _HostKeyIncident(decision);
+          final blocking = _blockPool(pool, incident);
+          // Installation is synchronous; only this detector adopts the epoch.
+          trustEpoch = pool._trustEpoch;
+          await blocking;
+          if (prompting == ConnectPrompting.disabled) return false;
+          if (!_isCurrentIncident(pool, incident)) return false;
 
-          // Background connects never prompt: hard-block (D18 — never
-          // auto-repin, even mid-growth).
-          await _blockPool(pool, decision);
-          return false;
+          final accepted = await _onHostKey(decision);
+          if (!accepted || !_isCurrentIncident(pool, incident)) return false;
+
+          // Approval resolves trust before auth. The opener persists the pin;
+          // an auth failure afterward must not recreate the resolved incident.
+          _incidents.remove(pool.key);
+          pool._incident = null;
+          _setState(pool, pool.firstConnect == null
+              ? ServerConnectionState.disconnected
+              : ServerConnectionState.connecting);
+          return true;
 
         case HostKeyVerdict.firstUse:
-          if (prompting == ConnectPrompting.enabled) {
-            return _onHostKey(decision);
-          }
-          // Growth arrives after a first connect pinned this server; an
-          // unexpected first-use there is refused, not prompted.
-          return false;
+          if (prompting == ConnectPrompting.disabled) return false;
+          // Removing a pin does not authorize first-use approval of a hard block.
+          if (pool.blocked) return false;
+          final incident = pool._incident;
+          final accepted = await _onHostKey(decision);
+          return accepted && _isCurrentTrustEpoch(pool, trustEpoch) &&
+              _isCurrentIncident(pool, incident);
       }
     };
   }
 
-  Future<void> _blockPool(_EndpointPool pool, HostKeyDecision decision) async {
-    if (pool.blocked) return;
-
-    pool.blocked = true;
-    pool.blockDetail =
-        'Host key for ${decision.presented.host}:${decision.presented.port} '
-        'has changed (presented ${decision.presented.fingerprintSha256}, '
-        'pinned ${decision.pinned?.fingerprintSha256 ?? "none"}). The server '
-        'is blocked until the new key is reviewed.';
+  Future<void> _blockPool(
+      _EndpointPool pool, _HostKeyIncident incident) async {
+    final wasBlocked = pool.blocked;
+    pool._trustEpoch = Object();
+    _incidents[pool.key] = incident;
+    pool._incident = incident;
+    // The first block detached all slots; late opens cannot reattach them.
+    if (wasBlocked) return;
 
     // Hard-block the ENTIRE pool: drop every channel and transport so every
     // operation — for every serverId sharing this endpoint — fails. A
@@ -1145,7 +1170,8 @@ class PooledConnectionManager implements ConnectionManager {
     // Configs are cached per serverId for the session; bookmark edits
     // invalidate them (M5's store owns that).
     final key = PoolKey.of(resolved.config);
-    final pool = _pools.putIfAbsent(key, () => _EndpointPool(key));
+    final pool = _pools.putIfAbsent(
+        key, () => _EndpointPool(key, _incidents[key]));
     final reference = _ServerReference(
         serverId, resolved.config, resolved.credentials, pool);
 
@@ -1189,6 +1215,22 @@ class _ServerReference {
   _ServerReference(this.serverId, this.config, this.credentials, this.pool);
 }
 
+/// Unresolved review state survives pool retirement without retaining secrets.
+class _HostKeyIncident {
+  final HostKeyDecision _decision;
+
+  _HostKeyIncident(this._decision);
+
+  String get _detail {
+    final presented = _decision.presented;
+    final pinnedFingerprint = _decision.pinned?.fingerprintSha256 ?? 'none';
+    return 'Host key for ${presented.host}:${presented.port} '
+        'has changed (presented ${presented.fingerprintSha256}, '
+        'pinned $pinnedFingerprint). The server is blocked until the new key '
+        'is reviewed.';
+  }
+}
+
 class _EndpointPool {
   final PoolKey key;
 
@@ -1207,15 +1249,18 @@ class _EndpointPool {
 
   SshCredentials? resolvedCredentials;
   bool interactiveOnly = false;
-  bool blocked = false;
-  String? blockDetail;
+  _HostKeyIncident? _incident;
+  Object _trustEpoch = Object();
+
+  bool get blocked => _incident != null;
+  String? get blockDetail => _incident?._detail;
 
   int acquisitions = 0;
   Future<void>? firstConnect;
   Future<void>? growth;
   Future<void>? pumping;
 
-  _EndpointPool(this.key);
+  _EndpointPool(this.key, this._incident);
 }
 
 class _TransportSlot {
