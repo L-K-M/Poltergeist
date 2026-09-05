@@ -1,7 +1,30 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:seance_core/seance_core.dart';
+import 'package:test/test.dart';
+
+/// Flush pool work without advancing time, preserving an unexpected error's
+/// stack instead of misreporting it as a timer-dependent operation.
+T completeWithoutTimers<T>(FakeAsync time, Future<T> future) {
+  late T result;
+  var completed = false;
+  (Object, StackTrace)? failure;
+  future.then<void>((value) {
+    result = value;
+    completed = true;
+  }, onError: (Object error, StackTrace stack) {
+    failure = (error, stack);
+  });
+  time.flushMicrotasks();
+
+  final caught = failure;
+  if (caught != null) Error.throwWithStackTrace(caught.$1, caught.$2);
+
+  expect(completed, isTrue, reason: 'The operation must finish without a timer.');
+  return result;
+}
 
 /// In-memory TOFU pin store (tests never touch real persistence).
 class FakeHostKeyStore implements HostKeyStore {

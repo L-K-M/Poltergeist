@@ -13,18 +13,6 @@ const _policy = PoolPolicy(
   maxChannelsPerTransport: _channelLimit,
 );
 
-T _complete<T>(FakeAsync time, Future<T> future) {
-  late T result;
-  var completed = false;
-  future.then((value) {
-    result = value;
-    completed = true;
-  });
-  time.flushMicrotasks();
-  expect(completed, isTrue);
-  return result;
-}
-
 void main() {
   test('extra channel retirement wakes a lease queued during its close', () {
     fakeAsync((time) {
@@ -32,11 +20,14 @@ void main() {
         policy: _policy,
         opener: FakeTransportOpener(transportOpenLimit: _channelLimit),
       )..addServer('s1');
-      _complete(
+      completeWithoutTimers(
         time,
         harness.manager.openBrowseChannel('s1', paneTabId: 'first'),
       );
-      final lease = _complete(time, harness.manager.leaseTransferChannel('s1'));
+      final lease = completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
       final extra = harness.opener.transports.last;
       final retiring = extra.channels.single;
       final closeGate = retiring.closeGate = Completer<void>();
@@ -52,7 +43,7 @@ void main() {
       expect(granted, isNull);
 
       closeGate.complete();
-      _complete(time, releasing);
+      completeWithoutTimers(time, releasing);
       expect(retiring.closed, isTrue);
       expect(
         granted,
@@ -61,8 +52,8 @@ void main() {
       );
       expect(harness.opener.transports, hasLength(_policy.maxTransports));
 
-      _complete(time, granted!.release());
-      _complete(time, harness.manager.disconnectServer('s1'));
+      completeWithoutTimers(time, granted!.release());
+      completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
       expect(time.pendingTimers, isEmpty);
     });
   });

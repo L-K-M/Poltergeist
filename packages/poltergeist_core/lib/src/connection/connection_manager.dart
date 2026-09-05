@@ -681,7 +681,7 @@ class PooledConnectionManager implements ConnectionManager {
           transport.authKind == AuthKind.keyboardInteractive ||
               transport.authKind == AuthKind.promptedPassword;
 
-      pool.transports.add(_TransportSlot(transport));
+      pool.transports.add(_TransportSlot(transport, _TransportRole.primary));
 
       // An accepted changed key re-pins inside the opener; reaching here
       // means the user cleared the block (rule 1's only clearing path).
@@ -755,7 +755,7 @@ class PooledConnectionManager implements ConnectionManager {
         return;
       }
 
-      final slot = _TransportSlot(transport);
+      final slot = _TransportSlot(transport, _TransportRole.extra);
       pool.transports.add(slot);
       _updateIdleTimer(pool, slot);
     } on AuthChallengeRequiredError {
@@ -882,7 +882,7 @@ class PooledConnectionManager implements ConnectionManager {
     // Queued work gets first refusal; unused extra channels must not keep
     // their transport alive forever. The first transport keeps its cache.
     if (identical(_pools[pool.key], pool) &&
-        pool.transports.indexOf(handle.slot) > 0 &&
+        _isExtra(pool, handle.slot) &&
         pool.idleTransfer.contains(handle)) {
       await _closeHandle(pool, handle);
 
@@ -918,11 +918,15 @@ class PooledConnectionManager implements ConnectionManager {
     }
   }
 
+  // Evicting the primary must not promote an extra out of idle retirement.
+  bool _isExtra(_EndpointPool pool, _TransportSlot slot) =>
+      slot._role == _TransportRole.extra && pool.transports.contains(slot);
+
   // An empty slot still owns demand while its channel open/close awaits.
   bool _isIdleExtra(_EndpointPool pool, _TransportSlot slot) =>
       identical(_pools[pool.key], pool) &&
       !pool.blocked &&
-      pool.transports.indexOf(slot) > 0 &&
+      _isExtra(pool, slot) &&
       !slot.transport.isClosed &&
       slot.pendingOpens == 0 &&
       slot._pendingCloses == 0 &&
@@ -949,6 +953,9 @@ class PooledConnectionManager implements ConnectionManager {
       // Remove capacity before awaiting close so a new acquisition cannot
       // bind to the retiring transport or be removed by its late completion.
       pool.transports.remove(slot);
+      if (!pool.transports.any((other) => !other.transport.isClosed)) {
+        _setState(pool, ServerConnectionState.disconnected);
+      }
       unawaited(_closeIdleTransport(slot));
     });
     slot._idleTimer = timer;
@@ -1220,8 +1227,11 @@ class _EndpointPool {
   _EndpointPool(this.key);
 }
 
+enum _TransportRole { primary, extra }
+
 class _TransportSlot {
   final SshTransport transport;
+  final _TransportRole _role;
   final Set<_ChannelHandle> channels = {};
 
   /// Channel opens in flight — reserved against the budgets the moment
@@ -1231,7 +1241,7 @@ class _TransportSlot {
   int _pendingCloses = 0;
   Timer? _idleTimer;
 
-  _TransportSlot(this.transport);
+  _TransportSlot(this.transport, this._role);
 }
 
 enum _ChannelUse { browse, transferIdle, transferLeased }

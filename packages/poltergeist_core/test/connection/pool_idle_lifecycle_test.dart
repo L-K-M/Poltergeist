@@ -11,24 +11,8 @@ const _policy = PoolPolicy(
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
 );
-const _beforeExpiry = Duration(seconds: 59);
 const _lastSecond = Duration(seconds: 1);
-
-T _complete<T>(FakeAsync time, Future<T> future) {
-  late T result;
-  var completed = false;
-  future.then((value) {
-    result = value;
-    completed = true;
-  });
-  time.flushMicrotasks();
-  expect(
-    completed,
-    isTrue,
-    reason: 'The operation must finish without a timer.',
-  );
-  return result;
-}
+final _beforeExpiry = _policy.idleExtraTransportTimeout - _lastSecond;
 
 PoolHarness _harness({FakeTransportOpener? opener}) =>
     PoolHarness(policy: _policy, opener: opener)
@@ -40,12 +24,14 @@ PaneChannel _browse(
   PoolHarness harness,
   String tab, {
   String server = 's1',
-}) =>
-    _complete(time, harness.manager.openBrowseChannel(server, paneTabId: tab));
+}) => completeWithoutTimers(
+  time,
+  harness.manager.openBrowseChannel(server, paneTabId: tab),
+);
 
 void _disconnect(FakeAsync time, PoolHarness harness) {
-  _complete(time, harness.manager.disconnectServer('s1'));
-  _complete(time, harness.manager.disconnectServer('s2'));
+  completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+  completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
   expect(time.pendingTimers, isEmpty);
 }
 
@@ -54,7 +40,10 @@ void main() {
     fakeAsync((time) {
       final harness = _harness();
       _browse(time, harness, 'first');
-      final lease = _complete(time, harness.manager.leaseTransferChannel('s1'));
+      final lease = completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
       final extra = harness.opener.transports.last;
       final channel = extra.channels.single;
       final gate = channel.closeGate = Completer<void>();
@@ -67,7 +56,7 @@ void main() {
       expect(time.pendingTimers, isEmpty);
 
       gate.complete();
-      _complete(time, releasing);
+      completeWithoutTimers(time, releasing);
       expect(channel.closed, isTrue);
       time.elapse(_beforeExpiry);
       expect(extra.closed, isFalse);
@@ -89,21 +78,21 @@ void main() {
       final extra = harness.opener.transports.last;
       expect(sibling.fs, same(extraPane.fs));
 
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(extra.closed, isFalse);
       expect(extra.channels.single.closed, isFalse);
       expect(time.pendingTimers, isEmpty);
 
-      _complete(time, sibling.close());
+      completeWithoutTimers(time, sibling.close());
       time.elapse(_beforeExpiry);
       expect(extra.closed, isFalse);
       time.elapse(_lastSecond);
       expect(extra.closed, isTrue);
-      expect(_complete(time, harness.manager.connectedServerIds()), {
-        's1',
-        's2',
-      });
+      expect(
+        completeWithoutTimers(time, harness.manager.connectedServerIds()),
+        {'s1', 's2'},
+      );
       _disconnect(time, harness);
     });
   });
@@ -115,13 +104,13 @@ void main() {
       final extraPane = _browse(time, harness, 'extra', server: 's2');
       final first = harness.opener.transports.first;
 
-      _complete(time, firstPane.close());
+      completeWithoutTimers(time, firstPane.close());
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(first.channels.single.closed, isTrue);
       expect(first.closed, isFalse);
       expect(time.pendingTimers, isEmpty);
 
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       expect(
         harness.opener.transports.every((transport) => transport.closed),
         isTrue,
@@ -139,7 +128,7 @@ void main() {
         final extraPane = _browse(time, harness, 'extra');
         final first = harness.opener.transports.first;
         final extra = harness.opener.transports.last;
-        _complete(time, extraPane.close());
+        completeWithoutTimers(time, extraPane.close());
         expect(time.nonPeriodicTimerCount, 1);
 
         final gate = first.channels.single.closeGate = Completer<void>();
@@ -150,7 +139,7 @@ void main() {
         expect(extra.closeCalls, 0);
 
         gate.complete();
-        _complete(time, disconnecting);
+        completeWithoutTimers(time, disconnecting);
         expect(extra.closeCalls, 1);
         _disconnect(time, harness);
       });
@@ -164,7 +153,7 @@ void main() {
       final extraPane = _browse(time, harness, 'extra', server: 's2');
       final first = harness.opener.transports.first;
       final extra = harness.opener.transports.last;
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       expect(time.nonPeriodicTimerCount, 1);
 
       final firstStates = <ServerConnectionState>[];
@@ -197,7 +186,7 @@ void main() {
       expect(extra.closeCalls, 0);
 
       gate.complete();
-      expect(_complete(time, blocking), isFalse);
+      expect(completeWithoutTimers(time, blocking), isFalse);
       expect(extra.closeCalls, 1);
       firstSubscription.cancel().ignore();
       siblingSubscription.cancel().ignore();
@@ -213,7 +202,7 @@ void main() {
       final extra = harness.opener.transports.last;
       final gate = extra.closeGate = Completer<void>();
       extra.closeFailure = StateError('transport cleanup');
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
 
       final states = <ServerConnectionState>[];
       final subscription = harness.manager.watchServer('s1').listen(states.add);
@@ -233,10 +222,10 @@ void main() {
       expect(current.closed, isFalse);
       expect(current.channels.single.fs, same(replacement.fs));
       expect(states, [ServerConnectionState.connected]);
-      expect(_complete(time, harness.manager.connectedServerIds()), {
-        's1',
-        's2',
-      });
+      expect(
+        completeWithoutTimers(time, harness.manager.connectedServerIds()),
+        {'s1', 's2'},
+      );
       subscription.cancel().ignore();
       _disconnect(time, harness);
     });

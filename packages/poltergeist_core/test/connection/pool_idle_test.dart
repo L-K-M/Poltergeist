@@ -11,24 +11,8 @@ const _policy = PoolPolicy(
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
 );
-const _beforeExpiry = Duration(seconds: 59);
 const _lastSecond = Duration(seconds: 1);
-
-T _complete<T>(FakeAsync time, Future<T> future) {
-  late T result;
-  var completed = false;
-  future.then((value) {
-    result = value;
-    completed = true;
-  });
-  time.flushMicrotasks();
-  expect(
-    completed,
-    isTrue,
-    reason: 'The operation must finish without a timer.',
-  );
-  return result;
-}
+final _beforeExpiry = _policy.idleExtraTransportTimeout - _lastSecond;
 
 PoolHarness _harness() => PoolHarness(policy: _policy)
   ..addServer('s1')
@@ -39,12 +23,14 @@ PaneChannel _browse(
   PoolHarness harness,
   String tab, {
   String server = 's1',
-}) =>
-    _complete(time, harness.manager.openBrowseChannel(server, paneTabId: tab));
+}) => completeWithoutTimers(
+  time,
+  harness.manager.openBrowseChannel(server, paneTabId: tab),
+);
 
 void _disconnect(FakeAsync time, PoolHarness harness) {
-  _complete(time, harness.manager.disconnectServer('s1'));
-  _complete(time, harness.manager.disconnectServer('s2'));
+  completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+  completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
   expect(time.pendingTimers, isEmpty);
 }
 
@@ -55,14 +41,17 @@ void main() {
       _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
       final extra = harness.opener.transports.last;
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
 
       time.elapse(_beforeExpiry);
       expect(extra.closed, isFalse);
       time.elapse(_lastSecond);
       expect(extra.closed, isTrue);
       expect(harness.opener.transports.first.closed, isFalse);
-      expect(_complete(time, harness.manager.connectedServerIds()), {'s1'});
+      expect(
+        completeWithoutTimers(time, harness.manager.connectedServerIds()),
+        {'s1'},
+      );
       _disconnect(time, harness);
     });
   });
@@ -85,7 +74,7 @@ void main() {
       fakeAsync((time) {
         final harness = _harness();
         _browse(time, harness, 'first');
-        final lease = _complete(
+        final lease = completeWithoutTimers(
           time,
           harness.manager.leaseTransferChannel('s1'),
         );
@@ -93,7 +82,7 @@ void main() {
 
         time.elapse(_policy.idleExtraTransportTimeout * 2);
         expect(extra.closed, isFalse);
-        _complete(time, lease.release());
+        completeWithoutTimers(time, lease.release());
         expect(extra.channels.single.closed, isTrue);
         time.elapse(_beforeExpiry);
         expect(extra.closed, isFalse);
@@ -108,17 +97,20 @@ void main() {
     fakeAsync((time) {
       final harness = _harness();
       _browse(time, harness, 'first');
-      final lease = _complete(time, harness.manager.leaseTransferChannel('s1'));
+      final lease = completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
       final waiting = harness.manager.leaseTransferChannel('s2');
       time.flushMicrotasks();
-      _complete(time, lease.release());
-      final next = _complete(time, waiting);
+      completeWithoutTimers(time, lease.release());
+      final next = completeWithoutTimers(time, waiting);
       expect(next.fs, same(lease.fs));
       expect(harness.opener.transports.last.channels.single.closed, isFalse);
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.last.closed, isFalse);
 
-      _complete(time, next.release());
+      completeWithoutTimers(time, next.release());
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(harness.opener.transports.last.closed, isTrue);
       _disconnect(time, harness);
@@ -131,13 +123,13 @@ void main() {
       _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
       final extra = harness.opener.transports.last;
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       time.elapse(_beforeExpiry);
 
       final replacement = _browse(time, harness, 'replacement');
       time.elapse(_lastSecond);
       expect(extra.closed, isFalse);
-      _complete(time, replacement.close());
+      completeWithoutTimers(time, replacement.close());
       time.elapse(_beforeExpiry);
       expect(extra.closed, isFalse);
       time.elapse(_lastSecond);
@@ -152,7 +144,7 @@ void main() {
       _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
       final extra = harness.opener.transports.last;
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       time.elapse(_beforeExpiry);
 
       final gate = extra.openGate = Completer<void>();
@@ -161,8 +153,8 @@ void main() {
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(extra.closed, isFalse);
       gate.complete();
-      final pane = _complete(time, opening);
-      _complete(time, pane.close());
+      final pane = completeWithoutTimers(time, opening);
+      completeWithoutTimers(time, pane.close());
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(extra.closed, isTrue);
       _disconnect(time, harness);
@@ -175,7 +167,7 @@ void main() {
       _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
       final extra = harness.opener.transports.last;
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
 
       final gate = extra.canonicalizeGate = Completer<void>();
       final opening = harness.manager.openBrowseChannel('s1', paneTabId: 'new');
@@ -183,7 +175,7 @@ void main() {
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(extra.closed, isFalse);
       gate.complete();
-      _complete(time, opening);
+      completeWithoutTimers(time, opening);
       _disconnect(time, harness);
     });
   });
@@ -194,7 +186,7 @@ void main() {
       _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
       final expired = harness.opener.transports.last;
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       time.elapse(_policy.idleExtraTransportTimeout);
 
       _browse(time, harness, 'new');
@@ -209,12 +201,15 @@ void main() {
     fakeAsync((time) {
       final harness = PoolHarness()..addServer('s1');
       final pane = _browse(time, harness, 'first');
-      final lease = _complete(time, harness.manager.leaseTransferChannel('s1'));
-      _complete(time, pane.close());
+      final lease = completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
+      completeWithoutTimers(time, pane.close());
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.single.closed, isFalse);
       expect(time.pendingTimers, isEmpty);
-      _complete(time, lease.release());
+      completeWithoutTimers(time, lease.release());
       expect(harness.opener.transports.single.closed, isTrue);
       _disconnect(time, harness);
     });
@@ -225,7 +220,7 @@ void main() {
       final harness = _harness();
       _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
-      _complete(time, extraPane.close());
+      completeWithoutTimers(time, extraPane.close());
       expect(time.nonPeriodicTimerCount, 1);
       _disconnect(time, harness);
 

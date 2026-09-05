@@ -459,7 +459,9 @@ Growth rules (the part that must never be improvised):
   the timeout starts after the last close completes and restarts after
   renewed channel use. This keeps cached channels from pinning extras
   forever without closing a channel still owned by a caller. The first
-  transport follows pane lifetime, not a timer — but never closes while any of its
+  transport's role is assigned at creation: removing it after failure never
+  promotes an extra into a primary exempt from idle expiry. The first transport
+  follows pane lifetime, not a timer — but never closes while any of its
   channels is leased: with the last pane-tab gone, a leased first transport
   stays until its leases are released, so closing tabs cannot park a
   running transfer.
