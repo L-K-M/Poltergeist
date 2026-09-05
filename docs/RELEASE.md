@@ -52,7 +52,10 @@ When the workflow is green, the release is already public. Worth a minute:
   on the tag.
 - Transient failure (flaky runner, network): just re-run the failed
   jobs. The guard already passed, the draft keeps its assets, and a
-  re-run re-attaches anything missing.
+  re-run re-attaches anything missing. Never use "Re-run all jobs":
+  the guard job will then (correctly) fail because the release
+  exists — that is the created-once invariant, not the broken-commit
+  case, so don't start the delete-and-retag recovery.
 - Broken commit: fix on `main`, delete the release **and the tag**, then
   dispatch the workflow on the fixed commit (the dispatch path recreates
   the tag there) — re-running against the old tag only rebuilds the
