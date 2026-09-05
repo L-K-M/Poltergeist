@@ -521,117 +521,39 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     mistakes an artifact that cannot be installed on any device without
     a separate signing step for a usable build. No paid signing in v1
     (documented first-launch steps).
-  - **Drafts and signing.** Every release from `v0.1.0` on publishes
-    `SHA256SUMS` beside the assets **and** `SHA256SUMS.asc`, a detached
-    maintainer-key signature over that list (07 §4): an unsigned
-    checksum alone only catches accidental corruption — anyone who can
-    swap a binary can recompute its sum — so the signature ships from
-    the first tag rather than waiting for v1.0.0, since generating one
-    costs nothing paid certificates would. The signing key never lives
-    in CI secrets: `release.yml`'s tag-triggered publish creates the
-    release **as a draft** — Séance's own inherited workflow calls
-    `softprops/action-gh-release` with no `draft:` flag, so a stock
-    port of it would go public the instant the workflow finishes, with
-    nothing pausing for a human; Poltergeist's copy of the step adds
-    `draft: true` and aborts if any release — draft or published —
-    already exists for this tag (the action's default when a release
-    exists is to update it, overwriting same-named assets) — and because
-    that existence check is check-then-act, not atomic (GitHub allows
-    multiple drafts to share a `tag_name`, so racing to create the draft
-    first does not close this either), the workflow also declares a
-    `concurrency` group keyed on the tag (queuing, never
-    cancel-in-progress), so no two instances of the publish workflow —
-    a tag push racing a manual `workflow_dispatch`, or a deleted and
-    re-pushed tag while an earlier run is still building — can ever
-    race the guard, so a
-    stray or concurrent re-run can never touch a release the first run already
-    published — producing the assets and the unsigned `SHA256SUMS`
-    while still hidden. `SHA256SUMS.asc` is attached by a separate,
-    maintainer-approved step (signed locally or via a hardware token),
-    and before that step signs, it first builds the tagged commit
-    locally for the maintainer's own primary platform and spot-checks
-    the CI-produced asset for that platform against it — asset size
-    within a stated tolerance and a local run of the downloaded binary,
-    at minimum; a byte-for-byte digest match against the local rebuild
-    is not the check, and never will be while Flutter builds are
-    non-reproducible (an honest local build and an honest CI build of
-    the same commit are expected to differ), so digest verification
-    stays scoped to what it can actually prove: the on-release
-    `SHA256SUMS` matches the attached assets, not that a rebuild
-    reproduces them bit-for-bit — this is a documented, deliberately partial
-    mitigation, not full cross-platform reproducible builds, which
-    Flutter's toolchain does not make achievable in v1 at low cost; it
-    narrows what a compromised CI runner could get away with without
-    eliminating the risk, and the residual "sign what CI produced for
-    every other platform sight-unseen" trust is stated here rather than
-    implied by the ceremony around it. Immediately before publishing,
-    the step re-verifies against the draft *as it currently stands*
-    that the signature validates over the on-release `SHA256SUMS` and
-    that those sums still digest-match every attached asset, aborting
-    with the release left drafted on a retry-confirmed, definitive
-    mismatch (a digest or signature failure that survives one re-fetch);
-    a merely inconclusive check — a transient API or network error —
-    halts the publish and pages the maintainer instead, the draft left
-    exactly as an abort would leave it: an inconclusive check never
-    proceeds to publish, it only differs from a definitive-mismatch
-    abort in what it tells the human, since a false halt is fail-safe
-    but still wastes a human's attention on a phantom failure. Only once
-    confirmed clean does the step publish the
-    draft — and because verify-then-publish is two operations, not one
-    atomic one, the step re-verifies the now-live release immediately
-    after publishing too, deleting it only on that same
-    retry-confirmed, definitive mismatch; a merely inconclusive
-    verification here pages the maintainer and leaves the release
-    standing for a human decision, both because an automated delete
-    fired by a flaky check destroys a healthy, correctly signed release
-    — a self-inflicted availability outage baked into the release
-    procedure — and because deletion cannot recall an asset already
-    downloaded, mirrored, or fetched in-flight, so "never left standing"
-    holds only for the release entry itself, not for copies already in
-    the wild, and the tag remains regardless (an emergency
-    response, not a routine path: a published release with a valid
-    signature over sums that no longer match its assets is worse than
-    an unsigned one) — so a race with the local signing step or a
-    workflow re-run on the tag can publish a stale signature alongside
-    changed assets only in the width of that final re-verify, never
-    silently and never left standing unattended: a definitive mismatch
-    is auto-deleted, an inconclusive one pages a human and is resolved
-    by decision rather than ignored. All of this exists because a
-    CI-resident key would reduce the whole provenance claim to "trust
-    GitHub/the CI runner" — exactly the release-channel compromise the
-    independent-fingerprint requirement below exists to survive.
-  - **Key trust.** The maintainer key's fingerprint is published
-    out-of-band — concretely, a personal domain unrelated to this repo
-    and release site, or an email-verified keys.openpgp.org entry: a
-    bare keyserver reference is not enough, since the old SKS pool is
-    gone and a plain keyserver is an unauthenticated directory — if
-    both the key and its expected fingerprint trace back to the same
-    untrusted server, an attacker who can insert one can insert the
-    other, and the comparison proves nothing; keyservers stay a
-    convenience for *fetching* the key, never the source of the
-    *expected* fingerprint (the app's About box is a convenience
-    cross-check for an already-installed, previously-trusted binary
-    only — it ships inside the very artifact a release-channel
-    compromise would replace, so it cannot bootstrap first-install
-    trust the way an independently hosted fingerprint can) — and
-    INSTALL.md walks users through verifying that fingerprint rather
-    than just fetching the key from the download page (07 §4), since a
-    signature alone only proves internal consistency, not provenance,
-    without that independent check; integrity and provenance are both
-    verifiable without paid certificates. Key rotation/revocation (loss
-    or compromise of the maintainer key) is not designed here in
-    detail, but is not left undefined either: 07 §4 specifies a signed
-    transition statement to a successor key, pre-signed at key creation
-    and stored offline — a statement signed by the old key at the moment
-    of rotation cannot cover either named case: on key *loss* the old
-    key can sign nothing at all, and on key *compromise* an attacker's
-    transition statement to their own successor key is exactly as valid
-    as the maintainer's, so a post-hoc signature carries no evidentiary
-    weight — with the new fingerprint
-    re-announced through the same out-of-band channel as the original,
-    which is the sole trust anchor in the compromise case — deferred
-    rather than improvised under the pressure of an actual
-    compromise.
+  - **Publishing and checksums (decision change 2026-09-03, owner —
+    replaces "Drafts and signing" and "Key trust").** Releases
+    publish straight from CI with **no human step**, Séance's posture.
+    The original text specified a per-release ceremony — draft pause
+    for a maintainer-local build spot-check, a detached
+    `SHA256SUMS.asc` signature, an out-of-band key fingerprint — and
+    the owner, having walked the first (`v0.1.0`) rehearsal, decided
+    its cost exceeds what a single-maintainer personal project gets
+    back. The mechanical safety survived the cut where the ceremony
+    did not: `release.yml` still refuses to update an existing release
+    for a tag — an explicit existence check in its own step,
+    independent of any draft flag (action-gh-release's default would
+    overwrite same-named assets) — and still serializes runs behind a
+    concurrency group keyed on the tag that *queues*, never cancels
+    in progress (a cancelled mid-attach run would strand a
+    half-attached draft that the existence guard then blocks re-runs
+    on until someone deletes it). The release is created hidden while the
+    client matrix attaches its assets; CI publishes it once
+    `SHA256SUMS` (computed over the complete asset set), the notes
+    with the same sums and the unsupported-platform labels, and the
+    rehearsal-floor check are all done — a public release is never
+    partial or sum-less, and a failed run leaves only an invisible
+    draft (recovery: delete it, re-run). Tags are plain annotated
+    tags; `scripts/release.sh` does not require a signer (the v0.1.0
+    tag happened to be cut signed, hours before this change; it stays
+    as cut). **The honestly stated residual:** the checksums are an
+    integrity channel only — they catch corrupted downloads and
+    foreign mirrors — and a compromised CI runner or stolen repo
+    token can publish arbitrary binaries *and* matching sums; origin
+    assurance is "this repo's CI built from the pushed tag", nothing
+    more, and INSTALL.md must not overstate it. Reversing any of this
+    requires editing this entry first, exactly like every other
+    D-number.
   - **Sandbox posture.** Architecture stays sandbox-ready (a
     `ScopedPathAccess` service fronts all local file access; sidebar
     bookmarks double as future sandbox grants) but v1 desktop builds

@@ -15,11 +15,13 @@ name: Release
 # No tag handy? The workflow_dispatch trigger below cuts the same release from
 # a chosen commit and creates the tag for you (see its comment).
 #
-# Nothing here goes public: D23's draft publication gate. The client jobs
-# attach their assets to a draft release — created once, never updated — the
-# sums job adds SHA256SUMS beside the assets and the same sums to the notes,
-# and publishing (after the maintainer verifies and attaches SHA256SUMS.asc
-# with the local key) is a human step. Runbook: docs/RELEASE.md.
+# Releases publish straight from CI with no human step (00 D23's
+# 2026-09-03 decision change — Séance's posture): the release is created
+# hidden while the client matrix attaches its assets, and the sums job
+# makes it public only once SHA256SUMS, the notes, and the rehearsal-floor
+# check are done — a public release is never partial or sum-less. The sums
+# are an integrity channel (corruption, foreign mirrors), not an origin
+# one. Runbook: docs/RELEASE.md.
 
 on:
   push:
@@ -65,12 +67,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # D23: this workflow only ever creates a release; it must never update
-      # one. action-gh-release's default when a release for the tag exists is
-      # to update it (overwriting same-named assets), so fail first — for
-      # drafts as well as published releases. Check-then-act is safe because
-      # the workflow-level concurrency group serializes every run for the
-      # tag; recovery from a failed run is delete the draft, re-run.
+      # Releases are created once and never updated: action-gh-release's
+      # default when a release for the tag exists is to update it
+      # (overwriting same-named assets), so fail first — for drafts as well
+      # as published releases. Check-then-act is safe because the
+      # workflow-level concurrency group serializes every run for the tag.
+      # Recovery from a failed run: delete the release and the tag —
+      # a draft only gets its tag at publish, so a dispatch-path
+      # failure before publishing leaves no tag to delete. A surviving
+      # tag pins the recovery run's release to the broken commit
+      # (target_commitish is ignored when the tag already exists) —
+      # then fix on main and dispatch on the fixed commit.
       - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -333,29 +340,31 @@ jobs:
           # job to get here create the tag at the dispatched commit.
           tag_name: ${{ inputs.tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
-          # D23: the release is created — and stays — a draft. Assets and
-          # SHA256SUMS are attached while hidden; publishing is the
-          # maintainer's verified, signed step (docs/RELEASE.md).
+          # Hidden while the matrix legs attach; the sums job publishes
+          # after the floor check, so a public release is never partial.
+          # No human step — this is the whole D23 decision change.
           draft: true
           prerelease: >-
             ${{ startsWith(inputs.tag || github.ref_name, 'v0.') }}
           files: ${{ matrix.files }}
+          # A glob that matches nothing would attach no assets and stay
+          # green; the floor check only guards floor assets. Fail loud
+          # at the source, for every leg.
+          fail_on_unmatched_files: true
 
-  # D23: from v0.1.0 on, every release carries SHA-256 checksums for all
-  # assets — SHA256SUMS beside the assets, the same sums in the notes —
-  # computed while the release is still a draft. The detached signature
-  # (SHA256SUMS.asc, the maintainer's local key — never a CI secret) is
-  # attached outside CI per docs/RELEASE.md. Runs only when every client
-  # leg succeeded: sums over a partial asset set would certify a broken
-  # rehearsal, and the floor check below makes even a silent upload miss
-  # loud.
+  # Every release carries SHA-256 checksums for all assets — SHA256SUMS
+  # beside the assets, the same sums in the notes — computed by CI after
+  # all assets attach (00 D23's decision change: an integrity channel,
+  # not an origin one). Runs only when every client leg succeeded: sums
+  # over a partial asset set would certify a broken rehearsal, and the
+  # floor check below makes even a silent upload miss loud.
   sums:
-    name: Checksums (draft)
+    name: Checksums
     needs: client
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Compute SHA256SUMS over the draft's assets
+      - name: Compute SHA256SUMS over the release's assets
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -370,7 +379,7 @@ jobs:
           # Rehearsal floor (07 §3.2): the APK and the Linux
           # .deb/AppImage/bundle must publish; everything they need builds on
           # ubuntu-latest, so a miss here is a pipeline bug the tag must wait
-          # for — not D23 lag.
+          # for.
           floor_missing=()
           for asset in 'poltergeist-android.apk' 'poltergeist_*.deb' \
                        'poltergeist-linux-x64.AppImage' \
@@ -379,7 +388,7 @@ jobs:
               || floor_missing+=("$asset")
           done
           if ((${#floor_missing[@]} > 0)); then
-            echo "floor asset(s) missing from the draft: ${floor_missing[*]}" >&2
+            echo "floor asset(s) missing from the release: ${floor_missing[*]}" >&2
             exit 1
           fi
 
@@ -395,9 +404,7 @@ jobs:
           **iOS IPA** — unsigned; re-sign to sideload. iOS is not a supported
           target of this release.
 
-          `SHA256SUMS` ships beside the assets. `SHA256SUMS.asc` — the detached
-          maintainer-key signature over that list — is attached before this
-          draft is published; see docs/RELEASE.md.
+          `SHA256SUMS` ships beside the assets; the same sums follow below.
 
           ## SHA256 checksums
 
@@ -405,6 +412,61 @@ jobs:
             cat SHA256SUMS
           } > RELEASE_NOTES.md
 
-          gh release upload "$RELEASE_TAG" --repo "$REPO" SHA256SUMS --clobber
-          gh release edit "$RELEASE_TAG" --repo "$REPO" \
-            --notes-file RELEASE_NOTES.md
+          # Never mutate a published release: a re-run after a
+          # publish-step timeout would otherwise clobber SHA256SUMS and
+          # the notes on the live release. The draft probe fails loud:
+          # an errored view must not read as empty ("published").
+          is_draft=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+            --json isDraft --jq .isDraft) || exit 1
+          if [ "$is_draft" = true ]; then
+            gh release upload "$RELEASE_TAG" --repo "$REPO" SHA256SUMS --clobber
+            gh release edit "$RELEASE_TAG" --repo "$REPO" \
+              --notes-file RELEASE_NOTES.md
+          else
+            echo "release already published; leaving assets and notes untouched" >&2
+          fi
+      # What the removed human ceremony did by hand, CI does here:
+      # re-download the full set and check every digest against the
+      # uploaded sums, so a corrupted upload never turns public.
+      - name: Verify the uploaded asset set before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p verify && cd verify
+          gh release download "$RELEASE_TAG" --repo "$REPO" --clobber
+          # Sums and files must be a bijection: sha256sum -c alone passes
+          # on a truncated sums list, leaving assets unchecked. Compare
+          # name sets, not counts -- a duplicate line balances the tally.
+          listed=$(sed -E 's/^[0-9a-f]{64} [ *]?//' SHA256SUMS | awk 'NF' | sort)
+          files=$(find . -maxdepth 1 -type f ! -name SHA256SUMS \
+            -printf '%f\n' | sort)
+          if ! diff -u <(printf '%s\n' "$files") <(printf '%s\n' "$listed"); then
+            echo "SHA256SUMS and the downloaded asset set are not a bijection" >&2
+            exit 1
+          fi
+          sha256sum -c --strict SHA256SUMS
+      # The publish itself: no human step, but only now that the floor
+      # check passed and the sums are attached and verified. Idempotent
+      # for re-runs: if a prior attempt already flipped the release
+      # public (e.g. a timeout after a successful call), there is
+      # nothing to do -- created-once is the guard job's invariant, not
+      # this step's failure mode, and a spurious red here would push a
+      # healthy published release down the delete-and-retag path.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          # Fails loud: an errored probe reading as empty would take the
+          # else branch and exit 0 -- a green run over an unpublished
+          # draft.
+          draft=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+            --json isDraft --jq .isDraft) || exit 1
+          if [ "$draft" = true ]; then
+            gh release ready "$RELEASE_TAG" --repo "$REPO"
+          else
+            echo "release already published; nothing to do"
+          fi

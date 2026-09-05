@@ -12,6 +12,11 @@ import 'package:yaml/yaml.dart';
 const _checkoutAction = 'actions/checkout';
 const _releaseAction = 'softprops/action-gh-release';
 
+// Shared by the workflow-shape test and the bash-executing helper below
+// so the two can never drift apart silently (a mismatch would surface
+// as an opaque `singleWhere` "no element" failure).
+const _checksumStepName = "Compute SHA256SUMS over the release's assets";
+
 void main() {
   late Directory sandbox;
 
@@ -318,14 +323,93 @@ void main() {
     );
   });
 
-  test('publishes attach to a draft that only the maintainer releases', () {
+  test('releases stay hidden until CI has attached sums and notes', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
     final publisher = clientSteps.whereType<YamlMap>().singleWhere(
       (step) => '${step['uses']}'.startsWith('$_releaseAction@'),
     );
 
+    // D23's 2026-09-03 decision change: no human step, but also never a
+    // public partial release — the sums job publishes once complete.
     expect((publisher['with'] as YamlMap)['draft'], true);
+
+    final sumsSteps = (jobs['sums'] as YamlMap)['steps'] as YamlList;
+    final publish = _step(sumsSteps, 'Publish');
+    // needs-skip is the other half of "never a public partial release":
+    // a job-level `if: always()`-class condition on a chain job would
+    // run Publish over a failed client matrix even with every step on
+    // default skip-on-failure semantics (the floor check only guards
+    // floor assets — a missing macOS/Windows asset would ship).
+    for (final jobName in const ['test', 'client', 'sums']) {
+      final jobIf = '${(jobs[jobName] as YamlMap)['if']}'.toLowerCase();
+      expect(jobIf, isNot(contains('always')), reason: '$jobName job-level if');
+      expect(
+        jobIf,
+        isNot(contains('failure()')),
+        reason: '$jobName job-level if',
+      );
+      expect(jobIf, isNot(contains('cancelled')), reason: '$jobName job-level if');
+    }
+    // Publish must be the sums job's final step: it runs only after the
+    // floor-checked checksum step, and nothing may run after publication.
+    expect(sumsSteps.whereType<YamlMap>().last, same(publish));
+    // A step that opts out of failure would not stop Publish — the
+    // never-partial guarantee needs every step of both jobs (a client
+    // leg that swallows its failure would leave the sums job green
+    // over a partial asset set) to fail loudly.
+    void auditFailLoudly(String job, YamlList steps) {
+      for (final step in steps.whereType<YamlMap>()) {
+        final name = '${step['name'] ?? step['id'] ?? step['uses'] ?? '?'}';
+        final coe = '${step['continue-on-error']}'.toLowerCase();
+        expect(coe, isNot(contains('true')), reason: '$job step $name');
+        expect(coe, isNot(contains(r'${{')), reason: '$job step $name');
+        // Wherever assets attach, they attach hidden — a future second
+        // release-action step must not publish eagerly.
+        if ('${step['uses']}'.startsWith('$_releaseAction@')) {
+          final withMap = step['with'];
+          expect(
+            withMap is YamlMap && withMap['draft'] == true,
+            isTrue,
+            reason: '$job step $name must set draft: true',
+          );
+        }
+      }
+    }
+
+    // Job-level continue-on-error would let a failed leg report green
+    // just like a step-level one — and on the guard/test job it would
+    // defeat the created-once invariant outright. Audit every job's
+    // job-level flag AND its steps: a job added to the chain later must
+    // not silently escape either audit.
+    for (final entry in jobs.entries) {
+      final jobName = '${entry.key}';
+      final job = entry.value as YamlMap;
+      final jobCoe = '${job['continue-on-error']}'.toLowerCase();
+      expect(jobCoe, isNot(contains('true')), reason: '$jobName job-level');
+      expect(jobCoe, isNot(contains(r'${{')), reason: '$jobName job-level');
+      final steps = job['steps'];
+      if (steps is YamlList) auditFailLoudly(jobName, steps);
+    }
+    final publishRun = '${publish['run']}';
+    expect(publishRun, contains('gh release ready'));
+    expect(publishRun, isNot(contains(r'${{')));
+    // The "never a public partial release" guarantee relies on Actions'
+    // default skip-on-failure, so Publish must not opt out of it.
+    final publishIf = '${publish['if']}';
+    expect(publishIf, isNot(contains('always')));
+    expect(publishIf, isNot(contains('failure()')));
+    expect(publishIf, isNot(contains('cancelled')));
+    expect(publishIf, isNot(contains('!success')));
+    // A blocklist alone is bypassable (`if: ${{ true }}` runs even after
+    // a failure), so pin Publish to the default semantics or an exact
+    // success() guard — contains() would let `${{ true || success() }}`
+    // through.
+    expect(
+      publish['if'],
+      anyOf(isNull, equals('success()'), equals(r'${{ success() }}')),
+      reason: 'Publish must rely on default skip-on-failure semantics',
+    );
   });
 
   test('release runs serialize on the tag, queuing never cancelling', () {
@@ -362,59 +446,53 @@ void main() {
     expect(present.stderr, contains('delete it first'));
   }, skip: _posixOnly);
 
-  test(
-    'draft checksums enforce the rehearsal floor and cover every asset',
-    () async {
-      final jobs =
-          _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
-      final sums = jobs['sums'] as YamlMap;
+  test('checksums enforce the rehearsal floor and cover every asset', () async {
+    final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+    final sums = jobs['sums'] as YamlMap;
 
-      expect(sums['needs'], 'client');
-      final run = _stepRun(
-        sums['steps'] as YamlList,
-        "Compute SHA256SUMS over the draft's assets",
-      );
-      expect(run, contains('poltergeist-android.apk'));
-      expect(run, contains('poltergeist_*.deb'));
-      expect(run, contains('poltergeist-linux-x64.AppImage'));
-      expect(run, contains('poltergeist-linux-x64.tar.gz'));
-      expect(run, contains('sha256sum'));
-      expect(run, contains('gh release upload'));
-      expect(run, contains('--notes-file'));
-      expect(run, isNot(contains(r'${{')));
+    expect(sums['needs'], 'client');
+    final run = _stepRun(
+      sums['steps'] as YamlList,
+      _checksumStepName,
+    );
+    expect(run, contains('poltergeist-android.apk'));
+    expect(run, contains('poltergeist_*.deb'));
+    expect(run, contains('poltergeist-linux-x64.AppImage'));
+    expect(run, contains('poltergeist-linux-x64.tar.gz'));
+    expect(run, contains('sha256sum'));
+    expect(run, contains('gh release upload'));
+    expect(run, contains('--notes-file'));
+    expect(run, isNot(contains(r'${{')));
 
-      final complete = await _runChecksumStep(_DraftAssets.complete);
-      expect(
-        complete.result.exitCode,
-        0,
-        reason: complete.result.stderr as String?,
-      );
+    final complete = await _runChecksumStep(_DraftAssets.complete);
+    expect(
+      complete.result.exitCode,
+      0,
+      reason: complete.result.stderr as String?,
+    );
 
-      final sumsText = complete.sums.readAsStringSync();
-      for (final asset in _DraftAssets.complete.names) {
-        expect(sumsText, contains(asset));
-      }
-      final apkHash = sha256
-          .convert(utf8.encode('poltergeist-android.apk'))
-          .toString();
-      expect(sumsText, contains('$apkHash  poltergeist-android.apk'));
+    final sumsText = complete.sums.readAsStringSync();
+    for (final asset in _DraftAssets.complete.names) {
+      expect(sumsText, contains(asset));
+    }
+    final apkHash = sha256
+        .convert(utf8.encode('poltergeist-android.apk'))
+        .toString();
+    expect(sumsText, contains('$apkHash  poltergeist-android.apk'));
 
-      expect(complete.uploadLog.readAsStringSync(), contains('SHA256SUMS'));
-      final notes = complete.notes.readAsStringSync();
-      expect(notes, contains('rehearsal artifact'));
-      expect(notes, contains('unsigned'));
-      expect(notes, contains('## SHA256 checksums'));
-      expect(notes, contains('$apkHash  poltergeist-android.apk'));
+    expect(complete.uploadLog.readAsStringSync(), contains('SHA256SUMS'));
+    final notes = complete.notes.readAsStringSync();
+    expect(notes, contains('rehearsal artifact'));
+    expect(notes, contains('unsigned'));
+    expect(notes, contains('## SHA256 checksums'));
+    expect(notes, contains('$apkHash  poltergeist-android.apk'));
 
-      final floorBroken = await _runChecksumStep(_DraftAssets.missingApk);
-      expect(floorBroken.result.exitCode, isNot(0));
-      expect(floorBroken.result.stderr, contains('floor asset(s) missing'));
-      expect(floorBroken.result.stderr, contains('poltergeist-android.apk'));
-      expect(floorBroken.sums.existsSync(), isFalse);
-      expect(floorBroken.uploadLog.existsSync(), isFalse);
-    },
-    skip: _posixOnly,
-  );
+    final floorBroken = await _runChecksumStep(_DraftAssets.missingApk);
+    expect(floorBroken.result.exitCode, isNot(0));
+    expect(floorBroken.result.stderr, contains('floor asset(s) missing'));
+    expect(floorBroken.sums.existsSync(), isFalse);
+    expect(floorBroken.uploadLog.existsSync(), isFalse);
+  }, skip: _posixOnly);
 
   test('iOS IPAs build from and zip out of the unsigned xcarchive', () {
     for (final path in [
@@ -826,6 +904,11 @@ case "$1" in
       esac
     done
     case "$cmd" in
+      view)
+        # The isDraft probe (mutation/publish idempotency) — this helper
+        # exercises the pre-publish draft scenario, so answer draft=true.
+        printf 'true\n'
+        ;;
       download)
         [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
         for name in ${FAKE_ASSETS:?}; do printf '%s' "$name" > "$dir/$name"; done
@@ -905,7 +988,7 @@ Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
   final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
   final script = _stepRun(
     (jobs['sums'] as YamlMap)['steps'] as YamlList,
-    "Compute SHA256SUMS over the draft's assets",
+    _checksumStepName,
   );
 
   final result = await Process.run(

@@ -1,80 +1,67 @@
 # Release runbook
 
-How a Poltergeist release goes from a version bump to a published GitHub
-Release. The pipeline ([`release.yml`](../.github/workflows/release.yml))
-never publishes on its own: it tests, builds every client asset, attaches
-them plus `SHA256SUMS` to a **draft** release, and stops. Publishing is the
-maintainer's verified, signed step — the whole design exists so the signing
-key never lives in CI (plan [00 D23](plan/00-OVERVIEW.md),
-[07 §4](plan/07-MILESTONES.md)).
+How a Poltergeist release ships. Releases publish straight from CI with
+**no human step** (00 D23, decision change 2026-09-03): no signatures, no
+maintainer key. The checksums are an integrity channel — they catch
+corrupted downloads, not a compromised pipeline.
 
 ## 1. Cut the tag
 
     scripts/release.sh X.Y.Z --push
 
-The version grammar is stable `X.Y.Z` only. `release.sh` requires a
-signing-capable Git (`RELEASE_SIGN_TAG=required`): the tag is signed with
-the maintainer's local key and attests the **source commit**, never CI-built
-artifacts. `v0.*` tags publish as pre-releases automatically.
+The version grammar is stable `X.Y.Z` only; the tag is a plain annotated
+tag. Pushing it triggers [`release.yml`](../.github/workflows/release.yml):
+the release-existence guard, the test gate, the five client builds, and the
+sums job. `v0.*` tags publish as pre-releases automatically.
 
-Pushing the tag triggers `release.yml`: the release-existence guard, the
-test gate, the five client builds attaching to the draft, and the sums job.
+## 2. What CI does, in order
 
-## 2. Verify the draft
+1. Creates the release **hidden** and attaches each client's asset as its
+   build finishes (Android APK, Linux `.deb` + AppImage + bundle, macOS
+   zip, Windows zip, unsigned iOS IPA — the IPA is zipped out of the
+   `--no-codesign` `.xcarchive`).
+2. Once every leg is green, the sums job downloads the full asset set,
+   enforces the rehearsal floor (07 §3.2: the APK and the Linux set must
+   exist — their absence is a pipeline bug), attaches `SHA256SUMS`, writes
+   the same sums plus the unsupported-platform labels (Android APK and iOS
+   IPA are rehearsal artifacts of the desktop codebase; D29) into the
+   notes.
+3. Re-downloads every asset and re-checks each digest against
+   `SHA256SUMS`, then **publishes** the release — a corrupted upload
+   never goes public.
 
-Once the workflow is green, the draft carries the full asset set — APK,
-Linux `.deb` + AppImage + bundle, macOS zip, Windows zip, unsigned IPA —
-`SHA256SUMS` beside them, and the notes with the same sums plus the
-unsupported-platform labels (Android APK and iOS IPA are rehearsal
-artifacts of the desktop codebase; D29).
+The public never sees a partial or sum-less release. A failed run leaves
+an invisible draft.
 
-- Recompute every sum: download the assets, then `sha256sum -c SHA256SUMS`.
-  These sums catch corrupted downloads and foreign mirrors; they can never
-  attest a compromised pipeline — that is what the signature and the checks
-  below are for.
-- Spot-check one platform against a local build of the same commit: build
-  the tagged commit locally, compare asset sizes within a stated tolerance,
-  and run the downloaded binary. A byte-for-byte digest match is **not**
-  the check — Flutter builds are not reproducible, and pretending otherwise
-  would overstate what the comparison proves.
+## 3. Verify (recommended, not gating)
 
-## 3. Sign the checksum list
+When the workflow is green, the release is already public. Worth a minute:
 
-    gpg --local-user <release-key> --armor --detach-sign SHA256SUMS
-    # → SHA256SUMS.asc; attach it to the draft release
+- `gh release download vX.Y.Z && sha256sum -c SHA256SUMS`
+  (`shasum -a 256 -c` on macOS) — catches a corrupted upload early, while
+  few people have downloaded it.
+- Confirm the release is flagged pre-release (`v0.*`), not "Latest"; if
+  the flag is wrong, `gh release edit vX.Y.Z --prerelease` fixes it —
+  Latest follows the newest non-prerelease release.
 
-The key's fingerprint is published out-of-band — a personal domain or an
-email-verified keys.openpgp.org entry, never only this repo or its release
-page (a key fetched from the same server as its expected fingerprint proves
-nothing). A successor-key transition statement is pre-signed at key
-creation and stored offline for rotation (07 §4).
+## Invariants and rules
 
-## 4. Publish
-
-Only after both hold, in this order:
-
-1. the signature verifies over the draft's on-release `SHA256SUMS`
-   (`gpg --verify SHA256SUMS.asc SHA256SUMS`);
-2. the sums digest-match every attached asset (`sha256sum -c SHA256SUMS`
-   against a fresh download);
-
-publish the draft (GitHub UI → edit → publish; keep the pre-release flag on
-`v0.*`), then immediately re-verify the live release the same way.
-
-- A digest or signature **mismatch** is acted on only when a re-fetch
-  confirms it: before publishing, abort and leave the draft; after
-  publishing, delete the release (the tag stays — deletion cannot recall an
-  already-downloaded asset).
-- An **inconclusive** check (transient API or network error) halts for a
-  human decision instead: a false halt wastes attention, but an automated
-  delete fired by a flaky check destroys a healthy, correctly signed
-  release.
-
-## Invariants
-
+- A release is created once and never updated: any run whose tag already
+  has a release — draft or published — fails instead of overwriting
+  same-named assets, and runs serialize behind a concurrency group keyed
+  on the tag.
+- Transient failure (flaky runner, network): just re-run the failed
+  jobs. The guard already passed, the draft keeps its assets, and a
+  re-run re-attaches anything missing. Never use "Re-run all jobs":
+  the guard job will then (correctly) fail because the release
+  exists — that is the created-once invariant, not the broken-commit
+  case, so don't start the delete-and-retag recovery.
+- Broken commit: fix on `main`, delete the release **and the tag**, then
+  dispatch the workflow on the fixed commit (the dispatch path recreates
+  the tag there) — re-running against the old tag only rebuilds the
+  broken commit. Deleting a published release never recalls assets that
+  were already downloaded.
 - Never rotate, move, or delete the committed Android keystore — in-place
   APK upgrades depend on it (07 §4's signing policy covers the public-key
   risk posture).
-- CI never uploads `SHA256SUMS.asc`; it is always signed locally or on a
-  hardware token.
-- `ci.yml` and `release.yml` client matrices stay in lockstep.
+- Keep `ci.yml` and `release.yml` client matrices in lockstep.
