@@ -535,8 +535,9 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     independent of any draft flag (action-gh-release's default would
     overwrite same-named assets) — and still serializes runs behind a
     concurrency group keyed on the tag that *queues*, never cancels
-    in progress (a cancelled mid-publish run would strand a
-    half-attached release). The release is created hidden while the
+    in progress (a cancelled mid-attach run would strand a
+    half-attached draft that the existence guard then blocks re-runs
+    on until someone deletes it). The release is created hidden while the
     client matrix attaches its assets; CI publishes it once
     `SHA256SUMS` (computed over the complete asset set), the notes
     with the same sums and the unsupported-platform labels, and the

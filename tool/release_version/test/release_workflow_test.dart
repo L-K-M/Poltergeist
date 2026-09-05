@@ -336,6 +336,21 @@ void main() {
 
     final sumsSteps = (jobs['sums'] as YamlMap)['steps'] as YamlList;
     final publish = _step(sumsSteps, 'Publish');
+    // needs-skip is the other half of "never a public partial release":
+    // a job-level `if: always()`-class condition on a chain job would
+    // run Publish over a failed client matrix even with every step on
+    // default skip-on-failure semantics (the floor check only guards
+    // floor assets — a missing macOS/Windows asset would ship).
+    for (final jobName in const ['test', 'client', 'sums']) {
+      final jobIf = '${(jobs[jobName] as YamlMap)['if']}'.toLowerCase();
+      expect(jobIf, isNot(contains('always')), reason: '$jobName job-level if');
+      expect(
+        jobIf,
+        isNot(contains('failure()')),
+        reason: '$jobName job-level if',
+      );
+      expect(jobIf, isNot(contains('cancelled')), reason: '$jobName job-level if');
+    }
     // Publish must be the sums job's final step: it runs only after the
     // floor-checked checksum step, and nothing may run after publication.
     expect(sumsSteps.whereType<YamlMap>().last, same(publish));
@@ -892,10 +907,7 @@ case "$1" in
       view)
         # The isDraft probe (mutation/publish idempotency) — this helper
         # exercises the pre-publish draft scenario, so answer draft=true.
-        case "${FAKE_IS_DRAFT:-true}" in
-          true|false) printf '%s\n' "${FAKE_IS_DRAFT:-true}" ;;
-          *) echo "fake gh view: FAKE_IS_DRAFT must be true or false" >&2; exit 64 ;;
-        esac
+        printf 'true\n'
         ;;
       download)
         [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
