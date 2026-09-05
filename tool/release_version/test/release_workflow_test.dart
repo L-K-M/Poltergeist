@@ -358,11 +358,17 @@ void main() {
     // Publish must be the sums job's final step: it runs only after the
     // floor-checked checksum step, and nothing may run after publication.
     expect(sumsSteps.whereType<YamlMap>().last, same(publish));
-    // Publication must be Publish's alone: an earlier step running
-    // `gh release ready` would publish before the sums/notes land.
-    for (final step in sumsSteps.whereType<YamlMap>()) {
-      if (!identical(step, publish)) {
-        expect('${step['run']}', isNot(contains('gh release ready')));
+    // Publication must be Publish's alone: any earlier step — in the
+    // sums job or a client leg — running `gh release ready` would
+    // publish before the sums/notes land (a client leg would publish a
+    // partial draft mid-attach).
+    for (final entry in jobs.entries) {
+      final steps = (entry.value as YamlMap)['steps'];
+      if (steps is! YamlList) continue;
+      for (final step in steps.whereType<YamlMap>()) {
+        if (!identical(step, publish)) {
+          expect('${step['run']}', isNot(contains('gh release ready')));
+        }
       }
     }
     // A step that opts out of failure would not stop Publish — the
