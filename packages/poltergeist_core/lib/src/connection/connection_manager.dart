@@ -5,6 +5,7 @@ import 'package:seance_core/seance_core.dart';
 
 import 'pool_key.dart';
 import 'pool_policy.dart';
+import 'resolved_credentials.dart';
 import 'ssh_cleanup.dart';
 import 'ssh_transport.dart';
 
@@ -80,21 +81,6 @@ abstract interface class TransferChannelLease {
   Future<void> release();
 }
 
-/// Everything the pool needs to connect on behalf of one serverId.
-///
-/// The app resolves credentials from its vault — prompting when the vault
-/// holds no secret — right before the pool's first connect; nothing here is
-/// persisted (D18).
-class ResolvedServerConnection {
-  final ServerConfig config;
-  final SshCredentials credentials;
-
-  const ResolvedServerConnection({
-    required this.config,
-    required this.credentials,
-  });
-}
-
 /// [ConnectionManager] over per-endpoint transport pools.
 ///
 /// ```
@@ -117,8 +103,11 @@ class ResolvedServerConnection {
 /// 4. transports are created on demand and torn down when idle; budget
 ///    exhaustion queues or shares instead of failing.
 class PooledConnectionManager implements ConnectionManager {
-  final Future<ResolvedServerConnection> Function(String serverId)
-      _resolveServer;
+  // Endpoint lookup must not read secrets: only the shared first connect
+  // may resolve credentials or prompt (03 §3.2).
+  final Future<ServerConfig> Function(String serverId) _resolveServer;
+  final Future<ResolvedSshCredentials> Function(ServerConfig config)
+      _resolveCredentials;
   final TofuVerifier _tofu;
   final HostKeyPrompter _onHostKey;
   final KeyboardInteractiveResponder? _onKeyboardInteractive;
@@ -132,8 +121,12 @@ class PooledConnectionManager implements ConnectionManager {
   final Map<String, StreamController<ServerConnectionState>> _events = {};
   final Map<String, ServerConnectionState> _lastStates = {};
 
+  /// [resolveServer] returns configuration without reading secrets or
+  /// prompting. [resolveCredentials] runs once per shared first connect,
+  /// and again after failure or teardown; it must report prompt provenance.
   PooledConnectionManager({
     required this._resolveServer,
+    required this._resolveCredentials,
     required this._tofu,
     required this._onHostKey,
     this._onKeyboardInteractive,
@@ -357,6 +350,7 @@ class PooledConnectionManager implements ConnectionManager {
     // A new session must never join this pool's abandoned connect futures.
     if (pool.references.isEmpty && identical(_pools[pool.key], pool)) {
       _pools.remove(pool.key);
+      pool.resolvedCredentials = null;
     }
 
     // Fail this server's queued waiters before any await below: closing
@@ -663,9 +657,16 @@ class PooledConnectionManager implements ConnectionManager {
         : ServerConnectionState.connecting);
 
     try {
+      final resolved = await _resolveCredentials(reference.config);
+      // Resolution belongs to the pool: a surviving sibling can finish it,
+      // but an abandoned attempt must never start a new SSH connection.
+      if (!_isCurrentPool(pool) || pool.references.isEmpty) {
+        throw _disconnectedAcquisition();
+      }
+
       final transport = await _openTransport(
         config: reference.config,
-        credentials: reference.credentials,
+        credentials: resolved.credentials,
         tofu: _tofu,
         onHostKey: _hostKeyPrompterFor(pool, ConnectPrompting.enabled),
         onKeyboardInteractive: _onKeyboardInteractive,
@@ -688,12 +689,13 @@ class PooledConnectionManager implements ConnectionManager {
         );
       }
 
-      pool.resolvedCredentials = reference.credentials;
+      pool.resolvedCredentials = resolved.credentials;
 
       // Rule 2: interactive auth caps the pool at one transport from now
       // on — growth must never re-trigger a 2FA prompt (D5).
       pool.interactiveOnly =
-          transport.authKind == AuthKind.keyboardInteractive ||
+          resolved.origin == CredentialOrigin.prompted ||
+              transport.authKind == AuthKind.keyboardInteractive ||
               transport.authKind == AuthKind.promptedPassword;
 
       pool.transports.add(_TransportSlot(transport));
@@ -1141,7 +1143,7 @@ class PooledConnectionManager implements ConnectionManager {
 
   Future<_ServerReference> _resolveReference(
       String serverId, Future<_ServerReference> pendingIdentity) async {
-    final resolved = await _resolveServer(serverId);
+    final config = await _resolveServer(serverId);
     // A cancelled resolve must not register or erase a newer session.
     if (!identical(_pendingReferences[serverId], pendingIdentity)) {
       throw _disconnectedAcquisition();
@@ -1149,11 +1151,10 @@ class PooledConnectionManager implements ConnectionManager {
 
     // Configs are cached per serverId for the session; bookmark edits
     // invalidate them (M5's store owns that).
-    final key = PoolKey.of(resolved.config);
+    final key = PoolKey.of(config);
     final pool = _pools.putIfAbsent(
         key, () => _EndpointPool(key, _incidents[key]));
-    final reference = _ServerReference(
-        serverId, resolved.config, resolved.credentials, pool);
+    final reference = _ServerReference(serverId, config, pool);
 
     final previousState = _currentStateOf(serverId);
     _references[serverId] = reference;
@@ -1195,10 +1196,9 @@ class PooledConnectionManager implements ConnectionManager {
 class _ServerReference {
   final String serverId;
   final ServerConfig config;
-  final SshCredentials credentials;
   final _EndpointPool pool;
 
-  _ServerReference(this.serverId, this.config, this.credentials, this.pool);
+  _ServerReference(this.serverId, this.config, this.pool);
 }
 
 /// Unresolved review state survives pool retirement without retaining secrets.

@@ -290,8 +290,11 @@ class PoolHarness {
   late final FakeTransportOpener opener;
   late final PooledConnectionManager manager;
 
-  final Map<String, ResolvedServerConnection> servers = {};
+  final Map<String, ServerConfig> servers = {};
+  final Map<String, ResolvedSshCredentials> credentials = {};
   int resolveCalls = 0;
+  int credentialResolveCalls = 0;
+  Future<ResolvedSshCredentials> Function(ServerConfig)? onResolveCredentials;
 
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
@@ -308,6 +311,7 @@ class PoolHarness {
     this.opener = opener ?? FakeTransportOpener();
     manager = PooledConnectionManager(
       resolveServer: _resolve,
+      resolveCredentials: _resolveCredentials,
       tofu: TofuVerifier(store),
       onHostKey: (decision) => onHostKey(decision),
       // A trivial responder: interactive-auth servers still complete their
@@ -319,7 +323,7 @@ class PoolHarness {
     );
   }
 
-  Future<ResolvedServerConnection> _resolve(String serverId) async {
+  Future<ServerConfig> _resolve(String serverId) async {
     if (resolveGate != null) await resolveGate!.future;
     resolveCalls++;
 
@@ -330,6 +334,14 @@ class PoolHarness {
     return resolved;
   }
 
+  Future<ResolvedSshCredentials> _resolveCredentials(ServerConfig config) async {
+    credentialResolveCalls++;
+    final resolve = onResolveCredentials;
+    if (resolve != null) return resolve(config);
+
+    return credentials[config.id]!;
+  }
+
   void addServer(
     String serverId, {
     String host = 'example.com',
@@ -337,19 +349,20 @@ class PoolHarness {
     String username = 'test',
     String? jumpHostId,
   }) {
-    servers[serverId] = ResolvedServerConnection(
-      config: ServerConfig(
-        id: serverId,
-        label: serverId,
-        host: host,
-        port: port,
-        username: username,
-        authMethod: AuthMethod.privateKey,
-        jumpHostId: jumpHostId,
-        createdAt: 0,
-        updatedAt: 0,
-      ),
-      credentials: const SshCredentials.privateKey('TEST KEY'),
+    servers[serverId] = ServerConfig(
+      id: serverId,
+      label: serverId,
+      host: host,
+      port: port,
+      username: username,
+      authMethod: AuthMethod.privateKey,
+      jumpHostId: jumpHostId,
+      createdAt: 0,
+      updatedAt: 0,
+    );
+    credentials[serverId] = const ResolvedSshCredentials(
+      credentials: SshCredentials.privateKey('TEST KEY'),
+      origin: CredentialOrigin.stored,
     );
   }
 

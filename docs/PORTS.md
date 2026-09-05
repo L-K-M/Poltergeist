@@ -33,6 +33,11 @@
 
 ## Pin findings
 
+Credential-lifetime audit (2026-09-05): no source copies or pin changes.
+Séance's `SshCredentials` and transport `AuthKind` remain unchanged; the
+Poltergeist pool records resolver prompt provenance separately. No port-back
+change: shared endpoint pools exist only in Poltergeist.
+
 The human identity aliases resolve to the repository owner. Other recorded
 identities are local automation or bot metadata; no external human
 contribution appears in the pin's ancestry. Three stranded assistant

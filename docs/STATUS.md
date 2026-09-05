@@ -91,14 +91,9 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
    serializes workflows, not their matrix legs. Concurrent draft creation
    remains a release-path risk reserved for the PR #15 workstream.
 6. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
-   - **Credential lifetime and prompt provenance (security-relevant):**
-     `_resolveServer` runs per
-     serverId before pool lookup; `_ServerReference.credentials` survives
-     pane-lifetime teardown, and the next first connect reuses it. Serialize
-     vault resolution per pool, drop retained credentials on teardown, and
-     test fresh resolution. A password prompted by that resolver arrives as
-     `AuthKind.storedPassword`; carry its interactive origin so growth cannot
-     misclassify it. Complete this before prompt/vault integration (D5, D18).
+   - **Credential lifetime and prompt provenance:** repaired below. Vault
+     integration must use the split config/credential resolvers and report
+     stored/prompted origin explicitly (D5, D18).
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
@@ -138,6 +133,17 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-05 — credential lifetime and prompt provenance.** Endpoint lookup
+  returns configuration only; each shared first connect resolves credentials
+  once. Server references retain no secrets. Failure or teardown forces fresh
+  resolution; growth reuses the live pool's credentials. Resolver interaction
+  caps growth even when SSH reports `storedPassword`. Six regressions failed
+  before and pass after repair (`pool_credentials_test.dart`); eleven tests
+  cover these behaviors, shared-resolution failures, sibling survival, and
+  late results after disconnect/replacement. Core analysis is clean; 90 tests
+  pass with one fixture skip. Chapter 03 clarifies resolution order and prompt
+  provenance. This repairs existing code; items 5 and 7 remain open.
 
 - **2026-09-05 — bounded teardown.** Pool cleanup and SSH/SFTP wrappers use
   the pinned cleanup helper with a five-second bound per close. Detached

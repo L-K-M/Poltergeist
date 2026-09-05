@@ -43,11 +43,12 @@ export 'src/connection/connection_manager.dart'
         ConnectionManager,
         PaneChannel,
         PooledConnectionManager,
-        ResolvedServerConnection,
         ServerConnectionState,
         TransferChannelLease;
 export 'src/connection/pool_key.dart' show PoolKey;
 export 'src/connection/pool_policy.dart' show PoolPolicy;
+export 'src/connection/resolved_credentials.dart'
+    show CredentialOrigin, ResolvedSshCredentials;
 export 'src/connection/ssh_transport.dart'
     show
         AuthChallengeRequiredError,
