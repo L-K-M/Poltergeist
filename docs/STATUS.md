@@ -99,6 +99,10 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
      test fresh resolution. A password prompted by that resolver arrives as
      `AuthKind.storedPassword`; carry its interactive origin so growth cannot
      misclassify it. Complete this before prompt/vault integration (D5, D18).
+   - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
+     consider an upstream observer if real-sshd debugging needs cleanup
+     failures. The pinned helper's ignore mode exposes no observer. This
+     does not block the teardown repair or change error preservation.
    - **Guard coverage:** `check-imports.sh` has no executable regression suite
      and explicitly omits plugin detection, although 03 §1 requires it.
      Add adversarial fixtures and dependency-aware enforcement. Add 09 §5's
