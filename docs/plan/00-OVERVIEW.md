@@ -546,7 +546,11 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     draft (recovery: delete it, re-run). Tags are plain annotated
     tags; `scripts/release.sh` does not require a signer (the v0.1.0
     tag happened to be cut signed, hours before this change; it stays
-    as cut). **The honestly stated residual:** the checksums are an
+    as cut). The v0.1.0 *release* also predates the change: the
+    existence guard stops CI from ever publishing its already-created
+    draft, so it ships via a one-time manual publish with the
+    pre-release flag kept (tracked as STATUS open item 1). **The
+    honestly stated residual:** the checksums are an
     integrity channel only — they catch corrupted downloads and
     foreign mirrors — and a compromised CI runner or stolen repo
     token can publish arbitrary binaries *and* matching sums; origin

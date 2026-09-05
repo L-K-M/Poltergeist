@@ -341,7 +341,7 @@ void main() {
     // run Publish over a failed client matrix even with every step on
     // default skip-on-failure semantics (the floor check only guards
     // floor assets — a missing macOS/Windows asset would ship).
-    for (final jobName in const ['test', 'client', 'sums']) {
+    for (final jobName in jobs.keys) {
       final jobIf = '${(jobs[jobName] as YamlMap)['if']}'.toLowerCase();
       expect(jobIf, isNot(contains('always')), reason: '$jobName job-level if');
       expect(
