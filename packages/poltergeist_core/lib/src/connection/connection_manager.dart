@@ -352,9 +352,13 @@ class PooledConnectionManager implements ConnectionManager {
     _emit(serverId, ServerConnectionState.disconnected);
     _lastStates.remove(serverId);
 
-    // A new session must never join this pool's abandoned connect futures.
-    if (pool.references.isEmpty && identical(_pools[pool.key], pool)) {
-      _pools.remove(pool.key);
+    // Abandon the pool before cleanup: new sessions must not join its
+    // pending connects, and idle timers must not outlive its last reference.
+    if (pool.references.isEmpty) {
+      for (final slot in pool.transports) {
+        _cancelIdleTimer(slot);
+      }
+      if (identical(_pools[pool.key], pool)) _pools.remove(pool.key);
     }
 
     // Fail this server's queued waiters before any await below: closing
@@ -562,6 +566,7 @@ class PooledConnectionManager implements ConnectionManager {
   Future<_ChannelHandle?> _openChannelOn(
       _EndpointPool pool, _TransportSlot slot,
       {required _ChannelUse use}) async {
+    _cancelIdleTimer(slot);
     if (slot.transport.isClosed) {
       // A dead transport is dropped; revival is the reconnect story
       // (03 §3.3), which lands with keepalive — not this pool's job.
@@ -598,6 +603,7 @@ class PooledConnectionManager implements ConnectionManager {
       return null;
     } finally {
       slot.pendingOpens--;
+      _updateIdleTimer(pool, slot);
     }
   }
 
@@ -749,7 +755,9 @@ class PooledConnectionManager implements ConnectionManager {
         return;
       }
 
-      pool.transports.add(_TransportSlot(transport));
+      final slot = _TransportSlot(transport);
+      pool.transports.add(slot);
+      _updateIdleTimer(pool, slot);
     } on AuthChallengeRequiredError {
       pool.interactiveOnly = true;
     } on Exception {
@@ -807,6 +815,9 @@ class PooledConnectionManager implements ConnectionManager {
     // operation — for every serverId sharing this endpoint — fails. A
     // sibling bookmark must never keep operating over a changed key.
     final slots = List<_TransportSlot>.of(pool.transports);
+    for (final slot in slots) {
+      _cancelIdleTimer(slot);
+    }
     pool.transports.clear();
     pool.browseByClient.clear();
     pool.idleTransfer.clear();
@@ -867,6 +878,14 @@ class PooledConnectionManager implements ConnectionManager {
     pool.idleTransfer.add(handle);
 
     await _pumpWaiters(pool);
+
+    // Queued work gets first refusal; unused extra channels must not keep
+    // their transport alive forever. The first transport keeps its cache.
+    if (identical(_pools[pool.key], pool) &&
+        pool.transports.indexOf(handle.slot) > 0 &&
+        pool.idleTransfer.contains(handle)) {
+      await _closeHandle(pool, handle);
+    }
     await _maybeTearDown(pool);
   }
 
@@ -874,6 +893,7 @@ class PooledConnectionManager implements ConnectionManager {
     if (handle.closed) return;
 
     handle.closed = true;
+    handle.slot._pendingCloses++;
     handle.slot.channels.remove(handle);
     pool.idleTransfer.remove(handle);
 
@@ -888,6 +908,54 @@ class PooledConnectionManager implements ConnectionManager {
       await handle.channel.close();
     } on Exception {
       // Best-effort: a half-dead channel's close failure has no audience.
+    } finally {
+      handle.slot._pendingCloses--;
+      _updateIdleTimer(pool, handle.slot);
+    }
+  }
+
+  // An empty slot still owns demand while its channel open/close awaits.
+  bool _isIdleExtra(_EndpointPool pool, _TransportSlot slot) =>
+      identical(_pools[pool.key], pool) &&
+      !pool.blocked &&
+      pool.transports.indexOf(slot) > 0 &&
+      !slot.transport.isClosed &&
+      slot.pendingOpens == 0 &&
+      slot._pendingCloses == 0 &&
+      slot.channels.isEmpty;
+
+  void _cancelIdleTimer(_TransportSlot slot) {
+    slot._idleTimer?.cancel();
+    slot._idleTimer = null;
+  }
+
+  void _updateIdleTimer(_EndpointPool pool, _TransportSlot slot) {
+    if (!_isIdleExtra(pool, slot)) {
+      _cancelIdleTimer(slot);
+      return;
+    }
+    if (slot._idleTimer != null) return;
+
+    late final Timer timer;
+    timer = Timer(_policy.idleExtraTransportTimeout, () {
+      if (!identical(slot._idleTimer, timer)) return;
+      slot._idleTimer = null;
+      if (!_isIdleExtra(pool, slot)) return;
+
+      // Remove capacity before awaiting close so a new acquisition cannot
+      // bind to the retiring transport or be removed by its late completion.
+      pool.transports.remove(slot);
+      unawaited(_closeIdleTransport(slot));
+    });
+    slot._idleTimer = timer;
+  }
+
+  Future<void> _closeIdleTransport(_TransportSlot slot) async {
+    try {
+      await slot.transport.close();
+    } on Object {
+      // Timer-driven cleanup has no caller; it must not emit an unhandled
+      // error or change the state of the pool's surviving transports.
     }
   }
 
@@ -898,9 +966,7 @@ class PooledConnectionManager implements ConnectionManager {
 
     // Same race class as the first-connect guard: a growth connect that
     // lands after teardown would resurrect a transport on a torn-down
-    // pool. Deferred teardowns rerun on the next release/close trigger;
-    // a grown transport nobody uses is the idle-timeout slice's case
-    // (03 §3.3 — lands with keepalive).
+    // pool. Deferred teardowns rerun when the pending acquisition settles.
     if (pool.growth != null) return;
 
     if (pool.transports.isEmpty) return;
@@ -916,6 +982,9 @@ class PooledConnectionManager implements ConnectionManager {
 
   Future<void> _tearDownPool(_EndpointPool pool) async {
     final slots = List<_TransportSlot>.of(pool.transports);
+    for (final slot in slots) {
+      _cancelIdleTimer(slot);
+    }
     pool.transports.clear();
     pool.idleTransfer.clear();
     pool.leasedTransfer.clear();
@@ -1154,6 +1223,9 @@ class _TransportSlot {
   /// Channel opens in flight — reserved against the budgets the moment
   /// their open starts, so concurrent acquisitions cannot oversubscribe.
   int pendingOpens = 0;
+
+  int _pendingCloses = 0;
+  Timer? _idleTimer;
 
   _TransportSlot(this.transport);
 }
