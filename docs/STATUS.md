@@ -4,13 +4,14 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-04 — M0 is complete; the M1 scaffold, deterministic
+_Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 release pipeline are implemented, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3);
 M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1), and
-M2 has started: the initial pooled `ConnectionManager` is in; open items
-4–6 track remaining slices, audit gaps, and the ordering escalation._
+M2 has started: the initial pool and extra-transport idle teardown are in;
+open items 4–6 track remaining slices, audit gaps, and the ordering
+escalation._
 
 ## Done
 
@@ -30,6 +31,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 | M1 — release versions | Release versions accept canonical `X.Y.Z` only, derive ordered Android codes, keep every versioned pubspec plus the app lock, Apple metadata, and README synchronized, and gate CI and release tags against drift or downgrade. Stable-only is the selected 07 §3.12 rule; suffixed releases are unsupported. The app starts at `0.1.0+10099`; CI verifies that code in the built APK, while Apple and Windows use bounded semantic mappings. |
 | M1 — release pipeline (D23) | `release.yml` never publishes on its own: client builds attach to a draft release (created once — a release-existence guard refuses updates, and the concurrency group is keyed on the tag so a tag push and a dispatch can never race it), a sums job attaches `SHA256SUMS` and writes the same sums plus the unsupported-platform labels into the notes, enforcing the rehearsal floor (APK + Linux set) before certifying anything. The iOS IPA is zipped out of the `--no-codesign` `.xcarchive` (`flutter build ipa`, ci.yml in lockstep). The Debian copyright file embeds the verbatim Unlicense, and Depends floors map ABI symbol tags to Debian package versions (a raw `GLIBCXX_3.4.30` floor is unsatisfiable under dpkg's ordering — the previous shape would not install). `scripts/release.sh` requires a signed tag (`RELEASE_SIGN_TAG=required`); the maintainer's draft-to-published dance lives in [`docs/RELEASE.md`](RELEASE.md). |
 | Plan precision patches | Closed the two dated 05 items: §2.1's exporter spec now carries 00 D6's interim ruling — a per-side `connectionShape` flag set on `ResolvedSyncEndpoints` and a prominent `# note:` per flagged gap whenever the pair's connection settings include an identity file or a jump host (golden fixtures pin the identity-file, jump-host, and both-flags variants) — and §8 rail 5 states 00 D15's trash naming (flat `<runId>/<seq>-<basename>` entries, journal-mapped origins) and the copy-then-delete fallback trigger (local pairs fall back only on EXDEV; other local rename failures surface as errors; for a remote pair any rename failure the sequence prefix did not prevent falls back), with rail 9's restore passage aligned. |
+| M2 — extra-transport idle teardown | Extra transports close after 60 seconds without channels or pending channel opens/closes. Returned transfer channels serve waiters first, then close on extras so caches cannot prevent retirement (03 §3.3 clarification). The first transport keeps its cache and follows pane/lease lifetime. Twenty-one tests with a fake clock cover deadlines, renewed demand, shared bookmarks, queued handoff, delayed cleanup, teardown races, waiting acquisitions, and idle retirement/state after primary failure ([PR #21](https://github.com/L-K-M/Poltergeist/pull/21)). |
 
 ## Open items
 
@@ -67,7 +69,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
      callers; the coverage items retain their stated gates;
    - the pinned bookmark model and vault/store plumbing (07 §3.3), including
      legacy macOS keychain options and PORTS entries for new copies;
-   - keepalive pings, idle extra-transport teardown, and auto-reconnect
+   - keepalive pings and auto-reconnect
      with backoff + downward-only jitter (03 §3.3; `PoolPolicy` constants
      are already defined), incl. the 08 §3.2 backoff-sequence tests;
    - engine isolate + `EngineClient` + the typed port protocol (03 §5),

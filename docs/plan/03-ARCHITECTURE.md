@@ -451,7 +451,16 @@ Growth rules (the part that must never be improvised):
   transfer channel and no open browse channel either, since §3.2 rule 4
   can park browse channels on an extra transport once the first hits
   `maxChannelsPerTransport`, and those channels are never "leased" (only
-  `leaseTransferChannel` grants a lease). The first transport
+  `leaseTransferChannel` grants a lease). To make "no channels" precise
+  with returned-channel caching, a returned transfer channel serves queued
+  demand first; if still unused on an extra transport, it closes instead
+  of remaining cached indefinitely. The first transport may cache returned
+  channels. Pending channel opens and closes also prevent idle expiry;
+  the timeout starts after the last close completes and restarts after
+  renewed channel use. This keeps cached channels from pinning extras
+  forever without closing a channel still owned by a caller. The first
+  transport's role is assigned at creation: removing it after failure never
+  promotes an extra into a primary exempt from idle expiry. The first transport
   follows pane lifetime, not a timer — but never closes while any of its
   channels is leased: with the last pane-tab gone, a leased first transport
   stays until its leases are released, so closing tabs cannot park a

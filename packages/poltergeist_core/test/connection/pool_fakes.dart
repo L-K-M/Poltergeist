@@ -1,7 +1,30 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:seance_core/seance_core.dart';
+import 'package:test/test.dart';
+
+/// Flush pool work without advancing time, preserving an unexpected error's
+/// stack instead of misreporting it as a timer-dependent operation.
+T completeWithoutTimers<T>(FakeAsync time, Future<T> future) {
+  late T result;
+  var completed = false;
+  (Object, StackTrace)? failure;
+  future.then<void>((value) {
+    result = value;
+    completed = true;
+  }, onError: (Object error, StackTrace stack) {
+    failure = (error, stack);
+  });
+  time.flushMicrotasks();
+
+  final caught = failure;
+  if (caught != null) Error.throwWithStackTrace(caught.$1, caught.$2);
+
+  expect(completed, isTrue, reason: 'The operation must finish without a timer.');
+  return result;
+}
 
 /// In-memory TOFU pin store (tests never touch real persistence).
 class FakeHostKeyStore implements HostKeyStore {
@@ -52,12 +75,15 @@ class FakeChannel implements SftpChannel {
   final RemoteFileSystem fs;
 
   bool closed = false;
+  Completer<void>? closeGate;
   Object? closeFailure;
 
   FakeChannel(this.fs);
 
   @override
   Future<void> close() async {
+    // Keep the physical channel open while its pool handle is retiring.
+    if (closeGate != null) await closeGate!.future;
     closed = true;
     final failure = closeFailure;
     if (failure != null) throw failure;
@@ -79,6 +105,8 @@ class FakeTransport implements SshTransport {
   bool closed = false;
   Completer<void>? openGate;
   Completer<void>? canonicalizeGate;
+  Completer<void>? closeGate;
+  int closeCalls = 0;
   Object? closeFailure;
 
   FakeTransport({required this.authKind, this.openLimit});
@@ -117,6 +145,9 @@ class FakeTransport implements SshTransport {
 
   @override
   Future<void> close() async {
+    // Let tests grow a replacement before an old transport finishes closing.
+    closeCalls++;
+    if (closeGate != null) await closeGate!.future;
     closed = true;
     for (final channel in List<FakeChannel>.of(channels)) {
       await channel.close();
