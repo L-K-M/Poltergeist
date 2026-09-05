@@ -144,9 +144,10 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 - **2026-09-04 — channel waiters.** The first browse binding now wakes
   queued browse requests through LRU sharing, even behind transfer waiters.
   A server rejecting every SFTP open fails requests with the typed open error
-  instead of waiting for an impossible release. Recovery and teardown clear
-  that error so later disconnects are not misclassified. Release pumps also
-  try every available transport and fail impossible waits. Seven regressions
+  instead of waiting for an impossible release. Error provenance stays with
+  its live transport; recovery, teardown, or eviction cannot leave a stale
+  pool-wide classification. Release pumps also try every available transport
+  and fail impossible waits. Eight regressions
   failed before and pass after the repair (`channel_waiters_test.dart`); 03 §3.2
   clarifies capacity exhaustion versus unavailable SFTP. Transfer refusal
   and reconnect after refusal have additional coverage.

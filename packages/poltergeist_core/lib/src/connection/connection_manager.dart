@@ -589,10 +589,10 @@ class PooledConnectionManager implements ConnectionManager {
       slot.channels.add(handle);
 
       // A recovered open must not label a later disconnect as SFTP refusal.
-      pool.channelFailure = null;
+      slot._openFailure = null;
       return handle;
     } on Exception catch (error) {
-      pool.channelFailure = error is RemoteFileException
+      slot._openFailure = error is RemoteFileException
           ? error
           : RemoteFileException(
               kind: RemoteFileErrorKind.other,
@@ -828,7 +828,6 @@ class PooledConnectionManager implements ConnectionManager {
     // sibling bookmark must never keep operating over a changed key.
     final slots = List<_TransportSlot>.of(pool.transports);
     pool.transports.clear();
-    pool.channelFailure = null;
     pool.browseByClient.clear();
     pool.idleTransfer.clear();
     pool.leasedTransfer.clear();
@@ -938,8 +937,6 @@ class PooledConnectionManager implements ConnectionManager {
   Future<void> _tearDownPool(_EndpointPool pool) async {
     final slots = List<_TransportSlot>.of(pool.transports);
     pool.transports.clear();
-    // Errors belong to the transports that produced them.
-    pool.channelFailure = null;
     pool.idleTransfer.clear();
     pool.leasedTransfer.clear();
     pool.browseByClient.clear();
@@ -971,13 +968,16 @@ class PooledConnectionManager implements ConnectionManager {
 
   RemoteFileException? _failStrandedWaiters(_EndpointPool pool) {
     if (pool.growth != null) return null;
+    RemoteFileException? liveFailure;
     for (final slot in pool.transports) {
       if (slot.pendingOpens != 0) return null;
-      if (!slot.transport.isClosed && slot.channels.isNotEmpty) return null;
+      if (slot.transport.isClosed) continue;
+      if (slot.channels.isNotEmpty) return null;
+      liveFailure = slot._openFailure ?? liveFailure;
     }
 
-    // No release can wake these requests; retain the driver's error kind.
-    final failure = pool.channelFailure ?? const RemoteFileException(
+    // Only a still-attached, live transport can explain a current refusal.
+    final failure = liveFailure ?? const RemoteFileException(
       kind: RemoteFileErrorKind.disconnected,
       operation: 'open SFTP',
       message: 'No SFTP channel is available.',
@@ -1209,7 +1209,6 @@ class _EndpointPool {
   bool interactiveOnly = false;
   bool blocked = false;
   String? blockDetail;
-  RemoteFileException? channelFailure;
 
   int acquisitions = 0;
   Future<void>? firstConnect;
@@ -1222,6 +1221,9 @@ class _EndpointPool {
 class _TransportSlot {
   final SshTransport transport;
   final Set<_ChannelHandle> channels = {};
+
+  // Diagnostics belong to this transport, never to its replacements.
+  RemoteFileException? _openFailure;
 
   /// Channel opens in flight — reserved against the budgets the moment
   /// their open starts, so concurrent acquisitions cannot oversubscribe.
