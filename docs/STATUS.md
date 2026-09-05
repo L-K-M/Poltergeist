@@ -85,9 +85,10 @@ item 4 tracks the remaining M2 slices)._
 - **2026-09-04 — channel waiters.** The first browse binding now wakes
   queued browse requests through LRU sharing, even behind transfer waiters.
   A server rejecting every SFTP open fails requests with the typed open error
-  instead of waiting for an impossible release. Recovery clears that error
-  so later disconnects are not misclassified. Four regressions failed
-  before and pass after the repair (`channel_waiters_test.dart`); 03 §3.2
+  instead of waiting for an impossible release. Recovery and teardown clear
+  that error so later disconnects are not misclassified. Release pumps also
+  try every available transport and fail impossible waits. Seven regressions
+  failed before and pass after the repair (`channel_waiters_test.dart`); 03 §3.2
   clarifies capacity exhaustion versus unavailable SFTP. Transfer refusal
   and reconnect after refusal have additional coverage.
 

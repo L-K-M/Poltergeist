@@ -828,6 +828,7 @@ class PooledConnectionManager implements ConnectionManager {
     // sibling bookmark must never keep operating over a changed key.
     final slots = List<_TransportSlot>.of(pool.transports);
     pool.transports.clear();
+    pool.channelFailure = null;
     pool.browseByClient.clear();
     pool.idleTransfer.clear();
     pool.leasedTransfer.clear();
@@ -937,6 +938,8 @@ class PooledConnectionManager implements ConnectionManager {
   Future<void> _tearDownPool(_EndpointPool pool) async {
     final slots = List<_TransportSlot>.of(pool.transports);
     pool.transports.clear();
+    // Errors belong to the transports that produced them.
+    pool.channelFailure = null;
     pool.idleTransfer.clear();
     pool.leasedTransfer.clear();
     pool.browseByClient.clear();
@@ -962,10 +965,15 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   void _failIfStranded(_EndpointPool pool) {
-    if (pool.growth != null) return;
+    final failure = _failStrandedWaiters(pool);
+    if (failure != null) throw failure;
+  }
+
+  RemoteFileException? _failStrandedWaiters(_EndpointPool pool) {
+    if (pool.growth != null) return null;
     for (final slot in pool.transports) {
-      if (slot.pendingOpens != 0) return;
-      if (!slot.transport.isClosed && slot.channels.isNotEmpty) return;
+      if (slot.pendingOpens != 0) return null;
+      if (!slot.transport.isClosed && slot.channels.isNotEmpty) return null;
     }
 
     // No release can wake these requests; retain the driver's error kind.
@@ -978,7 +986,7 @@ class PooledConnectionManager implements ConnectionManager {
     // Teardown detaches transports synchronously; slow closes must not
     // delay or replace the open failure returned to callers.
     unawaited(_tearDownPool(pool).catchError((Object _) {}));
-    throw failure;
+    return failure;
   }
 
   Future<_ChannelHandle> _enqueueWaiter(_EndpointPool pool,
@@ -1011,23 +1019,18 @@ class PooledConnectionManager implements ConnectionManager {
 
       var handle = _takeIdleTransfer(pool);
       if (handle == null) {
-        final use = waiter.browse
-            ? _ChannelUse.browse
-            : _ChannelUse.transferLeased;
-        var slot = waiter.browse ? _browseSlot(pool) : _transferSlot(pool);
-        if (slot == null && _canGrow(pool)) {
-          await _growTransport(pool);
-          if (pool.blocked) return;
-          slot = waiter.browse ? _browseSlot(pool) : _transferSlot(pool);
-        }
-        if (slot != null) handle = await _openChannelOn(pool, slot, use: use);
+        handle = await _openForWaiter(pool, waiter);
       } else if (waiter.browse) {
         handle.use = _ChannelUse.browse;
       }
 
-      // Still at capacity: the FIFO head stays queued — strict FIFO keeps
-      // the queue predictable (03 §4.3).
-      if (handle == null) return;
+      if (handle == null) {
+        if (waiter.completer.isCompleted) continue;
+        // Capacity waits stay FIFO; terminal failures go to the waiters,
+        // not to the pane/lease whose release triggered this pump.
+        _failStrandedWaiters(pool);
+        return;
+      }
 
       // The awaits above can race a disconnect-driven fail: this waiter
       // may already be completed and dequeued. Completing it twice throws,
@@ -1040,6 +1043,33 @@ class PooledConnectionManager implements ConnectionManager {
       pool.waiters.remove(waiter);
       waiter.completer.complete(handle);
     }
+  }
+
+  Future<_ChannelHandle?> _openForWaiter(
+      _EndpointPool pool, _ChannelWaiter waiter) async {
+    final use = waiter.browse
+        ? _ChannelUse.browse
+        : _ChannelUse.transferLeased;
+    final attempted = <_TransportSlot>{};
+    _TransportSlot? nextSlot() => waiter.browse
+        ? _browseSlot(pool, attempted)
+        : _transferSlot(pool, attempted);
+
+    // Match direct acquisitions: a refusal must not hide a healthy sibling.
+    for (var slot = nextSlot(); slot != null; slot = nextSlot()) {
+      attempted.add(slot);
+      final opened = await _openChannelOn(pool, slot, use: use);
+      if (opened != null) return opened;
+      if (waiter.completer.isCompleted || pool.blocked) return null;
+    }
+
+    if (!_canGrow(pool)) return null;
+    await _growTransport(pool);
+    if (waiter.completer.isCompleted || pool.blocked) return null;
+
+    final grown = nextSlot();
+    if (grown == null) return null;
+    return _openChannelOn(pool, grown, use: use);
   }
 
   void _failWaiters(_EndpointPool pool, String serverId) {
