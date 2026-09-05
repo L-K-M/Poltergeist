@@ -347,6 +347,16 @@ void main() {
       }
     }
 
+    // Job-level continue-on-error would let a failed leg report green
+    // just like a step-level one — and on the guard/test job it would
+    // defeat the created-once invariant outright. Audit the job maps.
+    for (final job in const ['test', 'client', 'sums']) {
+      final jobCoe =
+          '${(jobs[job] as YamlMap)['continue-on-error']}'.toLowerCase();
+      expect(jobCoe, isNot(contains('true')), reason: '$job job-level');
+      expect(jobCoe, isNot(contains(r'${{')), reason: '$job job-level');
+    }
+
     auditFailLoudly('client', clientSteps);
     auditFailLoudly('sums', sumsSteps);
     final publishRun = '${publish['run']}';

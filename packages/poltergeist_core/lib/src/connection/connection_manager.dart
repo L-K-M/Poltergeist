@@ -294,10 +294,8 @@ class PooledConnectionManager implements ConnectionManager {
     });
   }
 
-  /// The server's state derived from the live pool when one exists — more
-  /// honest than the emitted-state cache for a serverId that joined an
-  /// already-connected shared pool (no emission fires for the joiner) and
-  /// for the dead-transport window reconnect (03 §3.3) will own.
+  /// Use live pool state for snapshots and joins: cached emissions can
+  /// predate registration or transport death (03 §3.3).
   ServerConnectionState _currentStateOf(String serverId) {
     final reference = _references[serverId];
     if (reference != null) {
@@ -1175,8 +1173,14 @@ class PooledConnectionManager implements ConnectionManager {
     final reference = _ServerReference(
         serverId, resolved.config, resolved.credentials, pool);
 
+    final previousState = _currentStateOf(serverId);
     _references[serverId] = reference;
     pool.references[serverId] = reference;
+
+    // Joining an existing pool may skip every connect emission. Publish
+    // the joiner's transition without repeating states for its siblings.
+    final state = _currentStateOf(serverId);
+    if (state != previousState) _emit(serverId, state);
     return reference;
   }
 

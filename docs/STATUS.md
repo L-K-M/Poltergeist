@@ -5,6 +5,7 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
+_Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 direct-publish release pipeline are
 implemented, and 05's two dated precision items (D6 exporter note, D15
 rail-5 alignment) are closed; the Séance fork pin is retired onto upstream
@@ -95,10 +96,6 @@ gaps, and decisions._
      test fresh resolution. A password prompted by that resolver arrives as
      `AuthKind.storedPassword`; carry its interactive origin so growth cannot
      misclassify it. Complete this before prompt/vault integration (D5, D18).
-   - **Live state fan-out:** a subscriber listening before a sibling joins an
-     already-connected pool gets no connected event. The current tests check
-     only subscriptions started after joining. Add the missing transition
-     test and emission before wiring ProbeService.
    - **Bounded teardown:** the new transport/channel wrappers directly await
      dartssh2 closes; they do not inherit Séance #59's session-level bounded
      cleanup. Add stalled-close tests and bounds before the real-sshd pool
@@ -138,6 +135,15 @@ gaps, and decisions._
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-05 — live state fan-out.** Existing watchers now receive the
+  current state when their serverId joins a shared pool, including connects
+  in flight and blocked transfer joins. Siblings receive no duplicate join
+  event. Five regressions failed before and pass after the repair
+  (`pool_state_test.dart`), including failed-connect and disconnect/rejoin
+  coverage. Core analysis is clean; 67 tests pass with one fixture skip.
+  Disconnecting a blocked joiner leaves its sibling blocked. This repairs existing code;
+  item 5's milestone-order escalation remains open.
 
 - **2026-09-04 — channel ownership (PR #16).** Pane views own a specific
   binding; stale closes cannot remove a replacement, even when it shares the same SFTP

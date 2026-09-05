@@ -73,8 +73,9 @@ jobs:
       # as published releases. Check-then-act is safe because the
       # workflow-level concurrency group serializes every run for the tag.
       # Recovery from a failed run: delete the release and the tag —
-      # once a release exists the tag does too, and a surviving tag
-      # pins the recovery run's release to the broken commit
+      # a draft only gets its tag at publish, so a dispatch-path
+      # failure before publishing leaves no tag to delete. A surviving
+      # tag pins the recovery run's release to the broken commit
       # (target_commitish is ignored when the tag already exists) —
       # then fix on main and dispatch on the fixed commit.
       - name: Refuse to overwrite an existing release
@@ -422,11 +423,13 @@ jobs:
           mkdir -p verify && cd verify
           gh release download "$RELEASE_TAG" --repo "$REPO" --clobber
           # Sums and files must be a bijection: sha256sum -c alone passes
-          # on a truncated sums list, leaving assets unchecked.
-          listed=$(wc -l < SHA256SUMS)
-          files=$(find . -maxdepth 1 -type f ! -name SHA256SUMS | wc -l)
-          if [ "$listed" -ne "$files" ]; then
-            echo "SHA256SUMS covers $listed of $files downloaded assets" >&2
+          # on a truncated sums list, leaving assets unchecked. Compare
+          # name sets, not counts -- a duplicate line balances the tally.
+          listed=$(awk 'NF {print $2}' SHA256SUMS | sort)
+          files=$(find . -maxdepth 1 -type f ! -name SHA256SUMS \
+            -printf '%f\n' | sort)
+          if ! diff -u <(printf '%s\n' "$files") <(printf '%s\n' "$listed"); then
+            echo "SHA256SUMS and the downloaded asset set are not a bijection" >&2
             exit 1
           fi
           sha256sum -c --strict SHA256SUMS
