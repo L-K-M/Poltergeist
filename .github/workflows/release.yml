@@ -414,9 +414,11 @@ jobs:
 
           # Never mutate a published release: a re-run after a
           # publish-step timeout would otherwise clobber SHA256SUMS and
-          # the notes on the live release.
-          if [ "$(gh release view "$RELEASE_TAG" --repo "$REPO" \
-                --json isDraft --jq .isDraft)" = true ]; then
+          # the notes on the live release. The draft probe fails loud:
+          # an errored view must not read as empty ("published").
+          is_draft=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+            --json isDraft --jq .isDraft) || exit 1
+          if [ "$is_draft" = true ]; then
             gh release upload "$RELEASE_TAG" --repo "$REPO" SHA256SUMS --clobber
             gh release edit "$RELEASE_TAG" --repo "$REPO" \
               --notes-file RELEASE_NOTES.md

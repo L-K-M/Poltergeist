@@ -882,8 +882,10 @@ case "$1" in
       view)
         # The isDraft probe (mutation/publish idempotency) — this helper
         # exercises the pre-publish draft scenario, so answer draft=true.
-        [[ "${FAKE_IS_DRAFT:-true}" == true ]] || exit 64
-        printf 'true\n'
+        case "${FAKE_IS_DRAFT:-true}" in
+          true|false) printf '%s\n' "${FAKE_IS_DRAFT:-true}" ;;
+          *) echo "fake gh view: FAKE_IS_DRAFT must be true or false" >&2; exit 64 ;;
+        esac
         ;;
       download)
         [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
