@@ -347,6 +347,10 @@ jobs:
           prerelease: >-
             ${{ startsWith(inputs.tag || github.ref_name, 'v0.') }}
           files: ${{ matrix.files }}
+          # A glob that matches nothing would attach no assets and stay
+          # green; the floor check only guards floor assets. Fail loud
+          # at the source, for every leg.
+          fail_on_unmatched_files: true
 
   # Every release carries SHA-256 checksums for all assets — SHA256SUMS
   # beside the assets, the same sums in the notes — computed by CI after

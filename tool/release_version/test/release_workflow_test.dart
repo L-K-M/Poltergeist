@@ -354,22 +354,18 @@ void main() {
 
     // Job-level continue-on-error would let a failed leg report green
     // just like a step-level one — and on the guard/test job it would
-    // defeat the created-once invariant outright. Audit every job:
-    // a job added to the chain later must not silently escape.
+    // defeat the created-once invariant outright. Audit every job's
+    // job-level flag AND its steps: a job added to the chain later must
+    // not silently escape either audit.
     for (final entry in jobs.entries) {
       final jobName = '${entry.key}';
-      final jobCoe =
-          '${(entry.value as YamlMap)['continue-on-error']}'.toLowerCase();
+      final job = entry.value as YamlMap;
+      final jobCoe = '${job['continue-on-error']}'.toLowerCase();
       expect(jobCoe, isNot(contains('true')), reason: '$jobName job-level');
       expect(jobCoe, isNot(contains(r'${{')), reason: '$jobName job-level');
+      final steps = job['steps'];
+      if (steps is YamlList) auditFailLoudly(jobName, steps);
     }
-
-    auditFailLoudly('client', clientSteps);
-    auditFailLoudly('sums', sumsSteps);
-    auditFailLoudly(
-      'test',
-      (jobs['test'] as YamlMap)['steps'] as YamlList,
-    );
     final publishRun = '${publish['run']}';
     expect(publishRun, contains('gh release ready'));
     expect(publishRun, isNot(contains(r'${{')));
