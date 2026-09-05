@@ -5,6 +5,7 @@ import 'package:seance_core/seance_core.dart';
 
 import 'pool_key.dart';
 import 'pool_policy.dart';
+import 'ssh_cleanup.dart';
 import 'ssh_transport.dart';
 
 /// Lifecycle of one server as the connection layer sees it (03 §3.2).
@@ -369,9 +370,6 @@ class PooledConnectionManager implements ConnectionManager {
       for (final key in pool.browseByClient.keys)
         if (key.$1 == serverId) key,
     ];
-    for (final key in clientKeys) {
-      await _closeBrowseClient(pool, key);
-    }
 
     // Force-release its transfer leases by closing the channels: in-flight
     // work fails with `disconnected`, which is exactly the signal the
@@ -380,11 +378,13 @@ class PooledConnectionManager implements ConnectionManager {
       for (final handle in pool.leasedTransfer)
         if (handle.leaseServerId == serverId) handle,
     ];
-    for (final handle in leases) {
-      pool.leasedTransfer.remove(handle);
-      handle.leaseServerId = null;
-      await _closeHandle(pool, handle);
-    }
+
+    // Start every independent close before waiting: a stalled channel must
+    // not postpone cleanup of its siblings by another grace period each.
+    await Future.wait([
+      for (final key in clientKeys) _closeBrowseClient(pool, key),
+      for (final handle in leases) _closeHandle(pool, handle),
+    ]);
 
     if (pool.references.isEmpty) {
       // Last reference out: transports down, resolved credentials wiped.
@@ -679,11 +679,7 @@ class PooledConnectionManager implements ConnectionManager {
       // A trusted key can reappear without invoking the prompter; that is
       // not approval to clear a previously observed changed-key block.
       if (pool.references.isEmpty || pool.blocked) {
-        try {
-          await transport.close();
-        } on Exception {
-          // Swallow: the trust/disconnect error below remains authoritative.
-        }
+        await closeSshResource(transport.close);
         _throwIfBlocked(pool);
         throw const RemoteFileException(
           kind: RemoteFileErrorKind.disconnected,
@@ -764,11 +760,7 @@ class PooledConnectionManager implements ConnectionManager {
       // Approval cannot revive an older handshake. A concurrent first connect
       // may also have imposed a stricter interactive-auth cap.
       if (!_isCurrentTrustEpoch(pool, trustEpoch) || !_canGrow(pool)) {
-        try {
-          await transport.close();
-        } on Exception {
-          // Swallow: there is no caller left to receive this failure.
-        }
+        await closeSshResource(transport.close);
         return;
       }
 
@@ -859,19 +851,7 @@ class PooledConnectionManager implements ConnectionManager {
     _failAllWaiters(pool, message: pool.blockDetail);
     _setState(pool, ServerConnectionState.blocked);
 
-    // Mirror normal teardown exactly on the security-critical path: close
-    // every channel handle, then the transports (D18's hard block leaves
-    // nothing that looks live).
-    for (final slot in slots) {
-      for (final handle in List<_ChannelHandle>.of(slot.channels)) {
-        await _closeHandle(pool, handle);
-      }
-      try {
-        await slot.transport.close();
-      } on Exception {
-        // The transport is untrusted now; teardown failures are noise.
-      }
-    }
+    await _closeSlots(pool, slots);
   }
 
   void _throwIfBlocked(_EndpointPool pool) {
@@ -924,14 +904,11 @@ class PooledConnectionManager implements ConnectionManager {
     // bound to a pane-tab — callers remove those first today, and this
     // keeps a future close path from silently breaking that convention.
     pool.leasedTransfer.remove(handle);
+    handle.leaseServerId = null;
     pool.browseByClient
         .removeWhere((_, bound) => identical(bound._handle, handle));
 
-    try {
-      await handle.channel.close();
-    } on Exception {
-      // Best-effort: a half-dead channel's close failure has no audience.
-    }
+    await closeSshResource(handle.channel.close);
   }
 
   Future<void> _maybeTearDown(_EndpointPool pool) async {
@@ -972,16 +949,21 @@ class PooledConnectionManager implements ConnectionManager {
     _failAllWaiters(pool);
     _setState(pool, ServerConnectionState.disconnected);
 
-    for (final slot in slots) {
-      for (final handle in List<_ChannelHandle>.of(slot.channels)) {
-        await _closeHandle(pool, handle);
-      }
-      try {
-        await slot.transport.close();
-      } on Exception {
-        // Swallow: teardown must complete even for a dead transport.
-      }
-    }
+    await _closeSlots(pool, slots);
+  }
+
+  Future<void> _closeSlots(
+      _EndpointPool pool, List<_TransportSlot> slots) async {
+    // Retired slots are detached before entry. Bound each phase regardless
+    // of channel count, then close transports even if channels stalled.
+    await Future.wait([
+      for (final slot in slots)
+        for (final handle in List<_ChannelHandle>.of(slot.channels))
+          _closeHandle(pool, handle),
+    ]);
+    await Future.wait([
+      for (final slot in slots) closeSshResource(slot.transport.close),
+    ]);
   }
 
   void _failIfStranded(_EndpointPool pool) {
