@@ -341,10 +341,9 @@ void main() {
       await outcome;
       await Future<void>.delayed(Duration.zero);
 
-      expect([
-        pendingState,
-        states.last,
-      ], everyElement(ServerConnectionState.blocked));
+      expect(pendingState, ServerConnectionState.blocked);
+      expect(states.first, ServerConnectionState.disconnected);
+      expect(states.skip(1), everyElement(ServerConnectionState.blocked));
     },
   );
 
