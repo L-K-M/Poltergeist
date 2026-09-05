@@ -142,9 +142,10 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 - **2026-09-05 — live state fan-out.** Existing watchers now receive the
   current state when their serverId joins a shared pool, including connects
   in flight and blocked transfer joins. Siblings receive no duplicate join
-  event. Four regressions failed before and pass after the repair
-  (`pool_state_test.dart`), including disconnect/rejoin coverage. Core analysis
-  is clean; 66 tests pass with one fixture skip. This repairs existing code;
+  event. Five regressions failed before and pass after the repair
+  (`pool_state_test.dart`), including failed-connect and disconnect/rejoin
+  coverage. Core analysis is clean; 67 tests pass with one fixture skip.
+  Disconnecting a blocked joiner leaves its sibling blocked. This repairs existing code;
   item 5's milestone-order escalation remains open.
 
 - **2026-09-04 — channel ownership (PR #16).** Pane views own a specific

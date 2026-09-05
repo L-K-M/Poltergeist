@@ -10,6 +10,8 @@ const _siblingServer = 'sibling';
 
 enum _ChannelKind { browse, transfer }
 
+enum _ConnectOutcome { connected, rejected }
+
 Future<void> _flushEvents() => Future<void>.delayed(Duration.zero);
 
 Future<void> _join(PoolHarness harness, _ChannelKind kind) async {
@@ -84,47 +86,62 @@ void main() {
     );
   }
 
-  test(
-    'a join during first connect publishes connecting before completion',
-    () async {
-      final gate = Completer<void>();
-      harness.opener.connectGate = gate;
-      addTearDown(() {
-        if (!gate.isCompleted) gate.complete();
-      });
-      final primaryStates = _watch(harness, _primaryServer);
-      final primary = harness.manager.openBrowseChannel(
-        _primaryServer,
-        paneTabId: 'keep',
-      );
-      primary.ignore();
-      await _flushEvents();
-      expect(harness.opener.calls, hasLength(1));
+  for (final outcome in _ConnectOutcome.values) {
+    test(
+      'a join during first connect receives connecting then ${outcome.name}',
+      () async {
+        final gate = Completer<void>();
+        // Hold the first-use prompt so rejection can fail an in-flight join.
+        harness.onHostKey = (_) async {
+          await gate.future;
+          return outcome == _ConnectOutcome.connected;
+        };
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete();
+        });
+        final primaryStates = _watch(harness, _primaryServer);
+        final primary = harness.manager.openBrowseChannel(
+          _primaryServer,
+          paneTabId: 'keep',
+        );
+        primary.ignore();
+        await _flushEvents();
+        expect(harness.opener.calls, hasLength(1));
 
-      final siblingStates = _watch(harness, _siblingServer);
-      final sibling = _join(harness, _ChannelKind.browse);
-      sibling.ignore();
-      await _flushEvents();
+        final siblingStates = _watch(harness, _siblingServer);
+        final sibling = _join(harness, _ChannelKind.browse);
+        sibling.ignore();
+        await _flushEvents();
 
-      expect(siblingStates, [
-        ServerConnectionState.disconnected,
-        ServerConnectionState.connecting,
-      ]);
-      gate.complete();
-      await primary;
-      await sibling;
-      await _flushEvents();
+        expect(siblingStates, [
+          ServerConnectionState.disconnected,
+          ServerConnectionState.connecting,
+        ]);
+        gate.complete();
+        switch (outcome) {
+          case _ConnectOutcome.connected:
+            await primary;
+            await sibling;
+          case _ConnectOutcome.rejected:
+            final rejected = throwsA(isA<SshConnectException>());
+            await expectLater(primary, rejected);
+            await expectLater(sibling, rejected);
+        }
+        await _flushEvents();
 
-      const expected = [
-        ServerConnectionState.disconnected,
-        ServerConnectionState.connecting,
-        ServerConnectionState.connected,
-      ];
-      expect(primaryStates, expected);
-      expect(siblingStates, expected);
-      expect(harness.opener.calls, hasLength(1));
-    },
-  );
+        final expected = [
+          ServerConnectionState.disconnected,
+          ServerConnectionState.connecting,
+          outcome == _ConnectOutcome.connected
+              ? ServerConnectionState.connected
+              : ServerConnectionState.disconnected,
+        ];
+        expect(primaryStates, expected);
+        expect(siblingStates, expected);
+        expect(harness.opener.calls, hasLength(1));
+      },
+    );
+  }
 
   test(
     'a transfer joining a blocked pool publishes blocked without prompting',
@@ -177,6 +194,19 @@ void main() {
       ]);
       expect(prompts, 0);
       expect(harness.opener.calls, hasLength(2));
+
+      // Disconnect ends this subscription's block without approving the key.
+      await harness.manager.disconnectServer(_siblingServer);
+      await _flushEvents();
+      expect(siblingStates, [
+        ServerConnectionState.disconnected,
+        ServerConnectionState.blocked,
+        ServerConnectionState.disconnected,
+      ]);
+      expect(
+        await harness.manager.watchServer(_primaryServer).first,
+        ServerConnectionState.blocked,
+      );
     },
   );
 }

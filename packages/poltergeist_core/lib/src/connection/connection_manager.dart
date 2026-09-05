@@ -294,8 +294,8 @@ class PooledConnectionManager implements ConnectionManager {
     });
   }
 
-  /// Derive snapshots and join events from the live pool: the emitted-state
-  /// cache can predate a join or the dead-transport window reconnect will own.
+  /// Use live pool state for snapshots and joins: cached emissions can
+  /// predate registration or transport death (03 §3.3).
   ServerConnectionState _currentStateOf(String serverId) {
     final reference = _references[serverId];
     if (reference != null) {
