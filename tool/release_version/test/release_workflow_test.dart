@@ -326,13 +326,17 @@ void main() {
   test('releases stay hidden until CI has attached sums and notes', () {
     final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
     final clientSteps = (jobs['client'] as YamlMap)['steps'] as YamlList;
-    final publisher = clientSteps.whereType<YamlMap>().singleWhere(
-      (step) => '${step['uses']}'.startsWith('$_releaseAction@'),
-    );
+    final publishers = clientSteps
+        .whereType<YamlMap>()
+        .where((step) => '${step['uses']}'.startsWith('$_releaseAction@'))
+        .toList();
 
     // D23's 2026-09-03 decision change: no human step, but also never a
     // public partial release — the sums job publishes once complete.
-    expect((publisher['with'] as YamlMap)['draft'], true);
+    // auditFailLoudly below enforces draft: true on every
+    // release-action step, so a future second attach point stays
+    // hidden instead of tripping singleWhere's "Too many elements".
+    expect(publishers, isNotEmpty);
 
     final sumsSteps = (jobs['sums'] as YamlMap)['steps'] as YamlList;
     final publish = _step(sumsSteps, 'Publish');
@@ -354,6 +358,13 @@ void main() {
     // Publish must be the sums job's final step: it runs only after the
     // floor-checked checksum step, and nothing may run after publication.
     expect(sumsSteps.whereType<YamlMap>().last, same(publish));
+    // Publication must be Publish's alone: an earlier step running
+    // `gh release ready` would publish before the sums/notes land.
+    for (final step in sumsSteps.whereType<YamlMap>()) {
+      if (!identical(step, publish)) {
+        expect('${step['run']}', isNot(contains('gh release ready')));
+      }
+    }
     // A step that opts out of failure would not stop Publish — the
     // never-partial guarantee needs every step of both jobs (a client
     // leg that swallows its failure would leave the sums job green
