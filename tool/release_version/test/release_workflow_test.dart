@@ -12,6 +12,11 @@ import 'package:yaml/yaml.dart';
 const _checkoutAction = 'actions/checkout';
 const _releaseAction = 'softprops/action-gh-release';
 
+// Shared by the workflow-shape test and the bash-executing helper below
+// so the two can never drift apart silently (a mismatch would surface
+// as an opaque `singleWhere` "no element" failure).
+const _checksumStepName = "Compute SHA256SUMS over the release's assets";
+
 void main() {
   late Directory sandbox;
 
@@ -349,18 +354,24 @@ void main() {
 
     // Job-level continue-on-error would let a failed leg report green
     // just like a step-level one — and on the guard/test job it would
-    // defeat the created-once invariant outright. Audit the job maps.
-    for (final job in const ['test', 'client', 'sums']) {
+    // defeat the created-once invariant outright. Audit every job:
+    // a job added to the chain later must not silently escape.
+    for (final entry in jobs.entries) {
+      final jobName = '${entry.key}';
       final jobCoe =
-          '${(jobs[job] as YamlMap)['continue-on-error']}'.toLowerCase();
-      expect(jobCoe, isNot(contains('true')), reason: '$job job-level');
-      expect(jobCoe, isNot(contains(r'${{')), reason: '$job job-level');
+          '${(entry.value as YamlMap)['continue-on-error']}'.toLowerCase();
+      expect(jobCoe, isNot(contains('true')), reason: '$jobName job-level');
+      expect(jobCoe, isNot(contains(r'${{')), reason: '$jobName job-level');
     }
 
     auditFailLoudly('client', clientSteps);
     auditFailLoudly('sums', sumsSteps);
+    auditFailLoudly(
+      'test',
+      (jobs['test'] as YamlMap)['steps'] as YamlList,
+    );
     final publishRun = '${publish['run']}';
-    expect(publishRun, contains('release ready'));
+    expect(publishRun, contains('gh release ready'));
     expect(publishRun, isNot(contains(r'${{')));
     // The "never a public partial release" guarantee relies on Actions'
     // default skip-on-failure, so Publish must not opt out of it.
@@ -370,11 +381,12 @@ void main() {
     expect(publishIf, isNot(contains('cancelled')));
     expect(publishIf, isNot(contains('!success')));
     // A blocklist alone is bypassable (`if: ${{ true }}` runs even after
-    // a failure), so pin Publish to the default semantics or an
-    // explicit success() guard.
+    // a failure), so pin Publish to the default semantics or an exact
+    // success() guard — contains() would let `${{ true || success() }}`
+    // through.
     expect(
       publish['if'],
-      anyOf(isNull, contains('success()')),
+      anyOf(isNull, equals('success()'), equals(r'${{ success() }}')),
       reason: 'Publish must rely on default skip-on-failure semantics',
     );
   });
@@ -420,7 +432,7 @@ void main() {
     expect(sums['needs'], 'client');
     final run = _stepRun(
       sums['steps'] as YamlList,
-      "Compute SHA256SUMS over the release's assets",
+      _checksumStepName,
     );
     expect(run, contains('poltergeist-android.apk'));
     expect(run, contains('poltergeist_*.deb'));
@@ -950,7 +962,7 @@ Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
   final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
   final script = _stepRun(
     (jobs['sums'] as YamlMap)['steps'] as YamlList,
-    "Compute SHA256SUMS over the release's assets",
+    _checksumStepName,
   );
 
   final result = await Process.run(
