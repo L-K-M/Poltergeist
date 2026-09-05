@@ -5,7 +5,6 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
-_Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 direct-publish release pipeline are
 implemented, and 05's two dated precision items (D6 exporter note, D15
 rail-5 alignment) are closed; the Séance fork pin is retired onto upstream
