@@ -279,76 +279,73 @@ void main() {
     },
   );
 
-  test(
-    'an evicted refusal cannot classify a surviving pool disconnect',
-    () async {
-      final opener = FakeTransportOpener();
-      final harness =
-          PoolHarness(
-              opener: opener,
-              policy: const PoolPolicy(
-                maxTransports: 2,
-                maxTransferChannelsPerTransport: 1,
-                maxChannelsPerTransport: 1,
-              ),
-            )
-            ..addServer('s1')
-            ..addServer('s2');
-      addTearDown(() async {
-        await harness.manager.disconnectServer('s1');
-        await harness.manager.disconnectServer('s2');
-      });
-      final first = await harness.manager.openBrowseChannel(
-        's1',
-        paneTabId: 'one',
-      );
-      final second = await harness.manager.openBrowseChannel(
-        's1',
-        paneTabId: 'two',
-      );
-      final errors = <Object>[];
-      unawaited(
-        harness.manager
-            .leaseTransferChannel('s2')
-            .then<void>(
-              (_) => fail('unexpected transfer lease'),
-              onError: errors.add,
+  test('a dead refusal cannot classify a surviving pool disconnect', () async {
+    final opener = FakeTransportOpener();
+    final harness =
+        PoolHarness(
+            opener: opener,
+            policy: const PoolPolicy(
+              maxTransports: 2,
+              maxTransferChannelsPerTransport: 1,
+              maxChannelsPerTransport: 1,
             ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      opener.transports.first.openFailure = const RemoteFileException(
-        kind: RemoteFileErrorKind.unsupported,
-        operation: 'open SFTP',
-        message: 'The first transport refuses SFTP.',
-      );
-      await first.close();
-      expect(errors, isEmpty);
+          )
+          ..addServer('s1')
+          ..addServer('s2');
+    addTearDown(() async {
+      await harness.manager.disconnectServer('s1');
+      await harness.manager.disconnectServer('s2');
+    });
+    final first = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'one',
+    );
+    final second = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'two',
+    );
+    final errors = <Object>[];
+    unawaited(
+      harness.manager
+          .leaseTransferChannel('s2')
+          .then<void>(
+            (_) => fail('unexpected transfer lease'),
+            onError: errors.add,
+          ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    opener.transports.first.openFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.unsupported,
+      operation: 'open SFTP',
+      message: 'The first transport refuses SFTP.',
+    );
+    await first.close();
+    expect(errors, isEmpty);
 
-      // Evict the refusing transport without a successful new SFTP open.
-      // A fresh auth challenge caps growth; the second transport stays usable.
-      opener.transports.first.closed = true;
-      opener.connectFailure = const AuthChallengeRequiredError(
-        'Interaction required.',
-      );
-      final shared = await harness.manager.openBrowseChannel(
-        's2',
-        paneTabId: 'evict',
-      );
-      expect(shared.fs, same(second.fs));
-      await shared.close();
+    // Let the refusing transport die without a successful new SFTP open.
+    // A fresh auth challenge caps growth; the second transport stays usable.
+    opener.transports.first.closed = true;
+    opener.connectFailure = const AuthChallengeRequiredError(
+      'Interaction required.',
+    );
+    final shared = await harness.manager.openBrowseChannel(
+      's2',
+      paneTabId: 'evict',
+    );
+    expect(shared.fs, same(second.fs));
+    await shared.close();
 
-      opener.transports.last.closed = true;
-      await second.close();
-      await Future<void>.delayed(Duration.zero);
-      expect(errors, hasLength(1));
-      expect(
-        errors.single,
-        isA<RemoteFileException>().having(
-          (error) => error.kind,
-          'kind',
-          RemoteFileErrorKind.disconnected,
-        ),
-      );
-    },
-  );
+    opener.transports.last.closed = true;
+    await second.close();
+    await Future<void>.delayed(Duration.zero);
+    expect(errors, hasLength(1));
+    expect(
+      errors.single,
+      isA<RemoteFileException>().having(
+        (error) => error.kind,
+        'kind',
+        RemoteFileErrorKind.disconnected,
+      ),
+    );
+  });
 }

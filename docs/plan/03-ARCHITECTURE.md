@@ -443,8 +443,8 @@ Growth rules (the part that must never be improvised):
 The queue-don't-fail rule covers capacity exhaustion, not unavailable SFTP.
 If every attempted channel open fails and no live channel, pending open, or
 transport growth can supply capacity, fail affected requests with the typed
-open error; never wait for a release that cannot occur. A newly bound browse
-channel immediately serves queued browse requests through LRU sharing,
+open error; never wait for a release that cannot occur. Registering a browse
+binding wakes queued browse requests for LRU sharing,
 including those behind transfer waiters: sharing consumes no transfer slot.
 
 ### 3.3 Keepalive, idle, reconnect
