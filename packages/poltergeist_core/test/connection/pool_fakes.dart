@@ -81,6 +81,9 @@ class FakeTransport implements SshTransport {
   Completer<void>? canonicalizeGate;
   Object? closeFailure;
 
+  /// Refuse opens on this transport without poisoning healthy siblings.
+  Object? openFailure;
+
   FakeTransport({required this.authKind, this.openLimit});
 
   @override
@@ -95,6 +98,9 @@ class FakeTransport implements SshTransport {
         message: 'The SSH transport is disconnected.',
       );
     }
+    final failure = openFailure;
+    if (failure != null) throw failure;
+
     if (openLimit != null &&
         channels.where((c) => !c.closed).length >= openLimit!) {
       // Aligned with the production funnel: a channel-open refusal is not
@@ -163,11 +169,17 @@ class FakeTransportOpener {
 
   /// Handed to every created transport: refuse opens past this many
   /// channels (a fake MaxSessions ceiling).
-  final int? transportOpenLimit;
+  int? transportOpenLimit;
 
   /// When set, every prompting-disabled (growth) connect parks on this
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
+
+  /// Fail authentication after TOFU has persisted any approved key.
+  Object? connectFailure;
+
+  /// Pause a completed handshake to model death before the pool receives it.
+  Completer<void>? connectGate;
 
   final List<RecordedOpenCall> calls = [];
 
@@ -229,6 +241,9 @@ class FakeTransportOpener {
           await tofu.pin(presented);
         }
 
+        final failure = connectFailure;
+        if (failure != null) throw failure;
+
         if (prompting == ConnectPrompting.disabled) {
           if (growthGate != null) await growthGate!.future;
           if (growthRequiresChallenge) {
@@ -248,6 +263,7 @@ class FakeTransportOpener {
           openLimit: transportOpenLimit,
         );
         call.transport = transport;
+        if (connectGate != null) await connectGate!.future;
         return transport;
       };
 
