@@ -169,6 +169,9 @@ class FakeTransportOpener {
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
 
+  /// Fail authentication after TOFU has persisted any approved key.
+  Object? connectFailure;
+
   final List<RecordedOpenCall> calls = [];
 
   FakeTransportOpener({
@@ -228,6 +231,9 @@ class FakeTransportOpener {
           }
           await tofu.pin(presented);
         }
+
+        final failure = connectFailure;
+        if (failure != null) throw failure;
 
         if (prompting == ConnectPrompting.disabled) {
           if (growthGate != null) await growthGate!.future;

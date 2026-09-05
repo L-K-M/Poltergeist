@@ -10,7 +10,7 @@ dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3);
 M1 remains open pending the owner-signed v0.1.0 rehearsal (open item 1), and
 M2 has started: the initial pooled `ConnectionManager` is in; open items
-4–6 track remaining slices, audit gaps, and the ordering escalation._
+4–7 track remaining slices, audit gaps, and decisions._
 
 ## Done
 
@@ -63,8 +63,8 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 4. **2026-09-04 — M2 remaining slices.** The initial pool, TOFU gate, and
    channel budgets are in. Still open, in
    roughly this order, subject to open item 5:
-   - close the pool-behavior gaps in open item 6 before wiring production
-     callers; the coverage items retain their stated gates;
+   - close the pool-behavior gaps in item 6 and settle item 7 before wiring
+     production callers; the coverage items retain their stated gates;
    - the pinned bookmark model and vault/store plumbing (07 §3.3), including
      legacy macOS keychain options and PORTS entries for new copies;
    - keepalive pings, idle extra-transport teardown, and auto-reconnect
@@ -114,6 +114,14 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
      second-preflight/CAS coverage also remains absent from the inspected
      Séance #62 adapter tests. These are test gaps, not observed VFS failures.
 
+7. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
+   incidents now survive disconnect, but not process restart. A returning
+   trusted key remains blocked; it produces no changed-key verdict for the
+   current review callback. The manager also has no bookmark-removal signal.
+   Before production integration, the owner must choose restored-key
+   review/removal behavior and whether incidents persist across restarts.
+   No offline-review path, removal API, or new store/schema is added here.
+
 ## Independent audit
 
 - **Scope (2026-09-04):** merged #9, #10, #12, #13, #14 and Séance #62;
@@ -141,12 +149,14 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   cannot free another worker's lease. Four regressions failed before the fix
   and pass afterward (`channel_ownership_test.dart`).
 
-- **2026-09-04 — changed-key block.** Transfer workers cannot trigger a
-  changed-key prompt or clear a block. A returning trusted key alone cannot
-  clear it either; the first-connect path requires explicit changed-key
-  approval. The pool reports blocked while review is pending. Three
-  regressions failed before and pass after the repair (`pool_trust_test.dart`);
-  growth-triggered blocking is also asserted for both sibling serverIds.
+- **2026-09-04–05 — changed-key review (PR #18).** Workers cannot review an
+  existing or inherited block; fresh first connects may still prompt (D5).
+  Credential-free incidents outlive retired pools. Current approval clears
+  before auth, so auth failure cannot strand an approved key. Stale replies
+  cannot pin or clear replacement incidents. Trusted-key returns stay blocked;
+  live watchers see the inherited block during review. Eight regressions
+  failed before and pass after the repair (`pool_trust_test.dart`), with
+  additional coverage for current approval and fresh-transfer prompting.
 
 - **2026-09-04 — acquisition lifecycle.** Disconnect invalidates pending
   resolver identities and rejects late browse/transfer acquisitions, including
