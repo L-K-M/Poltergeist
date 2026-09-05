@@ -332,13 +332,15 @@ void main() {
     final sumsSteps = (jobs['sums'] as YamlMap)['steps'] as YamlList;
     final publish = _step(sumsSteps, 'Publish');
     // Publish must come after the floor-checked checksum step.
-    expect(
-      sumsSteps.whereType<YamlMap>().toList().indexOf(publish),
-      sumsSteps.whereType<YamlMap>().length - 1,
-    );
+    expect(sumsSteps.whereType<YamlMap>().last, same(publish));
     final publishRun = '${publish['run']}';
     expect(publishRun, contains('release ready'));
     expect(publishRun, isNot(contains(r'${{')));
+    // The "never a public partial release" guarantee relies on Actions'
+    // default skip-on-failure, so Publish must not opt out of it.
+    final publishIf = '${publish['if']}';
+    expect(publishIf, isNot(contains('always')));
+    expect(publishIf, isNot(contains('failure()')));
   });
 
   test('release runs serialize on the tag, queuing never cancelling', () {

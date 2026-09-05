@@ -72,8 +72,11 @@ jobs:
       # (overwriting same-named assets), so fail first — for drafts as well
       # as published releases. Check-then-act is safe because the
       # workflow-level concurrency group serializes every run for the tag.
-      # Recovery from a failed run: delete the release (and, once published,
-      # the tag), fix on main, dispatch on the fixed commit.
+      # Recovery from a failed run: delete the release and the tag —
+      # once a release exists the tag does too, and a surviving tag
+      # pins the recovery run's release to the broken commit
+      # (target_commitish is ignored when the tag already exists) —
+      # then fix on main and dispatch on the fixed commit.
       - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
