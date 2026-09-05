@@ -528,8 +528,8 @@ void main() {
 
     await harness.manager.openBrowseChannel('s1', paneTabId: 't');
 
-    // s2 joins the already-connected pool: no connect runs, no state event
-    // fires for it — the initial watch value must derive from the pool.
+    // s2 joins without reconnecting. A later subscriber still starts with
+    // the pool's current state after the join event has passed.
     await harness.manager.openBrowseChannel('s2', paneTabId: 't');
     expect(harness.opener.calls, hasLength(1));
 
