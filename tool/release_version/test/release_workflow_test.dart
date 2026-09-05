@@ -346,7 +346,7 @@ void main() {
       expect(jobIf, isNot(contains('always')), reason: '$jobName job-level if');
       expect(
         jobIf,
-        isNot(contains('failure()')),
+        isNot(contains('failure')),
         reason: '$jobName job-level if',
       );
       expect(jobIf, isNot(contains('cancelled')), reason: '$jobName job-level if');
