@@ -408,9 +408,17 @@ jobs:
             cat SHA256SUMS
           } > RELEASE_NOTES.md
 
-          gh release upload "$RELEASE_TAG" --repo "$REPO" SHA256SUMS --clobber
-          gh release edit "$RELEASE_TAG" --repo "$REPO" \
-            --notes-file RELEASE_NOTES.md
+          # Never mutate a published release: a re-run after a
+          # publish-step timeout would otherwise clobber SHA256SUMS and
+          # the notes on the live release.
+          if [ "$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+                --json isDraft --jq .isDraft)" = true ]; then
+            gh release upload "$RELEASE_TAG" --repo "$REPO" SHA256SUMS --clobber
+            gh release edit "$RELEASE_TAG" --repo "$REPO" \
+              --notes-file RELEASE_NOTES.md
+          else
+            echo "release already published; leaving assets and notes untouched" >&2
+          fi
       # What the removed human ceremony did by hand, CI does here:
       # re-download the full set and check every digest against the
       # uploaded sums, so a corrupted upload never turns public.

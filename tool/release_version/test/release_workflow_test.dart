@@ -883,6 +883,12 @@ case "$1" in
       esac
     done
     case "$cmd" in
+      view)
+        # The isDraft probe (mutation/publish idempotency) — this helper
+        # exercises the pre-publish draft scenario, so answer draft=true.
+        [[ "${FAKE_IS_DRAFT:-true}" == true ]] || exit 64
+        printf 'true\n'
+        ;;
       download)
         [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
         for name in ${FAKE_ASSETS:?}; do printf '%s' "$name" > "$dir/$name"; done
