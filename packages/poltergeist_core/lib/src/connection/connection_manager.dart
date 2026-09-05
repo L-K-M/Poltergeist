@@ -587,6 +587,9 @@ class PooledConnectionManager implements ConnectionManager {
 
       final handle = _ChannelHandle(slot: slot, channel: channel, use: use);
       slot.channels.add(handle);
+
+      // A recovered open must not label a later disconnect as SFTP refusal.
+      pool.channelFailure = null;
       return handle;
     } on Exception catch (error) {
       pool.channelFailure = error is RemoteFileException

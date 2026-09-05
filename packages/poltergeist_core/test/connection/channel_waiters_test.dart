@@ -117,4 +117,39 @@ void main() {
     expect(harness.openChannels.single.fs, same(recovered.fs));
     expect(await harness.manager.connectedServerIds(), {'s1'});
   });
+
+  test('successful opens clear obsolete SFTP failure classification', () async {
+    final harness = PoolHarness(
+      policy: const PoolPolicy(maxTransports: 1),
+      opener: FakeTransportOpener(
+        authKind: AuthKind.keyboardInteractive,
+        transportOpenLimit: 1,
+      ),
+    )..addServer('s1');
+    addTearDown(() => harness.manager.disconnectServer('s1'));
+    await harness.manager.openBrowseChannel('s1', paneTabId: 'first');
+    await harness.manager.openBrowseChannel('s1', paneTabId: 'refused-share');
+
+    // The server frees its channel slot; a later open succeeds.
+    final transport = harness.opener.transports.single;
+    await transport.channels.single.close();
+    await harness.manager.openBrowseChannel('s1', paneTabId: 'recovered');
+    expect(harness.openChannels, hasLength(1));
+
+    // Death lands after the first-connect check, before slot selection.
+    // Interactive auth prevents silent growth from hiding the disconnect.
+    final opening = harness.manager.leaseTransferChannel('s1');
+    scheduleMicrotask(() => transport.closed = true);
+    await expectLater(
+      opening,
+      throwsA(
+        isA<RemoteFileException>().having(
+          (error) => error.kind,
+          'kind',
+          RemoteFileErrorKind.disconnected,
+        ),
+      ),
+    );
+    expect(harness.opener.calls, hasLength(1));
+  });
 }
