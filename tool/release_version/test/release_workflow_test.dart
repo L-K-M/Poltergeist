@@ -349,6 +349,16 @@ void main() {
         final coe = '${step['continue-on-error']}'.toLowerCase();
         expect(coe, isNot(contains('true')), reason: '$job step $name');
         expect(coe, isNot(contains(r'${{')), reason: '$job step $name');
+        // Wherever assets attach, they attach hidden — a future second
+        // release-action step must not publish eagerly.
+        if ('${step['uses']}'.startsWith('$_releaseAction@')) {
+          final withMap = step['with'];
+          expect(
+            withMap is YamlMap && withMap['draft'] == true,
+            isTrue,
+            reason: '$job step $name must set draft: true',
+          );
+        }
       }
     }
 

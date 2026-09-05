@@ -43,7 +43,8 @@ gaps, and decisions._
    publishing, what remains is mechanical: land this decision-change PR,
    edit the verified draft's notes to drop the stale `SHA256SUMS.asc`
    paragraph (the pre-change template promised a signature that will
-   never be attached), publish the v0.1.0 release (keep the pre-release
+   never be attached), publish the v0.1.0 release by hand (one-time —
+   this draft predates the direct-publish change; keep the pre-release
    flag), and sweep STATUS to flip M1 closed with M2 as the next
    milestone. No owner key steps remain.
 2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
