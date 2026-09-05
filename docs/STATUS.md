@@ -154,9 +154,12 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   Credential-free incidents outlive retired pools. Current approval clears
   before auth, so auth failure cannot strand an approved key. Stale replies
   cannot pin or clear replacement incidents. Trusted-key returns stay blocked;
-  live watchers see the inherited block during review. Eight regressions
-  failed before and pass after the repair (`pool_trust_test.dart`), with
-  additional coverage for current approval and fresh-transfer prompting.
+  live watchers see the inherited block during review. Deleted pins cannot
+  enable first-use approval under a block. Trust epochs reject old growth
+  handshakes, verdicts, and auth results; growth also respects a newer
+  interactive-auth cap. Thirteen regressions failed before and pass after
+  the repair (`pool_trust_test.dart`), with additional coverage for current
+  approval and fresh-transfer prompting.
 
 - **2026-09-04 — acquisition lifecycle.** Disconnect invalidates pending
   resolver identities and rejects late browse/transfer acquisitions, including

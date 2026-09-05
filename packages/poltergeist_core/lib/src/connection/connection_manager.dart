@@ -728,6 +728,7 @@ class PooledConnectionManager implements ConnectionManager {
     if (pool.references.isEmpty || pool.resolvedCredentials == null) return;
 
     final reference = pool.references.values.first;
+    final trustEpoch = pool._trustEpoch;
 
     try {
       final transport = await _openTransport(
@@ -742,10 +743,9 @@ class PooledConnectionManager implements ConnectionManager {
         prompting: ConnectPrompting.disabled,
       );
 
-      // The pool may have torn down (every reference disconnected) or
-      // hard-blocked while this connect was in flight — mirror
-      // _firstConnect's guard so growth can never resurrect a dead pool.
-      if (pool.references.isEmpty || pool.blocked) {
+      // Approval cannot revive an older handshake. A concurrent first connect
+      // may also have imposed a stricter interactive-auth cap.
+      if (!_isCurrentTrustEpoch(pool, trustEpoch) || !_canGrow(pool)) {
         try {
           await transport.close();
         } on Exception {
@@ -756,6 +756,7 @@ class PooledConnectionManager implements ConnectionManager {
 
       pool.transports.add(_TransportSlot(transport));
     } on AuthChallengeRequiredError {
+      if (!_isCurrentTrustEpoch(pool, trustEpoch)) return;
       pool.interactiveOnly = true;
     } on Exception {
       // Transient growth failure: fall back to sharing existing channels;
@@ -768,13 +769,17 @@ class PooledConnectionManager implements ConnectionManager {
   bool _isCurrentPool(_EndpointPool pool) =>
       identical(_pools[pool.key], pool);
 
+  bool _isCurrentTrustEpoch(_EndpointPool pool, Object epoch) =>
+      _isCurrentPool(pool) && identical(pool._trustEpoch, epoch);
+
   bool _isCurrentIncident(_EndpointPool pool, _HostKeyIncident? incident) =>
       _isCurrentPool(pool) && identical(_incidents[pool.key], incident);
 
   HostKeyPrompter _hostKeyPrompterFor(
       _EndpointPool pool, ConnectPrompting prompting) {
+    var trustEpoch = pool._trustEpoch;
     return (decision) async {
-      if (!_isCurrentPool(pool)) return false;
+      if (!_isCurrentTrustEpoch(pool, trustEpoch)) return false;
 
       switch (decision.verdict) {
         case HostKeyVerdict.trusted:
@@ -783,7 +788,10 @@ class PooledConnectionManager implements ConnectionManager {
         case HostKeyVerdict.changed:
           // Every detection gets a fresh identity, even for the same key.
           final incident = _HostKeyIncident(decision);
-          await _blockPool(pool, incident);
+          final blocking = _blockPool(pool, incident);
+          // Installation is synchronous; only this detector adopts the epoch.
+          trustEpoch = pool._trustEpoch;
+          await blocking;
           if (prompting == ConnectPrompting.disabled) return false;
           if (!_isCurrentIncident(pool, incident)) return false;
 
@@ -801,9 +809,12 @@ class PooledConnectionManager implements ConnectionManager {
 
         case HostKeyVerdict.firstUse:
           if (prompting == ConnectPrompting.disabled) return false;
+          // Removing a pin does not authorize first-use approval of a hard block.
+          if (pool.blocked) return false;
           final incident = pool._incident;
           final accepted = await _onHostKey(decision);
-          return accepted && _isCurrentIncident(pool, incident);
+          return accepted && _isCurrentTrustEpoch(pool, trustEpoch) &&
+              _isCurrentIncident(pool, incident);
       }
     };
   }
@@ -811,8 +822,10 @@ class PooledConnectionManager implements ConnectionManager {
   Future<void> _blockPool(
       _EndpointPool pool, _HostKeyIncident incident) async {
     final wasBlocked = pool.blocked;
+    pool._trustEpoch = Object();
     _incidents[pool.key] = incident;
     pool._incident = incident;
+    // The first block detached all slots; late opens cannot reattach them.
     if (wasBlocked) return;
 
     // Hard-block the ENTIRE pool: drop every channel and transport so every
@@ -1166,6 +1179,7 @@ class _EndpointPool {
   SshCredentials? resolvedCredentials;
   bool interactiveOnly = false;
   _HostKeyIncident? _incident;
+  Object _trustEpoch = Object();
 
   bool get blocked => _incident != null;
   String? get blockDetail => _incident?._detail;

@@ -16,6 +16,8 @@ const _policy = PoolPolicy(
   maxChannelsPerTransport: 3,
 );
 
+enum _GrowthRace { oldKey, authChallenge, delayedKey, interactiveRetry }
+
 Future<PoolHarness> _harness(List<String> fingerprints) async {
   final harness =
       PoolHarness(
@@ -345,4 +347,136 @@ void main() {
       ], everyElement(ServerConnectionState.blocked));
     },
   );
+
+  test(
+    'removing a pin cannot permit first-use approval of a hard block',
+    () async {
+      final harness = await _harness([_originalKey, _changedKey]);
+      await _blockViaGrowth(harness);
+      harness.store.pins.clear();
+      var prompts = 0;
+      harness.onHostKey = (_) async {
+        prompts++;
+        return true;
+      };
+
+      await expectLater(
+        harness.manager.openBrowseChannel(
+          _primaryServerId,
+          paneTabId: 'no-pin',
+        ),
+        throwsA(isA<RemoteFileException>()),
+      );
+      expect([prompts, harness.store.pins.length], [0, 0]);
+      expect(
+        await harness.manager.watchServer(_primaryServerId).first,
+        ServerConnectionState.blocked,
+      );
+    },
+  );
+
+  for (final race in _GrowthRace.values) {
+    test(
+      'late growth ${race.name} respects the replacement connection',
+      () async {
+        final retryKey = race == _GrowthRace.interactiveRetry
+            ? _originalKey
+            : _changedKey;
+        final growthKey = race == _GrowthRace.delayedKey
+            ? _changedKey
+            : _originalKey;
+        final harness = await _harness([_originalKey, growthKey, retryKey]);
+        await harness.manager.openBrowseChannel(
+          _primaryServerId,
+          paneTabId: 'one',
+        );
+        await harness.manager.openBrowseChannel(
+          _siblingServerId,
+          paneTabId: 'two',
+        );
+        final original = harness.opener.transports.single;
+        final channelGate = Completer<void>();
+        original.openGate = channelGate;
+        PaneChannel? third;
+        final errors = <Object>[];
+        final browsing = harness.manager
+            .openBrowseChannel(_primaryServerId, paneTabId: 'three')
+            .then<void>((channel) {
+              third = channel;
+            }, onError: errors.add);
+        await Future<void>.delayed(Duration.zero);
+        final gate = Completer<void>();
+        if (race == _GrowthRace.delayedKey) {
+          harness.opener.growthVerificationGate = gate;
+        } else {
+          harness.opener.growthGate = gate;
+        }
+        TransferChannelLease? granted;
+        final pending = harness.manager
+            .leaseTransferChannel(_primaryServerId)
+            .then<void>((lease) {
+              granted = lease;
+            }, onError: errors.add);
+        await Future<void>.delayed(Duration.zero);
+        final growthCall = harness.opener.calls.singleWhere(
+          (call) => call.prompting == ConnectPrompting.disabled,
+        );
+
+        // Evict the dead slot while its growth replacement is still in flight.
+        original.closed = true;
+        channelGate.completeError(
+          const RemoteFileException(
+            kind: RemoteFileErrorKind.disconnected,
+            operation: 'open SFTP',
+            message: 'The original transport disconnected mid-open.',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        if (race == _GrowthRace.interactiveRetry) {
+          harness.opener.authKind = AuthKind.keyboardInteractive;
+        }
+
+        // Retry establishes current trust/auth while the old result is parked.
+        final approved = await harness.manager.openBrowseChannel(
+          _siblingServerId,
+          paneTabId: 'new-key',
+        );
+        final currentTransport = harness.opener.calls.last.transport;
+        expect(harness.store.pins.values.single.fingerprintSha256, retryKey);
+        if (race == _GrowthRace.authChallenge) {
+          harness.opener.connectFailure = const AuthChallengeRequiredError(
+            'An obsolete growth attempt requires interaction.',
+          );
+        }
+        gate.complete();
+        await Future.wait([browsing, pending]);
+        final oldHandshakeClosed = growthCall.transport?.closed ?? true;
+        final liveAfterGrowth = harness.opener.transports
+            .where((transport) => !transport.closed)
+            .toList();
+        harness.opener.connectFailure = null;
+
+        // The stale result must neither supply a slot nor change the current cap.
+        TransferChannelLease? additional;
+        final callsBeforeProbe = harness.opener.calls.length;
+        final probe = harness.manager
+            .leaseTransferChannel(_primaryServerId)
+            .then<void>((lease) {
+              additional = lease;
+            }, onError: errors.add);
+        await Future<void>.delayed(Duration.zero);
+        final probeGrew = harness.opener.calls.length > callsBeforeProbe;
+        await third?.close();
+        await approved.close();
+        await granted?.release();
+        await probe;
+        await additional?.release();
+
+        expect(errors, isEmpty);
+        expect(oldHandshakeClosed, isTrue);
+        expect(liveAfterGrowth, [currentTransport]);
+        expect(probeGrew, race != _GrowthRace.interactiveRetry);
+      },
+    );
+  }
 }
