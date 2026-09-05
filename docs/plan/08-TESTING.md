@@ -39,8 +39,8 @@ These are Séance's proven testing principles, adopted wholesale:
    paused) each map to a named test. A safety behavior without a test is
    treated as absent.
 4. **Analyze clean, always.** `dart analyze packages/poltergeist_core &&
-   dart analyze packages/poltergeist_sync` — explicit package roots keep
-   analysis scoped; the SDK also accepts multiple explicit roots — and
+   dart analyze packages/poltergeist_sync` — separate calls give per-package
+   results; combined explicit roots also work — and
    `flutter analyze` in the app are
    zero-warning gates in CI and before every commit — with explicit paths,
    never bare at the repo root (AGENTS.md §4).

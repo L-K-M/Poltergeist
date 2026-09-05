@@ -63,7 +63,8 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 4. **2026-09-04 — M2 remaining slices.** The initial pool, TOFU gate, and
    channel budgets are in. Still open, in
    roughly this order, subject to open item 5:
-   - close the audit gaps in open item 6 before wiring production callers;
+   - close the pool-behavior gaps in open item 6 before wiring production
+     callers; the coverage items retain their stated gates;
    - the pinned bookmark model and vault/store plumbing (07 §3.3), including
      legacy macOS keychain options and PORTS entries for new copies;
    - keepalive pings, idle extra-transport teardown, and auto-reconnect
@@ -90,7 +91,8 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
    serializes workflows, not their matrix legs. Concurrent draft creation
    remains a release-path risk reserved for the PR #15 workstream.
 6. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
-   - **Credential lifetime and prompt provenance:** `_resolveServer` runs per
+   - **Credential lifetime and prompt provenance (security-relevant):**
+     `_resolveServer` runs per
      serverId before pool lookup; `_ServerReference.credentials` survives
      pane-lifetime teardown, and the next first connect reuses it. Serialize
      vault resolution per pool, drop retained credentials on teardown, and
@@ -116,7 +118,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 
 - **Scope (2026-09-04):** merged #9, #10, #12, #13, #14 and Séance #62;
   release/version wiring, pinned VFS/auth code, pool lifetimes, PORTS, STATUS,
-  and M0 evidence. No new milestone feature or release was started.
+  and M0 evidence. This audit started no new milestone feature or release.
 - **Validation:** existing tool/fixture tests (228), bench tests (73), and
   Flutter tests (108) pass. Core regression results accompany each repair
   below. The 78-row committed M0 bundle revalidates; the license gate reports

@@ -1180,8 +1180,9 @@ Acceptance: LICENSE on Séance `main`. Interim rule, per D30 and 01 §9:
 git-pin consumption for development and ephemeral CI may proceed before the
 license, subject to the single-rights-holder audit. **No release binaries or
 downloadable CI artifacts embedding the pinned packages may be published**
-until every embedded revision carries a compatible permissive license;
-each `release.yml` client leg runs **Verify pinned Séance licenses** against
+until every embedded revision carries a compatible permissive license in
+its resolved Git tree (re-pin if it does not). Each `release.yml` client leg
+runs **Verify pinned Séance licenses** against
 resolved, committed locks before building or attaching assets. **No Séance
 source is copied into Poltergeist until the LICENSE lands on Séance `main`**
 (PR-S0). This gates every D2 copy, including a helper needed by an earlier

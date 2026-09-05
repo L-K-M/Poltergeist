@@ -66,7 +66,7 @@ rules — AGENTS.md remains the authority on toolchain setup (§1 there).
 
   ```bash
   dart analyze packages/poltergeist_core
-  dart analyze packages/poltergeist_sync   # explicit roots (08 §1)
+  dart analyze packages/poltergeist_sync   # explicit roots (08 §1, Principle 4)
   dart test    packages/poltergeist_core packages/poltergeist_sync
   cd app/poltergeist_app && flutter analyze && flutter test
   ```
