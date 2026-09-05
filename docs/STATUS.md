@@ -99,10 +99,10 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
      test fresh resolution. A password prompted by that resolver arrives as
      `AuthKind.storedPassword`; carry its interactive origin so growth cannot
      misclassify it. Complete this before prompt/vault integration (D5, D18).
-   - **Bounded teardown:** the new transport/channel wrappers directly await
-     dartssh2 closes; they do not inherit Séance #59's session-level bounded
-     cleanup. Add stalled-close tests and bounds before the real-sshd pool
-     suite; exception swallowing alone does not bound a stalled future.
+   - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
+     consider an upstream observer if real-sshd debugging needs cleanup
+     failures. The pinned helper's ignore mode exposes no observer. This
+     does not block the teardown repair or change error preservation.
    - **Guard coverage:** `check-imports.sh` has no executable regression suite
      and explicitly omits plugin detection, although 03 §1 requires it.
      Add adversarial fixtures and dependency-aware enforcement. Add 09 §5's
@@ -138,6 +138,21 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-05 — bounded teardown.** Pool cleanup and SSH/SFTP wrappers use
+  the pinned cleanup helper with a five-second bound per close. Detached
+  channels close concurrently, then transports, so stalls cannot serialize
+  the grace period across every resource (two phases, ten seconds total).
+  Failed-open cleanup retains any shorter caller timeout. Seven pool regressions
+  failed before and pass after the repair (`pool_teardown_test.dart`): disconnect,
+  sibling preservation, pane lifetime, changed-key blocking, stale connects,
+  and late channel cleanup; late close errors remain observed. The shorter
+  timeout regression also failed before repair; `ssh_cleanup_test.dart`
+  checks shorter/longer budgets and prompt completion on success and errors.
+  Cleanup errors, including `Error` subtypes, cannot replace the operation's
+  outcome. Core analysis is clean; 79 tests pass with one fixture skip.
+  This closes item 6's bounded teardown gap; real-sshd coverage and item 5's
+  ordering escalation remain open.
 
 - **2026-09-05 — live state fan-out.** Existing watchers now receive the
   current state when their serverId joins a shared pool, including connects

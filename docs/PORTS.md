@@ -23,6 +23,14 @@
   `settings_store_test.dart`.
 - Port-back candidates: none.
 
+## Connection cleanup dependency
+
+- Consumes `packages/seance_core/lib/src/ssh/sequential_cleanup.dart` at the
+  existing `2f99f4e` pin; no source copy or pin change (2026-09-05).
+- `ssh_cleanup.dart` selects the session's five-second grace period and
+  best-effort failure mode. Pool regressions cover stalled and late-error
+  cleanup. No port-back change: Séance already uses this primitive.
+
 ## Pin findings
 
 The human identity aliases resolve to the repository owner. Other recorded
