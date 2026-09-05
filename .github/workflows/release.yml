@@ -460,8 +460,11 @@ jobs:
           REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          # Fails loud: an errored probe reading as empty would take the
+          # else branch and exit 0 -- a green run over an unpublished
+          # draft.
           draft=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
-            --json isDraft --jq .isDraft)
+            --json isDraft --jq .isDraft) || exit 1
           if [ "$draft" = true ]; then
             gh release ready "$RELEASE_TAG" --repo "$REPO"
           else
