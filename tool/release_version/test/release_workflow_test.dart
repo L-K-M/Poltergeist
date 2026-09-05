@@ -353,7 +353,11 @@ void main() {
         isNot(contains('failure')),
         reason: '$jobName job-level if',
       );
-      expect(jobIf, isNot(contains('cancelled')), reason: '$jobName job-level if');
+      expect(
+        jobIf,
+        isNot(contains('cancelled')),
+        reason: '$jobName job-level if',
+      );
     }
     // Publish must be the sums job's final step: it runs only after the
     // floor-checked checksum step, and nothing may run after publication.
@@ -367,7 +371,11 @@ void main() {
       if (steps is! YamlList) continue;
       for (final step in steps.whereType<YamlMap>()) {
         if (!identical(step, publish)) {
-          expect('${step['run']}', isNot(contains('gh release ready')));
+          final run = '${step['run']}';
+          expect(run, isNot(contains('gh release ready')));
+          // `gh release edit --draft=false` publishes a draft just as
+          // effectively as `gh release ready` — close that route too.
+          expect(run, isNot(contains('--draft=false')));
         }
       }
     }
@@ -468,10 +476,7 @@ void main() {
     final sums = jobs['sums'] as YamlMap;
 
     expect(sums['needs'], 'client');
-    final run = _stepRun(
-      sums['steps'] as YamlList,
-      _checksumStepName,
-    );
+    final run = _stepRun(sums['steps'] as YamlList, _checksumStepName);
     expect(run, contains('poltergeist-android.apk'));
     expect(run, contains('poltergeist_*.deb'));
     expect(run, contains('poltergeist-linux-x64.AppImage'));
