@@ -410,6 +410,18 @@ jobs:
           gh release upload "$RELEASE_TAG" --repo "$REPO" SHA256SUMS --clobber
           gh release edit "$RELEASE_TAG" --repo "$REPO" \
             --notes-file RELEASE_NOTES.md
+      # What the removed human ceremony did by hand, CI does here:
+      # re-download the full set and check every digest against the
+      # uploaded sums, so a corrupted upload never turns public.
+      - name: Verify the uploaded asset set before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          mkdir -p verify && cd verify
+          gh release download "$RELEASE_TAG" --repo "$REPO" --clobber
+          sha256sum -c SHA256SUMS
       # The publish itself: no human step, but only now that the floor
       # check passed and the sums and notes are attached. `gh release
       # ready` refuses a non-draft, so the created-once invariant holds;

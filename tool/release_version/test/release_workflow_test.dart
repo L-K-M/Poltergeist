@@ -333,6 +333,11 @@ void main() {
     final publish = _step(sumsSteps, 'Publish');
     // Publish must come after the floor-checked checksum step.
     expect(sumsSteps.whereType<YamlMap>().last, same(publish));
+    // A step that opts out of failure would not stop Publish — the
+    // never-partial guarantee needs every sums step to fail loudly.
+    for (final step in sumsSteps.whereType<YamlMap>()) {
+      expect('${step['continue-on-error']}', isNot(contains('true')));
+    }
     final publishRun = '${publish['run']}';
     expect(publishRun, contains('release ready'));
     expect(publishRun, isNot(contains(r'${{')));
@@ -341,6 +346,8 @@ void main() {
     final publishIf = '${publish['if']}';
     expect(publishIf, isNot(contains('always')));
     expect(publishIf, isNot(contains('failure()')));
+    expect(publishIf, isNot(contains('cancelled')));
+    expect(publishIf, isNot(contains('!success')));
   });
 
   test('release runs serialize on the tag, queuing never cancelling', () {

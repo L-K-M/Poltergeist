@@ -37,7 +37,9 @@ When the workflow is green, the release is already public. Worth a minute:
 - `gh release download vX.Y.Z && sha256sum -c SHA256SUMS`
   (`shasum -a 256 -c` on macOS) — catches a corrupted upload early, while
   few people have downloaded it.
-- Confirm the release is flagged pre-release (`v0.*`), not "Latest".
+- Confirm the release is flagged pre-release (`v0.*`), not "Latest"; if
+  the flag is wrong, `gh release edit vX.Y.Z --prerelease` fixes it —
+  Latest follows the newest non-prerelease release.
 
 ## Invariants and rules
 
