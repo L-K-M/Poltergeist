@@ -379,6 +379,15 @@ concurrency.
 
 Growth rules (the part that must never be improvised):
 
+Endpoint lookup resolves only `ServerConfig`, without vault reads or prompts.
+The serialized first connect below resolves credentials after joining the
+pool, so sibling bookmarks cannot each prompt for the same secret. That
+result carries explicit stored/prompted provenance: the SSH opener sees an
+already-supplied password as stored even when the vault resolver prompted.
+Either resolver interaction or transport interaction imposes rule 2's cap.
+Server references retain configuration only; failed connects and pool
+teardown leave no cached credentials for the next first connect.
+
 1. **The first connect is serialized.** One `openAuthenticatedClient` runs per
    **pool** (the §3.5 endpoint key, not per serverId — two bookmarks at
    one endpoint connecting simultaneously must fold into a single

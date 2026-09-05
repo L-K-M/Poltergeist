@@ -381,12 +381,13 @@ void main() {
     await flushEvents();
     expect(harness.opener.transports.single.closed, isTrue);
 
-    // Pane-lifetime teardown wipes the pool but keeps the session's
-    // reference: the next connect reuses it (vault re-resolution on auth
-    // failure lands with reconnect, 03 §3.3).
+    // Pane teardown keeps only the config reference. Reopening resolves
+    // fresh credentials even though endpoint lookup stays cached.
     expect(harness.resolveCalls, 1);
+    expect(harness.credentialResolveCalls, 1);
     await harness.manager.openBrowseChannel('s1', paneTabId: 't');
     expect(harness.resolveCalls, 1);
+    expect(harness.credentialResolveCalls, 2);
   });
 
   test('disconnectServer closes the id\'s channels; siblings keep the pool',
