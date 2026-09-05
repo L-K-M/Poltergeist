@@ -885,6 +885,10 @@ class PooledConnectionManager implements ConnectionManager {
         pool.transports.indexOf(handle.slot) > 0 &&
         pool.idleTransfer.contains(handle)) {
       await _closeHandle(pool, handle);
+
+      // An acquisition may have queued while the server still counted the
+      // closing channel against MaxSessions. Its capacity is available now.
+      await _pumpWaiters(pool);
     }
     await _maybeTearDown(pool);
   }
