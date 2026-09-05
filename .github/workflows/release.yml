@@ -431,12 +431,22 @@ jobs:
           fi
           sha256sum -c --strict SHA256SUMS
       # The publish itself: no human step, but only now that the floor
-      # check passed and the sums and notes are attached. `gh release
-      # ready` refuses a non-draft, so the created-once invariant holds;
-      # flipping the flag touches no assets.
+      # check passed and the sums are attached and verified. Idempotent
+      # for re-runs: if a prior attempt already flipped the release
+      # public (e.g. a timeout after a successful call), there is
+      # nothing to do -- created-once is the guard job's invariant, not
+      # this step's failure mode, and a spurious red here would push a
+      # healthy published release down the delete-and-retag path.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: gh release ready "$RELEASE_TAG" --repo "$REPO"
+        run: |
+          draft=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+            --json isDraft --jq .isDraft)
+          if [ "$draft" = true ]; then
+            gh release ready "$RELEASE_TAG" --repo "$REPO"
+          else
+            echo "release already published; nothing to do"
+          fi

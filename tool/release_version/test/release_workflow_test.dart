@@ -335,12 +335,20 @@ void main() {
     // floor-checked checksum step, and nothing may run after publication.
     expect(sumsSteps.whereType<YamlMap>().last, same(publish));
     // A step that opts out of failure would not stop Publish — the
-    // never-partial guarantee needs every sums step to fail loudly.
-    for (final step in sumsSteps.whereType<YamlMap>()) {
-      final coe = '${step['continue-on-error']}'.toLowerCase();
-      expect(coe, isNot(contains('true')), reason: 'step ${step['name']}');
-      expect(coe, isNot(contains(r'${{')), reason: 'step ${step['name']}');
+    // never-partial guarantee needs every step of both jobs (a client
+    // leg that swallows its failure would leave the sums job green
+    // over a partial asset set) to fail loudly.
+    void auditFailLoudly(String job, YamlList steps) {
+      for (final step in steps.whereType<YamlMap>()) {
+        final name = '${step['name'] ?? step['id'] ?? step['uses'] ?? '?'}';
+        final coe = '${step['continue-on-error']}'.toLowerCase();
+        expect(coe, isNot(contains('true')), reason: '$job step $name');
+        expect(coe, isNot(contains(r'${{')), reason: '$job step $name');
+      }
     }
+
+    auditFailLoudly('client', clientSteps);
+    auditFailLoudly('sums', sumsSteps);
     final publishRun = '${publish['run']}';
     expect(publishRun, contains('release ready'));
     expect(publishRun, isNot(contains(r'${{')));
@@ -351,6 +359,14 @@ void main() {
     expect(publishIf, isNot(contains('failure()')));
     expect(publishIf, isNot(contains('cancelled')));
     expect(publishIf, isNot(contains('!success')));
+    // A blocklist alone is bypassable (`if: ${{ true }}` runs even after
+    // a failure), so pin Publish to the default semantics or an
+    // explicit success() guard.
+    expect(
+      publish['if'],
+      anyOf(isNull, contains('success()')),
+      reason: 'Publish must rely on default skip-on-failure semantics',
+    );
   });
 
   test('release runs serialize on the tag, queuing never cancelling', () {
