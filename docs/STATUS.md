@@ -138,11 +138,14 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 - **2026-09-05 — bounded teardown.** Pool cleanup and SSH/SFTP wrappers use
   the pinned cleanup helper with a five-second bound per close. Detached
   channels close concurrently, then transports, so stalls cannot serialize
-  the grace period across every resource. Seven fake-clock regressions failed
+  the grace period across every resource (two phases, ten seconds total).
+  Failed-open cleanup retains any shorter caller timeout. Seven pool regressions failed
   before and pass after the repair (`pool_teardown_test.dart`): disconnect,
   sibling preservation, pane lifetime, changed-key blocking, stale connects,
-  and late channel cleanup; late close errors remain observed. Core analysis
-  is clean; 74 tests pass with one fixture skip. This closes item 6's bounded
+  and late channel cleanup; late close errors remain observed. The shorter
+  timeout regression also failed before repair; `ssh_cleanup_test.dart`
+  checks both shorter and longer caller budgets. Core analysis
+  is clean; 76 tests pass with one fixture skip. This closes item 6's bounded
   teardown gap; real-sshd coverage and item 5's ordering escalation remain open.
 
 - **2026-09-05 — live state fan-out.** Existing watchers now receive the

@@ -222,7 +222,7 @@ class _DartSshTransport implements SshTransport {
         }));
       }
       if (opening != null) {
-        await closeSshResource(opening.close);
+        await closeSshResource(opening.close, maxWait: timeout);
       }
       throw classifySftpOpenFailure(error, transportClosed: isClosed);
     }

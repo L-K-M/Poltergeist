@@ -7,9 +7,13 @@ const _closeTimeout = Duration(seconds: 5);
 
 /// A dead peer must not strand pool teardown or replace an operation's error.
 /// The pinned helper also observes errors arriving after the timeout.
-Future<void> closeSshResource(Future<void> Function() close) =>
+/// [maxWait] can tighten the grace period for a shorter operation timeout.
+Future<void> closeSshResource(
+  Future<void> Function() close, {
+  Duration maxWait = _closeTimeout,
+}) =>
     runSequentialCleanup(
       [close],
-      actionTimeout: _closeTimeout,
+      actionTimeout: maxWait < _closeTimeout ? maxWait : _closeTimeout,
       failureMode: CleanupFailureMode.ignore,
     );
