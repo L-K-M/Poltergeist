@@ -408,11 +408,12 @@ jobs:
           gh release edit "$RELEASE_TAG" --repo "$REPO" \
             --notes-file RELEASE_NOTES.md
       # The publish itself: no human step, but only now that the floor
-      # check passed and the sums and notes are attached. Flipping the
-      # draft flag touches no assets, so the created-once invariant holds.
+      # check passed and the sums and notes are attached. `gh release
+      # ready` refuses a non-draft, so the created-once invariant holds;
+      # flipping the flag touches no assets.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: gh release edit "$RELEASE_TAG" --repo "$REPO" --draft=false
+        run: gh release ready "$RELEASE_TAG" --repo "$REPO"

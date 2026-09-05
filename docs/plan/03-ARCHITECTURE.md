@@ -440,6 +440,13 @@ Growth rules (the part that must never be improvised):
    than failing a channel open — a many-tab workload never surfaces a raw SSH
    channel-open failure.
 
+The queue-don't-fail rule covers capacity exhaustion, not unavailable SFTP.
+If every attempted channel open fails and no live channel, pending open, or
+transport growth can supply capacity, fail affected requests with the typed
+open error; never wait for a release that cannot occur. Registering a browse
+binding wakes queued browse requests for LRU sharing,
+including those behind transfer waiters: sharing consumes no transfer slot.
+
 ### 3.3 Keepalive, idle, reconnect
 
 - **Keepalive:** `client.ping()` every `keepAliveInterval` on transports with

@@ -39,7 +39,7 @@ When the workflow is green, the release is already public. Worth a minute:
   few people have downloaded it.
 - Confirm the release is flagged pre-release (`v0.*`), not "Latest".
 
-## Rules the pipeline enforces on its own
+## Invariants and rules
 
 - A release is created once and never updated: any run whose tag already
   has a release — draft or published — fails instead of overwriting

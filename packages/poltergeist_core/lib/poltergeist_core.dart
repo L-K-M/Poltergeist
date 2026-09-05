@@ -3,7 +3,10 @@
 /// The barrel exports only neutral types — today the connection layer plus
 /// the re-exported `RemoteFileSystem` VFS; task and bookmark models join as
 /// they land per the plan (03 §1). dartssh2 types stop inside
-/// `src/connection/` and never reach callers.
+/// `src/connection/` and never reach callers — a property
+/// `scripts/check-imports.sh` enforces for this repo's own sources; the
+/// re-exported Séance types stay dartssh2-free only as long as the pinned
+/// rev keeps them so (re-audit on every re-pin, docs/STATUS.md open item 3).
 ///
 /// The `seance_core` re-exports are part of this package's public API and
 /// move in lockstep with the pinned Séance rev (docs/STATUS.md open item 3):

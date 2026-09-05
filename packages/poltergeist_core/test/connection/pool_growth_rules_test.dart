@@ -130,12 +130,18 @@ void main() {
     // The 5th lease waits; a release serves it.
     var fifthServed = false;
     final fifth = leases[4].then((_) => fifthServed = true);
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
     expect(fifthServed, isFalse);
     final released = await leases[0];
     await released.release();
     await fifth;
     expect(fifthServed, isTrue);
+
+    // Return the granted leases so nothing dangles past the test's end;
+    // freed slots may serve the ignored 6th — its future is already ignored.
+    for (final pending in leases.sublist(1, 5)) {
+      await (await pending).release();
+    }
 
     // The 6th lease deliberately never completes — ignore it like the
     // ninth-lease case below so a later teardown error can't leak unhandled.
@@ -174,6 +180,12 @@ void main() {
     expect(ninthServed, isFalse);
     // No third growth attempt began — the pool is at maxTransports.
     expect(harness.opener.calls, hasLength(2));
+
+    // Return the granted leases so nothing dangles past the test's end; a
+    // freed slot may serve the ignored 9th — its future is already ignored.
+    for (final lease in leases) {
+      await (await lease).release();
+    }
   });
 
   test('a growth auth challenge marks the pool interactive-capped',
@@ -210,7 +222,7 @@ void main() {
     final sixth = harness.manager
         .leaseTransferChannel('s1')
         .then((_) => sixthServed = true);
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
     expect(sixthServed, isFalse);
     expect(harness.opener.calls, hasLength(2));
 
@@ -366,7 +378,7 @@ void main() {
     expect(harness.opener.transports.single.closed, isFalse);
 
     await lease.release();
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
     expect(harness.opener.transports.single.closed, isTrue);
 
     // Pane-lifetime teardown wipes the pool but keeps the session's
@@ -438,10 +450,10 @@ void main() {
 
     // Sharing is refcounted: one tab closing does not kill the other's view.
     await first.close();
-    expect(harness.channels.where((c) => !c.closed), hasLength(3));
+    expect(harness.openChannels, hasLength(3));
 
     await second.close();
-    expect(harness.channels.where((c) => !c.closed), hasLength(2));
+    expect(harness.openChannels, hasLength(2));
 
     // Release the outstanding transfer leases so nothing dangles past the
     // end of the test.
@@ -486,6 +498,7 @@ void main() {
     expect(browse.fs, same(leaseFs));
     expect(harness.opener.transports.single.channels, hasLength(2));
     await keeper.close();
+    await browse.close();
   });
 
   test('a disconnect racing the first connect tears the pool down', () async {
@@ -496,16 +509,15 @@ void main() {
     // The connect parks inside the resolver — the widest window there is
     // (vault read, TOFU prompt, 2FA all sit behind it).
     final opening = harness.manager.openBrowseChannel('s1', paneTabId: 't');
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
 
     await harness.manager.disconnectServer('s1');
     gate.complete();
 
     await expectLater(opening, throwsA(isA<RemoteFileException>()));
 
-    // The transport that landed after the disconnect is closed, not live;
-    // no reference, no credentials, nothing connected.
-    expect(harness.opener.transports.single.closed, isTrue);
+    // Cancelled resolution never reaches the transport opener.
+    expect(harness.opener.transports, isEmpty);
     expect(await harness.manager.connectedServerIds(), isEmpty);
   });
 
@@ -551,7 +563,7 @@ void main() {
 
     // The 5th lease triggers a growth connect that parks on the gate.
     final fifth = harness.manager.leaseTransferChannel('s1');
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
 
     // Everything releases while the growth connect is in flight: teardown
     // is deferred (the growth guard), so the pool is not torn mid-connect.
@@ -559,7 +571,7 @@ void main() {
     for (final lease in leases) {
       await (await lease).release();
     }
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
     expect(harness.opener.transports.first.closed, isFalse);
 
     gate.complete();
@@ -568,7 +580,7 @@ void main() {
     // The grown transport served its one lease and died with the next
     // teardown trigger — no zombie connection outliving its demand.
     await lease.release();
-    await Future<void>.delayed(Duration.zero);
+    await flushEvents();
     expect(harness.opener.transports.last.closed, isTrue);
     expect(harness.opener.transports.first.closed, isTrue);
   });

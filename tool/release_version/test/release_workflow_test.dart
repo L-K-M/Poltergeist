@@ -337,7 +337,7 @@ void main() {
       sumsSteps.whereType<YamlMap>().length - 1,
     );
     final publishRun = '${publish['run']}';
-    expect(publishRun, contains('--draft=false'));
+    expect(publishRun, contains('release ready'));
     expect(publishRun, isNot(contains(r'${{')));
   });
 

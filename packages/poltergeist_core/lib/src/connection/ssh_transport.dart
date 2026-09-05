@@ -25,6 +25,8 @@ abstract interface class SftpChannel {
 /// An interface, not the dartssh2 client itself, so pool tests run without
 /// sockets (08 §3.2's "pool and lease logic without sockets" pattern).
 abstract interface class SshTransport {
+  /// Default channel-open budget when a caller does not specify one.
+  static const Duration defaultOpenTimeout = Duration(seconds: 15);
   /// How the transport authenticated. Interactive kinds
   /// (`keyboardInteractive`, `promptedPassword`) cap the pool at one
   /// transport (growth rule 2).
@@ -32,8 +34,10 @@ abstract interface class SshTransport {
 
   bool get isClosed;
 
-  /// Opens one more SFTP channel on this transport.
-  Future<SftpChannel> openChannel();
+  /// Opens one more SFTP channel on this transport. Each stage (channel
+  /// open, handshake) is individually bounded by [timeout] — callers own
+  /// the per-stage budget they are willing to spend on an open.
+  Future<SftpChannel> openChannel({Duration timeout = defaultOpenTimeout});
 
   Future<void> close();
 }
@@ -87,8 +91,11 @@ typedef SshTransportOpener = Future<SshTransport> Function({
 /// prompting is disabled: a first-connect auth failure is a plain user-facing
 /// failure (wrong key, wrong password — its summarized message must reach
 /// the user), while a growth connect already holds credentials that worked
-/// on transport 1, so the only new reason it can fail is an interaction the
-/// disabled prompting refused.
+/// on transport 1, so the expected new failure is an interaction the
+/// disabled prompting refused. The signal is imperfect — any auth rejection
+/// on a growth connect (a since-revoked key, fail2ban throttling of the
+/// second connection) classifies identically — and the pool's
+/// share-channels fallback keeps that case safe.
 Future<SshTransport> openDartSshTransport({
   required ServerConfig config,
   required SshCredentials credentials,
@@ -96,7 +103,7 @@ Future<SshTransport> openDartSshTransport({
   required HostKeyPrompter onHostKey,
   KeyboardInteractiveResponder? onKeyboardInteractive,
   required ConnectPrompting prompting,
-  Duration timeout = const Duration(seconds: 15),
+  Duration timeout = SshTransport.defaultOpenTimeout,
   SshConnectionLog? log,
 }) async {
   final attemptLog = log ?? SshConnectionLog();
@@ -177,7 +184,7 @@ class _DartSshTransport implements SshTransport {
 
   @override
   Future<SftpChannel> openChannel({
-    Duration timeout = const Duration(seconds: 15),
+    Duration timeout = SshTransport.defaultOpenTimeout,
   }) async {
     if (isClosed) {
       throw const RemoteFileException(
@@ -219,7 +226,10 @@ class _DartSshTransport implements SshTransport {
       }
       if (opening != null) {
         try {
-          await opening.close();
+          // Bounded: a stalled close must not hang the error path past the
+          // operation timeout; the abandoned close continuing in the
+          // background is acceptable best-effort.
+          await opening.close().timeout(timeout, onTimeout: () {});
         } on Object {
           // Swallow: the rethrow below carries the failure that matters.
         }

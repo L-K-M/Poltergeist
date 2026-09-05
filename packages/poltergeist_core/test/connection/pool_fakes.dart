@@ -22,7 +22,9 @@ class FakeHostKeyStore implements HostKeyStore {
 class StubRemoteFileSystem implements RemoteFileSystem {
   final String home;
 
-  StubRemoteFileSystem(this.home);
+  final Completer<void>? canonicalizeGate;
+
+  StubRemoteFileSystem(this.home, {this.canonicalizeGate});
 
   @override
   Future<String> canonicalize(String path) async {
@@ -33,6 +35,7 @@ class StubRemoteFileSystem implements RemoteFileSystem {
         'StubRemoteFileSystem only supports canonicalize("."), got "$path".',
       );
     }
+    await canonicalizeGate?.future;
     return home;
   }
 
@@ -49,12 +52,15 @@ class FakeChannel implements SftpChannel {
   final RemoteFileSystem fs;
 
   bool closed = false;
+  Object? closeFailure;
 
   FakeChannel(this.fs);
 
   @override
   Future<void> close() async {
     closed = true;
+    final failure = closeFailure;
+    if (failure != null) throw failure;
   }
 }
 
@@ -71,6 +77,12 @@ class FakeTransport implements SshTransport {
 
   final List<FakeChannel> channels = [];
   bool closed = false;
+  Completer<void>? openGate;
+  Completer<void>? canonicalizeGate;
+  Object? closeFailure;
+
+  /// Refuse opens on this transport without poisoning healthy siblings.
+  Object? openFailure;
 
   FakeTransport({required this.authKind, this.openLimit});
 
@@ -78,7 +90,7 @@ class FakeTransport implements SshTransport {
   bool get isClosed => closed;
 
   @override
-  Future<SftpChannel> openChannel() async {
+  Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
     if (closed) {
       throw const RemoteFileException(
         kind: RemoteFileErrorKind.disconnected,
@@ -86,6 +98,9 @@ class FakeTransport implements SshTransport {
         message: 'The SSH transport is disconnected.',
       );
     }
+    final failure = openFailure;
+    if (failure != null) throw failure;
+
     if (openLimit != null &&
         channels.where((c) => !c.closed).length >= openLimit!) {
       // Aligned with the production funnel: a channel-open refusal is not
@@ -97,8 +112,12 @@ class FakeTransport implements SshTransport {
       );
     }
 
-    final channel = FakeChannel(StubRemoteFileSystem('/home/test'));
+    final channel = FakeChannel(StubRemoteFileSystem(
+      '/home/test',
+      canonicalizeGate: canonicalizeGate,
+    ));
     channels.add(channel);
+    await openGate?.future;
     return channel;
   }
 
@@ -108,6 +127,8 @@ class FakeTransport implements SshTransport {
     for (final channel in List<FakeChannel>.of(channels)) {
       await channel.close();
     }
+    final failure = closeFailure;
+    if (failure != null) throw failure;
   }
 }
 
@@ -136,7 +157,7 @@ class RecordedOpenCall {
 /// through the verifier, prompt when untrusted, pin on approval. Growth
 /// behavior is scripted per test.
 class FakeTransportOpener {
-  final AuthKind authKind;
+  AuthKind authKind;
 
   /// A prompting-disabled connect behaves as if the server demanded
   /// interaction: auth fails without a prompt (rule 3's growth case).
@@ -148,11 +169,20 @@ class FakeTransportOpener {
 
   /// Handed to every created transport: refuse opens past this many
   /// channels (a fake MaxSessions ceiling).
-  final int? transportOpenLimit;
+  int? transportOpenLimit;
 
   /// When set, every prompting-disabled (growth) connect parks on this
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
+
+  /// Hold a growth verdict before it reaches the pool's trust gate.
+  Completer<void>? growthVerificationGate;
+
+  /// Fail authentication after TOFU has persisted any approved key.
+  Object? connectFailure;
+
+  /// Pause a completed handshake to model death before the pool receives it.
+  Completer<void>? connectGate;
 
   final List<RecordedOpenCall> calls = [];
 
@@ -202,6 +232,10 @@ class FakeTransportOpener {
         );
 
         final decision = await tofu.check(presented);
+        final verificationGate = growthVerificationGate;
+        if (prompting == ConnectPrompting.disabled && verificationGate != null) {
+          await verificationGate.future;
+        }
         if (!decision.isTrusted) {
           final approved = await onHostKey(decision);
           if (!approved) {
@@ -223,6 +257,9 @@ class FakeTransportOpener {
           }
         }
 
+        final failure = connectFailure;
+        if (failure != null) throw failure;
+
         final transport = FakeTransport(
           // Growth (prompting-disabled) connects re-authenticate
           // non-interactively, so they report a non-interactive kind even
@@ -233,6 +270,7 @@ class FakeTransportOpener {
           openLimit: transportOpenLimit,
         );
         call.transport = transport;
+        if (connectGate != null) await connectGate!.future;
         return transport;
       };
 
@@ -314,4 +352,9 @@ class PoolHarness {
   List<FakeChannel> get channels => [
         for (final transport in opener.transports) ...transport.channels,
       ];
+
+  /// Channels not yet closed — for "currently open" assertions that must
+  /// not count channels a teardown already closed.
+  Iterable<FakeChannel> get openChannels =>
+      channels.where((channel) => !channel.closed);
 }

@@ -764,9 +764,9 @@ overflows, the §6 cut lines apply — never quiet scope-dropping.
 - [ ] PORTS.md swept; port-back issues filed upstream per 04 §6.
 - [ ] `scripts/release.sh 1.0.0 --push` (the script takes the bare
       version and tags `v1.0.0` itself — AGENTS.md's documented
-      convention, matching `release.yml`'s `v*` trigger — the tag itself
-      is `git tag -s`-signed with the maintainer's local key, never a CI
-      secret, per §4); `release.yml`
+      convention, matching `release.yml`'s `v*` trigger — the tag is a
+      plain annotated tag per 00 D23's direct-publish decision);
+      `release.yml`
       green; assets
       install-tested on macOS, Windows, and one GNOME + one KDE Linux
       (fresh machines/VMs, following only the first-launch docs).
@@ -892,7 +892,7 @@ APK offered anywhere other than Releases still installs cleanly over an
 existing install precisely because the key is public. Tags are plain
 annotated tags and releases publish straight from CI with no human step
 (00 D23's 2026-09-03 decision change) — created hidden while the client
-matrix attaches assets, made public once the checksums, notes, and
+matrix attaches assets, made public by CI once the checksums, notes, and
 rehearsal-floor check are done. The release-notes checksums are an
 **integrity** channel, not an origin one — CI computes them alongside
 the artifacts it builds, so they catch corrupted downloads and foreign
