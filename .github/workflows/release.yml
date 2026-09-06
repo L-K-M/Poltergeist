@@ -425,9 +425,13 @@ jobs:
           else
             echo "release already published; leaving assets and notes untouched" >&2
           fi
-      # What the removed human ceremony did by hand, CI does here:
+      # What the removed human ceremony did by hand, CI does here —
       # re-download the full set and check every digest against the
-      # uploaded sums, so a corrupted upload never turns public.
+      # uploaded sums, catching corruption that appears between the two
+      # downloads (storage rot, a bad mirror, in-transit corruption).
+      # An asset corrupted at upload time is not caught: the sums
+      # certify whatever the release serves. Build-side digests from
+      # the client legs would close that gap.
       - name: Verify the uploaded asset set before publishing
         env:
           GH_TOKEN: ${{ github.token }}

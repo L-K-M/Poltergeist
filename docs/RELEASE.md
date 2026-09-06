@@ -27,8 +27,10 @@ sums job. `v0.*` tags publish as pre-releases automatically.
    IPA are rehearsal artifacts of the desktop codebase; D29) into the
    notes.
 3. Re-downloads every asset and re-checks each digest against
-   `SHA256SUMS`, then **publishes** the release — a corrupted upload
-   never goes public.
+   `SHA256SUMS`, then **publishes** the release — corruption introduced
+   after the sums were computed never goes public. (An asset corrupted
+   at upload time is not caught; the sums certify whatever the release
+   serves.)
 
 The public never sees a partial or sum-less release. A failed run leaves
 an invisible draft.

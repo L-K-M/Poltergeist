@@ -376,6 +376,12 @@ void main() {
           // `gh release edit --draft=false` publishes a draft just as
           // effectively as `gh release ready` — close that route too.
           expect(run, isNot(contains('--draft=false')));
+          // `gh release create` without --draft publishes immediately,
+          // bypassing the hidden-until-complete guarantee — any create
+          // step must keep the release in draft.
+          if (run.contains('gh release create')) {
+            expect(run, contains('--draft'));
+          }
         }
       }
     }

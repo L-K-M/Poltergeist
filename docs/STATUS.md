@@ -38,7 +38,8 @@ gaps, and decisions._
    matrix, and the release pipeline are done (see the Done table). The
    v0.1.0 rehearsal is verified end-to-end: the draft release carries the
    full seven-asset set, all sums recompute cleanly, the APK's signer
-   certificate is byte-identical to the committed CI keystore, and it is
+   certificate is byte-identical to the one inside the committed CI
+   keystore, and it is
    flagged pre-release. With D23's decision change to no-ceremony
    publishing, what remains is mechanical: land this decision-change PR,
    edit the verified draft's notes to drop the stale `SHA256SUMS.asc`
