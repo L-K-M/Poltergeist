@@ -54,6 +54,7 @@ class _PromptHarness {
         updatedAt: 0,
       ),
       resolveCredentials: (config, scope) {
+        final index = scopes.length;
         scopes.add(scope);
         final answer = Completer<ResolvedCredentials>();
         prompts.add(answer);
@@ -65,7 +66,6 @@ class _PromptHarness {
         // prompt, so a spurious dismissal can never hide behind the
         // answer having completed first.
         scope.dismissed.then<void>((_) {
-          final index = prompts.indexOf(answer);
           dismissedByPool[index] = true;
           if (answer.isCompleted) return;
           answer.completeError(const _PromptDismissed());
