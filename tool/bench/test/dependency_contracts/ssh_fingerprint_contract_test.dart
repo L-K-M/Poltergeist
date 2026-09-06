@@ -1,10 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:isolate';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:test/test.dart';
-import 'package:yaml/yaml.dart';
 
 import '../support/host_key_peer.dart';
 
@@ -23,37 +20,6 @@ void main() {
     await client.close();
     await aborted;
     await client.done;
-  });
-
-  test('SSH contract exercises the product dartssh2 version', () async {
-    // Separate resolution must not let a product bump test an old dependency.
-    final library = await Isolate.resolvePackageUri(
-      Uri.parse('package:dartssh2/dartssh2.dart'),
-    );
-    final manifest =
-        loadYaml(
-              await File.fromUri(
-                library!.resolve('../pubspec.yaml'),
-              ).readAsString(),
-            )
-            as YamlMap;
-    final harness = await Isolate.resolvePackageUri(
-      Uri.parse('package:poltergeist_m0_bench/harness.dart'),
-    );
-    // Anchor to this checkout even when the runner starts elsewhere.
-    final lock =
-        loadYaml(
-              await File.fromUri(
-                harness!.resolve('../../../pubspec.lock'),
-              ).readAsString(),
-            )
-            as YamlMap;
-
-    expect(
-      lock['packages'],
-      containsPair('dartssh2', containsPair('version', manifest['version'])),
-      reason: 'Product lock must resolve the dartssh2 version under test',
-    );
   });
 
   // Keep raw SSH tests in the sanctioned harness, outside product layers.

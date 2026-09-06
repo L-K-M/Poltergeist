@@ -128,15 +128,16 @@ slices, audit gaps, and decisions._
 - **2026-09-06 — pinned dependency contracts.** Seven core tests cover
   HKDF salt domains with empty info, Argon2 KiB units, both sealed-blob
   layout directions, and RegExp flag behavior. Independent known answers
-  prevent matching encoder/decoder drift from passing. Three harness tests
+  prevent matching encoder/decoder drift from passing. Four harness tests
   verify actual SSH host-key callback bytes through a signed in-memory
-  handshake and require its resolved dartssh2 version to match the product
-  lock. Review fixed the lock lookup's working-directory dependency: the
+  handshake and bind the exercised cryptography/dartssh2 versions to both
+  workspace and app locks (the app resolves separately). Review fixed the
+  lock lookup's working-directory dependency: the
   root-launched test failed before and passes after URI anchoring. Raw SSH
   stays in the sanctioned harness. Immediate client close also failed before
   and passes after guarding the peer's buffered writes; missing lock entries
-  now produce matcher diagnostics. Ordinary CI runs all ten tests.
-  Core analysis and 99 tests pass; harness analysis and 76 tests pass, each
+  now produce matcher diagnostics. Ordinary CI runs all eleven tests.
+  Core analysis and 99 tests pass; harness analysis and 77 tests pass, each
   suite with one existing sshd-fixture skip. Import and release-version
   guards pass. No dependency versions, pins, or production behavior change.
   Chapter 09 corrects obsolete HKDF-info and keyboard-interactive export

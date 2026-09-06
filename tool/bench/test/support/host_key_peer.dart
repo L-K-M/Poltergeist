@@ -25,6 +25,7 @@ const _lineFeed = 0x0a;
 
 /// Signs a real key exchange in memory, then stops at the trust callback.
 /// No sshd, sockets, authentication, or private transport access is needed.
+/// The client must verify the signed reply before NEWKEYS; none is sent here.
 class HostKeyPeer {
   static const hostKeyType = 'ssh-ed25519';
   // ssh-keygen -lf over the RFC 8032 public key in OpenSSH wire encoding.
