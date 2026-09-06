@@ -212,6 +212,7 @@ void main() {
     expect(harness.opener.calls, hasLength(2));
     expect(harness.opener.transports, hasLength(1));
     expect(fifthServed, isFalse);
+    expect(harness.credentialResolveCalls, 1);
 
     // Capped for good: releasing and re-leasing never grows again.
     final released = await leases[0];
@@ -230,6 +231,7 @@ void main() {
     await sixth;
     expect(harness.opener.calls, hasLength(2));
     expect(harness.opener.transports, hasLength(1));
+    expect(harness.credentialResolveCalls, 1);
   });
 
   test('a changed key hard-blocks the pool; nothing auto-repins', () async {

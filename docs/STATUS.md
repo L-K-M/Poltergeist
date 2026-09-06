@@ -132,7 +132,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
 - **2026-09-06 — credential lifetime and prompt provenance.** Config lookup
   now precedes pool lookup without resolving secrets. The serialized first
   connect resolves credentials once per pool; server references retain config
-  only. Pane/lease teardown and failed connects require fresh resolution.
+  only. Pane/lease teardown and failed first connects require fresh resolution.
   Explicit resolver prompt provenance caps growth even when SSH reports
   `storedPassword`. Late resolution cannot revive a disconnected pool;
   a surviving sibling keeps its pending resolution and active credentials.

@@ -385,7 +385,7 @@ connect, so sibling bookmarks neither resolve nor retain duplicate secrets.
 Its result carries explicit stored/prompted provenance: the SSH opener sees
 an ordinary supplied password and cannot infer an earlier UI prompt.
 Server references retain config only; teardown drops the pool's credential
-reference, and the next first connect resolves afresh, including after failure.
+reference, and the next first connect resolves afresh after first-connect failure.
 
 1. **The first connect is serialized.** One `openAuthenticatedClient` runs per
    **pool** (the §3.5 endpoint key, not per serverId — two bookmarks at
