@@ -476,6 +476,16 @@ jobs:
           draft=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
             --json isDraft --jq .isDraft) || exit 1
           if [ "$draft" = true ]; then
+            # The rehearsal checklist's flag check, automated: a v0.* tag
+            # must publish as a pre-release (07 3.2). Fail loud rather
+            # than publish a mis-flagged release.
+            case "$RELEASE_TAG" in v0.*) want=true ;; *) want=false ;; esac
+            got=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+              --json isPrerelease --jq .isPrerelease) || exit 1
+            [ "$got" = "$want" ] || {
+              echo "prerelease flag is '$got', expected '$want' for $RELEASE_TAG" >&2
+              exit 1
+            }
             gh release ready "$RELEASE_TAG" --repo "$REPO"
           else
             echo "release already published; nothing to do" >&2

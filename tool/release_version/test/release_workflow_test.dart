@@ -557,6 +557,15 @@ void main() {
       final probeError = await _runPublishStep(viewFails: true);
       expect(probeError.result.exitCode, isNot(0));
       expect(probeError.ghLog.existsSync(), isFalse);
+
+      // A v0.* draft whose pre-release flag drifted must not publish.
+      final misFlagged = await _runPublishStep(
+        isDraft: true,
+        isPrerelease: false,
+      );
+      expect(misFlagged.result.exitCode, isNot(0));
+      expect(misFlagged.result.stderr, contains('prerelease flag'));
+      expect(misFlagged.ghLog.existsSync(), isFalse);
     },
     skip: _posixOnly,
   );
@@ -962,11 +971,12 @@ case "$1" in
     details="$*"
     [[ "$tag" == "${FAKE_RELEASE_TAG:?}" ]] \
       || { echo "fake gh: wrong tag: $tag" >&2; exit 64; }
-    dir=""; notes=""
+    dir=""; notes=""; jsonField=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --dir)        dir="$2";   shift 2 ;;
         --notes-file) notes="$2"; shift 2 ;;
+        --json)       jsonField="$2"; shift 2 ;;
         *) shift ;;
       esac
     done
@@ -975,13 +985,17 @@ case "$1" in
         printf 'ready %s\n' "$details" >> "$log"
         ;;
       view)
-        # The isDraft probe (mutation/publish idempotency) — answers the
-        # env knobs so tests can drive draft/published/probe-error.
+        # The isDraft/isPrerelease probes (mutation/publish idempotency,
+        # flag assert) — dispatch on the requested --json field.
         if [[ "${FAKE_VIEW_FAIL:-0}" == 1 ]]; then
           echo "fake gh: view probe failure" >&2
           exit 70
         fi
-        printf '%s\n' "${FAKE_IS_DRAFT:-true}"
+        case "$jsonField" in
+          isDraft) printf '%s\n' "${FAKE_IS_DRAFT:-true}" ;;
+          isPrerelease) printf '%s\n' "${FAKE_IS_PRERELEASE:-true}" ;;
+          *) echo "fake gh: unexpected view field: $jsonField" >&2; exit 64 ;;
+        esac
         ;;
       download)
         [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
@@ -1094,6 +1108,7 @@ Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
 /// isDraft probe fails the step instead of reading as "published".
 Future<_PublishOutcome> _runPublishStep({
   bool isDraft = true,
+  bool isPrerelease = true,
   bool viewFails = false,
 }) async {
   final sandbox = Directory.systemTemp.createTempSync(
@@ -1120,6 +1135,7 @@ Future<_PublishOutcome> _runPublishStep({
         'REPO': 'owner/repo',
         'RELEASE_TAG': 'v0.1.0',
         'FAKE_IS_DRAFT': '$isDraft',
+        'FAKE_IS_PRERELEASE': '$isPrerelease',
         if (viewFails) 'FAKE_VIEW_FAIL': '1',
       },
     ),
