@@ -84,7 +84,11 @@ extension _PoolRecovery on PooledConnectionManager {
     }
     if (pool._reconnect != null) return;
 
-    final cycle = _ReconnectCycle(pool.interactiveOnly);
+    final cycle = _ReconnectCycle(
+      pool.interactiveOnly
+          ? ConnectPrompting.enabled
+          : ConnectPrompting.disabled,
+    );
     pool._reconnect = cycle;
     _setState(pool, ServerConnectionState.reconnecting);
     unawaited(
@@ -191,8 +195,10 @@ extension _PoolRecovery on PooledConnectionManager {
     if (status != ProbeStatus.online) throw const _ReconnectUnavailable();
     if (_hasLiveTransport(pool)) return;
 
+    final prompting = cycle._prompting;
     ResolvedCredentials? resolved;
-    if (cycle._refreshCredentials || pool.resolvedCredentials == null) {
+    if (prompting == ConnectPrompting.enabled ||
+        pool.resolvedCredentials == null) {
       final scope = _PoolResolution();
       pool._resolution = scope;
       pool.resolvedCredentials = null;
@@ -205,10 +211,8 @@ extension _PoolRecovery on PooledConnectionManager {
     }
 
     final credentials = resolved?.credentials ?? pool.resolvedCredentials!;
-    final prompting = cycle._refreshCredentials
-        ? ConnectPrompting.enabled
-        : ConnectPrompting.disabled;
     final hostKey = _hostKeyPrompterFor(pool, ConnectPrompting.disabled);
+    final attempt = cycle._authAttempt = Object();
     final SshTransport transport;
     try {
       transport = await _openTransport(
@@ -217,18 +221,18 @@ extension _PoolRecovery on PooledConnectionManager {
         tofu: _tofu,
         // Even an auth-prompting reconnect cannot approve an unknown key.
         onHostKey: (decision) async =>
-            _isCurrentReconnect(pool, cycle) ? hostKey(decision) : false,
-        onKeyboardInteractive: prompting == ConnectPrompting.enabled
-            ? _onKeyboardInteractive
-            : null,
+            _isCurrentAuth(pool, cycle, attempt) ? hostKey(decision) : false,
+        onKeyboardInteractive: _reconnectResponder(pool, cycle, attempt),
         prompting: prompting,
       );
     } on AuthChallengeRequiredError {
       if (_isCurrentReconnect(pool, cycle)) {
-        cycle._refreshCredentials = true;
+        cycle._prompting = ConnectPrompting.enabled;
         pool.resolvedCredentials = null;
       }
       rethrow;
+    } finally {
+      if (identical(cycle._authAttempt, attempt)) cycle._authAttempt = null;
     }
 
     if (!_isCurrentReconnect(pool, cycle)) {
@@ -251,6 +255,37 @@ extension _PoolRecovery on PooledConnectionManager {
     pool.transports.add(slot);
     _watchTransport(pool, slot);
     _updateIdleTimer(pool, slot);
+  }
+
+  bool _isCurrentAuth(
+    _EndpointPool pool,
+    _ReconnectCycle cycle,
+    Object attempt,
+  ) =>
+      _isCurrentReconnect(pool, cycle) &&
+      identical(cycle._authAttempt, attempt);
+
+  KeyboardInteractiveResponder? _reconnectResponder(
+    _EndpointPool pool,
+    _ReconnectCycle cycle,
+    Object attempt,
+  ) {
+    final responder = _onKeyboardInteractive;
+    if (responder == null || cycle._prompting == ConnectPrompting.disabled) {
+      return null;
+    }
+    return (prompts, name, instruction) async {
+      // A handshake can outlive both its pool and its retry attempt. Neither
+      // a late challenge nor a late answer may interact with that old socket.
+      if (!_isCurrentAuth(pool, cycle, attempt)) {
+        throw _disconnectedAcquisition();
+      }
+      final answers = await responder(prompts, name, instruction);
+      if (!_isCurrentAuth(pool, cycle, attempt)) {
+        throw _disconnectedAcquisition();
+      }
+      return answers;
+    };
   }
 
   Future<void> _rebindBrowse(_EndpointPool pool, _ReconnectCycle cycle) async {
@@ -306,11 +341,12 @@ class _ReconnectUnavailable implements Exception {
 /// across an unbounded outage. Late operations still have an error observer.
 class _ReconnectCycle {
   final _done = Completer<void>();
-  bool _refreshCredentials;
+  ConnectPrompting _prompting;
+  Object? _authAttempt;
   bool _cancelled = false;
   void Function()? _interrupt;
 
-  _ReconnectCycle(this._refreshCredentials) {
+  _ReconnectCycle(this._prompting) {
     _done.future.ignore(); // Recovery may have no folded acquisition caller.
   }
 

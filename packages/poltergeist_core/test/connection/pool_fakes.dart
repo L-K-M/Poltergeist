@@ -441,6 +441,8 @@ class PoolHarness {
   final List<CredentialResolutionScope> resolutionScopes = [];
   Completer<void>? credentialGate;
   Object? credentialFailure;
+  int keyboardCalls = 0;
+  Completer<List<String>>? keyboardGate;
 
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
@@ -474,8 +476,10 @@ class PoolHarness {
       onHostKey: (decision) => onHostKey(decision),
       // A trivial responder: interactive-auth servers still complete their
       // first connect, which is what the pool reasons about.
-      onKeyboardInteractive:
-          (prompts, name, instruction) async => List.filled(prompts.length, ''),
+      onKeyboardInteractive: (prompts, name, instruction) async {
+        keyboardCalls++;
+        return await keyboardGate?.future ?? List.filled(prompts.length, '');
+      },
       policy: policy,
       openTransport: this.opener.opener,
       prober: prober ?? FakeReconnectProber(),

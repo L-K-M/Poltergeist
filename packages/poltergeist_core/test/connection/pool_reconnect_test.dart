@@ -392,6 +392,92 @@ void main() {
     });
   }
 
+  test('late SSH challenges cannot prompt after reconnect cancellation', () {
+    fakeAsync((time) {
+      final h = PoolHarness(
+        opener: FakeTransportOpener(authKind: AuthKind.keyboardInteractive),
+      )..addServer('s1');
+      final pane = browsePane(time, h, 'a');
+      final handshake = h.opener.connectGate = Completer<void>();
+      h.opener.transports.single.die();
+      time.flushMicrotasks();
+      time.elapse(_firstDelay);
+      time.flushMicrotasks();
+      final responder = h.opener.calls.last.onKeyboardInteractive!;
+      completeWithoutTimers(time, pane.close());
+      completeWithoutTimers(
+        time,
+        expectLater(
+          responder(['Code'], '2FA', ''),
+          throwsA(isA<RemoteFileException>()),
+        ),
+      );
+      expect(h.keyboardCalls, 0);
+      handshake.complete();
+      time.flushMicrotasks();
+      expect(h.opener.transports.last.closed, isTrue);
+    });
+  });
+
+  test(
+    'a late SSH challenge answer cannot authenticate a cancelled recovery',
+    () {
+      fakeAsync((time) {
+        final h = PoolHarness(
+          opener: FakeTransportOpener(authKind: AuthKind.keyboardInteractive),
+        )..addServer('s1');
+        final pane = browsePane(time, h, 'a');
+        final handshake = h.opener.connectGate = Completer<void>();
+        h.opener.transports.single.die();
+        time.flushMicrotasks();
+        time.elapse(_firstDelay);
+        time.flushMicrotasks();
+        final answer = h.keyboardGate = Completer<List<String>>();
+        final response = h.opener.calls.last.onKeyboardInteractive!(
+          ['Code'],
+          '2FA',
+          '',
+        );
+        final failed = expectLater(
+          response,
+          throwsA(isA<RemoteFileException>()),
+        );
+        time.flushMicrotasks();
+        expect(h.keyboardCalls, 1);
+        completeWithoutTimers(time, pane.close());
+        answer.complete(['123456']);
+        completeWithoutTimers(time, failed);
+        handshake.complete();
+        time.flushMicrotasks();
+        expect(h.opener.transports.last.closed, isTrue);
+      });
+    },
+  );
+
+  test('a failed SSH attempt cannot prompt during the next retry delay', () {
+    fakeAsync((time) {
+      final h = PoolHarness(
+        opener: FakeTransportOpener(authKind: AuthKind.keyboardInteractive),
+      )..addServer('s1');
+      final pane = browsePane(time, h, 'a');
+      h.opener.connectFailure = Exception('Handshake failed');
+      h.opener.transports.single.die();
+      time.flushMicrotasks();
+      time.elapse(_firstDelay);
+      time.flushMicrotasks();
+      final responder = h.opener.calls.last.onKeyboardInteractive!;
+      completeWithoutTimers(
+        time,
+        expectLater(
+          responder(['Code'], '2FA', ''),
+          throwsA(isA<RemoteFileException>()),
+        ),
+      );
+      expect(h.keyboardCalls, 0);
+      completeWithoutTimers(time, pane.close());
+    });
+  });
+
   test('a cancelled credential prompt stops automatic retries', () {
     fakeAsync((time) {
       final h = PoolHarness(
