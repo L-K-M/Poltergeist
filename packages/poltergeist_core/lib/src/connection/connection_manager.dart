@@ -665,6 +665,10 @@ class PooledConnectionManager implements ConnectionManager {
         ? ServerConnectionState.blocked
         : ServerConnectionState.connecting);
 
+    // Dead-slot eviction can leave a cached secret. A fresh attempt must
+    // neither retain it on failure nor lend it to growth while resolving.
+    pool.resolvedCredentials = null;
+
     try {
       // Serialize vault access with first connect; joining bookmarks need
       // only metadata. Never open with a secret returned to a retired pool.

@@ -183,6 +183,56 @@ void main() {
     expect(harness.opener.calls.last.credentials.password, _replacementSecret);
   });
 
+  test(
+    'fresh resolution prevents growth with an evicted transport secret',
+    () async {
+      await harness.manager.openBrowseChannel('s1', paneTabId: 'keep');
+      final original = harness.opener.transports.single;
+      final firstGate = original.openGate = Completer<void>();
+      final first = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+      final firstOutcome = expectLater(first, _disconnected);
+      await _flush();
+      final secondGate = original.openGate = Completer<void>();
+      final second = harness.manager
+          .openBrowseChannel('s1', paneTabId: 'b')
+          .then<void>((_) {}, onError: (Object _) {});
+      await _flush();
+
+      // Evict the only transport, leaving another acquisition mid-open.
+      const disconnected = RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'open SFTP',
+        message: 'Transport died during channel open.',
+      );
+      original.closed = true;
+      harness.opener.connectFailure = Exception('growth unavailable');
+      firstGate.completeError(disconnected);
+      await firstOutcome;
+      final callsBeforeResolution = harness.opener.calls.length;
+      expect(callsBeforeResolution, 2);
+
+      final resolveGate = harness.resolveGate = Completer<void>();
+      harness.secret = _replacementSecret;
+      harness.opener.connectFailure = null;
+      final fresh = harness.manager.openBrowseChannel('s2', paneTabId: 'fresh');
+      await _flush();
+      expect(harness.resolutions, 2);
+
+      // The older acquisition must not grow with the abandoned cached secret.
+      secondGate.completeError(disconnected);
+      await second;
+      final callsDuringResolution = harness.opener.calls.length;
+      resolveGate.complete();
+      await fresh;
+
+      expect(callsDuringResolution, callsBeforeResolution);
+      expect(
+        harness.opener.calls.last.credentials.password,
+        _replacementSecret,
+      );
+    },
+  );
+
   test('failed credential resolution leaves the pool retryable', () async {
     final failure = StateError('vault locked');
     harness.resolveFailure = failure;

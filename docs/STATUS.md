@@ -136,8 +136,10 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   Explicit resolver prompt provenance caps growth even when SSH reports
   `storedPassword`. Late resolution cannot revive a disconnected pool;
   a surviving sibling keeps its pending resolution and active credentials.
-  Six regressions failed before their repairs; 12 credential tests and all
-  91 core tests pass (one fixture skip), with clean core analysis. Chapter 03
+  Fresh attempts discard credentials left by dead-slot eviction before
+  resolving, preventing concurrent growth from borrowing that stale secret.
+  Seven regressions failed before their repairs; 13 credential tests and all
+  92 core tests pass (one fixture skip), with clean core analysis. Chapter 03
   clarifies the resolution boundary and teardown lifetime. This closes
   item 6's credential gap; items 5 and 7 still gate production integration.
 
