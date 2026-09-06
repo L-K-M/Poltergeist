@@ -165,8 +165,12 @@ Future<BatchCommandSession> _startSession({
   final process = await Process.start('/bin/sh', ['-c', script]);
   // A failed expectation can abort the test before session.close(); the
   // gated fixture then blocks on its release read forever. Kill on teardown
-  // so no fixture can outlive its test (a no-op on already-exited shells).
-  addTearDown(process.kill);
+  // and await the exit so no fixture can outlive its test (a no-op await
+  // for shells that already exited).
+  addTearDown(() async {
+    process.kill();
+    await process.exitCode;
+  });
   return BatchCommandSession(
     process,
     shutdownGracePeriod: shutdownGracePeriod ?? const Duration(seconds: 10),
