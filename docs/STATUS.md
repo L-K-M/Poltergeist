@@ -52,7 +52,7 @@ or disconnecting cancels timers/credential resolutions; stale results close
 instead of reviving bindings. SSH challenges and answers are bound to their
 live authentication attempt. Leases are not rebound or operations replayed.
 
-Validation: 23 socket-free recovery tests; core analysis and 165 tests pass
+Validation: 27 socket-free recovery tests; core analysis and 169 tests pass
 (one existing fixture skip); Flutter analysis and 121 tests pass. Existing
 trust/credential/idle tests now account for automatic recovery instead of
 assuming dead bindings remain indefinitely. Two new regressions failed before
@@ -62,6 +62,9 @@ failed before adding authentication-attempt guards: late challenges after
 cancellation, late answers, and challenges from a failed retry attempt.
 Review caught unnecessary credential re-resolution on interactive-capped
 pools; two regressions failed before restoring cached-first recovery.
+Round 2 isolated permanent home failures to their pane and stopped retries
+for resolver/unclassified exceptions. Three regressions failed before repair;
+a fourth pins continued retry for transport `SshConnectException`s.
 
 Engine callers must pass the failed operation's VFS identity to `reportFailure`
 and refresh current paths after recovery. The protocol/UI must also dismiss
@@ -132,6 +135,10 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      (regressions: `pool_resolution_dismissal_test.dart`). Remaining:
      carry cancellation through the engine protocol (03 §5) when that
      slice lands.
+   - **2026-09-07 — recovery diagnostics (review follow-up):** deliver
+     terminal background recovery errors to the engine's local diagnostic
+     event/log path when no acquisition awaits them. This belongs with the
+     engine/protocol and live transcript slices; no telemetry (D19).
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This

@@ -66,6 +66,8 @@ abstract interface class ConnectionManager {
 
 /// A browse channel bound to one pane-tab (03 §3.2).
 abstract interface class PaneChannel {
+  /// The current VFS, or this binding's permanent recovery error. A failed
+  /// binding requires an explicit open; healthy siblings stay connected.
   RemoteFileSystem get fs;
 
   /// `canonicalize('.')` at open — the server-side home, Séance-style.
@@ -1549,12 +1551,18 @@ class _PaneChannelView implements PaneChannel {
   final String _serverId;
   final String _paneTabId;
   _ChannelHandle _handle;
+  RemoteFileException? _failure;
 
   _PaneChannelView(
       this._manager, this._pool, this._serverId, this._paneTabId, this._handle);
 
   @override
-  RemoteFileSystem get fs => _manager._liveFileSystem(_pool, _handle);
+  RemoteFileSystem get fs {
+    _manager._throwIfBlocked(_pool);
+    final failure = _failure;
+    if (failure != null) throw failure;
+    return _manager._liveFileSystem(_pool, _handle);
+  }
 
   @override
   void reportFailure(RemoteFileSystem source, RemoteFileException error) {

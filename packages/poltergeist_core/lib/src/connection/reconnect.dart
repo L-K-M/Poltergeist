@@ -148,9 +148,16 @@ extension _PoolRecovery on PooledConnectionManager {
           return;
         } on Exception catch (error) {
           _checkReconnect(pool, cycle);
-          // Cancellation and permanent VFS failures need explicit user retry.
-          if (error is RemoteFileException &&
-              error.kind != RemoteFileErrorKind.disconnected) {
+          // Resolver failures need user action, even when their cause looks
+          // like a network error. Transport failures keep their retry path.
+          if (error is _ReconnectResolutionFailure) {
+            Error.throwWithStackTrace(error._cause, error._stack);
+          }
+          if (error is RemoteFileException) {
+            if (error.kind != RemoteFileErrorKind.disconnected) rethrow;
+          } else if (error is! AuthChallengeRequiredError &&
+              error is! _ReconnectUnavailable &&
+              error is! SshConnectException) {
             rethrow;
           }
           failures++;
@@ -201,6 +208,8 @@ extension _PoolRecovery on PooledConnectionManager {
       try {
         resolved = await _resolveCredentials(config, scope);
         _checkReconnect(pool, cycle);
+      } on Object catch (error, stack) {
+        throw _ReconnectResolutionFailure(error, stack);
       } finally {
         if (identical(pool._resolution, scope)) pool._resolution = null;
       }
@@ -319,14 +328,26 @@ extension _PoolRecovery on PooledConnectionManager {
         if (!identical(pool.browseByClient[key], binding)) continue;
         if (error.kind == RemoteFileErrorKind.disconnected) {
           _handleTransportDeath(pool, handle.slot);
+          rethrow;
         }
-        rethrow;
+        // One inaccessible home must not disconnect healthy siblings. The
+        // old view exposes its error; an explicit open may retry this tab.
+        binding._failure = error;
+        pool.browseByClient.remove(key);
+        binding._handle.browseClients--;
       } finally {
         // A close/replacement can win while canonicalize awaits.
         if (handle.browseClients == 0) await _closeHandle(pool, handle);
       }
     }
   }
+}
+
+class _ReconnectResolutionFailure implements Exception {
+  final Object _cause;
+  final StackTrace _stack;
+
+  _ReconnectResolutionFailure(this._cause, this._stack);
 }
 
 class _ReconnectUnavailable implements Exception {

@@ -335,6 +335,115 @@ void main() {
     });
   });
 
+  test('permanent home failure leaves healthy sibling bindings connected', () {
+    fakeAsync((time) {
+      final h = PoolHarness(
+        policy: const PoolPolicy(
+          maxChannelsPerTransport: 1,
+          maxTransferChannelsPerTransport: 1,
+        ),
+      )..addServer('s1');
+      final a = browsePane(time, h, 'a');
+      final b = browsePane(time, h, 'b');
+      final healthy = h.opener.transports.last;
+      final handshake = h.opener.connectGate = Completer<void>();
+      h.opener.transports.first.die();
+      time.flushMicrotasks();
+      final replacement = h.opener.transports.last;
+      final home = replacement.canonicalizeGate = Completer<void>();
+      h.opener.connectGate = null;
+      handshake.complete();
+      time.flushMicrotasks();
+      const denied = RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'canonicalize',
+        message: 'Home inaccessible.',
+      );
+      home.completeError(denied);
+      time.flushMicrotasks();
+      expect(healthy.closed, isFalse);
+      expect(b.fs, isA<RemoteFileSystem>());
+      expect(() => a.fs, throwsA(same(denied)));
+      expect(completeWithoutTimers(time, h.manager.connectedServerIds()), {
+        's1',
+      });
+      replacement.canonicalizeGate = null;
+      final retry = browsePane(time, h, 'a');
+      expect(retry, isNot(same(a)));
+      completeWithoutTimers(time, a.close());
+      expect(retry.fs, isA<RemoteFileSystem>());
+      completeWithoutTimers(time, retry.close());
+      completeWithoutTimers(time, b.close());
+      expect(time.pendingTimers, isEmpty);
+    });
+  });
+
+  test(
+    'credential resolution exceptions stop recovery with the original error',
+    () {
+      fakeAsync((time) {
+        final h = PoolHarness(
+          opener: FakeTransportOpener(growthRequiresChallenge: true),
+        )..addServer('s1');
+        browsePane(time, h, 'a');
+        final failure = h.credentialFailure = Exception('Vault locked');
+        h.opener.transports.single.die();
+        time.flushMicrotasks();
+        final waiting = h.manager.openBrowseChannel('s1', paneTabId: 'b');
+        final failed = expectLater(waiting, throwsA(same(failure)));
+        time.elapse(const Duration(seconds: 3));
+        completeWithoutTimers(time, failed);
+        expect(h.credentialResolveCalls, 2);
+        expect(time.pendingTimers, isEmpty);
+        completeWithoutTimers(time, h.manager.disconnectServer('s1'));
+      });
+    },
+  );
+
+  test('unclassified opener exceptions stop rather than retrying blindly', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+      browsePane(time, h, 'a');
+      final failure = h.opener.connectFailure = Exception(
+        'Invalid configuration',
+      );
+      h.opener.transports.single.die();
+      time.flushMicrotasks();
+      final failed = expectLater(
+        h.manager.openBrowseChannel('s1', paneTabId: 'b'),
+        throwsA(same(failure)),
+      );
+      time.elapse(_firstDelay);
+      completeWithoutTimers(time, failed);
+      expect(time.pendingTimers, isEmpty);
+      completeWithoutTimers(time, h.manager.disconnectServer('s1'));
+    });
+  });
+
+  test('transport connection failures still retry with cached credentials', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+      final pane = browsePane(time, h, 'a');
+      h.opener.connectFailure = SshConnectException(
+        'Connection timed out',
+        TimeoutException('TCP timeout'),
+        SshConnectionLog(),
+      );
+      h.opener.transports.single.die();
+      time.flushMicrotasks();
+      time.elapse(_firstDelay);
+      time.flushMicrotasks();
+      expect(h.opener.calls, hasLength(2));
+      h.opener.connectFailure = null;
+      time.elapse(const Duration(seconds: 2));
+      time.flushMicrotasks();
+      expect(h.opener.calls, hasLength(3));
+      expect(h.credentialResolveCalls, 1);
+      expect(pane.fs, isA<RemoteFileSystem>());
+      completeWithoutTimers(time, pane.close());
+    });
+  });
+
   test('backoff resets after a successful recovery', () {
     fakeAsync((time) {
       final prober = FakeReconnectProber()..status = ProbeStatus.offline;
@@ -497,7 +606,11 @@ void main() {
         ),
       )..addServer('s1');
       final pane = browsePane(time, h, 'a');
-      h.opener.connectFailure = Exception('Handshake failed');
+      h.opener.connectFailure = SshConnectException(
+        'Handshake failed',
+        TimeoutException('SSH timeout'),
+        SshConnectionLog(),
+      );
       h.opener.transports.single.die();
       time.flushMicrotasks();
       time.elapse(const Duration(seconds: 3));
@@ -511,6 +624,9 @@ void main() {
         ),
       );
       expect(h.keyboardCalls, 0);
+      // The cycle is still retrying: the attempt guard, not pool cancellation,
+      // must reject the obsolete callback.
+      expect(time.pendingTimers, hasLength(1));
       completeWithoutTimers(time, pane.close());
     });
   });

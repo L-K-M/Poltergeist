@@ -525,11 +525,16 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   auth prompts. Every recovery first tries cached credentials without
   prompting, including interactive-capped pools: a growth cap does not
   require another prompt when the cached credential still works. An auth
-  challenge re-enters vault/prompt resolution; a cancelled resolution stops
-  recovery. Background recovery never approves
+  challenge re-enters vault/prompt resolution. Resolver failures and
+  unclassified opener exceptions stop recovery for explicit user retry;
+  transport `SshConnectException`s, disconnected VFS errors, and offline
+  probes retain backoff. Background recovery never approves
   host keys: a changed key hard-blocks until explicit review (D18).
   A `PaneChannel` keeps its identity while its dead handle is replaced,
-  resolving `canonicalize('.')` again. Closing it during recovery removes
+  resolving `canonicalize('.')` again. A permanent home-resolution error
+  detaches only that binding: its `fs` getter exposes the original error,
+  and an explicit open retries it. Healthy sibling bindings and leases
+  stay connected. Closing a binding during recovery removes
   its demand; stale completions cannot reopen it. Leases are not rebound:
   the queue releases and reacquires them. Engine callers report VFS
   failures through the channel/lease's `reportFailure`, passing the VFS
