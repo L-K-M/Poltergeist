@@ -62,6 +62,43 @@ const example = "package:flutter/widgets.dart";
     await fixture.expectExit(1, 'native_paths');
   });
 
+  for (final package in [
+    'flutter',
+    'flutter_test',
+    'flutter_driver',
+    'flutter_localizations',
+    'flutter_web_plugins',
+    'integration_test',
+    'sky_engine',
+    'flutter_gpu',
+  ]) {
+    test('reports unresolved SDK package $package as a violation', () async {
+      await fixture.write(
+        '$_core/lib/core.dart',
+        "import 'package:$package/api.dart';",
+      );
+      await fixture.expectExit(1, package);
+    });
+  }
+
+  test('missing package configuration gives shell remediation', () async {
+    await File(
+      p.join(fixture.root.path, '.dart_tool/package_config.json'),
+    ).delete();
+    await fixture.expectScriptExit(2, 'run dart pub get');
+  });
+
+  test(
+    'reports interpolated directives without a null-check failure',
+    () async {
+      await fixture.write(
+        '$_core/lib/core.dart',
+        r"import 'package:$name/api.dart';",
+      );
+      await fixture.expectExit(1, 'non-constant import/export URI');
+    },
+  );
+
   test('rejects an unused declared plugin', () async {
     await fixture.package('native_paths', 'flutter: {plugin: {platforms: {}}}');
     await fixture.write('$_core/pubspec.yaml', '''
@@ -345,7 +382,9 @@ class _Fixture {
       [p.join(root.path, 'scripts/check-imports.sh')],
       environment: {
         'PATH':
-            '${p.dirname(Platform.resolvedExecutable)}:${Platform.environment['PATH']}',
+            '${p.dirname(Platform.resolvedExecutable)}'
+            '${Platform.isWindows ? ';' : ':'}'
+            '${Platform.environment['PATH']}',
       },
     );
     expect(result.exitCode, code, reason: '${result.stdout}\n${result.stderr}');

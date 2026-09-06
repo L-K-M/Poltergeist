@@ -143,8 +143,10 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   chains, unused declarations, and local overrides are checked. External
   development dependencies do not classify a pure library as Flutter.
   Missing/malformed metadata and linked scan inputs fail closed; generated
-  Apple `Pods` trees are excluded. Nine regressions failed before their
-  repairs; 59 guard tests and the real repository
+  Apple `Pods` trees are excluded. Review added explicit diagnostics for
+  unresolved Flutter SDK imports, interpolated directives, and missing
+  package configuration. Nineteen regressions failed before their repairs;
+  69 guard tests and the real repository
   scan pass. CI now analyzes and tests the guard. Existing dependency
   versions and Séance pins are unchanged. This closes item 6's import-guard
   gap; dependency-contract tests and item 5's ordering escalation remain.

@@ -9,6 +9,19 @@ const dependencySections = [
   'dependency_overrides',
 ];
 
+// SDK packages are absent from pure-Dart resolution. Classify their imports
+// directly so the diagnostic identifies a boundary violation, not setup work.
+const _flutterSdkPackages = {
+  'flutter',
+  'flutter_test',
+  'flutter_driver',
+  'flutter_localizations',
+  'flutter_web_plugins',
+  'integration_test',
+  'sky_engine',
+  'flutter_gpu',
+};
+
 /// Uses pub's resolved revisions, including path/git overrides, without network I/O.
 class DependencyGraph {
   DependencyGraph._(this._config);
@@ -31,6 +44,7 @@ class DependencyGraph {
       final trail = pending[index];
       final current = trail.last;
       if (!visited.add(current)) continue;
+      if (_flutterSdkPackages.contains(current)) return trail.join(' -> ');
 
       final pubspec = await _pubspec(current);
       if (requiresFlutter(pubspec)) return trail.join(' -> ');

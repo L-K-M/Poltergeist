@@ -122,7 +122,12 @@ Future<List<String>> _checkSource(
       ...directive.configurations.map((config) => config.uri),
     ];
     for (final literal in literals) {
-      final uri = Uri.parse(literal.stringValue!);
+      final text = literal.stringValue;
+      if (text == null) {
+        violations.add('$relative: non-constant import/export URI');
+        continue;
+      }
+      final uri = Uri.parse(text);
       final package = uri.scheme == 'package' ? uri.pathSegments.first : null;
       if (package == 'dartssh2' &&
           !p.posix.isWithin(_connectionDirectory, relative)) {
