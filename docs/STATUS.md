@@ -131,7 +131,9 @@ slices, audit gaps, and decisions._
   prevent matching encoder/decoder drift from passing. Two harness tests
   verify actual SSH host-key callback bytes through a signed in-memory
   handshake and require its resolved dartssh2 version to match the product
-  lock. Raw SSH stays in the sanctioned harness; ordinary CI runs all nine.
+  lock. Review fixed the lock lookup's working-directory dependency: the
+  root-launched test failed before and passes after URI anchoring. Raw SSH
+  stays in the sanctioned harness; ordinary CI runs all nine.
   Core analysis and 99 tests pass; harness analysis and 75 tests pass, each
   suite with one existing sshd-fixture skip. Import and release-version
   guards pass. No dependency versions, pins, or production behavior change.

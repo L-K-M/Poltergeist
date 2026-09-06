@@ -10,7 +10,7 @@ import '../support/host_key_peer.dart';
 
 void main() {
   test('SSH contract exercises the product dartssh2 version', () async {
-    // The harness resolves separately; a product bump must not test an old SDK.
+    // Separate resolution must not let a product bump test an old dependency.
     final library = await Isolate.resolvePackageUri(
       Uri.parse('package:dartssh2/dartssh2.dart'),
     );
@@ -21,8 +21,17 @@ void main() {
               ).readAsString(),
             )
             as YamlMap;
+    final harness = await Isolate.resolvePackageUri(
+      Uri.parse('package:poltergeist_m0_bench/harness.dart'),
+    );
+    // Anchor to this checkout even when the runner starts elsewhere.
     final lock =
-        loadYaml(await File('../../pubspec.lock').readAsString()) as YamlMap;
+        loadYaml(
+              await File.fromUri(
+                harness!.resolve('../../../pubspec.lock'),
+              ).readAsString(),
+            )
+            as YamlMap;
 
     expect(manifest['version'], lock['packages']['dartssh2']['version']);
   });
