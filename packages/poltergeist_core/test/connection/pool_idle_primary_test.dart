@@ -12,17 +12,6 @@ const _policy = PoolPolicy(
   maxChannelsPerTransport: 1,
 );
 
-PaneChannel _browse(
-  FakeAsync time,
-  PoolHarness harness,
-  String tab, {
-  String server = 's1',
-}) =>
-    completeWithoutTimers(
-      time,
-      harness.manager.openBrowseChannel(server, paneTabId: tab),
-    );
-
 PaneChannel _replaceDeadFirst(
   FakeAsync time,
   PoolHarness harness,
@@ -52,7 +41,7 @@ void main() {
   test('an extra keeps its release policy after the first transport dies', () {
     fakeAsync((time) {
       final harness = PoolHarness(policy: _policy)..addServer('s1');
-      final firstPane = _browse(time, harness, 'first');
+      final firstPane = browsePane(time, harness, 'first');
       final lease = completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),
@@ -78,8 +67,8 @@ void main() {
   test('an empty extra still expires after the first transport dies', () {
     fakeAsync((time) {
       final harness = PoolHarness(policy: _policy)..addServer('s1');
-      final firstPane = _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      final firstPane = browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
 
       // The extra is at its channel cap, so the replacement forced a new
@@ -105,11 +94,11 @@ void main() {
       final harness = PoolHarness(policy: _policy)
         ..addServer('s1')
         ..addServer('s2');
-      final firstPane = _browse(time, harness, 'first');
+      final firstPane = browsePane(time, harness, 'first');
       // A second bookmark on the shared endpoint keeps the pool referenced
       // after the replacement pane closes, so only the idle clock — not
       // pane-lifetime teardown — can retire the grown transport.
-      final keeper = _browse(time, harness, 'keeper', server: 's2');
+      final keeper = browsePane(time, harness, 'keeper', server: 's2');
       final extra = harness.opener.transports.last;
 
       final replacement =
@@ -141,9 +130,9 @@ void main() {
         maxChannelsPerTransport: 2,
       );
       final harness = PoolHarness(policy: policy)..addServer('s1');
-      _browse(time, harness, 'stale-primary-binding');
-      final firstPane = _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'stale-primary-binding');
+      final firstPane = browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
 
       // Evict the primary while another pane still has its old binding.

@@ -469,9 +469,10 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   `maxChannelsPerTransport`, and those channels are never "leased" (only
   `leaseTransferChannel` grants a lease). To make "no channels" precise
   with returned-channel caching, a returned transfer channel serves queued
-  demand first; if still unused on an extra transport, it closes instead
-  of remaining cached indefinitely. The first transport may cache returned
-  channels. Pending channel opens and closes also prevent idle expiry;
+  demand first; at idle expiry, if still unused on an extra transport, it
+  closes instead of remaining cached indefinitely. The first transport may
+  cache returned channels. Pending channel opens and closes also prevent
+  idle expiry;
   the timeout starts after the last close completes and restarts after
   renewed channel use. This keeps cached channels from pinning extras
   forever without closing a channel still owned by a caller. The first

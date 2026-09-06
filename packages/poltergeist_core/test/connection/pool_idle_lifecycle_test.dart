@@ -35,16 +35,6 @@ PoolHarness _harness({FakeTransportOpener? opener}) =>
       ..addServer('s1')
       ..addServer('s2');
 
-PaneChannel _browse(
-  FakeAsync time,
-  PoolHarness harness,
-  String tab, {
-  String server = 's1',
-}) => completeWithoutTimers(
-  time,
-  harness.manager.openBrowseChannel(server, paneTabId: tab),
-);
-
 void _disconnect(FakeAsync time, PoolHarness harness) {
   // Safe by contract: disconnectServer is a no-op for an unknown or
   // already-disconnected id, so re-disconnects and never-added ids are fine.
@@ -57,7 +47,7 @@ void main() {
   test('extra idle time starts after channel closure finishes', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
+      browsePane(time, harness, 'first');
       final lease = completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),
@@ -90,12 +80,12 @@ void main() {
   test('shared extra browse channel expires only after its last binding', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
 
       // Refresh the first tab so the extra channel is the LRU sharing victim.
-      _browse(time, harness, 'first');
-      final sibling = _browse(time, harness, 'shared', server: 's2');
+      browsePane(time, harness, 'first');
+      final sibling = browsePane(time, harness, 'shared', server: 's2');
       final extra = harness.opener.transports.last;
       // s1 and s2 resolve to the same endpoint in this harness (the fake's
       // default host/port), so one pool serves both and may bind this pane
@@ -124,8 +114,8 @@ void main() {
   test('an extra browse pane retains the empty first transport', () {
     fakeAsync((time) {
       final harness = _harness();
-      final firstPane = _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra', server: 's2');
+      final firstPane = browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra', server: 's2');
       final first = harness.opener.transports.first;
 
       completeWithoutTimers(time, firstPane.close());
@@ -148,8 +138,8 @@ void main() {
     () {
       fakeAsync((time) {
         final harness = _harness();
-        _browse(time, harness, 'first');
-        final extraPane = _browse(time, harness, 'extra');
+        browsePane(time, harness, 'first');
+        final extraPane = browsePane(time, harness, 'extra');
         final first = harness.opener.transports.first;
         final extra = harness.opener.transports.last;
         completeWithoutTimers(time, extraPane.close());
@@ -175,8 +165,8 @@ void main() {
   test('host-key block cancels idle timers before transport cleanup', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra', server: 's2');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra', server: 's2');
       final first = harness.opener.transports.first;
       final extra = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
@@ -226,8 +216,8 @@ void main() {
   test('delayed failing idle close preserves a replacement transport', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
       final gate = extra.closeGate = Completer<void>();
       extra.closeFailure = StateError('transport cleanup');
@@ -241,7 +231,7 @@ void main() {
       // arrives — the exact race this test exercises.
       expect(extra.closeCompleted, isFalse);
 
-      final replacement = _browse(time, harness, 'replacement', server: 's2');
+      final replacement = browsePane(time, harness, 'replacement', server: 's2');
       final current = harness.opener.transports.last;
       expect(current, isNot(same(extra)));
       expect(harness.opener.calls, hasLength(3));
@@ -271,7 +261,7 @@ void main() {
       final harness = _harness(
         opener: FakeTransportOpener(transportOpenLimits: [1, 0]),
       );
-      _browse(time, harness, 'first');
+      browsePane(time, harness, 'first');
       TransferChannelLease? granted;
       Object? leaseError;
       final waiting = harness.manager.leaseTransferChannel('s1');

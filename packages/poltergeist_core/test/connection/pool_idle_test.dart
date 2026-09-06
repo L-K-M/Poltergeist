@@ -18,16 +18,6 @@ PoolHarness _harness() => PoolHarness(policy: _policy)
   ..addServer('s1')
   ..addServer('s2');
 
-PaneChannel _browse(
-  FakeAsync time,
-  PoolHarness harness,
-  String tab, {
-  String server = 's1',
-}) => completeWithoutTimers(
-  time,
-  harness.manager.openBrowseChannel(server, paneTabId: tab),
-);
-
 void _disconnect(FakeAsync time, PoolHarness harness) {
   // Safe by contract: disconnectServer is a no-op for an unknown or
   // already-disconnected id, so re-disconnects and never-added ids are fine.
@@ -40,8 +30,8 @@ void main() {
   test('empty extra transport closes at the idle deadline', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
 
@@ -61,8 +51,8 @@ void main() {
   test('browse channels on shared bookmarks prevent idle expiry', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      _browse(time, harness, 'extra', server: 's2');
+      browsePane(time, harness, 'first');
+      browsePane(time, harness, 'extra', server: 's2');
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.every((t) => !t.closed), isTrue);
       expect(time.pendingTimers, isEmpty);
@@ -75,7 +65,7 @@ void main() {
     () {
       fakeAsync((time) {
         final harness = _harness();
-        _browse(time, harness, 'first');
+        browsePane(time, harness, 'first');
         final lease = completeWithoutTimers(
           time,
           harness.manager.leaseTransferChannel('s1'),
@@ -98,7 +88,7 @@ void main() {
   test('queued lease receives the returned channel before idle cleanup', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
+      browsePane(time, harness, 'first');
       final lease = completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),
@@ -129,13 +119,13 @@ void main() {
   test('new channel use cancels expiry and restarts the full idle timeout', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
       time.elapse(_beforeExpiry);
 
-      final replacement = _browse(time, harness, 'replacement');
+      final replacement = browsePane(time, harness, 'replacement');
       time.elapse(_lastSecond);
       expect(extra.closed, isFalse);
       completeWithoutTimers(time, replacement.close());
@@ -150,8 +140,8 @@ void main() {
   test('pending channel open prevents expiry before a handle exists', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
       time.elapse(_beforeExpiry);
@@ -173,18 +163,25 @@ void main() {
   test('home resolution holds the extra transport through the deadline', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
 
       final gate = extra.canonicalizeGate = Completer<void>();
-      final opening = harness.manager.openBrowseChannel('s1', paneTabId: 'new');
+      final opening =
+          harness.manager.openBrowseChannel('s1', paneTabId: 'new');
+      opening.ignore();
       time.flushMicrotasks();
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(extra.closed, isFalse);
       gate.complete();
-      completeWithoutTimers(time, opening);
+      final pane = completeWithoutTimers(time, opening);
+      // The hold must be released with the resolution: the emptied extra
+      // expires normally afterwards.
+      completeWithoutTimers(time, pane.close());
+      time.elapse(_policy.idleExtraTransportTimeout);
+      expect(extra.closed, isTrue);
       _disconnect(time, harness);
     });
   });
@@ -192,13 +189,13 @@ void main() {
   test('expiry frees capacity for later prompting-disabled growth', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       final expired = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
       time.elapse(_policy.idleExtraTransportTimeout);
 
-      _browse(time, harness, 'new');
+      browsePane(time, harness, 'new');
       expect(expired.closed, isTrue);
       expect(harness.opener.calls, hasLength(3));
       expect(harness.opener.calls.last.prompting, ConnectPrompting.disabled);
@@ -209,7 +206,7 @@ void main() {
   test('the first transport stays alive while its last channel is leased', () {
     fakeAsync((time) {
       final harness = PoolHarness()..addServer('s1');
-      final pane = _browse(time, harness, 'first');
+      final pane = browsePane(time, harness, 'first');
       final lease = completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),
@@ -229,13 +226,13 @@ void main() {
   test('disconnect cancels old idle timers before the server reconnects', () {
     fakeAsync((time) {
       final harness = _harness();
-      _browse(time, harness, 'first');
-      final extraPane = _browse(time, harness, 'extra');
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
       completeWithoutTimers(time, extraPane.close());
       expect(time.nonPeriodicTimerCount, 1);
       _disconnect(time, harness);
 
-      _browse(time, harness, 'replacement');
+      browsePane(time, harness, 'replacement');
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(harness.opener.transports.last.closed, isFalse);
       _disconnect(time, harness);

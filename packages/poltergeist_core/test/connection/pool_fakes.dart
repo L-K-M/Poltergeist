@@ -26,6 +26,19 @@ T completeWithoutTimers<T>(FakeAsync time, Future<T> future) {
   return result;
 }
 
+/// Opens a browse pane-tab synchronously to completion — the common opening
+/// move of every pool suite.
+PaneChannel browsePane(
+  FakeAsync time,
+  PoolHarness harness,
+  String tab, {
+  String server = 's1',
+}) =>
+    completeWithoutTimers(
+      time,
+      harness.manager.openBrowseChannel(server, paneTabId: tab),
+    );
+
 /// In-memory TOFU pin store (tests never touch real persistence).
 class FakeHostKeyStore implements HostKeyStore {
   final Map<String, HostKey> pins = {};
@@ -80,6 +93,9 @@ class FakeChannel implements SftpChannel {
 
   /// Whether [close] has settled — [closed] flips at close() entry, so
   /// a gated close distinguishes "started" from "finished" only here.
+  /// A FAILED close also counts as settled: production bookkeeping frees
+  /// the slot when the close settles regardless of outcome, and the fake
+  /// models that server-side assumption.
   bool closeCompleted = false;
 
   FakeChannel(this.fs);
@@ -220,9 +236,11 @@ class FakeTransportOpener {
   /// channels (a fake MaxSessions ceiling).
   int? transportOpenLimit;
 
-  /// Per-created-transport open-limit script (last value repeats) — lets one
+  /// Per-transport open-limit script (last value repeats) — lets one
   /// transport host channels while a growth transport refuses SFTP. Wins
-  /// over the uniform [transportOpenLimit] when set.
+  /// over the uniform [transportOpenLimit] when set. Indexed by CREATED
+  /// transport: a connect attempt that throws before construction does not
+  /// consume an index slot.
   final List<int?>? transportOpenLimits;
 
   /// When set, every prompting-disabled (growth) connect parks on this
@@ -316,9 +334,14 @@ class FakeTransportOpener {
         if (failure != null) throw failure;
 
         final limits = transportOpenLimits;
-        final openLimit = limits == null
+        // Index by created transports, not attempts: `index` above counts
+        // connect attempts, and a scripted connectFailure must not shift the
+        // limit mapping for the transports that do get created.
+        final createdIndex = transports.length;
+        final openLimit = limits == null || limits.isEmpty
             ? transportOpenLimit
-            : limits[index < limits.length ? index : limits.length - 1];
+            : limits[
+                createdIndex < limits.length ? createdIndex : limits.length - 1];
 
         final transport = FakeTransport(
           // Growth (prompting-disabled) connects re-authenticate

@@ -997,6 +997,12 @@ class PooledConnectionManager implements ConnectionManager {
       slot._idleTimer = null;
       if (!_isIdleExtra(pool, slot)) return;
 
+      // Nulling the timer before this re-check is safe: every transient
+      // gate below is paired with a re-arm when it clears — pendingOpens
+      // and channels re-arm from _openChannelOn/_closeHandle finallys, and
+      // a blocked pool synchronously detaches every slot, so no timer
+      // survives into a block to fire there.
+
       // Remove capacity before awaiting close so a new acquisition cannot
       // bind to the retiring transport or be removed by its late completion.
       pool.transports.remove(slot);
