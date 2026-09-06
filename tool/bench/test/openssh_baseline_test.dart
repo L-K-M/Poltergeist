@@ -110,10 +110,9 @@ void main() {
     // command's only completion path regardless of how the runner schedules
     // process output. A sleep-based fixture lets the result beat the timer
     // on a starved runner, so the command completes without timing out.
-    final process = await Process.start('/bin/sh', ['-c', _gatedBatchProcess]);
-    final session = BatchCommandSession(
-      process,
+    final session = await _startSession(
       shutdownGracePeriod: Duration.zero,
+      script: _gatedBatchProcess,
     );
     await session.initialize();
 
@@ -161,8 +160,13 @@ void main() {
 
 Future<BatchCommandSession> _startSession({
   Duration? shutdownGracePeriod,
+  String script = _fakeBatchProcess,
 }) async {
-  final process = await Process.start('/bin/sh', ['-c', _fakeBatchProcess]);
+  final process = await Process.start('/bin/sh', ['-c', script]);
+  // A failed expectation can abort the test before session.close(); the
+  // gated fixture then blocks on its release read forever. Kill on teardown
+  // so no fixture can outlive its test (a no-op on already-exited shells).
+  addTearDown(process.kill);
   return BatchCommandSession(
     process,
     shutdownGracePeriod: shutdownGracePeriod ?? const Duration(seconds: 10),
