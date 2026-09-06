@@ -40,8 +40,11 @@ void main() {
       waiting.then((value) => granted = value).ignore();
       time.flushMicrotasks();
       // The retiring close is gated: started, not settled — and until it
-      // settles the freed MaxSessions slot must not be handed out.
+      // settles the freed MaxSessions slot must not be handed out, nor
+      // may the pool attempt an open the server would refuse.
       expect(retiring.closeCompleted, isFalse);
+      expect(extra.openCalls, 1,
+          reason: 'The closing channel still occupies MaxSessions.');
       expect(granted, isNull);
 
       closeGate.complete();

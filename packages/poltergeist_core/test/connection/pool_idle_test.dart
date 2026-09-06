@@ -29,6 +29,8 @@ PaneChannel _browse(
 );
 
 void _disconnect(FakeAsync time, PoolHarness harness) {
+  // Safe by contract: disconnectServer is a no-op for an unknown or
+  // already-disconnected id, so re-disconnects and never-added ids are fine.
   completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
   completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
   expect(time.pendingTimers, isEmpty);
@@ -102,7 +104,14 @@ void main() {
         harness.manager.leaseTransferChannel('s1'),
       );
       final waiting = harness.manager.leaseTransferChannel('s2');
+      TransferChannelLease? granted;
+      waiting.then((value) => granted = value).ignore();
       time.flushMicrotasks();
+      expect(
+        granted,
+        isNull,
+        reason: 'The lease must queue while the extra channel is checked out.',
+      );
       completeWithoutTimers(time, lease.release());
       final next = completeWithoutTimers(time, waiting);
       expect(next.fs, same(lease.fs));
@@ -206,7 +215,9 @@ void main() {
         harness.manager.leaseTransferChannel('s1'),
       );
       completeWithoutTimers(time, pane.close());
-      time.elapse(_policy.idleExtraTransportTimeout * 2);
+      // This harness runs the default policy, so derive the idle window
+      // from the default rather than from _policy (customized elsewhere).
+      time.elapse(PoolPolicy().idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.single.closed, isFalse);
       expect(time.pendingTimers, isEmpty);
       completeWithoutTimers(time, lease.release());

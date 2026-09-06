@@ -475,8 +475,11 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   the timeout starts after the last close completes and restarts after
   renewed channel use. This keeps cached channels from pinning extras
   forever without closing a channel still owned by a caller. The first
-  transport's role is assigned at creation: removing it after failure never
-  promotes an extra into a primary exempt from idle expiry. The first transport
+  transport's role is assigned at creation and never reassigned: removing
+  the first transport after failure never promotes an extra into the
+  idle-exempt first-transport role, and a transport connected after the
+  first transport's death is born an extra — it idles out like any other
+  when it holds no channels. The first transport
   follows pane lifetime, not a timer — but never closes while any of its
   channels is leased: with the last pane-tab gone, a leased first transport
   stays until its leases are released, so closing tabs cannot park a

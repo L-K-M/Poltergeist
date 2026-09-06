@@ -509,6 +509,13 @@ class PooledConnectionManager implements ConnectionManager {
     return _enqueueWaiter(pool, browse: false, serverId: serverId);
   }
 
+  /// Server-side channel budget already spent on this transport: live
+  /// channels, in-flight opens, and closes the server has not confirmed —
+  /// a closing channel still occupies MaxSessions until its close
+  /// settles, so a fresh open in that window would be refused.
+  int _channelBudgetUsed(_TransportSlot slot) =>
+      slot.channels.length + slot.pendingOpens + slot._pendingCloses;
+
   /// A transport with room for one more channel of any kind — browse
   /// channels count only against the total ceiling (03 §3.2 rule 4).
   /// [pendingOpens] is included so concurrent acquisitions cannot each
@@ -520,8 +527,7 @@ class PooledConnectionManager implements ConnectionManager {
     for (final slot in pool.transports) {
       if (slot.transport.isClosed) continue;
       if (exclude != null && exclude.contains(slot)) continue;
-      if (slot.channels.length + slot.pendingOpens <
-          _policy.maxChannelsPerTransport) {
+      if (_channelBudgetUsed(slot) < _policy.maxChannelsPerTransport) {
         return slot;
       }
     }
@@ -539,7 +545,7 @@ class PooledConnectionManager implements ConnectionManager {
     for (final slot in pool.transports) {
       if (slot.transport.isClosed) continue;
       if (exclude != null && exclude.contains(slot)) continue;
-      final total = slot.channels.length + slot.pendingOpens;
+      final total = _channelBudgetUsed(slot);
       final withinTotal = total < _policy.maxChannelsPerTransport;
       final withinTransfer = total - _browseCount(slot) <
           _policy.maxTransferChannelsPerTransport;

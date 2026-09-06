@@ -112,6 +112,10 @@ class FakeTransport implements SshTransport {
   Completer<void>? closeGate;
   Object? closeFailure;
 
+  /// Every openChannel() attempt, refused or not — proves whether the pool
+  /// tried to spend capacity the server has not actually freed.
+  int openCalls = 0;
+
   /// How many close() calls started — late cleanup must not re-close.
   int closeCalls = 0;
 
@@ -129,6 +133,7 @@ class FakeTransport implements SshTransport {
 
   @override
   Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
+    openCalls++;
     if (closed) {
       throw const RemoteFileException(
         kind: RemoteFileErrorKind.disconnected,

@@ -7,9 +7,12 @@ import 'package:test/test.dart';
 import 'pool_fakes.dart';
 
 // One channel per transport exposes the lifecycle of each pooled connection.
+// The idle timeout is pinned so the probe windows (_beforeExpiry etc.)
+// stay valid whatever the production default becomes.
 const _policy = PoolPolicy(
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
+  idleExtraTransportTimeout: Duration(seconds: 30),
 );
 const _lastSecond = Duration(seconds: 1);
 final _beforeExpiry = _policy.idleExtraTransportTimeout - _lastSecond;
@@ -43,6 +46,8 @@ PaneChannel _browse(
 );
 
 void _disconnect(FakeAsync time, PoolHarness harness) {
+  // Safe by contract: disconnectServer is a no-op for an unknown or
+  // already-disconnected id, so re-disconnects and never-added ids are fine.
   completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
   completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
   expect(time.pendingTimers, isEmpty);
@@ -92,6 +97,9 @@ void main() {
       _browse(time, harness, 'first');
       final sibling = _browse(time, harness, 'shared', server: 's2');
       final extra = harness.opener.transports.last;
+      // s1 and s2 resolve to the same endpoint in this harness (the fake's
+      // default host/port), so one pool serves both and may bind this pane
+      // to the extra channel even though it was opened via s2.
       expect(sibling.fs, same(extraPane.fs));
 
       completeWithoutTimers(time, extraPane.close());

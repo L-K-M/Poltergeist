@@ -12,16 +12,22 @@ const _policy = PoolPolicy(
   maxChannelsPerTransport: 1,
 );
 
-PaneChannel _browse(FakeAsync time, PoolHarness harness, String tab) =>
+PaneChannel _browse(
+  FakeAsync time,
+  PoolHarness harness,
+  String tab, {
+  String server = 's1',
+}) =>
     completeWithoutTimers(
       time,
-      harness.manager.openBrowseChannel('s1', paneTabId: tab),
+      harness.manager.openBrowseChannel(server, paneTabId: tab),
     );
 
-void _replaceDeadFirst(
+PaneChannel _replaceDeadFirst(
   FakeAsync time,
   PoolHarness harness,
   PaneChannel firstPane,
+  int expectedTransports,
 ) {
   final first = harness.opener.transports.first;
   completeWithoutTimers(time, firstPane.close());
@@ -37,8 +43,9 @@ void _replaceDeadFirst(
     operation: 'open SFTP',
     message: 'The first transport disconnected during channel open.',
   ));
-  completeWithoutTimers(time, replacement);
-  expect(harness.opener.transports, hasLength(_policy.maxTransports + 1));
+  final pane = completeWithoutTimers(time, replacement);
+  expect(harness.opener.transports, hasLength(expectedTransports));
+  return pane;
 }
 
 void main() {
@@ -52,7 +59,7 @@ void main() {
       );
       final extra = harness.opener.transports.last;
 
-      _replaceDeadFirst(time, harness, firstPane);
+      _replaceDeadFirst(time, harness, firstPane, _policy.maxTransports + 1);
       completeWithoutTimers(time, lease.release());
       expect(
         extra.channels.single.closed,
@@ -75,7 +82,9 @@ void main() {
       final extraPane = _browse(time, harness, 'extra');
       final extra = harness.opener.transports.last;
 
-      _replaceDeadFirst(time, harness, firstPane);
+      // The extra is at its channel cap, so the replacement forced a new
+      // transport beyond the configured maximum.
+      _replaceDeadFirst(time, harness, firstPane, _policy.maxTransports + 1);
       completeWithoutTimers(time, extraPane.close());
       expect(extra.channels.single.closed, isTrue);
       time.elapse(_policy.idleExtraTransportTimeout);
@@ -91,6 +100,40 @@ void main() {
     });
   });
 
+  test('a transport grown after the first dies is born an extra', () {
+    fakeAsync((time) {
+      final harness = PoolHarness(policy: _policy)
+        ..addServer('s1')
+        ..addServer('s2');
+      final firstPane = _browse(time, harness, 'first');
+      // A second bookmark on the shared endpoint keeps the pool referenced
+      // after the replacement pane closes, so only the idle clock — not
+      // pane-lifetime teardown — can retire the grown transport.
+      final keeper = _browse(time, harness, 'keeper', server: 's2');
+      final extra = harness.opener.transports.last;
+
+      final replacement =
+          _replaceDeadFirst(time, harness, firstPane, _policy.maxTransports + 1);
+      final grown = harness.opener.transports.last;
+      expect(grown, isNot(same(extra)));
+
+      completeWithoutTimers(time, replacement.close());
+      time.elapse(_policy.idleExtraTransportTimeout);
+      expect(
+        grown.closed,
+        isTrue,
+        reason: 'The first-transport role is assigned at creation only; a '
+            'later transport stays idle-expiring (03 §3.3).',
+      );
+      expect(extra.closed, isFalse);
+
+      completeWithoutTimers(time, keeper.close());
+      completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+      completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
+      expect(time.pendingTimers, isEmpty);
+    });
+  });
+
   test('retiring the last live extra reports the pool disconnected', () {
     fakeAsync((time) {
       const policy = PoolPolicy(
@@ -101,23 +144,17 @@ void main() {
       _browse(time, harness, 'stale-primary-binding');
       final firstPane = _browse(time, harness, 'first');
       final extraPane = _browse(time, harness, 'extra');
-      final first = harness.opener.transports.first;
       final extra = harness.opener.transports.last;
-      completeWithoutTimers(time, firstPane.close());
 
       // Evict the primary while another pane still has its old binding.
-      final openGate = first.openGate = Completer<void>();
-      final opening =
-          harness.manager.openBrowseChannel('s1', paneTabId: 'replacement');
-      time.flushMicrotasks();
-      first.closed = true;
-      openGate.completeError(const RemoteFileException(
-        kind: RemoteFileErrorKind.disconnected,
-        operation: 'open SFTP',
-        message: 'The first transport disconnected during channel open.',
-      ));
-      final replacement = completeWithoutTimers(time, opening);
-      expect(harness.opener.transports, hasLength(policy.maxTransports));
+      // The extra still had channel capacity (cap 2, one channel), so the
+      // replacement reuses it instead of growing the pool.
+      final replacement = _replaceDeadFirst(
+        time,
+        harness,
+        firstPane,
+        policy.maxTransports,
+      );
 
       completeWithoutTimers(time, extraPane.close());
       completeWithoutTimers(time, replacement.close());
@@ -138,13 +175,11 @@ void main() {
           harness.manager.watchServer('s1').listen(snapshots.add);
       time.flushMicrotasks();
       expect(
-        {'event': states.last, 'snapshot': snapshots.single},
-        {
-          'event': ServerConnectionState.disconnected,
-          'snapshot': ServerConnectionState.disconnected,
-        },
+        states.last,
+        ServerConnectionState.disconnected,
         reason: 'Retirement removed the last live transport from the pool.',
       );
+      expect(snapshots.single, ServerConnectionState.disconnected);
 
       subscription.cancel().ignore();
       snapshotSubscription.cancel().ignore();
