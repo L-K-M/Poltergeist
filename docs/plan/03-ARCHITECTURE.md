@@ -467,7 +467,25 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   transfer channel and no open browse channel either, since §3.2 rule 4
   can park browse channels on an extra transport once the first hits
   `maxChannelsPerTransport`, and those channels are never "leased" (only
-  `leaseTransferChannel` grants a lease). The first transport
+  `leaseTransferChannel` grants a lease). To make "no channels" precise
+  with returned-channel caching, a returned transfer channel serves queued
+  demand first; if no waiter takes it back, an extra transport closes it
+  immediately instead of caching it — only the first transport caches
+  returned channels. Pending channel opens and closes also prevent idle
+  expiry. The timer starts or restarts whenever the transport last
+  becomes free of both channels and pending opens/closes, and restarts
+  after renewed channel use. This keeps cached channels from pinning extras
+  forever without closing a channel still owned by a caller. The first
+  transport's role is assigned at creation and never reassigned: removing
+  the first transport after failure never promotes an extra into the
+  idle-exempt first-transport role, and a transport connected after the
+  first transport's death is born an extra — it idles out like any other
+  when it holds no channels. Once the first transport is gone, no later
+  transport ever gains the cache role, so returned channels are closed
+  rather than cached for the remainder of this pool's life. Retiring an
+  idle transport re-drives queued demand: the pool grows a replacement
+  transport (or fails the waiters) instead of leaving queued leases
+  stranded once the spare capacity is gone. The first transport
   follows pane lifetime, not a timer — but never closes while any of its
   channels is leased: with the last pane-tab gone, a leased first transport
   stays until its leases are released, so closing tabs cannot park a

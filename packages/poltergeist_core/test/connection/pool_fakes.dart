@@ -1,7 +1,43 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:seance_core/seance_core.dart';
+import 'package:test/test.dart';
+
+/// Flush pool work without advancing time, preserving an unexpected error's
+/// stack instead of misreporting it as a timer-dependent operation.
+T completeWithoutTimers<T>(FakeAsync time, Future<T> future) {
+  late T result;
+  var completed = false;
+  (Object, StackTrace)? failure;
+  future.then<void>((value) {
+    result = value;
+    completed = true;
+  }, onError: (Object error, StackTrace stack) {
+    failure = (error, stack);
+  });
+  time.flushMicrotasks();
+
+  final caught = failure;
+  if (caught != null) Error.throwWithStackTrace(caught.$1, caught.$2);
+
+  expect(completed, isTrue, reason: 'The operation must finish without a timer.');
+  return result;
+}
+
+/// Opens a browse pane-tab synchronously to completion — the common opening
+/// move of every pool suite.
+PaneChannel browsePane(
+  FakeAsync time,
+  PoolHarness harness,
+  String tab, {
+  String server = 's1',
+}) =>
+    completeWithoutTimers(
+      time,
+      harness.manager.openBrowseChannel(server, paneTabId: tab),
+    );
 
 /// In-memory TOFU pin store (tests never touch real persistence).
 class FakeHostKeyStore implements HostKeyStore {
@@ -55,6 +91,13 @@ class FakeChannel implements SftpChannel {
   Object? closeFailure;
   Completer<void>? closeGate;
 
+  /// Whether [close] has settled — [closed] flips at close() entry, so
+  /// a gated close distinguishes "started" from "finished" only here.
+  /// A FAILED close also counts as settled: production bookkeeping frees
+  /// the slot when the close settles regardless of outcome, and the fake
+  /// models that server-side assumption.
+  bool closeCompleted = false;
+
   FakeChannel(this.fs);
 
   @override
@@ -62,6 +105,7 @@ class FakeChannel implements SftpChannel {
     closed = true;
     await closeGate?.future;
     final failure = closeFailure;
+    closeCompleted = true;
     if (failure != null) throw failure;
   }
 }
@@ -81,11 +125,31 @@ class FakeTransport implements SshTransport {
   bool closed = false;
   Completer<void>? openGate;
   Completer<void>? canonicalizeGate;
-  Object? closeFailure;
   Completer<void>? closeGate;
+  Object? closeFailure;
+
+  /// Every openChannel() attempt, refused or not — proves whether the pool
+  /// tried to spend capacity the server has not actually freed.
+  int openCalls = 0;
+
+  /// How many close() calls started — late cleanup must not re-close.
+  int closeCalls = 0;
+
+  /// Whether [close] has settled — like [FakeChannel.closeCompleted], this
+  /// distinguishes a gated (in-flight) close from a finished one.
+  bool closeCompleted = false;
+
+  /// Channel close failures swallowed during [close], kept so tests can
+  /// assert on or debug them after the fact.
+  final List<Object> channelCloseFailures = <Object>[];
 
   /// Refuse opens on this transport without poisoning healthy siblings.
   Object? openFailure;
+
+  /// Marks the transport dead the way a dropped connection would — without
+  /// touching close bookkeeping, so "external death" stays distinguishable
+  /// from a pool-initiated close in assertions.
+  void simulateExternalDeath() => closed = true;
 
   FakeTransport({required this.authKind, this.openLimit});
 
@@ -94,6 +158,7 @@ class FakeTransport implements SshTransport {
 
   @override
   Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
+    openCalls++;
     if (closed) {
       throw const RemoteFileException(
         kind: RemoteFileErrorKind.disconnected,
@@ -104,8 +169,11 @@ class FakeTransport implements SshTransport {
     final failure = openFailure;
     if (failure != null) throw failure;
 
+    // Server-side MaxSessions accounting: a session frees only once its
+    // close settles — a close that started but is still in flight keeps
+    // occupying the slot (the client-side pool detaches earlier).
     if (openLimit != null &&
-        channels.where((c) => !c.closed).length >= openLimit!) {
+        channels.where((c) => !c.closeCompleted).length >= openLimit!) {
       // Aligned with the production funnel: a channel-open refusal is not
       // a RemoteFileException, so the transport maps it to `unsupported`.
       throw const RemoteFileException(
@@ -126,12 +194,21 @@ class FakeTransport implements SshTransport {
 
   @override
   Future<void> close() async {
+    closeCalls++;
     closed = true;
     await closeGate?.future;
     for (final channel in List<FakeChannel>.of(channels)) {
-      await channel.close();
+      try {
+        await channel.close();
+      } on Object catch (error) {
+        // A failed channel close still frees its server-side slot; keep
+        // closing siblings so the fake matches the documented settle
+        // semantics (closeCompleted flips regardless of outcome).
+        channelCloseFailures.add(error);
+      }
     }
     final failure = closeFailure;
+    closeCompleted = true;
     if (failure != null) throw failure;
   }
 }
@@ -175,6 +252,13 @@ class FakeTransportOpener {
   /// channels (a fake MaxSessions ceiling).
   int? transportOpenLimit;
 
+  /// Per-transport open-limit script (last value repeats) — lets one
+  /// transport host channels while a growth transport refuses SFTP. Wins
+  /// over the uniform [transportOpenLimit] when non-empty (an empty list
+  /// falls back to it). Indexed by CREATED transport: a connect attempt
+  /// that throws before construction does not consume an index slot.
+  final List<int?>? transportOpenLimits;
+
   /// When set, every prompting-disabled (growth) connect parks on this
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
@@ -195,6 +279,7 @@ class FakeTransportOpener {
     this.growthRequiresChallenge = false,
     this.presentedFingerprints = const ['SHA256:presented'],
     this.transportOpenLimit,
+    this.transportOpenLimits,
   });
 
   SshTransportOpener get opener => ({
@@ -264,6 +349,20 @@ class FakeTransportOpener {
         final failure = connectFailure;
         if (failure != null) throw failure;
 
+        final limits = transportOpenLimits;
+        // Index by created transports, not attempts: `index` above counts
+        // connect attempts, and a scripted connectFailure must not shift the
+        // limit mapping for the transports that do get created. `transports`
+        // is a getter derived from `calls` (see its declaration), so the
+        // synchronous `call.transport = transport` assignment below grows
+        // the length immediately — before the connect gate parks — and two
+        // parked connects can never observe the same length.
+        final createdIndex = transports.length;
+        final openLimit = limits == null || limits.isEmpty
+            ? transportOpenLimit
+            : limits[
+                createdIndex < limits.length ? createdIndex : limits.length - 1];
+
         final transport = FakeTransport(
           // Growth (prompting-disabled) connects re-authenticate
           // non-interactively, so they report a non-interactive kind even
@@ -271,7 +370,7 @@ class FakeTransportOpener {
           authKind: prompting == ConnectPrompting.disabled
               ? AuthKind.key
               : authKind,
-          openLimit: transportOpenLimit,
+          openLimit: openLimit,
         );
         call.transport = transport;
         if (connectGate != null) await connectGate!.future;
