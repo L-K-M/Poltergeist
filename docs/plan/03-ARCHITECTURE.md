@@ -522,8 +522,11 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   service's hygiene rules). The first attempt waits the first backoff;
   recovery onto a surviving sibling transport needs no probe or delay.
   One cancellable recovery loop per pool serializes new acquisitions and
-  auth prompts. An auth challenge re-enters vault/prompt resolution; a
-  cancelled resolution stops recovery. Background recovery never approves
+  auth prompts. Every recovery first tries cached credentials without
+  prompting, including interactive-capped pools: a growth cap does not
+  require another prompt when the cached credential still works. An auth
+  challenge re-enters vault/prompt resolution; a cancelled resolution stops
+  recovery. Background recovery never approves
   host keys: a changed key hard-blocks until explicit review (D18).
   A `PaneChannel` keeps its identity while its dead handle is replaced,
   resolving `canonicalize('.')` again. Closing it during recovery removes

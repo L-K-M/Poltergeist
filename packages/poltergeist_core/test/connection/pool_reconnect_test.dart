@@ -392,16 +392,47 @@ void main() {
     });
   }
 
+  for (final auth in [
+    AuthKind.promptedPassword,
+    AuthKind.keyboardInteractive,
+  ]) {
+    test(
+      '$auth recovery reuses accepted cached credentials without resolving',
+      () {
+        fakeAsync((time) {
+          final h = PoolHarness(opener: FakeTransportOpener(authKind: auth))
+            ..addServer('s1');
+          final pane = browsePane(time, h, 'a');
+          h.opener.transports.single.die();
+          time.flushMicrotasks();
+          time.elapse(_firstDelay);
+          time.flushMicrotasks();
+          expect(h.credentialResolveCalls, 1);
+          expect(h.opener.calls.last.prompting, ConnectPrompting.disabled);
+          expect(
+            h.opener.calls.last.credentials,
+            same(h.opener.calls.first.credentials),
+          );
+          expect(pane.fs, isA<RemoteFileSystem>());
+          completeWithoutTimers(time, pane.close());
+        });
+      },
+    );
+  }
+
   test('late SSH challenges cannot prompt after reconnect cancellation', () {
     fakeAsync((time) {
       final h = PoolHarness(
-        opener: FakeTransportOpener(authKind: AuthKind.keyboardInteractive),
+        opener: FakeTransportOpener(
+          authKind: AuthKind.keyboardInteractive,
+          growthRequiresChallenge: true,
+        ),
       )..addServer('s1');
       final pane = browsePane(time, h, 'a');
       final handshake = h.opener.connectGate = Completer<void>();
       h.opener.transports.single.die();
       time.flushMicrotasks();
-      time.elapse(_firstDelay);
+      time.elapse(const Duration(seconds: 3));
       time.flushMicrotasks();
       final responder = h.opener.calls.last.onKeyboardInteractive!;
       completeWithoutTimers(time, pane.close());
@@ -424,13 +455,16 @@ void main() {
     () {
       fakeAsync((time) {
         final h = PoolHarness(
-          opener: FakeTransportOpener(authKind: AuthKind.keyboardInteractive),
+          opener: FakeTransportOpener(
+            authKind: AuthKind.keyboardInteractive,
+            growthRequiresChallenge: true,
+          ),
         )..addServer('s1');
         final pane = browsePane(time, h, 'a');
         final handshake = h.opener.connectGate = Completer<void>();
         h.opener.transports.single.die();
         time.flushMicrotasks();
-        time.elapse(_firstDelay);
+        time.elapse(const Duration(seconds: 3));
         time.flushMicrotasks();
         final answer = h.keyboardGate = Completer<List<String>>();
         final response = h.opener.calls.last.onKeyboardInteractive!(
@@ -457,13 +491,16 @@ void main() {
   test('a failed SSH attempt cannot prompt during the next retry delay', () {
     fakeAsync((time) {
       final h = PoolHarness(
-        opener: FakeTransportOpener(authKind: AuthKind.keyboardInteractive),
+        opener: FakeTransportOpener(
+          authKind: AuthKind.keyboardInteractive,
+          growthRequiresChallenge: true,
+        ),
       )..addServer('s1');
       final pane = browsePane(time, h, 'a');
       h.opener.connectFailure = Exception('Handshake failed');
       h.opener.transports.single.die();
       time.flushMicrotasks();
-      time.elapse(_firstDelay);
+      time.elapse(const Duration(seconds: 3));
       time.flushMicrotasks();
       final responder = h.opener.calls.last.onKeyboardInteractive!;
       completeWithoutTimers(

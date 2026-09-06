@@ -46,13 +46,13 @@ cancellable recovery loop per endpoint pool. It probes before authentication,
 uses 1/2/4/… s backoff clamped before downward-only jitter, and rebinds existing
 pane handles with fresh home canonicalization. New acquisitions fold into the
 loop; a healthy sibling can supply recovery without another TCP connect.
-Auth challenges re-resolve credentials; interactive provenance still caps
-growth. Changed keys block without background approval. Closing the last pane
+Recovery tries cached credentials first; auth challenges re-resolve them.
+Interactive provenance still caps growth. Changed keys block without background approval. Closing the last pane
 or disconnecting cancels timers/credential resolutions; stale results close
 instead of reviving bindings. SSH challenges and answers are bound to their
 live authentication attempt. Leases are not rebound or operations replayed.
 
-Validation: 21 socket-free recovery tests; core analysis and 163 tests pass
+Validation: 23 socket-free recovery tests; core analysis and 165 tests pass
 (one existing fixture skip); Flutter analysis and 121 tests pass. Existing
 trust/credential/idle tests now account for automatic recovery instead of
 assuming dead bindings remain indefinitely. Two new regressions failed before
@@ -60,6 +60,8 @@ repair: channel-open disconnects bypassing recovery backoff, and a pane removed
 during home resolution killing its surviving sibling's transport. Three more
 failed before adding authentication-attempt guards: late challenges after
 cancellation, late answers, and challenges from a failed retry attempt.
+Review caught unnecessary credential re-resolution on interactive-capped
+pools; two regressions failed before restoring cached-first recovery.
 
 Engine callers must pass the failed operation's VFS identity to `reportFailure`
 and refresh current paths after recovery. The protocol/UI must also dismiss

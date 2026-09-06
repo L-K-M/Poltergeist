@@ -84,11 +84,7 @@ extension _PoolRecovery on PooledConnectionManager {
     }
     if (pool._reconnect != null) return;
 
-    final cycle = _ReconnectCycle(
-      pool.interactiveOnly
-          ? ConnectPrompting.enabled
-          : ConnectPrompting.disabled,
-    );
+    final cycle = _ReconnectCycle();
     pool._reconnect = cycle;
     _setState(pool, ServerConnectionState.reconnecting);
     unawaited(
@@ -341,12 +337,12 @@ class _ReconnectUnavailable implements Exception {
 /// across an unbounded outage. Late operations still have an error observer.
 class _ReconnectCycle {
   final _done = Completer<void>();
-  ConnectPrompting _prompting;
+  ConnectPrompting _prompting = ConnectPrompting.disabled;
   Object? _authAttempt;
   bool _cancelled = false;
   void Function()? _interrupt;
 
-  _ReconnectCycle(this._prompting) {
+  _ReconnectCycle() {
     _done.future.ignore(); // Recovery may have no folded acquisition caller.
   }
 
