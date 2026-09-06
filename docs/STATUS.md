@@ -64,7 +64,7 @@ open items 3–6 track remaining slices, audit gaps, and decisions._
    - then the Docker-integration legs of 08 §5's pool suite (growth,
      keepalive, reconnect against real sshd) — the matrix exists from M0.
 
-4. **2026-09-04 — escalation: milestone order.** M2 began while M1's
+4. **2026-09-04 — escalation: milestone order** (updated 2026-09-06). M2 began while M1's
    rehearsal remained open. 07 §1 and IMPLEMENTOR prohibit this overlap;
    no recorded exception accompanies #14. The M1 close (2026-09-06) and
    #15's merged D23 change postdate the violation; the overlap itself

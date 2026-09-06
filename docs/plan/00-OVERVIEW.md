@@ -551,7 +551,7 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     as cut). The v0.1.0 *release* also predates the change: the
     existence guard stops CI from ever publishing its already-created
     draft, so it ships via a one-time manual publish with the
-    pre-release flag kept (tracked as STATUS open item 1). **The
+    pre-release flag kept. **The
     honestly stated residual:** the checksums are an
     integrity channel only — they catch corrupted downloads and
     foreign mirrors — and a compromised CI runner or stolen repo
