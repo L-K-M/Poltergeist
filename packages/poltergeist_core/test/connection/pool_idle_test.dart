@@ -250,16 +250,17 @@ void main() {
 
   test('the first transport stays alive while its last channel is leased', () {
     fakeAsync((time) {
-      final harness = PoolHarness()..addServer('s1');
+      // Pin the default policy explicitly so the idle window the test
+      // elapses can never drift from the policy the harness runs.
+      final defaultPolicy = PoolPolicy();
+      final harness = PoolHarness(policy: defaultPolicy)..addServer('s1');
       final pane = browsePane(time, harness, 'first');
       final lease = completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),
       );
       completeWithoutTimers(time, pane.close());
-      // This harness runs the default policy, so derive the idle window
-      // from the default rather than from _policy (customized elsewhere).
-      time.elapse(PoolPolicy().idleExtraTransportTimeout * 2);
+      time.elapse(defaultPolicy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.single.closed, isFalse);
       expect(time.pendingTimers, isEmpty);
       completeWithoutTimers(time, lease.release());

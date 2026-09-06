@@ -294,9 +294,11 @@ void main() {
       time.flushMicrotasks();
       final waiting = harness.manager.leaseTransferChannel('s2');
       TransferChannelLease? grantedB;
-      waiting.then<void>((value) {
-        grantedB = value;
-      }).ignore();
+      Object? grantedBError;
+      waiting.then<void>(
+        (value) => grantedB = value,
+        onError: (Object error) => grantedBError = error,
+      ).ignore();
       time.flushMicrotasks();
       expect(opener.transports, hasLength(2),
           reason: 'The parked growth connect records its call but has not '
@@ -323,10 +325,49 @@ void main() {
       time.flushMicrotasks();
       expect(grantedB, isNotNull,
           reason: 'The parked growth must satisfy the queued lease.');
+      expect(grantedBError, isNull,
+          reason: 'The queued lease must be granted, not failed.');
       completeWithoutTimers(time, grantedB!.release());
       completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
       subscription.cancel().ignore();
       completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
+      expect(time.pendingTimers, isEmpty);
+    });
+  });
+
+  test('growth landing after the last reference closes its transport', () {
+    fakeAsync((time) {
+      // The growth gate parks the second connect past the disconnect that
+      // abandons its pool: whatever lands afterward must close itself.
+      final opener = FakeTransportOpener()..growthGate = Completer<void>();
+      final harness = _harness(opener: opener);
+      browsePane(time, harness, 'first');
+
+      // The pane fills the first transport, so the lease must grow; its
+      // connect records the call and parks before creating a transport.
+      var leaseError = Object();
+      final leasing = harness.manager.leaseTransferChannel('s1');
+      unawaited(leasing.then<void>((_) {},
+          onError: (Object error) => leaseError = error));
+      time.flushMicrotasks();
+      expect(harness.opener.calls, hasLength(2),
+          reason: 'The lease forces a growth connect parked on the gate.');
+      expect(harness.opener.transports, hasLength(1));
+
+      completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+
+      opener.growthGate!.complete();
+      time.flushMicrotasks();
+      time.elapse(_insideCloseCap);
+      time.flushMicrotasks();
+
+      expect(harness.opener.transports, hasLength(2));
+      final grown = harness.opener.transports.last;
+      expect(grown.closeCalls, 1,
+          reason: 'A transport landing on the abandoned pool must close, '
+              'not leak.');
+      expect(leaseError, isA<RemoteFileException>(),
+          reason: 'The abandoned acquisition must fail as disconnected.');
       expect(time.pendingTimers, isEmpty);
     });
   });

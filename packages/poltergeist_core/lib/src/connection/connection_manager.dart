@@ -512,7 +512,11 @@ class PooledConnectionManager implements ConnectionManager {
   /// Server-side channel budget already spent on this transport: live
   /// channels, in-flight opens, and closes the server has not confirmed —
   /// a closing channel still occupies MaxSessions until its close
-  /// settles, so a fresh open in that window would be refused.
+  /// settles, so a fresh open in that window would be refused. A settling
+  /// close (even of a browse channel) transiently counts against the
+  /// transfer ceiling too: conservative by design, the server has not
+  /// freed the session yet — demand arriving in that window may grow a
+  /// transport the settle would have made unnecessary.
   int _channelBudgetUsed(_TransportSlot slot) =>
       slot.channels.length + slot.pendingOpens + slot._pendingCloses;
 
@@ -965,7 +969,7 @@ class PooledConnectionManager implements ConnectionManager {
       // Budget frees at settle (not at close start), so waiters queued on
       // the per-transport budget get their pump at every settle site —
       // browse closes and error paths included, not just lease release.
-      await _pumpWaiters(pool);
+      _pumpWaitersEnsured(pool);
     }
   }
 
@@ -1135,6 +1139,26 @@ class PooledConnectionManager implements ConnectionManager {
     return pump.whenComplete(() {
       if (identical(pool.pumping, pump)) pool.pumping = null;
     });
+  }
+
+  /// Ensures a waiter pump runs without the caller awaiting it. A close
+  /// can settle inside a running pump's own call chain (a raced cleanup or
+  /// an orphaned open): awaiting the in-flight pump from there would
+  /// deadlock the pump on itself. Instead, one follow-up pass is chained
+  /// after the running pump, so capacity that frees mid-pump is served
+  /// even once the loop has moved past the queue head.
+  void _pumpWaitersEnsured(_EndpointPool pool) {
+    final running = pool.pumping;
+    if (running == null) {
+      unawaited(_pumpWaiters(pool));
+      return;
+    }
+
+    final chained = running.then((_) => _pumpWaitersOnce(pool));
+    pool.pumping = chained;
+    unawaited(chained.whenComplete(() {
+      if (identical(pool.pumping, chained)) pool.pumping = null;
+    }));
   }
 
   Future<void> _pumpWaitersOnce(_EndpointPool pool) async {
