@@ -36,7 +36,8 @@ gaps, and decisions._
 
 1. **2026-09-03 — close M1.** The scaffold, Flutter checks, the full client
    matrix, and the release pipeline are done (see the Done table). The
-   v0.1.0 rehearsal is verified end-to-end: the draft release carries the
+   v0.1.0 rehearsal is verified short of the manual publish: the draft
+   release carries the
    full seven-asset set, all sums recompute cleanly, the APK's signer
    certificate is byte-identical to the one inside the committed CI
    keystore, and it is

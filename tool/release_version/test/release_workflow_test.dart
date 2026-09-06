@@ -358,9 +358,10 @@ void main() {
         isNot(contains('cancelled')),
         reason: '$jobName job-level if',
       );
-      // Same `${{ }}` escape Publish's exact-match guard defends
-      // against: a wrapped condition with no status function drops
-      // the implicit success() and would run over failed needs.
+      // Deliberate policy, mirroring Publish's exact-match guard:
+      // Actions implies success() whenever an `if` has no status
+      // function (${{ }} wrapper or not), but require it explicitly
+      // so no future condition leans on that subtlety.
       expect(
         jobIf.contains(r'${{') && !jobIf.contains('success'),
         isFalse,
@@ -381,9 +382,10 @@ void main() {
         if (!identical(step, publish)) {
           final run = '${step['run']}';
           expect(run, isNot(contains('gh release ready')));
-          // `gh release edit --draft=false` publishes a draft just as
-          // effectively as `gh release ready` — close that route too.
-          expect(run, isNot(contains('--draft=false')));
+          // `gh release edit --draft=false` (or the gh api -f draft=false
+          // route) publishes a draft as effectively as `gh release ready`
+          // — close every route.
+          expect(run, isNot(contains('draft=false')));
           // `gh release create` without --draft publishes immediately,
           // bypassing the hidden-until-complete guarantee — any create
           // step must keep the release in draft.
