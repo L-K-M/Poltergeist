@@ -362,7 +362,7 @@ jobs:
     name: Checksums
     needs: client
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Compute SHA256SUMS over the release's assets
         env:

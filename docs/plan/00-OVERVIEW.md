@@ -527,7 +527,9 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
     The original text specified a per-release ceremony — draft pause
     for a maintainer-local build spot-check, a detached
     `SHA256SUMS.asc` signature, an out-of-band key fingerprint — and
-    the owner, having walked the first (`v0.1.0`) rehearsal, decided
+    the owner, having walked the `v0.1.0` rehearsal short of the
+    signing steps (the draft, assets, sums, and flags were verified;
+    the detached signature was never attached), decided
     its cost exceeds what a single-maintainer personal project gets
     back. The mechanical safety survived the cut where the ceremony
     did not: `release.yml` still refuses to update an existing release
