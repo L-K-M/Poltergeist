@@ -10,7 +10,8 @@ pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3).
 M2 is the active milestone: the initial pooled `ConnectionManager` is in;
-open items 3–6 track remaining slices, audit gaps, and decisions._
+dependency-contract upgrade guards are in; open items 3–6 track remaining
+slices, audit gaps, and decisions._
 
 ## Done
 
@@ -86,10 +87,14 @@ open items 3–6 track remaining slices, audit gaps, and decisions._
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
      does not block the teardown repair or change error preservation.
-   - **Dependency-contract coverage:** Add 09 §5's
-     pinned dependency-contract tests before the next pin bump; hash-off
-     second-preflight/CAS coverage also remains absent from the inspected
-     Séance #62 adapter tests. These are test gaps, not observed VFS failures.
+   - **Dependency-contract coverage (updated 2026-09-06):** 09 §5's
+     upgrade guards are covered below. Hash-off second-preflight/CAS coverage
+     remains absent from the inspected Séance #62 adapter tests; those tests
+     stay upstream (08 §2). This is a test gap, not an observed VFS failure.
+   - **2026-09-06 — benchmark timeout test (follow-up):**
+     `accepts a per-command transfer timeout` failed intermittently under
+     concurrent harness runs, then passed unchanged. Replace its shell-sleep
+     timing with deterministic gating in a separate repair.
 
 6. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
    incidents now survive disconnect, but not process restart. A returning
@@ -119,6 +124,24 @@ open items 3–6 track remaining slices, audit gaps, and decisions._
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-06 — pinned dependency contracts.** Seven core tests cover
+  HKDF salt domains with empty info, Argon2 KiB units, both sealed-blob
+  layout directions, and RegExp flag behavior. Independent known answers
+  prevent matching encoder/decoder drift from passing. Four harness tests
+  verify actual SSH host-key callback bytes through a signed in-memory
+  handshake and bind the exercised cryptography/dartssh2 versions to both
+  workspace and app locks (the app resolves separately). Review fixed the
+  lock lookup's working-directory dependency: the
+  root-launched test failed before and passes after URI anchoring. Raw SSH
+  stays in the sanctioned harness. Immediate client close also failed before
+  and passes after guarding the peer's buffered writes; missing lock entries
+  now produce matcher diagnostics. Ordinary CI runs all eleven tests.
+  Core analysis and 99 tests pass; harness analysis and 77 tests pass, each
+  suite with one existing sshd-fixture skip. Import and release-version
+  guards pass. No dependency versions, pins, or production behavior change.
+  Chapter 09 corrects obsolete HKDF-info and keyboard-interactive export
+  claims against the locked APIs. Other M2 gates remain open.
 
 - **2026-09-06 — credential lifetime and prompt provenance.** Config lookup
   now precedes pool lookup without resolving secrets. The serialized first
