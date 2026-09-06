@@ -214,7 +214,8 @@ outlive the PR. Human reviewer comments are never subject to the cutoff.
 v1.0.0 shipped through `scripts/release.sh` with M10's exit criteria
 (07 §3.11), the distribution workstream (07 §4), and both
 definition-of-done checklists (07, 09) fully ticked — README trust copy per
-01 §6, INSTALL.md, signed tag + `SHA256SUMS.asc`, install-tested assets,
+01 §6, INSTALL.md, checksums verified on a downloaded asset,
+install-tested assets,
 STATUS.md flipped to "v1.0 shipped" with the fast-follow list (07 §3.13) as
 the new next-steps. Then **stop**: fast-follows and parking-lot items are
 post-v1 work you do not start unprompted.

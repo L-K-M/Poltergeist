@@ -68,7 +68,10 @@ exit 1
     expect(result.stdout, contains('tool/bench/pubspec.yaml'));
     expect(result.stdout, contains('app/poltergeist_app/pubspec.yaml'));
     expect(result.stdout, contains('release_version/bin/release_version.dart'));
-    expect(result.stdout, contains('sign=required'));
+    // D23 (2026-09-03): no signer required — fail if RELEASE_SIGN_TAG
+    // ever returns to the wrapper's environment. Anchored to a full
+    // line: a bare contains('sign=\n') would also match 'design=\n'.
+    expect(result.stdout, contains(RegExp(r'^sign=$', multiLine: true)));
     expect(result.stdout, contains('    sync'));
     expect(result.stdout, contains('args=2099.99.99 --push'));
   });

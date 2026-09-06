@@ -19,11 +19,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export RELEASE_APP_NAME="Poltergeist"
 export RELEASE_KIND="pubspec"
 export RELEASE_VERSION_REGEX='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
-# D23: the release tag is signed with the maintainer's local key (git tag
-# -s) — never a CI secret — and attests the source commit, not CI-built
-# artifacts. The engine refuses to tag without a usable signer, so a
-# signing-less environment cannot cut an unsigned release by accident.
-export RELEASE_SIGN_TAG=required
+# D23 (decision change 2026-09-03): direct publish from CI — tags are
+# plain annotated tags, no signer required. See docs/plan/00-OVERVIEW.md.
 
 VERSION_TOOL="tool/release_version/bin/release_version.dart"
 DART_BIN="${DART_BIN:-dart}"
