@@ -103,9 +103,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
      does not block the teardown repair or change error preservation.
-   - **Guard coverage:** `check-imports.sh` has no executable regression suite
-     and explicitly omits plugin detection, although 03 §1 requires it.
-     Add adversarial fixtures and dependency-aware enforcement. Add 09 §5's
+   - **Dependency-contract coverage:** Add 09 §5's
      pinned dependency-contract tests before the next pin bump; hash-off
      second-preflight/CAS coverage also remains absent from the inspected
      Séance #62 adapter tests. These are test gaps, not observed VFS failures.
@@ -138,6 +136,17 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-06 — dependency boundaries.** Replaced the import guard's grep
+  scan with parsed Dart directives and resolved pubspec checks. Conditional
+  imports/exports, escaped literals, plugin metadata, runtime dependency
+  chains, unused declarations, and local overrides are checked. External
+  development dependencies do not classify a pure library as Flutter.
+  Missing/malformed metadata and linked scan inputs fail closed. Seven
+  regressions failed before repair; 56 guard tests and the real repository
+  scan pass. CI now analyzes and tests the guard. Existing dependency
+  versions and Séance pins are unchanged. This closes item 6's import-guard
+  gap; dependency-contract tests and item 5's ordering escalation remain.
 
 - **2026-09-05 — bounded teardown.** Pool cleanup and SSH/SFTP wrappers use
   the pinned cleanup helper with a five-second bound per close. Detached

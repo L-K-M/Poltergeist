@@ -49,6 +49,10 @@ jobs:
       # closed.
       - name: Check dependency boundaries (03 §1)
         run: bash scripts/check-imports.sh
+      - name: Analyze dependency guard
+        run: dart analyze tool/import_guard
+      - name: Test dependency guard
+        run: dart test tool/import_guard/test
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
       - name: Analyze release gate
