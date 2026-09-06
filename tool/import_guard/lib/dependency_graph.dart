@@ -86,9 +86,12 @@ class DependencyGraph {
 }
 
 Future<Map<String, Object?>> readPubspec(File file) async {
-  final yaml = loadYaml(await file.readAsString());
-  if (yaml is! Map) throw FormatException('Expected YAML map: ${file.path}');
-  return yaml.cast<String, Object?>();
+  final yaml = loadYaml(await file.readAsString(), sourceUrl: file.uri);
+  // Reject malformed keys before traversal loses the source file context.
+  if (yaml is! Map || yaml.keys.any((key) => key is! String)) {
+    throw FormatException('Expected YAML map with string keys: ${file.path}');
+  }
+  return Map<String, Object?>.from(yaml);
 }
 
 Iterable<String> dependencyNames(
@@ -106,10 +109,7 @@ bool requiresFlutter(Map<String, Object?> pubspec) {
     return true;
   }
 
-  for (final value in _map(pubspec['dependencies'], 'dependencies').values) {
-    if (value is Map && value['sdk'] == 'flutter') return true;
-  }
-  return false;
+  return hasFlutterSdk(pubspec, 'dependencies');
 }
 
 bool hasFlutterSdk(Map<String, Object?> pubspec, String section) => _map(

@@ -253,6 +253,62 @@ dependency_overrides: {"dartssh2": any}
     await fixture.expectExit(1, 'dartssh2');
   });
 
+  for (final name in [
+    'build',
+    'ephemeral',
+    '.dart_tool',
+    '.symlinks',
+    '.git',
+  ]) {
+    for (final location in ['$_core/lib', '$_core/test', '$_app/lib/src']) {
+      test('scans source directory $location/$name', () async {
+        await fixture.write(
+          '$location/$name/ssh.dart',
+          "import 'package:dartssh2/dartssh2.dart';",
+        );
+        await fixture.expectExit(1, 'dartssh2');
+      });
+    }
+  }
+
+  test('scans a package named build', () async {
+    await fixture.write('packages/build/pubspec.yaml', 'name: fixture_build');
+    await fixture._register('fixture_build', 'packages/build');
+    await fixture.write(
+      'packages/build/lib/ssh.dart',
+      "import 'package:dartssh2/dartssh2.dart';",
+    );
+    await fixture.expectExit(1, 'dartssh2');
+  });
+
+  test('skips generated native outputs with symlinks', () async {
+    for (final output in [
+      'linux/flutter/ephemeral',
+      'windows/flutter/ephemeral',
+      'macos/Flutter/ephemeral',
+      'ios/Flutter/ephemeral',
+      'ios/.symlinks',
+      'macos/.symlinks',
+      'android/app/build',
+      'android/build',
+    ]) {
+      final directory = Directory(p.join(fixture.root.path, _app, output));
+      await directory.create(recursive: true);
+      await Link(p.join(directory.path, 'generated')).create('absent');
+    }
+    await fixture.expectExit(0);
+  });
+
+  test('reports an empty package URI as a violation', () async {
+    await fixture.write('$_core/lib/core.dart', "import 'package:';");
+    await fixture.expectExit(1, 'invalid package URI');
+  });
+
+  test('identifies a missing package name', () async {
+    await fixture.write('$_core/pubspec.yaml', 'description: unnamed');
+    await fixture.expectExit(2, _core);
+  });
+
   for (final directory in ['packages', 'app']) {
     test('fails closed without $directory', () async {
       await Directory(
@@ -334,6 +390,8 @@ class _Fixture {
     await fixture.write('$_core/lib/core.dart', '// Empty fixture.\n');
     await fixture.write('$_app/lib/main.dart', '// Empty fixture.\n');
     await fixture._register('poltergeist_core', _core);
+    // SSH fixture classification must not depend on the workspace's own pin.
+    await fixture.package('dartssh2', '');
     return fixture;
   }
 

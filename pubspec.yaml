@@ -14,6 +14,7 @@ workspace:
   - packages/poltergeist_core
 
 dev_dependencies:
+  # Keep parser/resolver APIs at the versions already present in the lockfile.
   analyzer: 14.1.0
   crypto: ^3.0.7
   lints: ^5.0.0

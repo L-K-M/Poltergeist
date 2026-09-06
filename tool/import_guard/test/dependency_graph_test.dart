@@ -4,8 +4,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:package_config/package_config.dart' show PackageConfigError;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart' show YamlException;
 
 import '../lib/dependency_graph.dart';
 
@@ -212,22 +214,79 @@ dependency_overrides: {flutter: {sdk: flutter}}
   });
 
   test('rejects a missing package configuration', () async {
-    await expectLater(DependencyGraph.load(fixture.config), throwsA(anything));
+    await expectLater(
+      DependencyGraph.load(fixture.config),
+      throwsA(
+        isA<FileSystemException>().having(
+          (error) => error.path,
+          'path',
+          fixture.config.path,
+        ),
+      ),
+    );
   });
 
   test('rejects malformed package configuration JSON', () async {
     await fixture.write('.dart_tool/package_config.json', '{');
 
-    await expectLater(DependencyGraph.load(fixture.config), throwsA(anything));
+    await expectLater(
+      DependencyGraph.load(fixture.config),
+      throwsA(allOf(isA<FormatException>(), isA<PackageConfigError>())),
+    );
   });
 
-  for (final contents in ['', '[library]', 'name: [']) {
-    test('rejects empty, non-map, or malformed YAML: $contents', () async {
+  for (final contents in ['', '[library]']) {
+    test('rejects empty or non-map YAML: $contents', () async {
       final pubspec = await fixture.write('pubspec.yaml', contents);
 
-      await expectLater(readPubspec(pubspec), throwsA(anything));
+      await expectLater(
+        readPubspec(pubspec),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains(pubspec.path),
+          ),
+        ),
+      );
     });
   }
+
+  test('identifies the source file in malformed YAML diagnostics', () async {
+    final pubspec = await fixture.write('pubspec.yaml', 'name: [');
+
+    await expectLater(
+      readPubspec(pubspec),
+      throwsA(
+        isA<YamlException>()
+            .having((error) => error.span?.sourceUrl, 'source URL', pubspec.uri)
+            .having(
+              (error) => error.toString(),
+              'diagnostic',
+              contains(p.prettyUri(pubspec.uri)),
+            ),
+      ),
+    );
+  });
+
+  test('rejects integer pubspec keys before returning a map', () async {
+    final pubspec = await fixture.write('pubspec.yaml', '''
+name: library
+7: invalid_key
+''');
+
+    // Reading must reject invalid keys before a later consumer triggers a cast.
+    await expectLater(
+      readPubspec(pubspec),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains(pubspec.path),
+        ),
+      ),
+    );
+  });
 
   test('reads quoted dependency names and flow-style YAML', () async {
     final pubspec = await fixture.write('pubspec.yaml', '''

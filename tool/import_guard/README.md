@@ -1,8 +1,8 @@
 # Dependency guard
 
 Run `dart pub get`, then `bash scripts/check-imports.sh` in the checkout.
-The script also accepts invocation by absolute path. CI analyzes and tests it with
-explicit `tool/import_guard` paths.
+The script also accepts invocation by absolute path. CI analyzes and tests
+it with explicit `tool/import_guard` paths.
 
 Run tests from the checkout root after `dart pub get`. The CI target is
 Linux; the shell fixtures require Bash and permission to create symlinks.
@@ -22,9 +22,11 @@ resolution or network access is needed.
 Known Flutter SDK package names are diagnosed directly when absent from
 pure-Dart resolution. Other package names require resolved metadata.
 
-Missing, malformed, or linked scan inputs fail closed. Generated directories
-(`.dart_tool`, `build`, `.symlinks`, `ephemeral`, `.git`, and Apple platform
-`Pods` trees) are excluded, as is
-the plan-sanctioned M0 harness under `tool/`. This checks package directives
+Missing, malformed, or linked scan inputs fail closed. Project-root generated
+directories (`.dart_tool`, `build`, `.symlinks`, `ephemeral`, `.git`) and
+known native build, Flutter cache, and Apple `Pods` locations are excluded.
+Directories with those names inside source trees remain covered, as does a
+package named `build`. The guard excludes the plan-sanctioned M0 harness
+under `tool/`. This checks package directives
 and dependency metadata; normal Dart analysis still validates library access
 and types.

@@ -6,13 +6,14 @@ import 'package:path/path.dart' as p;
 
 import 'dependency_graph.dart';
 
-const _generatedDirectories = {
+const _projectGeneratedDirectories = {
   '.dart_tool',
   'build',
   '.symlinks',
   'ephemeral',
   '.git',
 };
+const _nativePlatforms = {'android', 'ios', 'linux', 'macos', 'windows'};
 const _coreDirectory = 'packages/poltergeist_core';
 const _connectionDirectory = '$_coreDirectory/lib/src/connection';
 
@@ -34,7 +35,6 @@ Future<List<String>> checkImports(String rootPath) async {
     }
 
     await for (final entity in directory.list(followLinks: false)) {
-      if (_generatedDirectories.contains(p.basename(entity.path))) continue;
       if (entity is Link) {
         throw FileSystemException('Linked package', entity.path);
       }
@@ -68,7 +68,11 @@ Future<List<String>> _checkPackage(
     File(p.join(directory.path, 'pubspec.yaml')),
   );
   if (area == _Area.packages) {
-    graph.verifyRoot(pubspec['name'] as String, directory);
+    final name = pubspec['name'];
+    if (name is! String) {
+      throw FormatException('Missing package name: ${directory.path}');
+    }
+    graph.verifyRoot(name, directory);
   }
 
   // Overrides and unused declarations can add forbidden edges before an import
@@ -128,6 +132,10 @@ Future<List<String>> _checkSource(
         continue;
       }
       final uri = Uri.parse(text);
+      if (uri.scheme == 'package' && uri.pathSegments.isEmpty) {
+        violations.add('$relative: invalid package URI $uri');
+        continue;
+      }
       final package = uri.scheme == 'package' ? uri.pathSegments.first : null;
       if (package == 'dartssh2' &&
           !p.posix.isWithin(_connectionDirectory, relative)) {
@@ -156,17 +164,7 @@ String _relative(String path, String root) =>
 
 Stream<File> _sources(Directory directory, String root) async* {
   await for (final entity in directory.list(followLinks: false)) {
-    if (_generatedDirectories.contains(p.basename(entity.path))) continue;
-    // CocoaPods generates header links. Restrict the exclusion to platform
-    // projects so a Dart directory named Pods cannot bypass the guard.
-    if (p.split(p.relative(entity.path, from: root)) case [
-      'app',
-      _,
-      'ios' || 'macos',
-      'Pods',
-    ]) {
-      continue;
-    }
+    if (_isGenerated(entity.path, root)) continue;
     if (entity is Link) {
       throw FileSystemException('Linked scan input', entity.path);
     }
@@ -177,3 +175,19 @@ Stream<File> _sources(Directory directory, String root) async* {
     if (entity is File && p.extension(entity.path) == '.dart') yield entity;
   }
 }
+
+// Scope exclusions to output locations: lib/build and lib/.dart_tool are source
+// paths, while Flutter and CocoaPods generate links inside platform projects.
+bool _isGenerated(String path, String root) => switch (p.split(
+  p.relative(path, from: root),
+)) {
+  ['packages' || 'app', _, final name] => _projectGeneratedDirectories.contains(
+    name,
+  ),
+  ['app', _, 'ios' || 'macos', 'Pods' || '.symlinks'] => true,
+  ['app', _, final platform, 'build'] => _nativePlatforms.contains(platform),
+  ['app', _, 'android', 'app', 'build'] => true,
+  ['app', _, 'ios' || 'macos', 'Flutter', 'ephemeral'] => true,
+  ['app', _, 'linux' || 'windows', 'flutter', 'ephemeral'] => true,
+  _ => false,
+};

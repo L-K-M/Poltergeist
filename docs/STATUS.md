@@ -145,8 +145,11 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   Missing/malformed metadata and linked scan inputs fail closed; generated
   Apple `Pods` trees are excluded. Review added explicit diagnostics for
   unresolved Flutter SDK imports, interpolated directives, and missing
-  package configuration. Nineteen regressions failed before their repairs;
-  69 guard tests and the real repository
+  package configuration. Output exclusions are scoped to project/native
+  output locations; similarly named source folders remain scanned. Empty
+  package URIs and malformed pubspecs produce specific diagnostics. SSH
+  fixtures use their own metadata. Thirty-nine regressions failed before
+  their repairs; 89 guard tests and the real repository
   scan pass. CI now analyzes and tests the guard. Existing dependency
   versions and Séance pins are unchanged. This closes item 6's import-guard
   gap; dependency-contract tests and item 5's ordering escalation remain.
