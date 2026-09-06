@@ -6,6 +6,8 @@ import 'package:test/test.dart';
 // so a pin that drops or renames a bookmark symbol must fail here, not in
 // the app layer. The upstream suite owns exhaustive coverage; these tests
 // pin the contract Poltergeist's connect flow and sidebar will rely on.
+// The vault/keystore half of the barrel surface has its own pin in
+// vault_plumbing_test.dart.
 
 const _bookmarkId = '5f0c2a7e-3c1b-4b8e-9a51-2f6f0e7d1c22';
 const _recordId = 'bookmark:$_bookmarkId';
@@ -137,29 +139,5 @@ void main() {
       () => Bookmark.fromJson(json, recordId: _recordId),
       throwsFormatException,
     );
-  });
-
-  test('the vault plumbing surfaces through the same barrel', () async {
-    // The app-layer ports (file stores, MasterKeyManager) reach SecretVault
-    // and friends only through this barrel; pin that the pinned rev keeps
-    // them exported and dartssh2-free.
-    final store = InMemoryVaultStore();
-    final vault = SecretVault(store, List.filled(32, 1));
-    final secret = Secret(
-      id: 'secret-1',
-      kind: SecretKind.password,
-      value: 'hunter2',
-    );
-
-    await vault.putSecret(secret);
-    expect((await vault.getSecret('secret-1'))!.value, 'hunter2');
-
-    final sealed = await store.getSecretBlob('secret-1');
-    expect(sealed, isNotNull);
-    // The blob is opaque ciphertext: never the plaintext, never ASCII JSON.
-    expect(String.fromCharCodes(sealed!), isNot(contains('hunter2')));
-
-    await vault.deleteSecret('secret-1');
-    expect(await vault.getSecret('secret-1'), isNull);
   });
 }

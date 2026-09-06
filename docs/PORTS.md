@@ -43,7 +43,11 @@
   seance_core directly. The ported exception messages are frozen port text
   allowlisted in the localization contract; the D20 ARB rule applies where
   the UI renders them (prompt-UI slice).
-- Port-back candidates: none.
+- Port-back candidates: corrupt-entry misreport — a stored entry that is
+  not valid base64 is conflated with keystore unavailability (review round
+  1, PR #32); and concurrent probes can race the create-on-first-run
+  read-check-write (review round 1). Both are source defects; upstream
+  first per 04 §6, not local divergences.
 
 ## app/poltergeist_app/lib/services/file_stores.dart
 
@@ -57,7 +61,9 @@
   UTC-stamped per this repo's atomic-file port instead of the source's
   shared `.corrupt` helper; types imported via the poltergeist_core barrel.
 - Port-back candidates: UTC-stamped quarantine names (shared with the
-  atomic_file entry).
+  atomic_file entry); serialized load/flush (concurrent mutations can
+  interleave full-file flushes and lose one write — review round 1,
+  PR #32). Both upstream first per 04 §6.
 
 ## app/poltergeist_app/lib/services/locked_secret_vault.dart
 
