@@ -39,7 +39,9 @@ When the workflow is green, the release is already public. Worth a minute:
 
 - `gh release download vX.Y.Z && sha256sum -c SHA256SUMS`
   (`shasum -a 256 -c` on macOS) — catches a corrupted upload early, while
-  few people have downloaded it.
+  few people have downloaded it. On a mismatch, re-fetch to confirm,
+  then delete the release and the tag and dispatch again on the same
+  commit — never edit assets on a published release.
 - For `v0.*` releases, confirm the pre-release flag is set (not
   "Latest"); if the flag is wrong, `gh release edit vX.Y.Z
   --prerelease` fixes it. Latest follows the newest non-prerelease

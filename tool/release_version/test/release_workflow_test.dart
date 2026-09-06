@@ -508,6 +508,8 @@ void main() {
     expect(notes, contains('unsigned'));
     expect(notes, contains('## SHA256 checksums'));
     expect(notes, contains('$apkHash  poltergeist-android.apk'));
+    // The ceremony is gone; its template promises must not return.
+    expect(notes, isNot(contains('SHA256SUMS.asc')));
 
     final floorBroken = await _runChecksumStep(_DraftAssets.missingApk);
     expect(floorBroken.result.exitCode, isNot(0));
