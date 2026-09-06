@@ -359,9 +359,9 @@ void main() {
         reason: '$jobName job-level if',
       );
       // Deliberate policy, mirroring Publish's exact-match guard:
-      // Actions implies success() whenever an `if` has no status
-      // function (${{ }} wrapper or not), but require it explicitly
-      // so no future condition leans on that subtlety.
+      // Actions implies success() when an `if` has no status function,
+      // wrapper or not — but that subtlety hides most easily inside
+      // `${{ }}`, so require an explicit success() there.
       expect(
         jobIf.contains(r'${{') && !jobIf.contains('success'),
         isFalse,
@@ -539,7 +539,13 @@ void main() {
     () async {
       final draft = await _runPublishStep(isDraft: true);
       expect(draft.result.exitCode, 0, reason: draft.result.stderr as String?);
-      expect(draft.ghLog.readAsStringSync(), contains('ready'));
+      final readyCalls = draft.ghLog
+          .readAsStringSync()
+          .trim()
+          .split('\n')
+          .where((line) => line.startsWith('ready'))
+          .length;
+      expect(readyCalls, 1);
 
       final published = await _runPublishStep(isDraft: false);
       expect(published.result.exitCode, 0);

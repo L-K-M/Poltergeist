@@ -47,8 +47,8 @@ gaps, and decisions._
    paragraph (the pre-change template promised a signature that will
    never be attached), publish the v0.1.0 release by hand (one-time —
    this draft predates the direct-publish change; keep the pre-release
-   flag), and sweep STATUS to flip M1 closed with M2 as the next
-   milestone. No owner key steps remain.
+   flag), run the §3.12 close chores (PORTS sweep), and flip M1 closed
+   with M2 as the next milestone. No owner key steps remain.
 2. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
 3. **Séance pin: flip to the next tag.** The fork bridge is retired (see

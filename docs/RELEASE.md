@@ -39,7 +39,7 @@ an invisible draft.
 
 When the workflow is green, the release is already public. Worth a minute:
 
-- `gh release download vX.Y.Z && sha256sum -c SHA256SUMS`
+- `gh release download vX.Y.Z --clobber && sha256sum -c SHA256SUMS`
   (`shasum -a 256 -c` on macOS) — catches a corrupted upload early, while
   few people have downloaded it. On a mismatch, re-fetch to confirm,
   then delete the release and the tag and dispatch again on the same
