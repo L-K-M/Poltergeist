@@ -1,7 +1,7 @@
 # Dependency guard
 
-Run `dart pub get`, then `bash scripts/check-imports.sh` from any directory.
-The script locates its own checkout. CI analyzes and tests this tool with
+Run `dart pub get`, then `bash scripts/check-imports.sh` in the checkout.
+The script also accepts invocation by absolute path. CI analyzes and tests it with
 explicit `tool/import_guard` paths.
 
 The guard parses import/export directives, including conditional branches
@@ -17,7 +17,8 @@ dependencies, and overrides are checked even when unused. No app dependency
 resolution or network access is needed.
 
 Missing, malformed, or linked scan inputs fail closed. Generated directories
-(`.dart_tool`, `build`, `.symlinks`, `ephemeral`, `.git`) are excluded, as is
+(`.dart_tool`, `build`, `.symlinks`, `ephemeral`, `.git`, and Apple platform
+`Pods` trees) are excluded, as is
 the plan-sanctioned M0 harness under `tool/`. This checks package directives
 and dependency metadata; normal Dart analysis still validates library access
 and types.

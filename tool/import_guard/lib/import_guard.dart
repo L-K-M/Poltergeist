@@ -45,7 +45,7 @@ Future<List<String>> checkImports(String rootPath) async {
       if (area == _Area.packages) purePackageCount++;
     }
 
-    await for (final file in _sources(directory)) {
+    await for (final file in _sources(directory, root)) {
       violations.addAll(
         await _checkSource(file, _relative(file.path, root), graph, area),
       );
@@ -149,14 +149,24 @@ Future<List<String>> _checkSource(
 String _relative(String path, String root) =>
     p.posix.joinAll(p.split(p.relative(path, from: root)));
 
-Stream<File> _sources(Directory directory) async* {
+Stream<File> _sources(Directory directory, String root) async* {
   await for (final entity in directory.list(followLinks: false)) {
     if (_generatedDirectories.contains(p.basename(entity.path))) continue;
+    // CocoaPods generates header links. Restrict the exclusion to platform
+    // projects so a Dart directory named Pods cannot bypass the guard.
+    if (p.split(p.relative(entity.path, from: root)) case [
+      'app',
+      _,
+      'ios' || 'macos',
+      'Pods',
+    ]) {
+      continue;
+    }
     if (entity is Link) {
       throw FileSystemException('Linked scan input', entity.path);
     }
     if (entity is Directory) {
-      yield* _sources(entity);
+      yield* _sources(entity, root);
       continue;
     }
     if (entity is File && p.extension(entity.path) == '.dart') yield entity;

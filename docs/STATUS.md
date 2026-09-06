@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
+_Last updated: 2026-09-06 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 release pipeline are implemented, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3);
@@ -142,8 +142,9 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   imports/exports, escaped literals, plugin metadata, runtime dependency
   chains, unused declarations, and local overrides are checked. External
   development dependencies do not classify a pure library as Flutter.
-  Missing/malformed metadata and linked scan inputs fail closed. Seven
-  regressions failed before repair; 56 guard tests and the real repository
+  Missing/malformed metadata and linked scan inputs fail closed; generated
+  Apple `Pods` trees are excluded. Nine regressions failed before their
+  repairs; 59 guard tests and the real repository
   scan pass. CI now analyzes and tests the guard. Existing dependency
   versions and Séance pins are unchanged. This closes item 6's import-guard
   gap; dependency-contract tests and item 5's ordering escalation remain.

@@ -197,6 +197,25 @@ dependency_overrides: {"dartssh2": any}
     await fixture.expectExit(0);
   });
 
+  for (final platform in ['ios', 'macos']) {
+    test('excludes generated $platform CocoaPods links', () async {
+      final headers = Directory(
+        p.join(fixture.root.path, '$_app/$platform/Pods/Headers'),
+      );
+      await headers.create(recursive: true);
+      await Link(p.join(headers.path, 'Public')).create('../Generated');
+      await fixture.expectExit(0);
+    });
+  }
+
+  test('does not exclude a Dart source directory named Pods', () async {
+    await fixture.write(
+      '$_app/lib/Pods/ssh.dart',
+      "import 'package:dartssh2/dartssh2.dart';",
+    );
+    await fixture.expectExit(1, 'dartssh2');
+  });
+
   for (final directory in ['packages', 'app']) {
     test('fails closed without $directory', () async {
       await Directory(
