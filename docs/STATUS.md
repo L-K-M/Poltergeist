@@ -143,11 +143,14 @@ slices, audit gaps, and decisions._
   resolutions are never dismissed — including when the last reference
   disconnects mid-handshake, after the resolution returned (the scope
   retires at resolution completion; review round 1 caught it armed
-  through the handshake); replacement sessions resolve afresh
-  without waiting on the abandoned future. Seven regressions failed before
-  the seam existed (the scope type did not compile) and pass after. Core
-  analysis is clean; 133 tests pass (one fixture skip). The
-  engine-protocol half (03 §5) remains with that slice.
+  through the handshake); a dismissal racing the answer in the same
+  microtask turn is documented at pool-observation granularity and
+  regression-pinned as tolerated (round 2); replacement sessions
+  resolve afresh without waiting on the abandoned future. Eight
+  regressions failed before the seam existed (the scope type did not
+  compile) and pass after. Core analysis is clean; 134 tests pass (one
+  fixture skip). The engine-protocol half (03 §5) remains with that
+  slice.
 - **2026-09-06 — pinned dependency contracts.** Seven core tests cover
   HKDF salt domains with empty info, Argon2 KiB units, both sealed-blob
   layout directions, and RegExp flag behavior. Independent known answers

@@ -17,7 +17,13 @@ abstract interface class CredentialResolutionScope {
   /// Completes when the requesting pool's lifetime ended before this
   /// resolution completed.
   ///
-  /// Never errors; never completes for a resolution that finished first —
-  /// the scope dies with its resolution.
+  /// Never errors; never completes once the pool has *observed* the
+  /// resolution finishing — the scope dies with its resolution. The
+  /// guarantee is at pool-observation granularity: a resolver that
+  /// completes its future and lets the pool disconnect in the same
+  /// microtask turn can still see [dismissed] fire in that window, so a
+  /// resolver racing [dismissed] against its answer must guard on the
+  /// answer's own completion (an already-completed answer tolerates the
+  /// firing; the pool discards the late result regardless).
   Future<void> get dismissed;
 }

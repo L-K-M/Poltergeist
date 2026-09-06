@@ -245,4 +245,26 @@ void main() {
       expect(harness.answeredByUser, [true]);
     },
   );
+
+  test(
+    'a dismissal racing the answer in the same turn is tolerated',
+    () async {
+      final connect = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+      final outcome = expectLater(connect, _disconnected);
+      await _flush();
+
+      // One synchronous turn: the answer completes the resolver future and
+      // the disconnect's prefix runs before the pool's continuation
+      // observes the answer — the documented window where dismissal may
+      // still fire for a future that already completed. The guard (an
+      // already-completed answer ignores the firing) must hold, and the
+      // late result stays discarded.
+      harness.answer('secret');
+      await harness.manager.disconnectServer('s1');
+      await outcome;
+
+      expect(harness.answeredByUser, [true]);
+      expect(harness.dismissedByPool, [true]);
+    },
+  );
 }
