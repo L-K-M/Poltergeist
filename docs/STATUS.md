@@ -4,7 +4,9 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M0 is complete; M1 is closed: the
+_Last updated: 2026-09-07 — M2 pooled reconnect recovery is implemented;
+keepalive, engine integration, and real-sshd recovery coverage remain open.
+M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
@@ -37,6 +39,40 @@ slices, audit gaps, and decisions._
 | M2 — bookmark model + vault/store plumbing | The pinned `seance_protocol` bookmark model (PR-S1 is in the pin's ancestry, so 07 §3.3's temporary-copy clause never applies) and the vault plumbing surfaces — `SecretVault`, `VaultStore`, `HostKeyStore`, in-memory stores, `VaultCrypto`/`VaultKeys`/`Argon2Params`, `secureRandomBytes`, `Secret`, and the `ServerColor`/`ServerIcon` enums — now flow through the `poltergeist_core` barrel, with a barrel test pinning the 04 §2.1 decode contract (record-id binding, port-range refusal, unknown-kind refusal, verbatim rules retention) at the pin. App layer: ported `MasterKeyManager` (`poltergeist.vault.masterKey.v1`, legacy macOS login keychain), `FileVaultStore`/`FileHostKeyStore` (atomic writes, store-owned UTC-stamped quarantine), and `LockedSecretVault`, each with its PORTS.md entry and ported tests (`keystore_resilience_test`, new `file_stores_test`); `flutter_secure_storage` pinned 10.3.1 — the exact revision Séance's lock resolves, sha-identical. Ported exception messages are frozen port text allowlisted in the localization contract; D20 applies at the UI render site when prompt UI lands. No startup wiring yet — composition joins the engine/prompt slices that consume the vault. |
 | M2 — extra-transport idle teardown | Extra transports close after the configured `idleExtraTransportTimeout` (60 s default in `PoolPolicy`) without channels or pending channel opens/closes. Returned transfer channels serve waiters first and, when no waiter takes them, close immediately on an extra transport so caches cannot prevent retirement (03 §3.3); only the first transport caches returned channels. A channel whose close is in flight still occupies the server's MaxSessions budget (`_pendingCloses` is reserved against channel budgets, so no phantom-capacity opens). The first transport keeps its cache, its role is assigned at creation and never reassigned, and follows pane/lease lifetime. Settle-time waiter pumps never await the pump they may be running inside: closes settling within a pump's own call chain trigger a follow-up pass instead, so a failed waiter's cleanup cannot deadlock the pool (regression: pane close and disconnect stranding forever). Idle retirement itself re-drives queued demand — the pump grows a replacement transport (or fails the waiters) instead of leaving a queued lease waiting forever on a pool whose spare capacity just retired (regression: demand queued behind an SFTP-refusing extra). Twenty-seven fake-clock tests cover deadlines, renewed demand, shared bookmarks, queued handoff, delayed cleanup, teardown races, waiting acquisitions, capacity reservation during closes, idle retirement/state/role after primary failure, the pump-reentrancy and retirement-stranding regressions, and growth landing after pool abandonment ([PR #21](https://github.com/L-K-M/Poltergeist/pull/21)). |
 
+## M2 — reconnect recovery (2026-09-07)
+
+Transport closure and source-identified VFS disconnect reports start one
+cancellable recovery loop per endpoint pool. It probes before authentication,
+uses 1/2/4/… s backoff clamped before downward-only jitter, and rebinds existing
+pane handles with fresh home canonicalization. New acquisitions fold into the
+loop; a healthy sibling can supply recovery without another TCP connect.
+Recovery tries cached credentials first; auth challenges re-resolve them.
+Interactive provenance still caps growth. Changed keys block without background approval. Closing the last pane
+or disconnecting cancels timers/credential resolutions; stale results close
+instead of reviving bindings. SSH challenges and answers are bound to their
+live authentication attempt. Leases are not rebound or operations replayed.
+
+Validation: 27 socket-free recovery tests; core analysis and 169 tests pass
+(one existing fixture skip); Flutter analysis and 121 tests pass. Existing
+trust/credential/idle tests now account for automatic recovery instead of
+assuming dead bindings remain indefinitely. Two new regressions failed before
+repair: channel-open disconnects bypassing recovery backoff, and a pane removed
+during home resolution killing its surviving sibling's transport. Three more
+failed before adding authentication-attempt guards: late challenges after
+cancellation, late answers, and challenges from a failed retry attempt.
+Review caught unnecessary credential re-resolution on interactive-capped
+pools; two regressions failed before restoring cached-first recovery.
+Round 2 isolated permanent home failures to their pane and stopped retries
+for resolver/unclassified exceptions. Three regressions failed before repair;
+a fourth pins continued retry for transport `SshConnectException`s.
+
+Engine callers must pass the failed operation's VFS identity to `reportFailure`
+and refresh current paths after recovery. The protocol/UI must also dismiss
+any already-open SSH challenge dialog on disconnect; the core rejects its
+late answer but owns no dialog. These remain engine/pane integration work.
+M4 owns transfer retry/progress counters. Keepalive, real-sshd recovery,
+and the existing owner-decision gates remain open. No milestone-close claim.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -54,9 +90,12 @@ slices, audit gaps, and decisions._
    roughly this order, subject to open item 4:
    - close the pool-behavior gaps in item 5 and settle item 6 before wiring
      production callers; the coverage items retain their stated gates;
-   - keepalive pings and auto-reconnect
-     with backoff + downward-only jitter (03 §3.3; `PoolPolicy` constants
-     are already defined), incl. the 08 §3.2 backoff-sequence tests;
+   - keepalive pings (03 §3.3). **2026-09-07 dependency gap:** the pinned
+     SSH helper constructs dartssh2 with its immutable default 10 s
+     keepalive; it exposes neither timer control nor VFS operation activity.
+     Add upstream controls before implementing the specified idle-only 30 s
+     ping and timeout. Do not add a second timer or wrap the VFS (D3).
+     Reconnect recovery and the backoff-sequence tests are implemented below;
    - engine isolate + `EngineClient` + the typed port protocol (03 §5),
      incl. the protocol round-trip and coalescing tests;
    - prompt UI (host-key dialogs, keyboard-interactive, credential prompt,
@@ -96,6 +135,10 @@ slices, audit gaps, and decisions._
      (regressions: `pool_resolution_dismissal_test.dart`). Remaining:
      carry cancellation through the engine protocol (03 §5) when that
      slice lands.
+   - **2026-09-07 — recovery diagnostics (review follow-up):** deliver
+     terminal background recovery errors to the engine's local diagnostic
+     event/log path when no acquisition awaits them. This belongs with the
+     engine/protocol and live transcript slices; no telemetry (D19).
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This

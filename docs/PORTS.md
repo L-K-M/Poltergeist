@@ -87,6 +87,10 @@
 
 ## Pin findings
 
+The 2026-09-07 reconnect slice uses the existing `Prober`/`TcpBannerProber`
+and SSH authentication APIs. No Séance source copy, pin change, or port is
+required. Idle-only keepalive still needs upstream controls (STATUS item 3).
+
 The 2026-09-07 vault/store ports copy app-layer sources whose last-touch
 revisions all predate the current pin; each re-diffs clean at `2f99f4e`, and
 no pin or port-back change is required. The bookmark model is consumed

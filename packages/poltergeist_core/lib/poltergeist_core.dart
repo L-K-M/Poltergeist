@@ -33,6 +33,8 @@ export 'package:seance_core/seance_core.dart'
         InMemoryVaultStore,
         KeyboardInteractiveResponder,
         PreferredPane,
+        Prober,
+        ProbeStatus,
         RemoteFileEntry,
         RemoteFileErrorKind,
         RemoteFileException,

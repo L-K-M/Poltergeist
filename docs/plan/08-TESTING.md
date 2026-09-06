@@ -286,8 +286,10 @@ prompts, auth method, and connect count) and fake clocks:
 - Extra transports close after `idleExtraTransportTimeout`; the first
   transport follows pane lifetime.
 - Reconnect backoff sequence 1 s → 2 s → 4 s … capped at
-  `reconnectBackoffCap` with jitter inside ±30 %; tasks flip to `queued`
-  with a retry counter.
+  `reconnectBackoffCap` before downward-only jitter (03 §3.3); cancellation
+  removes pending waits, stale results cannot revive closed panes, and
+  changed-key recovery cannot prompt or re-pin. Tasks flip to `queued`
+  with a retry counter when the transfer queue lands.
 
 **Bookmark model and coordinator** (`test/bookmarks/`): round-trip of the
 04 schema; `BookmarkCoordinator`'s skip-and-preserve suite (04 §3.2 —

@@ -36,6 +36,9 @@ abstract interface class SshTransport {
 
   bool get isClosed;
 
+  /// Both normal and error completion signal transport loss to the pool.
+  Future<void> get done;
+
   /// Opens one more SFTP channel on this transport. Each stage (channel
   /// open, handshake) is individually bounded by [timeout] — callers own
   /// the per-stage budget they are willing to spend on an open.
@@ -183,6 +186,9 @@ class _DartSshTransport implements SshTransport {
 
   @override
   bool get isClosed => _client.isClosed;
+
+  @override
+  Future<void> get done => _client.done;
 
   @override
   Future<SftpChannel> openChannel({
