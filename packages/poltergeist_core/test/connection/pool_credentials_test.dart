@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
@@ -62,6 +63,8 @@ class _CredentialHarness {
       onHostKey: (_) async => true,
       openTransport: opener.opener,
       policy: policy,
+      prober: FakeReconnectProber(),
+      reconnectRandom: FixedRandom(0),
     );
   }
 
@@ -185,51 +188,55 @@ void main() {
 
   test(
     'fresh resolution prevents growth with an evicted transport secret',
-    () async {
-      await harness.manager.openBrowseChannel('s1', paneTabId: 'keep');
-      final original = harness.opener.transports.single;
-      final firstGate = original.openGate = Completer<void>();
-      final first = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
-      final firstOutcome = expectLater(first, _disconnected);
-      await _flush();
-      final secondGate = original.openGate = Completer<void>();
-      final second = harness.manager
-          .openBrowseChannel('s1', paneTabId: 'b')
-          .then<void>((_) {}, onError: (Object _) {});
-      await _flush();
+    () {
+      fakeAsync((time) {
+        // Construct inside the fake zone so recovery owns no real timers.
+        final h = _CredentialHarness();
+        completeWithoutTimers(time,
+            h.manager.openBrowseChannel('s1', paneTabId: 'keep'));
+        final original = h.opener.transports.single;
+        final firstGate = original.openGate = Completer<void>();
+        final first = h.manager.openBrowseChannel('s1', paneTabId: 'a');
+        first.ignore();
+        time.flushMicrotasks();
+        final secondGate = original.openGate = Completer<void>();
+        final second = h.manager.openBrowseChannel('s1', paneTabId: 'b');
+        second.ignore();
+        time.flushMicrotasks();
 
-      // Evict the only transport, leaving another acquisition mid-open.
-      const disconnected = RemoteFileException(
-        kind: RemoteFileErrorKind.disconnected,
-        operation: 'open SFTP',
-        message: 'Transport died during channel open.',
-      );
-      original.closed = true;
-      harness.opener.connectFailure = Exception('growth unavailable');
-      firstGate.completeError(disconnected);
-      await firstOutcome;
-      final callsBeforeResolution = harness.opener.calls.length;
-      expect(callsBeforeResolution, 2);
+        const disconnected = RemoteFileException(
+          kind: RemoteFileErrorKind.disconnected,
+          operation: 'open SFTP',
+          message: 'Transport died during channel open.',
+        );
+        original.die();
+        h.opener.connectFailure = const AuthChallengeRequiredError('Auth expired');
+        firstGate.completeError(disconnected);
+        time.flushMicrotasks();
+        time.elapse(const Duration(seconds: 1));
+        time.flushMicrotasks();
+        final callsBeforeResolution = h.opener.calls.length;
+        expect(callsBeforeResolution, 2);
 
-      final resolveGate = harness.resolveGate = Completer<void>();
-      harness.secret = _replacementSecret;
-      harness.opener.connectFailure = null;
-      final fresh = harness.manager.openBrowseChannel('s2', paneTabId: 'fresh');
-      await _flush();
-      expect(harness.resolutions, 2);
+        final resolveGate = h.resolveGate = Completer<void>();
+        h.secret = _replacementSecret;
+        h.opener.connectFailure = null;
+        final fresh = h.manager.openBrowseChannel('s2', paneTabId: 'fresh');
+        time.elapse(const Duration(seconds: 2));
+        time.flushMicrotasks();
+        expect(h.resolutions, 2);
 
-      // The older acquisition must not grow with the abandoned cached secret.
-      secondGate.completeError(disconnected);
-      await second;
-      final callsDuringResolution = harness.opener.calls.length;
-      resolveGate.complete();
-      await fresh;
-
-      expect(callsDuringResolution, callsBeforeResolution);
-      expect(
-        harness.opener.calls.last.credentials.password,
-        _replacementSecret,
-      );
+        // A stale acquisition cannot borrow the rejected credential while
+        // the recovery loop awaits its replacement from the vault.
+        secondGate.completeError(disconnected);
+        time.flushMicrotasks();
+        final callsDuringResolution = h.opener.calls.length;
+        resolveGate.complete();
+        completeWithoutTimers(time, Future.wait([first, second, fresh]));
+        expect(callsDuringResolution, callsBeforeResolution);
+        expect(h.opener.calls.last.credentials.password, _replacementSecret);
+        completeWithoutTimers(time, h.close());
+      });
     },
   );
 

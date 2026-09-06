@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -56,6 +57,7 @@ class FakeHostKeyStore implements HostKeyStore {
 /// on it (home resolution at open). Any other call fails loudly.
 class StubRemoteFileSystem implements RemoteFileSystem {
   final String home;
+  int canonicalizeCalls = 0;
 
   final Completer<void>? canonicalizeGate;
 
@@ -70,6 +72,7 @@ class StubRemoteFileSystem implements RemoteFileSystem {
         'StubRemoteFileSystem only supports canonicalize("."), got "$path".',
       );
     }
+    canonicalizeCalls++;
     await canonicalizeGate?.future;
     return home;
   }
@@ -122,6 +125,22 @@ class FakeTransport implements SshTransport {
 
   final List<FakeChannel> channels = [];
   bool closed = false;
+  final Completer<void> _done = Completer<void>();
+
+  // Closure and error completion must both trigger the same recovery.
+  void die([Object? error]) {
+    closed = true;
+    if (_done.isCompleted) return;
+    if (error == null) {
+      _done.complete();
+      return;
+    }
+    _done.completeError(error);
+  }
+
+  @override
+  Future<void> get done => _done.future;
+
   Completer<void>? openGate;
   Completer<void>? canonicalizeGate;
   Completer<void>? closeGate;
@@ -148,7 +167,7 @@ class FakeTransport implements SshTransport {
   /// Marks the transport dead the way a dropped connection would — without
   /// touching close bookkeeping, so "external death" stays distinguishable
   /// from a pool-initiated close in assertions.
-  void simulateExternalDeath() => closed = true;
+  void simulateExternalDeath() => die();
 
   FakeTransport({required this.authKind, this.openLimit});
 
@@ -208,6 +227,7 @@ class FakeTransport implements SshTransport {
     }
     final failure = closeFailure;
     closeCompleted = true;
+    if (!_done.isCompleted) _done.complete();
     if (failure != null) throw failure;
   }
 }
@@ -267,6 +287,7 @@ class FakeTransportOpener {
 
   /// Fail authentication after TOFU has persisted any approved key.
   Object? connectFailure;
+  Object? Function(RecordedOpenCall call)? failureForCall;
 
   /// Pause a completed handshake to model death before the pool receives it.
   Completer<void>? connectGate;
@@ -345,7 +366,7 @@ class FakeTransportOpener {
           }
         }
 
-        final failure = connectFailure;
+        final failure = failureForCall?.call(call) ?? connectFailure;
         if (failure != null) throw failure;
 
         final limits = transportOpenLimits;
@@ -380,6 +401,32 @@ class FakeTransportOpener {
       [for (final call in calls) if (call.transport != null) call.transport!];
 }
 
+class FakeReconnectProber implements Prober {
+  ProbeStatus status = ProbeStatus.online;
+  int calls = 0;
+  Completer<void>? gate;
+
+  @override
+  Future<ProbeStatus> probe(String host, int port,
+      {Duration timeout = const Duration(seconds: 5)}) async {
+    calls++;
+    await gate?.future;
+    return status;
+  }
+}
+
+class FixedRandom implements Random {
+  final double _value;
+  FixedRandom(this._value);
+
+  @override
+  double nextDouble() => _value;
+  @override
+  bool nextBool() => throw UnimplementedError();
+  @override
+  int nextInt(int max) => throw UnimplementedError();
+}
+
 /// Wires a [PooledConnectionManager] over the fakes with a static
 /// serverId → connection table and a user host-key prompter the test
 /// controls.
@@ -391,6 +438,9 @@ class PoolHarness {
   final Map<String, ServerConfig> servers = {};
   int resolveCalls = 0;
   int credentialResolveCalls = 0;
+  final List<CredentialResolutionScope> resolutionScopes = [];
+  Completer<void>? credentialGate;
+  Object? credentialFailure;
 
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
@@ -403,12 +453,18 @@ class PoolHarness {
   PoolHarness({
     FakeTransportOpener? opener,
     PoolPolicy policy = const PoolPolicy(),
+    Prober? prober,
+    Random? random,
   }) {
     this.opener = opener ?? FakeTransportOpener();
     manager = PooledConnectionManager(
       resolveServer: _resolve,
-      resolveCredentials: (_, _) async {
+      resolveCredentials: (_, scope) async {
         credentialResolveCalls++;
+        resolutionScopes.add(scope);
+        await credentialGate?.future;
+        final failure = credentialFailure;
+        if (failure != null) throw failure;
         return const ResolvedCredentials(
           credentials: SshCredentials.privateKey('TEST KEY'),
           origin: CredentialOrigin.stored,
@@ -422,6 +478,8 @@ class PoolHarness {
           (prompts, name, instruction) async => List.filled(prompts.length, ''),
       policy: policy,
       openTransport: this.opener.opener,
+      prober: prober ?? FakeReconnectProber(),
+      reconnectRandom: random ?? FixedRandom(0),
     );
   }
 

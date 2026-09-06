@@ -332,11 +332,17 @@ abstract interface class PaneChannel {
   RemoteFileSystem get fs;     // its own DartSshRemoteFileSystem instance
   String get homePath;         // canonicalize('.') at open, Séance-style
   Future<void> close();
+
+  /// Report a VFS failure without wrapping the one VFS (D3). Only a
+  /// disconnected error from this binding's current transport triggers
+  /// recovery; engine callers report before awaiting any other work.
+  void reportFailure(RemoteFileSystem source, RemoteFileException error);
 }
 
 abstract interface class TransferChannelLease {
   RemoteFileSystem get fs;     // the leased transfer channel's adapter
   Future<void> release();      // returns the channel to the pool
+  void reportFailure(RemoteFileSystem source, RemoteFileException error);
 }
 
 enum ServerConnectionState {
@@ -513,8 +519,22 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   effect jitter exists to prevent; downward-only jitter after the clamp
   never exceeds `reconnectBackoffCap` while still de-synchronizing
   retries at the cap (the probe
-  service's hygiene rules). After reconnect the pane re-canonicalizes its
-  current path and refreshes. Running **or scanning** transfer tasks on
+  service's hygiene rules). The first attempt waits the first backoff;
+  recovery onto a surviving sibling transport needs no probe or delay.
+  One cancellable recovery loop per pool serializes new acquisitions and
+  auth prompts. An auth challenge re-enters vault/prompt resolution; a
+  cancelled resolution stops recovery. Background recovery never approves
+  host keys: a changed key hard-blocks until explicit review (D18).
+  A `PaneChannel` keeps its identity while its dead handle is replaced,
+  resolving `canonicalize('.')` again. Closing it during recovery removes
+  its demand; stale completions cannot reopen it. Leases are not rebound:
+  the queue releases and reacquires them. Engine callers report VFS
+  failures through the channel/lease's `reportFailure`, passing the VFS
+  instance used for the failed operation. Identity rejects late failures
+  from replaced handles; the manager observes transport closure directly. This avoids a VFS
+  wrapper (D3); cached VFS instances do not follow replacements.
+  After the connected event the pane re-canonicalizes its current path
+  and refreshes through the new handle. Running **or scanning** transfer tasks on
   that server flip to
   `queued` with a retry counter incremented once per reconnect cycle —
   never per affected file, which would burn the limit in one flap. The

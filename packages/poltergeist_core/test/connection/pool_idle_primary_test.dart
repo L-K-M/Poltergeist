@@ -137,7 +137,7 @@ void main() {
     });
   });
 
-  test('retiring the last live extra reports the pool disconnected', () {
+  test('recovered browse demand keeps the last live extra connected', () {
     fakeAsync((time) {
       const policy = PoolPolicy(
         maxTransports: 2,
@@ -145,19 +145,18 @@ void main() {
         maxChannelsPerTransport: 2,
       );
       final harness = PoolHarness(policy: policy)..addServer('s1');
-      browsePane(time, harness, 'stale-primary-binding');
+      final recovered = browsePane(time, harness, 'recovering-primary-binding');
       final firstPane = browsePane(time, harness, 'first');
       final extraPane = browsePane(time, harness, 'extra');
       final extra = harness.opener.transports.last;
 
-      // Evict the primary while another pane still has its old binding.
-      // The extra still had channel capacity (cap 2, one channel), so the
-      // replacement reuses it instead of growing the pool.
+      // Recovery spends the extra's spare channel on the surviving pane;
+      // the concurrent replacement acquisition then grows another extra.
       final replacement = _replaceDeadFirst(
         time,
         harness,
         firstPane,
-        policy.maxTransports,
+        policy.maxTransports + 1,
       );
 
       completeWithoutTimers(time, extraPane.close());
@@ -169,11 +168,13 @@ void main() {
       expect(states, [ServerConnectionState.connected]);
 
       time.elapse(policy.idleExtraTransportTimeout);
-      expect(extra.closed, isTrue);
+      expect(extra.closed, isFalse);
       expect(
         completeWithoutTimers(time, harness.manager.connectedServerIds()),
-        isEmpty,
+        {'s1'},
       );
+      expect(states.last, ServerConnectionState.connected);
+      completeWithoutTimers(time, recovered.close());
       final snapshots = <ServerConnectionState>[];
       final snapshotSubscription =
           harness.manager.watchServer('s1').listen(snapshots.add);
@@ -181,7 +182,7 @@ void main() {
       expect(
         states.last,
         ServerConnectionState.disconnected,
-        reason: 'Retirement removed the last live transport from the pool.',
+        reason: 'Closing the recovered pane removes the last live demand.',
       );
       expect(snapshots.single, ServerConnectionState.disconnected);
 

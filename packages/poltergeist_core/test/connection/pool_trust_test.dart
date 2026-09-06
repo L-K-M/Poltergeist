@@ -385,11 +385,11 @@ void main() {
             ? _changedKey
             : _originalKey;
         final harness = await _harness([_originalKey, growthKey, retryKey]);
-        await harness.manager.openBrowseChannel(
+        final originalPane = await harness.manager.openBrowseChannel(
           _primaryServerId,
           paneTabId: 'one',
         );
-        await harness.manager.openBrowseChannel(
+        final siblingPane = await harness.manager.openBrowseChannel(
           _siblingServerId,
           paneTabId: 'two',
         );
@@ -421,6 +421,17 @@ void main() {
           (call) => call.prompting == ConnectPrompting.disabled,
         );
 
+        // Only the old growth result remains parked; recovery gets fresh
+        // handshakes while it verifies the replacement trust/auth mode.
+        harness.opener.growthGate = null;
+        harness.opener.growthVerificationGate = null;
+        if (race == _GrowthRace.interactiveRetry) {
+          harness.opener.failureForCall = (call) =>
+              call.prompting == ConnectPrompting.disabled
+                  ? const AuthChallengeRequiredError('Auth now requires 2FA')
+                  : null;
+        }
+
         // Evict the dead slot while its growth replacement is still in flight.
         original.closed = true;
         channelGate.completeError(
@@ -435,20 +446,38 @@ void main() {
           harness.opener.authKind = AuthKind.keyboardInteractive;
         }
 
-        // Retry establishes current trust/auth while the old result is parked.
+        // Background recovery must block a changed key before a new explicit
+        // browse request may approve it. Same-key auth recovery may prompt.
+        if (race != _GrowthRace.interactiveRetry) {
+          await expectLater(
+            harness.manager.openBrowseChannel(_siblingServerId, paneTabId: 'review'),
+            throwsA(isA<RemoteFileException>()),
+          );
+        }
         final approved = await harness.manager.openBrowseChannel(
           _siblingServerId,
           paneTabId: 'new-key',
         );
         final currentTransport = harness.opener.calls.last.transport;
+        harness.opener.failureForCall = null;
         expect(harness.store.pins.values.single.fingerprintSha256, retryKey);
         if (race == _GrowthRace.authChallenge) {
           harness.opener.connectFailure = const AuthChallengeRequiredError(
             'An obsolete growth attempt requires interaction.',
           );
         }
+        // Same-key recovery kept these tabs alive; release their capacity
+        // before waiting for the old acquisitions to resume.
+        await originalPane.close();
+        await siblingPane.close();
         gate.complete();
         await Future.wait([browsing, pending]);
+        if (race != _GrowthRace.interactiveRetry) {
+          expect(errors, [isA<RemoteFileException>().having(
+            (error) => error.message, 'message', contains('blocked'),
+          )]);
+          errors.clear();
+        }
         final oldHandshakeClosed = growthCall.transport?.closed ?? true;
         final liveAfterGrowth = harness.opener.transports
             .where((transport) => !transport.closed)

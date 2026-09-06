@@ -346,7 +346,7 @@ void main() {
       final harness = PoolHarness(policy: policy, opener: opener)
         ..addServer('s1')
         ..addServer('s2');
-      browsePane(time, harness, 'first');
+      final firstPane = browsePane(time, harness, 'first');
       final lease = completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),
@@ -380,6 +380,10 @@ void main() {
       closeGate.complete();
       completeWithoutTimers(time, releasing);
       first.simulateExternalDeath();
+      time.flushMicrotasks();
+      // Recovery rebinds the pane onto the extra. Release that demand so
+      // the idle timer, rather than an open channel, protects growth here.
+      completeWithoutTimers(time, firstPane.close());
 
       final states = <ServerConnectionState>[];
       final subscription =
