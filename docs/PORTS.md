@@ -33,6 +33,10 @@
 
 ## Pin findings
 
+The 2026-09-06 dependency-guard repair adds no copied source or pin changes.
+Its rules are specific to Poltergeist's package boundaries; no port-back is
+required.
+
 The human identity aliases resolve to the repository owner. Other recorded
 identities are local automation or bot metadata; no external human
 contribution appears in the pin's ancestry. Three stranded assistant

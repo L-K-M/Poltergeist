@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-05 — M0 is complete; the M1 scaffold, deterministic
+_Last updated: 2026-09-06 — M0 is complete; the M1 scaffold, deterministic
 release versions, and the D23 release pipeline are implemented, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3);
@@ -103,9 +103,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
      does not block the teardown repair or change error preservation.
-   - **Guard coverage:** `check-imports.sh` has no executable regression suite
-     and explicitly omits plugin detection, although 03 §1 requires it.
-     Add adversarial fixtures and dependency-aware enforcement. Add 09 §5's
+   - **Dependency-contract coverage:** Add 09 §5's
      pinned dependency-contract tests before the next pin bump; hash-off
      second-preflight/CAS coverage also remains absent from the inspected
      Séance #62 adapter tests. These are test gaps, not observed VFS failures.
@@ -138,6 +136,23 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-06 — dependency boundaries.** Replaced the import guard's grep
+  scan with parsed Dart directives and resolved pubspec checks. Conditional
+  imports/exports, escaped literals, plugin metadata, runtime dependency
+  chains, unused declarations, and local overrides are checked. External
+  development dependencies do not classify a pure library as Flutter.
+  Missing/malformed metadata and linked scan inputs fail closed; generated
+  Apple `Pods` trees are excluded. Review added explicit diagnostics for
+  unresolved Flutter SDK imports, interpolated directives, and missing
+  package configuration. Output exclusions are scoped to project/native
+  output locations; similarly named source folders remain scanned. Empty
+  package URIs and malformed pubspecs produce specific diagnostics. SSH
+  fixtures use their own metadata; linked scan roots are rejected too.
+  Forty-one regressions failed before their repairs; 92 guard tests and
+  the real repository scan pass. CI analyzes and tests the guard first.
+  Dependency versions and Séance pins are unchanged. This closes item 6's import-guard
+  gap; dependency-contract tests and item 5's ordering escalation remain.
 
 - **2026-09-05 — bounded teardown.** Pool cleanup and SSH/SFTP wrappers use
   the pinned cleanup helper with a five-second bound per close. Detached
