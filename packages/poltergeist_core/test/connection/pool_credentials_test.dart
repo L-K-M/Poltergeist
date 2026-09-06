@@ -47,7 +47,7 @@ class _CredentialHarness {
         createdAt: 0,
         updatedAt: 0,
       ),
-      resolveCredentials: (_) async {
+      resolveCredentials: (_, _) async {
         resolutions++;
         final resolved = ResolvedCredentials(
           credentials: SshCredentials.password(secret),

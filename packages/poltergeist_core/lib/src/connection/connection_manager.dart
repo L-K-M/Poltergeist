@@ -3,6 +3,7 @@ import 'dart:collection';
 
 import 'package:seance_core/seance_core.dart';
 
+import 'credential_resolution.dart';
 import 'pool_key.dart';
 import 'pool_policy.dart';
 import 'ssh_cleanup.dart';
@@ -117,7 +118,8 @@ class ResolvedCredentials {
 ///    exhaustion queues or shares instead of failing.
 class PooledConnectionManager implements ConnectionManager {
   final Future<ServerConfig> Function(String serverId) _resolveServer;
-  final Future<ResolvedCredentials> Function(ServerConfig config)
+  final Future<ResolvedCredentials> Function(
+      ServerConfig config, CredentialResolutionScope scope)
       _resolveCredentials;
   final TofuVerifier _tofu;
   final HostKeyPrompter _onHostKey;
@@ -133,7 +135,10 @@ class PooledConnectionManager implements ConnectionManager {
   final Map<String, ServerConnectionState> _lastStates = {};
 
   /// [resolveServer] loads config only; [resolveCredentials] may access the
-  /// vault or prompt and runs once inside each pool's first connect.
+  /// vault or prompt and runs once inside each pool's first connect. It
+  /// receives the resolution's dismissal scope: the manager trips it when
+  /// the pool's lifetime ends mid-resolution, so a resolver-owned prompt
+  /// closes instead of parking on an answer the pool rejects as stale.
   PooledConnectionManager({
     required this._resolveServer,
     required this._resolveCredentials,
@@ -364,6 +369,11 @@ class PooledConnectionManager implements ConnectionManager {
         _cancelIdleTimer(slot);
       }
       if (identical(_pools[pool.key], pool)) _pools.remove(pool.key);
+
+      // An in-flight first connect cannot serve anyone anymore: dismiss
+      // its resolution so the resolver's prompt closes instead of parking
+      // on an answer the pool will reject as stale.
+      pool._resolution?.dismiss();
     }
 
     // Fail this server's queued waiters before any await below: closing
@@ -685,11 +695,18 @@ class PooledConnectionManager implements ConnectionManager {
     // neither retain it on failure nor lend it to growth while resolving.
     pool.resolvedCredentials = null;
 
+    // The resolution may own a prompt that outlives this connect attempt.
+    // Register its scope on the pool so the last reference out can dismiss
+    // it — late results are already rejected; this closes the prompt too.
+    final resolution = _PoolResolution();
+    pool._resolution = resolution;
+
     try {
       // Serialize vault access with first connect; joining bookmarks need
       // only metadata. Never open with a secret returned to a retired pool.
       final trustEpoch = pool._trustEpoch;
-      final resolved = await _resolveCredentials(reference.config);
+      final resolved =
+          await _resolveCredentials(reference.config, resolution);
       if (!_isCurrentTrustEpoch(pool, trustEpoch) || pool.references.isEmpty) {
         _throwIfBlocked(pool);
         throw _disconnectedAcquisition();
@@ -743,6 +760,8 @@ class PooledConnectionManager implements ConnectionManager {
       }
       _setState(pool, ServerConnectionState.disconnected);
       rethrow;
+    } finally {
+      if (identical(pool._resolution, resolution)) pool._resolution = null;
     }
   }
 
@@ -1342,6 +1361,19 @@ class PooledConnectionManager implements ConnectionManager {
 
 // ── Internal model ─────────────────────────────────────────────────────
 
+/// Manager-owned [CredentialResolutionScope]: one dismissal per
+/// first-connect resolution.
+class _PoolResolution implements CredentialResolutionScope {
+  final Completer<void> _dismissed = Completer<void>();
+
+  @override
+  Future<void> get dismissed => _dismissed.future;
+
+  void dismiss() {
+    if (!_dismissed.isCompleted) _dismissed.complete();
+  }
+}
+
 class _ServerReference {
   final String serverId;
   final ServerConfig config;
@@ -1386,6 +1418,13 @@ class _EndpointPool {
   bool interactiveOnly = false;
   _HostKeyIncident? _incident;
   Object _trustEpoch = Object();
+
+  /// The in-flight first-connect resolution, when one exists. Tripped by
+  /// the last reference out (abandonment) — the only pool-lifetime end
+  /// that can race a resolution: teardown paths bail out while
+  /// `firstConnect` is set, and a block lands only after the resolver
+  /// completes (handshakes happen inside `_openTransport`).
+  _PoolResolution? _resolution;
 
   bool get blocked => _incident != null;
   String? get blockDetail => _incident?._detail;
