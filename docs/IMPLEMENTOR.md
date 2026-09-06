@@ -118,7 +118,7 @@ plan-edit PR to 07, not a judgment call.
 | PR-S2: `openAuthenticatedClient` split (04 §5.3) | M2 remote browsing | Merged (or branch-rev bridged + dated STATUS item) + pin bumped |
 | PR-S1: record-kind forward-compat (04 §5.2) | M6 Design A (shared account) | Released, tag recorded in `kMinimumSharedAccountSeanceVersion` — Design B ships regardless |
 | PR-S3: VFS additions incl. `setTimes` (04 §5.4) | M8 *remote* sync execution, chown UI (D28), opt-in hashing (D7) | Merged + pin bumped; local↔local sync work proceeds meanwhile |
-| STATUS.md open item 3: rsync-exporter `# note:` patch to 05 §2 | "Copy as rsync command" shipping in *any* milestone | Patch landed in 05 |
+| STATUS.md dated item (closed): rsync-exporter `# note:` patch to 05 §2 | "Copy as rsync command" shipping in *any* milestone | Patch landed in 05 |
 | M3 menu spike (02 §9) | macOS menu bar shipping | Outcome recorded as an amendment to D11 in 00 (02's DoD requires the recording; the Swift fallback itself is pre-authorized) |
 
 Pre-license, Séance git-pin consumption for dev/CI is allowed but pins
