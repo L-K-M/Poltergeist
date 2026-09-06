@@ -105,7 +105,16 @@ void main() {
   });
 
   test('accepts a per-command transfer timeout', () async {
-    final session = await _startSession(shutdownGracePeriod: Duration.zero);
+    // The gated fixture withholds the second sentinel match until a release
+    // line arrives, and this test never sends one: the zero timeout is the
+    // command's only completion path regardless of how the runner schedules
+    // process output. A sleep-based fixture lets the result beat the timer
+    // on a starved runner, so the command completes without timing out.
+    final process = await Process.start('/bin/sh', ['-c', _gatedBatchProcess]);
+    final session = BatchCommandSession(
+      process,
+      shutdownGracePeriod: Duration.zero,
+    );
     await session.initialize();
 
     await expectLater(

@@ -97,10 +97,6 @@ slices, audit gaps, and decisions._
      upgrade guards are covered below. Hash-off second-preflight/CAS coverage
      remains absent from the inspected Séance #62 adapter tests; those tests
      stay upstream (08 §2). This is a test gap, not an observed VFS failure.
-   - **2026-09-06 — benchmark timeout test (follow-up):**
-     `accepts a per-command transfer timeout` failed intermittently under
-     concurrent harness runs, then passed unchanged. Replace its shell-sleep
-     timing with deterministic gating in a separate repair.
 
 6. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
    incidents now survive disconnect, but not process restart. A returning
@@ -130,6 +126,20 @@ slices, audit gaps, and decisions._
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-06 — deterministic per-command timeout gating.** The bench
+  suite's `accepts a per-command transfer timeout` test raced a shell
+  `sleep 0.02` against a zero-duration timeout: whenever the runner
+  delivered the sentinel result before the stdin flush continuation armed
+  `Future.timeout`, the command completed normally and the expected
+  `BatchCommandTimeoutException` never came — reproduced deterministically
+  with a scripted process whose flush completes after both sentinel
+  matches. The library is correct (an already-arrived result legitimately
+  wins); the fixture was the bug. The test now drives the existing gated
+  fixture (`_gatedBatchProcess`) without releasing the gate, so the held
+  command's only completion path is the timeout regardless of scheduling.
+  Five suite runs, randomized orderings, and 12 runs under 8-core CPU load
+  all pass; bench analysis is clean. No production behavior changes.
 
 - **2026-09-06 — resolver-prompt dismissal.** Credential resolution now
   carries a `CredentialResolutionScope` (03 §3.2 precision edit in the
