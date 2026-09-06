@@ -105,9 +105,15 @@ void main() {
   });
 
   test('accepts a per-command transfer timeout', () async {
-    final session = await _startSession(shutdownGracePeriod: Duration.zero);
+    final process = await Process.start('/bin/sh', ['-c', _gatedBatchProcess]);
+    final session = BatchCommandSession(
+      process,
+      shutdownGracePeriod: Duration.zero,
+    );
+    addTearDown(session.close);
     await session.initialize();
 
+    // Withhold the transfer sentinel so shell scheduling cannot beat the timer.
     await expectLater(
       session.run('get source target', timeout: Duration.zero),
       throwsA(
@@ -118,7 +124,6 @@ void main() {
         ),
       ),
     );
-    await session.close();
   });
 
   test('surfaces a batch process exit before its sentinel', () async {
@@ -150,14 +155,9 @@ void main() {
   });
 }
 
-Future<BatchCommandSession> _startSession({
-  Duration? shutdownGracePeriod,
-}) async {
+Future<BatchCommandSession> _startSession() async {
   final process = await Process.start('/bin/sh', ['-c', _fakeBatchProcess]);
-  return BatchCommandSession(
-    process,
-    shutdownGracePeriod: shutdownGracePeriod ?? const Duration(seconds: 10),
-  );
+  return BatchCommandSession(process);
 }
 
 class _BroadcastProcess implements Process {

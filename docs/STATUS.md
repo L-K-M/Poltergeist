@@ -97,10 +97,6 @@ slices, audit gaps, and decisions._
      upgrade guards are covered below. Hash-off second-preflight/CAS coverage
      remains absent from the inspected Séance #62 adapter tests; those tests
      stay upstream (08 §2). This is a test gap, not an observed VFS failure.
-   - **2026-09-06 — benchmark timeout test (follow-up):**
-     `accepts a per-command transfer timeout` failed intermittently under
-     concurrent harness runs, then passed unchanged. Replace its shell-sleep
-     timing with deterministic gating in a separate repair.
 
 6. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
    incidents now survive disconnect, but not process restart. A returning
@@ -130,6 +126,14 @@ slices, audit gaps, and decisions._
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-06 — deterministic benchmark timeout test.** The transfer
+  timeout test now withholds the completion sentinel behind an explicit
+  release gate and always closes its session through test teardown. A
+  temporary delayed-flush reproducer made the old test fail by delivering
+  the sentinel before timeout installation. The repaired harness passes
+  all 77 tests (one existing sshd-fixture skip), with clean analysis.
+  Production timeout behavior, evidence, pins, and ports are unchanged.
 
 - **2026-09-06 — resolver-prompt dismissal.** Credential resolution now
   carries a `CredentialResolutionScope` (03 §3.2 precision edit in the
