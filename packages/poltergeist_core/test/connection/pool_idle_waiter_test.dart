@@ -55,7 +55,9 @@ void main() {
         isNotNull,
         reason: 'Completed retirement must wake demand for its freed capacity.',
       );
-      expect(harness.opener.transports, hasLength(_policy.maxTransports));
+      // The woken lease must consume the retired slot on the existing extra
+      // transport rather than prompting a fresh transport open.
+      expect(harness.opener.transports, hasLength(2));
 
       completeWithoutTimers(time, granted!.release());
       completeWithoutTimers(time, harness.manager.disconnectServer('s1'));

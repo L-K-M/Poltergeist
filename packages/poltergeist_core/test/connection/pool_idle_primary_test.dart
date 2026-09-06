@@ -26,7 +26,7 @@ PaneChannel _replaceDeadFirst(
   final replacement =
       harness.manager.openBrowseChannel('s1', paneTabId: 'replacement');
   time.flushMicrotasks();
-  first.closed = true;
+  first.simulateExternalDeath();
   openGate.completeError(const RemoteFileException(
     kind: RemoteFileErrorKind.disconnected,
     operation: 'open SFTP',

@@ -157,6 +157,11 @@ void main() {
         gate.complete();
         completeWithoutTimers(time, disconnecting);
         expect(extra.closeCalls, 1);
+        expect(
+          first.closeCalls,
+          1,
+          reason: 'Disconnect must close the drained primary transport too.',
+        );
         _disconnect(time, harness);
       });
     },

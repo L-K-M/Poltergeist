@@ -142,6 +142,11 @@ class FakeTransport implements SshTransport {
   /// Refuse opens on this transport without poisoning healthy siblings.
   Object? openFailure;
 
+  /// Marks the transport dead the way a dropped connection would — without
+  /// touching close bookkeeping, so "external death" stays distinguishable
+  /// from a pool-initiated close in assertions.
+  void simulateExternalDeath() => closed = true;
+
   FakeTransport({required this.authKind, this.openLimit});
 
   @override

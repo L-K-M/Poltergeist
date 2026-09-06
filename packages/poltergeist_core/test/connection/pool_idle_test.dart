@@ -6,8 +6,11 @@ import 'package:test/test.dart';
 
 import 'pool_fakes.dart';
 
-// One channel per transport makes growth and ownership explicit in each test.
+// One channel per transport makes growth and ownership explicit in each
+// test. The transport cap is pinned because the queueing premises of the
+// lease tests depend on exactly two transports.
 const _policy = PoolPolicy(
+  maxTransports: 2,
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
 );
@@ -133,6 +136,30 @@ void main() {
       expect(extra.closed, isFalse);
       time.elapse(_lastSecond);
       expect(extra.closed, isTrue);
+      _disconnect(time, harness);
+    });
+  });
+
+  test('lease demand reuses an empty extra inside its idle window', () {
+    fakeAsync((time) {
+      final harness = _harness();
+      browsePane(time, harness, 'first');
+      final extraPane = browsePane(time, harness, 'extra');
+      final extra = harness.opener.transports.last;
+      completeWithoutTimers(time, extraPane.close());
+      time.elapse(_beforeExpiry);
+
+      // The pool is at its transport cap; the lease must cancel the idle
+      // clock and open on the empty extra instead of churning transports.
+      final callsBefore = harness.opener.calls.length;
+      final lease = completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
+      expect(harness.opener.calls.length, callsBefore);
+      expect(extra.channels.where((c) => !c.closed), isNotEmpty);
+
+      completeWithoutTimers(time, lease.release());
       _disconnect(time, harness);
     });
   });
