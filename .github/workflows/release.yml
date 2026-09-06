@@ -63,10 +63,11 @@ jobs:
     name: Test (release gate)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Least privilege: this job only checks out and runs tests — the
-    # workflow-wide contents: write is for the publishing jobs.
-    permissions:
-      contents: read
+    # Deliberately NOT scoped down to contents: read: the guard below
+    # lists releases, and GitHub shows draft releases only to tokens
+    # with write access (REST docs: "Only users with push access will
+    # receive listings for draft releases") — a read-scoped token would
+    # be blind to leftover drafts and let a re-dispatch update them.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
         with:
