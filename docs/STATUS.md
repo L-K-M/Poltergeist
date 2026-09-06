@@ -91,6 +91,11 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
    serializes workflows, not their matrix legs. Concurrent draft creation
    remains a release-path risk reserved for the PR #15 workstream.
 6. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
+   - **2026-09-06 — prompt cancellation (review follow-up):** before
+     prompt/vault integration, dismiss resolver-owned prompts when their
+     pool lifetime ends; carry cancellation through the engine protocol.
+     The manager rejects late results, but cannot dismiss external UI.
+     A replacement session must not wait on an abandoned resolver future.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
