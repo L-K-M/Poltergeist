@@ -12,6 +12,9 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  # The OS-keystore access behind the vault master key; version-matched to
+  # Séance's lock so the ported MasterKeyManager behavior is identical.
+  flutter_secure_storage: 10.3.1
   intl: 0.20.3
   macos_window_utils: 1.9.1
   path: 1.9.1

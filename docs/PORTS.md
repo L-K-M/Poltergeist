@@ -31,7 +31,61 @@
   best-effort failure mode. Pool regressions cover stalled and late-error
   cleanup. No port-back change: Séance already uses this primitive.
 
+## app/poltergeist_app/lib/services/secure_master_key.dart
+
+- Source: app/seance_app/lib/services/secure_master_key.dart
+- Séance commit: 30963c0c31f55e649b4b29487cf4c07b706b3056 (re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: keystore entry renamed `poltergeist.vault.masterKey.v1`
+  (07 §3.3) so the two apps never share an entry;
+  `putApiKey`/`getApiKey` dropped — Poltergeist has no provider API keys
+  (D19 scope); Séance types imported via the poltergeist_core barrel, never
+  seance_core directly. The ported exception messages are frozen port text
+  allowlisted in the localization contract; the D20 ARB rule applies where
+  the UI renders them (prompt-UI slice).
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/services/file_stores.dart
+
+- Source: app/seance_app/lib/services/file_stores.dart
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0; re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: only `FileVaultStore` and `FileHostKeyStore` are ported —
+  `FileConfigStore`/`FileSnippetStore` have no Poltergeist counterpart
+  (bookmark identities carry connections per 04 §2.1–2.2; the synced record
+  store lands in M6 per 04 §3.1); corrupt quarantine is store-owned and
+  UTC-stamped per this repo's atomic-file port instead of the source's
+  shared `.corrupt` helper; types imported via the poltergeist_core barrel.
+- Port-back candidates: UTC-stamped quarantine names (shared with the
+  atomic_file entry).
+
+## app/poltergeist_app/lib/services/locked_secret_vault.dart
+
+- Source: app/seance_app/lib/services/app_services.dart (LockedSecretVault)
+- Séance commit: 99a35850a59e741b3e542447508dda2ef9424252 (re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: extracted into its own file — Poltergeist has no AppServices
+  composition yet (it lands with the engine/prompt slices that consume the
+  vault); behavior identical.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/keystore_resilience_test.dart
+
+- Source: app/seance_app/test/keystore_resilience_test.dart
+- Séance commit: 30963c0c31f55e649b4b29487cf4c07b706b3056 (re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: the dropped API-key methods' tests map to `setKeystoreKey`
+  write-failure coverage plus a master-key entry-name assertion; imports via
+  the poltergeist_core barrel.
+- Port-back candidates: none.
+
 ## Pin findings
+
+The 2026-09-07 vault/store ports copy app-layer sources whose last-touch
+revisions all predate the current pin; each re-diffs clean at `2f99f4e`, and
+no pin or port-back change is required. The bookmark model is consumed
+through the existing `seance_protocol` pin (no copy: PR-S1 is in the pin's
+ancestry, retiring 07 §3.3's temporary-copy clause).
 
 The 2026-09-06 dependency-contract tests consume the existing pins through
 their APIs. No Séance source or tests were copied; no pin or port-back change

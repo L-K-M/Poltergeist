@@ -1,8 +1,8 @@
 /// Platform-agnostic core for Poltergeist.
 ///
-/// The barrel exports only neutral types — today the connection layer plus
-/// the re-exported `RemoteFileSystem` VFS; task and bookmark models join as
-/// they land per the plan (03 §1). dartssh2 types stop inside
+/// The barrel exports only neutral types — today the connection layer, the
+/// pinned bookmark model, and the vault/keystore plumbing types; task models
+/// join as they land per the plan (03 §1). dartssh2 types stop inside
 /// `src/connection/` and never reach callers — a property
 /// `scripts/check-imports.sh` enforces for this repo's own sources; the
 /// re-exported Séance types stay dartssh2-free only as long as the pinned
@@ -16,27 +16,47 @@ library;
 
 export 'package:seance_core/seance_core.dart'
     show
+        Argon2Params,
         AuthKind,
         AuthMethod,
+        Bookmark,
+        BookmarkKind,
+        BookmarkLocation,
+        BookmarkServerRef,
+        EmbeddedHostIdentity,
         HostKey,
         HostKeyDecision,
         HostKeyPrompter,
+        HostKeyStore,
         HostKeyVerdict,
+        InMemoryHostKeyStore,
+        InMemoryVaultStore,
         KeyboardInteractiveResponder,
+        PreferredPane,
         RemoteFileEntry,
         RemoteFileErrorKind,
         RemoteFileException,
         RemoteFileSystem,
         RemoteTransferCancellation,
         RemoteTransferProgress,
+        SavedSyncSpec,
+        Secret,
+        SecretKind,
+        SecretVault,
+        ServerColor,
         ServerConfig,
+        ServerIcon,
         SshConnectException,
         SshConnectionLog,
         SshCredentials,
         TofuVerifier,
+        VaultCrypto,
+        VaultKeys,
+        VaultStore,
         remoteBasename,
         remoteJoin,
-        remoteParent;
+        remoteParent,
+        secureRandomBytes;
 
 export 'src/connection/connection_manager.dart'
     show
