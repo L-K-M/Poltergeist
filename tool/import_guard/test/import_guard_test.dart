@@ -316,6 +316,15 @@ dependency_overrides: {"dartssh2": any}
       ).delete(recursive: true);
       await fixture.expectExit(2, 'Missing scan root');
     });
+
+    test('fails closed on linked $directory root', () async {
+      final path = p.join(fixture.root.path, directory);
+      final target = '$path-target';
+      await Directory(path).rename(target);
+      await Link(path).create(target);
+
+      await fixture.expectExit(2, 'Linked scan root');
+    });
   }
 
   for (final input in [

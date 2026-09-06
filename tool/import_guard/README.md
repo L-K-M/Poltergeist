@@ -4,7 +4,8 @@ Run `dart pub get`, then `bash scripts/check-imports.sh` in the checkout.
 The script also accepts invocation by absolute path. CI analyzes and tests
 it with explicit `tool/import_guard` paths.
 
-Run tests from the checkout root after `dart pub get`. The CI target is
+Run `dart test tool/import_guard/test` from the checkout root after
+`dart pub get`. The CI target is
 Linux; the shell fixtures require Bash and permission to create symlinks.
 
 The guard parses import/export directives, including conditional branches

@@ -30,7 +30,16 @@ Future<List<String>> checkImports(String rootPath) async {
 
   for (final area in _Area.values) {
     final directory = Directory(p.join(root, area.name));
-    if (!await directory.exists()) {
+
+    // Directory.list follows a linked root even when child links are disabled.
+    final type = await FileSystemEntity.type(
+      directory.path,
+      followLinks: false,
+    );
+    if (type == FileSystemEntityType.link) {
+      throw FileSystemException('Linked scan root', directory.path);
+    }
+    if (type != FileSystemEntityType.directory) {
       throw FileSystemException('Missing scan root', directory.path);
     }
 
