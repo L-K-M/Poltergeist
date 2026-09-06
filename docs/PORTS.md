@@ -33,6 +33,10 @@
 
 ## Pin findings
 
+The 2026-09-06 credential repair changes Poltergeist's pool ownership only.
+No copied source, pin change, or upstream port is required; the resolver
+carries prompt provenance that the pinned SSH opener cannot infer.
+
 The 2026-09-06 dependency-guard repair adds no copied source or pin changes.
 Its rules are specific to Poltergeist's package boundaries; no port-back is
 required.
