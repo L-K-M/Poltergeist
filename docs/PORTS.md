@@ -33,6 +33,11 @@
 
 ## Pin findings
 
+The 2026-09-06 dependency-contract tests consume the existing pins through
+their APIs. No Séance source or tests were copied; no pin or port-back change
+is required. Independent crypto vectors and a signed in-memory SSH peer pin
+the assumptions required by 09 §5.
+
 The 2026-09-06 credential repair changes Poltergeist's pool ownership only.
 No copied source, pin change, or upstream port is required; the resolver
 carries prompt provenance that the pinned SSH opener cannot infer.

@@ -464,19 +464,21 @@ The mechanics live in 03 §8; the porting-back flow in 04 §6. Operationally:
 4. **Never "simplify away" the documented API constraints.** These shaped
    the Séance code being ported; each looks like dead weight and is
    load-bearing (Séance AGENTS.md §6, referenced by 04 §1.3 and §6):
-   - `cryptography` 2.9's `Hkdf.deriveKey` has **no `info` parameter** —
-     domain separation between vault key and auth verifier is done with the
-     distinct HKDF salts `seance/v1/vault-encryption-key` /
-     `seance/v1/auth-verifier`. Argon2 `memory` is in KiB. Sealed blobs are
+   - `cryptography` 2.9's `Hkdf.deriveKey` supports `info`, but Séance's
+     established contract uses **empty info and distinct salts**
+     `seance/v1/vault-encryption-key` / `seance/v1/auth-verifier` for
+     domain separation. Moving those domains into `info` would change
+     existing keys (D18). Argon2 `memory` is in KiB. Sealed blobs are
      `nonce(24) || ciphertext || mac(16)`.
    - dartssh2's `onVerifyHostKey(type, fingerprint)` hands the **SHA-256
      fingerprint string, UTF-8 encoded as bytes (`SHA256:<base64>`, the
      OpenSSH format) — not the raw host key or its raw digest** — which is why
      `HostKey` is identified by `fingerprintSha256` and `publicKeyBase64`
      only exists after a known_hosts import.
-   - dartssh2 does **not export `SSHUserInfoRequest`** from its barrel — the
-     keyboard-interactive handler's lambda parameter type stays inferred;
-     writing the type breaks the build.
+   - dartssh2 3.0.2 **exports `SSHUserInfoRequest`** from its barrel.
+     Inferred keyboard-interactive callback parameters remain valid;
+     explicit annotations are supported at this pin too. The earlier
+     non-export constraint no longer applies.
    - Dart `RegExp` has **no inline `(?i)` flag** — use
      `caseSensitive: false`; a pattern ported with an inline flag throws
      `FormatException` at construction (never a quiet case-sensitive
@@ -515,7 +517,7 @@ A PR merges only when all of these hold:
       salt domain separation, Argon2 `memory` in KiB, the
       `nonce(24) || ciphertext || mac(16)` sealed-blob layout, dartssh2
       fingerprint-bytes semantics, inline RegExp flags throwing at
-      construction; the barrel-export constraint is compile-time and
+      construction; barrel availability is compile-time and
       needs no test) — so an upgrade that silently invalidates an
       assumption fails CI instead of relying on review memory.
 
