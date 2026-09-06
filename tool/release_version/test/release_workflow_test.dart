@@ -539,13 +539,15 @@ void main() {
     () async {
       final draft = await _runPublishStep(isDraft: true);
       expect(draft.result.exitCode, 0, reason: draft.result.stderr as String?);
-      final readyCalls = draft.ghLog
-          .readAsStringSync()
-          .trim()
-          .split('\n')
-          .where((line) => line.startsWith('ready'))
-          .length;
-      expect(readyCalls, 1);
+      final readyCalls = draft.ghLog.existsSync()
+          ? draft.ghLog
+                .readAsStringSync()
+                .trim()
+                .split('\n')
+                .where((line) => line.startsWith('ready'))
+                .length
+          : 0;
+      expect(readyCalls, 1, reason: 'Publish must call gh release ready once');
 
       final published = await _runPublishStep(isDraft: false);
       expect(published.result.exitCode, 0);
