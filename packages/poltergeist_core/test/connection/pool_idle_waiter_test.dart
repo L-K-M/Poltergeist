@@ -7,8 +7,11 @@ import 'package:test/test.dart';
 import 'pool_fakes.dart';
 
 // Match the server's MaxSessions ceiling so a retiring channel holds capacity.
+// The transport cap is pinned because the queueing premises of the lease
+// tests depend on exactly two transports.
 const _channelLimit = 1;
 const _policy = PoolPolicy(
+  maxTransports: 2,
   maxTransferChannelsPerTransport: _channelLimit,
   maxChannelsPerTransport: _channelLimit,
 );
@@ -39,7 +42,7 @@ void main() {
       // The old channel still occupies MaxSessions while its close awaits.
       TransferChannelLease? granted;
       final waiting = harness.manager.leaseTransferChannel('s1');
-      unawaited(waiting.then((value) => granted = value));
+      waiting.then((value) => granted = value).ignore();
       time.flushMicrotasks();
       // The retiring close is gated: started, not settled — and until it
       // settles the freed MaxSessions slot must not be handed out, nor

@@ -480,7 +480,9 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   the first transport after failure never promotes an extra into the
   idle-exempt first-transport role, and a transport connected after the
   first transport's death is born an extra — it idles out like any other
-  when it holds no channels. The first transport
+  when it holds no channels. Once the first transport is gone, no later
+  transport ever gains the cache role, so returned channels are closed
+  rather than cached for the remainder of this pool's life. The first transport
   follows pane lifetime, not a timer — but never closes while any of its
   channels is leased: with the last pane-tab gone, a leased first transport
   stays until its leases are released, so closing tabs cannot park a

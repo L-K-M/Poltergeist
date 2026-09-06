@@ -133,6 +133,63 @@ void main() {
     });
   });
 
+  test('idle retirement re-pumps demand queued behind a refusing extra',
+      () {
+    fakeAsync((time) {
+      final harness = _harness();
+      // The pane belongs to s2, so the s1 disconnect below cannot close it:
+      // the first transport stays full and keeps the queued demand alive.
+      final pane = browsePane(time, harness, 'first', server: 's2');
+      completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
+      final extra = harness.opener.transports.last;
+
+      // The extra refuses SFTP opens from now on (a per-connection
+      // subsystem limit): emptiness no longer means usable capacity.
+      extra.openFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.unsupported,
+        operation: 'open SFTP',
+        message: 'Channel open refused (scripted).',
+      );
+
+      // Both transports are full for s2's lease: it can only queue.
+      final waiting = harness.manager.leaseTransferChannel('s2');
+      TransferChannelLease? granted;
+      waiting.then((value) => granted = value).ignore();
+      time.flushMicrotasks();
+      expect(granted, isNull);
+
+      // Dropping s1 empties the extra; the refusal keeps the queued demand
+      // waiting on the first transport's channel (no stranded failure).
+      completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+      expect(granted, isNull);
+
+      // At expiry the extra retires — retirement is the last capacity
+      // change on the pool, so it must re-drive the queued demand: the
+      // pump grows a replacement transport instead of leaving the lease
+      // waiting forever on a pool that just lost its spare capacity.
+      time.elapse(_policy.idleExtraTransportTimeout);
+      time.flushMicrotasks();
+      time.flushMicrotasks();
+      expect(extra.closed, isTrue);
+      expect(granted, isNotNull,
+          reason: 'Retiring the idle extra must re-drive queued demand.');
+      expect(harness.opener.calls, hasLength(3),
+          reason: 'The re-driven demand grows a replacement transport.');
+
+      completeWithoutTimers(time, granted!.release());
+      completeWithoutTimers(time, pane.close());
+      expect(
+        harness.opener.transports.every((transport) => transport.closed),
+        isTrue,
+      );
+      completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
+      expect(time.pendingTimers, isEmpty);
+    });
+  });
+
   test(
     'last disconnect cancels idle timers before closing browse channels',
     () {
@@ -145,6 +202,10 @@ void main() {
         completeWithoutTimers(time, extraPane.close());
         expect(time.nonPeriodicTimerCount, 1,
             reason: 'Exactly the idle clock is armed on the emptied extra.');
+        expect(
+          time.pendingTimers.whereType<FakeTimer>().single.duration,
+          _policy.idleExtraTransportTimeout,
+        );
 
         final gate = first.channels.single.closeGate = Completer<void>();
         final disconnecting = harness.manager.disconnectServer('s1');
@@ -178,6 +239,10 @@ void main() {
       completeWithoutTimers(time, extraPane.close());
       expect(time.nonPeriodicTimerCount, 1,
           reason: 'Exactly the idle clock is armed on the emptied extra.');
+      expect(
+        time.pendingTimers.whereType<FakeTimer>().single.duration,
+        _policy.idleExtraTransportTimeout,
+      );
 
       final firstStates = <ServerConnectionState>[];
       final siblingStates = <ServerConnectionState>[];
@@ -345,10 +410,13 @@ void main() {
 
       // The pane fills the first transport, so the lease must grow; its
       // connect records the call and parks before creating a transport.
-      var leaseError = Object();
+      TransferChannelLease? granted;
+      Object? leaseError;
       final leasing = harness.manager.leaseTransferChannel('s1');
-      unawaited(leasing.then<void>((_) {},
-          onError: (Object error) => leaseError = error));
+      unawaited(leasing.then<void>(
+        (value) => granted = value,
+        onError: (Object error) => leaseError = error,
+      ));
       time.flushMicrotasks();
       expect(harness.opener.calls, hasLength(2),
           reason: 'The lease forces a growth connect parked on the gate.');
@@ -366,6 +434,8 @@ void main() {
       expect(grown.closeCalls, 1,
           reason: 'A transport landing on the abandoned pool must close, '
               'not leak.');
+      expect(granted, isNull,
+          reason: 'The abandoned acquisition must not be granted.');
       expect(leaseError, isA<RemoteFileException>(),
           reason: 'The abandoned acquisition must fail as disconnected.');
       expect(time.pendingTimers, isEmpty);
@@ -396,12 +466,24 @@ void main() {
       expect(granted, isNull);
 
       time.elapse(_policy.idleExtraTransportTimeout);
-      expect(harness.opener.transports.last.closed, isTrue);
+      time.flushMicrotasks();
+      expect(harness.opener.transports[1].closed, isTrue,
+          reason: 'The useless extra expires despite the queued demand.');
+      // Retirement re-drives the queued demand: exactly one replacement
+      // growth attempt, which the script refuses too — the demand keeps
+      // waiting on the first transport's capacity, not on the spare.
+      expect(harness.opener.calls, hasLength(3));
+      expect(harness.opener.transports.last.closed, isFalse);
       expect(harness.opener.transports.first.closed, isFalse);
       expect(granted, isNull);
 
       _disconnect(time, harness);
-      expect(leaseError, isA<RemoteFileException>());
+      expect(leaseError, isA<RemoteFileException>(),
+          reason: 'The queued demand settles as a typed failure once the '
+              'server goes away.');
+      expect(time.pendingTimers, isEmpty,
+          reason: 'Expiring the extra and failing the queued lease must '
+              'not leave any timers behind.');
     });
   });
 }

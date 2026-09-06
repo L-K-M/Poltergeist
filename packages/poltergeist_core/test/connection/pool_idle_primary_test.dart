@@ -6,8 +6,11 @@ import 'package:test/test.dart';
 
 import 'pool_fakes.dart';
 
-// One channel per transport forces replacement growth after the first dies.
+// One channel per transport forces replacement growth after the first
+// dies. The transport cap is pinned because the expected transport counts
+// below encode exactly two transports.
 const _policy = PoolPolicy(
+  maxTransports: 2,
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
 );
@@ -130,6 +133,7 @@ void main() {
   test('retiring the last live extra reports the pool disconnected', () {
     fakeAsync((time) {
       const policy = PoolPolicy(
+        maxTransports: 2,
         maxTransferChannelsPerTransport: 1,
         maxChannelsPerTransport: 2,
       );

@@ -194,7 +194,13 @@ class FakeTransport implements SshTransport {
     closed = true;
     await closeGate?.future;
     for (final channel in List<FakeChannel>.of(channels)) {
-      await channel.close();
+      try {
+        await channel.close();
+      } on Object {
+        // A failed channel close still frees its server-side slot; keep
+        // closing siblings so the fake matches the documented settle
+        // semantics (closeCompleted flips regardless of outcome).
+      }
     }
     final failure = closeFailure;
     closeCompleted = true;

@@ -1027,6 +1027,10 @@ class PooledConnectionManager implements ConnectionManager {
         _setState(pool, ServerConnectionState.disconnected);
       }
       unawaited(_closeIdleTransport(slot));
+      // Retirement is the last capacity change on this pool: re-drive
+      // queued demand so it can grow a replacement (or fail) instead of
+      // waiting forever on a pool whose spare capacity just left.
+      _pumpWaitersEnsured(pool);
     });
     slot._idleTimer = timer;
   }
