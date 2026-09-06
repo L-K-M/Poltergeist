@@ -30,7 +30,10 @@ class _PromptHarness {
   final store = FakeHostKeyStore();
   late final PooledConnectionManager manager;
 
-  /// One entry per resolution, in call order.
+  /// One entry per resolution, in call order. `dismissedByPool` records
+  /// every firing of the scope's dismissal, even for prompts that had
+  /// already finished — the contract being pinned is "a finished
+  /// resolution is never dismissed", not just "an unanswered one".
   final List<CredentialResolutionScope> scopes = [];
   final List<Completer<ResolvedCredentials>> prompts = [];
   final List<bool> dismissedByPool = [];
@@ -58,10 +61,13 @@ class _PromptHarness {
         answeredByUser.add(false);
 
         // A prompt owner: the dialog races its answer against dismissal.
+        // The flag records the pool's trip even for an already-finished
+        // prompt, so a spurious dismissal can never hide behind the
+        // answer having completed first.
         scope.dismissed.then<void>((_) {
           final index = prompts.indexOf(answer);
-          if (answer.isCompleted) return;
           dismissedByPool[index] = true;
+          if (answer.isCompleted) return;
           answer.completeError(const _PromptDismissed());
         });
         return answer.future;
@@ -74,8 +80,15 @@ class _PromptHarness {
 
   /// The user answers the newest prompt.
   void answer(String secret) {
+    final prompt = prompts.last;
+    if (prompt.isCompleted) {
+      throw StateError(
+        'answer() called on a prompt that already finished '
+        '(dismissed or answered)',
+      );
+    }
     answeredByUser[answeredByUser.length - 1] = true;
-    prompts[prompts.length - 1].complete(ResolvedCredentials(
+    prompt.complete(ResolvedCredentials(
       credentials: SshCredentials.password(secret),
       origin: CredentialOrigin.prompted,
     ));
@@ -211,4 +224,25 @@ void main() {
     expect(harness.dismissedByPool, [false]);
     expect(harness.answeredByUser, [true]);
   });
+
+  test(
+    'a resolution that finished is not dismissed mid-handshake',
+    () async {
+      final connectGate = harness.opener.connectGate = Completer<void>();
+      final connect = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+      final outcome = expectLater(connect, _disconnected);
+      await _flush();
+      harness.answer('secret');
+      await _flush();
+
+      // The transport handshake is parked; the resolution completed before
+      // it. Abandoning the pool here must not fire the finished scope.
+      await harness.manager.disconnectServer('s1');
+      connectGate.complete();
+      await outcome;
+
+      expect(harness.dismissedByPool, [false]);
+      expect(harness.answeredByUser, [true]);
+    },
+  );
 }

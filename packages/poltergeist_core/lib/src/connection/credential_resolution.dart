@@ -8,10 +8,11 @@
 /// the prompt owner closes its dialog instead of waiting for an answer
 /// the pool will reject as stale.
 ///
-/// The engine isolate's protocol (03 §5) wraps resolvers the same way:
-/// its prompt round-trip races the reply future against [dismissed] and
-/// cancels the open promptId when it fires, so dismissal crosses the
-/// isolate boundary with no second mechanism.
+/// The engine isolate's protocol (03 §5) will wrap resolvers the same
+/// way when that slice lands: its prompt round-trip races the reply
+/// future against [dismissed] and cancels the open promptId when it
+/// fires, so dismissal crosses the isolate boundary with no second
+/// mechanism.
 abstract interface class CredentialResolutionScope {
   /// Completes when the requesting pool's lifetime ended before this
   /// resolution completed.

@@ -140,10 +140,13 @@ slices, audit gaps, and decisions._
   dialog, and fails the resolution; folded first-connect callers fail
   disconnected without a user answer; sibling references keep the prompt
   alive; failed resolutions hand their retry a fresh scope; completed
-  resolutions are never dismissed; replacement sessions resolve afresh
-  without waiting on the abandoned future. Six regressions failed before
+  resolutions are never dismissed — including when the last reference
+  disconnects mid-handshake, after the resolution returned (the scope
+  retires at resolution completion; review round 1 caught it armed
+  through the handshake); replacement sessions resolve afresh
+  without waiting on the abandoned future. Seven regressions failed before
   the seam existed (the scope type did not compile) and pass after. Core
-  analysis is clean; 132 tests pass (one fixture skip). The
+  analysis is clean; 133 tests pass (one fixture skip). The
   engine-protocol half (03 §5) remains with that slice.
 - **2026-09-06 — pinned dependency contracts.** Seven core tests cover
   HKDF salt domains with empty info, Argon2 KiB units, both sealed-blob

@@ -707,6 +707,12 @@ class PooledConnectionManager implements ConnectionManager {
       final trustEpoch = pool._trustEpoch;
       final resolved =
           await _resolveCredentials(reference.config, resolution);
+      // The resolution finished — retire its scope now, not at the end of
+      // the whole connect: a last-reference disconnect during the transport
+      // handshake must not fire `dismissed` for a resolution that already
+      // completed (the scope's contract). The `finally` below covers the
+      // path where the resolver itself throws.
+      if (identical(pool._resolution, resolution)) pool._resolution = null;
       if (!_isCurrentTrustEpoch(pool, trustEpoch) || pool.references.isEmpty) {
         _throwIfBlocked(pool);
         throw _disconnectedAcquisition();
