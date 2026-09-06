@@ -434,6 +434,7 @@ jobs:
           REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          set -euo pipefail
           mkdir -p verify && cd verify
           gh release download "$RELEASE_TAG" --repo "$REPO" --clobber
           # Sums and files must be a bijection: sha256sum -c alone passes
