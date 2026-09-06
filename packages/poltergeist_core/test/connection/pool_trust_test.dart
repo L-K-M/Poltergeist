@@ -27,7 +27,7 @@ Future<PoolHarness> _harness(List<String> fingerprints) async {
         ..addServer(_primaryServerId)
         ..addServer(_siblingServerId);
   addTearDown(() => _disconnectAll(harness));
-  final config = harness.servers[_primaryServerId]!.config;
+  final config = harness.servers[_primaryServerId]!;
   await harness.store.put(
     HostKey(
       host: config.host,

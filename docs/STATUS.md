@@ -91,14 +91,11 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
    serializes workflows, not their matrix legs. Concurrent draft creation
    remains a release-path risk reserved for the PR #15 workstream.
 6. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
-   - **Credential lifetime and prompt provenance (security-relevant):**
-     `_resolveServer` runs per
-     serverId before pool lookup; `_ServerReference.credentials` survives
-     pane-lifetime teardown, and the next first connect reuses it. Serialize
-     vault resolution per pool, drop retained credentials on teardown, and
-     test fresh resolution. A password prompted by that resolver arrives as
-     `AuthKind.storedPassword`; carry its interactive origin so growth cannot
-     misclassify it. Complete this before prompt/vault integration (D5, D18).
+   - **2026-09-06 — prompt cancellation (review follow-up):** before
+     prompt/vault integration, dismiss resolver-owned prompts when their
+     pool lifetime ends; carry cancellation through the engine protocol.
+     The manager rejects late results, but cannot dismiss external UI.
+     A replacement session must not wait on an abandoned resolver future.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
@@ -136,6 +133,20 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-06 — credential lifetime and prompt provenance.** Config lookup
+  now precedes pool lookup without resolving secrets. The serialized first
+  connect resolves credentials once per pool; server references retain config
+  only. Pane/lease teardown and failed first connects require fresh resolution.
+  Explicit resolver prompt provenance caps growth even when SSH reports
+  `storedPassword`. Late resolution cannot revive a disconnected pool;
+  a surviving sibling keeps its pending resolution and active credentials.
+  Fresh attempts discard credentials left by dead-slot eviction before
+  resolving, preventing concurrent growth from borrowing that stale secret.
+  Seven regressions failed before their repairs; 13 credential tests and all
+  92 core tests pass (one fixture skip), with clean core analysis. Chapter 03
+  clarifies the resolution boundary and teardown lifetime. This closes
+  item 6's credential gap; items 5 and 7 still gate production integration.
 
 - **2026-09-06 — dependency boundaries.** Replaced the import guard's grep
   scan with parsed Dart directives and resolved pubspec checks. Conditional

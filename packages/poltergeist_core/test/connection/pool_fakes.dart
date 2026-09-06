@@ -290,8 +290,9 @@ class PoolHarness {
   late final FakeTransportOpener opener;
   late final PooledConnectionManager manager;
 
-  final Map<String, ResolvedServerConnection> servers = {};
+  final Map<String, ServerConfig> servers = {};
   int resolveCalls = 0;
+  int credentialResolveCalls = 0;
 
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
@@ -308,6 +309,13 @@ class PoolHarness {
     this.opener = opener ?? FakeTransportOpener();
     manager = PooledConnectionManager(
       resolveServer: _resolve,
+      resolveCredentials: (_) async {
+        credentialResolveCalls++;
+        return const ResolvedCredentials(
+          credentials: SshCredentials.privateKey('TEST KEY'),
+          origin: CredentialOrigin.stored,
+        );
+      },
       tofu: TofuVerifier(store),
       onHostKey: (decision) => onHostKey(decision),
       // A trivial responder: interactive-auth servers still complete their
@@ -319,7 +327,7 @@ class PoolHarness {
     );
   }
 
-  Future<ResolvedServerConnection> _resolve(String serverId) async {
+  Future<ServerConfig> _resolve(String serverId) async {
     if (resolveGate != null) await resolveGate!.future;
     resolveCalls++;
 
@@ -337,19 +345,16 @@ class PoolHarness {
     String username = 'test',
     String? jumpHostId,
   }) {
-    servers[serverId] = ResolvedServerConnection(
-      config: ServerConfig(
-        id: serverId,
-        label: serverId,
-        host: host,
-        port: port,
-        username: username,
-        authMethod: AuthMethod.privateKey,
-        jumpHostId: jumpHostId,
-        createdAt: 0,
-        updatedAt: 0,
-      ),
-      credentials: const SshCredentials.privateKey('TEST KEY'),
+    servers[serverId] = ServerConfig(
+      id: serverId,
+      label: serverId,
+      host: host,
+      port: port,
+      username: username,
+      authMethod: AuthMethod.privateKey,
+      jumpHostId: jumpHostId,
+      createdAt: 0,
+      updatedAt: 0,
     );
   }
 
