@@ -26,6 +26,27 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'window.height'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
+  // Ported Séance contracts (see docs/PORTS.md): the exception messages are
+  // frozen port text, kept byte-identical to the source. D20 localization
+  // applies where the UI renders them (the prompt-UI slice), not here.
+  'lib/services/secure_master_key.dart': {
+    r"'Saved secrets are unavailable: the OS keyring is locked '",
+    r"'or missing. Unlock the login keyring (or install gnome-keyring), '",
+    r"'then retry.'",
+    r"'poltergeist.vault.masterKey.v1'",
+    r"'${e.code} — $msg'",
+    r"'the vault master key'",
+    r"'Could not save $what to the OS keyring (${_describe(e)}). Unlock '",
+    r"'the login keyring or install gnome-keyring, then try again.'",
+  },
+  'lib/services/file_stores.dart': {
+    "'-'",
+    "''",
+    "':'",
+    "'.'",
+    r"'${file.path}.corrupt-$stamp'",
+    r"'$host:$port'",
+  },
   'lib/services/settings_store.dart': {
     "'settings root'",
     "'settings key'",

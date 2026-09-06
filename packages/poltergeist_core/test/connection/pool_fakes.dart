@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
-import 'package:seance_core/seance_core.dart';
 import 'package:test/test.dart';
 
 /// Flush pool work without advancing time, preserving an unexpected error's
