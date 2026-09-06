@@ -358,6 +358,14 @@ void main() {
         isNot(contains('cancelled')),
         reason: '$jobName job-level if',
       );
+      // Same `${{ }}` escape Publish's exact-match guard defends
+      // against: a wrapped condition with no status function drops
+      // the implicit success() and would run over failed needs.
+      expect(
+        jobIf.contains(r'${{') && !jobIf.contains('success'),
+        isFalse,
+        reason: '$jobName job-level if',
+      );
     }
     // Publish must be the sums job's final step: it runs only after the
     // floor-checked checksum step, and nothing may run after publication.
@@ -523,6 +531,25 @@ void main() {
     expect(floorBroken.sums.existsSync(), isFalse);
     expect(floorBroken.uploadLog.existsSync(), isFalse);
   }, skip: _posixOnly);
+
+  test(
+    'Publish drafts once, no-ops when public, fails loud on probe error',
+    () async {
+      final draft = await _runPublishStep(isDraft: true);
+      expect(draft.result.exitCode, 0, reason: draft.result.stderr as String?);
+      expect(draft.ghLog.readAsStringSync(), contains('ready'));
+
+      final published = await _runPublishStep(isDraft: false);
+      expect(published.result.exitCode, 0);
+      expect(published.ghLog.existsSync(), isFalse);
+      expect(published.result.stderr, contains('already published'));
+
+      final probeError = await _runPublishStep(viewFails: true);
+      expect(probeError.result.exitCode, isNot(0));
+      expect(probeError.ghLog.existsSync(), isFalse);
+    },
+    skip: _posixOnly,
+  );
 
   test('iOS IPAs build from and zip out of the unsigned xcarchive', () {
     for (final path in [
@@ -934,10 +961,17 @@ case "$1" in
       esac
     done
     case "$cmd" in
+      ready)
+        printf 'ready %s\n' "$details" >> "$log"
+        ;;
       view)
-        # The isDraft probe (mutation/publish idempotency) — this helper
-        # exercises the pre-publish draft scenario, so answer draft=true.
-        printf 'true\n'
+        # The isDraft probe (mutation/publish idempotency) — answers the
+        # env knobs so tests can drive draft/published/probe-error.
+        if [[ "${FAKE_VIEW_FAIL:-0}" == 1 ]]; then
+          echo "fake gh: view probe failure" >&2
+          exit 70
+        fi
+        printf '%s\n' "${FAKE_IS_DRAFT:-true}"
         ;;
       download)
         [[ -n "$dir" ]] || { echo "fake gh: no --dir" >&2; exit 64; }
@@ -1041,6 +1075,58 @@ Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
     uploadLog: File(p.join(sandbox.path, 'gh.log')),
     notes: File(p.join(sandbox.path, 'notes-copy.md')),
   );
+}
+
+/// Executes the sums job's Publish step against the fake gh.
+///
+/// The step's whole contract in one place: a draft is published exactly
+/// once, an already-public release is left untouched, and a failed
+/// isDraft probe fails the step instead of reading as "published".
+Future<_PublishOutcome> _runPublishStep({
+  bool isDraft = true,
+  bool viewFails = false,
+}) async {
+  final sandbox = Directory.systemTemp.createTempSync(
+    'poltergeist-release-publish-test-',
+  );
+  addTearDown(() {
+    if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+  });
+  Directory(p.join(sandbox.path, 'bin')).createSync();
+  _writeFakeGh(sandbox);
+
+  final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+  final script = _stepRun(
+    (jobs['sums'] as YamlMap)['steps'] as YamlList,
+    'Publish',
+  );
+
+  final result = await Process.run(
+    'bash',
+    ['-euo', 'pipefail', '-c', script],
+    environment: _fakeGhEnvironment(
+      sandbox: sandbox,
+      extra: {
+        'REPO': 'owner/repo',
+        'RELEASE_TAG': 'v0.1.0',
+        'FAKE_IS_DRAFT': '$isDraft',
+        if (viewFails) 'FAKE_VIEW_FAIL': '1',
+      },
+    ),
+    workingDirectory: sandbox.path,
+  );
+
+  return _PublishOutcome(
+    result: result,
+    ghLog: File(p.join(sandbox.path, 'gh.log')),
+  );
+}
+
+class _PublishOutcome {
+  const _PublishOutcome({required this.result, required this.ghLog});
+
+  final ProcessResult result;
+  final File ghLog;
 }
 
 class _ChecksumOutcome {
