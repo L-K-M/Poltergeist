@@ -9,6 +9,22 @@ import 'package:yaml/yaml.dart';
 import '../support/host_key_peer.dart';
 
 void main() {
+  test('peer ignores buffered client data after immediate close', () async {
+    final peer = HostKeyPeer();
+    addTearDown(peer.close);
+    final client = SSHClient(peer.socket, username: 'contract-test');
+    addTearDown(client.close);
+    final aborted = expectLater(
+      client.authenticated,
+      throwsA(isA<SSHAuthAbortError>()),
+    );
+
+    // The banner is queued, but the peer has not processed it yet.
+    await client.close();
+    await aborted;
+    await client.done;
+  });
+
   test('SSH contract exercises the product dartssh2 version', () async {
     // Separate resolution must not let a product bump test an old dependency.
     final library = await Isolate.resolvePackageUri(
@@ -33,7 +49,11 @@ void main() {
             )
             as YamlMap;
 
-    expect(manifest['version'], lock['packages']['dartssh2']['version']);
+    expect(
+      lock['packages'],
+      containsPair('dartssh2', containsPair('version', manifest['version'])),
+      reason: 'Product lock must resolve the dartssh2 version under test',
+    );
   });
 
   // Keep raw SSH tests in the sanctioned harness, outside product layers.

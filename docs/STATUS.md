@@ -92,8 +92,8 @@ slices, audit gaps, and decisions._
      remains absent from the inspected Séance #62 adapter tests; those tests
      stay upstream (08 §2). This is a test gap, not an observed VFS failure.
    - **2026-09-06 — benchmark timeout test (follow-up):**
-     `accepts a per-command transfer timeout` failed once under the full
-     harness run, then passed on rerun unchanged. Replace its shell-sleep
+     `accepts a per-command transfer timeout` failed intermittently under
+     concurrent harness runs, then passed unchanged. Replace its shell-sleep
      timing with deterministic gating in a separate repair.
 
 6. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
@@ -128,13 +128,15 @@ slices, audit gaps, and decisions._
 - **2026-09-06 — pinned dependency contracts.** Seven core tests cover
   HKDF salt domains with empty info, Argon2 KiB units, both sealed-blob
   layout directions, and RegExp flag behavior. Independent known answers
-  prevent matching encoder/decoder drift from passing. Two harness tests
+  prevent matching encoder/decoder drift from passing. Three harness tests
   verify actual SSH host-key callback bytes through a signed in-memory
   handshake and require its resolved dartssh2 version to match the product
   lock. Review fixed the lock lookup's working-directory dependency: the
   root-launched test failed before and passes after URI anchoring. Raw SSH
-  stays in the sanctioned harness; ordinary CI runs all nine.
-  Core analysis and 99 tests pass; harness analysis and 75 tests pass, each
+  stays in the sanctioned harness. Immediate client close also failed before
+  and passes after guarding the peer's buffered writes; missing lock entries
+  now produce matcher diagnostics. Ordinary CI runs all ten tests.
+  Core analysis and 99 tests pass; harness analysis and 76 tests pass, each
   suite with one existing sshd-fixture skip. Import and release-version
   guards pass. No dependency versions, pins, or production behavior change.
   Chapter 09 corrects obsolete HKDF-info and keyboard-interactive export

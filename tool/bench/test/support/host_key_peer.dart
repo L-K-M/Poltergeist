@@ -75,6 +75,9 @@ class HostKeyPeer {
   }
 
   void _receive(List<int> bytes) {
+    // Closing drains queued client writes; replying would mask the test error.
+    if (_socket._incoming.isClosed) return;
+
     try {
       _pending.addAll(bytes);
       if (_clientVersion == null) {
