@@ -212,6 +212,7 @@ void main() {
     expect(harness.opener.calls, hasLength(2));
     expect(harness.opener.transports, hasLength(1));
     expect(fifthServed, isFalse);
+    expect(harness.credentialResolveCalls, 1);
 
     // Capped for good: releasing and re-leasing never grows again.
     final released = await leases[0];
@@ -230,6 +231,7 @@ void main() {
     await sixth;
     expect(harness.opener.calls, hasLength(2));
     expect(harness.opener.transports, hasLength(1));
+    expect(harness.credentialResolveCalls, 1);
   });
 
   test('a changed key hard-blocks the pool; nothing auto-repins', () async {
@@ -381,12 +383,13 @@ void main() {
     await flushEvents();
     expect(harness.opener.transports.single.closed, isTrue);
 
-    // Pane-lifetime teardown wipes the pool but keeps the session's
-    // reference: the next connect reuses it (vault re-resolution on auth
-    // failure lands with reconnect, 03 §3.3).
+    // Cached config survives pane teardown; the next connect resolves
+    // secrets again because their lifetime ends with the transports.
     expect(harness.resolveCalls, 1);
+    expect(harness.credentialResolveCalls, 1);
     await harness.manager.openBrowseChannel('s1', paneTabId: 't');
     expect(harness.resolveCalls, 1);
+    expect(harness.credentialResolveCalls, 2);
   });
 
   test('disconnectServer closes the id\'s channels; siblings keep the pool',
@@ -421,6 +424,7 @@ void main() {
 
     await harness.manager.openBrowseChannel('s2', paneTabId: 't2');
     expect(harness.resolveCalls, 3);
+    expect(harness.credentialResolveCalls, 2);
   });
 
   test('budget exhaustion shares the LRU browse channel', () async {
@@ -528,8 +532,8 @@ void main() {
 
     await harness.manager.openBrowseChannel('s1', paneTabId: 't');
 
-    // s2 joins the already-connected pool: no connect runs, no state event
-    // fires for it — the initial watch value must derive from the pool.
+    // s2 joins without reconnecting. A later subscriber still starts with
+    // the pool's current state after the join event has passed.
     await harness.manager.openBrowseChannel('s2', paneTabId: 't');
     expect(harness.opener.calls, hasLength(1));
 

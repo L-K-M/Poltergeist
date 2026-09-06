@@ -37,14 +37,16 @@ void main() {
       // The old channel still occupies MaxSessions while its close awaits.
       TransferChannelLease? granted;
       final waiting = harness.manager.leaseTransferChannel('s1');
-      waiting.then((value) => granted = value);
+      waiting.then((value) => granted = value).ignore();
       time.flushMicrotasks();
-      expect(retiring.closed, isFalse);
+      // The retiring close is gated: started, not settled — and until it
+      // settles the freed MaxSessions slot must not be handed out.
+      expect(retiring.closeCompleted, isFalse);
       expect(granted, isNull);
 
       closeGate.complete();
       completeWithoutTimers(time, releasing);
-      expect(retiring.closed, isTrue);
+      expect(retiring.closeCompleted, isTrue);
       expect(
         granted,
         isNotNull,

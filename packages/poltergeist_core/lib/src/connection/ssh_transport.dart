@@ -8,6 +8,8 @@ import 'package:seance_core/seance_core.dart';
 // ignore: implementation_imports
 import 'package:seance_core/src/ssh/remote_file_system.dart';
 
+import 'ssh_cleanup.dart';
+
 /// One open SFTP channel on a transport, and the filesystem view it carries.
 ///
 /// `RemoteFileSystem` has no close (it is a pure VFS interface, D3), so the
@@ -213,33 +215,21 @@ class _DartSshTransport implements SshTransport {
         // The open was abandoned before a channel existed (timeout).
         // Whatever arrives late on the abandoned open — immediately, if
         // it already has — is owned by nobody; close it.
-        unawaited(pending.then<void>((lateChannel) async {
-          try {
-            await lateChannel.close();
-          } on Object {
-            // Swallow: best-effort hygiene for an abandoned open — its
-            // failure must never surface as an unhandled async error.
-          }
+        unawaited(pending.then<void>((lateChannel) {
+          return closeSshResource(lateChannel.close);
         }, onError: (Object _) {
           // The abandoned open failed on its own — nothing to close.
         }));
       }
       if (opening != null) {
-        try {
-          // Bounded: a stalled close must not hang the error path past the
-          // operation timeout; the abandoned close continuing in the
-          // background is acceptable best-effort.
-          await opening.close().timeout(timeout, onTimeout: () {});
-        } on Object {
-          // Swallow: the rethrow below carries the failure that matters.
-        }
+        await closeSshResource(opening.close, maxWait: timeout);
       }
       throw classifySftpOpenFailure(error, transportClosed: isClosed);
     }
   }
 
   @override
-  Future<void> close() => _client.close();
+  Future<void> close() => closeSshResource(_client.close);
 }
 
 class _DartSftpChannel implements SftpChannel {
@@ -252,5 +242,5 @@ class _DartSftpChannel implements SftpChannel {
   RemoteFileSystem get fs => _fs;
 
   @override
-  Future<void> close() => _close();
+  Future<void> close() => closeSshResource(_close);
 }

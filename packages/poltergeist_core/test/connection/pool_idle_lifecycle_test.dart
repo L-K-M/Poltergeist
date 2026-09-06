@@ -14,6 +14,19 @@ const _policy = PoolPolicy(
 const _lastSecond = Duration(seconds: 1);
 final _beforeExpiry = _policy.idleExtraTransportTimeout - _lastSecond;
 
+// The pinned cleanup helper abandons any close still pending after this
+// bound (ssh_cleanup.dart), so a gated close inside a test must settle
+// within it — elapsing past the cap replaces the gate with abandonment.
+const _closeCap = Duration(seconds: 5);
+final _insideCloseCap = _closeCap - _lastSecond;
+
+// Every in-flight close arms the pinned cleanup bound's timer, so "no
+// timers at all" is never true while a close is pending — the suite's
+// invariant is that no IDLE clock is pending.
+bool _idleTimerPending(FakeAsync time) => time.pendingTimers
+    .whereType<FakeTimer>()
+    .any((timer) => timer.duration == _policy.idleExtraTransportTimeout);
+
 PoolHarness _harness({FakeTransportOpener? opener}) =>
     PoolHarness(policy: _policy, opener: opener)
       ..addServer('s1')
@@ -50,14 +63,17 @@ void main() {
       final releasing = lease.release();
       time.flushMicrotasks();
 
-      time.elapse(_policy.idleExtraTransportTimeout * 2);
-      expect(channel.closed, isFalse);
+      time.elapse(_insideCloseCap);
+      // The channel close is gated, so it has started but not settled —
+      // the idle window cannot begin until it finishes. Only the pinned
+      // close bound's timer may be pending.
+      expect(channel.closeCompleted, isFalse);
       expect(extra.closeCalls, 0);
-      expect(time.pendingTimers, isEmpty);
+      expect(_idleTimerPending(time), isFalse);
 
       gate.complete();
       completeWithoutTimers(time, releasing);
-      expect(channel.closed, isTrue);
+      expect(channel.closeCompleted, isTrue);
       time.elapse(_beforeExpiry);
       expect(extra.closed, isFalse);
       time.elapse(_lastSecond);
@@ -134,8 +150,10 @@ void main() {
         final gate = first.channels.single.closeGate = Completer<void>();
         final disconnecting = harness.manager.disconnectServer('s1');
         time.flushMicrotasks();
-        expect(time.pendingTimers, isEmpty);
-        time.elapse(_policy.idleExtraTransportTimeout * 2);
+        // Idle clocks are canceled at disconnect; only the pinned close
+        // bound may still be pending while the gated channel drains.
+        expect(_idleTimerPending(time), isFalse);
+        time.elapse(_insideCloseCap);
         expect(extra.closeCalls, 0);
 
         gate.complete();
@@ -179,11 +197,14 @@ void main() {
       final blocking = harness.opener.calls.last.onHostKey(decision);
       time.flushMicrotasks();
 
-      expect(time.pendingTimers, isEmpty);
+      // The block lands before cleanup settles: the idle clock is already
+      // gone while the gated first transport still owes its close.
+      expect(_idleTimerPending(time), isFalse);
       expect(firstStates.last, ServerConnectionState.blocked);
       expect(siblingStates.last, ServerConnectionState.blocked);
-      time.elapse(_policy.idleExtraTransportTimeout * 2);
-      expect(extra.closeCalls, 0);
+      // Transports close concurrently (pinned two-phase cleanup), so the
+      // extra does not queue behind the first's gated close.
+      expect(extra.closeCalls, 1);
 
       gate.complete();
       expect(completeWithoutTimers(time, blocking), isFalse);
@@ -208,7 +229,9 @@ void main() {
       final subscription = harness.manager.watchServer('s1').listen(states.add);
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(extra.closeCalls, 1);
-      expect(extra.closed, isFalse);
+      // The old transport's close is gated mid-flight while its replacement
+      // arrives — the exact race this test exercises.
+      expect(extra.closeCompleted, isFalse);
 
       final replacement = _browse(time, harness, 'replacement', server: 's2');
       final current = harness.opener.transports.last;
@@ -231,21 +254,36 @@ void main() {
     });
   });
 
-  test('growth whose channel open fails still expires while demand waits', () {
+  test('a failed growth open still expires the extra while demand waits', () {
     fakeAsync((time) {
+      // The first transport hosts the browse channel at its channel cap;
+      // the grown extra refuses SFTP, so the lease can only wait for the
+      // first transport's capacity. The useless extra must still expire —
+      // and the queued demand must settle once the server goes away.
       final harness = _harness(
-        opener: FakeTransportOpener(transportOpenLimit: 0),
+        opener: FakeTransportOpener(transportOpenLimits: [1, 0]),
       );
-      final waiting = harness.manager.openBrowseChannel('s1', paneTabId: 'tab');
-      waiting.ignore();
+      _browse(time, harness, 'first');
+      TransferChannelLease? granted;
+      Object? leaseError;
+      final waiting = harness.manager.leaseTransferChannel('s1');
+      // Track both outcomes so the wait's fate is asserted, not ignored.
+      final tracked = waiting.then<void>(
+        (value) => granted = value,
+        onError: (Object error) => leaseError = error,
+      );
+      tracked.ignore();
       time.flushMicrotasks();
       expect(harness.opener.transports, hasLength(2));
-      expect(harness.openChannels, isEmpty);
+      expect(granted, isNull);
 
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(harness.opener.transports.last.closed, isTrue);
       expect(harness.opener.transports.first.closed, isFalse);
+      expect(granted, isNull);
+
       _disconnect(time, harness);
+      expect(leaseError, isA<RemoteFileException>());
     });
   });
 }

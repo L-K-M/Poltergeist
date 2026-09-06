@@ -75,17 +75,21 @@ class FakeChannel implements SftpChannel {
   final RemoteFileSystem fs;
 
   bool closed = false;
-  Completer<void>? closeGate;
   Object? closeFailure;
+  Completer<void>? closeGate;
+
+  /// Whether [close] has settled — [closed] flips at close() entry, so
+  /// a gated close distinguishes "started" from "finished" only here.
+  bool closeCompleted = false;
 
   FakeChannel(this.fs);
 
   @override
   Future<void> close() async {
-    // Keep the physical channel open while its pool handle is retiring.
-    if (closeGate != null) await closeGate!.future;
     closed = true;
+    await closeGate?.future;
     final failure = closeFailure;
+    closeCompleted = true;
     if (failure != null) throw failure;
   }
 }
@@ -106,8 +110,17 @@ class FakeTransport implements SshTransport {
   Completer<void>? openGate;
   Completer<void>? canonicalizeGate;
   Completer<void>? closeGate;
-  int closeCalls = 0;
   Object? closeFailure;
+
+  /// How many close() calls started — late cleanup must not re-close.
+  int closeCalls = 0;
+
+  /// Whether [close] has settled — like [FakeChannel.closeCompleted], this
+  /// distinguishes a gated (in-flight) close from a finished one.
+  bool closeCompleted = false;
+
+  /// Refuse opens on this transport without poisoning healthy siblings.
+  Object? openFailure;
 
   FakeTransport({required this.authKind, this.openLimit});
 
@@ -123,8 +136,14 @@ class FakeTransport implements SshTransport {
         message: 'The SSH transport is disconnected.',
       );
     }
+    final failure = openFailure;
+    if (failure != null) throw failure;
+
+    // Server-side MaxSessions accounting: a session frees only once its
+    // close settles — a close that started but is still in flight keeps
+    // occupying the slot (the client-side pool detaches earlier).
     if (openLimit != null &&
-        channels.where((c) => !c.closed).length >= openLimit!) {
+        channels.where((c) => !c.closeCompleted).length >= openLimit!) {
       // Aligned with the production funnel: a channel-open refusal is not
       // a RemoteFileException, so the transport maps it to `unsupported`.
       throw const RemoteFileException(
@@ -145,14 +164,14 @@ class FakeTransport implements SshTransport {
 
   @override
   Future<void> close() async {
-    // Let tests grow a replacement before an old transport finishes closing.
     closeCalls++;
-    if (closeGate != null) await closeGate!.future;
     closed = true;
+    await closeGate?.future;
     for (final channel in List<FakeChannel>.of(channels)) {
       await channel.close();
     }
     final failure = closeFailure;
+    closeCompleted = true;
     if (failure != null) throw failure;
   }
 }
@@ -182,7 +201,7 @@ class RecordedOpenCall {
 /// through the verifier, prompt when untrusted, pin on approval. Growth
 /// behavior is scripted per test.
 class FakeTransportOpener {
-  final AuthKind authKind;
+  AuthKind authKind;
 
   /// A prompting-disabled connect behaves as if the server demanded
   /// interaction: auth fails without a prompt (rule 3's growth case).
@@ -194,11 +213,25 @@ class FakeTransportOpener {
 
   /// Handed to every created transport: refuse opens past this many
   /// channels (a fake MaxSessions ceiling).
-  final int? transportOpenLimit;
+  int? transportOpenLimit;
+
+  /// Per-created-transport open-limit script (last value repeats) — lets one
+  /// transport host channels while a growth transport refuses SFTP. Wins
+  /// over the uniform [transportOpenLimit] when set.
+  final List<int?>? transportOpenLimits;
 
   /// When set, every prompting-disabled (growth) connect parks on this
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
+
+  /// Hold a growth verdict before it reaches the pool's trust gate.
+  Completer<void>? growthVerificationGate;
+
+  /// Fail authentication after TOFU has persisted any approved key.
+  Object? connectFailure;
+
+  /// Pause a completed handshake to model death before the pool receives it.
+  Completer<void>? connectGate;
 
   final List<RecordedOpenCall> calls = [];
 
@@ -207,6 +240,7 @@ class FakeTransportOpener {
     this.growthRequiresChallenge = false,
     this.presentedFingerprints = const ['SHA256:presented'],
     this.transportOpenLimit,
+    this.transportOpenLimits,
   });
 
   SshTransportOpener get opener => ({
@@ -248,6 +282,10 @@ class FakeTransportOpener {
         );
 
         final decision = await tofu.check(presented);
+        final verificationGate = growthVerificationGate;
+        if (prompting == ConnectPrompting.disabled && verificationGate != null) {
+          await verificationGate.future;
+        }
         if (!decision.isTrusted) {
           final approved = await onHostKey(decision);
           if (!approved) {
@@ -269,6 +307,14 @@ class FakeTransportOpener {
           }
         }
 
+        final failure = connectFailure;
+        if (failure != null) throw failure;
+
+        final limits = transportOpenLimits;
+        final openLimit = limits == null
+            ? transportOpenLimit
+            : limits[index < limits.length ? index : limits.length - 1];
+
         final transport = FakeTransport(
           // Growth (prompting-disabled) connects re-authenticate
           // non-interactively, so they report a non-interactive kind even
@@ -276,9 +322,10 @@ class FakeTransportOpener {
           authKind: prompting == ConnectPrompting.disabled
               ? AuthKind.key
               : authKind,
-          openLimit: transportOpenLimit,
+          openLimit: openLimit,
         );
         call.transport = transport;
+        if (connectGate != null) await connectGate!.future;
         return transport;
       };
 
@@ -294,8 +341,9 @@ class PoolHarness {
   late final FakeTransportOpener opener;
   late final PooledConnectionManager manager;
 
-  final Map<String, ResolvedServerConnection> servers = {};
+  final Map<String, ServerConfig> servers = {};
   int resolveCalls = 0;
+  int credentialResolveCalls = 0;
 
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
@@ -312,6 +360,13 @@ class PoolHarness {
     this.opener = opener ?? FakeTransportOpener();
     manager = PooledConnectionManager(
       resolveServer: _resolve,
+      resolveCredentials: (_) async {
+        credentialResolveCalls++;
+        return const ResolvedCredentials(
+          credentials: SshCredentials.privateKey('TEST KEY'),
+          origin: CredentialOrigin.stored,
+        );
+      },
       tofu: TofuVerifier(store),
       onHostKey: (decision) => onHostKey(decision),
       // A trivial responder: interactive-auth servers still complete their
@@ -323,7 +378,7 @@ class PoolHarness {
     );
   }
 
-  Future<ResolvedServerConnection> _resolve(String serverId) async {
+  Future<ServerConfig> _resolve(String serverId) async {
     if (resolveGate != null) await resolveGate!.future;
     resolveCalls++;
 
@@ -341,19 +396,16 @@ class PoolHarness {
     String username = 'test',
     String? jumpHostId,
   }) {
-    servers[serverId] = ResolvedServerConnection(
-      config: ServerConfig(
-        id: serverId,
-        label: serverId,
-        host: host,
-        port: port,
-        username: username,
-        authMethod: AuthMethod.privateKey,
-        jumpHostId: jumpHostId,
-        createdAt: 0,
-        updatedAt: 0,
-      ),
-      credentials: const SshCredentials.privateKey('TEST KEY'),
+    servers[serverId] = ServerConfig(
+      id: serverId,
+      label: serverId,
+      host: host,
+      port: port,
+      username: username,
+      authMethod: AuthMethod.privateKey,
+      jumpHostId: jumpHostId,
+      createdAt: 0,
+      updatedAt: 0,
     );
   }
 

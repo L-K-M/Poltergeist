@@ -43,7 +43,8 @@ export 'src/connection/connection_manager.dart'
         ConnectionManager,
         PaneChannel,
         PooledConnectionManager,
-        ResolvedServerConnection,
+        CredentialOrigin,
+        ResolvedCredentials,
         ServerConnectionState,
         TransferChannelLease;
 export 'src/connection/pool_key.dart' show PoolKey;

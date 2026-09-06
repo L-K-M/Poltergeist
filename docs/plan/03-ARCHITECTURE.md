@@ -379,6 +379,14 @@ concurrency.
 
 Growth rules (the part that must never be improvised):
 
+Config lookup resolves only secret-free `ServerConfig` metadata before pool
+lookup. Vault/prompt resolution belongs inside the pool's serialized first
+connect, so sibling bookmarks neither resolve nor retain duplicate secrets.
+Its result carries explicit stored/prompted provenance: the SSH opener sees
+an ordinary supplied password and cannot infer an earlier UI prompt.
+Server references retain config only; teardown drops the pool's credential
+reference, and the next first connect resolves afresh after first-connect failure.
+
 1. **The first connect is serialized.** One `openAuthenticatedClient` runs per
    **pool** (the §3.5 endpoint key, not per serverId — two bookmarks at
    one endpoint connecting simultaneously must fold into a single
@@ -419,8 +427,9 @@ Growth rules (the part that must never be improvised):
    an auth challenge requiring interaction fails that attempt, records
    the pool as interactive-capped (rule 2 applies from then on), and
    falls back to sharing the existing transport's channels.
-   Credential references are dropped when the **last** serverId referencing
-   the pool disconnects (§3.5) — Dart `String`s cannot be securely zeroized,
+   Credential references are dropped on pool teardown (last-pane/lease
+   closure, a hard block, or the **last** serverId disconnecting, §3.5);
+   failed first connects retain none. Dart `String`s cannot be securely zeroized,
    so this clears references rather than wiping memory — and the next first
    connect re-resolves from the vault (the app-exit wipe is best-effort only
    — crash and SIGKILL paths skip exit hooks, so retention is minimized); a
@@ -439,6 +448,13 @@ Growth rules (the part that must never be improvised):
    at one transport, browse requests queue on the existing channels rather
    than failing a channel open — a many-tab workload never surfaces a raw SSH
    channel-open failure.
+
+The queue-don't-fail rule covers capacity exhaustion, not unavailable SFTP.
+If every attempted channel open fails and no live channel, pending open, or
+transport growth can supply capacity, fail affected requests with the typed
+open error; never wait for a release that cannot occur. Registering a browse
+binding wakes queued browse requests for LRU sharing,
+including those behind transfer waiters: sharing consumes no transfer slot.
 
 ### 3.3 Keepalive, idle, reconnect
 
@@ -580,10 +596,11 @@ sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
   so there is no need to block a user-initiated disconnect for the
   remaining duration of a multi-gigabyte in-flight file — the transport
   closes promptly and no mid-file state is lost untracked. The transports are torn
-  down and the resolved `SshCredentials` wiped only when the **last**
-  referencing serverId disconnects; an earlier wipe would silently
+  down and the resolved `SshCredentials` dropped by disconnect only when
+  the **last** referencing serverId disconnects; an earlier wipe would silently
   re-prompt the surviving bookmark's next pool growth, violating §3.2
-  rule 2's single-prompt guarantee. `watchServer` fans the shared
+  rule 2's single-prompt guarantee. Independent last-pane/lease teardown
+  still drops credentials per §3.2–3.3. `watchServer` fans the shared
   pool's state out to every referencing serverId.
 - **`CheckoutManager` keys checkouts by serverId.** Checkouts for a deleted
   favorite (or a dead ad-hoc id) persist and surface in the recovered-edits

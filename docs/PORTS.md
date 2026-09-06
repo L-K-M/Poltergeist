@@ -23,7 +23,23 @@
   `settings_store_test.dart`.
 - Port-back candidates: none.
 
+## Connection cleanup dependency
+
+- Consumes `packages/seance_core/lib/src/ssh/sequential_cleanup.dart` at the
+  existing `2f99f4e` pin; no source copy or pin change (2026-09-05).
+- `ssh_cleanup.dart` selects the session's five-second grace period and
+  best-effort failure mode. Pool regressions cover stalled and late-error
+  cleanup. No port-back change: Séance already uses this primitive.
+
 ## Pin findings
+
+The 2026-09-06 credential repair changes Poltergeist's pool ownership only.
+No copied source, pin change, or upstream port is required; the resolver
+carries prompt provenance that the pinned SSH opener cannot infer.
+
+The 2026-09-06 dependency-guard repair adds no copied source or pin changes.
+Its rules are specific to Poltergeist's package boundaries; no port-back is
+required.
 
 The human identity aliases resolve to the repository owner. Other recorded
 identities are local automation or bot metadata; no external human
