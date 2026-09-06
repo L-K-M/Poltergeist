@@ -30,6 +30,13 @@ void _disconnect(FakeAsync time, PoolHarness harness) {
 }
 
 void main() {
+  // Fail fast at the constant if a policy tune would make the 1 s probe
+  // negative — fakeAsync's elapse would otherwise throw far from the cause.
+  assert(
+    _beforeExpiry > Duration.zero,
+    'The 1s idle probe must stay shorter than idleExtraTransportTimeout.',
+  );
+
   test('empty extra transport closes at the idle deadline', () {
     fakeAsync((time) {
       final harness = _harness();
@@ -107,6 +114,10 @@ void main() {
       );
       completeWithoutTimers(time, lease.release());
       final next = completeWithoutTimers(time, waiting);
+      // s1 and s2 share one endpoint (one pool), so handing the released
+      // channel to the s2 waiter is same-connection reuse — and no new
+      // transport may be opened to serve it.
+      expect(harness.opener.calls, hasLength(2));
       expect(next.fs, same(lease.fs));
       expect(harness.opener.transports.last.channels.single.closed, isFalse);
       time.elapse(_policy.idleExtraTransportTimeout * 2);
@@ -160,6 +171,13 @@ void main() {
       expect(extra.channels.where((c) => !c.closed), isNotEmpty);
 
       completeWithoutTimers(time, lease.release());
+      // The lease's channel closed eagerly (no waiter) and the idle clock
+      // restarted with the close: the emptied extra expires one window
+      // after release, not never.
+      time.elapse(_beforeExpiry);
+      expect(extra.closed, isFalse);
+      time.elapse(_lastSecond);
+      expect(extra.closed, isTrue);
       _disconnect(time, harness);
     });
   });
@@ -245,6 +263,9 @@ void main() {
       expect(harness.opener.transports.single.closed, isFalse);
       expect(time.pendingTimers, isEmpty);
       completeWithoutTimers(time, lease.release());
+      // A server whose last channel has closed disconnects immediately
+      // (pane-lifetime teardown); only surplus extra transports get the
+      // idle grace window.
       expect(harness.opener.transports.single.closed, isTrue);
       _disconnect(time, harness);
     });

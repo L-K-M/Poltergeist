@@ -341,7 +341,10 @@ class FakeTransportOpener {
         final limits = transportOpenLimits;
         // Index by created transports, not attempts: `index` above counts
         // connect attempts, and a scripted connectFailure must not shift the
-        // limit mapping for the transports that do get created.
+        // limit mapping for the transports that do get created. The
+        // read-to-assign window below is synchronous and `call.transport`
+        // is assigned before the connect gate awaits, so two parked
+        // connects can never observe the same length.
         final createdIndex = transports.length;
         final openLimit = limits == null || limits.isEmpty
             ? transportOpenLimit

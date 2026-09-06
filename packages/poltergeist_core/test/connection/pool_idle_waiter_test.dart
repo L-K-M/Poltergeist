@@ -28,6 +28,8 @@ void main() {
         time,
         harness.manager.leaseTransferChannel('s1'),
       );
+      expect(harness.opener.transports, hasLength(2),
+          reason: 'Browse + transfer lease each need their own transport.');
       final extra = harness.opener.transports.last;
       final retiring = extra.channels.single;
       final closeGate = retiring.closeGate = Completer<void>();
@@ -37,7 +39,7 @@ void main() {
       // The old channel still occupies MaxSessions while its close awaits.
       TransferChannelLease? granted;
       final waiting = harness.manager.leaseTransferChannel('s1');
-      waiting.then((value) => granted = value).ignore();
+      unawaited(waiting.then((value) => granted = value));
       time.flushMicrotasks();
       // The retiring close is gated: started, not settled — and until it
       // settles the freed MaxSessions slot must not be handed out, nor

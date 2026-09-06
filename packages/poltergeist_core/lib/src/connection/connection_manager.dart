@@ -962,6 +962,10 @@ class PooledConnectionManager implements ConnectionManager {
     } finally {
       handle.slot._pendingCloses--;
       _updateIdleTimer(pool, handle.slot);
+      // Budget frees at settle (not at close start), so waiters queued on
+      // the per-transport budget get their pump at every settle site —
+      // browse closes and error paths included, not just lease release.
+      await _pumpWaiters(pool);
     }
   }
 
@@ -996,6 +1000,15 @@ class PooledConnectionManager implements ConnectionManager {
       if (!identical(slot._idleTimer, timer)) return;
       slot._idleTimer = null;
       if (!_isIdleExtra(pool, slot)) return;
+
+      if (pool.growth != null) {
+        // A growth connect is in flight for queued demand; retiring the
+        // last live transport under it would emit a transient disconnect.
+        // Re-arm: growth settles through an open that cancels this timer,
+        // or the next fire finds growth settled and retires for good.
+        _updateIdleTimer(pool, slot);
+        return;
+      }
 
       // Nulling the timer before this re-check is safe: every transient
       // gate below is paired with a re-arm when it clears — pendingOpens

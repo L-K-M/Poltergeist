@@ -55,6 +55,8 @@ void main() {
         isTrue,
         reason: 'Removing the first slot must not grant its cache to an extra.',
       );
+      // The replacement pane is deliberately left open: it is the only
+      // channel keeping the newest transport alive past the idle deadline.
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(extra.closed, isTrue);
       expect(harness.opener.transports.last.closed, isFalse);
@@ -76,6 +78,8 @@ void main() {
       _replaceDeadFirst(time, harness, firstPane, _policy.maxTransports + 1);
       completeWithoutTimers(time, extraPane.close());
       expect(extra.channels.single.closed, isTrue);
+      // The replacement pane is deliberately left open: it is the only
+      // channel keeping the newest transport alive past the idle deadline.
       time.elapse(_policy.idleExtraTransportTimeout);
       expect(
         extra.closed,

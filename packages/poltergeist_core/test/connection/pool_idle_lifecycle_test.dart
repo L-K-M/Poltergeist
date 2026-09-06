@@ -143,7 +143,8 @@ void main() {
         final first = harness.opener.transports.first;
         final extra = harness.opener.transports.last;
         completeWithoutTimers(time, extraPane.close());
-        expect(time.nonPeriodicTimerCount, 1);
+        expect(time.nonPeriodicTimerCount, 1,
+            reason: 'Exactly the idle clock is armed on the emptied extra.');
 
         final gate = first.channels.single.closeGate = Completer<void>();
         final disconnecting = harness.manager.disconnectServer('s1');
@@ -175,7 +176,8 @@ void main() {
       final first = harness.opener.transports.first;
       final extra = harness.opener.transports.last;
       completeWithoutTimers(time, extraPane.close());
-      expect(time.nonPeriodicTimerCount, 1);
+      expect(time.nonPeriodicTimerCount, 1,
+          reason: 'Exactly the idle clock is armed on the emptied extra.');
 
       final firstStates = <ServerConnectionState>[];
       final siblingStates = <ServerConnectionState>[];
@@ -185,6 +187,9 @@ void main() {
       final siblingSubscription = harness.manager
           .watchServer('s2')
           .listen(siblingStates.add);
+      // One shared endpoint means exactly one pin; make that assumption
+      // explicit so its failure names itself.
+      expect(harness.store.pins, hasLength(1));
       final gate = first.closeGate = Completer<void>();
       final decision = HostKeyDecision(
         verdict: HostKeyVerdict.changed,
@@ -254,6 +259,75 @@ void main() {
       );
       subscription.cancel().ignore();
       _disconnect(time, harness);
+    });
+  });
+
+  test('idle retirement defers while a growth connect is in flight', () {
+    fakeAsync((time) {
+      // Growth must be possible (cap 3) and its connect parked on a gate.
+      const policy = PoolPolicy(
+        maxTransports: 3,
+        maxTransferChannelsPerTransport: 1,
+        maxChannelsPerTransport: 1,
+        idleExtraTransportTimeout: Duration(seconds: 30),
+      );
+      final opener = FakeTransportOpener();
+      final harness = PoolHarness(policy: policy, opener: opener)
+        ..addServer('s1')
+        ..addServer('s2');
+      browsePane(time, harness, 'first');
+      final lease = completeWithoutTimers(
+        time,
+        harness.manager.leaseTransferChannel('s1'),
+      );
+      final extra = harness.opener.transports.last;
+      final first = harness.opener.transports.first;
+
+      // Park only the NEXT growth connect (the setup lease already grew).
+      opener.growthGate = Completer<void>();
+
+      // Park the extra's channel close, then queue a lease: with the first
+      // transport full and the close still occupying its budget, the pool
+      // must grow — and that connect parks on the growth gate.
+      final closeGate = extra.channels.single.closeGate = Completer<void>();
+      final releasing = lease.release();
+      time.flushMicrotasks();
+      final waiting = harness.manager.leaseTransferChannel('s2');
+      TransferChannelLease? grantedB;
+      waiting.then<void>((value) {
+        grantedB = value;
+      }).ignore();
+      time.flushMicrotasks();
+      expect(opener.transports, hasLength(2),
+          reason: 'The parked growth connect records its call but has not '
+              'created a transport.');
+
+      // The close settles into the idle window while growth is parked, and
+      // the first transport dies — the extra becomes the last live one.
+      closeGate.complete();
+      completeWithoutTimers(time, releasing);
+      first.simulateExternalDeath();
+
+      final states = <ServerConnectionState>[];
+      final subscription =
+          harness.manager.watchServer('s1').listen(states.add);
+      time.elapse(policy.idleExtraTransportTimeout);
+      // Deferred, not retired: no transient disconnect under the growth
+      // connect, and no third transport while it is parked. The single
+      // state is the watcher's join snapshot.
+      expect(states, [ServerConnectionState.connected]);
+      expect(extra.closed, isFalse);
+      expect(opener.transports, hasLength(2));
+
+      opener.growthGate!.complete();
+      time.flushMicrotasks();
+      expect(grantedB, isNotNull,
+          reason: 'The parked growth must satisfy the queued lease.');
+      completeWithoutTimers(time, grantedB!.release());
+      completeWithoutTimers(time, harness.manager.disconnectServer('s1'));
+      subscription.cancel().ignore();
+      completeWithoutTimers(time, harness.manager.disconnectServer('s2'));
+      expect(time.pendingTimers, isEmpty);
     });
   });
 
