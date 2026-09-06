@@ -30,6 +30,15 @@ void main() {
     );
   });
 
+  test('reports the runtime path to a transitive SDK dependency', () async {
+    await fixture.package('bridge', 'dependencies: {adapter: any}');
+    await fixture.package('adapter', 'dependencies: {flutter: {sdk: flutter}}');
+
+    final graph = await fixture.graph();
+
+    expect(await graph.flutterDependency('bridge'), 'bridge -> adapter');
+  });
+
   test('terminates on a pure-Dart dependency cycle', () async {
     await fixture.package('first', 'dependencies: {second: any}');
     await fixture.package('second', 'dependencies: {first: any}');

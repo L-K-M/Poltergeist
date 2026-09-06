@@ -149,7 +149,7 @@ M2 has started: the initial pooled `ConnectionManager` is in; open items
   output locations; similarly named source folders remain scanned. Empty
   package URIs and malformed pubspecs produce specific diagnostics. SSH
   fixtures use their own metadata; linked scan roots are rejected too.
-  Forty-one regressions failed before their repairs; 91 guard tests and
+  Forty-one regressions failed before their repairs; 92 guard tests and
   the real repository scan pass. CI analyzes and tests the guard first.
   Dependency versions and Séance pins are unchanged. This closes item 6's import-guard
   gap; dependency-contract tests and item 5's ordering escalation remain.

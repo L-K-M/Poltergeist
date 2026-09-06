@@ -333,7 +333,7 @@ dependency_overrides: {"dartssh2": any}
   ]) {
     test('fails closed without $input', () async {
       await File(p.join(fixture.root.path, input)).delete();
-      await fixture.expectExit(2);
+      await fixture.expectExit(2, p.basename(input));
     });
   }
 
