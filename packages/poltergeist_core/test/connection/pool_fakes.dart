@@ -408,7 +408,7 @@ class PoolHarness {
     this.opener = opener ?? FakeTransportOpener();
     manager = PooledConnectionManager(
       resolveServer: _resolve,
-      resolveCredentials: (_) async {
+      resolveCredentials: (_, _) async {
         credentialResolveCalls++;
         return const ResolvedCredentials(
           credentials: SshCredentials.privateKey('TEST KEY'),

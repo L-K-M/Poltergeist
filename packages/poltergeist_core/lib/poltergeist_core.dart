@@ -47,6 +47,8 @@ export 'src/connection/connection_manager.dart'
         ResolvedCredentials,
         ServerConnectionState,
         TransferChannelLease;
+export 'src/connection/credential_resolution.dart'
+    show CredentialResolutionScope;
 export 'src/connection/pool_key.dart' show PoolKey;
 export 'src/connection/pool_policy.dart' show PoolPolicy;
 export 'src/connection/ssh_transport.dart'

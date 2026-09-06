@@ -386,6 +386,18 @@ Its result carries explicit stored/prompted provenance: the SSH opener sees
 an ordinary supplied password and cannot infer an earlier UI prompt.
 Server references retain config only; teardown drops the pool's credential
 reference, and the next first connect resolves afresh after first-connect failure.
+A resolution may outlive the pool that requested it — the last serverId can
+disconnect while the vault prompt is still open. The resolver receives a
+per-resolution dismissal scope (`CredentialResolutionScope`); the pool trips
+it when its lifetime ends mid-resolution (its last reference disconnecting
+— the only pool-lifetime end that can race a resolution: teardown bails
+out while a first connect is in flight, and blocks land only after the
+resolver completes, inside the transport handshake). A prompt-owning
+resolver then closes its dialog and fails the resolution instead of
+parking on an answer the pool rejects as stale, and a replacement session
+resolves afresh rather than waiting on the abandoned resolver future. The
+engine protocol (§5) carries the same dismissal across the isolate
+boundary when it wraps resolvers — one mechanism, both sides.
 
 1. **The first connect is serialized.** One `openAuthenticatedClient` runs per
    **pool** (the §3.5 endpoint key, not per serverId — two bookmarks at

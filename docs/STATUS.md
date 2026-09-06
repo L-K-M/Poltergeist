@@ -10,8 +10,8 @@ pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
 the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3).
 M2 is the active milestone: the initial pooled `ConnectionManager`,
-dependency-contract upgrade guards, and extra-transport idle teardown
-are in; open items 3–6 track remaining
+dependency-contract upgrade guards, extra-transport idle teardown, and
+resolver-prompt dismissal are in; open items 3–6 track remaining
 slices, audit gaps, and decisions._
 
 ## Done
@@ -80,11 +80,15 @@ slices, audit gaps, and decisions._
    end-to-end exercise is the v0.2.0 rehearsal — watch leg-race
    behavior there.
 5. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
-   - **2026-09-06 — prompt cancellation (review follow-up):** before
-     prompt/vault integration, dismiss resolver-owned prompts when their
-     pool lifetime ends; carry cancellation through the engine protocol.
-     The manager rejects late results, but cannot dismiss external UI.
-     A replacement session must not wait on an abandoned resolver future.
+   - **Prompt cancellation (review follow-up; manager half closed
+     2026-09-06):** credential resolutions now receive a
+     `CredentialResolutionScope`; abandoning the pool's last reference
+     mid-resolution trips it, so a resolver-owned prompt closes instead of
+     parking on an answer the pool rejects, folded first-connect callers
+     fail without a user answer, and a replacement session resolves afresh
+     (regressions: `pool_resolution_dismissal_test.dart`). Remaining:
+     carry cancellation through the engine protocol (03 §5) when that
+     slice lands.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
@@ -127,6 +131,26 @@ slices, audit gaps, and decisions._
 
 ## Audit repairs
 
+- **2026-09-06 — resolver-prompt dismissal.** Credential resolution now
+  carries a `CredentialResolutionScope` (03 §3.2 precision edit in the
+  same PR): the manager registers each first-connect resolution's scope
+  on its pool and trips it when the last serverId disconnects
+  mid-resolution — the only pool-lifetime end that can race a
+  resolution. A prompt-owning resolver observes `dismissed`, closes its
+  dialog, and fails the resolution; folded first-connect callers fail
+  disconnected without a user answer; sibling references keep the prompt
+  alive; failed resolutions hand their retry a fresh scope; completed
+  resolutions are never dismissed — including when the last reference
+  disconnects mid-handshake, after the resolution returned (the scope
+  retires at resolution completion; review round 1 caught it armed
+  through the handshake); a dismissal racing the answer in the same
+  microtask turn is documented at pool-observation granularity and
+  regression-pinned as tolerated (round 2); replacement sessions
+  resolve afresh without waiting on the abandoned future. Eight
+  regressions failed before the seam existed (the scope type did not
+  compile) and pass after. Core analysis is clean; 134 tests pass (one
+  fixture skip). The engine-protocol half (03 §5) remains with that
+  slice.
 - **2026-09-06 — pinned dependency contracts.** Seven core tests cover
   HKDF salt domains with empty info, Argon2 KiB units, both sealed-blob
   layout directions, and RegExp flag behavior. Independent known answers
