@@ -8,8 +8,11 @@ import 'pool_fakes.dart';
 
 // One channel per transport exposes the lifecycle of each pooled connection.
 // The idle timeout is pinned so the probe windows (_beforeExpiry etc.)
-// stay valid whatever the production default becomes.
+// stay valid whatever the production default becomes; the transport cap is
+// pinned because the queueing premises here depend on exactly two
+// transports (a higher cap would let demand grow instead of queue).
 const _policy = PoolPolicy(
+  maxTransports: 2,
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
   idleExtraTransportTimeout: Duration(seconds: 30),
@@ -157,7 +160,11 @@ void main() {
       // Both transports are full for s2's lease: it can only queue.
       final waiting = harness.manager.leaseTransferChannel('s2');
       TransferChannelLease? granted;
-      waiting.then((value) => granted = value).ignore();
+      waiting.then<void>(
+        (value) => granted = value,
+        onError: (Object error) =>
+            fail('Queued lease failed instead of being granted: $error'),
+      ).ignore();
       time.flushMicrotasks();
       expect(granted, isNull);
 
@@ -171,7 +178,6 @@ void main() {
       // pump grows a replacement transport instead of leaving the lease
       // waiting forever on a pool that just lost its spare capacity.
       time.elapse(_policy.idleExtraTransportTimeout);
-      time.flushMicrotasks();
       time.flushMicrotasks();
       expect(extra.closed, isTrue);
       expect(granted, isNotNull,
@@ -434,6 +440,8 @@ void main() {
       expect(grown.closeCalls, 1,
           reason: 'A transport landing on the abandoned pool must close, '
               'not leak.');
+      expect(grown.closed, isTrue,
+          reason: 'The abandonment close must settle, not merely start.');
       expect(granted, isNull,
           reason: 'The abandoned acquisition must not be granted.');
       expect(leaseError, isA<RemoteFileException>(),

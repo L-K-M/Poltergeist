@@ -139,6 +139,10 @@ class FakeTransport implements SshTransport {
   /// distinguishes a gated (in-flight) close from a finished one.
   bool closeCompleted = false;
 
+  /// Channel close failures swallowed during [close], kept so tests can
+  /// assert on or debug them after the fact.
+  final List<Object> channelCloseFailures = <Object>[];
+
   /// Refuse opens on this transport without poisoning healthy siblings.
   Object? openFailure;
 
@@ -196,10 +200,11 @@ class FakeTransport implements SshTransport {
     for (final channel in List<FakeChannel>.of(channels)) {
       try {
         await channel.close();
-      } on Object {
+      } on Object catch (error) {
         // A failed channel close still frees its server-side slot; keep
         // closing siblings so the fake matches the documented settle
         // semantics (closeCompleted flips regardless of outcome).
+        channelCloseFailures.add(error);
       }
     }
     final failure = closeFailure;
@@ -249,9 +254,9 @@ class FakeTransportOpener {
 
   /// Per-transport open-limit script (last value repeats) — lets one
   /// transport host channels while a growth transport refuses SFTP. Wins
-  /// over the uniform [transportOpenLimit] when set. Indexed by CREATED
-  /// transport: a connect attempt that throws before construction does not
-  /// consume an index slot.
+  /// over the uniform [transportOpenLimit] when non-empty (an empty list
+  /// falls back to it). Indexed by CREATED transport: a connect attempt
+  /// that throws before construction does not consume an index slot.
   final List<int?>? transportOpenLimits;
 
   /// When set, every prompting-disabled (growth) connect parks on this
@@ -347,10 +352,11 @@ class FakeTransportOpener {
         final limits = transportOpenLimits;
         // Index by created transports, not attempts: `index` above counts
         // connect attempts, and a scripted connectFailure must not shift the
-        // limit mapping for the transports that do get created. The
-        // read-to-assign window below is synchronous and `call.transport`
-        // is assigned before the connect gate awaits, so two parked
-        // connects can never observe the same length.
+        // limit mapping for the transports that do get created. `transports`
+        // is a getter derived from `calls` (see its declaration), so the
+        // synchronous `call.transport = transport` assignment below grows
+        // the length immediately — before the connect gate parks — and two
+        // parked connects can never observe the same length.
         final createdIndex = transports.length;
         final openLimit = limits == null || limits.isEmpty
             ? transportOpenLimit

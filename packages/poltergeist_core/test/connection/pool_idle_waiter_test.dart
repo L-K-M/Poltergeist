@@ -82,6 +82,8 @@ void main() {
         opener: FakeTransportOpener(transportOpenLimit: _channelLimit),
       )..addServer('s1');
       final pane = browsePane(time, harness, 'first');
+      // Deliberately never released: the lease pins the extra transport's
+      // only channel so the fresh lease below can only queue.
       completeWithoutTimers(
         time,
         harness.manager.leaseTransferChannel('s1'),

@@ -25,10 +25,17 @@ PaneChannel _replaceDeadFirst(
   completeWithoutTimers(time, firstPane.close());
 
   // Death during an open evicts the first slot through the public API.
+  final opensBefore = first.openCalls;
   final openGate = first.openGate = Completer<void>();
   final replacement =
       harness.manager.openBrowseChannel('s1', paneTabId: 'replacement');
   time.flushMicrotasks();
+  expect(
+    first.openCalls,
+    opensBefore + 1,
+    reason: 'The replacement open must park on the first transport before '
+        'its death, or the gate error below fires on an unwatched future.',
+  );
   first.simulateExternalDeath();
   openGate.completeError(const RemoteFileException(
     kind: RemoteFileErrorKind.disconnected,
