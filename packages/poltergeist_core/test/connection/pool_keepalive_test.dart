@@ -15,6 +15,7 @@ const _policy = PoolPolicy(keepAliveInterval: _interval);
 // onto a grown second transport (the browse channel holds the first's
 // budget), without queueing a second lease behind it.
 const _growthPolicy = PoolPolicy(
+  keepAliveInterval: _interval,
   maxTransports: 2,
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 1,
@@ -86,7 +87,8 @@ void main() {
           reason: 'an open in flight counts as an operation (03 §3.3)');
 
       transport.openGate!.complete();
-      completeWithoutTimers(time, lease).release();
+      final acquired = completeWithoutTimers(time, lease);
+      completeWithoutTimers(time, acquired.release());
       time.elapse(_interval);
       expect(transport.pingCalls, 1);
 

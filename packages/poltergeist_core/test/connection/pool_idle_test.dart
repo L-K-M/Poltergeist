@@ -65,9 +65,17 @@ void main() {
       browsePane(time, harness, 'extra', server: 's2');
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.every((t) => !t.closed), isTrue);
-      // Both transports are alive, so their pools' keepalive clocks are
-      // legitimately pending; no one-shot clock may be.
+      // Both transports are alive, so their pool's keepalive clock is
+      // legitimately pending; no one-shot clock may be, and every periodic
+      // clock must be the pool's single keepalive (D3's no-second-timer).
       expect(time.nonPeriodicTimerCount, 0);
+      expect(
+        time.pendingTimers
+            .whereType<FakeTimer>()
+            .where((timer) => timer.isPeriodic)
+            .map((timer) => timer.duration),
+        everyElement(_policy.keepAliveInterval),
+      );
       _disconnect(time, harness);
     });
   });
@@ -265,8 +273,15 @@ void main() {
       time.elapse(defaultPolicy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.single.closed, isFalse);
       // Alive under a lease: the keepalive clock stays armed, no one-shot
-      // clock is.
+      // clock is, and the only periodic clock is the pool's keepalive.
       expect(time.nonPeriodicTimerCount, 0);
+      expect(
+        time.pendingTimers
+            .whereType<FakeTimer>()
+            .where((timer) => timer.isPeriodic)
+            .map((timer) => timer.duration),
+        everyElement(defaultPolicy.keepAliveInterval),
+      );
       completeWithoutTimers(time, lease.release());
       // A server whose last channel has closed disconnects immediately
       // (pane-lifetime teardown); only surplus extra transports get the
