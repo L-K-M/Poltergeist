@@ -272,7 +272,11 @@ void main() {
           promptId: 'p3',
           kind: EnginePromptKind.credentialNeeded,
           reply: CredentialPromptReply(
-            privateKeyPem: '-----BEGIN OPENSSH PRIVATE KEY-----',
+            // A neutral marker, not a real PEM header: the fixture-key
+            // scope guard keeps private-key-looking material confined to
+            // test/integration/keys, and this fixture only needs a
+            // non-null secret string to prove key replies cross intact.
+            privateKeyPem: 'TEST-PEM-KEY-BLOCK',
             keyPassphrase: 'open sesame',
             origin: CredentialOrigin.prompted,
           ),
