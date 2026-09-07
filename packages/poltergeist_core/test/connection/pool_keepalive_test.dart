@@ -6,10 +6,17 @@ import 'package:test/test.dart';
 
 import 'pool_fakes.dart';
 
-// Keepalive cadence for these tests. Every assertion reads as an interval
-// multiple, so a tick boundary can never be confused with the ping timeout.
+// Keepalive cadence for these tests. Cadence assertions land on interval
+// multiples; the unanswered-ping test instead uses its own longer interval
+// so the ping timeout lands strictly between ticks — never sharing an
+// instant with one, which would make the suite depend on fake-clock
+// tie-breaking instead of the documented skip-on-outstanding rule.
 const _interval = Duration(seconds: 30);
 const _policy = PoolPolicy(keepAliveInterval: _interval);
+
+// Strictly above SshTransport.pingOperationTimeout (30 s): the unanswered
+// ping's timeout then lands between two ticks.
+const _timeoutTestInterval = Duration(seconds: 45);
 
 // A one-channel total cap per transport forces the first transfer lease
 // onto a grown second transport (the browse channel holds the first's
@@ -118,7 +125,9 @@ void main() {
   test('an unanswered ping times out, closes the transport, and reconnects',
       () {
     fakeAsync((time) {
-      final h = _harness();
+      final h = PoolHarness(
+        policy: const PoolPolicy(keepAliveInterval: _timeoutTestInterval),
+      )..addServer('s1');
       final states = <ServerConnectionState>[];
       final subscription = h.manager.watchServer('s1').listen(states.add);
       final pane = browsePane(time, h, 'a');
@@ -126,12 +135,14 @@ void main() {
       dead.pingGate = Completer<void>();
       final oldFs = pane.fs;
 
-      time.elapse(_interval);
+      time.elapse(_timeoutTestInterval);
       expect(dead.pingCalls, 1);
       expect(states.last, ServerConnectionState.connected);
 
       // One outstanding ping per transport: a tick inside the timeout
-      // window must not stack a second ping.
+      // window must not stack a second ping. The timeout itself lands at
+      // 45 s + 30 s — strictly between the 45 s ticks, so the assertions
+      // below never share an instant with a tick.
       time.elapse(SshTransport.pingOperationTimeout - const Duration(seconds: 1));
       expect(dead.pingCalls, 1);
       expect(dead.closed, isFalse);
@@ -152,7 +163,7 @@ void main() {
       expect(dead.pingCalls, 1, reason: 'the dead transport is never pinged again');
 
       // The replacement is kept alive on the ordinary cadence.
-      time.elapse(_interval);
+      time.elapse(_timeoutTestInterval);
       expect(replacement.pingCalls, 1);
 
       completeWithoutTimers(time, pane.close());
@@ -198,6 +209,34 @@ void main() {
 
       time.elapse(_interval * 3);
       expect(transport.pingCalls, 1, reason: 'no ping after teardown');
+    });
+  });
+
+  test('disconnecting one endpoint leaves the other endpoint on the clock',
+      () {
+    fakeAsync((time) {
+      // Distinct hosts keep the two servers on distinct pools — the
+      // granularity under test: one pool's teardown must never touch
+      // another pool's clock.
+      final h = PoolHarness(policy: _policy)
+        ..addServer('s1')
+        ..addServer('s2', host: 'other.example.com');
+      final p1 = browsePane(time, h, 'a');
+      final p2 = browsePane(time, h, 'b', server: 's2');
+      final gone = h.opener.transports[0];
+      final survivor = h.opener.transports[1];
+
+      completeWithoutTimers(time, p1.close());
+      completeWithoutTimers(time, h.manager.disconnectServer('s1'));
+      expect(gone.pingCalls, 0);
+
+      time.elapse(_interval * 2);
+      expect(survivor.pingCalls, 2);
+      expect(gone.pingCalls, 0, reason: 'a torn-down pool is never pinged');
+
+      completeWithoutTimers(time, p2.close());
+      completeWithoutTimers(time, h.manager.disconnectServer('s2'));
+      expect(time.pendingTimers, isEmpty);
     });
   });
 }

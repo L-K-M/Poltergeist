@@ -110,8 +110,9 @@ void main() {
         time.pendingTimers
             .whereType<FakeTimer>()
             .where((timer) => timer.isPeriodic)
-            .map((timer) => timer.duration),
-        everyElement(_policy.keepAliveInterval),
+            .single
+            .duration,
+        _policy.keepAliveInterval,
       );
 
       completeWithoutTimers(time, sibling.close());
@@ -146,8 +147,9 @@ void main() {
         time.pendingTimers
             .whereType<FakeTimer>()
             .where((timer) => timer.isPeriodic)
-            .map((timer) => timer.duration),
-        everyElement(_policy.keepAliveInterval),
+            .single
+            .duration,
+        _policy.keepAliveInterval,
       );
 
       completeWithoutTimers(time, extraPane.close());

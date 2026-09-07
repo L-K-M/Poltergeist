@@ -73,8 +73,9 @@ void main() {
         time.pendingTimers
             .whereType<FakeTimer>()
             .where((timer) => timer.isPeriodic)
-            .map((timer) => timer.duration),
-        everyElement(_policy.keepAliveInterval),
+            .single
+            .duration,
+        _policy.keepAliveInterval,
       );
       _disconnect(time, harness);
     });
@@ -279,8 +280,9 @@ void main() {
         time.pendingTimers
             .whereType<FakeTimer>()
             .where((timer) => timer.isPeriodic)
-            .map((timer) => timer.duration),
-        everyElement(defaultPolicy.keepAliveInterval),
+            .single
+            .duration,
+        defaultPolicy.keepAliveInterval,
       );
       completeWithoutTimers(time, lease.release());
       // A server whose last channel has closed disconnects immediately
