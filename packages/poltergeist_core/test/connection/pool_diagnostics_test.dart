@@ -10,6 +10,15 @@ import 'pool_fakes.dart';
 /// one-liner that explains a non-live state — and the connect-attempt
 /// transcript fan-out that feeds the UI's live connection log.
 void main() {
+  test('connect transcript lines use value equality', () {
+    const first = ConnectLogLine(serverId: 's1', line: 'kex complete');
+    final same = ConnectLogLine(serverId: 's1', line: 'kex complete');
+
+    expect(first, same);
+    expect(first.hashCode, same.hashCode);
+    expect(first, isNot(ConnectLogLine(serverId: 's2', line: first.line)));
+  });
+
   test('a failed first connect reports the summarized failure as detail', () {
     fakeAsync((time) {
       final opener = FakeTransportOpener()
@@ -52,6 +61,27 @@ void main() {
     });
   });
 
+  test('opaque connect errors use a sanitized status detail', () {
+    fakeAsync((time) {
+      final opener = FakeTransportOpener()
+        ..connectFailure = StateError('internal marker');
+      final h = PoolHarness(opener: opener)..addServer('s1');
+      final statuses = <ServerStatus>[];
+      final subscription = h.manager.watchServer('s1').listen(statuses.add);
+      final outcome = expectLater(
+        h.manager.openBrowseChannel('s1', paneTabId: 'a'),
+        throwsA(isA<StateError>()),
+      );
+
+      time.flushMicrotasks();
+      completeWithoutTimers(time, outcome);
+
+      expect(statuses.last.detail, 'Connection failed.');
+      expect(statuses.last.detail, isNot(contains('internal marker')));
+      unawaited(subscription.cancel());
+    });
+  });
+
   test('terminal background recovery delivers its error when no acquisition '
       'awaits it', () {
     fakeAsync((time) {
@@ -89,6 +119,51 @@ void main() {
       expect(statuses.last.detail, 'The vault is locked.');
 
       unawaited(subscription.cancel());
+    });
+  });
+
+  test('terminal recovery detail reaches a queued acquisition', () {
+    fakeAsync((time) {
+      final h = PoolHarness(
+        opener: FakeTransportOpener(growthRequiresChallenge: true),
+        policy: const PoolPolicy(
+          maxTransports: 1,
+          maxTransferChannelsPerTransport: 1,
+          maxChannelsPerTransport: 1,
+        ),
+      )..addServer('s1');
+
+      browsePane(time, h, 'a');
+      Object? waitingError;
+      unawaited(
+        h.manager
+            .leaseTransferChannel('s1')
+            .then<void>(
+              (_) => fail('The saturated acquisition must remain queued.'),
+              onError: (Object error) => waitingError = error,
+            ),
+      );
+      time.flushMicrotasks();
+      expect(waitingError, isNull);
+
+      h.opener.transports.single.die();
+      h.credentialFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.other,
+        operation: 'credentials',
+        message: 'The vault is locked.',
+      );
+      time.flushMicrotasks();
+      time.elapse(const Duration(seconds: 3));
+      time.flushMicrotasks();
+
+      expect(
+        waitingError,
+        isA<RemoteFileException>().having(
+          (error) => error.message,
+          'message',
+          'The vault is locked.',
+        ),
+      );
     });
   });
 

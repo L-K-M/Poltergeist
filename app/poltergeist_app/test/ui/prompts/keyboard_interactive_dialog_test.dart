@@ -202,11 +202,18 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
     await tester.pump();
 
-    expect(find.widgetWithText(TextField, 'Passcode'), findsOneWidget);
+    final passcode = find.widgetWithText(TextField, 'Passcode');
+    expect(passcode, findsOneWidget);
     expect(
-      tester.testTextInput.hasAnyClients,
-      isTrue,
+      find.descendant(
+        of: passcode,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is EditableText && widget.focusNode.hasFocus,
+        ),
+      ),
+      findsOneWidget,
       reason: 'the first prompt field must own keyboard focus',
     );
+    expect(tester.testTextInput.hasAnyClients, isTrue);
   });
 }

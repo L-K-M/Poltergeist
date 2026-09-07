@@ -151,6 +151,37 @@ void main() {
     expect((bridge.replies.single.$3 as HostKeyPromptReply).accepted, isTrue);
   });
 
+  testWidgets('a malformed prompt cannot strand the queue', (tester) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+
+    bridge.emit(
+      _event('broken', EnginePromptKind.hostKeyFirstUse, _credential),
+    );
+    bridge.emit(
+      _event(
+        'next',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'example.com',
+          port: 2222,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:presented',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(bridge.replies, hasLength(1));
+    expect(bridge.replies.single.$1, 'broken');
+    expect((bridge.replies.single.$3 as HostKeyPromptReply).accepted, isFalse);
+    expect(find.text('Unknown host key'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('declining a changed key answers accepted:false', (tester) async {
     await _pumpHost(tester, navigatorKey, messengerKey);
     coordinator.start();
@@ -251,6 +282,33 @@ void main() {
     expect(reply.origin, CredentialOrigin.stored);
     expect(reply.password, 'stored-pw');
     expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('an empty stored secret falls through to the dialog', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+    vault.secret = const Secret(
+      id: 'secret-7',
+      kind: SecretKind.password,
+      value: '',
+    );
+
+    bridge.emit(
+      _event(
+        'empty-secret',
+        EnginePromptKind.credentialNeeded,
+        _credential.copyWithSecretRef('secret-7'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(bridge.replies, isEmpty);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a vault miss prompts; the typed answer replies as prompted', (

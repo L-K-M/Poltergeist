@@ -154,6 +154,10 @@
   "@credentialVaultUnavailable": {
     "description": "Banner shown when the vault could not be read before prompting (the localized render of the ported keystore exception, D20)."
   },
+  "credentialKeyFileUnreadable": "The file could not be read as text.",
+  "@credentialKeyFileUnreadable": {
+    "description": "Sanitized detail for an identity file that cannot be decoded or otherwise read normally."
+  },
   "credentialKeyFileReadError": "Could not read the key file: {error}",
   "@credentialKeyFileReadError": {
     "description": "Inline error when the identity file cannot be read.",

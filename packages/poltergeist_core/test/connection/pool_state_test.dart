@@ -205,13 +205,8 @@ void main() {
         ServerConnectionState.blocked,
         ServerConnectionState.disconnected,
       ]);
-      expect(
-        await harness.manager
-            .watchServer(_primaryServer)
-            .first
-            .then((status) => status.state),
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServer).first;
+      expect(status.state, ServerConnectionState.blocked);
     },
   );
 }

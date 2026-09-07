@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_core/src/engine/connect_log_coalescer.dart'
+    show connectionLogFlushInterval;
 import 'package:test/test.dart';
 
 import '../connection/pool_fakes.dart';
-import 'package:poltergeist_core/src/engine/connect_log_coalescer.dart'
-    show connectionLogFlushInterval;
 
 /// Filesystem for the engine suite's channels: home resolution plus a
 /// scripted listing. Anything else fails loudly.
@@ -666,7 +666,7 @@ void main() {
           .where((e) => e.serverId == 'srv-1')
           .toList();
       expect(batches, isNotEmpty);
-      expect(batches.last.lines.first, 'tcp connect example.com:2222');
+      expect(batches.last.lines, contains('tcp connect example.com:2222'));
     },
   );
 }

@@ -114,6 +114,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Saved secrets are unavailable. Unlock or restore your system credential store, then retry — or enter the secret below.';
 
   @override
+  String get credentialKeyFileUnreadable =>
+      'The file could not be read as text.';
+
+  @override
   String credentialKeyFileReadError(String error) {
     return 'Could not read the key file: $error';
   }

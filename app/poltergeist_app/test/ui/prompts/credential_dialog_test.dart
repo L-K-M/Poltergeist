@@ -218,6 +218,50 @@ void main() {
     expect(find.textContaining('Could not read the key file'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
     expect(find.byType(AlertDialog), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Key file'),
+      '~/.ssh/replacement',
+    );
+    await tester.pump();
+
+    expect(find.textContaining('Could not read the key file'), findsNothing);
+  });
+
+  testWidgets('unexpected key read failures expose only localized detail', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      _Harness(
+        const CredentialPromptData(
+          host: 'example.com',
+          port: 2222,
+          username: 'deploy',
+          authMethod: AuthMethod.privateKey,
+          identityFilePath: '~/.ssh/unreadable',
+        ),
+        readKeyFile: (path) async {
+          throw IdentityFileReadException(
+            path,
+            FileSystemException('internal marker', path),
+            kind: IdentityFileReadFailureKind.invalidContent,
+          );
+        },
+      ),
+    );
+
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('The file could not be read as text.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('internal marker'), findsNothing);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a key read completing after cancel cannot pop the page below', (

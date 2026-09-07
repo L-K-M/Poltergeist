@@ -65,6 +65,15 @@ class ConnectLogLine {
   const ConnectLogLine({required this.serverId, required this.line});
 
   @override
+  bool operator ==(Object other) =>
+      other is ConnectLogLine &&
+      other.serverId == serverId &&
+      other.line == line;
+
+  @override
+  int get hashCode => Object.hash(serverId, line);
+
+  @override
   String toString() => 'ConnectLogLine($serverId, $line)';
 }
 
@@ -189,7 +198,7 @@ class PooledConnectionManager implements ConnectionManager {
   final Prober _prober;
   final Random _reconnectRandom;
   final void Function(String, RemoteFileException, {String? paneTabId})?
-      _onRecoveryFailure;
+  _onRecoveryFailure;
 
   final Map<String, _ServerReference> _references = {};
   final Map<String, Future<_ServerReference>> _pendingReferences = {};
@@ -1391,7 +1400,7 @@ class PooledConnectionManager implements ConnectionManager {
     // available. The next first connect re-resolves from the vault.
     pool.resolvedCredentials = null;
 
-    _failAllWaiters(pool);
+    _failAllWaiters(pool, message: detail);
     _setState(pool, ServerConnectionState.disconnected, detail: detail);
 
     await _closeSlots(pool, slots);
@@ -1702,7 +1711,7 @@ class PooledConnectionManager implements ConnectionManager {
     return switch (error) {
       final SshConnectException e => e.message,
       final AuthChallengeRequiredError e => e.message,
-      _ => error.toString(),
+      _ => 'Connection failed.',
     };
   }
 

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:posix/posix.dart' as posix;
 
-const _ownerReadWriteMode = 0x180;
+const _ownerReadWriteMode = 0x180; // POSIX 0600: owner read + write only.
 
 /// Applies owner-only mode bits where desktop files are not sandboxed.
 ///

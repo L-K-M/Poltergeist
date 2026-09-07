@@ -163,11 +163,11 @@ void main() {
       // Both transports are full for s2's lease: it can only queue.
       final waiting = harness.manager.leaseTransferChannel('s2');
       TransferChannelLease? granted;
+      Object? grantError;
       unawaited(
         waiting.then<void>(
           (value) => granted = value,
-          onError: (Object error) =>
-              fail('Queued lease failed instead of being granted: $error'),
+          onError: (Object error) => grantError = error,
         ),
       );
       time.flushMicrotasks();
@@ -190,6 +190,7 @@ void main() {
         isNotNull,
         reason: 'Retiring the idle extra must re-drive queued demand.',
       );
+      expect(grantError, isNull);
       expect(
         harness.opener.calls,
         hasLength(3),

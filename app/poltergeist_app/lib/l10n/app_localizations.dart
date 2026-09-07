@@ -286,6 +286,12 @@ abstract class AppLocalizations {
   /// **'Saved secrets are unavailable. Unlock or restore your system credential store, then retry — or enter the secret below.'**
   String get credentialVaultUnavailable;
 
+  /// Sanitized detail for an identity file that cannot be decoded or otherwise read normally.
+  ///
+  /// In en, this message translates to:
+  /// **'The file could not be read as text.'**
+  String get credentialKeyFileUnreadable;
+
   /// Inline error when the identity file cannot be read.
   ///
   /// In en, this message translates to:

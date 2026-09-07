@@ -115,7 +115,8 @@ the slices below.
 ## M2 — prompt UI, transcript, diagnostics (2026-09-07)
 
 07 §3.3's prompt-UI bullet and open item 5's recovery-diagnostics follow-up
-landed together (engine protocol v3). Engine side: `watchServer` now
+landed together (engine protocol v4 after reconciliation with #40). Engine
+side: `watchServer` now
 delivers `ServerStatus` (state + `detail` — the user-facing failure
 one-liner; a summarized connect failure, a terminal background-recovery
 error delivered through the teardown fan-out when no acquisition awaits the
@@ -128,7 +129,8 @@ frozen attempts forward nothing. The `ConnectLogCoalescer` bounds the port:
 source log's 400-line bound, drop-oldest, order preserved — and joins the
 progress coalescer in the protocol guard's callback-field allowlist.
 `ServerStateEvent` carries `detail` across the wire; `ConnectionLogEvent`
-is new. Same-PR 03 §3.2/§5 precision edits record both.
+is new. #40's `RecoveryFailedEvent` independently carries scoped terminal
+failures without a state watch. Same-PR 03 §3.2/§5 edits record both paths.
 
 App side: `PromptBridge` (the engine client's prompt facet) feeds a
 `PromptCoordinator` — FIFO, one dialog at a time (02 §10), every post-await
@@ -149,12 +151,13 @@ composition yet — the wiring slice composes these library surfaces (item 6).
 Review regressions cover detail preservation through dead-slot teardown,
 queue progress, route ownership and races, async credential reads, empty
 vault saves, sibling-batch fan-out, malformed audit lines, owner-only
-rotation, and panel lifecycle. Round two also repaired unobserved fake-clock
-diagnostic assertions and their missing sibling-reference fixture. After
-reconciliation with PR #39: core analysis and 240 tests pass (one sshd
-fixture skip); app analysis and 186 tests pass; protocol guard (49), import
-guard (92), and pin audit pass. UI surfaces remain uncomposed, so screenshots
-ride the wiring slice that first renders them. `posix` 6.5.2 moved from a
+rotation, and panel lifecycle. Later rounds repaired unobserved fake-clock
+diagnostics, malformed-prompt queue stalls, empty stored-secret answers,
+stale panel callbacks, uncleared key-path errors, opaque failure leakage, and
+queued-waiter detail. After reconciliation with PRs #39 and #40: core analysis
+and 257 tests pass (one sshd fixture skip); app analysis and 190 tests pass;
+protocol guard (49), import guard (92), and pin audit pass. UI surfaces remain
+uncomposed, so screenshots ride the wiring slice that first renders them. `posix` 6.5.2 moved from a
 transitive to direct app dependency without changing resolution; no Séance
 pin change or milestone-close claim. Real-sshd transcript/keepalive legs
 remain with the 08 §5 matrix (open item 3).

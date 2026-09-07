@@ -168,9 +168,11 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Divergences: extracted as a standalone service; no security-scoped-bookmark
   grant path (Poltergeist is unsandboxed at v1, D23 — plain expanded reads
   only); `IdentityFileReadException` drops Séance's macOS EPERM sandbox
-  hint; `~` expansion, audit-every-attempt, and best-effort audit are
-  identical (D18).
-- Port-back candidates: none — the grant path is Séance-specific.
+  hint; non-filesystem read failures are normalized and audited locally so
+  arbitrary exception text cannot reach the prompt (D18/D20). `~` expansion
+  and best-effort audit remain identical.
+- Port-back candidates: audit and normalize non-filesystem read failures;
+  the grant path remains Séance-specific.
 
 ## app/poltergeist_app/test/services/identity_file_reader_test.dart
 
@@ -219,7 +221,7 @@ The 2026-09-07 prompt-UI and diagnostics slice ports the nine Séance-sourced
 files above — five production sources plus four test files — at the existing
 `a9add15` pin (no pin change; no Séance tag contains it yet — STATUS item 2
 owns the next-tag bump). The engine-side additions (`ServerStatus.detail`,
-`ConnectLogLine`, the port coalescer, protocol v3) and the prompt
+`ConnectLogLine`, the port coalescer, protocol v4) and the prompt
 coordinator, credential dialog, and vault-first resolution are
 Poltergeist-only. Current-route dialog guards, malformed audit-line handling,
 and owner-only audit storage are port-back candidates recorded above.

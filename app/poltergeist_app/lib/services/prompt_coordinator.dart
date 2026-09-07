@@ -154,16 +154,45 @@ class PromptCoordinator {
       switch (pending.event.kind) {
         case EnginePromptKind.hostKeyFirstUse:
         case EnginePromptKind.hostKeyChanged:
-          unawaited(_showHostKey(pending));
+          unawaited(_showGuarded(pending, () => _showHostKey(pending)));
         case EnginePromptKind.keyboardInteractive:
-          unawaited(_showKeyboard(pending));
+          unawaited(_showGuarded(pending, () => _showKeyboard(pending)));
         case EnginePromptKind.credentialNeeded:
-          unawaited(_showCredential(pending));
+          unawaited(_showGuarded(pending, () => _showCredential(pending)));
         case EnginePromptKind.conflict:
           // No producer exists until the transfer queue (M4) lands.
           _finishShowing();
       }
       return;
+    }
+  }
+
+  Future<void> _showGuarded(
+    _PendingPrompt pending,
+    Future<void> Function() show,
+  ) async {
+    try {
+      await show();
+    } on Object {
+      // A broken dialog must fail safely, then release the queue.
+      if (identical(_showing, pending) && !_wasDismissed(pending)) {
+        final reply = switch (pending.event.kind) {
+          EnginePromptKind.hostKeyFirstUse || EnginePromptKind.hostKeyChanged =>
+            const HostKeyPromptReply(accepted: false),
+          EnginePromptKind.keyboardInteractive =>
+            const KeyboardInteractivePromptReply(answers: []),
+          EnginePromptKind.credentialNeeded => _cancelledCredentialReply,
+          EnginePromptKind.conflict => null,
+        };
+        if (reply != null) {
+          try {
+            _reply(pending, reply);
+          } on Object {
+            // The queue still must progress if its bridge is already gone.
+          }
+        }
+      }
+      if (identical(_showing, pending)) _finishShowing();
     }
   }
 
@@ -243,7 +272,9 @@ class PromptCoordinator {
         vault != null) {
       try {
         final secret = await vault!.getSecret(data.secretRef!);
-        if (secret != null && _secretMatches(secret, data.authMethod)) {
+        if (secret != null &&
+            secret.value.isNotEmpty &&
+            _secretMatches(secret, data.authMethod)) {
           if (!_wasDismissed(pending)) {
             _reply(pending, _storedReply(secret));
           }
@@ -368,9 +399,9 @@ class PromptCoordinator {
   }
 
   static bool _secretMatches(Secret secret, AuthMethod method) =>
-      secret.kind == SecretKind.privateKey
-      ? method == AuthMethod.privateKey
-      : method == AuthMethod.password;
+      (secret.kind == SecretKind.privateKey &&
+          method == AuthMethod.privateKey) ||
+      (secret.kind == SecretKind.password && method == AuthMethod.password);
 
   static CredentialPromptReply _storedReply(Secret secret) =>
       CredentialPromptReply(

@@ -7,6 +7,49 @@ import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/ui/connection_status_panel.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+class _LateStream<T> extends Stream<T> {
+  void Function(T)? _listener;
+
+  void emit(T value) => _listener?.call(value);
+
+  @override
+  StreamSubscription<T> listen(
+    void Function(T)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    _listener = onData;
+    return Stream<T>.empty().listen(
+      null,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
+}
+
+class _LateHost extends StatelessWidget {
+  final String serverId;
+  final Stream<ServerStatus> states;
+  final Stream<ConnectionLogEvent> log;
+
+  const _LateHost({
+    required this.serverId,
+    required this.states,
+    required this.log,
+  });
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: Scaffold(
+      body: ConnectionStatusPanel(serverId: serverId, states: states, log: log),
+    ),
+  );
+}
+
 class _Host extends StatefulWidget {
   const _Host();
 
@@ -112,6 +155,48 @@ void main() {
     await _expandLog(tester);
     expect(find.textContaining('new transcript'), findsOneWidget);
     expect(find.textContaining('old transcript'), findsNothing);
+  });
+
+  testWidgets('late events from replaced streams are ignored', (tester) async {
+    final oldStates = _LateStream<ServerStatus>();
+    final oldLog = _LateStream<ConnectionLogEvent>();
+    await tester.pumpWidget(
+      _LateHost(serverId: 's1', states: oldStates, log: oldLog),
+    );
+
+    final newStates = _LateStream<ServerStatus>();
+    final newLog = _LateStream<ConnectionLogEvent>();
+    await tester.pumpWidget(
+      _LateHost(serverId: 's2', states: newStates, log: newLog),
+    );
+
+    newStates.emit(
+      const ServerStatus(
+        ServerConnectionState.disconnected,
+        detail: 'Current failure.',
+      ),
+    );
+    newLog.emit(
+      ConnectionLogEvent(serverId: 's2', lines: ['current transcript']),
+    );
+
+    // Model callbacks already queued when cancellation began.
+    oldStates.emit(
+      const ServerStatus(
+        ServerConnectionState.blocked,
+        detail: 'Stale failure.',
+      ),
+    );
+    oldLog.emit(
+      ConnectionLogEvent(serverId: 's2', lines: ['stale transcript']),
+    );
+    await tester.pump();
+
+    expect(find.text('Current failure.'), findsOneWidget);
+    expect(find.text('Stale failure.'), findsNothing);
+    await _expandLog(tester);
+    expect(find.textContaining('current transcript'), findsOneWidget);
+    expect(find.textContaining('stale transcript'), findsNothing);
   });
 
   testWidgets('connecting renders the live transcript as it arrives', (

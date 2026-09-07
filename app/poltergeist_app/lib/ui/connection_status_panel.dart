@@ -57,6 +57,8 @@ class _ConnectionStatusPanelState extends State<ConnectionStatusPanel> {
   final List<String> _lines = [];
   StreamSubscription<ServerStatus>? _states;
   StreamSubscription<ConnectionLogEvent>? _log;
+  int _statesGeneration = 0;
+  int _logGeneration = 0;
 
   @override
   void initState() {
@@ -77,25 +79,34 @@ class _ConnectionStatusPanelState extends State<ConnectionStatusPanel> {
       _lines.clear();
     }
     if (widget.states != oldWidget.states || serverChanged) {
+      _statesGeneration++;
       unawaited(_states?.cancel());
       _listenToStates();
     }
     if (widget.log != oldWidget.log || serverChanged) {
+      _logGeneration++;
       unawaited(_log?.cancel());
       _listenToLog();
     }
   }
 
   void _listenToStates() {
+    final generation = ++_statesGeneration;
     _states = widget.states.listen((status) {
-      if (!mounted) return;
+      if (!mounted || generation != _statesGeneration) return;
       setState(() => _status = status);
     });
   }
 
   void _listenToLog() {
+    final generation = ++_logGeneration;
     _log = widget.log.listen((event) {
-      if (event.serverId != widget.serverId || !mounted) return;
+      if (!mounted ||
+          generation != _logGeneration ||
+          event.serverId != widget.serverId) {
+        return;
+      }
+
       setState(() {
         _lines.addAll(event.lines);
         if (_lines.length > _maxLines) {
@@ -107,6 +118,8 @@ class _ConnectionStatusPanelState extends State<ConnectionStatusPanel> {
 
   @override
   void dispose() {
+    _statesGeneration++;
+    _logGeneration++;
     unawaited(_states?.cancel());
     unawaited(_log?.cancel());
     super.dispose();

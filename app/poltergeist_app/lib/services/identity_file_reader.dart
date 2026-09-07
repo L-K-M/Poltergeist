@@ -26,7 +26,16 @@ class IdentityFileReader {
     String pem;
     try {
       pem = await File(readPath).readAsString();
-    } on FileSystemException catch (error) {
+    } on Exception catch (error) {
+      // Normalize decoder and argument failures without exposing arbitrary
+      // exception text through the credential dialog.
+      final (cause, kind) = error is FileSystemException
+          ? (error, IdentityFileReadFailureKind.fileSystem)
+          : (
+              FileSystemException(error.runtimeType.toString(), readPath),
+              IdentityFileReadFailureKind.invalidContent,
+            );
+
       // Record, then surface: an unauditable failed read must not hide the
       // failure itself behind an audit error.
       await _record(
@@ -34,9 +43,9 @@ class IdentityFileReader {
         serverLabel: serverLabel,
         path: readPath,
         ok: false,
-        error: error.toString(),
+        error: cause.toString(),
       );
-      throw IdentityFileReadException(readPath, error);
+      throw IdentityFileReadException(readPath, cause, kind: kind);
     }
 
     await _record(
@@ -74,14 +83,21 @@ class IdentityFileReader {
   }
 }
 
-/// The identity file could not be read. [message] carries just the
-/// OS-level detail for the dialog's inline error; [toString] keeps the
-/// full sentence for logs.
+enum IdentityFileReadFailureKind { fileSystem, invalidContent }
+
+/// The identity file could not be read. [message] carries filesystem detail;
+/// callers localize [IdentityFileReadFailureKind.invalidContent]. [toString]
+/// keeps the full sentence for logs.
 class IdentityFileReadException implements Exception {
   final String path;
   final FileSystemException cause;
+  final IdentityFileReadFailureKind kind;
 
-  const IdentityFileReadException(this.path, this.cause);
+  const IdentityFileReadException(
+    this.path,
+    this.cause, {
+    this.kind = IdentityFileReadFailureKind.fileSystem,
+  });
 
   String get message {
     final os = cause.osError?.message;

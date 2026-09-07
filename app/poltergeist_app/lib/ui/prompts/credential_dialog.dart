@@ -108,9 +108,12 @@ class _CredentialDialogState extends State<_CredentialDialog> {
         pem = await widget.readKeyFile(path);
       } on Object catch (error) {
         if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
-        final detail = error is IdentityFileReadException
+        final l10n = AppLocalizations.of(context);
+        final detail =
+            error is IdentityFileReadException &&
+                error.kind == IdentityFileReadFailureKind.fileSystem
             ? error.message
-            : error.toString();
+            : l10n.credentialKeyFileUnreadable;
         setState(() {
           _readingKey = false;
           _keyFileErrorText = AppLocalizations.of(
@@ -187,6 +190,10 @@ class _CredentialDialogState extends State<_CredentialDialog> {
             TextField(
               controller: _keyPath,
               autofocus: true,
+              onChanged: (_) {
+                if (_keyFileErrorText == null) return;
+                setState(() => _keyFileErrorText = null);
+              },
               decoration: InputDecoration(
                 labelText: l10n.credentialKeyFileField,
               ),

@@ -98,9 +98,9 @@ final class ConnectionLogEvent extends EngineEvent {
   final String serverId;
 
   /// Oldest first, in attempt append order. Per server at most
-  /// [connectionLogMaxLines] lines are pending at once (drop-oldest,
+  /// `connectionLogMaxLines` lines are pending at once (drop-oldest,
   /// mirroring the source log's own bound) and batches flush at most
-  /// [connectionLogFlushesPerSecond] times per second.
+  /// `connectionLogFlushesPerSecond` times per second.
   final List<String> lines;
 
   ConnectionLogEvent({required this.serverId, required List<String> lines})
