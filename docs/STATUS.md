@@ -122,6 +122,8 @@ and the existing owner-decision gates remain open. No milestone-close claim.
    **2026-09-07 review follow-up (#34):** before running the protocol guard's
    symlink fixture on Windows, probe link-creation privileges and skip only
    when unavailable. Its current CI job runs on Ubuntu.
+   Also register fixture cleanup before setup writes, so partial setup
+   failures cannot orphan temporary directories.
 2. **2026-09-07 — Séance pin: flip to the next tag.** The fork bridge is
    retired (see the Done table) and the pin sits at upstream main
    `a9add15` — no Séance tag contains the keepalive-controls merge yet. `poltergeist_core` now carries the

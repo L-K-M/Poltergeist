@@ -166,7 +166,7 @@ void main() {
         }
         final end = emissions[index] + _second;
         expect(
-          emissions.skip(index).takeWhile((time) => time < end).length,
+          emissions.skip(index).takeWhile((instant) => instant < end).length,
           lessThanOrEqualTo(progressFlushesPerSecond),
         );
       }

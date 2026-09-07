@@ -30,6 +30,7 @@ final class TransferProgressEvent extends EngineEvent {
 
 /// One flush window across all tasks, so task count cannot multiply port traffic.
 final class TransferProgressBatchEvent extends EngineEvent {
+  /// Oldest update first; replace task rollups in order, never sum them.
   final List<TransferProgressEvent> items;
 
   TransferProgressBatchEvent(Iterable<TransferProgressEvent> items)
