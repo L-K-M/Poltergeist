@@ -8,10 +8,6 @@ import '../connection/connection_manager.dart';
 import 'engine_host.dart';
 import 'protocol.dart';
 
-/// The UI-side facade over the engine isolate (03 §5): Future/Stream APIs
-/// mirroring the connection surface, with requests correlated by requestId
-/// and every event fan-out exposed as a broadcast stream. Controllers talk
-/// only to this class; sockets, prompts, and the pool stay engine-side.
 /// The prompt facet of the engine protocol (03 §5): the surface the app's
 /// prompt coordinator consumes. An interface so UI wiring and its tests
 /// depend on the contract, not on the isolate plumbing behind it.
@@ -26,6 +22,10 @@ abstract interface class PromptBridge {
   void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply);
 }
 
+/// The UI-side facade over the engine isolate (03 §5): Future/Stream APIs
+/// mirror the connection surface, requests correlate by requestId, and every
+/// event fan-out is a broadcast stream. Controllers talk only to this class;
+/// sockets, prompts, and the pool stay engine-side.
 class EngineClient implements PromptBridge {
   late final Isolate _isolate;
   final _booted = Completer<SendPort>();

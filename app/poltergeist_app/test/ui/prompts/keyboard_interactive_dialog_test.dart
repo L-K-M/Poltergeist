@@ -138,6 +138,35 @@ void main() {
     expect(find.text('result:123456|push'), findsOneWidget);
   });
 
+  testWidgets('Enter advances from a non-final prompt', (tester) async {
+    await _open(tester);
+
+    final passcode = find.widgetWithText(TextField, 'Passcode');
+    final secondFactor = find.widgetWithText(TextField, 'Second factor');
+    expect(
+      tester.widget<TextField>(passcode).textInputAction,
+      TextInputAction.next,
+    );
+    expect(
+      tester.widget<TextField>(secondFactor).textInputAction,
+      TextInputAction.done,
+    );
+
+    await tester.enterText(passcode, '123456');
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: secondFactor,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is EditableText && widget.focusNode.hasFocus,
+        ),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a repeated submit cannot pop the route below the dialog', (
     tester,
   ) async {

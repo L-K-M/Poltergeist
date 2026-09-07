@@ -51,7 +51,7 @@ class _HarnessState extends State<_Harness> {
                               context,
                               widget.data,
                             );
-                            setState(() {});
+                            if (mounted) setState(() {});
                           },
                           child: const Text('open'),
                         )
@@ -85,6 +85,10 @@ void main() {
     await _open(tester, _firstUse);
 
     expect(find.text('Unknown host key'), findsOneWidget);
+    expect(
+      tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
+      isTrue,
+    );
     expect(find.text('example.com:2222'), findsOneWidget);
     expect(find.text('Fingerprint'), findsOneWidget);
     // The key type and fingerprint render as selectable monospace data.

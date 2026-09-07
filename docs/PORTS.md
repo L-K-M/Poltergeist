@@ -101,18 +101,20 @@ pool. No copied sources, pin changes, or upstream port candidates.
   isolate, 03 §5) instead of seance_core's `HostKeyDecision`; a `changed`
   verdict still renders the alarming two-fingerprint review with the
   destructive-styled trust button (D18 hard block, never auto-repin).
-  Coordinator-owned route identity and current-route action guards prevent
-  a prompt dismissal or repeated activation from popping another route.
-- Port-back candidates: current-route action guards.
+  Scrollable content, coordinator-owned route identity, and current-route
+  action guards prevent overflow or a dismissal/repeated activation from
+  popping another route.
+- Port-back candidates: scrollable content and current-route action guards.
 
 ## app/poltergeist_app/test/ui/prompts/host_key_dialog_test.dart
 
 - Source: app/seance_app/test/host_key_dialog_test.dart
 - Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
-- Divergences: adapted to the protocol payload; adds ARB-string and
-  non-dismissible coverage beyond the source's two cases.
-- Port-back candidates: none.
+- Divergences: adapted to the protocol payload; adds ARB-string, scrollable,
+  and non-dismissible coverage beyond the source's two cases; the async test
+  harness checks `mounted` before rebuilding.
+- Port-back candidates: scrollable assertion and mounted harness guard.
 
 ## app/poltergeist_app/lib/ui/prompts/keyboard_interactive_dialog.dart
 
@@ -122,11 +124,11 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Divergences: strings localize through ARB (D20); the payload is the
   engine protocol's `KeyboardInteractivePromptData` (03 §5); adds per-field
   reveal toggles absent from the source (echo metadata is absent on the
-  wire, so reveal is explicit-only), coordinator-owned route identity, and
-  current-route action guards, and Enter submission on the final prompt. The
-  controller-dispose-in-State lifecycle and its IME use-after-dispose lesson
-  are ported verbatim.
-- Port-back candidates: current-route action guards and final-prompt Enter;
+  wire, so reveal is explicit-only), coordinator-owned route identity,
+  current-route action guards, and Enter focus navigation/final submission.
+  The controller-dispose-in-State lifecycle and its IME use-after-dispose
+  lesson are ported verbatim.
+- Port-back candidates: current-route action guards and Enter navigation;
   preserve RFC 4256's
   per-prompt echo bit once the upstream responder exposes it.
 
@@ -136,9 +138,9 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: adapted to the protocol payload; adds reveal-toggle,
-  empty-name/instruction fallback, final-prompt Enter, autofocus, and
+  empty-name/instruction fallback, Enter navigation, autofocus, and
   repeated-submit route-safety coverage.
-- Port-back candidates: final-prompt Enter, autofocus, and repeated-submit
+- Port-back candidates: Enter navigation, autofocus, and repeated-submit
   regressions.
 
 ## app/poltergeist_app/lib/services/identity_audit_log.dart

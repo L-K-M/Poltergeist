@@ -95,9 +95,12 @@ class _KeyboardInteractiveDialogState
                 autocorrect: false,
                 enableSuggestions: false,
                 enableIMEPersonalizedLearning: false,
+                textInputAction: i == widget.data.prompts.length - 1
+                    ? TextInputAction.done
+                    : TextInputAction.next,
                 onSubmitted: i == widget.data.prompts.length - 1
                     ? (_) => _submit()
-                    : null,
+                    : (_) => FocusScope.of(context).nextFocus(),
                 decoration: InputDecoration(
                   labelText: widget.data.prompts[i],
                   suffixIcon: IconButton(

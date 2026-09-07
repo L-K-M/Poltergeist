@@ -172,6 +172,11 @@ void main() {
       );
       time.flushMicrotasks();
       expect(granted, isNull);
+      expect(
+        grantError,
+        isNull,
+        reason: 'Queueing the lease must not fail it outright.',
+      );
 
       // Dropping s1 empties the extra; the refusal keeps the queued demand
       // waiting on the first transport's channel (no stranded failure).

@@ -82,6 +82,10 @@ void main() {
     await _open(tester, _Harness(_passwordData));
 
     expect(find.textContaining('deploy@example.com:2222'), findsOneWidget);
+    expect(
+      tester.widget<AlertDialog>(find.byType(AlertDialog)).scrollable,
+      isTrue,
+    );
     expect(find.text('Password'), findsOneWidget);
     expect(find.text('Key file'), findsNothing);
     expect(find.text('Save in vault'), findsNothing);

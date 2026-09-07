@@ -157,6 +157,7 @@ class _CredentialDialogState extends State<_CredentialDialog> {
     final secretRef = widget.data.secretRef;
 
     return AlertDialog(
+      scrollable: true,
       title: Text(l10n.credentialTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,

@@ -155,9 +155,9 @@ rotation, and panel lifecycle. Later rounds repaired unobserved fake-clock
 diagnostics, malformed-prompt queue stalls, empty stored-secret answers,
 stale panel callbacks, uncleared key-path errors, opaque failure leakage,
 queued-waiter detail, stalled audit writes, closed prompt bridges,
-newest-line anchoring, and final-field submission. After reconciliation with
-PRs #39 and #40: core analysis and 257 tests pass (one sshd fixture skip);
-app analysis and 194 tests pass;
+newest-line anchoring, scroll-safe prompts, and Enter focus/submission. After
+reconciliation with PRs #39 and #40: core analysis and 257 tests pass (one
+sshd fixture skip); app analysis and 196 tests pass;
 protocol guard (49), import guard (92), and pin audit pass. UI surfaces remain
 uncomposed, so screenshots ride the wiring slice that first renders them.
 `posix` 6.5.2 moved from a transitive to direct app dependency without changing

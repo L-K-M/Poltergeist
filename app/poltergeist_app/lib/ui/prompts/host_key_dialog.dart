@@ -31,6 +31,7 @@ Future<bool> showHostKeyDialog(
 
       return AlertDialog(
         key: dialogKey,
+        scrollable: true,
         icon: Icon(
           changed ? Icons.gpp_bad : Icons.verified_user_outlined,
           color: changed ? scheme.error : null,

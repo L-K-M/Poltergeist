@@ -89,13 +89,8 @@ void main() {
         harness.manager.openBrowseChannel(_primaryServerId, paneTabId: 'retry'),
         throwsA(isA<RemoteFileException>()),
       );
-      expect(
-        await harness.manager
-            .watchServer(_primaryServerId)
-            .first
-            .then((status) => status.state),
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServerId).first;
+      expect(status.state, ServerConnectionState.blocked);
       expect(await harness.manager.connectedServerIds(), isEmpty);
       expect(harness.openChannels, isEmpty);
     },
