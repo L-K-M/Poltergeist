@@ -4,6 +4,7 @@ import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/element/element.dart';
 import 'package:analyzer/dart/element/type.dart';
 import 'package:analyzer/diagnostic/diagnostic.dart';
 import 'package:path/path.dart' as p;
@@ -84,6 +85,7 @@ Future<List<String>> _checkSource(
       ClassTypeAlias() => declaration.declaredFragment?.element,
       MixinDeclaration() => declaration.declaredFragment?.element,
       EnumDeclaration() => declaration.declaredFragment?.element,
+      ExtensionTypeDeclaration() => declaration.declaredFragment?.element,
       _ => null,
     };
     if (element == null) continue;
@@ -103,16 +105,48 @@ Future<List<String>> _checkSource(
     // An allowed internal helper cannot later become a protocol subtype.
     final allowed = _callbackOwners[relative]?.contains(element.name) ?? false;
     if (allowed && !isPayload) continue;
-    for (final field in element.fields) {
-      if (field.isOriginGetterSetter || !_containsFunction(field.type, {})) {
-        continue;
-      }
+    for (final field in _callbackFields(element)) {
       violations.add(
-        '$relative: ${element.name}.${field.name} has a function-typed field',
+        '$relative: ${element.name}.$field has a function-typed field',
       );
     }
   }
   return violations;
+}
+
+Set<String> _callbackFields(InterfaceElement element) {
+  final callbacks = <String>{};
+  for (final owner in _fieldOwners(element.thisType, {})) {
+    for (final field in owner.element.fields) {
+      if (field.isOriginGetterSetter) continue;
+      if (field.isStatic && owner.element != element) continue;
+
+      final name = field.name;
+      if (name == null) {
+        throw StateError('Unnamed field on ${owner.element.name}');
+      }
+      // Instantiated getters substitute Base<T>.field when T is a callback.
+      final type = owner.getGetter(name)?.returnType ?? field.type;
+      if (_containsFunction(type, {})) callbacks.add(name);
+    }
+  }
+  return callbacks;
+}
+
+// Superclasses and applied mixins retain storage, even behind an overridden
+// getter. Implemented interfaces and mixin constraints add no instance fields.
+Iterable<InterfaceType> _fieldOwners(
+  InterfaceType type,
+  Set<InterfaceElement> visited,
+) sync* {
+  if (!visited.add(type.element)) return;
+  yield type;
+  if (type.superclass case final superclass?) {
+    yield* _fieldOwners(superclass, visited);
+  }
+  for (final mixin in type.mixins) {
+    yield* _fieldOwners(mixin, visited);
+  }
 }
 
 // Generic and record fields can carry callbacks as readily as direct fields.

@@ -52,10 +52,12 @@ Terminal events bypass this lossy buffer. No forced final flush.
 
 Validation: 17 tests cover fake-clock floods, rolling-second limits, task/item
 identity, recency, lifecycle, immutable snapshots, and real-isolate round trips.
-The engine protocol AST guard has 30 fixture tests and runs in CI; callback
+The engine protocol AST guard has 41 fixture tests and runs in CI; callback
 fields are allowed only on the engine-internal coalescer. Core analysis and
 186 tests pass (one existing fixture skip). A VM-resolution regression observed
 31 batches in a rolling second before rounding the interval up to 34 ms.
+Review repaired working-directory-dependent CLI tests and added inherited
+storage/extension-type checks; nine new guard regressions failed before repair.
 This is one M2 protocol component: engine spawn,
 `EngineClient`, connection requests/results, prompt cancellation, and production
 wiring remain open. No UI change, dependency bump, source port, or milestone close.

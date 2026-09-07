@@ -88,6 +88,7 @@ class ProgressCoalescer extends EngineEvent { final callback = () {}; }
     'typedef Alias = EngineEvent; class Escaped extends Alias {}',
     'mixin Helper {} class Escaped = EngineEvent with Helper;',
     'enum Escaped implements EngineEvent { value }',
+    'extension type Escaped(Intermediate value) implements EngineEvent {}',
   ]) {
     test('rejects relocated protocol subtype: $source', () async {
       await fixture._write('$_core/lib/escaped.dart', '''
@@ -97,6 +98,97 @@ $source
       expect(await fixture._check(), [contains('Escaped is outside engine/')]);
     });
   }
+
+  test('rejects an extension type callback representation', () async {
+    await fixture._write('$_engine/wrapper.dart', '''
+extension type Wrapper(void Function() callback) {}
+''');
+    expect(await fixture._check(), [contains('Wrapper.callback')]);
+  });
+
+  for (final (base, declaration) in [
+    (
+      'class Base { final void Function() callback = () {}; }',
+      'class Data extends Base {}',
+    ),
+    ('mixin Hooks { final callback = () {}; }', 'class Data with Hooks {}'),
+    (
+      'class Base<T> { late T callback; }',
+      'class Data extends Base<void Function()> {}',
+    ),
+    (
+      'class Base<T> { late T callback; } '
+          'class Middle<U> extends Base<List<U>> {}',
+      'class Data extends Middle<void Function()> {}',
+    ),
+    (
+      'class Base { final void Function() callback = () {}; }',
+      'class Data extends Base { '
+          '@override void Function() get callback => () {}; }',
+    ),
+  ]) {
+    test('rejects inherited callback storage: $declaration', () async {
+      await fixture._write('$_core/lib/base.dart', base);
+      await fixture._write('$_engine/data.dart', '''
+import '../../base.dart';
+$declaration
+''');
+      expect(await fixture._check(), [contains('Data.callback')]);
+    });
+  }
+
+  test('rejects inherited private callback storage', () async {
+    await fixture._write('$_core/lib/base.dart', '''
+class Base { final _callback = () {}; }
+''');
+    await fixture._write('$_engine/data.dart', '''
+import '../../base.dart';
+class Data extends Base {}
+''');
+    expect(await fixture._check(), [contains('Data._callback')]);
+  });
+
+  test('allows static superclass callbacks and computed getters', () async {
+    await fixture._write('$_core/lib/base.dart', '''
+class Base {
+  static final callback = () {};
+  void Function() get computed => () {};
+}
+''');
+    await fixture._write('$_engine/data.dart', '''
+import '../../base.dart';
+class Data extends Base {}
+''');
+    expect(await fixture._check(), isEmpty);
+  });
+
+  test(
+    'allows interface-only callback fields implemented by getters',
+    () async {
+      await fixture._write('$_core/lib/base.dart', '''
+class Base { final void Function() callback = () {}; }
+''');
+      await fixture._write('$_engine/data.dart', '''
+import '../../base.dart';
+class Data implements Base {
+  @override void Function() get callback => () {};
+}
+''');
+      expect(await fixture._check(), isEmpty);
+    },
+  );
+
+  test('an allowlisted payload cannot use inherited callbacks', () async {
+    await fixture._write('$_core/lib/base.dart', '''
+class Base { final void Function() callback = () {}; }
+''');
+    await fixture._write('$_engine/progress_coalescer.dart', '''
+import '../../base.dart';
+import 'protocol.dart';
+class ProgressCoalescer extends Base implements EngineEvent {}
+''');
+    expect(await fixture._check(), [contains('ProgressCoalescer.callback')]);
+  });
 
   test(
     'detects relocation into app despite unresolved Flutter imports',

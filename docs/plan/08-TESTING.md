@@ -372,8 +372,11 @@ position** — comments and string literals excluded, so
 pass — or any `dart:ffi`, Flutter, or `dartssh2` import (05 §2's
 never-executes promise and 03 §1's dependency rules, machine-checked).
 A sibling walker covers `packages/poltergeist_core/lib/src/engine/**`
-and fails on any function-typed field declared in **any** class under
-that subtree — not just the `EngineRequest`/`EngineEvent` pair, so a
+and fails on any function-typed storage in **any** class or extension type
+under that subtree, including instance fields inherited from external bases
+or mixins and extension-type representations. Declared static fields are
+also checked; interface-only getters and inherited static fields are not
+instance storage. This covers more than the `EngineRequest`/`EngineEvent` pair, so a
 newly added protocol class cannot quietly escape the §3.2 closure ban
 (the walker also fails if any `EngineRequest`/`EngineEvent` subtype is
 declared outside the walked subtree, so relocation cannot dodge it

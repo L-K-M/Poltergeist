@@ -6,11 +6,14 @@ dart test tool/protocol_guard/test
 dart run tool/protocol_guard/bin/check.dart .
 ```
 
-Enforces 08 §3.3: engine classes cannot store function-typed fields;
+Enforces 08 §3.3: engine declarations cannot store function-typed fields;
 `EngineRequest`/`EngineEvent` subtypes must stay under core's `src/engine/`.
 Resolution catches typedefs, inferred callbacks, type-parameter bounds,
-and callbacks inside generic or record fields. Methods and computed getters
-do not store callbacks.
+and callbacks inside generic or record fields. Checks include extension-type
+representations and inherited superclass/mixin storage with substituted type
+arguments, including private fields and fields hidden by getter overrides.
+Inherited static members, interfaces, methods, and computed getters add no
+instance storage.
 
 The commented allowlist names each internal callback owner by exact file
 and class. A protocol subtype cannot use an exception. Scan inputs include
