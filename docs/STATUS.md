@@ -285,7 +285,12 @@ and the existing owner-decision gates remain open. No milestone-close claim.
   permanent pane failure. The pane survives for the next backoff attempt;
   errors from a live handle retain the existing pane-only failure behavior.
   The regression failed before the guard and passes after it.
-  Core analysis and 222 tests pass (one existing fixture skip); Flutter
+  Review added a failing regression for a disconnected home operation whose
+  transport's completion notification lags. Transport death is recorded before
+  the new guards, preserving retirement and the next retry's handle replacement.
+  A second regression covers permission denial with that lag: observing a closed
+  transport retires all its bindings, so both panes rebind on the next retry.
+  Core analysis and 224 tests pass (one existing fixture skip); Flutter
   analysis and 121 tests pass. Import and protocol guards pass.
   No milestone-close claim; production wiring and real-sshd coverage remain
   open.
