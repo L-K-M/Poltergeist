@@ -36,6 +36,7 @@ export 'package:seance_core/seance_core.dart'
         Prober,
         ProbeStatus,
         RemoteFileEntry,
+        RemoteFileType,
         RemoteFileErrorKind,
         RemoteFileException,
         RemoteFileSystem,
@@ -81,12 +82,46 @@ export 'src/connection/ssh_transport.dart'
         SshTransport,
         SshTransportOpener,
         openDartSshTransport;
+export 'src/engine/engine_client.dart'
+    show EngineBrowseChannel, EngineClient;
+export 'src/engine/engine_host.dart' show EngineHost, engineMain;
 export 'src/engine/protocol.dart'
     show
-        engineProtocolVersion,
+        CloseBrowseChannelRequest,
+        ConnectedServerIdsRequest,
+        CredentialPromptData,
+        CredentialPromptReply,
+        DirectoryListed,
+        DisconnectServerRequest,
+        BrowseChannelOpened,
+        EngineAck,
+        EngineConfig,
+        EngineError,
+        EnginePromptData,
+        EnginePromptEvent,
+        EnginePromptKind,
+        EngineRequest,
+        EngineResult,
         EngineEvent,
+        HostKeyPinnedEvent,
+        HostKeyPromptData,
+        HostKeyPromptReply,
+        KeyboardInteractivePromptData,
+        KeyboardInteractivePromptReply,
+        ListDirectoryRequest,
+        OpenBrowseChannelRequest,
+        PromptDismissedEvent,
+        PromptReply,
+        PromptReplyRequest,
+        ResponseEvent,
+        ServerIdsListed,
+        ServerStateEvent,
+        ShutdownRequest,
         TransferProgressEvent,
-        TransferProgressBatchEvent;
+        TransferProgressBatchEvent,
+        UnwatchServerRequest,
+        WatchServerRequest,
+        engineProtocolVersion;
 
 /// The user-facing product name.
 ///

@@ -1436,8 +1436,32 @@ class SetQueuePausedRequest extends EngineRequest { final bool paused; }
 class PromptReplyRequest extends EngineRequest {
   final String promptId;
   final EnginePromptKind kind;   // engine validates against the open prompt
+                                 // — kind *and* reply runtime type; a
+                                 // mismatch is ignored like an unknown id
   final PromptReply reply;       // sealed: one plain-data subtype per kind
+                                 // — the `conflict` pair lands with the
+                                 // queue (M4), which owns its payload model
 }
+
+// ── Connection-slice messages (M2; the transfer/queue requests above land
+// with M4, which owns TransferTaskSpec): the browse-channel lifecycle,
+// watch/control, and the spawn config. Connection-bearing requests carry
+// the ServerConfig — the engine holds no bookmark store; the UI owns
+// bookmarks and supplies config per request.
+class CloseBrowseChannelRequest extends EngineRequest { final int channelId; }
+class WatchServerRequest extends EngineRequest { final String serverId; }
+/// Emits ServerStateEvent (current value first); Unwatch stops it.
+class UnwatchServerRequest extends EngineRequest { final String serverId; }
+class ConnectedServerIdsRequest extends EngineRequest {}
+class DisconnectServerRequest extends EngineRequest { final String serverId; }
+class ShutdownRequest extends EngineRequest {}
+/// The first message after spawn: pool policy and the UI-side pin store's
+/// current pins (EngineConfig — support/journal directories and initial
+/// bandwidth limits join with the M4 slices that consume them). Pin
+/// storage stays app-side: the engine seeds an in-memory verifier from
+/// these and surfaces every later pin write as a HostKeyPinnedEvent for
+/// the UI to persist — one TOFU authority (the engine), one store owner
+/// (the app).
 
 sealed class EngineEvent {}
 /// payload is a sealed result type: the value, or a serialized
@@ -1484,6 +1508,15 @@ class EnginePromptEvent extends EngineEvent {
   // plus a kind-specific plain-data payload (fingerprint, prompt texts,
   // the conflicting item's stats)
 }
+/// The engine withdrew an open prompt: the dialog owning the promptId
+/// closes without answering. This is the isolate boundary's half of
+/// CredentialResolutionScope dismissal (§3.2 — "one mechanism, both
+/// sides") and shutdown's implicit cancel for still-open prompts.
+class PromptDismissedEvent extends EngineEvent {
+  final String promptId; final EnginePromptKind kind;
+}
+/// The engine pinned (or re-pinned) a host key; the UI persists it.
+class HostKeyPinnedEvent extends EngineEvent { final HostKey key; }
 ```
 
 The UI-side facade is `EngineClient` (in `poltergeist_core`), exposing
@@ -1499,7 +1532,11 @@ reply at all (an orphaned dialog, a UI-side bug, a prompt emitted right
 before window teardown), until task teardown or engine shutdown treats
 the still-unanswered `promptId` as an implicit cancel and logs it as a
 prompt leak, so a lost dialog can never wedge a paused item silently
-forever with no timeout and no recovery short of restarting the engine. Progress events are coalesced engine-side
+forever with no timeout and no recovery short of restarting the engine.
+Failures cross the wire as serialized `RemoteFileException`s — kind,
+operation, path, message; the unsendable `cause` stays engine-side, and a
+non-VFS exception (a connect failure's `SshConnectException`) keeps its
+user-facing message inside an `other`-kind error. Progress events are coalesced engine-side
 to ≤ 30 **flush windows** per second per task, each flush carrying only
 the **latest event per item** that progressed in that window (loosely
 bounded by §4.3's in-flight caps — a soft bound, not a hard one: a slot

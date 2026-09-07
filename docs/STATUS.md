@@ -5,9 +5,10 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-07 — M2 bounded engine progress coalescing, pooled
-reconnect recovery, and pool keepalive wiring are implemented; upstream
-keepalive controls are pinned. Engine integration and real-sshd recovery
-coverage remain open.
+reconnect recovery, pool keepalive wiring, and the engine isolate +
+`EngineClient` connection/prompt protocol are implemented; upstream
+keepalive controls are pinned. Production wiring (app composition) and
+real-sshd recovery coverage remain open.
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
@@ -65,6 +66,48 @@ generic and nested representations.
 This is one M2 protocol component: engine spawn,
 `EngineClient`, connection requests/results, prompt cancellation, and production
 wiring remain open. No UI change, dependency bump, source port, or milestone close.
+
+## M2 — engine isolate, EngineClient, prompt protocol (2026-09-07)
+
+The connection/prompt half of 03 §5 landed (engine protocol v2): the typed
+request set (open/close/list browse channel with per-request `ServerConfig` —
+the UI owns bookmarks, the engine holds none; watch/unwatch with
+current-state-first forwarding; connected ids; disconnect; prompt reply;
+shutdown), typed results with serialized `RemoteFileException`s (kind,
+operation, path, message — the unsendable cause stays engine-side), and the
+prompt model (`EnginePromptEvent` with kind-specific payloads, one plain-data
+reply subtype per kind, `PromptDismissedEvent`, `HostKeyPinnedEvent`).
+`EngineClient.spawn(EngineConfig)` boots `engineMain` (boot port handshake,
+config first), correlates responses by requestId, exposes broadcast prompt /
+dismissal / pin / progress streams and `watchServer` toggling (last listener
+unsubscribes), fails every pending call typed on engine death, and shuts down
+orderly-then-kill. The engine host owns a `PooledConnectionManager` whose
+host-key prompter, keyboard-interactive responder, and credential resolver
+are port-bridged: prompts cross as events, replies are validated by promptId,
+kind, and reply runtime type, and everything that cannot apply (unknown id,
+closed, duplicate, mismatch) is ignored. `CredentialResolutionScope`
+dismissal now crosses the isolate boundary — a disconnect withdraws the open
+credential prompt and the abandoned open fails disconnected; shutdown
+dismisses all open prompts. TOFU pins: `EngineConfig` seeds the engine's
+in-memory verifier from the app's store; every pin write surfaces as a
+`HostKeyPinnedEvent` for app-side persistence (one TOFU authority, one store
+owner — documented in the same-PR 03 §5 precision edit, which also records
+that the transfer/queue requests and the `conflict` prompt pair land with
+M4's queue, which owns `TransferTaskSpec`).
+
+Validation: every new message type round-trips through a real spawned isolate
+pair (08 §3.2); 15 in-process host tests over the socket-free pool fakes cover
+the open/credential/host-key flows (first-use decline pins nothing; changed
+key review re-pins or hard-blocks with state fan-out), keyboard-interactive
+answer round trips, listing success/failure with recovery reporting,
+dismissal, cancelled replies, ignored replies, watch semantics, ids, shutdown,
+and non-VFS error wrapping; 8 real-isolate client tests cover spawn, watch
+re-subscription, a refused-connect failure after a prompt reply, dismissal
+across real isolates, shutdown, and fail-fast termination on an invalid
+policy. Core 220 tests and app 121 pass; analyze clean; protocol and import
+guards pass. No UI change, dependency bump, source port, or milestone close:
+production wiring stays gated on open item 6, prompt UI and diagnostics on
+the slices below.
 
 ## M2 — keepalive prerequisite (2026-09-07)
 
@@ -148,8 +191,13 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      Reconnect recovery and the backoff-sequence tests are implemented below;
    - engine isolate + `EngineClient` + the typed port protocol (03 §5).
      Bounded progress batches, their isolate round-trip/coalescing tests,
-     and the callback-field AST guard are implemented; connection/prompt
-     messages and their round trips remain open;
+     and the callback-field AST guard are implemented; **the connection/
+     prompt half — engine spawn, `EngineClient`, requests/results, prompt
+     round trips, and scope-dismissal crossing — landed 2026-09-07** (see
+     the dated section). The transfer/queue requests
+     (`EnqueueTransfer`, `Cancel`, `SetBandwidthLimits`, `SetQueuePaused`)
+     and the `conflict` prompt pair land with M4's queue, which owns
+     `TransferTaskSpec` (03 §5's precision edit records this);
    - prompt UI (host-key dialogs, keyboard-interactive, credential prompt,
      live `SshConnectionLog` transcript) over the protocol — this slice also
      owns rendering the ported keystore/vault exception messages through ARB
@@ -184,9 +232,10 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      mid-resolution trips it, so a resolver-owned prompt closes instead of
      parking on an answer the pool rejects, folded first-connect callers
      fail without a user answer, and a replacement session resolves afresh
-     (regressions: `pool_resolution_dismissal_test.dart`). Remaining:
-     carry cancellation through the engine protocol (03 §5) when that
-     slice lands.
+     (regressions: `pool_resolution_dismissal_test.dart`). The protocol
+     half **closed 2026-09-07**: the engine bridges its resolver over the
+     port, withdrawal crosses as `PromptDismissedEvent`, and shutdown
+     dismisses all open prompts (see the dated section).
    - **2026-09-07 — recovery diagnostics (review follow-up):** deliver
      terminal background recovery errors to the engine's local diagnostic
      event/log path when no acquisition awaits them. This belongs with the

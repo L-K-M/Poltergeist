@@ -138,6 +138,10 @@ class FakeTransport implements SshTransport {
   /// server-side MaxSessions refusal, for fallback-path tests.
   final int? openLimit;
 
+  /// Builds each new channel's filesystem (default: the canonicalize-only
+  /// stub). Engine-suite tests inject a listing-capable fake here.
+  final RemoteFileSystem Function(String home)? fsBuilder;
+
   final List<FakeChannel> channels = [];
   bool closed = false;
   final Completer<void> _done = Completer<void>();
@@ -193,7 +197,7 @@ class FakeTransport implements SshTransport {
   @override
   bool get isClosed => isClosedOnlyWhenSettled ? closeCompleted : closed;
 
-  FakeTransport({required this.authKind, this.openLimit});
+  FakeTransport({required this.authKind, this.openLimit, this.fsBuilder});
 
   @override
   Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
@@ -222,10 +226,13 @@ class FakeTransport implements SshTransport {
       );
     }
 
-    final channel = FakeChannel(StubRemoteFileSystem(
-      '/home/test',
-      canonicalizeGate: canonicalizeGate,
-    ));
+    final channel = FakeChannel(
+      fsBuilder?.call('/home/test') ??
+          StubRemoteFileSystem(
+            '/home/test',
+            canonicalizeGate: canonicalizeGate,
+          ),
+    );
     channels.add(channel);
     await openGate?.future;
     return channel;
@@ -329,6 +336,9 @@ class FakeTransportOpener {
   /// completer before returning — for teardown-race tests.
   Completer<void>? growthGate;
 
+  /// Passed to every created transport's [FakeTransport.fsBuilder].
+  RemoteFileSystem Function(String home)? transportFsBuilder;
+
   /// Hold a growth verdict before it reaches the pool's trust gate.
   Completer<void>? growthVerificationGate;
 
@@ -347,6 +357,7 @@ class FakeTransportOpener {
     this.presentedFingerprints = const ['SHA256:presented'],
     this.transportOpenLimit,
     this.transportOpenLimits,
+    this.transportFsBuilder,
   });
 
   SshTransportOpener get opener => ({
@@ -438,6 +449,7 @@ class FakeTransportOpener {
               ? AuthKind.key
               : authKind,
           openLimit: openLimit,
+          fsBuilder: transportFsBuilder,
         );
         call.transport = transport;
         if (connectGate != null) await connectGate!.future;
