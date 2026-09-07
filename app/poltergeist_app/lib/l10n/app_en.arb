@@ -32,5 +32,178 @@
   "readyStatus": "Ready",
   "@readyStatus": {
     "description": "Idle application status."
+  },
+
+  "hostKeyUnknownTitle": "Unknown host key",
+  "@hostKeyUnknownTitle": {
+    "description": "Title of the first-use host-key approval dialog."
+  },
+  "hostKeyChangedTitle": "HOST KEY CHANGED",
+  "@hostKeyChangedTitle": {
+    "description": "Title of the changed-key hard-block dialog (D18)."
+  },
+  "hostKeyChangedWarning": "The key for {host} does not match the one you previously trusted. This can mean a man-in-the-middle attack. Only continue if you know why the key changed.",
+  "@hostKeyChangedWarning": {
+    "description": "Warning body of the changed-key dialog.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "hostKeyEndpoint": "{host}:{port}",
+  "@hostKeyEndpoint": {
+    "description": "The endpoint whose key is presented, host:port.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      },
+      "port": {
+        "type": "int"
+      }
+    }
+  },
+  "hostKeyFingerprintLabel": "Fingerprint",
+  "@hostKeyFingerprintLabel": {
+    "description": "Label above the presented key's fingerprint (first use)."
+  },
+  "hostKeyNewLabel": "New key",
+  "@hostKeyNewLabel": {
+    "description": "Label above the changed dialog's presented fingerprint."
+  },
+  "hostKeyPreviousLabel": "Previously trusted",
+  "@hostKeyPreviousLabel": {
+    "description": "Label above the changed dialog's pinned fingerprint."
+  },
+  "hostKeyCancel": "Cancel",
+  "@hostKeyCancel": {
+    "description": "Declines the host-key dialog."
+  },
+  "hostKeyTrustConnect": "Trust and connect",
+  "@hostKeyTrustConnect": {
+    "description": "Approves a first-use host key and continues connecting."
+  },
+  "hostKeyTrustNewKey": "Trust the new key",
+  "@hostKeyTrustNewKey": {
+    "description": "Re-pins a changed host key after explicit review."
+  },
+
+  "keyboardAuthTitle": "Authentication",
+  "@keyboardAuthTitle": {
+    "description": "Fallback title when the server sends no challenge name."
+  },
+  "keyboardSubmit": "Submit",
+  "@keyboardSubmit": {
+    "description": "Sends the keyboard-interactive answers."
+  },
+  "keyboardCancel": "Cancel",
+  "@keyboardCancel": {
+    "description": "Cancels the keyboard-interactive challenge."
+  },
+  "keyboardShowAnswer": "Show answer",
+  "@keyboardShowAnswer": {
+    "description": "Tooltip revealing a challenge field."
+  },
+  "keyboardHideAnswer": "Hide answer",
+  "@keyboardHideAnswer": {
+    "description": "Tooltip re-obscuring a challenge field."
+  },
+
+  "credentialTitle": "Authentication required",
+  "@credentialTitle": {
+    "description": "Title of the connect-time credential dialog."
+  },
+  "credentialEndpoint": "{username}@{host}:{port}",
+  "@credentialEndpoint": {
+    "description": "The endpoint the credential prompt is for.",
+    "placeholders": {
+      "username": {"type": "String"},
+      "host": {"type": "String"},
+      "port": {"type": "int"}
+    }
+  },
+  "credentialPasswordField": "Password",
+  "@credentialPasswordField": {
+    "description": "Label of the password field."
+  },
+  "credentialKeyFileField": "Key file",
+  "@credentialKeyFileField": {
+    "description": "Label of the identity-file path field."
+  },
+  "credentialPassphraseField": "Passphrase",
+  "@credentialPassphraseField": {
+    "description": "Label of the private-key passphrase field."
+  },
+  "credentialSaveInVault": "Save in vault",
+  "@credentialSaveInVault": {
+    "description": "Checkbox storing the entered secret in the local vault."
+  },
+  "credentialConnect": "Connect",
+  "@credentialConnect": {
+    "description": "Answers the credential prompt and continues connecting."
+  },
+  "credentialCancel": "Cancel",
+  "@credentialCancel": {
+    "description": "Cancels the credential prompt; the connect fails."
+  },
+  "credentialVaultUnavailable": "Saved secrets are unavailable: the OS keyring is locked or missing. Unlock the login keyring (or install gnome-keyring), then retry — or enter the secret below.",
+  "@credentialVaultUnavailable": {
+    "description": "Banner shown when the vault could not be read before prompting (the localized render of the ported keystore exception, D20)."
+  },
+  "credentialKeyFileReadError": "Could not read the key file: {error}",
+  "@credentialKeyFileReadError": {
+    "description": "Inline error when the identity file cannot be read.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+
+  "connectionStateConnecting": "Connecting…",
+  "@connectionStateConnecting": {
+    "description": "Status while a first connect attempt runs."
+  },
+  "connectionStateReconnecting": "Reconnecting…",
+  "@connectionStateReconnecting": {
+    "description": "Status while automatic recovery retries."
+  },
+  "connectionFailedTitle": "Connection failed",
+  "@connectionFailedTitle": {
+    "description": "Heading of the failed-connection view."
+  },
+  "connectionBlockedTitle": "Connection blocked",
+  "@connectionBlockedTitle": {
+    "description": "Heading shown while a host-key block is unresolved (D18)."
+  },
+  "connectionDisconnectedTitle": "Disconnected",
+  "@connectionDisconnectedTitle": {
+    "description": "Heading of the disconnected view."
+  },
+  "connectionLogTitle": "Connection log",
+  "@connectionLogTitle": {
+    "description": "Header of the collapsible live transcript."
+  },
+  "connectionLogCopy": "Copy",
+  "@connectionLogCopy": {
+    "description": "Copies the transcript to the clipboard."
+  },
+  "connectionLogEmpty": "(no log captured)",
+  "@connectionLogEmpty": {
+    "description": "Placeholder when no transcript lines arrived."
+  },
+  "connectionRetry": "Retry",
+  "@connectionRetry": {
+    "description": "Reopens the connection after a failure."
+  },
+
+  "vaultSaveFailed": "Could not save the secret to the vault: {error}",
+  "@vaultSaveFailed": {
+    "description": "Transient notice when saving a prompted secret failed.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
   }
 }

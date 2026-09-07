@@ -5,14 +5,13 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-08 — M2 adds real-sshd pool integration coverage
-and its ordinary CI job (validation below). M2 exposes terminal background
-recovery failures through the engine's local diagnostic stream and ignores
-stale home failures from
-dead recovery transports; bounded engine progress coalescing, pooled
+and its ordinary CI job (validation below). M2's prompt dialogs, coordinator,
+live connect transcript, state-associated failure details, and independent
+terminal-recovery diagnostics are implemented. Recovery ignores stale home
+failures from dead transports. Bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
-`EngineClient` connection/prompt protocol are implemented; upstream
-keepalive controls are pinned. Production wiring (app composition) and
-prompt UI remain open.
+`EngineClient` connection/prompt protocol are implemented; upstream keepalive
+controls are pinned. Production wiring (app composition) remains open.
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
@@ -113,6 +112,52 @@ guards pass. No UI change, dependency bump, source port, or milestone close:
 production wiring stays gated on open item 6, prompt UI and diagnostics on
 the slices below.
 
+## M2 — prompt UI, transcript, diagnostics (2026-09-07)
+
+07 §3.3's prompt-UI bullet and open item 5's recovery-diagnostics follow-up
+landed together (engine protocol v3). Engine side: `watchServer` now
+delivers `ServerStatus` (state + `detail` — the user-facing failure
+one-liner; a summarized connect failure, a terminal background-recovery
+error delivered through the teardown fan-out when no acquisition awaits the
+cycle, or a host-key block reason; cancellation carries none), and every
+connect attempt (first connect, growth, recovery) writes its transcript
+through a forwarding `SshConnectionLog` that fans each appended line out as
+a `ConnectLogLine` to the serverIds referencing the pool at append time;
+frozen attempts forward nothing. The `ConnectLogCoalescer` bounds the port:
+≤ 30 flushes/s on one shared timer, per-server pending lines capped at the
+source log's 400-line bound, drop-oldest, order preserved — and joins the
+progress coalescer in the protocol guard's callback-field allowlist.
+`ServerStateEvent` carries `detail` across the wire; `ConnectionLogEvent`
+is new. Same-PR 03 §3.2/§5 precision edits record both.
+
+App side: `PromptBridge` (the engine client's prompt facet) feeds a
+`PromptCoordinator` — FIFO, one dialog at a time (02 §10), every post-await
+path rechecks `dismissed`/`_disposed` (09 §3.1) so an engine withdrawal pops
+its dialog without applying a racing answer. Host-key first-use/changed and
+keyboard-interactive dialogs are Séance ports (PORTS entries, ARB strings,
+behaviorally identical); the changed-key review keeps the alarming
+ two-fingerprint block (D18). Credential resolution is vault-first: a
+stored, kind-matching secret answers without a dialog (stored provenance
+keeps the pool growable), agent auth needs no dialog, and the dialog's key
+file is read through the audited `IdentityFileReader` (D18; identity reads
+land in the ported JSONL audit log; audit failures never block connecting).
+Vault-save failures are transient snack-bar notices (02 §10). The ported
+`ConnectionStatusPanel` renders the live transcript during connect/reconnect
+and keeps it visible with the one-liner on failure and block; app.dart
+gains optional navigator/scaffold-messenger keys for dialog ownership. No
+production composition yet — the coordinator/panel are library surfaces the
+wiring slice composes (open item 6).
+
+Validation: six pool-diagnostics and eight coalescer tests (fake-clock);
+real-isolate/engine-host coverage extended for log forwarding and detail
+fan-out; 15 coordinator, 20 dialog, 8 panel, and the ported
+identity-audit/reader tests. Core 236 tests + analyze clean; app 174 tests +
+analyze clean; protocol guard (49) and import guard green. UI surfaces are
+uncomposed, so verification is widget-test-level; before/after screenshots
+ride the wiring slice that first renders them. No dependency change, Séance
+pin change, or milestone-close claim. Real-sshd transcript/keepalive legs
+remain with the 08 §5 matrix (open item 3).
+
 ## M2 — keepalive prerequisite (2026-09-07)
 
 [Séance #77](https://github.com/L-K-M/Seance/pull/77) merged as
@@ -157,9 +202,11 @@ for resolver/unclassified exceptions. Three regressions failed before repair;
 a fourth pins continued retry for transport `SshConnectException`s.
 
 Engine callers must pass the failed operation's VFS identity to `reportFailure`
-and refresh current paths after recovery. The protocol/UI must also dismiss
-any already-open SSH challenge dialog on disconnect; the core rejects its
-late answer but owns no dialog. These remain engine/pane integration work.
+and refresh current paths after recovery. The protocol/UI half of prompt
+dismissal on disconnect landed with the engine-protocol slice
+(`PromptDismissedEvent`) and is rendered by the prompt coordinator
+(prompt-UI slice, 2026-09-07); pane-level path refresh remains
+engine/pane integration work.
 M4 owns transfer retry/progress counters. Keepalive, real-sshd recovery,
 and the existing owner-decision gates remain open. No milestone-close claim.
 
@@ -252,7 +299,11 @@ requirement; broader fixture-tool portability remains open below.
    - prompt UI (host-key dialogs, keyboard-interactive, credential prompt,
      live `SshConnectionLog` transcript) over the protocol — this slice also
      owns rendering the ported keystore/vault exception messages through ARB
-     (D20) rather than raw port text;
+     (D20) rather than raw port text. **Done 2026-09-07** (see the dated
+     section): the three dialogs, the coordinator, the live transcript
+     surface, and the diagnostics one-liner landed; vault-unavailable and
+     identity-read errors render through ARB-authored sentences;
+     composition into a running app rides the production-wiring slice;
    - `ProbeService` wiring + interim server list status dots;
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
@@ -293,32 +344,27 @@ requirement; broader fixture-tool portability remains open below.
      their pane-tab. `RecoveryFailedEvent` crosses as typed error fields
      without arbitrary causes; `EngineClient.recoveryFailures` broadcasts
      independently of state watches and closes on engine termination.
-     Cancellation, stale failures, transient retries, and changed-key blocks
-     produce no generic recovery diagnostic. Observer errors cannot replace
-     caller failures or interrupt teardown. Arbitrary resolver/opener errors
-     use a fixed summary without formatting their internals. The live SSH
-     transcript and localized rendering remain with prompt UI; no telemetry,
-     persistence, production wiring, or milestone-close claim.
-     Validation: five regressions failed before the producers were wired;
-     nine diagnostic pool tests and three host-port tests pass. Protocol v3
-     round-trips both failure scopes through a spawned isolate; client tests
-     verify stream closure and broadcast delivery. Review added unconditional
-     harness recording (regression failed before repair), replaced/closed-pane
-     cases, and a test-only engine entrypoint seam. Removing the binding guard
-     or client forwarding makes the respective new test fail. Dropping the
-     host's pane id also fails the host-port regression. Core analysis and
-     238 tests pass (one existing fixture skip); Flutter analysis and 121 tests
-     pass.
-     Review clarified synchronous, non-reentrant observers and the early
-     teardown's single-report guarantee; client tests check both listeners
-     after later requests and bound stream-closure failures. The app's eventual
-     diagnostic owner must subscribe before connecting; this live stream keeps
-     no replay cache (03 §5).
+     `ServerStatus.detail` also carries the state-associated one-liner to the
+     connection panel. Cancellation, stale failures, transient retries, and
+     changed-key blocks produce no generic recovery diagnostic. Observer
+     errors cannot replace caller failures or interrupt teardown. Arbitrary
+     resolver/opener errors use a fixed summary without formatting internals.
+     Neither path is telemetry or persistence (D19); production wiring and a
+     milestone-close claim remain open.
+     Validation: five regressions failed before the independent producers were
+     wired; nine diagnostic pool tests and three host-port tests pass. Protocol
+     v4 round-trips both recovery scopes, status details, and transcripts
+     through spawned isolates; client tests verify stream closure and broadcast
+     delivery. Review added unconditional harness recording, replaced/closed
+     pane cases, and a test-only engine entrypoint seam. Core and Flutter totals
+     are recorded in the dated implementation sections above.
+     The app's eventual diagnostic owner must subscribe before connecting;
+     these live streams keep no replay cache (03 §5).
    - **2026-09-07 — transcript follow-up (#40 review):** consider static
      recovery-stage labels (probe, credential resolution, transport open)
      and whole-pool correlation if a flat transcript needs to group per-server
-     events. Opaque errors currently use the documented generic summary;
-     never format arbitrary error internals.
+     events. Opaque errors use the documented generic summary; never format
+     arbitrary error internals.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This

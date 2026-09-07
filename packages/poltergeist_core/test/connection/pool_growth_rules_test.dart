@@ -27,7 +27,9 @@ void main() {
     };
 
     final states = <ServerConnectionState>[];
-    harness.manager.watchServer('s1').listen(states.add);
+    harness.manager
+        .watchServer('s1')
+        .listen((status) => states.add(status.state));
 
     final results = await Future.wait([
       harness.manager.openBrowseChannel('s1', paneTabId: 'tab1'),
@@ -49,15 +51,17 @@ void main() {
     expect(harness.store.pins, hasLength(1));
 
     expect(states.first, ServerConnectionState.disconnected);
-    expect(states, containsAllInOrder([
-      ServerConnectionState.connecting,
-      ServerConnectionState.connected,
-    ]));
+    expect(
+      states,
+      containsAllInOrder([
+        ServerConnectionState.connecting,
+        ServerConnectionState.connected,
+      ]),
+    );
     expect(await harness.manager.connectedServerIds(), {'s1'});
   });
 
-  test('two bookmarks at one endpoint share one pool and one prompt',
-      () async {
+  test('two bookmarks at one endpoint share one pool and one prompt', () async {
     final harness = PoolHarness()
       ..addServer('s1', host: 'example.com')
       // Case difference only: DNS names are case-insensitive.
@@ -95,7 +99,10 @@ void main() {
     final harness = PoolHarness()..addServer('s1');
 
     final first = await harness.manager.openBrowseChannel('s1', paneTabId: 't');
-    final second = await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+    final second = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't',
+    );
 
     expect(second.fs, same(first.fs));
     expect(second.homePath, first.homePath);
@@ -148,48 +155,49 @@ void main() {
     leases[5].ignore();
   });
 
-  test('non-interactive auth grows transports reusing resolved credentials',
-      () async {
-    final harness = PoolHarness()..addServer('s1');
+  test(
+    'non-interactive auth grows transports reusing resolved credentials',
+    () async {
+      final harness = PoolHarness()..addServer('s1');
 
-    await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+      await harness.manager.openBrowseChannel('s1', paneTabId: 't');
 
-    final leases = [
-      for (var i = 0; i < 8; i++) harness.manager.leaseTransferChannel('s1'),
-    ];
-    await Future.wait(leases);
+      final leases = [
+        for (var i = 0; i < 8; i++) harness.manager.leaseTransferChannel('s1'),
+      ];
+      await Future.wait(leases);
 
-    expect(harness.opener.transports, hasLength(2));
-    expect(harness.opener.calls, hasLength(2));
+      expect(harness.opener.transports, hasLength(2));
+      expect(harness.opener.calls, hasLength(2));
 
-    // Growth reuses the first connect's credentials verbatim (rule 3) and
-    // runs with every prompt disabled.
-    final growth = harness.opener.calls[1];
-    expect(growth.credentials, same(harness.opener.calls[0].credentials));
-    expect(growth.onKeyboardInteractive, isNull);
-    expect(growth.prompting, ConnectPrompting.disabled);
+      // Growth reuses the first connect's credentials verbatim (rule 3) and
+      // runs with every prompt disabled.
+      final growth = harness.opener.calls[1];
+      expect(growth.credentials, same(harness.opener.calls[0].credentials));
+      expect(growth.onKeyboardInteractive, isNull);
+      expect(growth.prompting, ConnectPrompting.disabled);
 
-    // 2 transports x 4 transfer channels are all leased; the 9th blocks.
-    var ninthServed = false;
-    // Deliberately left dangling: the point is that it never completes.
-    harness.manager
-        .leaseTransferChannel('s1')
-        .then((_) => ninthServed = true)
-        .ignore();
-    await flushEvents();
-    expect(ninthServed, isFalse);
-    // No third growth attempt began — the pool is at maxTransports.
-    expect(harness.opener.calls, hasLength(2));
+      // 2 transports x 4 transfer channels are all leased; the 9th blocks.
+      var ninthServed = false;
+      // Deliberately left dangling: the point is that it never completes.
+      harness.manager
+          .leaseTransferChannel('s1')
+          .then((_) => ninthServed = true)
+          .ignore();
+      await flushEvents();
+      expect(ninthServed, isFalse);
+      // No third growth attempt began — the pool is at maxTransports.
+      expect(harness.opener.calls, hasLength(2));
 
-    // Return the granted leases so nothing dangles past the test's end; a
-    // freed slot may serve the ignored 9th — its future is already ignored.
-    for (final lease in leases) {
-      await (await lease).release();
-    }
-  });
+      // Return the granted leases so nothing dangles past the test's end; a
+      // freed slot may serve the ignored 9th — its future is already ignored.
+      for (final lease in leases) {
+        await (await lease).release();
+      }
+    },
+  );
 
-  test('a growth auth challenge marks the pool interactive-capped',
-      () async {
+  test('a growth auth challenge marks the pool interactive-capped', () async {
     final harness = PoolHarness(
       opener: FakeTransportOpener(growthRequiresChallenge: true),
     )..addServer('s1');
@@ -241,16 +249,20 @@ void main() {
     final harness = PoolHarness(opener: opener)..addServer('s1');
 
     // Pre-pin the original key, as an earlier session would have.
-    await harness.store.put(HostKey(
-      host: 'example.com',
-      port: 22,
-      type: 'ssh-ed25519',
-      fingerprintSha256: 'SHA256:old',
-      pinnedAt: 0,
-    ));
+    await harness.store.put(
+      HostKey(
+        host: 'example.com',
+        port: 22,
+        type: 'ssh-ed25519',
+        fingerprintSha256: 'SHA256:old',
+        pinnedAt: 0,
+      ),
+    );
 
     final states = <ServerConnectionState>[];
-    harness.manager.watchServer('s1').listen(states.add);
+    harness.manager
+        .watchServer('s1')
+        .listen((status) => states.add(status.state));
 
     await harness.manager.openBrowseChannel('s1', paneTabId: 't');
     expect(harness.opener.calls, hasLength(1));
@@ -279,8 +291,10 @@ void main() {
     expect(await harness.manager.connectedServerIds(), isEmpty);
 
     // No code path auto-repinned (D18): the old pin stands untouched.
-    expect(harness.store.pins['example.com:22']!.fingerprintSha256,
-        'SHA256:old');
+    expect(
+      harness.store.pins['example.com:22']!.fingerprintSha256,
+      'SHA256:old',
+    );
 
     // Every operation fails while blocked — a decline keeps it blocked, and
     // the retry went through the review prompt (the one clearing path).
@@ -296,49 +310,59 @@ void main() {
     await flushEvents();
     expect(promptsAfterBlock, 1);
     expect(states.last, ServerConnectionState.blocked);
-    expect(harness.store.pins['example.com:22']!.fingerprintSha256,
-        'SHA256:old');
+    expect(
+      harness.store.pins['example.com:22']!.fingerprintSha256,
+      'SHA256:old',
+    );
   });
 
-  test('accepting the changed key at the prompt re-pins and reconnects',
-      () async {
-    final opener = FakeTransportOpener(
-      presentedFingerprints: ['SHA256:old', 'SHA256:new', 'SHA256:new'],
-    );
-    final harness = PoolHarness(opener: opener)..addServer('s1');
+  test(
+    'accepting the changed key at the prompt re-pins and reconnects',
+    () async {
+      final opener = FakeTransportOpener(
+        presentedFingerprints: ['SHA256:old', 'SHA256:new', 'SHA256:new'],
+      );
+      final harness = PoolHarness(opener: opener)..addServer('s1');
 
-    await harness.store.put(HostKey(
-      host: 'example.com',
-      port: 22,
-      type: 'ssh-ed25519',
-      fingerprintSha256: 'SHA256:old',
-      pinnedAt: 0,
-    ));
+      await harness.store.put(
+        HostKey(
+          host: 'example.com',
+          port: 22,
+          type: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:old',
+          pinnedAt: 0,
+        ),
+      );
 
-    await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+      await harness.manager.openBrowseChannel('s1', paneTabId: 't');
 
-    final leases = [
-      for (var i = 0; i < 4; i++) harness.manager.leaseTransferChannel('s1'),
-    ];
-    await Future.wait(leases);
+      final leases = [
+        for (var i = 0; i < 4; i++) harness.manager.leaseTransferChannel('s1'),
+      ];
+      await Future.wait(leases);
 
-    await expectLater(
-      harness.manager.leaseTransferChannel('s1'),
-      throwsA(isA<RemoteFileException>()),
-    );
+      await expectLater(
+        harness.manager.leaseTransferChannel('s1'),
+        throwsA(isA<RemoteFileException>()),
+      );
 
-    // The user reviews and accepts: the next connect attempt prompts, the
-    // approval pins the new key, and the pool comes back.
-    harness.onHostKey =
-        (decision) async => decision.verdict == HostKeyVerdict.changed;
-    final channel =
-        await harness.manager.openBrowseChannel('s1', paneTabId: 't2');
+      // The user reviews and accepts: the next connect attempt prompts, the
+      // approval pins the new key, and the pool comes back.
+      harness.onHostKey = (decision) async =>
+          decision.verdict == HostKeyVerdict.changed;
+      final channel = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 't2',
+      );
 
-    expect(harness.store.pins['example.com:22']!.fingerprintSha256,
-        'SHA256:new');
-    expect(await harness.manager.connectedServerIds(), {'s1'});
-    expect(channel.fs, isNotNull);
-  });
+      expect(
+        harness.store.pins['example.com:22']!.fingerprintSha256,
+        'SHA256:new',
+      );
+      expect(await harness.manager.connectedServerIds(), {'s1'});
+      expect(channel.fs, isNotNull);
+    },
+  );
 
   test('a declined first-use key disconnects without pinning', () async {
     final harness = PoolHarness()..addServer('s1');
@@ -349,7 +373,9 @@ void main() {
     };
 
     final states = <ServerConnectionState>[];
-    harness.manager.watchServer('s1').listen(states.add);
+    harness.manager
+        .watchServer('s1')
+        .listen((status) => states.add(status.state));
 
     await expectLater(
       harness.manager.openBrowseChannel('s1', paneTabId: 't'),
@@ -372,7 +398,10 @@ void main() {
   test('the first transport follows pane lifetime, not leases', () async {
     final harness = PoolHarness()..addServer('s1');
 
-    final browse = await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+    final browse = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't',
+    );
     expect(harness.opener.transports.single.closed, isFalse);
     // A lease holds the transport open past the last tab.
     final lease = await harness.manager.leaseTransferChannel('s1');
@@ -392,40 +421,46 @@ void main() {
     expect(harness.credentialResolveCalls, 2);
   });
 
-  test('disconnectServer closes the id\'s channels; siblings keep the pool',
-      () async {
-    final harness = PoolHarness()
-      ..addServer('s1')
-      ..addServer('s2');
+  test(
+    'disconnectServer closes the id\'s channels; siblings keep the pool',
+    () async {
+      final harness = PoolHarness()
+        ..addServer('s1')
+        ..addServer('s2');
 
-    final s1Browse =
-        await harness.manager.openBrowseChannel('s1', paneTabId: 't1');
-    final s2Browse =
-        await harness.manager.openBrowseChannel('s2', paneTabId: 't2');
-    final s1Lease = await harness.manager.leaseTransferChannel('s1');
+      final s1Browse = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 't1',
+      );
+      final s2Browse = await harness.manager.openBrowseChannel(
+        's2',
+        paneTabId: 't2',
+      );
+      final s1Lease = await harness.manager.leaseTransferChannel('s1');
 
-    await harness.manager.disconnectServer('s1');
+      await harness.manager.disconnectServer('s1');
 
-    // s1's browse channel and lease are closed; s2 keeps browsing over the
-    // shared transport, and no new connect happened.
-    expect(harness.channels.where((c) => c.closed), hasLength(2));
-    expect(s2Browse.fs, isNotNull);
-    expect(harness.opener.calls, hasLength(1));
-    expect(await harness.manager.connectedServerIds(), {'s2'});
+      // s1's browse channel and lease are closed; s2 keeps browsing over the
+      // shared transport, and no new connect happened.
+      expect(harness.channels.where((c) => c.closed), hasLength(2));
+      expect(s2Browse.fs, isNotNull);
+      expect(harness.opener.calls, hasLength(1));
+      expect(await harness.manager.connectedServerIds(), {'s2'});
 
-    await s1Lease.release(); // force-released: a later release is a no-op
-    await s1Browse.close();
+      await s1Lease.release(); // force-released: a later release is a no-op
+      await s1Browse.close();
 
-    // The last reference out tears everything down; the reference went
-    // with it, so the next connect re-resolves from the vault (03 §3.5).
-    await harness.manager.disconnectServer('s2');
-    expect(harness.opener.transports.single.closed, isTrue);
-    expect(await harness.manager.connectedServerIds(), isEmpty);
+      // The last reference out tears everything down; the reference went
+      // with it, so the next connect re-resolves from the vault (03 §3.5).
+      await harness.manager.disconnectServer('s2');
+      expect(harness.opener.transports.single.closed, isTrue);
+      expect(await harness.manager.connectedServerIds(), isEmpty);
 
-    await harness.manager.openBrowseChannel('s2', paneTabId: 't2');
-    expect(harness.resolveCalls, 3);
-    expect(harness.credentialResolveCalls, 2);
-  });
+      await harness.manager.openBrowseChannel('s2', paneTabId: 't2');
+      expect(harness.resolveCalls, 3);
+      expect(harness.credentialResolveCalls, 2);
+    },
+  );
 
   test('budget exhaustion shares the LRU browse channel', () async {
     // One transport, two transfer channels, three total: interactive auth
@@ -443,12 +478,18 @@ void main() {
       for (var i = 0; i < 2; i++) harness.manager.leaseTransferChannel('s1'),
     ];
     await Future.wait(leases);
-    final first = await harness.manager.openBrowseChannel('s1', paneTabId: 't1');
+    final first = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't1',
+    );
 
     // The third channel slot is the browse channel; a second tab finds every
     // budget exhausted and shares the LRU (only) browse channel — never a
     // failure, never a hang (03 §3.2 rule 4).
-    final second = await harness.manager.openBrowseChannel('s1', paneTabId: 't2');
+    final second = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't2',
+    );
     expect(second.fs, same(first.fs));
     expect(harness.opener.transports.single.channels, hasLength(3));
 
@@ -476,34 +517,48 @@ void main() {
       ),
     )..addServer('s1');
 
-    final first = await harness.manager.openBrowseChannel('s1', paneTabId: 't1');
+    final first = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't1',
+    );
     expect(harness.opener.transports.single.channels, hasLength(1));
 
     // The second tab's channel open is refused; the pool must not surface
     // the raw failure — it shares the existing browse channel.
-    final second = await harness.manager.openBrowseChannel('s1', paneTabId: 't2');
+    final second = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't2',
+    );
     expect(second.fs, same(first.fs));
     expect(harness.opener.transports.single.channels, hasLength(1));
   });
 
-  test('a released lease parks idle and is stolen before opening new',
-      () async {
-    final harness = PoolHarness()..addServer('s1');
+  test(
+    'a released lease parks idle and is stolen before opening new',
+    () async {
+      final harness = PoolHarness()..addServer('s1');
 
-    // A live browse tab keeps the pool (and its idle channels) alive — an
-    // empty pool tears down instead, by design (pane lifetime).
-    final keeper = await harness.manager.openBrowseChannel('s1', paneTabId: 'keep');
+      // A live browse tab keeps the pool (and its idle channels) alive — an
+      // empty pool tears down instead, by design (pane lifetime).
+      final keeper = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 'keep',
+      );
 
-    final lease = await harness.manager.leaseTransferChannel('s1');
-    final leaseFs = lease.fs;
-    await lease.release();
+      final lease = await harness.manager.leaseTransferChannel('s1');
+      final leaseFs = lease.fs;
+      await lease.release();
 
-    final browse = await harness.manager.openBrowseChannel('s1', paneTabId: 't');
-    expect(browse.fs, same(leaseFs));
-    expect(harness.opener.transports.single.channels, hasLength(2));
-    await keeper.close();
-    await browse.close();
-  });
+      final browse = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 't',
+      );
+      expect(browse.fs, same(leaseFs));
+      expect(harness.opener.transports.single.channels, hasLength(2));
+      await keeper.close();
+      await browse.close();
+    },
+  );
 
   test('a disconnect racing the first connect tears the pool down', () async {
     final harness = PoolHarness()..addServer('s1');
@@ -537,7 +592,10 @@ void main() {
     await harness.manager.openBrowseChannel('s2', paneTabId: 't');
     expect(harness.opener.calls, hasLength(1));
 
-    final seen = await harness.manager.watchServer('s2').first;
+    final seen = await harness.manager
+        .watchServer('s2')
+        .first
+        .then((status) => status.state);
     expect(seen, ServerConnectionState.connected);
   });
 
@@ -548,18 +606,20 @@ void main() {
     await harness.manager.openBrowseChannel('s1', paneTabId: 't');
 
     final seen = <ServerConnectionState>[];
-    stream.listen(seen.add);
+    stream.listen((status) => seen.add(status.state));
     await flushEvents();
     expect(seen.single, ServerConnectionState.connected);
   });
 
-  test('a growth connect that outlives its demand leaves no zombie',
-      () async {
+  test('a growth connect that outlives its demand leaves no zombie', () async {
     final harness = PoolHarness()..addServer('s1');
     final gate = Completer<void>();
     harness.opener.growthGate = gate;
 
-    final browse = await harness.manager.openBrowseChannel('s1', paneTabId: 't');
+    final browse = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 't',
+    );
     final leases = [
       for (var i = 0; i < 4; i++) harness.manager.leaseTransferChannel('s1'),
     ];

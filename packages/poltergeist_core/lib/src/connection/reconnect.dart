@@ -171,10 +171,13 @@ extension _PoolRecovery on PooledConnectionManager {
       }
     } on Object catch (error) {
       if (_isCurrentReconnect(pool, cycle)) {
-        // Teardown invalidates the cycle: report while its provenance is
-        // still live, including when no acquisition awaits the failure.
+        // Report independently of watches, then put the same sanitized
+        // summary on the disconnected state consumed by connection UI.
         _reportRecoveryFailure(pool, error);
-        await _tearDownPool(pool);
+        await _tearDownPool(
+          pool,
+          detail: PooledConnectionManager._failureSummary(error),
+        );
       }
       rethrow;
     } finally {
@@ -269,6 +272,7 @@ extension _PoolRecovery on PooledConnectionManager {
             _isCurrentAuth(pool, cycle, attempt) ? hostKey(decision) : false,
         onKeyboardInteractive: _reconnectResponder(pool, cycle, attempt),
         prompting: prompting,
+        log: _forwardingLogFor(pool),
       );
     } on AuthChallengeRequiredError {
       if (_isCurrentReconnect(pool, cycle)) {

@@ -64,13 +64,23 @@ class Data<T extends Function> { $declaration }
 class ProgressCoalescer { final callback = () {}; }
 class Other { final callback = () {}; }
 ''');
+    await fixture._write('$_engine/connect_log_coalescer.dart', '''
+class ConnectLogCoalescer { final callback = () {}; }
+class OtherLog { final callback = () {}; }
+''');
     await fixture._write('$_engine/elsewhere.dart', '''
 class ProgressCoalescer { final callback = () {}; }
+class ConnectLogCoalescer { final callback = () {}; }
 ''');
     final violations = await fixture._check();
-    expect(violations, hasLength(2));
+    expect(violations, hasLength(4));
     expect(violations, contains(contains('Other.callback')));
+    expect(violations, contains(contains('OtherLog.callback')));
     expect(violations, contains(contains('elsewhere.dart: ProgressCoalescer')));
+    expect(
+      violations,
+      contains(contains('elsewhere.dart: ConnectLogCoalescer')),
+    );
   });
 
   test('an allowlisted class cannot become a protocol subtype', () async {
@@ -79,6 +89,16 @@ import 'protocol.dart';
 class ProgressCoalescer extends EngineEvent { final callback = () {}; }
 ''');
     expect(await fixture._check(), [contains('ProgressCoalescer.callback')]);
+  });
+
+  test('the connect-log coalescer cannot become a protocol subtype either',
+      () async {
+    await fixture._write('$_engine/connect_log_coalescer.dart', '''
+import 'protocol.dart';
+class ConnectLogCoalescer extends EngineEvent { final callback = () {}; }
+''');
+    expect(
+        await fixture._check(), [contains('ConnectLogCoalescer.callback')]);
   });
 
   for (final source in [

@@ -11,18 +11,25 @@ T completeWithoutTimers<T>(FakeAsync time, Future<T> future) {
   late T result;
   var completed = false;
   (Object, StackTrace)? failure;
-  future.then<void>((value) {
-    result = value;
-    completed = true;
-  }, onError: (Object error, StackTrace stack) {
-    failure = (error, stack);
-  });
+  future.then<void>(
+    (value) {
+      result = value;
+      completed = true;
+    },
+    onError: (Object error, StackTrace stack) {
+      failure = (error, stack);
+    },
+  );
   time.flushMicrotasks();
 
   final caught = failure;
   if (caught != null) Error.throwWithStackTrace(caught.$1, caught.$2);
 
-  expect(completed, isTrue, reason: 'The operation must finish without a timer.');
+  expect(
+    completed,
+    isTrue,
+    reason: 'The operation must finish without a timer.',
+  );
   return result;
 }
 
@@ -33,11 +40,10 @@ PaneChannel browsePane(
   PoolHarness harness,
   String tab, {
   String server = 's1',
-}) =>
-    completeWithoutTimers(
-      time,
-      harness.manager.openBrowseChannel(server, paneTabId: tab),
-    );
+}) => completeWithoutTimers(
+  time,
+  harness.manager.openBrowseChannel(server, paneTabId: tab),
+);
 
 /// No one-shot clock (idle, cleanup, backoff) may be pending, and the only
 /// periodic timer is the pool's keepalive clock at the given cadence — the
@@ -93,11 +99,10 @@ class StubRemoteFileSystem implements RemoteFileSystem {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError(
-        'StubRemoteFileSystem only implements canonicalize("."), got '
-        '${invocation.memberName}.',
-      );
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+    'StubRemoteFileSystem only implements canonicalize("."), got '
+    '${invocation.memberName}.',
+  );
 }
 
 class FakeChannel implements SftpChannel {
@@ -200,7 +205,9 @@ class FakeTransport implements SshTransport {
   FakeTransport({required this.authKind, this.openLimit, this.fsBuilder});
 
   @override
-  Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
+  Future<SftpChannel> openChannel({
+    Duration timeout = SshTransport.defaultOpenTimeout,
+  }) async {
     openCalls++;
     if (closed) {
       throw const RemoteFileException(
@@ -295,6 +302,11 @@ class RecordedOpenCall {
   final HostKeyPrompter onHostKey;
   final KeyboardInteractiveResponder? onKeyboardInteractive;
   final ConnectPrompting prompting;
+
+  /// The forwarding log the pool passed for this attempt; tests append
+  /// lines through it to drive transcript fan-out.
+  late final SshConnectionLog log;
+
   FakeTransport? transport;
 
   RecordedOpenCall({
@@ -360,7 +372,8 @@ class FakeTransportOpener {
     this.transportFsBuilder,
   });
 
-  SshTransportOpener get opener => ({
+  SshTransportOpener get opener =>
+      ({
         required config,
         required credentials,
         required tofu,
@@ -378,6 +391,9 @@ class FakeTransportOpener {
           onKeyboardInteractive: onKeyboardInteractive,
           prompting: prompting,
         );
+        // The pool always passes its forwarding log; the recorded default
+        // keeps the fake usable for suites that construct one directly.
+        call.log = log ?? SshConnectionLog();
         calls.add(call);
 
         // An empty script is a test bug; fail with a clear message instead
@@ -385,10 +401,10 @@ class FakeTransportOpener {
         if (presentedFingerprints.isEmpty) {
           throw StateError('presentedFingerprints must not be empty');
         }
-        final fingerprint = presentedFingerprints[index
-            < presentedFingerprints.length
-            ? index
-            : presentedFingerprints.length - 1];
+        final fingerprint =
+            presentedFingerprints[index < presentedFingerprints.length
+                ? index
+                : presentedFingerprints.length - 1];
 
         final presented = HostKey(
           host: config.host,
@@ -400,7 +416,8 @@ class FakeTransportOpener {
 
         final decision = await tofu.check(presented);
         final verificationGate = growthVerificationGate;
-        if (prompting == ConnectPrompting.disabled && verificationGate != null) {
+        if (prompting == ConnectPrompting.disabled &&
+            verificationGate != null) {
           await verificationGate.future;
         }
         if (!decision.isTrusted) {
@@ -438,8 +455,9 @@ class FakeTransportOpener {
         final createdIndex = transports.length;
         final openLimit = limits == null || limits.isEmpty
             ? transportOpenLimit
-            : limits[
-                createdIndex < limits.length ? createdIndex : limits.length - 1];
+            : limits[createdIndex < limits.length
+                  ? createdIndex
+                  : limits.length - 1];
 
         final transport = FakeTransport(
           // Growth (prompting-disabled) connects re-authenticate
@@ -456,8 +474,10 @@ class FakeTransportOpener {
         return transport;
       };
 
-  List<FakeTransport> get transports =>
-      [for (final call in calls) if (call.transport != null) call.transport!];
+  List<FakeTransport> get transports => [
+    for (final call in calls)
+      if (call.transport != null) call.transport!,
+  ];
 }
 
 class FakeReconnectProber implements Prober {
@@ -466,8 +486,11 @@ class FakeReconnectProber implements Prober {
   Completer<void>? gate;
 
   @override
-  Future<ProbeStatus> probe(String host, int port,
-      {Duration timeout = const Duration(seconds: 5)}) async {
+  Future<ProbeStatus> probe(
+    String host,
+    int port, {
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
     calls++;
     await gate?.future;
     return status;
@@ -513,8 +536,7 @@ class PoolHarness {
   Completer<void>? resolveGate;
 
   /// Set per test; defaults to approving every host key.
-  Future<bool> Function(HostKeyDecision decision) onHostKey =
-      (_) async => true;
+  Future<bool> Function(HostKeyDecision decision) onHostKey = (_) async => true;
 
   PoolHarness({
     FakeTransportOpener? opener,
@@ -594,8 +616,8 @@ class PoolHarness {
   }
 
   List<FakeChannel> get channels => [
-        for (final transport in opener.transports) ...transport.channels,
-      ];
+    for (final transport in opener.transports) ...transport.channels,
+  ];
 
   /// Channels not yet closed — for "currently open" assertions that must
   /// not count channels a teardown already closed.

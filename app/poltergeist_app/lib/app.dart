@@ -15,6 +15,8 @@ class PoltergeistApp extends StatelessWidget {
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.onContentSizeChanged,
+    this.navigatorKey,
+    this.scaffoldMessengerKey,
   });
 
   final double initialPaneRatio;
@@ -22,10 +24,19 @@ class PoltergeistApp extends StatelessWidget {
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
   final ValueChanged<Size>? onContentSizeChanged;
 
+  /// The prompt coordinator and other dialog owners show through this key;
+  /// null keeps the default navigator.
+  final GlobalKey<NavigatorState>? navigatorKey;
+
+  /// Root snack-bar surface for transient notices (vault-save failures).
+  final GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       theme: buildPoltergeistTheme(Brightness.light),
       darkTheme: buildPoltergeistTheme(Brightness.dark),

@@ -55,7 +55,10 @@ Future<void> _blockViaGrowth(PoolHarness harness) async {
   );
   for (final id in [_primaryServerId, _siblingServerId]) {
     expect(
-      await harness.manager.watchServer(id).first,
+      await harness.manager
+          .watchServer(id)
+          .first
+          .then((status) => status.state),
       ServerConnectionState.blocked,
     );
   }
@@ -92,7 +95,10 @@ void main() {
         throwsA(isA<RemoteFileException>()),
       );
       expect(
-        await harness.manager.watchServer(_primaryServerId).first,
+        await harness.manager
+            .watchServer(_primaryServerId)
+            .first
+            .then((status) => status.state),
         ServerConnectionState.blocked,
       );
       expect(await harness.manager.connectedServerIds(), isEmpty);
@@ -118,7 +124,7 @@ void main() {
     decision.complete(false);
     await outcome;
 
-    expect(state, ServerConnectionState.blocked);
+    expect(state.state, ServerConnectionState.blocked);
     expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
   });
 
@@ -155,7 +161,10 @@ void main() {
     expect(firstFailure, same(failure));
     expect(prompts, 1);
     expect(
-      await harness.manager.watchServer(_primaryServerId).first,
+      await harness.manager
+          .watchServer(_primaryServerId)
+          .first
+          .then((status) => status.state),
       ServerConnectionState.connected,
     );
   });
@@ -175,7 +184,10 @@ void main() {
         throwsA(isA<RemoteFileException>()),
       );
       expect(
-        await harness.manager.watchServer(_primaryServerId).first,
+        await harness.manager
+            .watchServer(_primaryServerId)
+            .first
+            .then((status) => status.state),
         ServerConnectionState.blocked,
       );
       expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
@@ -280,7 +292,10 @@ void main() {
         ),
       );
       expect(
-        await harness.manager.watchServer(_primaryServerId).first,
+        await harness.manager
+            .watchServer(_primaryServerId)
+            .first
+            .then((status) => status.state),
         ServerConnectionState.blocked,
       );
       expect(await harness.manager.connectedServerIds(), isEmpty);
@@ -304,7 +319,10 @@ void main() {
       expect(prompts, 1);
       expect(harness.opener.calls.single.prompting, ConnectPrompting.enabled);
       expect(
-        await harness.manager.watchServer(_primaryServerId).first,
+        await harness.manager
+            .watchServer(_primaryServerId)
+            .first
+            .then((status) => status.state),
         ServerConnectionState.blocked,
       );
     },
@@ -319,7 +337,7 @@ void main() {
       final states = <ServerConnectionState>[];
       final subscription = harness.manager
           .watchServer(_primaryServerId)
-          .listen(states.add);
+          .listen((status) => states.add(status.state));
       addTearDown(subscription.cancel);
       final entered = Completer<void>();
       final decision = Completer<bool>();
@@ -368,7 +386,10 @@ void main() {
       );
       expect([prompts, harness.store.pins.length], [0, 0]);
       expect(
-        await harness.manager.watchServer(_primaryServerId).first,
+        await harness.manager
+            .watchServer(_primaryServerId)
+            .first
+            .then((status) => status.state),
         ServerConnectionState.blocked,
       );
     },
@@ -428,8 +449,8 @@ void main() {
         if (race == _GrowthRace.interactiveRetry) {
           harness.opener.failureForCall = (call) =>
               call.prompting == ConnectPrompting.disabled
-                  ? const AuthChallengeRequiredError('Auth now requires 2FA')
-                  : null;
+              ? const AuthChallengeRequiredError('Auth now requires 2FA')
+              : null;
         }
 
         // Evict the dead slot while its growth replacement is still in flight.
@@ -450,7 +471,10 @@ void main() {
         // browse request may approve it. Same-key auth recovery may prompt.
         if (race != _GrowthRace.interactiveRetry) {
           await expectLater(
-            harness.manager.openBrowseChannel(_siblingServerId, paneTabId: 'review'),
+            harness.manager.openBrowseChannel(
+              _siblingServerId,
+              paneTabId: 'review',
+            ),
             throwsA(isA<RemoteFileException>()),
           );
         }
@@ -473,9 +497,13 @@ void main() {
         gate.complete();
         await Future.wait([browsing, pending]);
         if (race != _GrowthRace.interactiveRetry) {
-          expect(errors, [isA<RemoteFileException>().having(
-            (error) => error.message, 'message', contains('blocked'),
-          )]);
+          expect(errors, [
+            isA<RemoteFileException>().having(
+              (error) => error.message,
+              'message',
+              contains('blocked'),
+            ),
+          ]);
           errors.clear();
         }
         final oldHandshakeClosed = growthCall.transport?.closed ?? true;

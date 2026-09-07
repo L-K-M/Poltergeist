@@ -90,6 +90,111 @@ pool. No copied sources, pin changes, or upstream port candidates.
   the poltergeist_core barrel.
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/prompts/host_key_dialog.dart
+
+- Source: app/seance_app/lib/ui/host_key_dialog.dart
+- Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: strings localize through ARB (D20); the decision payload is
+  the engine protocol's `HostKeyPromptData` (plain data crossing the
+  isolate, 03 §5) instead of seance_core's `HostKeyDecision`; a `changed`
+  verdict still renders the alarming two-fingerprint review with the
+  destructive-styled trust button (D18 hard block, never auto-repin).
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/ui/prompts/host_key_dialog_test.dart
+
+- Source: app/seance_app/test/host_key_dialog_test.dart
+- Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: adapted to the protocol payload; adds ARB-string and
+  non-dismissible coverage beyond the source's two cases.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/prompts/keyboard_interactive_dialog.dart
+
+- Source: app/seance_app/lib/ui/keyboard_interactive_dialog.dart
+- Séance commit: d1a98f1 (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: strings localize through ARB (D20); the payload is the
+  engine protocol's `KeyboardInteractivePromptData` (03 §5); adds per-field
+  reveal toggles absent from the source (echo metadata is absent on the
+  wire, so reveal is explicit-only). The controller-dispose-in-State
+  lifecycle and its IME use-after-dispose lesson are ported verbatim.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/ui/prompts/keyboard_interactive_dialog_test.dart
+
+- Source: app/seance_app/test/keyboard_interactive_dialog_test.dart
+- Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: adapted to the protocol payload; adds reveal-toggle and
+  empty-name/instruction fallback coverage.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/services/identity_audit_log.dart
+
+- Source: app/seance_app/lib/services/identity_audit_log.dart
+- Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: doc comments only (`viaBookmark` stays false until grants
+  exist — Poltergeist is unsandboxed at v1, D23); the JSONL record shape is
+  frozen identical and allowlisted in the localization contract.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/services/identity_audit_log_test.dart
+
+- Source: app/seance_app/test/identity_audit_log_test.dart
+- Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: none — record/rotate/skip/serialize behavior identical.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/services/identity_file_reader.dart
+
+- Source: app/seance_app/lib/services/app_services.dart
+  (`_readIdentityFile`/`_auditIdentityRead`) plus `IdentityFileException`
+- Séance commit: 99a3585 (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: extracted as a standalone service; no security-scoped-bookmark
+  grant path (Poltergeist is unsandboxed at v1, D23 — plain expanded reads
+  only); `IdentityFileReadException` drops Séance's macOS EPERM sandbox
+  hint; `~` expansion, audit-every-attempt, and best-effort audit are
+  identical (D18).
+- Port-back candidates: none — the grant path is Séance-specific.
+
+## app/poltergeist_app/test/services/identity_file_reader_test.dart
+
+- Source: app/seance_app/test/identity_file_exception_test.dart
+  (exception cases)
+- Séance commit: ffac90f (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: sandbox-hint cases dropped (no hint exists here); adds the
+  reader's audit-success/audit-failure/audit-never-blocks coverage.
+- Port-back candidates: none.
+
+## app/poltergeist_app/lib/ui/connection_status_panel.dart
+
+- Source: app/seance_app/lib/ui/terminal_pane.dart (the connecting view,
+  `_ConnectionError`, and `_ConnectionLogView`)
+- Séance commit: d18f1ac (re-diffed unchanged at a9add15, 2026-09-07)
+- Ported: 2026-09-07
+- Divergences: driven by the engine protocol's streams (03 §5) instead of
+  an app-side session object; strings localize through ARB (D20); states
+  cover the pool's full lifecycle (reconnecting, blocked) beyond the
+  source's terminal states; the transcript starts collapsed exactly as the
+  source's does.
+- Port-back candidates: none.
+
+## app/poltergeist_app/test/ui/connection_status_panel_test.dart
+
+- Source: none (no Séance test file covers these views directly)
+- Séance commit: n/a
+- Ported: 2026-09-07 (new coverage for the stream-driven panel)
+- Divergences: per-state rendering, live/bounded transcript, copy via a
+  mocked clipboard channel, per-server filtering, retry wiring.
+- Port-back candidates: none.
+
 ## Pin findings
 
 The 2026-09-07 recovery diagnostics change Poltergeist's pool and engine
@@ -98,6 +203,13 @@ protocol only. No source copy, pin change, or upstream port is required.
 The 2026-09-07 stale-home recovery repair changes Poltergeist's pool only.
 No source copy, pin change, or upstream port is required; Séance does not own
 this background recovery loop.
+
+The 2026-09-07 prompt-UI and diagnostics slice ports the five sources above
+at the existing `a9add15` pin (no pin change; no Séance tag contains it yet
+— STATUS item 2 owns the next-tag bump). The engine-side additions
+(`ServerStatus.detail`, `ConnectLogLine`, the port coalescer, protocol v3)
+and the prompt coordinator, credential dialog, and vault-first resolution
+are Poltergeist-only. No port-back candidates.
 
 The 2026-09-07 engine progress coalescer uses the M0 harness's rate and item
 caps, with shared flush windows for the aggregate stream. It adds no Séance

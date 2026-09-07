@@ -6,9 +6,10 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 
 /// Increment when the cross-isolate message contract changes.
 ///
-/// v3 adds [RecoveryFailedEvent] so background failures reach the local
-/// diagnostic consumer without a pending request.
-const engineProtocolVersion = 3;
+/// v2 adds the connection/prompt surface (03 §5). v3 adds
+/// [RecoveryFailedEvent] for terminal background failures. v4 adds live
+/// transcript batches ([ConnectionLogEvent]) and [ServerStateEvent.detail].
+const engineProtocolVersion = 4;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -61,8 +62,10 @@ final class ServerStateEvent extends EngineEvent {
   final String serverId;
   final ServerConnectionState state;
 
-  /// Reserved for transcript summaries. Terminal background failures arrive
-  /// independently through [RecoveryFailedEvent], including without a watch.
+  /// The state-associated failure one-liner (03 §3.2): a summarized connect
+  /// failure, terminal background-recovery error, or host-key block reason.
+  /// [RecoveryFailedEvent] also delivers scoped terminal failures without a
+  /// watch. Null for healthy and cancelled states.
   final String? detail;
 
   const ServerStateEvent({
@@ -86,6 +89,22 @@ final class RecoveryFailedEvent extends EngineEvent {
     this.paneTabId,
     required this.error,
   });
+}
+
+/// Live transcript lines for one server's connect attempts (03 §3.3,
+/// crossing per 03 §5): dartssh2 debug/trace plus the connect steps, the
+/// material the UI renders during connect and keeps visible on failure.
+final class ConnectionLogEvent extends EngineEvent {
+  final String serverId;
+
+  /// Oldest first, in attempt append order. Per server at most
+  /// [connectionLogMaxLines] lines are pending at once (drop-oldest,
+  /// mirroring the source log's own bound) and batches flush at most
+  /// [connectionLogFlushesPerSecond] times per second.
+  final List<String> lines;
+
+  ConnectionLogEvent({required this.serverId, required List<String> lines})
+    : lines = List.unmodifiable(lines);
 }
 
 /// The engine asks the UI a question; exactly one [PromptReplyRequest] per

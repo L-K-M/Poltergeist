@@ -323,7 +323,8 @@ abstract interface class ConnectionManager {
   /// pool. Blocks while the pool is at capacity.
   Future<TransferChannelLease> leaseTransferChannel(String serverId);
 
-  Stream<ServerConnectionState> watchServer(String serverId);
+  /// State plus the failure one-liner (see `ServerStatus` below).
+  Stream<ServerStatus> watchServer(String serverId);
   Future<Set<String>> connectedServerIds();  // feeds ProbeService (§3.4);
                                              // served across the engine
                                              // isolate (§5) — the app-side
@@ -352,6 +353,17 @@ abstract interface class TransferChannelLease {
 
 enum ServerConnectionState {
   connecting, connected, reconnecting, disconnected, blocked,
+}
+
+/// What `watchServer` delivers (added with the prompt-UI slice, 07 §3.3):
+/// the state plus, when it explains a failure, the user-facing one-liner —
+/// a summarized connect failure, a terminal background-recovery error
+/// (so recovery ending with no awaiting acquisition is still delivered,
+/// never silently swallowed), or a host-key block reason. Null for healthy
+/// and cancelled states; cancellation carries nothing to diagnose.
+class ServerStatus {
+  final ServerConnectionState state;
+  final String? detail;
 }
 ```
 
@@ -1514,6 +1526,22 @@ class RecoveryFailedEvent extends EngineEvent {
 // arbitrary resolver/opener errors use a fixed generic summary, never their
 // toString(), cause, stack, credentials, or prompt payload. This is local
 // diagnostic data; the rendering layer owns localized failure copy (D20).
+/// Live transcript lines for one server's connect attempts, crossing the
+/// engine isolate per 07 §3.3's prompt-UI slice (protocol v4): the UI renders
+/// them during connect and keeps them visible on failure. The engine coalesces
+/// these into batches with the same port budget as progress — at most 30
+/// flushes/s, one shared timer, per-server pending lines capped at the
+/// source log's own 400-line bound with drop-oldest, order preserved
+/// (nothing reordered or merged; only the oldest lines drop under a
+/// flood). `ServerStateEvent.detail` carries the summarized one-liner
+/// (connect failure, terminal background-recovery error, or host-key
+/// block reason — 03 §3.2's `ServerStatus.detail`, fanned out with the
+/// state). `RecoveryFailedEvent` independently carries scoped terminal
+/// failures without requiring a state watch. Neither path is telemetry (D19).
+class ConnectionLogEvent extends EngineEvent {
+  final String serverId;
+  final List<String> lines;           // oldest first, attempt append order
+}
 /// Prompts round-trip as events, correlated by promptId: the engine
 /// isolate wraps seance_core's HostKeyPrompter and
 /// KeyboardInteractiveResponder callbacks by emitting one of these and

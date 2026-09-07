@@ -27,21 +27,26 @@ PaneChannel _replaceDeadFirst(
   // Death during an open evicts the first slot through the public API.
   final opensBefore = first.openCalls;
   final openGate = first.openGate = Completer<void>();
-  final replacement =
-      harness.manager.openBrowseChannel('s1', paneTabId: 'replacement');
+  final replacement = harness.manager.openBrowseChannel(
+    's1',
+    paneTabId: 'replacement',
+  );
   time.flushMicrotasks();
   expect(
     first.openCalls,
     opensBefore + 1,
-    reason: 'The replacement open must park on the first transport before '
+    reason:
+        'The replacement open must park on the first transport before '
         'its death, or the gate error below fires on an unwatched future.',
   );
   first.simulateExternalDeath();
-  openGate.completeError(const RemoteFileException(
-    kind: RemoteFileErrorKind.disconnected,
-    operation: 'open SFTP',
-    message: 'The first transport disconnected during channel open.',
-  ));
+  openGate.completeError(
+    const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'open SFTP',
+      message: 'The first transport disconnected during channel open.',
+    ),
+  );
   final pane = completeWithoutTimers(time, replacement);
   expect(harness.opener.transports, hasLength(expectedTransports));
   return pane;
@@ -115,8 +120,12 @@ void main() {
       final keeper = browsePane(time, harness, 'keeper', server: 's2');
       final extra = harness.opener.transports.last;
 
-      final replacement =
-          _replaceDeadFirst(time, harness, firstPane, _policy.maxTransports + 1);
+      final replacement = _replaceDeadFirst(
+        time,
+        harness,
+        firstPane,
+        _policy.maxTransports + 1,
+      );
       final grown = harness.opener.transports.last;
       expect(grown, isNot(same(extra)));
 
@@ -125,7 +134,8 @@ void main() {
       expect(
         grown.closed,
         isTrue,
-        reason: 'The first-transport role is assigned at creation only; a '
+        reason:
+            'The first-transport role is assigned at creation only; a '
             'later transport stays idle-expiring (03 §3.3).',
       );
       expect(extra.closed, isFalse);
@@ -162,8 +172,9 @@ void main() {
       completeWithoutTimers(time, extraPane.close());
       completeWithoutTimers(time, replacement.close());
       final states = <ServerConnectionState>[];
-      final subscription =
-          harness.manager.watchServer('s1').listen(states.add);
+      final subscription = harness.manager
+          .watchServer('s1')
+          .listen((status) => states.add(status.state));
       time.flushMicrotasks();
       expect(states, [ServerConnectionState.connected]);
 
@@ -176,8 +187,9 @@ void main() {
       expect(states.last, ServerConnectionState.connected);
       completeWithoutTimers(time, recovered.close());
       final snapshots = <ServerConnectionState>[];
-      final snapshotSubscription =
-          harness.manager.watchServer('s1').listen(snapshots.add);
+      final snapshotSubscription = harness.manager
+          .watchServer('s1')
+          .listen((status) => snapshots.add(status.state));
       time.flushMicrotasks();
       expect(
         states.last,

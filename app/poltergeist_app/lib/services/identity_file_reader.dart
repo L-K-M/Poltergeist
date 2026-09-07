@@ -1,0 +1,94 @@
+import 'dart:io';
+
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+import 'identity_audit_log.dart';
+
+/// Reads "reference, don't store" identity files for the credential prompt
+/// (D18): expand `~` against the environment, read the key, and record every
+/// attempt — success or failure — in the local audit log. Audit failures
+/// never block connecting.
+class IdentityFileReader {
+  final IdentityAuditLog audit;
+  final Map<String, String> environment;
+
+  IdentityFileReader(this.audit, {Map<String, String>? environment})
+    : environment = environment ?? Platform.environment;
+
+  /// Returns the key material, or throws [IdentityFileReadException].
+  Future<String> read({
+    required String serverId,
+    required String serverLabel,
+    required String identityFilePath,
+  }) async {
+    final readPath = expandHomePath(identityFilePath, environment: environment);
+
+    String pem;
+    try {
+      pem = await File(readPath).readAsString();
+    } on FileSystemException catch (error) {
+      // Record, then surface: an unauditable failed read must not hide the
+      // failure itself behind an audit error.
+      await _record(
+        serverId: serverId,
+        serverLabel: serverLabel,
+        path: readPath,
+        ok: false,
+        error: error.toString(),
+      );
+      throw IdentityFileReadException(readPath, error);
+    }
+
+    await _record(
+      serverId: serverId,
+      serverLabel: serverLabel,
+      path: readPath,
+      ok: true,
+    );
+    return pem;
+  }
+
+  Future<void> _record({
+    required String serverId,
+    required String serverLabel,
+    required String path,
+    required bool ok,
+    String? error,
+  }) async {
+    try {
+      await audit.record(
+        IdentityReadEvent(
+          at: DateTime.now().toUtc().toIso8601String(),
+          serverId: serverId,
+          serverLabel: serverLabel,
+          path: path,
+          viaBookmark: false,
+          ok: ok,
+          error: error,
+        ),
+      );
+    } on Object {
+      // Best-effort by contract: the connect attempt must not fail (nor
+      // wait forever) over the audit trail.
+    }
+  }
+}
+
+/// The identity file could not be read. [message] carries just the
+/// OS-level detail for the dialog's inline error; [toString] keeps the
+/// full sentence for logs.
+class IdentityFileReadException implements Exception {
+  final String path;
+  final FileSystemException cause;
+
+  const IdentityFileReadException(this.path, this.cause);
+
+  String get message {
+    final os = cause.osError?.message;
+    final detail = (os == null || os.isEmpty) ? cause.message : os;
+    return '$detail ($path)';
+  }
+
+  @override
+  String toString() => 'Could not read identity file $path.';
+}
