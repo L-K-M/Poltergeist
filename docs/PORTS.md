@@ -12,11 +12,12 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Ported: 2026-09-02
 - Divergences: unique `.poltergeist-<uuid>.tmp` siblings prevent collisions
   and basename overflow; failed writes remove their temporary sibling without
-  masking the original failure; the source's delete-target Windows fallback is
-  omitted per 09 §3.6; corrupt quarantine is store-owned, UTC-stamped, and
-  reports move failures.
-- Port-back candidates: unique bounded temp names, best-effort cleanup, and
-  timestamped quarantine.
+  masking the original failure; optional owner-only writes restrict an empty
+  temporary before sensitive content; the source's delete-target Windows
+  fallback is omitted per 09 §3.6; corrupt quarantine is store-owned,
+  UTC-stamped, and reports move failures.
+- Port-back candidates: unique bounded temp names, best-effort cleanup,
+  owner-only writes, and timestamped quarantine.
 
 ## app/poltergeist_app/test/atomic_file_test.dart
 
@@ -143,18 +144,20 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Ported: 2026-09-07
 - Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
   (D23); wrong-typed optional JSON fields now skip as malformed instead of
-  throwing and poisoning the full audit read. The record shape stays frozen
-  identical and allowlisted in the localization contract.
-- Port-back candidates: harden Séance's optional-field decode likewise.
+  poisoning the full read. Desktop POSIX logs are repaired/created mode 0600,
+  including atomic rotation, because they contain private-key paths. These
+  local security/reliability repairs close PR #38 findings without waiting
+  for upstream (04 §6). The record shape stays frozen identical.
+- Port-back candidates: optional-field decode and owner-only audit storage.
 
 ## app/poltergeist_app/test/services/identity_audit_log_test.dart
 
 - Source: app/seance_app/test/identity_audit_log_test.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
-- Divergences: adds the wrong-typed optional-field regression for the local
-  decoder hardening; record/rotate/serialize behavior remains identical.
-- Port-back candidates: port the malformed-line regression with the fix.
+- Divergences: adds wrong-typed-field and owner-only-mode regressions for
+  the local hardening; record/rotate/serialize behavior remains identical.
+- Port-back candidates: port both regressions with their fixes.
 
 ## app/poltergeist_app/lib/services/identity_file_reader.dart
 
@@ -218,8 +221,8 @@ files above — five production sources plus four test files — at the existing
 owns the next-tag bump). The engine-side additions (`ServerStatus.detail`,
 `ConnectLogLine`, the port coalescer, protocol v3) and the prompt
 coordinator, credential dialog, and vault-first resolution are
-Poltergeist-only. Current-route dialog guards and malformed audit-line
-handling are port-back candidates recorded above.
+Poltergeist-only. Current-route dialog guards, malformed audit-line handling,
+and owner-only audit storage are port-back candidates recorded above.
 
 The 2026-09-07 engine progress coalescer uses the M0 harness's rate and item
 caps, with shared flush windows for the aggregate stream. It adds no Séance

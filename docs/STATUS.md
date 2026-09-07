@@ -132,30 +132,29 @@ is new. Same-PR 03 §3.2/§5 precision edits record both.
 
 App side: `PromptBridge` (the engine client's prompt facet) feeds a
 `PromptCoordinator` — FIFO, one dialog at a time (02 §10), every post-await
-path rechecks `dismissed`/`_disposed` (09 §3.1) so an engine withdrawal pops
-its dialog without applying a racing answer. Host-key first-use/changed and
-keyboard-interactive dialogs are Séance ports (PORTS entries, ARB strings,
-behaviorally identical); the changed-key review keeps the alarming
- two-fingerprint block (D18). Credential resolution is vault-first: a
-stored, kind-matching secret answers without a dialog (stored provenance
-keeps the pool growable), agent auth needs no dialog, and the dialog's key
-file is read through the audited `IdentityFileReader` (D18; identity reads
-land in the ported JSONL audit log; audit failures never block connecting).
-Vault-save failures are transient snack-bar notices (02 §10). The ported
-`ConnectionStatusPanel` renders the live transcript during connect/reconnect
-and keeps it visible with the one-liner on failure and block; app.dart
-gains optional navigator/scaffold-messenger keys for dialog ownership. No
-production composition yet — the coordinator/panel are library surfaces the
-wiring slice composes (open item 6).
+path rechecks `dismissed`/`_disposed` (09 §3.1), and each prompt owns its
+route so withdrawal cannot pop another page or strand a pre-frame dialog.
+Host-key first-use/changed and keyboard-interactive dialogs are Séance ports;
+the changed-key review keeps the alarming two-fingerprint block (D18).
+Credential resolution is vault-first: a stored, kind-matching secret answers
+without a dialog (stored provenance keeps the pool growable), agent auth
+needs no dialog, and key files pass through the audited `IdentityFileReader`.
+Audit failures never block connecting; path-bearing audit files use mode 0600
+on desktop POSIX and platform storage ACLs elsewhere. Vault-save failures are
+localized transient notices (02 §10). The ported `ConnectionStatusPanel`
+renders the live transcript during connect/reconnect and keeps it with the
+failure/block one-liner; replacement servers reset stale state. No production
+composition yet — the wiring slice composes these library surfaces (item 6).
 
-Validation: six pool-diagnostics and eight coalescer tests (fake-clock);
-real-isolate/engine-host coverage extended for log forwarding and detail
-fan-out; 15 coordinator, 20 dialog, 8 panel, and the ported
-identity-audit/reader tests. Core 236 tests + analyze clean; app 174 tests +
-analyze clean; protocol guard (49) and import guard green. UI surfaces are
-uncomposed, so verification is widget-test-level; before/after screenshots
-ride the wiring slice that first renders them. No dependency change, Séance
-pin change, or milestone-close claim. Real-sshd transcript/keepalive legs
+Review regressions cover detail preservation through dead-slot teardown,
+queue progress, route ownership and races, async credential reads, empty
+vault saves, malformed audit lines, owner-only rotation, and panel lifecycle.
+After reconciliation with PR #39: core analysis and 239 tests pass (one sshd
+fixture skip); app analysis and 186 tests pass; protocol guard (49), import
+guard (92), and pin audit pass. UI surfaces remain uncomposed, so screenshots
+ride the wiring slice that first renders them. `posix` 6.5.2 moved from a
+transitive to direct app dependency without changing resolution; no Séance
+pin change or milestone-close claim. Real-sshd transcript/keepalive legs
 remain with the 08 §5 matrix (open item 3).
 
 ## M2 — keepalive prerequisite (2026-09-07)
@@ -365,6 +364,12 @@ requirement; broader fixture-tool portability remains open below.
      and whole-pool correlation if a flat transcript needs to group per-server
      events. Opaque errors use the documented generic summary; never format
      arbitrary error internals.
+   - **2026-09-07 — prompt/audit port-backs:** the pinned Séance responder
+     drops RFC 4256's per-prompt echo bit before the engine protocol sees it;
+     fields therefore start masked with explicit reveal. Preserve the bit when
+     upstream exposes it. Route guards, malformed-line handling, and owner-only
+     audit storage also remain PORTS-led upstream candidates. None blocks the
+     safe local behavior or production wiring.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This

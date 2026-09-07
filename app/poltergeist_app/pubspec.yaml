@@ -19,6 +19,8 @@ dependencies:
   macos_window_utils: 1.9.1
   path: 1.9.1
   path_provider: 2.1.6
+  # Applies owner-only mode bits to path-bearing local audit files.
+  posix: 6.5.2
   poltergeist_core:
     path: ../../packages/poltergeist_core
   screen_retriever: 0.2.2

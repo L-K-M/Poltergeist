@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'atomic_file.dart';
+import 'file_permissions.dart';
 
 /// One identity-file read attempt (successful or not).
 class IdentityReadEvent {
@@ -90,6 +91,9 @@ class IdentityAuditLog {
     _tail = _tail.then((_) async {
       try {
         await file.parent.create(recursive: true);
+        // Create empty, restrict, then append path-bearing audit data.
+        await file.create();
+        restrictFileToOwner(file);
         await file.writeAsString(
           '${jsonEncode(event.toJson())}\n',
           mode: FileMode.append,
@@ -108,6 +112,8 @@ class IdentityAuditLog {
   /// write, hand edits) are skipped rather than wedging the log.
   Future<List<IdentityReadEvent>> readAll() async {
     if (!await file.exists()) return const [];
+    restrictFileToOwner(file);
+
     final entries = <IdentityReadEvent>[];
     for (final line in const LineSplitter().convert(
       await file.readAsString(),
@@ -127,6 +133,10 @@ class IdentityAuditLog {
     final lines = const LineSplitter().convert(await file.readAsString());
     if (lines.length <= maxEntries * 2) return;
     final kept = lines.sublist(lines.length - maxEntries);
-    await writeStringAtomically(file, '${kept.join('\n')}\n');
+    await writeStringAtomically(
+      file,
+      '${kept.join('\n')}\n',
+      privacy: AtomicFilePrivacy.ownerOnly,
+    );
   }
 }
