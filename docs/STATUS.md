@@ -98,6 +98,9 @@ and the existing owner-decision gates remain open. No milestone-close claim.
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
+   **2026-09-07 review follow-up (#34):** before running the protocol guard's
+   symlink fixture on Windows, probe link-creation privileges and skip only
+   when unavailable. Its current CI job runs on Ubuntu.
 2. **Séance pin: flip to the next tag.** The fork bridge is retired (see
    the Done table) and the pin sits at upstream main `2f99f4e` — no Séance
    tag contains the PR-S3 merge yet. `poltergeist_core` now carries the

@@ -20,6 +20,7 @@ final class ProgressCoalescer {
   Timer? _timer;
   bool _disposed = false;
 
+  /// [emit] synchronously sends a batch; its failures propagate as wiring errors.
   ProgressCoalescer(this._emit);
 
   void add(TransferProgressEvent event) {

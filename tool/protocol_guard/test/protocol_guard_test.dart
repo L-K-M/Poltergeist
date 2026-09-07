@@ -3,6 +3,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -221,9 +222,16 @@ class Intermediate extends EngineEvent {}
   Future<List<String>> _check() => checkProtocol(_root.path);
 
   Future<void> _expectExit(int expected, [String? diagnostic]) async {
+    // Resolve from the workspace so nested test invocations find the same CLI.
+    final workspace = await Isolate.resolvePackageUri(
+      Uri.parse('package:_poltergeist_workspace/'),
+    );
+    if (workspace == null) throw StateError('Workspace package is unresolved');
+
+    final script = workspace.resolve('../tool/protocol_guard/bin/check.dart');
     final result = await Process.run(Platform.resolvedExecutable, [
       'run',
-      'tool/protocol_guard/bin/check.dart',
+      script.toFilePath(),
       _root.path,
     ]);
     expect(
