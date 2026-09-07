@@ -7,6 +7,8 @@ import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/ui/connection_status_panel.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+/// Cancellation targets a stub subscription; [emit] still models an
+/// already-queued callback from the replaced stream.
 class _LateStream<T> extends Stream<T> {
   void Function(T)? _listener;
 

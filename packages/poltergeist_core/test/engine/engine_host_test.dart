@@ -650,7 +650,9 @@ void main() {
       // The flush window is a real timer; poll instead of sleeping a fixed
       // multiple so a slow machine cannot flake the batch assertion.
       bool hasBatch() => h.events.whereType<ConnectionLogEvent>().any(
-        (e) => e.serverId == 'srv-1',
+        (event) =>
+            event.serverId == 'srv-1' &&
+            event.lines.contains('tcp connect example.com:2222'),
       );
       for (var i = 0; i < 100 && !hasBatch(); i++) {
         await Future<void>.delayed(connectionLogFlushInterval ~/ 4);
@@ -666,7 +668,10 @@ void main() {
           .where((e) => e.serverId == 'srv-1')
           .toList();
       expect(batches, isNotEmpty);
-      expect(batches.last.lines, contains('tcp connect example.com:2222'));
+      expect(
+        batches.expand((batch) => batch.lines),
+        contains('tcp connect example.com:2222'),
+      );
     },
   );
 }

@@ -54,13 +54,8 @@ Future<void> _blockViaGrowth(PoolHarness harness) async {
     throwsA(isA<RemoteFileException>()),
   );
   for (final id in [_primaryServerId, _siblingServerId]) {
-    expect(
-      await harness.manager
-          .watchServer(id)
-          .first
-          .then((status) => status.state),
-      ServerConnectionState.blocked,
-    );
+    final status = await harness.manager.watchServer(id).first;
+    expect(status.state, ServerConnectionState.blocked);
   }
 }
 

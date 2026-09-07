@@ -83,6 +83,7 @@ void main() {
       expect(errors, hasLength(2));
       expect(errors, everyElement(_unsupported));
       expect(await harness.manager.connectedServerIds(), isEmpty);
+      expect(statuses, isNotEmpty);
       expect(
         statuses.last,
         const ServerStatus(

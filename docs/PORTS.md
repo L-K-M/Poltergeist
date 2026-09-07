@@ -169,10 +169,11 @@ pool. No copied sources, pin changes, or upstream port candidates.
   grant path (Poltergeist is unsandboxed at v1, D23 — plain expanded reads
   only); `IdentityFileReadException` drops Séance's macOS EPERM sandbox
   hint; non-filesystem read failures are normalized and audited locally so
-  arbitrary exception text cannot reach the prompt (D18/D20). `~` expansion
-  and best-effort audit remain identical.
-- Port-back candidates: audit and normalize non-filesystem read failures;
-  the grant path remains Séance-specific.
+  arbitrary exception text cannot reach the prompt (D18/D20); audit writes
+  stop delaying a connect after two seconds. `~` expansion and semantic key
+  validation downstream of a successful text read remain source-identical.
+- Port-back candidates: normalize non-filesystem read failures and bound audit
+  writes; the grant path remains Séance-specific.
 
 ## app/poltergeist_app/test/services/identity_file_reader_test.dart
 
@@ -181,7 +182,7 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Séance commit: ffac90f (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: sandbox-hint cases dropped (no hint exists here); adds the
-  reader's audit-success/audit-failure/audit-never-blocks coverage.
+  reader's success, failed-read, throwing-audit, and stalled-audit coverage.
 - Port-back candidates: none.
 
 ## app/poltergeist_app/lib/ui/connection_status_panel.dart

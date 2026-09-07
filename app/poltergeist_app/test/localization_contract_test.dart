@@ -83,8 +83,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // dialog renders inside an ARB-authored sentence, never standalone UI
   // copy (the reader's wording mirrors Séance's).
   'lib/services/identity_file_reader.dart': {
-    "'\$detail (\$path)'",
-    "'Could not read identity file \$path.'",
+    "'\$_causeMessage (\$path)'",
+    "'Could not read identity file \$path: \$_causeMessage'",
   },
   'lib/services/prompt_coordinator.dart': {
     "'No identity-file reader is wired'",

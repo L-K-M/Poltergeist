@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
+import 'package:poltergeist_app/services/application_error_reporter.dart';
 import 'package:poltergeist_app/services/identity_audit_log.dart';
 import 'package:poltergeist_app/services/identity_file_reader.dart';
 import 'package:poltergeist_app/services/prompt_coordinator.dart';
@@ -14,6 +15,7 @@ class FakePromptBridge implements PromptBridge {
   final dismissalsController =
       StreamController<PromptDismissedEvent>.broadcast();
   final replies = <(String, EnginePromptKind, PromptReply)>[];
+  final replyFailures = <String>{};
 
   @override
   Stream<EnginePromptEvent> get prompts => promptsController.stream;
@@ -24,6 +26,7 @@ class FakePromptBridge implements PromptBridge {
 
   @override
   void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply) {
+    if (replyFailures.contains(promptId)) throw StateError('bridge closed');
     replies.add((promptId, kind, reply));
   }
 
@@ -99,6 +102,7 @@ void main() {
   late ScriptedIdentityReader reader;
   late GlobalKey<NavigatorState> navigatorKey;
   late GlobalKey<ScaffoldMessengerState> messengerKey;
+  late List<Object> reportedErrors;
   late PromptCoordinator coordinator;
 
   setUp(() {
@@ -107,12 +111,16 @@ void main() {
     reader = ScriptedIdentityReader();
     navigatorKey = GlobalKey<NavigatorState>();
     messengerKey = GlobalKey<ScaffoldMessengerState>();
+    reportedErrors = [];
     coordinator = PromptCoordinator(
       engine: bridge,
       vault: vault,
       identityReader: reader,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: messengerKey,
+      errorReporter: ApplicationErrorReporter(
+        sink: (error, _) => reportedErrors.add(error),
+      ),
     );
   });
 
@@ -173,6 +181,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
+    expect(reportedErrors, hasLength(1));
+    expect(reportedErrors.single, isA<TypeError>());
     expect(bridge.replies, hasLength(1));
     expect(bridge.replies.single.$1, 'broken');
     expect((bridge.replies.single.$3 as HostKeyPromptReply).accepted, isFalse);
@@ -180,6 +190,8 @@ void main() {
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+
+    expect(bridge.replies.map((reply) => reply.$1), ['broken', 'next']);
   });
 
   testWidgets('declining a changed key answers accepted:false', (tester) async {
@@ -256,6 +268,46 @@ void main() {
     expect(reply.origin, CredentialOrigin.stored);
     expect(reply.password, isNull);
     expect(find.byType(AlertDialog), findsNothing);
+  });
+
+  testWidgets('a closed bridge cannot break agent auto-answering', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+    bridge.replyFailures.add('closed-agent');
+
+    bridge.emit(
+      _event(
+        'closed-agent',
+        EnginePromptKind.credentialNeeded,
+        const CredentialPromptData(
+          host: 'example.com',
+          port: 2222,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        ),
+      ),
+    );
+    bridge.emit(
+      _event(
+        'next',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'example.com',
+          port: 2222,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:presented',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Unknown host key'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a stored, matching secret answers as stored, no dialog', (
@@ -779,6 +831,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('disk full'), findsNothing);
+    expect(reportedErrors.single, isA<StateError>());
     expect((bridge.replies.single.$3 as CredentialPromptReply).password, 'pw');
   });
 }

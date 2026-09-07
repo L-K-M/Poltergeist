@@ -190,7 +190,11 @@ void main() {
         isNotNull,
         reason: 'Retiring the idle extra must re-drive queued demand.',
       );
-      expect(grantError, isNull);
+      expect(
+        grantError,
+        isNull,
+        reason: 'The queued lease must be granted, not failed.',
+      );
       expect(
         harness.opener.calls,
         hasLength(3),

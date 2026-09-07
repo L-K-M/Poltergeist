@@ -153,9 +153,10 @@ queue progress, route ownership and races, async credential reads, empty
 vault saves, sibling-batch fan-out, malformed audit lines, owner-only
 rotation, and panel lifecycle. Later rounds repaired unobserved fake-clock
 diagnostics, malformed-prompt queue stalls, empty stored-secret answers,
-stale panel callbacks, uncleared key-path errors, opaque failure leakage, and
-queued-waiter detail. After reconciliation with PRs #39 and #40: core analysis
-and 257 tests pass (one sshd fixture skip); app analysis and 190 tests pass;
+stale panel callbacks, uncleared key-path errors, opaque failure leakage,
+queued-waiter detail, stalled audit writes, and closed prompt bridges. After
+reconciliation with PRs #39 and #40: core analysis and 257 tests pass (one
+sshd fixture skip); app analysis and 192 tests pass;
 protocol guard (49), import guard (92), and pin audit pass. UI surfaces remain
 uncomposed, so screenshots ride the wiring slice that first renders them. `posix` 6.5.2 moved from a
 transitive to direct app dependency without changing resolution; no Séance

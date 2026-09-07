@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../ui/prompts/credential_dialog.dart';
 import '../ui/prompts/host_key_dialog.dart';
 import '../ui/prompts/keyboard_interactive_dialog.dart';
+import 'application_error_reporter.dart';
 import 'identity_file_reader.dart';
 
 /// One prompt flowing through the coordinator: the engine event plus the
@@ -51,6 +52,7 @@ class PromptCoordinator {
 
   /// Notices (vault-save failures) ride the root scaffold messenger.
   final GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey;
+  final ApplicationErrorReporter _errorReporter;
 
   final _queue = <_PendingPrompt>[];
   _PendingPrompt? _showing;
@@ -64,7 +66,8 @@ class PromptCoordinator {
     this.vault,
     this.identityReader,
     this.scaffoldMessengerKey,
-  });
+    ApplicationErrorReporter? errorReporter,
+  }) : _errorReporter = errorReporter ?? ApplicationErrorReporter();
 
   /// Starts consuming the engine's prompt streams. Idempotent.
   void start() {
@@ -173,7 +176,9 @@ class PromptCoordinator {
   ) async {
     try {
       await show();
-    } on Object {
+    } on Object catch (error, stackTrace) {
+      _errorReporter.report(error, stackTrace);
+
       // A broken dialog must fail safely, then release the queue.
       if (identical(_showing, pending) && !_wasDismissed(pending)) {
         final reply = switch (pending.event.kind) {
@@ -204,10 +209,14 @@ class PromptCoordinator {
     if (data is! CredentialPromptData) return false;
     if (data.authMethod != AuthMethod.agent) return false;
 
-    _reply(
-      pending,
-      const CredentialPromptReply(origin: CredentialOrigin.stored),
-    );
+    try {
+      _reply(
+        pending,
+        const CredentialPromptReply(origin: CredentialOrigin.stored),
+      );
+    } on Object {
+      // The bridge may already be gone; keep draining.
+    }
     return true;
   }
 
@@ -321,9 +330,7 @@ class PromptCoordinator {
       return;
     }
 
-    if (result.saveToVault && data.secretRef != null && vault != null) {
-      await _saveToVault(data, result);
-    }
+    if (result.saveToVault) await _saveToVault(data, result);
     if (!_wasDismissed(pending)) {
       _reply(
         pending,
@@ -368,12 +375,16 @@ class PromptCoordinator {
     // Nothing typed means nothing worth storing — an empty secret would
     // auto-answer future prompts with empty credentials (kind matches).
     final value = result.password ?? result.privateKeyPem;
-    if (value == null || value.isEmpty) return;
+    final secretId = data.secretRef;
+    final vault = this.vault;
+    if (value == null || value.isEmpty || secretId == null || vault == null) {
+      return;
+    }
 
     try {
-      await vault!.putSecret(
+      await vault.putSecret(
         Secret(
-          id: data.secretRef!,
+          id: secretId,
           kind: data.authMethod == AuthMethod.privateKey
               ? SecretKind.privateKey
               : SecretKind.password,
@@ -381,11 +392,16 @@ class PromptCoordinator {
           keyPassphrase: result.keyPassphrase,
         ),
       );
-    } on Object {
+    } on Object catch (error, stackTrace) {
       // Saving is an offer, not a requirement: the connect proceeds with
       // the entered secret; only the save failed, and that failure is
       // transient feedback (02 §10).
-      _showNotice();
+      _errorReporter.report(error, stackTrace);
+      try {
+        _showNotice();
+      } on Object {
+        // Teardown can remove the notice surface; the answer still proceeds.
+      }
     }
   }
 

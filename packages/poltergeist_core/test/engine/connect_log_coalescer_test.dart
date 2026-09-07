@@ -11,7 +11,7 @@ const _millisecond = Duration(milliseconds: 1);
 /// The coalescer is engine-internal (03 §5); these tests drive it directly
 /// with a fake clock, mirroring the progress coalescer suite.
 void main() {
-  test('pins the port budget and rounds its interval upward', () {
+  test('pins the line budget and flush rate, rounding upward', () {
     expect(connectionLogFlushesPerSecond, 30);
     expect(connectionLogMaxLines, 400);
     expect(

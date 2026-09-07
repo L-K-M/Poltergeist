@@ -1,8 +1,28 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/identity_audit_log.dart';
 import 'package:poltergeist_app/services/identity_file_reader.dart';
+
+const _shortAuditTimeout = Duration(milliseconds: 1);
+
+/// An audit sink that never completes a write.
+class _HangingAudit implements IdentityAuditLog {
+  final _gate = Completer<void>();
+
+  @override
+  File get file => File('/dev/null');
+
+  @override
+  int get maxEntries => 0;
+
+  @override
+  Future<void> record(IdentityReadEvent event) => _gate.future;
+
+  @override
+  Future<List<IdentityReadEvent>> readAll() async => const [];
+}
 
 /// A failing audit sink: every record throws.
 class _FailingAudit implements IdentityAuditLog {
@@ -41,6 +61,7 @@ void main() {
       );
       expect(e.message, contains('Operation not permitted'));
       expect(e.message, contains('/home/ada/.ssh/id_ed25519'));
+      expect(e.toString(), contains('Operation not permitted'));
     });
 
     test('falls back to the exception message when the OS detail is absent',
@@ -110,6 +131,24 @@ void main() {
       // The OS error wording differs per platform; only its presence is
       // the contract here.
       expect(entries.single.error, isNotEmpty);
+    });
+
+    test('a hanging audit write never blocks the read', () async {
+      final key = File('${dir.path}/id.pem');
+      await key.writeAsString('KEY PEM');
+      final reader = IdentityFileReader(
+        _HangingAudit(),
+        environment: {'HOME': dir.path},
+        auditTimeout: _shortAuditTimeout,
+      );
+
+      final pem = await reader.read(
+        serverId: 's1',
+        serverLabel: 'deploy@example.com',
+        identityFilePath: '${dir.path}/id.pem',
+      );
+
+      expect(pem, 'KEY PEM');
     });
 
     test('an audit failure never blocks the read (D18: best-effort trail)',

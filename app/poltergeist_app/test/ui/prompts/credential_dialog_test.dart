@@ -203,6 +203,8 @@ void main() {
           identityFilePath: '~/.ssh/missing',
         ),
         readKeyFile: (path) async {
+          if (path != '~/.ssh/missing') return 'PEM';
+
           throw IdentityFileReadException(
             path,
             FileSystemException('No such file', path),
@@ -226,6 +228,11 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('Could not read the key file'), findsNothing);
+
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('result:-;PEM;-;false'), findsOneWidget);
   });
 
   testWidgets('unexpected key read failures expose only localized detail', (
@@ -245,7 +252,7 @@ void main() {
           throw IdentityFileReadException(
             path,
             FileSystemException('internal marker', path),
-            kind: IdentityFileReadFailureKind.invalidContent,
+            kind: IdentityFileReadFailureKind.invalidText,
           );
         },
       ),
@@ -262,6 +269,8 @@ void main() {
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
   });
 
   testWidgets('a key read completing after cancel cannot pop the page below', (
