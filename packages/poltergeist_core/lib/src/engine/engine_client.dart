@@ -36,8 +36,10 @@ class EngineClient {
   }
 
   /// Spawns the engine isolate and delivers [config] as its first command
-  /// (03 §5). The engine's construction failures (an invalid [PoolPolicy])
-  /// kill the isolate — observe [terminated].
+  /// (03 §5). Fails with a disconnected-kind [RemoteFileException] if the
+  /// isolate cannot be spawned or dies before the boot handshake completes
+  /// (e.g. a construction failure such as an invalid [PoolPolicy]). Later
+  /// engine death surfaces through [terminated] and failed pending calls.
   static Future<EngineClient> spawn(EngineConfig config) async {
     final client = EngineClient._();
     try {

@@ -150,6 +150,7 @@ void main() {
 
   test('shutdown terminates the client and fails later calls', () async {
     final client = await EngineClient.spawn(const EngineConfig());
+    addTearDown(client.shutdown);
     expect(await client.connectedServerIds(), isEmpty);
 
     await client.shutdown();
@@ -189,6 +190,7 @@ void main() {
         policy: PoolPolicy(reconnectBackoffCap: Duration.zero),
       ),
     );
+    addTearDown(client.shutdown);
 
     // The engine died on its constructor guard; every call fails typed and
     // termination is observable (no silent zombie client).

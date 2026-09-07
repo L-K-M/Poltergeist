@@ -1449,8 +1449,8 @@ class PromptReplyRequest extends EngineRequest {
 // the ServerConfig — the engine holds no bookmark store; the UI owns
 // bookmarks and supplies config per request.
 class CloseBrowseChannelRequest extends EngineRequest { final int channelId; }
-class WatchServerRequest extends EngineRequest { final String serverId; }
 /// Emits ServerStateEvent (current value first); Unwatch stops it.
+class WatchServerRequest extends EngineRequest { final String serverId; }
 class UnwatchServerRequest extends EngineRequest { final String serverId; }
 class ConnectedServerIdsRequest extends EngineRequest {}
 class DisconnectServerRequest extends EngineRequest { final String serverId; }

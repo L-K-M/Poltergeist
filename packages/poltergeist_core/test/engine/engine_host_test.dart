@@ -88,7 +88,14 @@ class HostHarness {
     final request = build(_nextRequestId++);
     final completer = Completer<EngineResult>();
     _pending[request.requestId] = completer;
-    host.handle(request);
+    try {
+      host.handle(request);
+    } on Object catch (error, stackTrace) {
+      // Only a non-protocol message throws synchronously; surface it
+      // instead of leaving the caller awaiting a completer forever.
+      _pending.remove(request.requestId);
+      completer.completeError(error, stackTrace);
+    }
     return completer.future;
   }
 
@@ -140,7 +147,9 @@ class HostHarness {
     if (result is EngineError) {
       fail('openWithDefaults failed: ${result.message}');
     }
-    return result as BrowseChannelOpened;
+    return result is BrowseChannelOpened
+        ? result
+        : fail('openWithDefaults returned unexpected result: $result');
   }
 
   /// Pops the oldest unconsumed prompt event.
