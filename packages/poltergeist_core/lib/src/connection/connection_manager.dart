@@ -98,6 +98,9 @@ abstract interface class ConnectionManager {
   /// Live connect-attempt transcript lines, one event per appended line
   /// in attempt order. Not batched here: the engine host bounds port
   /// traffic (03 §5); in-process callers get every line as written.
+  ///
+  /// Live-only: lines emitted before subscription are not replayed. Attach
+  /// before connecting when the complete attempt transcript is required.
   Stream<ConnectLogLine> get connectLog;
 
   /// ServerIds with live pools — feeds ProbeService so connected servers

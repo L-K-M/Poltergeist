@@ -82,6 +82,9 @@ class EngineHost {
     // batch crosses the port (03 §5).
     host._connectLogSubscription = host._manager.connectLog.listen(
       host._logCoalescer.add,
+      // Transcript fan-out is diagnostic; a future stream error must not
+      // kill the engine isolate.
+      onError: (Object _) {},
     );
     return host;
   }

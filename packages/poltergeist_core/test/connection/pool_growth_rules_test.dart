@@ -592,10 +592,7 @@ void main() {
     await harness.manager.openBrowseChannel('s2', paneTabId: 't');
     expect(harness.opener.calls, hasLength(1));
 
-    final seen = await harness.manager
-        .watchServer('s2')
-        .first
-        .then((status) => status.state);
+    final seen = (await harness.manager.watchServer('s2').first).state;
     expect(seen, ServerConnectionState.connected);
   });
 

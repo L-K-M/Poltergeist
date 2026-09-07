@@ -211,6 +211,7 @@ void main() {
         'connecting to example.com:22',
         'kex: curve25519-sha256',
       ]);
+      expect(byServer.keys, unorderedEquals(['s1', 's2']));
 
       unawaited(subscription.cancel());
     });

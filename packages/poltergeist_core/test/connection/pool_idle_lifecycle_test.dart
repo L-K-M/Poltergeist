@@ -398,12 +398,12 @@ void main() {
       final waiting = harness.manager.leaseTransferChannel('s2');
       TransferChannelLease? grantedB;
       Object? grantedBError;
-      waiting
-          .then<void>(
-            (value) => grantedB = value,
-            onError: (Object error) => grantedBError = error,
-          )
-          .ignore();
+      unawaited(
+        waiting.then<void>(
+          (value) => grantedB = value,
+          onError: (Object error) => grantedBError = error,
+        ),
+      );
       time.flushMicrotasks();
       expect(
         opener.transports,
