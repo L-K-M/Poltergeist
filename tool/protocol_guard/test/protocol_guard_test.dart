@@ -106,6 +106,43 @@ extension type Wrapper(void Function() callback) {}
     expect(await fixture._check(), [contains('Wrapper.callback')]);
   });
 
+  for (final fieldType in [
+    'CallbackWrapper',
+    'Nested',
+    'Generic<int>',
+    'Container<CallbackWrapper>',
+    'List<CallbackWrapper>',
+    '({CallbackWrapper value, int bytes})',
+  ]) {
+    test('rejects external callback wrapper field: $fieldType', () async {
+      await fixture._write('$_core/lib/wrapper.dart', '''
+extension type CallbackWrapper(void Function() value) {}
+extension type Nested(CallbackWrapper value) {}
+extension type Generic<T>(void Function(T) value) {}
+extension type Container<T>(T value) {}
+''');
+      await fixture._write('$_engine/data.dart', '''
+import '../../wrapper.dart';
+class Data { late $fieldType callback; }
+''');
+      expect(await fixture._check(), [contains('Data.callback')]);
+    });
+  }
+
+  test(
+    'allows a phantom callback argument with an integer representation',
+    () async {
+      await fixture._write('$_core/lib/wrapper.dart', '''
+extension type Phantom<T>(int value) {}
+''');
+      await fixture._write('$_engine/data.dart', '''
+import '../../wrapper.dart';
+class Data { late Phantom<void Function()> value; }
+''');
+      expect(await fixture._check(), isEmpty);
+    },
+  );
+
   for (final (base, declaration) in [
     (
       'class Base { final void Function() callback = () {}; }',

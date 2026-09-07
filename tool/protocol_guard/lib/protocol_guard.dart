@@ -150,7 +150,9 @@ Iterable<InterfaceType> _fieldOwners(
 }
 
 // Generic and record fields can carry callbacks as readily as direct fields.
-bool _containsFunction(DartType type, Set<DartType> visited) {
+bool _containsFunction(DartType declaredType, Set<DartType> visited) {
+  // Extension values carry their representation, including nested wrappers.
+  final type = declaredType.extensionTypeErasure;
   if (!visited.add(type)) return false;
   if (type is FunctionType || type.isDartCoreFunction) return true;
   return switch (type) {

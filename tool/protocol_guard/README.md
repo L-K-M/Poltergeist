@@ -12,6 +12,7 @@ Resolution catches typedefs, inferred callbacks, type-parameter bounds,
 and callbacks inside generic or record fields. Checks include extension-type
 representations and inherited superclass/mixin storage with substituted type
 arguments, including private fields and fields hidden by getter overrides.
+External extension wrappers are checked through their erased representation.
 Inherited static members, interfaces, methods, and computed getters add no
 instance storage.
 
