@@ -1501,7 +1501,8 @@ at most **64 items total**, keyed by the `(taskId, itemId)` tuple. Refreshing
 an item refreshes its eviction recency; overflow drops the oldest pending
 event. This bounds pending memory and the merged port stream to 30 batches/s
 even when many tasks rotate through transfer slots. Round the timer interval
-up to whole microseconds so it cannot exceed that rate. Item order follows
+up to whole milliseconds (the VM timer's resolution) so truncation cannot
+exceed that rate. Item order follows
 update recency: apply rollups in order, never sum the repeated task counters.
 Progress is a lossy snapshot, not the source of completion or failure state.
 Terminal/state events bypass the buffer; detach a finished task or item's

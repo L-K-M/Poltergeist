@@ -50,11 +50,13 @@ cancel unused timers and prevent buffered counters following terminal state.
 The producer owner must detach callbacks before discarding a finished task.
 Terminal events bypass this lossy buffer. No forced final flush.
 
-Validation: 16 tests cover fake-clock floods, rolling-second limits, task/item
+Validation: 17 tests cover fake-clock floods, rolling-second limits, task/item
 identity, recency, lifecycle, immutable snapshots, and real-isolate round trips.
 The engine protocol AST guard has 30 fixture tests and runs in CI; callback
 fields are allowed only on the engine-internal coalescer. Core analysis and
-185 tests pass (one existing fixture skip). This is one M2 protocol component: engine spawn,
+186 tests pass (one existing fixture skip). A VM-resolution regression observed
+31 batches in a rolling second before rounding the interval up to 34 ms.
+This is one M2 protocol component: engine spawn,
 `EngineClient`, connection requests/results, prompt cancellation, and production
 wiring remain open. No UI change, dependency bump, source port, or milestone close.
 

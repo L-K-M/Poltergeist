@@ -5,10 +5,10 @@ import 'protocol.dart';
 const progressFlushesPerSecond = 30;
 const progressItemsPerFlushCap = 64;
 
-// Round up: truncating the interval would exceed the 30-window/s budget.
+// Round up to whole milliseconds: VM timers truncate finer durations.
 const progressFlushInterval = Duration(
-  microseconds:
-      (Duration.microsecondsPerSecond + progressFlushesPerSecond - 1) ~/
+  milliseconds:
+      (Duration.millisecondsPerSecond + progressFlushesPerSecond - 1) ~/
       progressFlushesPerSecond,
 );
 

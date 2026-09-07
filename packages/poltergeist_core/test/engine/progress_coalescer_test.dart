@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_core/src/engine/progress_coalescer.dart';
 import 'package:test/test.dart';
 
 const _second = Duration(seconds: 1);
+const _millisecond = Duration(milliseconds: 1);
 const _microsecond = Duration(microseconds: 1);
 
 void main() {
@@ -15,7 +18,7 @@ void main() {
       greaterThanOrEqualTo(_second),
     );
     expect(
-      (progressFlushInterval - _microsecond) * progressFlushesPerSecond,
+      (progressFlushInterval - _millisecond) * progressFlushesPerSecond,
       lessThan(_second),
     );
   });
@@ -168,6 +171,41 @@ void main() {
         );
       }
       coalescer.dispose();
+    });
+  });
+
+  test('VM timer truncation cannot exceed the rolling-second budget', () {
+    fakeAsync((time) {
+      final emissions = <Duration>[];
+      late ProgressCoalescer coalescer;
+      runZoned(
+        () {
+          coalescer = ProgressCoalescer((_) {
+            emissions.add(time.elapsed);
+            coalescer.add(_sample('task', 'item', emissions.length));
+          });
+          coalescer.add(_sample('task', 'item', 0));
+          time.elapse(_second * 2);
+          coalescer.dispose();
+        },
+        zoneSpecification: ZoneSpecification(
+          // vm/lib/timer_patch.dart truncates Duration to whole milliseconds.
+          createTimer: (self, parent, zone, duration, callback) =>
+              parent.createTimer(
+                zone,
+                Duration(milliseconds: duration.inMilliseconds),
+                callback,
+              ),
+        ),
+      );
+
+      expect(emissions.length, greaterThan(progressFlushesPerSecond));
+      final end = emissions.first + _second;
+      expect(
+        emissions.takeWhile((instant) => instant < end).length,
+        lessThanOrEqualTo(progressFlushesPerSecond),
+      );
+      expect(time.pendingTimers, isEmpty);
     });
   });
 
