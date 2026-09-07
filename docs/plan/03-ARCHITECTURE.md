@@ -1526,6 +1526,7 @@ class RecoveryFailedEvent extends EngineEvent {
 // arbitrary resolver/opener errors use a fixed generic summary, never their
 // toString(), cause, stack, credentials, or prompt payload. This is local
 // diagnostic data; the rendering layer owns localized failure copy (D20).
+
 /// Live transcript lines for one server's connect attempts, crossing the
 /// engine isolate per 07 §3.3's prompt-UI slice (protocol v4): the UI renders
 /// them during connect and keeps them visible on failure. The engine coalesces

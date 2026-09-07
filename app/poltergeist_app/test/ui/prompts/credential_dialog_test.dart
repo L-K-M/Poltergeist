@@ -42,7 +42,7 @@ class _HarnessState extends State<_Harness> {
                               widget.readKeyFile ?? (path) async => 'PEM',
                           vaultUnavailable: widget.vaultUnavailable,
                         );
-                        setState(() {});
+                        if (mounted) setState(() {});
                       },
                       child: const Text('open'),
                     )
@@ -257,6 +257,7 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
+    expect(find.byType(AlertDialog), findsNothing);
     expect(find.textContaining('result:'), findsNothing);
   });
 

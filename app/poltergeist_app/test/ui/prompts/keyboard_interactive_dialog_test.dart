@@ -38,7 +38,7 @@ class _HarnessState extends State<_Harness> {
                           context,
                           _data,
                         );
-                        setState(() {});
+                        if (mounted) setState(() {});
                       },
                       child: const Text('open'),
                     )

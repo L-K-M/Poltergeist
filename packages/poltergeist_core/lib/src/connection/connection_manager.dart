@@ -441,6 +441,12 @@ class PooledConnectionManager implements ConnectionManager {
       // before the death, so it must not win here. Reconnect (03 §3.3) will
       // make this window report `reconnecting` instead.
       if (pool.transports.isNotEmpty) {
+        final cached = _lastStatuses[serverId];
+        if (cached != null &&
+            cached.state == ServerConnectionState.disconnected) {
+          return cached;
+        }
+
         return const ServerStatus(ServerConnectionState.disconnected);
       }
     }

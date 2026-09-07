@@ -116,8 +116,10 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
     coordinator.dispose();
+    await bridge.promptsController.close();
+    await bridge.dismissalsController.close();
   });
 
   testWidgets('host-key first use renders and trusts', (tester) async {

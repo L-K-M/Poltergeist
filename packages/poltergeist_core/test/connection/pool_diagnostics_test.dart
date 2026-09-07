@@ -11,7 +11,7 @@ import 'pool_fakes.dart';
 /// transcript fan-out that feeds the UI's live connection log.
 void main() {
   test('a failed first connect reports the summarized failure as detail', () {
-    fakeAsync((time) async {
+    fakeAsync((time) {
       final opener = FakeTransportOpener()
         ..connectFailure = SshConnectException(
           'Host key not accepted for example.com:22.',
@@ -29,9 +29,10 @@ void main() {
         throwsA(isA<SshConnectException>()),
       );
       time.flushMicrotasks();
-      await outcome;
+      completeWithoutTimers(time, outcome);
 
       expect(statuses.map((s) => s.state).toList(), [
+        ServerConnectionState.disconnected,
         ServerConnectionState.connecting,
         ServerConnectionState.disconnected,
       ]);
@@ -39,18 +40,21 @@ void main() {
 
       // The summary survives for a watcher that joins after the failure —
       // the transcript view of a failed pane needs it on rewatch too.
-      expect(
-        h.manager.watchServer('s1').first.then((s) => s.detail),
-        completion('Host key not accepted for example.com:22.'),
-      );
+      ServerStatus? rewatched;
+      final rewatchSubscription = h.manager
+          .watchServer('s1')
+          .listen((status) => rewatched = status);
+      time.flushMicrotasks();
+      expect(rewatched?.detail, 'Host key not accepted for example.com:22.');
 
+      unawaited(rewatchSubscription.cancel());
       unawaited(subscription.cancel());
     });
   });
 
   test('terminal background recovery delivers its error when no acquisition '
       'awaits it', () {
-    fakeAsync((time) async {
+    fakeAsync((time) {
       final h = PoolHarness(
         opener: FakeTransportOpener(growthRequiresChallenge: true),
       )..addServer('s1');
@@ -89,7 +93,7 @@ void main() {
   });
 
   test('terminal recovery cancellation reports no detail', () {
-    fakeAsync((time) async {
+    fakeAsync((time) {
       final h = PoolHarness(
         opener: FakeTransportOpener(growthRequiresChallenge: true),
       )..addServer('s1');
@@ -121,7 +125,7 @@ void main() {
   });
 
   test('a declined changed key reports the block reason as detail', () {
-    fakeAsync((time) async {
+    fakeAsync((time) {
       // First connect pins `original`; the next connect presents `changed`.
       final opener = FakeTransportOpener(
         presentedFingerprints: const ['SHA256:original', 'SHA256:changed'],
@@ -138,6 +142,7 @@ void main() {
         h.manager.openBrowseChannel('s1', paneTabId: 'a'),
       );
       expect(statuses.map((s) => s.state), [
+        ServerConnectionState.disconnected,
         ServerConnectionState.connecting,
         ServerConnectionState.connected,
       ]);
@@ -151,7 +156,7 @@ void main() {
         throwsA(isA<RemoteFileException>()),
       );
       time.flushMicrotasks();
-      await outcome;
+      completeWithoutTimers(time, outcome);
 
       expect(statuses.last.state, ServerConnectionState.blocked);
       expect(statuses.last.detail, contains('has changed'));
@@ -161,7 +166,7 @@ void main() {
   });
 
   test('transcript lines fan out to every referencing serverId', () {
-    fakeAsync((time) async {
+    fakeAsync((time) {
       // Two serverIds over one shared endpoint pool (03 §3.5).
       final h = PoolHarness()
         ..addServer('s1')
@@ -174,6 +179,10 @@ void main() {
 
       h.opener.connectGate = Completer<void>();
       final opening = h.manager.openBrowseChannel('s1', paneTabId: 'a');
+      final siblingOpening = expectLater(
+        h.manager.openBrowseChannel('s2', paneTabId: 'b'),
+        throwsA(isA<RemoteFileException>()),
+      );
       time.flushMicrotasks();
 
       // The attempt runs while both serverIds reference the pool: both see
@@ -190,7 +199,8 @@ void main() {
       time.flushMicrotasks();
 
       h.opener.connectGate!.complete();
-      await opening;
+      completeWithoutTimers(time, opening);
+      completeWithoutTimers(time, siblingOpening);
 
       expect(byServer['s1'], [
         'connecting to example.com:22',
@@ -207,7 +217,7 @@ void main() {
   });
 
   test('a frozen attempt forwards nothing further', () {
-    fakeAsync((time) async {
+    fakeAsync((time) {
       final h = PoolHarness()..addServer('s1');
 
       final lines = <ConnectLogLine>[];
@@ -226,7 +236,7 @@ void main() {
       time.flushMicrotasks();
 
       h.opener.connectGate!.complete();
-      await opening;
+      completeWithoutTimers(time, opening);
 
       expect(lines.map((l) => l.line), ['before freeze']);
 
