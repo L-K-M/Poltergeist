@@ -9,6 +9,7 @@ import 'package:test/test.dart';
 /// round trip without needing an sshd fixture (08 §5 owns those legs).
 const _refusedPort = 1;
 const _connectedServerId = 'srv-2';
+const _streamClosureTimeout = Duration(seconds: 5);
 const _recoveryFailure = RecoveryFailedEvent(
   serverId: 'srv-1',
   paneTabId: 'tab-1',
@@ -71,6 +72,7 @@ void main() {
     // Dispatching an unsolicited event must leave later requests serving.
     expect(await client.connectedServerIds(), {_connectedServerId});
     expect(first, hasLength(1));
+    expect(second, hasLength(1));
   });
 
   test('watchServer emits the current state first', () async {
@@ -221,7 +223,7 @@ void main() {
     final failures = client.recoveryFailures.toList();
     await client.shutdown();
 
-    expect(await failures, isEmpty);
+    expect(await failures.timeout(_streamClosureTimeout), isEmpty);
   });
 
   test('dead-engine surfaces: watch fails fast', () async {
@@ -257,7 +259,7 @@ void main() {
       throwsA(isA<RemoteFileException>()),
     );
     await expectLater(client.terminated, completes);
-    expect(await failures, isEmpty);
+    expect(await failures.timeout(_streamClosureTimeout), isEmpty);
 
     // Shutdown on a dead engine must complete, not hang on an ack that can
     // never arrive (the ack-vs-termination race).

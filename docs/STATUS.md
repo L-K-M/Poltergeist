@@ -258,6 +258,11 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      or client forwarding makes the respective new test fail. Core analysis and
      237 tests pass (one existing fixture skip); Flutter analysis and 121 tests
      pass.
+     Review clarified synchronous, non-reentrant observers and the early
+     teardown's single-report guarantee; client tests check both listeners
+     after later requests and bound stream-closure failures. The app's eventual
+     diagnostic owner must subscribe before connecting; this live stream keeps
+     no replay cache (03 §5).
    - **2026-09-07 — transcript follow-up (#40 review):** consider static
      recovery-stage labels (probe, credential resolution, transport open)
      with the live transcript. Opaque errors currently use the documented

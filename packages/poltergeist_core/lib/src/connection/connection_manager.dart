@@ -158,6 +158,8 @@ class PooledConnectionManager implements ConnectionManager {
   /// [onRecoveryFailure] receives terminal background failures even without
   /// an awaiting acquisition. A pane id limits the failure to that binding;
   /// null means the whole pool failed. Observer errors cannot affect recovery.
+  /// The observer runs synchronously during cleanup; it must not re-enter
+  /// this manager. Forward diagnostics to the owning service instead.
   PooledConnectionManager({
     required this._resolveServer,
     required this._resolveCredentials,
@@ -1294,8 +1296,8 @@ class PooledConnectionManager implements ConnectionManager {
     _failAllWaiters(pool, error: failure);
     final recovery = pool._reconnect;
     if (recovery != null && _isCurrentReconnect(pool, recovery)) {
-      // Acquisition owns this early teardown, before the recovery catch
-      // can observe it. Report the refusal without losing its live cause.
+      // Teardown cancels the cycle before its first await, so the recovery
+      // catch cannot report this refusal again (diagnostics test pins one).
       _reportRecoveryFailure(pool, failure);
     }
     // Teardown detaches transports synchronously; slow closes must not
