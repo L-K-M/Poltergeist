@@ -169,12 +169,46 @@ extension _PoolRecovery on PooledConnectionManager {
           failures++;
         }
       }
-    } on Object {
-      if (_isCurrentReconnect(pool, cycle)) await _tearDownPool(pool);
+    } on Object catch (error) {
+      if (_isCurrentReconnect(pool, cycle)) {
+        // Teardown invalidates the cycle: report while its provenance is
+        // still live, including when no acquisition awaits the failure.
+        _reportRecoveryFailure(pool, error);
+        await _tearDownPool(pool);
+      }
       rethrow;
     } finally {
       if (identical(pool._reconnect, cycle)) pool._reconnect = null;
       unawaited(_maybeTearDown(pool));
+    }
+  }
+
+  void _reportRecoveryFailure(
+    _EndpointPool pool,
+    Object error, {
+    String? serverId,
+    String? paneTabId,
+  }) {
+    final observer = _onRecoveryFailure;
+    if (observer == null) return;
+
+    // Arbitrary resolver/opener errors may include secrets in toString().
+    // Typed VFS details are the established local diagnostic contract.
+    final failure = error is RemoteFileException
+        ? error
+        : const RemoteFileException(
+            kind: RemoteFileErrorKind.other,
+            operation: 'reconnect',
+            message: 'Connection recovery failed.',
+          );
+    for (final reference in List<_ServerReference>.of(pool.references.values)) {
+      if (serverId != null && reference.serverId != serverId) continue;
+      if (!identical(_references[reference.serverId], reference)) continue;
+      try {
+        observer(reference.serverId, failure, paneTabId: paneTabId);
+      } on Object {
+        // Diagnostics must not replace the failure or interrupt teardown.
+      }
     }
   }
 
@@ -351,6 +385,12 @@ extension _PoolRecovery on PooledConnectionManager {
         binding._failure = error;
         pool.browseByClient.remove(key);
         binding._handle.browseClients--;
+        _reportRecoveryFailure(
+          pool,
+          error,
+          serverId: binding._serverId,
+          paneTabId: binding._paneTabId,
+        );
       } finally {
         // A close/replacement can win while canonicalize awaits.
         if (handle.browseClients == 0) await _closeHandle(pool, handle);

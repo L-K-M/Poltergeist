@@ -277,6 +277,7 @@ void main() {
         }
         expect(prompts, 1);
         expect(h.store.pins.values.single.fingerprintSha256, 'SHA256:a');
+        expect(h.recoveryFailures, isEmpty);
         expect(time.pendingTimers, isEmpty);
         completeWithoutTimers(time, h.manager.disconnectServer('s1'));
         completeWithoutTimers(time, h.manager.disconnectServer('s2'));

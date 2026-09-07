@@ -121,6 +121,25 @@ void main() {
         ),
       );
 
+      // A pane failure identifies its binding; a pool failure affects every
+      // pane at this server. Both remain plain data across the isolate.
+      for (final paneTabId in [null, 'tab-1']) {
+        await _roundTrip(
+          incoming,
+          engine,
+          RecoveryFailedEvent(
+            serverId: 'srv-1',
+            paneTabId: paneTabId,
+            error: const EngineError(
+              kind: RemoteFileErrorKind.permissionDenied,
+              operation: 'canonicalize',
+              path: '.',
+              message: 'Home inaccessible.',
+            ),
+          ),
+        );
+      }
+
       await _roundTrip(
         incoming,
         engine,
@@ -344,6 +363,10 @@ Future<void> _roundTrip(
       expect(got.serverId, sent.serverId);
       expect(got.state, sent.state);
       expect(got.detail, sent.detail);
+    case (final RecoveryFailedEvent sent, final RecoveryFailedEvent got):
+      expect(got.serverId, sent.serverId);
+      expect(got.paneTabId, sent.paneTabId);
+      _expectResult(got.error, sent.error);
     case (final EnginePromptEvent sent, final EnginePromptEvent got):
       expect(got.promptId, sent.promptId);
       expect(got.kind, sent.kind);
@@ -425,7 +448,7 @@ Future<void> _roundTrip(
 
   final event = returned;
   if (event is EngineEvent) {
-    expect(event.protocolVersion, 2);
+    expect(event.protocolVersion, 3);
     expect(event.protocolVersion, engineProtocolVersion);
   }
 }

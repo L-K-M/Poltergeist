@@ -140,6 +140,8 @@ class PooledConnectionManager implements ConnectionManager {
   final SshTransportOpener _openTransport;
   final Prober _prober;
   final Random _reconnectRandom;
+  final void Function(String, RemoteFileException, {String? paneTabId})?
+      _onRecoveryFailure;
 
   final Map<String, _ServerReference> _references = {};
   final Map<String, Future<_ServerReference>> _pendingReferences = {};
@@ -153,6 +155,9 @@ class PooledConnectionManager implements ConnectionManager {
   /// receives the resolution's dismissal scope: the manager trips it when
   /// the pool's lifetime ends mid-resolution, so a resolver-owned prompt
   /// closes instead of parking on an answer the pool rejects as stale.
+  /// [onRecoveryFailure] receives terminal background failures even without
+  /// an awaiting acquisition. A pane id limits the failure to that binding;
+  /// null means the whole pool failed. Observer errors cannot affect recovery.
   PooledConnectionManager({
     required this._resolveServer,
     required this._resolveCredentials,
@@ -163,6 +168,7 @@ class PooledConnectionManager implements ConnectionManager {
     this._openTransport = openDartSshTransport,
     this._prober = const TcpBannerProber(),
     Random? reconnectRandom,
+    this._onRecoveryFailure,
   }) : _reconnectRandom = reconnectRandom ?? Random() {
     // A nonpositive cap turns an outage into a zero-delay retry loop.
     if (_policy.reconnectBackoffCap <= Duration.zero) {
@@ -1286,6 +1292,12 @@ class PooledConnectionManager implements ConnectionManager {
       message: 'No SFTP channel is available.',
     );
     _failAllWaiters(pool, error: failure);
+    final recovery = pool._reconnect;
+    if (recovery != null && _isCurrentReconnect(pool, recovery)) {
+      // Acquisition owns this early teardown, before the recovery catch
+      // can observe it. Report the refusal without losing its live cause.
+      _reportRecoveryFailure(pool, failure);
+    }
     // Teardown detaches transports synchronously; slow closes must not
     // delay or replace the open failure returned to callers.
     unawaited(_tearDownPool(pool).catchError((Object _) {}));

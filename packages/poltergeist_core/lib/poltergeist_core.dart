@@ -113,6 +113,7 @@ export 'src/engine/protocol.dart'
         PromptDismissedEvent,
         PromptReply,
         PromptReplyRequest,
+        RecoveryFailedEvent,
         ResponseEvent,
         ServerIdsListed,
         ServerStateEvent,

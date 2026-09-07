@@ -50,6 +50,7 @@ void main() {
         time.flushMicrotasks();
         expect(pane.fs, same(h.opener.transports.last.channels.single.fs));
         expect(browsePane(time, h, 'a'), same(pane));
+        expect(h.recoveryFailures, isEmpty);
         completeWithoutTimers(time, pane.close());
         expect(time.pendingTimers, isEmpty);
       });
@@ -83,6 +84,7 @@ void main() {
       time.flushMicrotasks();
       expect(pane.fs, same(h.opener.transports.last.channels.single.fs));
       expect(browsePane(time, h, 'a'), same(pane));
+      expect(h.recoveryFailures, isEmpty);
       completeWithoutTimers(time, pane.close());
       expect(time.pendingTimers, isEmpty);
     });
@@ -120,6 +122,7 @@ void main() {
         expect(first.fs, same(recovered.channels.first.fs));
         expect(second.fs, same(recovered.channels.last.fs));
         expect(replacement.closeCompleted, isTrue);
+        expect(h.recoveryFailures, isEmpty);
         completeWithoutTimers(time, first.close());
         completeWithoutTimers(time, second.close());
         expect(time.pendingTimers, isEmpty);

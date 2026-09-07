@@ -22,6 +22,7 @@ class EngineClient {
   final _promptDismissals = StreamController<PromptDismissedEvent>.broadcast();
   final _hostKeyPins = StreamController<HostKeyPinnedEvent>.broadcast();
   final _progress = StreamController<TransferProgressBatchEvent>.broadcast();
+  final _recoveryFailures = StreamController<RecoveryFailedEvent>.broadcast();
 
   final ReceivePort _events;
   final ReceivePort _control;
@@ -81,6 +82,10 @@ class EngineClient {
 
   /// Coalesced transfer progress (03 §5); consumed by the queue mirror (M4).
   Stream<TransferProgressBatchEvent> get progressBatches => _progress.stream;
+
+  /// Terminal background failures for the local diagnostic consumer (D19).
+  /// Subscribe before connecting; events are live and close on engine death.
+  Stream<RecoveryFailedEvent> get recoveryFailures => _recoveryFailures.stream;
 
   /// The server's connection state, current value first (03 §3.2). Watching
   /// again re-subscribes; dropping the last listener unsubscribes.
@@ -196,6 +201,8 @@ class EngineClient {
         _hostKeyPins.add(event);
       case final TransferProgressBatchEvent event:
         _progress.add(event);
+      case final RecoveryFailedEvent event:
+        _recoveryFailures.add(event);
       default:
         // Same-package protocol drift: no client can produce this message.
         // Fail closed rather than wedge every pending call.
@@ -273,6 +280,7 @@ class EngineClient {
     _promptDismissals.close();
     _hostKeyPins.close();
     _progress.close();
+    _recoveryFailures.close();
     _events.close();
     _control.close();
     if (!_terminated.isCompleted) _terminated.complete();

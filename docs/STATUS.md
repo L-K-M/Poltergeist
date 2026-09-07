@@ -4,7 +4,8 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M2 ignores stale home-resolution failures from
+_Last updated: 2026-09-07 — M2 exposes terminal background recovery failures
+through the engine's local diagnostic stream and ignores stale home failures from
 dead recovery transports; bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
 `EngineClient` connection/prompt protocol are implemented; upstream
@@ -237,10 +238,22 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      half **closed 2026-09-07**: the engine bridges its resolver over the
      port, withdrawal crosses as `PromptDismissedEvent`, and shutdown
      dismisses all open prompts (see the dated section).
-   - **2026-09-07 — recovery diagnostics (review follow-up):** deliver
-     terminal background recovery errors to the engine's local diagnostic
-     event/log path when no acquisition awaits them. This belongs with the
-     engine/protocol and live transcript slices; no telemetry (D19).
+   - **2026-09-07 — recovery diagnostics (closed):** terminal pool failures
+     fan out per current server reference; permanent home errors identify
+     their pane-tab. `RecoveryFailedEvent` crosses as typed error fields
+     without arbitrary causes; `EngineClient.recoveryFailures` broadcasts
+     independently of state watches and closes on engine termination.
+     Cancellation, stale failures, transient retries, and changed-key blocks
+     produce no generic recovery diagnostic. Observer errors cannot replace
+     caller failures or interrupt teardown. Arbitrary resolver/opener errors
+     use a fixed summary without formatting their internals. The live SSH
+     transcript and localized rendering remain with prompt UI; no telemetry,
+     persistence, production wiring, or milestone-close claim.
+     Validation: five regressions failed before the producers were wired;
+     seven diagnostic pool tests and two host-port tests pass. Protocol v3
+     round-trips both failure scopes through a spawned isolate; client tests
+     verify stream closure. Core analysis and 234 tests pass (one existing
+     fixture skip); Flutter analysis and 121 tests pass.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This

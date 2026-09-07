@@ -168,6 +168,16 @@ void main() {
     );
   });
 
+  test('shutdown closes the background recovery failure stream', () async {
+    final client = await EngineClient.spawn(const EngineConfig());
+    addTearDown(client.shutdown);
+
+    final failures = client.recoveryFailures.toList();
+    await client.shutdown();
+
+    expect(await failures, isEmpty);
+  });
+
   test('dead-engine surfaces: watch fails fast', () async {
     final client = await EngineClient.spawn(const EngineConfig());
     await client.shutdown();
@@ -192,6 +202,8 @@ void main() {
     );
     addTearDown(client.shutdown);
 
+    final failures = client.recoveryFailures.toList();
+
     // The engine died on its constructor guard; every call fails typed and
     // termination is observable (no silent zombie client).
     await expectLater(
@@ -199,6 +211,7 @@ void main() {
       throwsA(isA<RemoteFileException>()),
     );
     await expectLater(client.terminated, completes);
+    expect(await failures, isEmpty);
 
     // Shutdown on a dead engine must complete, not hang on an ack that can
     // never arrive (the ack-vs-termination race).
