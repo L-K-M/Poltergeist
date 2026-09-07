@@ -4,11 +4,10 @@ import 'throughput_attempt.dart';
 
 const resolvedDartssh2Version = '3.0.2';
 
-/// Upstream main commit (the PR-S3 merge) that no Séance tag contains yet.
-/// Re-pin to the next Séance release tag per docs/STATUS.md open item 3;
-/// tool/bench/pubspec.yaml's git ref must stay in sync (harness_test
-/// asserts it equals the lock's resolved-ref).
-const pinnedSeanceRevision = '2f99f4efb25a83340605464635bdf0f3ba95d931';
+/// Live harness pin; frozen M0 evidence retains its measured revisions.
+/// Re-pin to the next Séance tag per docs/STATUS.md item 2. The harness test
+/// keeps this aligned with tool/bench/pubspec.yaml and its resolved lock.
+const pinnedSeanceRevision = 'a9add158015fc15d805cecd2754ac40bc7860a23';
 
 /// One attributable measurement row. Rates stay derived from raw values.
 class BenchResult {

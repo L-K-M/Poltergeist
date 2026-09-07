@@ -270,9 +270,14 @@ Future<(SSHClient, AuthKind)> openAuthenticatedClient({
   KeyboardInteractiveResponder? onKeyboardInteractive,
   Future<SSHSocket> Function(String, int, Duration)? connect, // test seam
   Duration timeout = const Duration(seconds: 15),
+  Duration? keepAliveInterval = const Duration(seconds: 10),
   SshConnectionLog? log,
 });
 ```
+
+`keepAliveInterval` preserves dartssh2's default for Séance; null disables
+its timer so Poltergeist can own the idle-only policy (§3.3). Positive
+intervals pass through; nonpositive values fail before opening a socket.
 
 It carries the agent-method rejection, PEM key loading with per-key
 fingerprint logging, TCP connect, `SSHClient` construction (TOFU verify
@@ -480,6 +485,13 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   no in-flight operation; a ping that times out (30 s operation timeout, same
   as the adapter's) marks the transport disconnected and closes it, so the
   reconnect path below — which fires on transport closure — triggers.
+  The pool disables the opener's built-in keepalive timer. Each concrete
+  `DartSshRemoteFileSystem` exposes read-only `hasActiveOperations` for its
+  transport owner to aggregate alongside pending channel opens/closes.
+  This counts outstanding VFS calls, including nested calls, streaming,
+  and awaited cleanup, until completion, error, timeout, or cancellation;
+  it is not a count of wire requests still settling afterward. The VFS
+  interface stays unchanged and unwrapped (D3).
 - **Idle:** extra transports (beyond the first) close after
   `idleExtraTransportTimeout` holding no channels at all — no leased
   transfer channel and no open browse channel either, since §3.2 rule 4
