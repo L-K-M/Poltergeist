@@ -783,6 +783,29 @@ void main() {
     expect(find.text('Settings page'), findsOneWidget);
   });
 
+  testWidgets('prompts arriving after dispose are ignored', (tester) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+    coordinator.dispose();
+
+    bridge.emit(
+      _event(
+        'late',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'example.com',
+          port: 2222,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:presented',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(bridge.replies, isEmpty);
+  });
+
   testWidgets('cancelling the credential prompt answers cancelled', (
     tester,
   ) async {
@@ -833,6 +856,10 @@ void main() {
     expect(find.textContaining('disk full'), findsNothing);
     expect(reportedErrors.single, isA<StateError>());
     expect((bridge.replies.single.$3 as CredentialPromptReply).password, 'pw');
+
+    // Expire the transient notice before fixture teardown.
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pumpAndSettle();
   });
 }
 

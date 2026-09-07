@@ -123,9 +123,11 @@ pool. No copied sources, pin changes, or upstream port candidates.
   engine protocol's `KeyboardInteractivePromptData` (03 §5); adds per-field
   reveal toggles absent from the source (echo metadata is absent on the
   wire, so reveal is explicit-only), coordinator-owned route identity, and
-  current-route action guards. The controller-dispose-in-State lifecycle
-  and its IME use-after-dispose lesson are ported verbatim.
-- Port-back candidates: current-route action guards; preserve RFC 4256's
+  current-route action guards, and Enter submission on the final prompt. The
+  controller-dispose-in-State lifecycle and its IME use-after-dispose lesson
+  are ported verbatim.
+- Port-back candidates: current-route action guards and final-prompt Enter;
+  preserve RFC 4256's
   per-prompt echo bit once the upstream responder exposes it.
 
 ## app/poltergeist_app/test/ui/prompts/keyboard_interactive_dialog_test.dart
@@ -134,8 +136,10 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: adapted to the protocol payload; adds reveal-toggle,
-  empty-name/instruction fallback, and repeated-submit route-safety coverage.
-- Port-back candidates: repeated-submit regression.
+  empty-name/instruction fallback, final-prompt Enter, autofocus, and
+  repeated-submit route-safety coverage.
+- Port-back candidates: final-prompt Enter, autofocus, and repeated-submit
+  regressions.
 
 ## app/poltergeist_app/lib/services/identity_audit_log.dart
 
@@ -145,9 +149,10 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
   (D23); wrong-typed optional JSON fields now skip as malformed instead of
   poisoning the full read. Desktop POSIX logs are repaired/created mode 0600,
-  including atomic rotation, because they contain private-key paths. These
-  local security/reliability repairs close PR #38 findings without waiting
-  for upstream (04 §6). The record shape stays frozen identical.
+  including atomic rotation, because they contain private-key paths; `readAll`
+  fails closed when an existing log cannot be restricted. These local
+  security/reliability repairs close PR #38 findings without waiting for
+  upstream (04 §6). The record shape stays frozen identical.
 - Port-back candidates: optional-field decode and owner-only audit storage.
 
 ## app/poltergeist_app/test/services/identity_audit_log_test.dart
@@ -196,8 +201,8 @@ pool. No copied sources, pin changes, or upstream port candidates.
   cover the pool's full lifecycle (reconnecting, blocked) beyond the
   source's terminal states; replacement streams resubscribe and reset stale
   server state/transcript; the transcript starts collapsed exactly as the
-  source's does.
-- Port-back candidates: none.
+  source's does and anchors expanded live output to its newest lines.
+- Port-back candidates: anchor live transcript output to its newest lines.
 
 ## app/poltergeist_app/test/ui/connection_status_panel_test.dart
 

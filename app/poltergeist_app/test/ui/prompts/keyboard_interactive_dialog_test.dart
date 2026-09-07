@@ -121,6 +121,23 @@ void main() {
     expect(find.text('result:123456|push'), findsOneWidget);
   });
 
+  testWidgets('Enter in the final prompt submits every answer', (tester) async {
+    await _open(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Passcode'),
+      '123456',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Second factor'),
+      'push',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.text('result:123456|push'), findsOneWidget);
+  });
+
   testWidgets('a repeated submit cannot pop the route below the dialog', (
     tester,
   ) async {

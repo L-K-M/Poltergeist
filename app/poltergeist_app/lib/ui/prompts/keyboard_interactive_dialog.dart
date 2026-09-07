@@ -63,6 +63,9 @@ class _KeyboardInteractiveDialogState
     Navigator.pop(context, answers);
   }
 
+  void _submit() =>
+      _close([for (final controller in _controllers) controller.text]);
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -92,6 +95,9 @@ class _KeyboardInteractiveDialogState
                 autocorrect: false,
                 enableSuggestions: false,
                 enableIMEPersonalizedLearning: false,
+                onSubmitted: i == widget.data.prompts.length - 1
+                    ? (_) => _submit()
+                    : null,
                 decoration: InputDecoration(
                   labelText: widget.data.prompts[i],
                   suffixIcon: IconButton(
@@ -117,11 +123,7 @@ class _KeyboardInteractiveDialogState
           onPressed: () => _close(const <String>[]),
           child: Text(l10n.keyboardCancel),
         ),
-        FilledButton(
-          onPressed: () =>
-              _close([for (final controller in _controllers) controller.text]),
-          child: Text(l10n.keyboardSubmit),
-        ),
+        FilledButton(onPressed: _submit, child: Text(l10n.keyboardSubmit)),
       ],
     );
   }

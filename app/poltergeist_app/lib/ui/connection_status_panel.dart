@@ -280,6 +280,7 @@ class _ConnectionLogView extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: SingleChildScrollView(
+              reverse: true,
               child: SelectableText(
                 text.isEmpty ? l10n.connectionLogEmpty : text,
                 style: const TextStyle(

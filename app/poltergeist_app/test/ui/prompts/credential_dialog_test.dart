@@ -218,6 +218,7 @@ void main() {
 
     // The ARB sentence wraps the OS detail; the dialog stays up for retry.
     expect(find.textContaining('Could not read the key file'), findsOneWidget);
+    expect(find.textContaining('No such file'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
     expect(find.byType(AlertDialog), findsOneWidget);
 

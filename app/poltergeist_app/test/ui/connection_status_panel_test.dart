@@ -189,6 +189,7 @@ void main() {
         detail: 'Stale failure.',
       ),
     );
+    // Deliberately match the new server: only the generation guard rejects it.
     oldLog.emit(
       ConnectionLogEvent(serverId: 's2', lines: ['stale transcript']),
     );
@@ -219,6 +220,12 @@ void main() {
     // Collapsed children build lazily: the empty placeholder appears only
     // once the tile is open.
     expect(find.text('(no log captured)'), findsOneWidget);
+    expect(
+      tester
+          .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+          .reverse,
+      isTrue,
+    );
 
     final state = tester.state<_HostState>(find.byType(_Host));
     state.logController.add(
@@ -378,18 +385,26 @@ void main() {
     state.statesController.add(
       const ServerStatus(ServerConnectionState.connecting),
     );
+    const totalLines = 500;
+    const retainedLines = 400; // Mirrors the panel's transcript cap.
     state.logController.add(
       ConnectionLogEvent(
         serverId: 's1',
-        lines: [for (var i = 0; i < 500; i++) 'line $i'],
+        lines: [for (var i = 0; i < totalLines; i++) 'line $i'],
       ),
     );
     await tester.pump();
     await _expandLog(tester);
 
     expect(find.textContaining('line 0'), findsNothing);
-    expect(find.textContaining('line 99'), findsNothing);
-    expect(find.textContaining('line 100'), findsOneWidget);
-    expect(find.textContaining('line 499'), findsOneWidget);
+    expect(
+      find.textContaining('line ${totalLines - retainedLines - 1}'),
+      findsNothing,
+    );
+    expect(
+      find.textContaining('line ${totalLines - retainedLines}'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('line ${totalLines - 1}'), findsOneWidget);
   });
 }

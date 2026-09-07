@@ -657,6 +657,11 @@ void main() {
       for (var i = 0; i < 100 && !hasBatch(); i++) {
         await Future<void>.delayed(connectionLogFlushInterval ~/ 4);
       }
+      expect(
+        hasBatch(),
+        isTrue,
+        reason: 'The transcript batch did not arrive within the poll window.',
+      );
 
       final states = h.events.whereType<ServerStateEvent>().toList();
       expect(states.last.state, ServerConnectionState.disconnected);

@@ -186,14 +186,14 @@ void main() {
       time.flushMicrotasks();
       expect(extra.closed, isTrue);
       expect(
-        granted,
-        isNotNull,
-        reason: 'Retiring the idle extra must re-drive queued demand.',
-      );
-      expect(
         grantError,
         isNull,
         reason: 'The queued lease must be granted, not failed.',
+      );
+      expect(
+        granted,
+        isNotNull,
+        reason: 'Retiring the idle extra must re-drive queued demand.',
       );
       expect(
         harness.opener.calls,
