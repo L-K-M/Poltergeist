@@ -28,16 +28,34 @@ const _growthPolicy = PoolPolicy(
   maxChannelsPerTransport: 1,
 );
 
-PoolHarness _harness({FakeTransportOpener? opener}) =>
-    PoolHarness(policy: _policy, opener: opener)..addServer('s1');
+PoolHarness _harness() => PoolHarness(policy: _policy)..addServer('s1');
 
 void main() {
+  test('timeout-test constants keep the ping timeout off the ticks', () {
+    // The unanswered-ping test needs SshTransport.pingOperationTimeout to
+    // expire strictly between two _timeoutTestInterval ticks. Guard the
+    // invariant so a change to either constant fails loudly here rather
+    // than silently reintroducing fake-clock tie-breaking.
+    expect(SshTransport.pingOperationTimeout < _timeoutTestInterval, isTrue);
+    expect(
+      SshTransport.pingOperationTimeout.inMilliseconds %
+          _timeoutTestInterval.inMilliseconds,
+      isNot(0),
+    );
+  });
+
   test('a nonpositive keepalive interval is rejected at construction', () {
     // A zero interval would spin the event loop; same contract as the
     // reconnect backoff cap.
     expect(
       () => PoolHarness(
         policy: const PoolPolicy(keepAliveInterval: Duration.zero),
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => PoolHarness(
+        policy: const PoolPolicy(keepAliveInterval: Duration(seconds: -1)),
       ),
       throwsArgumentError,
     );
@@ -169,6 +187,42 @@ void main() {
       completeWithoutTimers(time, pane.close());
       unawaited(subscription.cancel());
       expect(time.pendingTimers, isEmpty);
+    });
+  });
+
+  test('a ping-timeout verdict is never stacked onto while its close wedges',
+      () {
+    fakeAsync((time) {
+      final h = PoolHarness(
+        policy: const PoolPolicy(keepAliveInterval: _timeoutTestInterval),
+      )..addServer('s1');
+      final pane = browsePane(time, h, 'a');
+      final dead = h.opener.transports.single;
+      // Unanswered pings, a wedged close, and a closed flag that lags the
+      // close call (dartssh2 reports closure with the socket teardown) —
+      // the exact window where a later tick must not re-ping the dying
+      // transport.
+      dead.pingGate = Completer<void>();
+      dead.closeGate = Completer<void>();
+      dead.isClosedOnlyWhenSettled = true;
+
+      time.elapse(_timeoutTestInterval);
+      expect(dead.pingCalls, 1);
+
+      time.elapse(SshTransport.pingOperationTimeout);
+      time.flushMicrotasks();
+      expect(dead.closeCalls, 1);
+      expect(dead.pingCalls, 1);
+
+      // Ticks while the wedged close keeps the slot attached and (per the
+      // knob) looking open: no second ping onto the sentenced transport.
+      time.elapse(_timeoutTestInterval * 3);
+      expect(dead.pingCalls, 1);
+
+      dead.closeGate!.complete();
+      time.flushMicrotasks();
+      completeWithoutTimers(time, pane.close());
+      completeWithoutTimers(time, h.manager.disconnectServer('s1'));
     });
   });
 

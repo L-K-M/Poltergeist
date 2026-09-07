@@ -102,18 +102,9 @@ void main() {
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(extra.closed, isFalse);
       expect(extra.channels.single.closed, isFalse);
-      // The first transport is alive (its pane still browses), so the
-      // pool's keepalive clock is legitimately pending — nothing else is,
-      // and it must be the pool's single periodic clock (D3).
-      expect(time.nonPeriodicTimerCount, 0);
-      expect(
-        time.pendingTimers
-            .whereType<FakeTimer>()
-            .where((timer) => timer.isPeriodic)
-            .single
-            .duration,
-        _policy.keepAliveInterval,
-      );
+      // The first transport is alive (its pane still browses), so only the
+      // pool's single periodic keepalive clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, _policy.keepAliveInterval);
 
       completeWithoutTimers(time, sibling.close());
       time.elapse(_beforeExpiry);
@@ -139,18 +130,9 @@ void main() {
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(first.channels.single.closed, isTrue);
       expect(first.closed, isFalse);
-      // Retained-but-empty still counts as live for the keepalive clock;
-      // no one-shot clock (idle or cleanup) may be pending, and the only
-      // periodic clock is the pool's keepalive.
-      expect(time.nonPeriodicTimerCount, 0);
-      expect(
-        time.pendingTimers
-            .whereType<FakeTimer>()
-            .where((timer) => timer.isPeriodic)
-            .single
-            .duration,
-        _policy.keepAliveInterval,
-      );
+      // Retained-but-empty still counts as live, so only the pool's single
+      // periodic keepalive clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, _policy.keepAliveInterval);
 
       completeWithoutTimers(time, extraPane.close());
       expect(

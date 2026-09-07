@@ -1108,18 +1108,22 @@ class PooledConnectionManager implements ConnectionManager {
           .then(
             (_) => slot._pingOutstanding = false,
             onError: (Object error) {
-              slot._pingOutstanding = false;
-              if (error is! TimeoutException) {
-                // Non-timeout failures are the done watcher's business:
-                // the socket's own closure drives the ordinary death path.
+              if (error is TimeoutException) {
+                // Silence outlived the operation timeout: the transport is
+                // dead. Closing it completes `done`, whose watcher runs the
+                // ordinary transport-death path — recovery fires on closure
+                // exactly as it does for an externally dropped socket. The
+                // ping stays outstanding: the slot is dying, and its close
+                // may itself be wedged, so no later tick may stack a second
+                // ping onto it.
+                if (pool.transports.contains(slot)) {
+                  unawaited(closeSshResource(slot.transport.close));
+                }
                 return;
               }
-              // Silence outlived the operation timeout: the transport is
-              // dead. Closing it completes `done`, whose watcher runs the
-              // ordinary transport-death path — recovery fires on closure
-              // exactly as it does for an externally dropped socket.
-              if (!pool.transports.contains(slot)) return;
-              unawaited(closeSshResource(slot.transport.close));
+              // Non-timeout failures are the done watcher's business: the
+              // socket's own closure drives the ordinary death path.
+              slot._pingOutstanding = false;
             },
           ),
     );

@@ -65,18 +65,9 @@ void main() {
       browsePane(time, harness, 'extra', server: 's2');
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.every((t) => !t.closed), isTrue);
-      // Both transports are alive, so their pool's keepalive clock is
-      // legitimately pending; no one-shot clock may be, and every periodic
-      // clock must be the pool's single keepalive (D3's no-second-timer).
-      expect(time.nonPeriodicTimerCount, 0);
-      expect(
-        time.pendingTimers
-            .whereType<FakeTimer>()
-            .where((timer) => timer.isPeriodic)
-            .single
-            .duration,
-        _policy.keepAliveInterval,
-      );
+      // Both transports are alive, so only the pool's single periodic
+      // keepalive clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, _policy.keepAliveInterval);
       _disconnect(time, harness);
     });
   });
@@ -273,17 +264,9 @@ void main() {
       completeWithoutTimers(time, pane.close());
       time.elapse(defaultPolicy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.single.closed, isFalse);
-      // Alive under a lease: the keepalive clock stays armed, no one-shot
-      // clock is, and the only periodic clock is the pool's keepalive.
-      expect(time.nonPeriodicTimerCount, 0);
-      expect(
-        time.pendingTimers
-            .whereType<FakeTimer>()
-            .where((timer) => timer.isPeriodic)
-            .single
-            .duration,
-        defaultPolicy.keepAliveInterval,
-      );
+      // Alive under a lease, so only the pool's single periodic keepalive
+      // clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, defaultPolicy.keepAliveInterval);
       completeWithoutTimers(time, lease.release());
       // A server whose last channel has closed disconnects immediately
       // (pane-lifetime teardown); only surplus extra transports get the

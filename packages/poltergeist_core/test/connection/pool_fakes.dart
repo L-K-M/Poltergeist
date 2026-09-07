@@ -39,6 +39,21 @@ PaneChannel browsePane(
       harness.manager.openBrowseChannel(server, paneTabId: tab),
     );
 
+/// No one-shot clock (idle, cleanup, backoff) may be pending, and the only
+/// periodic timer is the pool's keepalive clock at the given cadence — the
+/// D3 one-clock invariant, pinned instead of assumed.
+void expectOnlyKeepAliveClock(FakeAsync time, Duration interval) {
+  expect(time.nonPeriodicTimerCount, 0);
+  expect(
+    time.pendingTimers
+        .whereType<FakeTimer>()
+        .where((timer) => timer.isPeriodic)
+        .single
+        .duration,
+    interval,
+  );
+}
+
 /// In-memory TOFU pin store (tests never touch real persistence).
 class FakeHostKeyStore implements HostKeyStore {
   final Map<String, HostKey> pins = {};
@@ -169,10 +184,16 @@ class FakeTransport implements SshTransport {
   /// from a pool-initiated close in assertions.
   void simulateExternalDeath() => die();
 
-  FakeTransport({required this.authKind, this.openLimit});
+  /// When set, [isClosed] reports closure only once [close] has settled —
+  /// dartssh2's closed flag follows the socket teardown, not the close()
+  /// call, so a wedged close leaves the transport looking open (the window
+  /// where a ping-timeout verdict must not be stacked onto).
+  bool isClosedOnlyWhenSettled = false;
 
   @override
-  bool get isClosed => closed;
+  bool get isClosed => isClosedOnlyWhenSettled ? closeCompleted : closed;
+
+  FakeTransport({required this.authKind, this.openLimit});
 
   @override
   Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
