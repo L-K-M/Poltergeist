@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
+import 'package:meta/meta.dart';
 import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart';
@@ -41,11 +42,24 @@ class EngineClient {
   /// isolate cannot be spawned or dies before the boot handshake completes
   /// (e.g. a construction failure such as an invalid [PoolPolicy]). Later
   /// engine death surfaces through [terminated] and failed pending calls.
-  static Future<EngineClient> spawn(EngineConfig config) async {
+  static Future<EngineClient> spawn(EngineConfig config) =>
+      _spawn(config, engineMain);
+
+  /// Exercises client dispatch over real ports with a socket-free engine.
+  @visibleForTesting
+  static Future<EngineClient> spawnForTesting(
+    EngineConfig config, {
+    required void Function(SendPort) entrypoint,
+  }) => _spawn(config, entrypoint);
+
+  static Future<EngineClient> _spawn(
+    EngineConfig config,
+    void Function(SendPort) entrypoint,
+  ) async {
     final client = EngineClient._();
     try {
       client._isolate = await Isolate.spawn(
-        engineMain,
+        entrypoint,
         client._events.sendPort,
         onError: client._control.sendPort,
         onExit: client._control.sendPort,

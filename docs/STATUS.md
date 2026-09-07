@@ -250,10 +250,18 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      transcript and localized rendering remain with prompt UI; no telemetry,
      persistence, production wiring, or milestone-close claim.
      Validation: five regressions failed before the producers were wired;
-     seven diagnostic pool tests and two host-port tests pass. Protocol v3
+     nine diagnostic pool tests and two host-port tests pass. Protocol v3
      round-trips both failure scopes through a spawned isolate; client tests
-     verify stream closure. Core analysis and 234 tests pass (one existing
-     fixture skip); Flutter analysis and 121 tests pass.
+     verify stream closure and broadcast delivery. Review added unconditional
+     harness recording (regression failed before repair), replaced/closed-pane
+     cases, and a test-only engine entrypoint seam. Removing the binding guard
+     or client forwarding makes the respective new test fail. Core analysis and
+     237 tests pass (one existing fixture skip); Flutter analysis and 121 tests
+     pass.
+   - **2026-09-07 — transcript follow-up (#40 review):** consider static
+     recovery-stage labels (probe, credential resolution, transport open)
+     with the live transcript. Opaque errors currently use the documented
+     generic summary; never format arbitrary error internals.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This

@@ -86,6 +86,7 @@ void main() {
       time.elapse(_firstDelay);
       completeWithoutTimers(time, failed);
       expect(calls, 2);
+      expect(h.recoveryFailures.map((f) => f.serverId), ['s1', 's2']);
       expect(time.pendingTimers, isEmpty);
     });
   });
@@ -159,6 +160,60 @@ void main() {
       });
     },
   );
+
+  test('late home failure cannot diagnose a replaced binding', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+      browsePane(time, h, 'a');
+      final handshake = h.opener.connectGate = Completer<void>();
+      h.opener.transports.single.die();
+      time.flushMicrotasks();
+      time.elapse(_firstDelay);
+
+      // Install the home gate before releasing the replacement handshake.
+      final transport = h.opener.transports.last;
+      final home = transport.canonicalizeGate = Completer<void>();
+      h.opener.connectGate = null;
+      handshake.complete();
+      time.flushMicrotasks();
+      expect(transport.channels, hasLength(1));
+      completeWithoutTimers(time, h.manager.disconnectServer('s1'));
+      final fresh = browsePane(time, h, 'a');
+
+      home.completeError(_denied);
+      time.flushMicrotasks();
+      expect(h.recoveryFailures, isEmpty);
+      expect(fresh.fs, isA<RemoteFileSystem>());
+      completeWithoutTimers(time, fresh.close());
+      expect(time.pendingTimers, isEmpty);
+    });
+  });
+
+  test('late home failure cannot diagnose a closed pane in a live pool', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+      final closed = browsePane(time, h, 'a');
+      final sibling = browsePane(time, h, 'b');
+      final handshake = h.opener.connectGate = Completer<void>();
+      h.opener.transports.single.die();
+      time.flushMicrotasks();
+      time.elapse(_firstDelay);
+      final transport = h.opener.transports.last;
+      final home = transport.canonicalizeGate = Completer<void>();
+      h.opener.connectGate = null;
+      handshake.complete();
+      time.flushMicrotasks();
+      completeWithoutTimers(time, closed.close());
+
+      transport.canonicalizeGate = null;
+      home.completeError(_denied);
+      time.flushMicrotasks();
+      expect(h.recoveryFailures, isEmpty);
+      expect(sibling.fs, isA<RemoteFileSystem>());
+      completeWithoutTimers(time, sibling.close());
+      expect(time.pendingTimers, isEmpty);
+    });
+  });
 
   test(
     'SFTP refusal reports before channel acquisition tears down recovery',

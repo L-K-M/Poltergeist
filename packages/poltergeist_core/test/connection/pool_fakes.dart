@@ -550,12 +550,15 @@ class PoolHarness {
       openTransport: this.opener.opener,
       prober: prober ?? FakeReconnectProber(),
       reconnectRandom: random ?? FixedRandom(0),
-      onRecoveryFailure: onRecoveryFailure ??
-          (serverId, error, {paneTabId}) => recoveryFailures.add((
-                serverId: serverId,
-                paneTabId: paneTabId,
-                error: error,
-              )),
+      onRecoveryFailure: (serverId, error, {paneTabId}) {
+        // Record before custom hooks so throwing observers remain inspectable.
+        recoveryFailures.add((
+          serverId: serverId,
+          paneTabId: paneTabId,
+          error: error,
+        ));
+        onRecoveryFailure?.call(serverId, error, paneTabId: paneTabId);
+      },
     );
   }
 
