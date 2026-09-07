@@ -29,6 +29,13 @@ abstract interface class SftpChannel {
 abstract interface class SshTransport {
   /// Default channel-open budget when a caller does not specify one.
   static const Duration defaultOpenTimeout = Duration(seconds: 15);
+
+  /// Keepalive silence ceiling: a ping that outlives it proves the
+  /// transport dead. Matches the VFS adapter's operation timeout (30 s) —
+  /// the longest silence a healthy server produces while still answering
+  /// anything (03 §3.3).
+  static const Duration pingOperationTimeout = Duration(seconds: 30);
+
   /// How the transport authenticated. Interactive kinds
   /// (`keyboardInteractive`, `promptedPassword`) cap the pool at one
   /// transport (growth rule 2).
@@ -39,10 +46,21 @@ abstract interface class SshTransport {
   /// Both normal and error completion signal transport loss to the pool.
   Future<void> get done;
 
+  /// Whether any VFS operation is outstanding on this transport's open
+  /// channels — nested calls, streaming, and awaited cleanup included
+  /// (03 §3.3). The pool skips keepalive while anything is in flight;
+  /// the VFS interface itself is unchanged and unwrapped (D3).
+  bool get hasActiveOperations;
+
   /// Opens one more SFTP channel on this transport. Each stage (channel
   /// open, handshake) is individually bounded by [timeout] — callers own
   /// the per-stage budget they are willing to spend on an open.
   Future<SftpChannel> openChannel({Duration timeout = defaultOpenTimeout});
+
+  /// One keepalive roundtrip. Completes only when the server answers — it
+  /// never times itself out: the caller owns the deadline
+  /// ([pingOperationTimeout]) and treats its expiry as transport death.
+  Future<void> ping();
 
   Future<void> close();
 }
@@ -126,6 +144,9 @@ Future<SshTransport> openDartSshTransport({
       onKeyboardInteractive:
           prompting == ConnectPrompting.enabled ? onKeyboardInteractive : null,
       timeout: timeout,
+      // The pool owns the idle-only keepalive policy (03 §3.3): disable
+      // the opener's built-in timer so no second keepalive clock runs.
+      keepAliveInterval: null,
       log: attemptLog,
     );
 
@@ -182,10 +203,22 @@ class _DartSshTransport implements SshTransport {
   @override
   final AuthKind authKind;
 
+  /// Channels opened here and not yet closed — the keepalive aggregation
+  /// set (03 §3.3). A channel unregisters at close entry: its closing
+  /// window is the pool's pending-close count, not adapter activity.
+  final List<_DartSftpChannel> _openChannels = [];
+
   _DartSshTransport(this._client, this.authKind);
 
   @override
   bool get isClosed => _client.isClosed;
+
+  @override
+  bool get hasActiveOperations =>
+      _openChannels.any((channel) => channel._fileSystem.hasActiveOperations);
+
+  @override
+  Future<void> ping() => _client.ping();
 
   @override
   Future<void> get done => _client.done;
@@ -215,7 +248,13 @@ class _DartSshTransport implements SshTransport {
       opening = await pending.timeout(timeout);
       final sftp = opening;
       await sftp.handshake.timeout(timeout);
-      return _DartSftpChannel(DartSshRemoteFileSystem(sftp), sftp.close);
+      final channel = _DartSftpChannel(
+        this,
+        DartSshRemoteFileSystem(sftp),
+        sftp.close,
+      );
+      _openChannels.add(channel);
+      return channel;
     } catch (error) {
       if (opening == null && pending != null) {
         // The open was abandoned before a channel existed (timeout).
@@ -239,14 +278,18 @@ class _DartSshTransport implements SshTransport {
 }
 
 class _DartSftpChannel implements SftpChannel {
-  final RemoteFileSystem _fs;
+  final _DartSshTransport _owner;
+  final DartSshRemoteFileSystem _fileSystem;
   final Future<void> Function() _close;
 
-  _DartSftpChannel(this._fs, this._close);
+  _DartSftpChannel(this._owner, this._fileSystem, this._close);
 
   @override
-  RemoteFileSystem get fs => _fs;
+  RemoteFileSystem get fs => _fileSystem;
 
   @override
-  Future<void> close() => closeSshResource(_close);
+  Future<void> close() {
+    _owner._openChannels.remove(this);
+    return closeSshResource(_close);
+  }
 }

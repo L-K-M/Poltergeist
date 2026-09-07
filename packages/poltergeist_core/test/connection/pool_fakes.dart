@@ -210,6 +210,32 @@ class FakeTransport implements SshTransport {
     return channel;
   }
 
+  /// Whether any VFS operation is outstanding (03 §3.3). Scripted
+  /// directly: the real transport aggregates its channels' concrete
+  /// adapters, which the fakes never build.
+  bool activeOperations = false;
+
+  /// When set, [ping] never completes on its own — an unanswered keepalive
+  /// whose timeout the pool (not the transport) owns.
+  Completer<void>? pingGate;
+
+  /// Thrown by every [ping] when set — a failed roundtrip that is not a
+  /// timeout, so closure stays the done-watcher's business.
+  Object? pingFailure;
+
+  int pingCalls = 0;
+
+  @override
+  bool get hasActiveOperations => activeOperations;
+
+  @override
+  Future<void> ping() async {
+    pingCalls++;
+    final failure = pingFailure;
+    if (failure != null) throw failure;
+    await pingGate?.future;
+  }
+
   @override
   Future<void> close() async {
     closeCalls++;

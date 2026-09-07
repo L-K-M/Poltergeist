@@ -169,6 +169,12 @@ class PooledConnectionManager implements ConnectionManager {
       throw ArgumentError.value(
           _policy.reconnectBackoffCap, 'reconnectBackoffCap', 'Must be positive.');
     }
+    // A zero keepalive interval would spin the event loop with periodic
+    // pings; the cadence must be a real interval.
+    if (_policy.keepAliveInterval <= Duration.zero) {
+      throw ArgumentError.value(
+          _policy.keepAliveInterval, 'keepAliveInterval', 'Must be positive.');
+    }
   }
 
   @override
@@ -390,6 +396,7 @@ class PooledConnectionManager implements ConnectionManager {
     // pending connects, and idle timers must not outlive its last reference.
     if (pool.references.isEmpty) {
       _cancelReconnect(pool);
+      _cancelKeepAlive(pool);
       for (final slot in pool.transports) {
         _cancelIdleTimer(slot);
       }
@@ -936,6 +943,7 @@ class PooledConnectionManager implements ConnectionManager {
     _incidents[pool.key] = incident;
     pool._incident = incident;
     _cancelReconnect(pool);
+    _cancelKeepAlive(pool);
     // The first block detached all slots; late opens cannot reattach them.
     if (wasBlocked) return;
 
@@ -1044,6 +1052,81 @@ class PooledConnectionManager implements ConnectionManager {
     }
   }
 
+  // ── Keepalive (03 §3.3) ──────────────────────────────────────────────
+
+  // One clock per pool pings its idle transports; the opener's built-in
+  // keepalive timer is disabled (03 §3.3), so this is the only keepalive
+  // mechanism — no second timer, no VFS wrapper (D3).
+
+  void _armKeepAlive(_EndpointPool pool) {
+    // Armed whenever a transport joins (recovery re-arms after reconnect);
+    // the tick self-cancels once the last live transport is gone.
+    pool._keepAliveTimer ??= Timer.periodic(
+      _policy.keepAliveInterval,
+      (_) => _pingPoolTransports(pool),
+    );
+  }
+
+  void _cancelKeepAlive(_EndpointPool pool) {
+    pool._keepAliveTimer?.cancel();
+    pool._keepAliveTimer = null;
+  }
+
+  void _pingPoolTransports(_EndpointPool pool) {
+    // A detached or blocked pool has nothing to keep alive; teardown and
+    // blocking cancel eagerly, this is the backstop.
+    if (!_isCurrentPool(pool) || pool.blocked) {
+      _cancelKeepAlive(pool);
+      return;
+    }
+
+    var live = 0;
+    for (final slot in List.of(pool.transports)) {
+      if (slot.transport.isClosed) continue;
+      live++;
+      _pingIdleTransport(pool, slot);
+    }
+    // Zero live transports: recovery owns the pool and re-arms the clock
+    // when its transport joins — a clock with nothing to ping is noise.
+    if (live == 0) _cancelKeepAlive(pool);
+  }
+
+  void _pingIdleTransport(_EndpointPool pool, _TransportSlot slot) {
+    // One outstanding ping per transport: a tick inside a previous ping's
+    // timeout window must not stack a second one.
+    if (slot._pingOutstanding) return;
+    // Idle means no in-flight operation: the transport's aggregated
+    // adapter activity plus this pool's pending channel opens and closes
+    // (03 §3.3). Held leases and open browse channels do not count.
+    if (slot.transport.hasActiveOperations) return;
+    if (slot.pendingOpens != 0 || slot._pendingCloses != 0) return;
+
+    slot._pingOutstanding = true;
+    unawaited(
+      Future.sync(slot.transport.ping)
+          .timeout(SshTransport.pingOperationTimeout)
+          .then(
+            (_) => slot._pingOutstanding = false,
+            onError: (Object error) {
+              slot._pingOutstanding = false;
+              if (error is! TimeoutException) {
+                // Non-timeout failures are the done watcher's business:
+                // the socket's own closure drives the ordinary death path.
+                return;
+              }
+              // Silence outlived the operation timeout: the transport is
+              // dead. Closing it completes `done`, whose watcher runs the
+              // ordinary transport-death path — recovery fires on closure
+              // exactly as it does for an externally dropped socket.
+              if (!pool.transports.contains(slot)) return;
+              unawaited(closeSshResource(slot.transport.close));
+            },
+          ),
+    );
+  }
+
+  // ── Idle extra-transport retirement (03 §3.3) ────────────────────────
+
   // Evicting the primary must not promote an extra out of idle retirement.
   bool _isExtra(_EndpointPool pool, _TransportSlot slot) =>
       slot._role == _TransportRole.extra && pool.transports.contains(slot);
@@ -1140,6 +1223,7 @@ class PooledConnectionManager implements ConnectionManager {
 
   Future<void> _tearDownPool(_EndpointPool pool) async {
     _cancelReconnect(pool);
+    _cancelKeepAlive(pool);
     final slots = List<_TransportSlot>.of(pool.transports);
     for (final slot in slots) {
       _cancelIdleTimer(slot);
@@ -1495,6 +1579,7 @@ class _EndpointPool {
   Future<void>? growth;
   Future<void>? pumping;
   _ReconnectCycle? _reconnect;
+  Timer? _keepAliveTimer;
   final Set<Future<void>> _retiring = {};
 
   _EndpointPool(this.key, this._incident);
@@ -1516,6 +1601,9 @@ class _TransportSlot {
 
   int _pendingCloses = 0;
   Timer? _idleTimer;
+
+  /// A keepalive roundtrip in flight — at most one per transport (03 §3.3).
+  bool _pingOutstanding = false;
 
   _TransportSlot(this.transport, this._role);
 }
