@@ -102,20 +102,15 @@ class HostHarness {
   );
 
   Future<EngineResult> list(int channelId, String path) => call(
-    (id) => ListDirectoryRequest(
-      requestId: id,
-      channelId: channelId,
-      path: path,
-    ),
+    (id) =>
+        ListDirectoryRequest(requestId: id, channelId: channelId, path: path),
   );
 
-  void watch(String serverId) => call(
-    (id) => WatchServerRequest(requestId: id, serverId: serverId),
-  );
+  void watch(String serverId) =>
+      call((id) => WatchServerRequest(requestId: id, serverId: serverId));
 
-  void disconnect(String serverId) => call(
-    (id) => DisconnectServerRequest(requestId: id, serverId: serverId),
-  );
+  Future<EngineResult> disconnect(String serverId) =>
+      call((id) => DisconnectServerRequest(requestId: id, serverId: serverId));
 
   void reply(EnginePromptEvent prompt, PromptReply answer) => call(
     (id) => PromptReplyRequest(
@@ -127,14 +122,25 @@ class HostHarness {
   );
 
   /// The common first-connect flow: resolve credentials from a reply, then
-  /// approve the first-use host key.
+  /// approve the first-use host key. Fails with the engine's own error
+  /// instead of a bare cast when the open resolves to a failure.
   Future<BrowseChannelOpened> openWithDefaults() async {
     final opened = openBrowse();
     await pumping();
-    reply(takePrompt(), const CredentialPromptReply(password: 'pw'));
+    reply(
+      takePrompt(),
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await pumping();
     reply(takePrompt(), const HostKeyPromptReply(accepted: true));
-    return (await opened) as BrowseChannelOpened;
+    final result = await opened;
+    if (result is EngineError) {
+      fail('openWithDefaults failed: ${result.message}');
+    }
+    return result as BrowseChannelOpened;
   }
 
   /// Pops the oldest unconsumed prompt event.
@@ -147,7 +153,17 @@ class HostHarness {
 
   Future<void> pumping() => pumpEventQueue();
 
-  void dispose() => _port.close();
+  /// Deterministic teardown: request shutdown (bounded engine-side), then
+  /// close the port. Tests that leave recovery mid-flight stop reconnect
+  /// work here instead of running past the test's end.
+  void dispose() {
+    try {
+      host.handle(ShutdownRequest(requestId: _nextRequestId++));
+    } on Object {
+      // Only the non-protocol-message host throws; nothing to shut down.
+    }
+    _port.close();
+  }
 }
 
 /// Awaits a result future and returns the wire error — the host answers
@@ -174,7 +190,13 @@ void main() {
     expect(data.username, 'user');
     expect(data.secretRef, 'secret-7');
 
-    h.reply(credential, const CredentialPromptReply(password: 'pw'));
+    h.reply(
+      credential,
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
 
     final hostKey = h.takePrompt();
@@ -200,7 +222,13 @@ void main() {
 
     final opened = h.openBrowse();
     await h.pumping();
-    h.reply(h.takePrompt(), const CredentialPromptReply(password: 'pw'));
+    h.reply(
+      h.takePrompt(),
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
     h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: false));
     await h.pumping();
@@ -224,7 +252,13 @@ void main() {
 
     final opened = h.openBrowse();
     await h.pumping();
-    h.reply(h.takePrompt(), const CredentialPromptReply(password: 'pw'));
+    h.reply(
+      h.takePrompt(),
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
 
     final review = h.takePrompt();
@@ -259,7 +293,13 @@ void main() {
 
     final opened = h.openBrowse();
     await h.pumping();
-    h.reply(h.takePrompt(), const CredentialPromptReply(password: 'pw'));
+    h.reply(
+      h.takePrompt(),
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
     h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
     await h.pumping();
@@ -278,7 +318,13 @@ void main() {
 
     final opened = h.openBrowse();
     await h.pumping();
-    h.reply(h.takePrompt(), const CredentialPromptReply(password: 'pw'));
+    h.reply(
+      h.takePrompt(),
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
     h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
     await h.pumping();
@@ -333,59 +379,68 @@ void main() {
     expect(h.fs.listCalls, 0);
   });
 
-  test('VFS failures serialize their kind and are reported for recovery',
-      () async {
-    final h = HostHarness();
-    addTearDown(h.dispose);
-    h.fs.listFailure = const RemoteFileException(
-      kind: RemoteFileErrorKind.disconnected,
-      operation: 'list directory',
-      message: 'The connection was lost.',
-    );
-    h.watch('srv-1');
-    await h.pumping();
+  test(
+    'VFS failures serialize their kind and are reported for recovery',
+    () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      h.fs.listFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'list directory',
+        message: 'The connection was lost.',
+      );
+      h.watch('srv-1');
+      await h.pumping();
 
-    final channel = await h.openWithDefaults();
+      final channel = await h.openWithDefaults();
 
-    final error = await expectError(h.list(channel.channelId, '/tmp'));
-    expect(error.kind, RemoteFileErrorKind.disconnected);
-    expect(error.message, 'The connection was lost.');
+      final error = await expectError(h.list(channel.channelId, '/tmp'));
+      expect(error.kind, RemoteFileErrorKind.disconnected);
+      expect(error.message, 'The connection was lost.');
 
-    // The report reached the binding: recovery starts (03 §3.3). The
-    // state fans out through the manager's async controllers — pump before
-    // asserting on the port's delivery.
-    await h.pumping();
-    expect(
-      h.events.whereType<ServerStateEvent>().map((e) => e.state),
-      contains(ServerConnectionState.reconnecting),
-    );
-  });
+      // The report reached the binding: recovery starts (03 §3.3). The
+      // state fans out through the manager's async controllers — pump before
+      // asserting on the port's delivery.
+      await h.pumping();
+      expect(
+        h.events.whereType<ServerStateEvent>().map((e) => e.state),
+        contains(ServerConnectionState.reconnecting),
+      );
+    },
+  );
 
-  test('disconnect dismisses an open credential prompt across the boundary',
-      () async {
-    final h = HostHarness();
-    addTearDown(h.dispose);
+  test(
+    'disconnect dismisses an open credential prompt across the boundary',
+    () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
 
-    final opened = h.openBrowse();
-    await h.pumping();
-    final prompt = h.takePrompt();
-    expect(prompt.kind, EnginePromptKind.credentialNeeded);
+      final opened = h.openBrowse();
+      await h.pumping();
+      final prompt = h.takePrompt();
+      expect(prompt.kind, EnginePromptKind.credentialNeeded);
 
-    h.disconnect('srv-1');
-    await h.pumping();
+      await h.disconnect('srv-1');
+      await h.pumping();
+      // The prompt was withdrawn: the UI dialog closes on this event.
+      final dismissal = h.events.whereType<PromptDismissedEvent>().single;
+      expect(dismissal.promptId, prompt.promptId);
+      expect(dismissal.kind, EnginePromptKind.credentialNeeded);
 
-    // The prompt was withdrawn: the UI dialog closes on this event.
-    final dismissal = h.events.whereType<PromptDismissedEvent>().single;
-    expect(dismissal.promptId, prompt.promptId);
-    expect(dismissal.kind, EnginePromptKind.credentialNeeded);
-
-    // The abandoned open fails; a late reply is ignored without effect.
-    final error = await expectError(opened);
-    expect(error.kind, RemoteFileErrorKind.disconnected);
-    h.reply(prompt, const CredentialPromptReply(password: 'late'));
-    await h.pumping();
-    expect(h.opener.calls, isEmpty);
-  });
+      // The abandoned open fails; a late reply is ignored without effect.
+      final error = await expectError(opened);
+      expect(error.kind, RemoteFileErrorKind.disconnected);
+      h.reply(
+        prompt,
+        const CredentialPromptReply(
+          password: 'late',
+          origin: CredentialOrigin.stored,
+        ),
+      );
+      await h.pumping();
+      expect(h.opener.calls, isEmpty);
+    },
+  );
 
   test('cancelled credential reply fails with kind cancelled', () async {
     final h = HostHarness();
@@ -393,7 +448,13 @@ void main() {
 
     final opened = h.openBrowse();
     await h.pumping();
-    h.reply(h.takePrompt(), const CredentialPromptReply(cancelled: true));
+    h.reply(
+      h.takePrompt(),
+      const CredentialPromptReply(
+        cancelled: true,
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
 
     final error = await expectError(opened);
@@ -418,7 +479,10 @@ void main() {
         requestId: 999,
         promptId: 'nope',
         kind: EnginePromptKind.credentialNeeded,
-        reply: CredentialPromptReply(password: 'x'),
+        reply: CredentialPromptReply(
+          password: 'x',
+          origin: CredentialOrigin.stored,
+        ),
       ),
     );
     await h.pumping();
@@ -426,12 +490,24 @@ void main() {
     // Neither took effect: no connect started, the resolution is parked.
     expect(h.opener.calls, isEmpty);
 
-    h.reply(prompt, const CredentialPromptReply(password: 'real'));
+    h.reply(
+      prompt,
+      const CredentialPromptReply(
+        password: 'real',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
     // The ignored replies left the first-use host-key prompt pending.
     h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
     // A duplicate after the answer: dropped the same way.
-    h.reply(prompt, const CredentialPromptReply(password: 'dupe'));
+    h.reply(
+      prompt,
+      const CredentialPromptReply(
+        password: 'dupe',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
 
     final channel = await opened;
@@ -446,14 +522,13 @@ void main() {
     Future<EngineResult> ids() =>
         h.call((id) => ConnectedServerIdsRequest(requestId: id));
 
-    expect((await ids()) as ServerIdsListed, isA<ServerIdsListed>());
+    expect((await ids() as ServerIdsListed).ids, isEmpty);
 
     await h.openWithDefaults();
     expect((await ids() as ServerIdsListed).ids, ['srv-1']);
   });
 
-  test('watch emits the current state first and follows transitions',
-      () async {
+  test('watch emits the current state first and follows transitions', () async {
     final h = HostHarness();
     addTearDown(h.dispose);
 
@@ -509,7 +584,13 @@ void main() {
 
     final opened = h.openBrowse();
     await h.pumping();
-    h.reply(h.takePrompt(), const CredentialPromptReply(password: 'pw'));
+    h.reply(
+      h.takePrompt(),
+      const CredentialPromptReply(
+        password: 'pw',
+        origin: CredentialOrigin.stored,
+      ),
+    );
     await h.pumping();
     h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
     await h.pumping();

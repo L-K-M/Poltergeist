@@ -83,7 +83,9 @@ class EngineHost {
   static HostKeyStore _seededPinStore(EngineConfig config, SendPort events) {
     final pins = InMemoryHostKeyStore();
     for (final pin in config.hostKeyPins) {
-      pins.put(pin);
+      // In-memory puts are synchronous map writes and cannot error; the
+      // explicit unawaited marks the discard intentional.
+      unawaited(pins.put(pin));
     }
     return _PinningStore(pins, events);
   }
@@ -130,7 +132,7 @@ class EngineHost {
       case final PromptReplyRequest request:
         _prompts.reply(request);
       case final ShutdownRequest request:
-        _shutdown(request);
+        _guard(request.requestId, () => _shutdown(request));
       default:
         throw StateError(
           'Engine isolate received an unknown message: $message',
@@ -148,13 +150,14 @@ class EngineHost {
         (result) => _respond(requestId, result),
         onError: (Object error) {
           final failure = switch (error) {
-            final RemoteFileException exception =>
-              EngineError.fromException(exception),
+            final RemoteFileException exception => EngineError.fromException(
+              exception,
+            ),
             _ => EngineError(
-                kind: RemoteFileErrorKind.other,
-                operation: 'engine request',
-                message: error.toString(),
-              ),
+              kind: RemoteFileErrorKind.other,
+              operation: 'engine request',
+              message: error.toString(),
+            ),
           };
           _respond(requestId, failure);
         },
@@ -172,7 +175,8 @@ class EngineHost {
     throw RemoteFileException(
       kind: RemoteFileErrorKind.other,
       operation: 'resolve server',
-      message: 'No connection request has supplied a config for '
+      message:
+          'No connection request has supplied a config for '
           '"$serverId" yet.',
     );
   }
@@ -205,18 +209,32 @@ class EngineHost {
     // Last request wins: a fresh watch replaces any existing forwarding so
     // the first forwarded event is again the current state.
     _watches.remove(serverId)?.cancel();
-    _watches[serverId] = _manager.watchServer(serverId).listen(
-          (state) => _events.send(
-            ServerStateEvent(serverId: serverId, state: state),
-          ),
+    late final StreamSubscription<ServerConnectionState> subscription;
+    subscription = _manager
+        .watchServer(serverId)
+        .listen(
+          (state) =>
+              _events.send(ServerStateEvent(serverId: serverId, state: state)),
+          // The manager's streams neither error nor complete today; a
+          // future change on either side must not kill the engine over a
+          // state fan-out.
+          onError: (Object _) {},
+          onDone: () {
+            if (identical(_watches[serverId], subscription)) {
+              _watches.remove(serverId);
+            }
+          },
         );
+    _watches[serverId] = subscription;
   }
 
   void _unwatch(String serverId) {
     _watches.remove(serverId)?.cancel();
   }
 
-  Future<void> _shutdown(ShutdownRequest request) async {
+  /// The spawner owns the isolate's lifetime: it kills after the ack (see
+  /// `EngineClient.shutdown`), so the host only cleans up and answers.
+  Future<EngineResult> _shutdown(ShutdownRequest request) async {
     // Still-open prompts are implicit cancels (03 §5): dismiss them so no
     // dialog outlives the engine.
     _prompts.dismissAll();
@@ -231,7 +249,13 @@ class EngineHost {
       await subscription.cancel();
     }
     _watches.clear();
-    _respond(request.requestId, const EngineAck());
+
+    // disconnectServer already closed every pane binding (03 §3.5); these
+    // maps are state hygiene so a post-shutdown host answers cleanly
+    // instead of vending dead channels.
+    _channels.clear();
+    _servers.clear();
+    return const EngineAck();
   }
 }
 
@@ -417,9 +441,7 @@ final class _PromptBroker {
     // An already-answered prompt ignores the firing (scope contract).
     if (prompt == null || prompt.completer.isCompleted) return;
 
-    _events.send(
-      PromptDismissedEvent(promptId: promptId, kind: prompt.kind),
-    );
+    _events.send(PromptDismissedEvent(promptId: promptId, kind: prompt.kind));
     prompt.completer.completeError(const _PromptDismissed());
   }
 
@@ -434,19 +456,17 @@ final class _PromptBroker {
   /// reply subtype until the transfer queue (M4) lands, so its replies are
   /// ignored — no producer exists to consume one.
   static Type? _replyTypeFor(EnginePromptKind kind) => switch (kind) {
-        EnginePromptKind.hostKeyFirstUse ||
-        EnginePromptKind.hostKeyChanged => HostKeyPromptReply,
-        EnginePromptKind.keyboardInteractive => KeyboardInteractivePromptReply,
-        EnginePromptKind.credentialNeeded => CredentialPromptReply,
-        EnginePromptKind.conflict => null,
-      };
+    EnginePromptKind.hostKeyFirstUse ||
+    EnginePromptKind.hostKeyChanged => HostKeyPromptReply,
+    EnginePromptKind.keyboardInteractive => KeyboardInteractivePromptReply,
+    EnginePromptKind.credentialNeeded => CredentialPromptReply,
+    EnginePromptKind.conflict => null,
+  };
 
   String _mint(EnginePromptKind kind, EnginePromptData data) {
     final promptId = 'p${_nextPromptId++}';
     _open[promptId] = _OpenPrompt(kind);
-    _events.send(
-      EnginePromptEvent(promptId: promptId, kind: kind, data: data),
-    );
+    _events.send(EnginePromptEvent(promptId: promptId, kind: kind, data: data));
     return promptId;
   }
 

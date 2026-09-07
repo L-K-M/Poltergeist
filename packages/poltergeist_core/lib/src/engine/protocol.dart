@@ -219,7 +219,9 @@ final class CredentialPromptReply extends PromptReply {
   final String? password;
 
   /// Whether the answer came from the vault or a user prompt — growth
-  /// rule 2's interactive-cap signal (03 §3.2).
+  /// rule 2's interactive-cap signal (03 §3.2). Required: a dialog-sourced
+  /// reply that forgets it would silently claim vault provenance and cap
+  /// pool growth; a compile error is cheaper than that bug.
   final CredentialOrigin origin;
 
   const CredentialPromptReply({
@@ -227,13 +229,17 @@ final class CredentialPromptReply extends PromptReply {
     this.privateKeyPem,
     this.keyPassphrase,
     this.password,
-    this.origin = CredentialOrigin.stored,
+    required this.origin,
   });
 }
 
 // ── UI → engine requests ────────────────────────────────────────────────
 
-/// One call on the [EngineClient] facade, answered by one [ResponseEvent].
+/// One call on the [EngineClient] facade. Most requests are answered by
+/// exactly one [ResponseEvent]; the protocol's fire-and-forget exceptions —
+/// watch/unwatch (answered by the [ServerStateEvent] stream they create)
+/// and prompt replies (applied-or-ignored by contract, 03 §5) — allocate a
+/// requestId only for uniform addressing and never expect a response.
 sealed class EngineRequest {
   final int requestId;
 
@@ -282,10 +288,7 @@ final class ListDirectoryRequest extends EngineRequest {
 final class WatchServerRequest extends EngineRequest {
   final String serverId;
 
-  const WatchServerRequest({
-    required super.requestId,
-    required this.serverId,
-  });
+  const WatchServerRequest({required super.requestId, required this.serverId});
 }
 
 /// Stop forwarding this server's state.
@@ -314,10 +317,11 @@ final class DisconnectServerRequest extends EngineRequest {
   });
 }
 
-/// Answers an open [EnginePromptEvent]. Fire-and-forget: a reply whose
-/// promptId is closed, unknown, kind-mismatched, or already answered is
-/// ignored at debug level — promptId and kind only, never the payload,
-/// since credential replies carry secrets (03 §5).
+/// Answers an open [EnginePromptEvent]. Deliberately un-acked: a reply
+/// whose promptId is closed, unknown, kind-mismatched, or already answered
+/// is ignored at debug level — promptId and kind only, never the payload,
+/// since credential replies carry secrets (03 §5) — so there is no result
+/// to report back.
 final class PromptReplyRequest extends EngineRequest {
   final String promptId;
   final EnginePromptKind kind;
@@ -361,18 +365,18 @@ final class EngineError extends EngineResult {
   });
 
   factory EngineError.fromException(RemoteFileException error) => EngineError(
-        kind: error.kind,
-        operation: error.operation,
-        path: error.path,
-        message: error.message,
-      );
+    kind: error.kind,
+    operation: error.operation,
+    path: error.path,
+    message: error.message,
+  );
 
   RemoteFileException toException() => RemoteFileException(
-        kind: kind,
-        operation: operation,
-        path: path,
-        message: message,
-      );
+    kind: kind,
+    operation: operation,
+    path: path,
+    message: message,
+  );
 }
 
 final class BrowseChannelOpened extends EngineResult {
@@ -413,5 +417,8 @@ final class EngineConfig {
   /// verifier from these (pin storage itself stays app-side).
   final List<HostKey> hostKeyPins;
 
-  const EngineConfig({this.policy = const PoolPolicy(), this.hostKeyPins = const []});
+  const EngineConfig({
+    this.policy = const PoolPolicy(),
+    this.hostKeyPins = const [],
+  });
 }

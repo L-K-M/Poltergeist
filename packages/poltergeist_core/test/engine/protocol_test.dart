@@ -27,8 +27,9 @@ final _config = ServerConfig(
   host: 'example.com',
   port: 2222,
   username: 'user',
-  authMethod: AuthMethod.password,
+  authMethod: AuthMethod.privateKey,
   secretRef: 'secret-7',
+  identityFilePath: '/home/user/.ssh/id_ed25519',
   createdAt: 1700000000,
   updatedAt: 1700000001,
 );
@@ -59,235 +60,255 @@ void main() {
     expect(() => batch.items[0] = _unknownTotals, throwsUnsupportedError);
   });
 
-  test('every protocol message round-trips through a spawned isolate',
-      () async {
-    final messages = ReceivePort();
-    final incoming = StreamIterator<dynamic>(messages);
-    final isolate = await Isolate.spawn(_echo, messages.sendPort);
-    addTearDown(() async {
-      isolate.kill(priority: Isolate.immediate);
-      messages.close();
-      await incoming.cancel();
-    });
+  test(
+    'every protocol message round-trips through a spawned isolate',
+    () async {
+      final messages = ReceivePort();
+      final incoming = StreamIterator<dynamic>(messages);
+      final isolate = await Isolate.spawn(_echo, messages.sendPort);
+      addTearDown(() async {
+        isolate.kill(priority: Isolate.immediate);
+        messages.close();
+        await incoming.cancel();
+      });
 
-    expect(await incoming.moveNext(), isTrue);
-    final engine = incoming.current as SendPort;
+      expect(await incoming.moveNext(), isTrue);
+      final engine = incoming.current as SendPort;
 
-    // ── Events (08 §3.2: every EngineEvent crosses intact). ─────────────
-    await _roundTrip(incoming, engine, _sample);
-    await _roundTrip(incoming, engine, _unknownTotals);
-    await _roundTrip(
-      incoming,
-      engine,
-      TransferProgressBatchEvent([_sample, _unknownTotals]),
-    );
+      // ── Events (08 §3.2: every EngineEvent crosses intact). ─────────────
+      await _roundTrip(incoming, engine, _sample);
+      await _roundTrip(incoming, engine, _unknownTotals);
+      await _roundTrip(
+        incoming,
+        engine,
+        TransferProgressBatchEvent([_sample, _unknownTotals]),
+      );
 
-    await _roundTrip(
-      incoming,
-      engine,
-      ResponseEvent(
-        requestId: 9,
-        result: DirectoryListed(entries: [_entry]),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      ResponseEvent(
-        requestId: 10,
-        result: const EngineError(
-          kind: RemoteFileErrorKind.permissionDenied,
-          operation: 'list directory',
-          path: '/tmp',
-          message: 'denied',
+      await _roundTrip(
+        incoming,
+        engine,
+        ResponseEvent(requestId: 9, result: DirectoryListed(entries: [_entry])),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        ResponseEvent(
+          requestId: 10,
+          result: const EngineError(
+            kind: RemoteFileErrorKind.permissionDenied,
+            operation: 'list directory',
+            path: '/tmp',
+            message: 'denied',
+          ),
         ),
-      ),
-    );
+      );
 
-    await _roundTrip(
-      incoming,
-      engine,
-      const ServerStateEvent(
-        serverId: 'srv-1',
-        state: ServerConnectionState.reconnecting,
-        detail: 'summary line',
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const ServerStateEvent(serverId: 'srv-1', state: ServerConnectionState.connected),
-    );
-
-    await _roundTrip(
-      incoming,
-      engine,
-      const EnginePromptEvent(
-        promptId: 'p1',
-        kind: EnginePromptKind.hostKeyChanged,
-        data: HostKeyPromptData(
-          host: 'example.com',
-          port: 2222,
-          keyType: 'ssh-ed25519',
-          fingerprintSha256: 'SHA256:presented',
-          pinnedFingerprintSha256: 'SHA256:pinned',
+      await _roundTrip(
+        incoming,
+        engine,
+        const ServerStateEvent(
+          serverId: 'srv-1',
+          state: ServerConnectionState.reconnecting,
+          detail: 'summary line',
         ),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const EnginePromptEvent(
-        promptId: 'p2',
-        kind: EnginePromptKind.keyboardInteractive,
-        data: KeyboardInteractivePromptData(
-          name: 'name',
-          instruction: 'instruction',
-          prompts: ['Token:', 'Pass:'],
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const ServerStateEvent(
+          serverId: 'srv-1',
+          state: ServerConnectionState.connected,
         ),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      EnginePromptEvent(
-        promptId: 'p3',
-        kind: EnginePromptKind.credentialNeeded,
-        data: CredentialPromptData(
-          host: _config.host,
-          port: _config.port,
-          username: _config.username,
-          authMethod: _config.authMethod,
-          secretRef: _config.secretRef,
-          identityFilePath: _config.identityFilePath,
+      );
+
+      await _roundTrip(
+        incoming,
+        engine,
+        const EnginePromptEvent(
+          promptId: 'p1',
+          kind: EnginePromptKind.hostKeyChanged,
+          data: HostKeyPromptData(
+            host: 'example.com',
+            port: 2222,
+            keyType: 'ssh-ed25519',
+            fingerprintSha256: 'SHA256:presented',
+            pinnedFingerprintSha256: 'SHA256:pinned',
+          ),
         ),
-      ),
-    );
-
-    await _roundTrip(
-      incoming,
-      engine,
-      const PromptDismissedEvent(
-        promptId: 'p3',
-        kind: EnginePromptKind.credentialNeeded,
-      ),
-    );
-
-    await _roundTrip(incoming, engine, const HostKeyPinnedEvent(key: _pin));
-
-    // ── Requests (every EngineRequest crosses intact). ──────────────────
-    await _roundTrip(
-      incoming,
-      engine,
-      OpenBrowseChannelRequest(
-        requestId: 1,
-        serverId: 'srv-1',
-        paneTabId: 'tab-1',
-        config: _config,
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const CloseBrowseChannelRequest(requestId: 2, channelId: 5),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const ListDirectoryRequest(requestId: 3, channelId: 5, path: '/tmp'),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const WatchServerRequest(requestId: 4, serverId: 'srv-1'),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const UnwatchServerRequest(requestId: 5, serverId: 'srv-1'),
-    );
-    await _roundTrip(incoming, engine, const ConnectedServerIdsRequest(requestId: 6));
-    await _roundTrip(
-      incoming,
-      engine,
-      const DisconnectServerRequest(requestId: 7, serverId: 'srv-1'),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const PromptReplyRequest(
-        requestId: 8,
-        promptId: 'p1',
-        kind: EnginePromptKind.hostKeyChanged,
-        reply: HostKeyPromptReply(accepted: true),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const PromptReplyRequest(
-        requestId: 9,
-        promptId: 'p2',
-        kind: EnginePromptKind.keyboardInteractive,
-        reply: KeyboardInteractivePromptReply(answers: ['012345']),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const PromptReplyRequest(
-        requestId: 10,
-        promptId: 'p3',
-        kind: EnginePromptKind.credentialNeeded,
-        reply: CredentialPromptReply(
-          password: 'hunter2',
-          origin: CredentialOrigin.prompted,
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const EnginePromptEvent(
+          promptId: 'p2',
+          kind: EnginePromptKind.keyboardInteractive,
+          data: KeyboardInteractivePromptData(
+            name: 'name',
+            instruction: 'instruction',
+            prompts: ['Token:', 'Pass:'],
+          ),
         ),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const PromptReplyRequest(
-        requestId: 11,
-        promptId: 'p3',
-        kind: EnginePromptKind.credentialNeeded,
-        reply: CredentialPromptReply(cancelled: true),
-      ),
-    );
-    await _roundTrip(incoming, engine, const ShutdownRequest(requestId: 12));
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        EnginePromptEvent(
+          promptId: 'p3',
+          kind: EnginePromptKind.credentialNeeded,
+          data: CredentialPromptData(
+            host: _config.host,
+            port: _config.port,
+            username: _config.username,
+            authMethod: _config.authMethod,
+            secretRef: _config.secretRef,
+            identityFilePath: _config.identityFilePath,
+          ),
+        ),
+      );
 
-    // ── Remaining results and the spawn config. ─────────────────────────
-    await _roundTrip(
-      incoming,
-      engine,
-      const ResponseEvent(
-        requestId: 13,
-        result: BrowseChannelOpened(channelId: 5, homePath: '/home/user'),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      ResponseEvent(
-        requestId: 14,
-        result: ServerIdsListed(ids: ['a', 'b']),
-      ),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const ResponseEvent(requestId: 15, result: EngineAck()),
-    );
-    await _roundTrip(
-      incoming,
-      engine,
-      const EngineConfig(
-        policy: PoolPolicy(maxTransports: 3),
-        hostKeyPins: [_pin],
-      ),
-    );
-  });
+      await _roundTrip(
+        incoming,
+        engine,
+        const PromptDismissedEvent(
+          promptId: 'p3',
+          kind: EnginePromptKind.credentialNeeded,
+        ),
+      );
+
+      await _roundTrip(incoming, engine, const HostKeyPinnedEvent(key: _pin));
+
+      // ── Requests (every EngineRequest crosses intact). ──────────────────
+      await _roundTrip(
+        incoming,
+        engine,
+        OpenBrowseChannelRequest(
+          requestId: 1,
+          serverId: 'srv-1',
+          paneTabId: 'tab-1',
+          config: _config,
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const CloseBrowseChannelRequest(requestId: 2, channelId: 5),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const ListDirectoryRequest(requestId: 3, channelId: 5, path: '/tmp'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const WatchServerRequest(requestId: 4, serverId: 'srv-1'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const UnwatchServerRequest(requestId: 5, serverId: 'srv-1'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const ConnectedServerIdsRequest(requestId: 6),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const DisconnectServerRequest(requestId: 7, serverId: 'srv-1'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const PromptReplyRequest(
+          requestId: 8,
+          promptId: 'p1',
+          kind: EnginePromptKind.hostKeyChanged,
+          reply: HostKeyPromptReply(accepted: true),
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const PromptReplyRequest(
+          requestId: 9,
+          promptId: 'p2',
+          kind: EnginePromptKind.keyboardInteractive,
+          reply: KeyboardInteractivePromptReply(answers: ['012345']),
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const PromptReplyRequest(
+          requestId: 10,
+          promptId: 'p3',
+          kind: EnginePromptKind.credentialNeeded,
+          reply: CredentialPromptReply(
+            password: 'hunter2',
+            origin: CredentialOrigin.prompted,
+          ),
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const PromptReplyRequest(
+          requestId: 11,
+          promptId: 'p3',
+          kind: EnginePromptKind.credentialNeeded,
+          reply: CredentialPromptReply(
+            cancelled: true,
+            origin: CredentialOrigin.stored,
+          ),
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const PromptReplyRequest(
+          requestId: 16,
+          promptId: 'p3',
+          kind: EnginePromptKind.credentialNeeded,
+          reply: CredentialPromptReply(
+            privateKeyPem: '-----BEGIN OPENSSH PRIVATE KEY-----',
+            keyPassphrase: 'open sesame',
+            origin: CredentialOrigin.prompted,
+          ),
+        ),
+      );
+      await _roundTrip(incoming, engine, const ShutdownRequest(requestId: 12));
+
+      // ── Remaining results and the spawn config. ─────────────────────────
+      await _roundTrip(
+        incoming,
+        engine,
+        const ResponseEvent(
+          requestId: 13,
+          result: BrowseChannelOpened(channelId: 5, homePath: '/home/user'),
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        ResponseEvent(requestId: 14, result: ServerIdsListed(ids: ['a', 'b'])),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const ResponseEvent(requestId: 15, result: EngineAck()),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const EngineConfig(
+          policy: PoolPolicy(maxTransports: 3),
+          hostKeyPins: [_pin],
+        ),
+      );
+    },
+  );
 }
 
 /// Sends [message], awaits the echo, and asserts it reconstructed intact
@@ -305,9 +326,9 @@ Future<void> _roundTrip(
     case (final TransferProgressEvent sent, final TransferProgressEvent got):
       _expectProgress(got, sent);
     case (
-        final TransferProgressBatchEvent sent,
-        final TransferProgressBatchEvent got,
-      ):
+      final TransferProgressBatchEvent sent,
+      final TransferProgressBatchEvent got,
+    ):
       expect(got.items, hasLength(sent.items.length));
       for (var index = 0; index < sent.items.length; index++) {
         _expectProgress(got.items[index], sent.items[index]);
@@ -328,15 +349,28 @@ Future<void> _roundTrip(
       expect(got.kind, sent.kind);
     case (final HostKeyPinnedEvent sent, final HostKeyPinnedEvent got):
       expect(got.key.host, sent.key.host);
+      expect(got.key.port, sent.key.port);
+      expect(got.key.type, sent.key.type);
       expect(got.key.fingerprintSha256, sent.key.fingerprintSha256);
-    case (final OpenBrowseChannelRequest sent, final OpenBrowseChannelRequest got):
+      expect(got.key.pinnedAt, sent.key.pinnedAt);
+    case (
+      final OpenBrowseChannelRequest sent,
+      final OpenBrowseChannelRequest got,
+    ):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);
       expect(got.paneTabId, sent.paneTabId);
       expect(got.config.host, sent.config.host);
+      expect(got.config.id, sent.config.id);
+      expect(got.config.port, sent.config.port);
+      expect(got.config.username, sent.config.username);
       expect(got.config.authMethod, sent.config.authMethod);
       expect(got.config.secretRef, sent.config.secretRef);
-    case (final CloseBrowseChannelRequest sent, final CloseBrowseChannelRequest got):
+      expect(got.config.identityFilePath, sent.config.identityFilePath);
+    case (
+      final CloseBrowseChannelRequest sent,
+      final CloseBrowseChannelRequest got,
+    ):
       expect(got.requestId, sent.requestId);
       expect(got.channelId, sent.channelId);
     case (final ListDirectoryRequest sent, final ListDirectoryRequest got):
@@ -349,10 +383,16 @@ Future<void> _roundTrip(
     case (final UnwatchServerRequest sent, final UnwatchServerRequest got):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);
-    case (final DisconnectServerRequest sent, final DisconnectServerRequest got):
+    case (
+      final DisconnectServerRequest sent,
+      final DisconnectServerRequest got,
+    ):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);
-    case (final ConnectedServerIdsRequest sent, final ConnectedServerIdsRequest got):
+    case (
+      final ConnectedServerIdsRequest sent,
+      final ConnectedServerIdsRequest got,
+    ):
       expect(got.requestId, sent.requestId);
     case (final ShutdownRequest sent, final ShutdownRequest got):
       expect(got.requestId, sent.requestId);
@@ -365,8 +405,18 @@ Future<void> _roundTrip(
       expect(got.policy.maxTransports, sent.policy.maxTransports);
       expect(got.hostKeyPins, hasLength(sent.hostKeyPins.length));
       expect(got.hostKeyPins.single.host, sent.hostKeyPins.single.host);
+      expect(got.hostKeyPins.single.port, sent.hostKeyPins.single.port);
+      expect(got.hostKeyPins.single.type, sent.hostKeyPins.single.type);
+      expect(
+        got.hostKeyPins.single.fingerprintSha256,
+        sent.hostKeyPins.single.fingerprintSha256,
+      );
+      expect(got.hostKeyPins.single.pinnedAt, sent.hostKeyPins.single.pinnedAt);
     default:
-      fail('Message type changed across the port: $returned');
+      fail(
+        'Message type changed across the port: '
+        'sent ${message.runtimeType}, got $returned',
+      );
   }
 
   final event = returned;
@@ -381,6 +431,7 @@ void _expectResult(EngineResult actual, EngineResult expected) {
     case (final DirectoryListed sent, final DirectoryListed got):
       expect(got.entries, hasLength(sent.entries.length));
       expect(got.entries.single.path, sent.entries.single.path);
+      expect(got.entries.single.name, sent.entries.single.name);
       expect(got.entries.single.type, sent.entries.single.type);
       expect(got.entries.single.size, sent.entries.single.size);
     case (final EngineError sent, final EngineError got):
@@ -408,7 +459,10 @@ void _expectPromptData(EnginePromptData actual, EnginePromptData expected) {
       expect(got.keyType, sent.keyType);
       expect(got.fingerprintSha256, sent.fingerprintSha256);
       expect(got.pinnedFingerprintSha256, sent.pinnedFingerprintSha256);
-    case (final KeyboardInteractivePromptData sent, final KeyboardInteractivePromptData got):
+    case (
+      final KeyboardInteractivePromptData sent,
+      final KeyboardInteractivePromptData got,
+    ):
       expect(got.name, sent.name);
       expect(got.instruction, sent.instruction);
       expect(got.prompts, sent.prompts);
@@ -428,7 +482,10 @@ void _expectReply(PromptReply actual, PromptReply expected) {
   switch ((expected, actual)) {
     case (final HostKeyPromptReply sent, final HostKeyPromptReply got):
       expect(got.accepted, sent.accepted);
-    case (final KeyboardInteractivePromptReply sent, final KeyboardInteractivePromptReply got):
+    case (
+      final KeyboardInteractivePromptReply sent,
+      final KeyboardInteractivePromptReply got,
+    ):
       expect(got.answers, sent.answers);
     case (final CredentialPromptReply sent, final CredentialPromptReply got):
       expect(got.cancelled, sent.cancelled);

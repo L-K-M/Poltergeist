@@ -30,9 +30,7 @@ class EngineClient {
   bool _shuttingDown = false;
   bool _closed = false;
 
-  EngineClient._()
-    : _events = ReceivePort(),
-      _control = ReceivePort() {
+  EngineClient._() : _events = ReceivePort(), _control = ReceivePort() {
     _events.listen(_onEvent);
     _control.listen(_onControl);
   }
@@ -74,8 +72,7 @@ class EngineClient {
   Stream<EnginePromptEvent> get prompts => _prompts.stream;
 
   /// The engine withdrew a prompt: its dialog closes without answering.
-  Stream<PromptDismissedEvent> get promptDismissals =>
-      _promptDismissals.stream;
+  Stream<PromptDismissedEvent> get promptDismissals => _promptDismissals.stream;
 
   /// Host keys the engine pinned; the app persists them in its pin store.
   Stream<HostKeyPinnedEvent> get hostKeyPins => _hostKeyPins.stream;
@@ -86,6 +83,9 @@ class EngineClient {
   /// The server's connection state, current value first (03 §3.2). Watching
   /// again re-subscribes; dropping the last listener unsubscribes.
   Stream<ServerConnectionState> watchServer(String serverId) {
+    // Match `_call`'s fail-fast: a dead engine must not hand out a stream
+    // that neither emits nor closes (`.first` would hang forever).
+    if (_closed) throw _notRunning();
     final controller = _serverStates.putIfAbsent(
       serverId,
       () => StreamController<ServerConnectionState>.broadcast(
@@ -138,11 +138,7 @@ class EngineClient {
   /// Answers an open prompt. Fire-and-forget by contract (03 §5): replies
   /// the engine cannot apply are ignored — there is deliberately no
   /// feedback channel.
-  void replyPrompt(
-    String promptId,
-    EnginePromptKind kind,
-    PromptReply reply,
-  ) {
+  void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply) {
     _fireAndForget(
       (id) => PromptReplyRequest(
         requestId: id,
@@ -154,16 +150,22 @@ class EngineClient {
   }
 
   /// Orderly shutdown: open prompts dismissed, servers disconnected, the
-  /// isolate killed. Idempotent.
+  /// isolate killed. Idempotent. The ack races engine death: an engine that
+  /// exits without acking (or with an internal error) still ends shutdown —
+  /// the kill is a no-op on an already-dead isolate.
   Future<void> shutdown() async {
     if (_shuttingDown) return _terminated.future;
     if (_closed) return;
     _shuttingDown = true;
 
     try {
-      await _call((id) => ShutdownRequest(requestId: id));
-    } on RemoteFileException {
-      // The engine died before acking; _terminate below still cleans up.
+      await Future.any([
+        _call((id) => ShutdownRequest(requestId: id)),
+        _terminated.future,
+      ]);
+    } on Object {
+      // Engine death, a protocol fault, or a failed ack — cleanup below is
+      // the same for all three.
     }
     _terminate();
     _isolate.kill(priority: Isolate.immediate);
@@ -201,9 +203,11 @@ class EngineClient {
   }
 
   void _onControl(Object? message) {
-    // onError delivers [error, stack]; onExit delivers [exitCode]. An exit
-    // we asked for is expected; anything else is engine death.
-    if (_shuttingDown && message is List && message.length == 1) return;
+    // onError delivers [error, stack]; onExit delivers [exitCode]. Either
+    // way the engine is no longer serving, and _terminate is idempotent —
+    // shutdown() races its ack against [terminated], so even the expected
+    // post-shutdown exit runs cleanup instead of being ignored (an engine
+    // that exits without acking must never wedge shutdown).
     _terminate();
   }
 
@@ -287,19 +291,22 @@ class EngineBrowseChannel {
 
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     final result = await _client._call(
-      (id) => ListDirectoryRequest(
-        requestId: id,
-        channelId: channelId,
-        path: path,
-      ),
+      (id) =>
+          ListDirectoryRequest(requestId: id, channelId: channelId, path: path),
     );
     return (result as DirectoryListed).entries;
   }
 
-  /// Closes the channel; idempotent.
+  /// Closes the channel; idempotent. A dead engine has closed every
+  /// channel by definition — disconnected errors complete normally so
+  /// disposal code can close defensively during teardown races.
   Future<void> close() async {
-    await _client._call(
-      (id) => CloseBrowseChannelRequest(requestId: id, channelId: channelId),
-    );
+    try {
+      await _client._call(
+        (id) => CloseBrowseChannelRequest(requestId: id, channelId: channelId),
+      );
+    } on RemoteFileException catch (error) {
+      if (error.kind != RemoteFileErrorKind.disconnected) rethrow;
+    }
   }
 }
