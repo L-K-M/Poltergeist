@@ -87,6 +87,10 @@
 
 ## Pin findings
 
+The 2026-09-07 stale-home recovery repair changes Poltergeist's pool only.
+No source copy, pin change, or upstream port is required; Séance does not own
+this background recovery loop.
+
 The 2026-09-07 engine progress coalescer uses the M0 harness's rate and item
 caps, with shared flush windows for the aggregate stream. It adds no Séance
 source copy, dependency change, or port-back candidate.

@@ -332,6 +332,11 @@ extension _PoolRecovery on PooledConnectionManager {
       } on RemoteFileException catch (error) {
         // A removed binding is local cancellation, not transport loss.
         if (!identical(pool.browseByClient[key], binding)) continue;
+        // A home error can outlive its transport. Keep the pane for retry
+        // instead of treating a dead handle's late error as permanent.
+        _checkReconnect(pool, cycle);
+        _checkAcquisition(reference, handle);
+
         if (error.kind == RemoteFileErrorKind.disconnected) {
           _handleTransportDeath(pool, handle.slot);
           rethrow;

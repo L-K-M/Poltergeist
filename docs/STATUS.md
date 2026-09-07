@@ -4,7 +4,8 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M2 bounded engine progress coalescing, pooled
+_Last updated: 2026-09-07 — M2 ignores stale home-resolution failures from
+dead recovery transports; bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
 `EngineClient` connection/prompt protocol are implemented; upstream
 keepalive controls are pinned. Production wiring (app composition) and
@@ -277,6 +278,17 @@ and the existing owner-decision gates remain open. No milestone-close claim.
   multiple explicit roots were verified with Dart 3.12.0 and 3.13.2.
 
 ## Audit repairs
+
+- **2026-09-07 — stale recovery home failures.** A replacement transport
+  can die while its home canonicalization is pending. Its late error now
+  rechecks the recovery cycle and acquired handle before classifying a
+  permanent pane failure. The pane survives for the next backoff attempt;
+  errors from a live handle retain the existing pane-only failure behavior.
+  The regression failed before the guard and passes after it.
+  Core analysis and 222 tests pass (one existing fixture skip); Flutter
+  analysis and 121 tests pass. Import and protocol guards pass.
+  No milestone-close claim; production wiring and real-sshd coverage remain
+  open.
 
 - **2026-09-06 — deterministic benchmark timeout test.** The transfer
   timeout test now withholds the completion sentinel behind an explicit
