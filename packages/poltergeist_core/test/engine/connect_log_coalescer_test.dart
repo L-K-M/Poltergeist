@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_core/src/engine/connect_log_coalescer.dart';
@@ -73,6 +75,31 @@ void main() {
 
       coalescer.dispose();
     });
+  });
+
+  test('one sink failure cannot discard a sibling batch', () {
+    final delivered = <ConnectionLogEvent>[];
+    final failure = StateError('broken sink');
+    Object? surfacedError;
+
+    runZonedGuarded(
+      () => fakeAsync((time) {
+        final coalescer = ConnectLogCoalescer((event) {
+          if (event.serverId == 's1') throw failure;
+          delivered.add(event);
+        });
+
+        coalescer.add(const ConnectLogLine(serverId: 's1', line: 'a'));
+        coalescer.add(const ConnectLogLine(serverId: 's2', line: 'b'));
+        time.elapse(connectionLogFlushInterval);
+        coalescer.dispose();
+      }),
+      (error, _) => surfacedError = error,
+    );
+
+    expect(surfacedError, same(failure));
+    expect(delivered.single.serverId, 's2');
+    expect(delivered.single.lines, ['b']);
   });
 
   test('caps pending lines per server, dropping the oldest', () {

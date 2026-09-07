@@ -260,12 +260,25 @@ void main() {
     expect(find.textContaining('result:'), findsNothing);
   });
 
-  testWidgets('an unavailable vault explains itself before the fields', (
+  testWidgets('an unavailable vault explains itself without a save offer', (
     tester,
   ) async {
-    await _open(tester, _Harness(_passwordData, vaultUnavailable: true));
+    await _open(
+      tester,
+      _Harness(
+        const CredentialPromptData(
+          host: 'example.com',
+          port: 2222,
+          username: 'deploy',
+          authMethod: AuthMethod.password,
+          secretRef: 'secret-7',
+        ),
+        vaultUnavailable: true,
+      ),
+    );
 
     expect(find.textContaining('system credential store'), findsOneWidget);
+    expect(find.text('Save in vault'), findsNothing);
     // The banner never blocks manual entry.
     expect(find.widgetWithText(TextField, 'Password'), findsOneWidget);
   });

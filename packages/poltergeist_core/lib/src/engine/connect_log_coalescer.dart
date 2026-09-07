@@ -66,8 +66,20 @@ final class ConnectLogCoalescer {
     // next window rather than mutating the batch being sent.
     final batches = _pending;
     _pending = {};
+    Object? firstError;
+    StackTrace? firstStackTrace;
     for (final entry in batches.entries) {
-      _emit(ConnectionLogEvent(serverId: entry.key, lines: entry.value));
+      try {
+        _emit(ConnectionLogEvent(serverId: entry.key, lines: entry.value));
+      } on Object catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
     }
+
+    // A broken sink remains a wiring error, but cannot discard siblings'
+    // batches that were already detached from the pending map.
+    final error = firstError;
+    if (error != null) Error.throwWithStackTrace(error, firstStackTrace!);
   }
 }

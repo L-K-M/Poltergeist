@@ -148,8 +148,9 @@ composition yet — the wiring slice composes these library surfaces (item 6).
 
 Review regressions cover detail preservation through dead-slot teardown,
 queue progress, route ownership and races, async credential reads, empty
-vault saves, malformed audit lines, owner-only rotation, and panel lifecycle.
-After reconciliation with PR #39: core analysis and 239 tests pass (one sshd
+vault saves, sibling-batch fan-out, malformed audit lines, owner-only
+rotation, and panel lifecycle. After reconciliation with PR #39: core
+analysis and 240 tests pass (one sshd
 fixture skip); app analysis and 186 tests pass; protocol guard (49), import
 guard (92), and pin audit pass. UI surfaces remain uncomposed, so screenshots
 ride the wiring slice that first renders them. `posix` 6.5.2 moved from a

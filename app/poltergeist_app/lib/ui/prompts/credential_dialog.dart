@@ -220,7 +220,7 @@ class _CredentialDialogState extends State<_CredentialDialog> {
                 labelText: l10n.credentialPasswordField,
               ),
             ),
-          if (secretRef != null)
+          if (secretRef != null && !widget.vaultUnavailable)
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
