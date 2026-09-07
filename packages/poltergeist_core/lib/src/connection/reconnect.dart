@@ -336,6 +336,16 @@ extension _PoolRecovery on PooledConnectionManager {
           _handleTransportDeath(pool, handle.slot);
           rethrow;
         }
+
+        // A home error can outlive its transport. Keep the pane for retry
+        // instead of treating a dead handle's late error as permanent.
+        _checkReconnect(pool, cycle);
+        // isClosed can precede done; retire every binding on this slot now.
+        if (handle.slot.transport.isClosed) {
+          _handleTransportDeath(pool, handle.slot);
+        }
+        _checkAcquisition(reference, handle);
+
         // One inaccessible home must not disconnect healthy siblings. The
         // old view exposes its error; an explicit open may retry this tab.
         binding._failure = error;
