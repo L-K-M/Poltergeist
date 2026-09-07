@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:isolate';
 
+import 'package:meta/meta.dart';
 import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart';
@@ -22,6 +23,7 @@ class EngineClient {
   final _promptDismissals = StreamController<PromptDismissedEvent>.broadcast();
   final _hostKeyPins = StreamController<HostKeyPinnedEvent>.broadcast();
   final _progress = StreamController<TransferProgressBatchEvent>.broadcast();
+  final _recoveryFailures = StreamController<RecoveryFailedEvent>.broadcast();
 
   final ReceivePort _events;
   final ReceivePort _control;
@@ -40,11 +42,24 @@ class EngineClient {
   /// isolate cannot be spawned or dies before the boot handshake completes
   /// (e.g. a construction failure such as an invalid [PoolPolicy]). Later
   /// engine death surfaces through [terminated] and failed pending calls.
-  static Future<EngineClient> spawn(EngineConfig config) async {
+  static Future<EngineClient> spawn(EngineConfig config) =>
+      _spawn(config, engineMain);
+
+  /// Exercises client dispatch over real ports with a socket-free engine.
+  @visibleForTesting
+  static Future<EngineClient> spawnForTesting(
+    EngineConfig config, {
+    required void Function(SendPort) entrypoint,
+  }) => _spawn(config, entrypoint);
+
+  static Future<EngineClient> _spawn(
+    EngineConfig config,
+    void Function(SendPort) entrypoint,
+  ) async {
     final client = EngineClient._();
     try {
       client._isolate = await Isolate.spawn(
-        engineMain,
+        entrypoint,
         client._events.sendPort,
         onError: client._control.sendPort,
         onExit: client._control.sendPort,
@@ -81,6 +96,10 @@ class EngineClient {
 
   /// Coalesced transfer progress (03 §5); consumed by the queue mirror (M4).
   Stream<TransferProgressBatchEvent> get progressBatches => _progress.stream;
+
+  /// Terminal background failures for the local diagnostic consumer (D19).
+  /// Subscribe before connecting; events are live and close on engine death.
+  Stream<RecoveryFailedEvent> get recoveryFailures => _recoveryFailures.stream;
 
   /// The server's connection state, current value first (03 §3.2). Watching
   /// again re-subscribes; dropping the last listener unsubscribes.
@@ -196,6 +215,8 @@ class EngineClient {
         _hostKeyPins.add(event);
       case final TransferProgressBatchEvent event:
         _progress.add(event);
+      case final RecoveryFailedEvent event:
+        _recoveryFailures.add(event);
       default:
         // Same-package protocol drift: no client can produce this message.
         // Fail closed rather than wedge every pending call.
@@ -273,6 +294,7 @@ class EngineClient {
     _promptDismissals.close();
     _hostKeyPins.close();
     _progress.close();
+    _recoveryFailures.close();
     _events.close();
     _control.close();
     if (!_terminated.isCompleted) _terminated.complete();

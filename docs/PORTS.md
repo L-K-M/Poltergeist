@@ -87,6 +87,9 @@
 
 ## Pin findings
 
+The 2026-09-07 recovery diagnostics change Poltergeist's pool and engine
+protocol only. No source copy, pin change, or upstream port is required.
+
 The 2026-09-07 stale-home recovery repair changes Poltergeist's pool only.
 No source copy, pin change, or upstream port is required; Séance does not own
 this background recovery loop.

@@ -51,6 +51,7 @@ class EngineHost {
   final Map<int, PaneChannel> _channels = {};
   final Map<String, StreamSubscription<ServerConnectionState>> _watches = {};
   int _nextChannelId = 1;
+  bool _shuttingDown = false;
 
   /// [openTransport], [prober], and [hostKeyStore] are test seams — the
   /// production defaults need real sockets; tests inject socket-free fakes.
@@ -71,11 +72,29 @@ class EngineHost {
       policy: config.policy,
       openTransport: openTransport,
       prober: prober,
+      onRecoveryFailure: host._recoveryFailed,
     );
     return host;
   }
 
   EngineHost._(this._events) : _prompts = _PromptBroker(_events);
+
+  void _recoveryFailed(
+    String serverId,
+    RemoteFileException error, {
+    String? paneTabId,
+  }) {
+    if (_shuttingDown) return;
+    // Terminal diagnostics bypass lossy progress and need no state watch.
+    // Serialization drops arbitrary causes before crossing the port.
+    _events.send(
+      RecoveryFailedEvent(
+        serverId: serverId,
+        paneTabId: paneTabId,
+        error: EngineError.fromException(error),
+      ),
+    );
+  }
 
   /// Pins from the config seed the in-memory verifier; every later pin
   /// write surfaces to the UI for persistence (the engine owns TOFU, the
@@ -235,6 +254,7 @@ class EngineHost {
   /// The spawner owns the isolate's lifetime: it kills after the ack (see
   /// `EngineClient.shutdown`), so the host only cleans up and answers.
   Future<EngineResult> _shutdown(ShutdownRequest request) async {
+    _shuttingDown = true;
     // Still-open prompts are implicit cancels (03 §5): dismiss them so no
     // dialog outlives the engine.
     _prompts.dismissAll();

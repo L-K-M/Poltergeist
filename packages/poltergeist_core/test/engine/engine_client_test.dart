@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
@@ -7,6 +8,18 @@ import 'package:test/test.dart';
 /// proving the full request → engine → production-opener → error → response
 /// round trip without needing an sshd fixture (08 §5 owns those legs).
 const _refusedPort = 1;
+const _connectedServerId = 'srv-2';
+const _streamClosureTimeout = Duration(seconds: 5);
+const _recoveryFailure = RecoveryFailedEvent(
+  serverId: 'srv-1',
+  paneTabId: 'tab-1',
+  error: EngineError(
+    kind: RemoteFileErrorKind.permissionDenied,
+    operation: 'canonicalize',
+    path: '.',
+    message: 'Home access denied.',
+  ),
+);
 
 ServerConfig _config({int port = _refusedPort}) => ServerConfig(
   id: 'srv-1',
@@ -25,6 +38,41 @@ void main() {
     addTearDown(client.shutdown);
 
     expect(await client.connectedServerIds(), isEmpty);
+  });
+
+  test('background recovery failures broadcast across real isolates', () async {
+    final client = await EngineClient.spawnForTesting(
+      const EngineConfig(),
+      entrypoint: _diagnosticEngine,
+    );
+    addTearDown(client.shutdown);
+
+    final first = <RecoveryFailedEvent>[];
+    final second = <RecoveryFailedEvent>[];
+    final firstSubscription = client.recoveryFailures.listen(first.add);
+    final secondSubscription = client.recoveryFailures.listen(second.add);
+    addTearDown(firstSubscription.cancel);
+    addTearDown(secondSubscription.cancel);
+
+    // The response follows the diagnostic on the same port, so awaiting it
+    // drains forwarding without sleeps or a missing-event timeout.
+    expect(await client.connectedServerIds(), {_connectedServerId});
+    expect(first, hasLength(1));
+    expect(second, hasLength(1));
+    expect(second.single, same(first.single));
+
+    final received = first.single;
+    expect(received.serverId, _recoveryFailure.serverId);
+    expect(received.paneTabId, _recoveryFailure.paneTabId);
+    expect(received.error.kind, _recoveryFailure.error.kind);
+    expect(received.error.operation, _recoveryFailure.error.operation);
+    expect(received.error.path, _recoveryFailure.error.path);
+    expect(received.error.message, _recoveryFailure.error.message);
+
+    // Dispatching an unsolicited event must leave later requests serving.
+    expect(await client.connectedServerIds(), {_connectedServerId});
+    expect(first, hasLength(1));
+    expect(second, hasLength(1));
   });
 
   test('watchServer emits the current state first', () async {
@@ -168,6 +216,16 @@ void main() {
     );
   });
 
+  test('shutdown closes the background recovery failure stream', () async {
+    final client = await EngineClient.spawn(const EngineConfig());
+    addTearDown(client.shutdown);
+
+    final failures = client.recoveryFailures.toList();
+    await client.shutdown();
+
+    expect(await failures.timeout(_streamClosureTimeout), isEmpty);
+  });
+
   test('dead-engine surfaces: watch fails fast', () async {
     final client = await EngineClient.spawn(const EngineConfig());
     await client.shutdown();
@@ -192,6 +250,8 @@ void main() {
     );
     addTearDown(client.shutdown);
 
+    final failures = client.recoveryFailures.toList();
+
     // The engine died on its constructor guard; every call fails typed and
     // termination is observable (no silent zombie client).
     await expectLater(
@@ -199,10 +259,46 @@ void main() {
       throwsA(isA<RemoteFileException>()),
     );
     await expectLater(client.terminated, completes);
+    expect(await failures.timeout(_streamClosureTimeout), isEmpty);
 
     // Shutdown on a dead engine must complete, not hang on an ack that can
     // never arrive (the ack-vs-termination race).
     await client.shutdown();
+  });
+}
+
+/// Emits a diagnostic only after the client attaches its listeners, then
+/// serves ordinary requests to prove the event did not terminate dispatch.
+void _diagnosticEngine(SendPort events) {
+  final requests = ReceivePort();
+  events.send(requests.sendPort);
+  RecoveryFailedEvent? pendingFailure = _recoveryFailure;
+  requests.listen((message) {
+    switch (message) {
+      case EngineConfig():
+        return;
+      case final ConnectedServerIdsRequest request:
+        if (pendingFailure != null) {
+          events.send(pendingFailure);
+          pendingFailure = null;
+        }
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const ServerIdsListed(ids: [_connectedServerId]),
+          ),
+        );
+      case final ShutdownRequest request:
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const EngineAck(),
+          ),
+        );
+        requests.close();
+      default:
+        throw StateError('Unexpected diagnostic fixture request.');
+    }
   });
 }
 

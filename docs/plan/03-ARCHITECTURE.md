@@ -546,7 +546,15 @@ including those behind transfer waiters: sharing consumes no transfer slot.
   resolving `canonicalize('.')` again. A permanent home-resolution error
   detaches only that binding: its `fs` getter exposes the original error,
   and an explicit open retries it. Healthy sibling bindings and leases
-  stay connected. Closing a binding during recovery removes
+  stay connected. Terminal recovery failures also reach the engine's local
+  diagnostic event path, even without an awaiting acquisition. Whole-pool
+  failures fan out once per current server reference; a permanent home
+  failure names only its pane-tab. Report before terminal teardown invalidates
+  the cycle, including SFTP refusals that tear down during acquisition.
+  Transient retries, stale completions, disconnect, and shutdown emit no
+  failure diagnostic; changed keys retain the separate blocked-state path.
+  Diagnostic observers cannot interrupt cleanup or replace caller errors.
+  Closing a binding during recovery removes
   its demand; stale completions cannot reopen it. Leases are not rebound:
   the queue releases and reacquires them. Engine callers report VFS
   failures through the channel/lease's `reportFailure`, passing the VFS
@@ -1494,6 +1502,18 @@ class ServerStateEvent extends EngineEvent {
   final ServerConnectionState state;  // §3.2's enum
   final String? detail;               // e.g. the summarized failure line
 }
+/// Terminal background failures bypass lossy progress and require no watch.
+/// Null paneTabId means a whole-pool failure; otherwise only that pane failed.
+class RecoveryFailedEvent extends EngineEvent {
+  final String serverId;
+  final String? paneTabId;
+  final EngineError error;
+}
+// EngineClient.recoveryFailures is a broadcast stream, closed on engine
+// termination. It keeps no history. VFS kind/operation/path/message cross;
+// arbitrary resolver/opener errors use a fixed generic summary, never their
+// toString(), cause, stack, credentials, or prompt payload. This is local
+// diagnostic data; the rendering layer owns localized failure copy (D20).
 /// Prompts round-trip as events, correlated by promptId: the engine
 /// isolate wraps seance_core's HostKeyPrompter and
 /// KeyboardInteractiveResponder callbacks by emitting one of these and

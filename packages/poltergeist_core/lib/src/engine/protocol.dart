@@ -6,9 +6,9 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 
 /// Increment when the cross-isolate message contract changes.
 ///
-/// v2 adds the connection/prompt surface (03 §5): requests, responses,
-/// prompts, prompt dismissal, host-key pin fan-out, and [EngineConfig].
-const engineProtocolVersion = 2;
+/// v3 adds [RecoveryFailedEvent] so background failures reach the local
+/// diagnostic consumer without a pending request.
+const engineProtocolVersion = 3;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -61,14 +61,30 @@ final class ServerStateEvent extends EngineEvent {
   final String serverId;
   final ServerConnectionState state;
 
-  /// E.g. a summarized failure one-liner; null until the recovery-diagnostics
-  /// slice (docs/STATUS.md open item 5) feeds it.
+  /// Reserved for transcript summaries. Terminal background failures arrive
+  /// independently through [RecoveryFailedEvent], including without a watch.
   final String? detail;
 
   const ServerStateEvent({
     required this.serverId,
     required this.state,
     this.detail,
+  });
+}
+
+/// A terminal background recovery failure for local diagnostics (D19).
+/// Independent of state watches and request replies; causes stay engine-side.
+final class RecoveryFailedEvent extends EngineEvent {
+  final String serverId;
+
+  /// A failed browse binding; null when recovery stopped for the whole pool.
+  final String? paneTabId;
+  final EngineError error;
+
+  const RecoveryFailedEvent({
+    required this.serverId,
+    this.paneTabId,
+    required this.error,
   });
 }
 
