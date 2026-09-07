@@ -87,6 +87,10 @@
 
 ## Pin findings
 
+The 2026-09-07 engine progress coalescer uses the M0 harness's rate and item
+caps, with shared flush windows for the aggregate stream. It adds no Séance
+source copy, dependency change, or port-back candidate.
+
 The 2026-09-07 keepalive prerequisite re-pins both declarations to upstream
 `a9add15` ([Séance #77](https://github.com/L-K-M/Seance/pull/77)). All ported
 sources re-diff unchanged from `2f99f4e`; the `app_services.dart` changes are

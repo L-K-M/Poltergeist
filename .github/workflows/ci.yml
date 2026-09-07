@@ -53,6 +53,12 @@ jobs:
       # closed.
       - name: Check dependency boundaries (03 §1)
         run: bash scripts/check-imports.sh
+      - name: Analyze engine protocol guard
+        run: dart analyze tool/protocol_guard
+      - name: Test engine protocol guard
+        run: dart test tool/protocol_guard/test
+      - name: Check engine protocol boundaries (08 §3.3)
+        run: dart run tool/protocol_guard/bin/check.dart .
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
       - name: Analyze release gate

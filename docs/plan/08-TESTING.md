@@ -305,8 +305,12 @@ isolate-sendable and reconstructs intact — **not** closure-freedom,
 since Dart copies closures with sendable captures across isolates;
 function-typed fields in the protocol classes are banned by the §3.3
 AST walker instead); progress coalescing emits
-≤ 30 events/s per task under a flood, and the merged queue stream stays
-frame-bounded with many tasks transferring concurrently; a serialized
+≤ 30 flush windows/s per task under a flood, with one shared timer keeping
+the merged stream at ≤ 30 batches/s and ≤ 64 latest item events per batch
+(03 §5). Fake-clock tests cover rotating items/tasks, recency eviction,
+rolling-second limits, task/item discard, and shutdown without a final flush;
+the immutable batch and item/task counters cross a real isolate intact. A
+serialized
 `RemoteFileException` reconstructs kind + message intact.
 
 The existing product-identity test (ASCII name invariant) stays.
@@ -368,8 +372,11 @@ position** — comments and string literals excluded, so
 pass — or any `dart:ffi`, Flutter, or `dartssh2` import (05 §2's
 never-executes promise and 03 §1's dependency rules, machine-checked).
 A sibling walker covers `packages/poltergeist_core/lib/src/engine/**`
-and fails on any function-typed field declared in **any** class under
-that subtree — not just the `EngineRequest`/`EngineEvent` pair, so a
+and fails on any function-typed storage in **any** class or extension type
+under that subtree, including instance fields inherited from external bases
+or mixins and extension-type representations. Declared static fields are
+also checked; interface-only getters and inherited static fields are not
+instance storage. This covers more than the `EngineRequest`/`EngineEvent` pair, so a
 newly added protocol class cannot quietly escape the §3.2 closure ban
 (the walker also fails if any `EngineRequest`/`EngineEvent` subtype is
 declared outside the walked subtree, so relocation cannot dodge it
