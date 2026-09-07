@@ -11,18 +11,19 @@ import '../../l10n/app_localizations.dart';
 /// answer per prompt, in order. An empty list cancels the attempt.
 Future<List<String>> showKeyboardInteractiveDialog(
   BuildContext context,
-  KeyboardInteractivePromptData data,
-) async {
+  KeyboardInteractivePromptData data, {
+  GlobalKey? dialogKey,
+}) async {
   final result = await showDialog<List<String>>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _KeyboardInteractiveDialog(data: data),
+    builder: (_) => _KeyboardInteractiveDialog(key: dialogKey, data: data),
   );
   return result ?? const <String>[];
 }
 
 class _KeyboardInteractiveDialog extends StatefulWidget {
-  const _KeyboardInteractiveDialog({required this.data});
+  const _KeyboardInteractiveDialog({required this.data, super.key});
 
   final KeyboardInteractivePromptData data;
 
@@ -33,6 +34,16 @@ class _KeyboardInteractiveDialog extends StatefulWidget {
 
 class _KeyboardInteractiveDialogState
     extends State<_KeyboardInteractiveDialog> {
+  // Owns the prompt controllers in its [State] so they are disposed in
+  // [State.dispose] — after the route's exit animation, once the fields are
+  // truly unmounted. Disposing right after `await showDialog(...)` is too
+  // early: the fields stay mounted through the reverse transition and the
+  // framework can still write to a controller (e.g. `clearComposing()` when
+  // the focused field loses focus) — a use-after-dispose that throws in
+  // debug builds whenever an IME composing region is active. Same lifecycle
+  // as Séance's snippet placeholder dialog (regression there:
+  // test/placeholder_dialog_test.dart; pinned here by
+  // keyboard_interactive_dialog_test.dart).
   late final List<TextEditingController> _controllers = [
     for (final _ in widget.data.prompts) TextEditingController(),
   ];
@@ -47,16 +58,11 @@ class _KeyboardInteractiveDialogState
     super.dispose();
   }
 
-  // Owns the prompt controllers in its [State] so they are disposed in
-  // [State.dispose] — after the route's exit animation, once the fields are
-  // truly unmounted. Disposing right after `await showDialog(...)` is too
-  // early: the fields stay mounted through the reverse transition and the
-  // framework can still write to a controller (e.g. `clearComposing()` when
-  // the focused field loses focus) — a use-after-dispose that throws in
-  // debug builds whenever an IME composing region is active. Same lifecycle
-  // as Séance's snippet placeholder dialog (regression there:
-  // test/placeholder_dialog_test.dart; pinned here by
-  // keyboard_interactive_dialog_test.dart).
+  void _close(List<String> answers) {
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    Navigator.pop(context, answers);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -108,12 +114,12 @@ class _KeyboardInteractiveDialogState
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context, <String>[]),
+          onPressed: () => _close(const <String>[]),
           child: Text(l10n.keyboardCancel),
         ),
         FilledButton(
           onPressed: () =>
-              Navigator.pop(context, [for (final c in _controllers) c.text]),
+              _close([for (final controller in _controllers) controller.text]),
           child: Text(l10n.keyboardSubmit),
         ),
       ],

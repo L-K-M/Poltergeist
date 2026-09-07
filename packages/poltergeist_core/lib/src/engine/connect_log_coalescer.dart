@@ -21,9 +21,10 @@ const connectionLogFlushInterval = Duration(
 const connectionLogMaxLines = 400;
 
 /// Bounds transcript port traffic: lines accumulate per server in append
-/// order, one shared timer flushes at most [connectionLogFlushesPerSecond]
-/// batches per second, and per-server pending lines are capped at
-/// [connectionLogMaxLines] with drop-oldest. Unlike progress (latest-wins
+/// order, and one shared timer fires at most [connectionLogFlushesPerSecond]
+/// times per second. Each fire emits one batch per pending server; each
+/// server's pending lines are capped at [connectionLogMaxLines] with
+/// drop-oldest. Unlike progress (latest-wins
 /// per item), transcript order is the content — nothing is reordered or
 /// merged, only the oldest lines drop under a flood.
 final class ConnectLogCoalescer {

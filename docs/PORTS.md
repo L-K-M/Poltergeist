@@ -100,7 +100,9 @@ pool. No copied sources, pin changes, or upstream port candidates.
   isolate, 03 §5) instead of seance_core's `HostKeyDecision`; a `changed`
   verdict still renders the alarming two-fingerprint review with the
   destructive-styled trust button (D18 hard block, never auto-repin).
-- Port-back candidates: none.
+  Coordinator-owned route identity and current-route action guards prevent
+  a prompt dismissal or repeated activation from popping another route.
+- Port-back candidates: current-route action guards.
 
 ## app/poltergeist_app/test/ui/prompts/host_key_dialog_test.dart
 
@@ -119,36 +121,40 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Divergences: strings localize through ARB (D20); the payload is the
   engine protocol's `KeyboardInteractivePromptData` (03 §5); adds per-field
   reveal toggles absent from the source (echo metadata is absent on the
-  wire, so reveal is explicit-only). The controller-dispose-in-State
-  lifecycle and its IME use-after-dispose lesson are ported verbatim.
-- Port-back candidates: none.
+  wire, so reveal is explicit-only), coordinator-owned route identity, and
+  current-route action guards. The controller-dispose-in-State lifecycle
+  and its IME use-after-dispose lesson are ported verbatim.
+- Port-back candidates: current-route action guards; preserve RFC 4256's
+  per-prompt echo bit once the upstream responder exposes it.
 
 ## app/poltergeist_app/test/ui/prompts/keyboard_interactive_dialog_test.dart
 
 - Source: app/seance_app/test/keyboard_interactive_dialog_test.dart
 - Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
-- Divergences: adapted to the protocol payload; adds reveal-toggle and
-  empty-name/instruction fallback coverage.
-- Port-back candidates: none.
+- Divergences: adapted to the protocol payload; adds reveal-toggle,
+  empty-name/instruction fallback, and repeated-submit route-safety coverage.
+- Port-back candidates: repeated-submit regression.
 
 ## app/poltergeist_app/lib/services/identity_audit_log.dart
 
 - Source: app/seance_app/lib/services/identity_audit_log.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
-- Divergences: doc comments only (`viaBookmark` stays false until grants
-  exist — Poltergeist is unsandboxed at v1, D23); the JSONL record shape is
-  frozen identical and allowlisted in the localization contract.
-- Port-back candidates: none.
+- Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
+  (D23); wrong-typed optional JSON fields now skip as malformed instead of
+  throwing and poisoning the full audit read. The record shape stays frozen
+  identical and allowlisted in the localization contract.
+- Port-back candidates: harden Séance's optional-field decode likewise.
 
 ## app/poltergeist_app/test/services/identity_audit_log_test.dart
 
 - Source: app/seance_app/test/identity_audit_log_test.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
-- Divergences: none — record/rotate/skip/serialize behavior identical.
-- Port-back candidates: none.
+- Divergences: adds the wrong-typed optional-field regression for the local
+  decoder hardening; record/rotate/serialize behavior remains identical.
+- Port-back candidates: port the malformed-line regression with the fix.
 
 ## app/poltergeist_app/lib/services/identity_file_reader.dart
 
@@ -182,7 +188,8 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Divergences: driven by the engine protocol's streams (03 §5) instead of
   an app-side session object; strings localize through ARB (D20); states
   cover the pool's full lifecycle (reconnecting, blocked) beyond the
-  source's terminal states; the transcript starts collapsed exactly as the
+  source's terminal states; replacement streams resubscribe and reset stale
+  server state/transcript; the transcript starts collapsed exactly as the
   source's does.
 - Port-back candidates: none.
 
@@ -192,7 +199,8 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Séance commit: n/a
 - Ported: 2026-09-07 (new coverage for the stream-driven panel)
 - Divergences: per-state rendering, live/bounded transcript, copy via a
-  mocked clipboard channel, per-server filtering, retry wiring.
+  mocked clipboard channel, per-server filtering, retry wiring, initial
+  pending state, and stream/server replacement lifecycle.
 - Port-back candidates: none.
 
 ## Pin findings
@@ -204,12 +212,14 @@ The 2026-09-07 stale-home recovery repair changes Poltergeist's pool only.
 No source copy, pin change, or upstream port is required; Séance does not own
 this background recovery loop.
 
-The 2026-09-07 prompt-UI and diagnostics slice ports the five sources above
-at the existing `a9add15` pin (no pin change; no Séance tag contains it yet
-— STATUS item 2 owns the next-tag bump). The engine-side additions
-(`ServerStatus.detail`, `ConnectLogLine`, the port coalescer, protocol v3)
-and the prompt coordinator, credential dialog, and vault-first resolution
-are Poltergeist-only. No port-back candidates.
+The 2026-09-07 prompt-UI and diagnostics slice ports the nine Séance-sourced
+files above — five production sources plus four test files — at the existing
+`a9add15` pin (no pin change; no Séance tag contains it yet — STATUS item 2
+owns the next-tag bump). The engine-side additions (`ServerStatus.detail`,
+`ConnectLogLine`, the port coalescer, protocol v3) and the prompt
+coordinator, credential dialog, and vault-first resolution are
+Poltergeist-only. Current-route dialog guards and malformed audit-line
+handling are port-back candidates recorded above.
 
 The 2026-09-07 engine progress coalescer uses the M0 harness's rate and item
 caps, with shared flush windows for the aggregate stream. It adds no Séance

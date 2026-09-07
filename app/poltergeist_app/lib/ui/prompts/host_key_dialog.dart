@@ -14,8 +14,9 @@ import '../../l10n/app_localizations.dart';
 /// key.
 Future<bool> showHostKeyDialog(
   BuildContext context,
-  HostKeyPromptData data,
-) async {
+  HostKeyPromptData data, {
+  GlobalKey? dialogKey,
+}) async {
   final changed = data.pinnedFingerprintSha256 != null;
   final result = await showDialog<bool>(
     context: context,
@@ -23,7 +24,13 @@ Future<bool> showHostKeyDialog(
     builder: (context) {
       final scheme = Theme.of(context).colorScheme;
       final l10n = AppLocalizations.of(context);
+      void close(bool accepted) {
+        if (ModalRoute.of(context)?.isCurrent != true) return;
+        Navigator.pop(context, accepted);
+      }
+
       return AlertDialog(
+        key: dialogKey,
         icon: Icon(
           changed ? Icons.gpp_bad : Icons.verified_user_outlined,
           color: changed ? scheme.error : null,
@@ -69,7 +76,7 @@ Future<bool> showHostKeyDialog(
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => close(false),
             child: Text(l10n.hostKeyCancel),
           ),
           FilledButton(
@@ -79,7 +86,7 @@ Future<bool> showHostKeyDialog(
                     foregroundColor: scheme.onError,
                   )
                 : null,
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => close(true),
             child: Text(
               changed ? l10n.hostKeyTrustNewKey : l10n.hostKeyTrustConnect,
             ),

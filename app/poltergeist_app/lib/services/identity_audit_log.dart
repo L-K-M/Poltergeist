@@ -44,16 +44,25 @@ class IdentityReadEvent {
     if (json is! Map<String, dynamic>) return null;
     final at = json['at'];
     final serverId = json['serverId'];
+    final serverLabel = json['serverLabel'];
     final path = json['path'];
+    final viaBookmark = json['viaBookmark'];
+    final ok = json['ok'];
+    final error = json['error'];
     if (at is! String || serverId is! String || path is! String) return null;
+    if (serverLabel != null && serverLabel is! String) return null;
+    if (viaBookmark != null && viaBookmark is! bool) return null;
+    if (ok != null && ok is! bool) return null;
+    if (error != null && error is! String) return null;
+
     return IdentityReadEvent(
       at: at,
       serverId: serverId,
-      serverLabel: json['serverLabel'] as String? ?? '',
+      serverLabel: serverLabel as String? ?? '',
       path: path,
-      viaBookmark: json['viaBookmark'] as bool? ?? false,
-      ok: json['ok'] as bool? ?? false,
-      error: json['error'] as String?,
+      viaBookmark: viaBookmark as bool? ?? false,
+      ok: ok as bool? ?? false,
+      error: error as String?,
     );
   }
 }

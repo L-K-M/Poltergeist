@@ -89,16 +89,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/prompt_coordinator.dart': {
     "'No identity-file reader is wired'",
     "'\${data.username}@\${data.host}'",
-    "''",
   },
   // Monospace rendering of machine data (fingerprints, endpoints,
   // transcripts) plus list joins — no authored copy.
   'lib/ui/connection_status_panel.dart': {"'\\n'", "'monospace'"},
   'lib/ui/prompts/credential_dialog.dart': {"''", "'monospace'"},
-  'lib/ui/prompts/host_key_dialog.dart': {
-    "'monospace'",
-    "'\$type\\n\$value'",
-  },
+  'lib/ui/prompts/host_key_dialog.dart': {"'monospace'", "'\$type\\n\$value'"},
   'lib/ui/adaptive_shell.dart': {
     "'primary-pane'",
     "'secondary-pane'",

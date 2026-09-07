@@ -64,8 +64,28 @@ void main() {
   test('malformed lines are skipped, not fatal', () async {
     final log = IdentityAuditLog(file);
     await log.record(event(1));
-    await file.writeAsString('not json\n{"at": 7}\n',
-        mode: FileMode.append, flush: true);
+    await file.writeAsString(
+      'not json\n{"at": 7}\n',
+      mode: FileMode.append,
+      flush: true,
+    );
+    await log.record(event(2));
+
+    final entries = await log.readAll();
+    expect(entries.map((e) => e.serverId), ['srv-1', 'srv-2']);
+  });
+
+  // A hand edit can leave valid JSON whose field types no longer match —
+  // that must skip like any other malformed line, not poison the trail.
+  test('wrong-typed fields are skipped, not fatal', () async {
+    final log = IdentityAuditLog(file);
+    await log.record(event(1));
+    await file.writeAsString(
+      '{"at":"2026-07-19T08:00:03.000Z","serverId":"srv-3",'
+      '"path":"/home/ada/.ssh/id_3","ok":"yes"}\n',
+      mode: FileMode.append,
+      flush: true,
+    );
     await log.record(event(2));
 
     final entries = await log.readAll();

@@ -855,6 +855,7 @@ class PooledConnectionManager implements ConnectionManager {
       pool.blocked
           ? ServerConnectionState.blocked
           : ServerConnectionState.connecting,
+      detail: pool.blocked ? pool.blockDetail : null,
     );
 
     // Dead-slot eviction can leave a cached secret. A fresh attempt must
@@ -1437,7 +1438,9 @@ class PooledConnectionManager implements ConnectionManager {
     }
     // Teardown detaches transports synchronously; slow closes must not
     // delay or replace the open failure returned to callers.
-    unawaited(_tearDownPool(pool).catchError((Object _) {}));
+    unawaited(
+      _tearDownPool(pool, detail: failure.message).catchError((Object _) {}),
+    );
     return failure;
   }
 

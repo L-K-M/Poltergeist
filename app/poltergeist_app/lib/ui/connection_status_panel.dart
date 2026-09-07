@@ -51,7 +51,9 @@ class ConnectionStatusPanel extends StatefulWidget {
 }
 
 class _ConnectionStatusPanelState extends State<ConnectionStatusPanel> {
-  ServerStatus _status = const ServerStatus(ServerConnectionState.disconnected);
+  // Connecting until the first status arrives: a panel mounted during a
+  // connect flow must not flash the failure view first.
+  ServerStatus _status = const ServerStatus(ServerConnectionState.connecting);
   final List<String> _lines = [];
   StreamSubscription<ServerStatus>? _states;
   StreamSubscription<ConnectionLogEvent>? _log;
@@ -59,13 +61,41 @@ class _ConnectionStatusPanelState extends State<ConnectionStatusPanel> {
   @override
   void initState() {
     super.initState();
+    _listenToStates();
+    _listenToLog();
+  }
+
+  @override
+  void didUpdateWidget(ConnectionStatusPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final serverChanged = widget.serverId != oldWidget.serverId;
+
+    // A replacement server starts honest and empty until its current-state
+    // event arrives; stale status and transcript belong to the old server.
+    if (serverChanged) {
+      _status = const ServerStatus(ServerConnectionState.connecting);
+      _lines.clear();
+    }
+    if (widget.states != oldWidget.states || serverChanged) {
+      unawaited(_states?.cancel());
+      _listenToStates();
+    }
+    if (widget.log != oldWidget.log || serverChanged) {
+      unawaited(_log?.cancel());
+      _listenToLog();
+    }
+  }
+
+  void _listenToStates() {
     _states = widget.states.listen((status) {
       if (!mounted) return;
       setState(() => _status = status);
     });
+  }
+
+  void _listenToLog() {
     _log = widget.log.listen((event) {
-      if (event.serverId != widget.serverId) return;
-      if (!mounted) return;
+      if (event.serverId != widget.serverId || !mounted) return;
       setState(() {
         _lines.addAll(event.lines);
         if (_lines.length > _maxLines) {

@@ -107,7 +107,9 @@ void main() {
       final entries = await IdentityAuditLog(file).readAll();
       expect(entries, hasLength(1));
       expect(entries.single.ok, isFalse);
-      expect(entries.single.error, contains('No such file'));
+      // The OS error wording differs per platform; only its presence is
+      // the contract here.
+      expect(entries.single.error, isNotEmpty);
     });
 
     test('an audit failure never blocks the read (D18: best-effort trail)',

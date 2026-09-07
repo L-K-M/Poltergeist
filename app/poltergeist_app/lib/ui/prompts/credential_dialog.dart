@@ -35,11 +35,13 @@ Future<CredentialDialogResult?> showCredentialDialog(
   CredentialPromptData data, {
   required Future<String> Function(String path) readKeyFile,
   bool vaultUnavailable = false,
+  GlobalKey? dialogKey,
 }) {
   return showDialog<CredentialDialogResult>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _CredentialDialog(
+      key: dialogKey,
       data: data,
       readKeyFile: readKeyFile,
       vaultUnavailable: vaultUnavailable,
@@ -52,6 +54,7 @@ class _CredentialDialog extends StatefulWidget {
     required this.data,
     required this.readKeyFile,
     this.vaultUnavailable = false,
+    super.key,
   });
 
   final CredentialPromptData data;
@@ -70,7 +73,7 @@ class _CredentialDialogState extends State<_CredentialDialog> {
   late final TextEditingController _passphrase = TextEditingController();
   bool _saveToVault = false;
   bool _readingKey = false;
-  String? _keyFileError;
+  String? _keyFileErrorText;
 
   bool get _keyAuth => widget.data.authMethod == AuthMethod.privateKey;
 
@@ -83,33 +86,55 @@ class _CredentialDialogState extends State<_CredentialDialog> {
   }
 
   Future<void> _submit() async {
+    if (_readingKey || ModalRoute.of(context)?.isCurrent != true) return;
+
     if (_keyAuth) {
       final path = _keyPath.text.trim();
-      if (path.isEmpty) return;
+      if (path.isEmpty) {
+        setState(() {
+          _keyFileErrorText = AppLocalizations.of(
+            context,
+          ).credentialKeyFileRequired;
+        });
+        return;
+      }
 
       setState(() {
         _readingKey = true;
-        _keyFileError = null;
+        _keyFileErrorText = null;
       });
       String pem;
       try {
         pem = await widget.readKeyFile(path);
       } on Object catch (error) {
-        if (!mounted) return;
+        if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+        final detail = error is IdentityFileReadException
+            ? error.message
+            : error.toString();
         setState(() {
           _readingKey = false;
-          _keyFileError = error is IdentityFileReadException
-              ? error.message
-              : error.toString();
+          _keyFileErrorText = AppLocalizations.of(
+            context,
+          ).credentialKeyFileReadError(detail);
         });
         return;
       }
-      if (!mounted) return;
+      // The await window is exactly when a dismissal can pop this route;
+      // a pop from a non-current route would dismiss whatever stacked on
+      // top instead. Pop only while this dialog is still the top route.
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
       Navigator.pop(context, _result(privateKeyPem: pem));
       return;
     }
 
-    Navigator.pop(context, _result(password: _password.text));
+    if (ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.pop(context, _result(password: _password.text));
+    }
+  }
+
+  void _cancel() {
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    Navigator.pop(context, null);
   }
 
   CredentialDialogResult _result({String? password, String? privateKeyPem}) =>
@@ -162,7 +187,9 @@ class _CredentialDialogState extends State<_CredentialDialog> {
             TextField(
               controller: _keyPath,
               autofocus: true,
-              decoration: InputDecoration(labelText: l10n.credentialKeyFileField),
+              decoration: InputDecoration(
+                labelText: l10n.credentialKeyFileField,
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -171,16 +198,14 @@ class _CredentialDialogState extends State<_CredentialDialog> {
               autocorrect: false,
               enableSuggestions: false,
               enableIMEPersonalizedLearning: false,
+              onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 labelText: l10n.credentialPassphraseField,
               ),
             ),
-            if (_keyFileError != null) ...[
+            if (_keyFileErrorText != null) ...[
               const SizedBox(height: 8),
-              Text(
-                l10n.credentialKeyFileReadError(_keyFileError!),
-                style: TextStyle(color: scheme.error),
-              ),
+              Text(_keyFileErrorText!, style: TextStyle(color: scheme.error)),
             ],
           ] else
             TextField(
@@ -208,10 +233,7 @@ class _CredentialDialogState extends State<_CredentialDialog> {
         ],
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, null),
-          child: Text(l10n.credentialCancel),
-        ),
+        TextButton(onPressed: _cancel, child: Text(l10n.credentialCancel)),
         FilledButton(
           onPressed: _readingKey ? null : _submit,
           child: _readingKey

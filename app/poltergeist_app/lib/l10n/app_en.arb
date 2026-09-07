@@ -130,6 +130,10 @@
   "@credentialKeyFileField": {
     "description": "Label of the identity-file path field."
   },
+  "credentialKeyFileRequired": "Choose a key file.",
+  "@credentialKeyFileRequired": {
+    "description": "Validation shown when key authentication has no identity-file path."
+  },
   "credentialPassphraseField": "Passphrase",
   "@credentialPassphraseField": {
     "description": "Label of the private-key passphrase field."
@@ -146,7 +150,7 @@
   "@credentialCancel": {
     "description": "Cancels the credential prompt; the connect fails."
   },
-  "credentialVaultUnavailable": "Saved secrets are unavailable: the OS keyring is locked or missing. Unlock the login keyring (or install gnome-keyring), then retry — or enter the secret below.",
+  "credentialVaultUnavailable": "Saved secrets are unavailable. Unlock or restore your system credential store, then retry — or enter the secret below.",
   "@credentialVaultUnavailable": {
     "description": "Banner shown when the vault could not be read before prompting (the localized render of the ported keystore exception, D20)."
   },
@@ -197,13 +201,8 @@
     "description": "Reopens the connection after a failure."
   },
 
-  "vaultSaveFailed": "Could not save the secret to the vault: {error}",
+  "vaultSaveFailed": "Could not save the secret to the vault. The connection will continue.",
   "@vaultSaveFailed": {
-    "description": "Transient notice when saving a prompted secret failed.",
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
+    "description": "Transient notice when saving a prompted secret failed."
   }
 }

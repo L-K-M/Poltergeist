@@ -647,7 +647,14 @@ void main() {
       final error = await expectError(opened);
       expect(error.message, 'Connection refused.');
 
-      await Future<void>.delayed(connectionLogFlushInterval * 2);
+      // The flush window is a real timer; poll instead of sleeping a fixed
+      // multiple so a slow machine cannot flake the batch assertion.
+      bool hasBatch() => h.events.whereType<ConnectionLogEvent>().any(
+        (e) => e.serverId == 'srv-1',
+      );
+      for (var i = 0; i < 100 && !hasBatch(); i++) {
+        await Future<void>.delayed(connectionLogFlushInterval ~/ 4);
+      }
 
       final states = h.events.whereType<ServerStateEvent>().toList();
       expect(states.last.state, ServerConnectionState.disconnected);

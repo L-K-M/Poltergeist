@@ -163,13 +163,13 @@ void main() {
       // Both transports are full for s2's lease: it can only queue.
       final waiting = harness.manager.leaseTransferChannel('s2');
       TransferChannelLease? granted;
-      waiting
-          .then<void>(
-            (value) => granted = value,
-            onError: (Object error) =>
-                fail('Queued lease failed instead of being granted: $error'),
-          )
-          .ignore();
+      unawaited(
+        waiting.then<void>(
+          (value) => granted = value,
+          onError: (Object error) =>
+              fail('Queued lease failed instead of being granted: $error'),
+        ),
+      );
       time.flushMicrotasks();
       expect(granted, isNull);
 

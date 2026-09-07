@@ -24,9 +24,6 @@ void main() {
       final subscription = h.manager
           .watchServer('s1')
           .listen((status) => statuses.add(status));
-      final lines = <ConnectLogLine>[];
-      final logSubscription = h.manager.connectLog.listen(lines.add);
-
       final outcome = expectLater(
         h.manager.openBrowseChannel('s1', paneTabId: 'a'),
         throwsA(isA<SshConnectException>()),
@@ -48,7 +45,6 @@ void main() {
       );
 
       unawaited(subscription.cancel());
-      unawaited(logSubscription.cancel());
     });
   });
 

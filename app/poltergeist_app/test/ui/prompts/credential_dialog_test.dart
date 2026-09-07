@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -11,7 +12,6 @@ class _Harness extends StatefulWidget {
   final CredentialPromptData data;
   final Future<String> Function(String path)? readKeyFile;
   final bool vaultUnavailable;
-
 
   const _Harness(this.data, {this.readKeyFile, this.vaultUnavailable = false});
 
@@ -98,7 +98,9 @@ void main() {
     expect(find.text('result:pw;-;-;false'), findsOneWidget);
   });
 
-  testWidgets('a secretRef offers saving, unchecked by default', (tester) async {
+  testWidgets('a secretRef offers saving, unchecked by default', (
+    tester,
+  ) async {
     await _open(
       tester,
       _Harness(
@@ -146,16 +148,42 @@ void main() {
     expect(find.text('Passphrase'), findsOneWidget);
     expect(find.text('Password'), findsNothing);
     expect(
-      tester.widget<TextField>(find.widgetWithText(TextField, 'Key file'))
+      tester
+          .widget<TextField>(find.widgetWithText(TextField, 'Key file'))
           .controller!
           .text,
-        '~/.ssh/id_ed25519');
+      '~/.ssh/id_ed25519',
+    );
 
     await tester.enterText(
       find.widgetWithText(TextField, 'Passphrase'),
       'phrase',
     );
     await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('result:-;PEM;phrase;false'), findsOneWidget);
+  });
+
+  testWidgets('Enter in the passphrase field submits the key', (tester) async {
+    await _open(
+      tester,
+      _Harness(
+        const CredentialPromptData(
+          host: 'example.com',
+          port: 2222,
+          username: 'deploy',
+          authMethod: AuthMethod.privateKey,
+          identityFilePath: '~/.ssh/id_ed25519',
+        ),
+      ),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Passphrase'),
+      'phrase',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
 
     expect(find.text('result:-;PEM;phrase;false'), findsOneWidget);
@@ -184,16 +212,40 @@ void main() {
     );
 
     await tester.tap(find.text('Connect'));
-    await tester.pump();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     // The ARB sentence wraps the OS detail; the dialog stays up for retry.
-    expect(
-      find.textContaining('Could not read the key file'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Could not read the key file'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
     expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets('a key read completing after cancel cannot pop the page below', (
+    tester,
+  ) async {
+    final readGate = Completer<String>();
+    await _open(
+      tester,
+      _Harness(
+        const CredentialPromptData(
+          host: 'example.com',
+          port: 2222,
+          username: 'deploy',
+          authMethod: AuthMethod.privateKey,
+          identityFilePath: '~/.ssh/id_ed25519',
+        ),
+        readKeyFile: (_) => readGate.future,
+      ),
+    );
+
+    await tester.tap(find.text('Connect'));
+    await tester.pump();
+    await tester.tap(find.text('Cancel'));
+    readGate.complete('PEM');
+    await tester.pumpAndSettle();
+
+    expect(find.text('open'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('cancel answers null — the resolution fails without a secret', (
@@ -211,22 +263,14 @@ void main() {
   testWidgets('an unavailable vault explains itself before the fields', (
     tester,
   ) async {
-    await _open(
-      tester,
-      _Harness(_passwordData, vaultUnavailable: true),
-    );
+    await _open(tester, _Harness(_passwordData, vaultUnavailable: true));
 
-    expect(
-      find.textContaining('the OS keyring is locked or missing'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('system credential store'), findsOneWidget);
     // The banner never blocks manual entry.
     expect(find.widgetWithText(TextField, 'Password'), findsOneWidget);
   });
 
-  testWidgets('an empty key-file path does not attempt a read', (
-    tester,
-  ) async {
+  testWidgets('an empty key-file path does not attempt a read', (tester) async {
     var reads = 0;
     await _open(
       tester,
@@ -249,6 +293,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(reads, 0);
+    expect(find.text('Choose a key file.'), findsOneWidget);
     expect(find.byType(AlertDialog), findsOneWidget);
   });
 }

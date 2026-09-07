@@ -29,13 +29,12 @@ class FakePromptBridge implements PromptBridge {
 
   void emit(EnginePromptEvent event) => promptsController.add(event);
 
-  void dismiss(String promptId, EnginePromptKind kind) =>
-      dismissalsController.add(
-        PromptDismissedEvent(promptId: promptId, kind: kind),
-      );
+  void dismiss(String promptId, EnginePromptKind kind) => dismissalsController
+      .add(PromptDismissedEvent(promptId: promptId, kind: kind));
 }
 
 class ScriptedVault extends SecretVault {
+  Completer<void>? readGate;
   Secret? secret;
   Object? readFailure;
   Object? writeFailure;
@@ -45,6 +44,8 @@ class ScriptedVault extends SecretVault {
 
   @override
   Future<Secret?> getSecret(String id) async {
+    await readGate?.future;
+
     final failure = readFailure;
     if (failure != null) throw failure;
     final secret = this.secret;
@@ -145,10 +146,7 @@ void main() {
     expect(bridge.replies.single.$1, 'p1');
     expect(bridge.replies.single.$2, EnginePromptKind.hostKeyFirstUse);
     expect(bridge.replies.single.$3, isA<HostKeyPromptReply>());
-    expect(
-      (bridge.replies.single.$3 as HostKeyPromptReply).accepted,
-      isTrue,
-    );
+    expect((bridge.replies.single.$3 as HostKeyPromptReply).accepted, isTrue);
   });
 
   testWidgets('declining a changed key answers accepted:false', (tester) async {
@@ -173,10 +171,7 @@ void main() {
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
-    expect(
-      (bridge.replies.single.$3 as HostKeyPromptReply).accepted,
-      isFalse,
-    );
+    expect((bridge.replies.single.$3 as HostKeyPromptReply).accepted, isFalse);
   });
 
   testWidgets('keyboard-interactive answers travel back', (tester) async {
@@ -309,6 +304,33 @@ void main() {
     expect(reply.password, 'pw');
   });
 
+  testWidgets('opting into save with nothing typed stores no empty secret', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+
+    bridge.emit(
+      _event(
+        'p6b',
+        EnginePromptKind.credentialNeeded,
+        _credential.copyWithSecretRef('secret-7'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pump();
+    await tester.tap(find.text('Connect'));
+    await tester.pumpAndSettle();
+
+    // An empty secret must not land in the vault: it would kind-match and
+    // auto-answer future prompts with empty credentials.
+    expect(vault.puts, isEmpty);
+    final reply = bridge.replies.single.$3 as CredentialPromptReply;
+    expect(reply.password, '');
+  });
+
   testWidgets('a locked vault surfaces its banner and still accepts typing', (
     tester,
   ) async {
@@ -325,19 +347,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('the OS keyring is locked or missing'),
-        findsOneWidget);
-    expect(find.textContaining('keyring locked'), findsNothing,
-        reason: 'the raw port exception never renders (D20)');
+    expect(find.textContaining('system credential store'), findsOneWidget);
+    expect(
+      find.textContaining('keyring locked'),
+      findsNothing,
+      reason: 'the raw port exception never renders (D20)',
+    );
 
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'pw');
     await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle();
 
-    expect(
-      (bridge.replies.single.$3 as CredentialPromptReply).password,
-      'pw',
-    );
+    expect((bridge.replies.single.$3 as CredentialPromptReply).password, 'pw');
   });
 
   testWidgets('a private-key prompt reads the identity file through the '
@@ -380,13 +401,16 @@ void main() {
     coordinator.start();
 
     bridge.emit(
-      _event('p9', EnginePromptKind.hostKeyFirstUse,
-          const HostKeyPromptData(
-        host: 'example.com',
-        port: 2222,
-        keyType: 'ssh-ed25519',
-        fingerprintSha256: 'SHA256:presented',
-      )),
+      _event(
+        'p9',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'example.com',
+          port: 2222,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:presented',
+        ),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
@@ -398,11 +422,37 @@ void main() {
     expect(bridge.replies, isEmpty);
   });
 
+  testWidgets('a dismissal before the first dialog frame closes its route', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+
+    bridge.emit(
+      _event(
+        'pre-frame',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'example.com',
+          port: 2222,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:presented',
+        ),
+      ),
+    );
+    bridge.dismiss('pre-frame', EnginePromptKind.hostKeyFirstUse);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(bridge.replies, isEmpty);
+  });
+
   testWidgets('a dismissal racing the vault read suppresses the dialog', (
     tester,
   ) async {
     await _pumpHost(tester, navigatorKey, messengerKey);
     coordinator.start();
+    final readGate = vault.readGate = Completer<void>();
 
     bridge.emit(
       _event(
@@ -411,16 +461,21 @@ void main() {
         _credential.copyWithSecretRef('secret-7'),
       ),
     );
-    // The dismissal lands while the vault read is still pending.
     await tester.pump();
+
+    // Resolve the read only after the dismissal has reached the coordinator.
     bridge.dismiss('p10', EnginePromptKind.credentialNeeded);
+    await tester.pump();
+    readGate.complete();
     await tester.pumpAndSettle();
 
     expect(find.byType(AlertDialog), findsNothing);
     expect(bridge.replies, isEmpty);
   });
 
-  testWidgets('two prompts render one at a time, in FIFO order', (tester) async {
+  testWidgets('two prompts render one at a time, in FIFO order', (
+    tester,
+  ) async {
     await _pumpHost(tester, navigatorKey, messengerKey);
     coordinator.start();
 
@@ -461,6 +516,63 @@ void main() {
     expect(bridge.replies.single.$1, 'a');
   });
 
+  testWidgets('an auto-answer does not strand the next queued dialog', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+
+    // Keep one dialog showing so both later prompts are already queued when
+    // its completion starts the next drain.
+    bridge.emit(
+      _event(
+        'showing',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'first.example.com',
+          port: 22,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:first',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    bridge.emit(
+      _event(
+        'auto',
+        EnginePromptKind.credentialNeeded,
+        const CredentialPromptData(
+          host: 'agent.example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        ),
+      ),
+    );
+    bridge.emit(
+      _event(
+        'next',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'next.example.com',
+          port: 22,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:next',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Trust and connect'));
+    await tester.pumpAndSettle();
+
+    expect(bridge.replies.map((reply) => reply.$1), ['showing', 'auto']);
+    expect(find.textContaining('next.example.com:22'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('a queued prompt the engine dismissed never renders', (
     tester,
   ) async {
@@ -499,6 +611,64 @@ void main() {
     // The queue skipped the dismissed prompt; nothing else shows.
     expect(find.byType(AlertDialog), findsNothing);
     expect(bridge.replies.map((r) => r.$1), ['a']);
+  });
+
+  testWidgets('a dismissal removes only its owned prompt route', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+
+    bridge.emit(
+      _event(
+        'covered',
+        EnginePromptKind.hostKeyFirstUse,
+        const HostKeyPromptData(
+          host: 'covered.example.com',
+          port: 22,
+          keyType: 'ssh-ed25519',
+          fingerprintSha256: 'SHA256:covered',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    unawaited(
+      navigatorKey.currentState!.push<void>(
+        MaterialPageRoute(
+          builder: (_) => const Scaffold(body: Text('Settings page')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bridge.dismiss('covered', EnginePromptKind.hostKeyFirstUse);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settings page'), findsOneWidget);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(bridge.replies, isEmpty);
+  });
+
+  testWidgets('disposing with no prompt preserves the current page', (
+    tester,
+  ) async {
+    await _pumpHost(tester, navigatorKey, messengerKey);
+    coordinator.start();
+    unawaited(
+      navigatorKey.currentState!.push<void>(
+        MaterialPageRoute(
+          builder: (_) => const Scaffold(body: Text('Settings page')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    coordinator.dispose();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settings page'), findsOneWidget);
   });
 
   testWidgets('cancelling the credential prompt answers cancelled', (
@@ -544,12 +714,12 @@ void main() {
     await tester.tap(find.text('Connect'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Could not save the secret to the vault'),
-        findsOneWidget);
     expect(
-      (bridge.replies.single.$3 as CredentialPromptReply).password,
-      'pw',
+      find.textContaining('Could not save the secret to the vault'),
+      findsOneWidget,
     );
+    expect(find.textContaining('disk full'), findsNothing);
+    expect((bridge.replies.single.$3 as CredentialPromptReply).password, 'pw');
   });
 }
 
@@ -568,13 +738,12 @@ Future<void> _pumpHost(
 }
 
 extension on CredentialPromptData {
-  CredentialPromptData copyWithSecretRef(String ref) =>
-      CredentialPromptData(
-        host: host,
-        port: port,
-        username: username,
-        authMethod: authMethod,
-        secretRef: ref,
-        identityFilePath: identityFilePath,
-      );
+  CredentialPromptData copyWithSecretRef(String ref) => CredentialPromptData(
+    host: host,
+    port: port,
+    username: username,
+    authMethod: authMethod,
+    secretRef: ref,
+    identityFilePath: identityFilePath,
+  );
 }

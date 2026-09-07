@@ -15,14 +15,29 @@ class _Host extends StatefulWidget {
 }
 
 class _HostState extends State<_Host> {
-  final statesController = StreamController<ServerStatus>.broadcast();
-  final logController = StreamController<ConnectionLogEvent>.broadcast();
+  var serverId = 's1';
+  var statesController = StreamController<ServerStatus>.broadcast();
+  var logController = StreamController<ConnectionLogEvent>.broadcast();
+  final _retiredControllers = <StreamController<Object?>>[];
   int retries = 0;
+
+  void replaceStreams({required String serverId}) {
+    _retiredControllers.add(statesController);
+    _retiredControllers.add(logController);
+    setState(() {
+      this.serverId = serverId;
+      statesController = StreamController<ServerStatus>.broadcast();
+      logController = StreamController<ConnectionLogEvent>.broadcast();
+    });
+  }
 
   @override
   void dispose() {
     statesController.close();
     logController.close();
+    for (final controller in _retiredControllers) {
+      controller.close();
+    }
     super.dispose();
   }
 
@@ -33,7 +48,7 @@ class _HostState extends State<_Host> {
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
         body: ConnectionStatusPanel(
-          serverId: 's1',
+          serverId: serverId,
           states: statesController.stream,
           log: logController.stream,
           onRetry: () => retries++,
@@ -56,14 +71,58 @@ Future<void> _expandLog(WidgetTester tester) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('awaiting the first status never flashes a failure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const _Host());
+
+    expect(find.text('Connecting…'), findsOneWidget);
+    expect(find.text('Connection failed'), findsNothing);
+  });
+
+  testWidgets('new stream props replace stale status and transcript', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const _Host());
+    final state = tester.state<_HostState>(find.byType(_Host));
+    state.statesController.add(
+      const ServerStatus(ServerConnectionState.connected),
+    );
+    state.logController.add(
+      ConnectionLogEvent(serverId: 's1', lines: ['old transcript']),
+    );
+    await tester.pump();
+
+    state.replaceStreams(serverId: 's2');
+    await tester.pump();
+    expect(find.text('Connecting…'), findsOneWidget);
+
+    state.statesController.add(
+      const ServerStatus(
+        ServerConnectionState.disconnected,
+        detail: 'New failure.',
+      ),
+    );
+    state.logController.add(
+      ConnectionLogEvent(serverId: 's2', lines: ['new transcript']),
+    );
+    await tester.pump();
+
+    expect(find.text('New failure.'), findsOneWidget);
+    await _expandLog(tester);
+    expect(find.textContaining('new transcript'), findsOneWidget);
+    expect(find.textContaining('old transcript'), findsNothing);
+  });
+
   testWidgets('connecting renders the live transcript as it arrives', (
     tester,
   ) async {
     await tester.pumpWidget(const _Host());
 
-    tester.state<_HostState>(find.byType(_Host)).statesController.add(
-          const ServerStatus(ServerConnectionState.connecting),
-        );
+    tester
+        .state<_HostState>(find.byType(_Host))
+        .statesController
+        .add(const ServerStatus(ServerConnectionState.connecting));
     await tester.pump();
 
     expect(find.text('Connecting…'), findsOneWidget);
@@ -125,10 +184,12 @@ void main() {
     tester
         .state<_HostState>(find.byType(_Host))
         .statesController
-        .add(const ServerStatus(
-          ServerConnectionState.blocked,
-          detail: 'Host key for example.com:22 has changed.',
-        ));
+        .add(
+          const ServerStatus(
+            ServerConnectionState.blocked,
+            detail: 'Host key for example.com:22 has changed.',
+          ),
+        );
     await tester.pump();
 
     expect(find.text('Connection blocked'), findsOneWidget);
@@ -170,12 +231,18 @@ void main() {
       (message) async {
         switch (message.method) {
           case 'Clipboard.setData':
-            clipboardText = message.arguments['text'] as String?;
+            clipboardText = (message.arguments as Map)['text'] as String?;
           case 'Clipboard.getData':
             return clipboardText == null ? null : {'text': clipboardText};
         }
         return null;
       },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
     );
 
     await tester.pumpWidget(const _Host());

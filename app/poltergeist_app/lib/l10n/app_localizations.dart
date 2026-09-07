@@ -250,6 +250,12 @@ abstract class AppLocalizations {
   /// **'Key file'**
   String get credentialKeyFileField;
 
+  /// Validation shown when key authentication has no identity-file path.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a key file.'**
+  String get credentialKeyFileRequired;
+
   /// Label of the private-key passphrase field.
   ///
   /// In en, this message translates to:
@@ -277,7 +283,7 @@ abstract class AppLocalizations {
   /// Banner shown when the vault could not be read before prompting (the localized render of the ported keystore exception, D20).
   ///
   /// In en, this message translates to:
-  /// **'Saved secrets are unavailable: the OS keyring is locked or missing. Unlock the login keyring (or install gnome-keyring), then retry — or enter the secret below.'**
+  /// **'Saved secrets are unavailable. Unlock or restore your system credential store, then retry — or enter the secret below.'**
   String get credentialVaultUnavailable;
 
   /// Inline error when the identity file cannot be read.
@@ -343,8 +349,8 @@ abstract class AppLocalizations {
   /// Transient notice when saving a prompted secret failed.
   ///
   /// In en, this message translates to:
-  /// **'Could not save the secret to the vault: {error}'**
-  String vaultSaveFailed(String error);
+  /// **'Could not save the secret to the vault. The connection will continue.'**
+  String get vaultSaveFailed;
 }
 
 class _AppLocalizationsDelegate

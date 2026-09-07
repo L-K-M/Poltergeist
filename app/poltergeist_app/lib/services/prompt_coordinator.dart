@@ -18,8 +18,13 @@ import 'identity_file_reader.dart';
 class _PendingPrompt {
   final EnginePromptEvent event;
 
+  /// Identifies this prompt's dialog route without touching unrelated routes.
+  final dialogKey = GlobalKey();
+
   /// Set when the engine withdrew the prompt before an answer was applied.
   bool dismissed = false;
+
+  bool closeScheduled = false;
 
   _PendingPrompt(this.event);
 }
@@ -75,10 +80,7 @@ class PromptCoordinator {
     _disposed = true;
     unawaited(_prompts?.cancel());
     unawaited(_dismissals?.cancel());
-    final navigator = navigatorKey.currentState;
-    if (navigator != null && navigatorKey.currentContext?.mounted == true) {
-      navigator.popUntil((route) => route.isFirst);
-    }
+    _closeShowingDialog();
     _queue.clear();
     _showing = null;
   }
@@ -98,23 +100,56 @@ class PromptCoordinator {
     final showing = _showing;
     if (showing?.event.promptId == event.promptId) {
       showing!.dismissed = true;
-      _popDialog();
+      _closeShowingDialog();
     }
   }
 
-  void _popDialog() {
-    final navigator = navigatorKey.currentState;
-    if (navigator != null && navigator.canPop()) navigator.pop();
+  void _closeShowingDialog() {
+    final showing = _showing;
+    if (showing == null) return;
+
+    _closeDialog(showing);
+  }
+
+  void _closeDialog(_PendingPrompt pending) {
+    final dialogContext = pending.dialogKey.currentContext;
+    if (dialogContext == null) {
+      if (pending.closeScheduled) return;
+      pending.closeScheduled = true;
+
+      // showDialog pushes before its widget builds. Retry after that first
+      // frame so a same-turn engine dismissal cannot leave the route open.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        pending.closeScheduled = false;
+        if (pending.dialogKey.currentContext != null) _closeDialog(pending);
+      });
+      return;
+    }
+    if (!dialogContext.mounted) return;
+
+    final route = ModalRoute.of(dialogContext);
+    if (route == null || !route.isActive) return;
+
+    // Remove this prompt's route even if another page now covers it. A
+    // navigator-wide pop could dismiss that unrelated page instead.
+    final navigator = Navigator.of(dialogContext);
+    if (route.isCurrent) {
+      navigator.pop();
+      return;
+    }
+    navigator.removeRoute(route);
   }
 
   void _drain() {
     if (_disposed || _showing != null) return;
 
-    while (_queue.isNotEmpty) {
+    while (_queue.isNotEmpty && _showing == null) {
       final pending = _queue.removeAt(0);
       if (pending.dismissed) continue;
 
-      if (_answerWithoutDialog(pending)) return;
+      // An auto-answered prompt never sets _showing: keep draining so the
+      // next queued prompt renders without waiting for another trigger.
+      if (_answerWithoutDialog(pending)) continue;
       _showing = pending;
       switch (pending.event.kind) {
         case EnginePromptKind.hostKeyFirstUse:
@@ -165,7 +200,11 @@ class PromptCoordinator {
     // A dialog popped by an engine dismissal completes with the show
     // helper's cancellation value; the `dismissed` recheck keeps it from
     // being applied as the user's answer (09 §3.1).
-    final accepted = await showHostKeyDialog(context, data);
+    final accepted = await showHostKeyDialog(
+      context,
+      data,
+      dialogKey: pending.dialogKey,
+    );
     if (!_wasDismissed(pending)) {
       _reply(pending, HostKeyPromptReply(accepted: accepted));
     }
@@ -177,15 +216,16 @@ class PromptCoordinator {
     final data = pending.event.data as KeyboardInteractivePromptData;
     if (context == null) {
       // Empty answers cannot authenticate: the connect fails its auth step.
-      _reply(
-        pending,
-        const KeyboardInteractivePromptReply(answers: []),
-      );
+      _reply(pending, const KeyboardInteractivePromptReply(answers: []));
       _finishShowing();
       return;
     }
 
-    final answers = await showKeyboardInteractiveDialog(context, data);
+    final answers = await showKeyboardInteractiveDialog(
+      context,
+      data,
+      dialogKey: pending.dialogKey,
+    );
     if (!_wasDismissed(pending)) {
       _reply(pending, KeyboardInteractivePromptReply(answers: answers));
     }
@@ -236,6 +276,7 @@ class PromptCoordinator {
       data,
       readKeyFile: (path) => _readIdentityFile(data, path),
       vaultUnavailable: vaultUnavailable,
+      dialogKey: pending.dialogKey,
     );
     if (_wasDismissed(pending)) {
       _finishShowing();
@@ -293,6 +334,11 @@ class PromptCoordinator {
     CredentialPromptData data,
     CredentialDialogResult result,
   ) async {
+    // Nothing typed means nothing worth storing — an empty secret would
+    // auto-answer future prompts with empty credentials (kind matches).
+    final value = result.password ?? result.privateKeyPem;
+    if (value == null || value.isEmpty) return;
+
     try {
       await vault!.putSecret(
         Secret(
@@ -300,41 +346,38 @@ class PromptCoordinator {
           kind: data.authMethod == AuthMethod.privateKey
               ? SecretKind.privateKey
               : SecretKind.password,
-          value: result.password ?? result.privateKeyPem ?? '',
+          value: value,
           keyPassphrase: result.keyPassphrase,
         ),
       );
-    } on Object catch (error) {
+    } on Object {
       // Saving is an offer, not a requirement: the connect proceeds with
       // the entered secret; only the save failed, and that failure is
       // transient feedback (02 §10).
-      _showNotice(error);
+      _showNotice();
     }
   }
 
-  void _showNotice(Object error) {
+  void _showNotice() {
     final messenger = scaffoldMessengerKey?.currentState;
     final context = navigatorKey.currentContext;
     if (messenger == null || context == null || !context.mounted) return;
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          AppLocalizations.of(context).vaultSaveFailed(error.toString()),
-        ),
-      ),
+      SnackBar(content: Text(AppLocalizations.of(context).vaultSaveFailed)),
     );
   }
 
   static bool _secretMatches(Secret secret, AuthMethod method) =>
       secret.kind == SecretKind.privateKey
-          ? method == AuthMethod.privateKey
-          : method == AuthMethod.password;
+      ? method == AuthMethod.privateKey
+      : method == AuthMethod.password;
 
   static CredentialPromptReply _storedReply(Secret secret) =>
       CredentialPromptReply(
         password: secret.kind == SecretKind.password ? secret.value : null,
-        privateKeyPem:
-            secret.kind == SecretKind.privateKey ? secret.value : null,
+        privateKeyPem: secret.kind == SecretKind.privateKey
+            ? secret.value
+            : null,
         keyPassphrase: secret.keyPassphrase,
         origin: CredentialOrigin.stored,
       );

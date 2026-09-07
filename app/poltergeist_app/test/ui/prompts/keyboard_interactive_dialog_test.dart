@@ -82,14 +82,16 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => FilledButton(
-              onPressed: () => showKeyboardInteractiveDialog(
-                context,
-                const KeyboardInteractivePromptData(
-                  name: '',
-                  instruction: '',
-                  prompts: ['Code'],
-                ),
-              ),
+              onPressed: () async {
+                await showKeyboardInteractiveDialog(
+                  context,
+                  const KeyboardInteractivePromptData(
+                    name: '',
+                    instruction: '',
+                    prompts: ['Code'],
+                  ),
+                );
+              },
               child: const Text('open'),
             ),
           ),
@@ -117,6 +119,22 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('result:123456|push'), findsOneWidget);
+  });
+
+  testWidgets('a repeated submit cannot pop the route below the dialog', (
+    tester,
+  ) async {
+    await _open(tester);
+    final submit = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Submit'),
+    );
+
+    submit.onPressed!();
+    submit.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(find.text('result:|'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('cancel answers with an empty list (fails the auth step)', (
@@ -156,27 +174,24 @@ void main() {
     expect(fieldOf('Passcode').obscureText, isTrue);
   });
 
-  testWidgets(
-    'field controllers dispose only after the route exit animation — '
-    'the ported use-after-dispose regression',
-    (tester) async {
-      await _open(tester);
+  testWidgets('field controllers dispose only after the route exit animation — '
+      'the ported use-after-dispose regression', (tester) async {
+    await _open(tester);
 
-      // Focus a field so an IME composing region is active — the exact
-      // state under which Séance's early dispose threw (the port's doc
-      // comment records `clearComposing()` firing on focus loss).
-      await tester.enterText(find.widgetWithText(TextField, 'Passcode'), '1');
-      await tester.pump();
+    // Focus a field so an IME composing region is active — the exact
+    // state under which Séance's early dispose threw (the port's doc
+    // comment records `clearComposing()` firing on focus loss).
+    await tester.enterText(find.widgetWithText(TextField, 'Passcode'), '1');
+    await tester.pump();
 
-      await tester.tap(find.text('Cancel'));
-      // Pump the full reverse transition: dispose must happen after it.
-      await tester.pumpAndSettle();
-      await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Cancel'));
+    // Pump the full reverse transition: dispose must happen after it.
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
 
-      // No exceptions escaped the frame — the test fails loudly otherwise.
-      expect(tester.takeException(), isNull);
-    },
-  );
+    // No exceptions escaped the frame — the test fails loudly otherwise.
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('the first field autofocuses for immediate typing', (
     tester,
@@ -187,10 +202,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
     await tester.pump();
 
-    expect(
-      find.widgetWithText(TextField, 'Passcode'),
-      findsOneWidget,
-    );
+    expect(find.widgetWithText(TextField, 'Passcode'), findsOneWidget);
     expect(
       tester.testTextInput.hasAnyClients,
       isTrue,

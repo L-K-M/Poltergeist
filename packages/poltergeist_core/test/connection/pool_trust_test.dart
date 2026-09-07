@@ -334,10 +334,10 @@ void main() {
       final harness = await _harness([_originalKey, _changedKey]);
       await _blockViaGrowth(harness);
       await _disconnectAll(harness);
-      final states = <ServerConnectionState>[];
+      final statuses = <ServerStatus>[];
       final subscription = harness.manager
           .watchServer(_primaryServerId)
-          .listen((status) => states.add(status.state));
+          .listen(statuses.add);
       addTearDown(subscription.cancel);
       final entered = Completer<void>();
       final decision = Completer<bool>();
@@ -354,14 +354,18 @@ void main() {
       );
       await entered.future;
       await Future<void>.delayed(Duration.zero);
-      final pendingState = states.last;
+      final pendingStatus = statuses.last;
       decision.complete(false);
       await outcome;
       await Future<void>.delayed(Duration.zero);
 
-      expect(pendingState, ServerConnectionState.blocked);
-      expect(states.first, ServerConnectionState.disconnected);
-      expect(states.skip(1), everyElement(ServerConnectionState.blocked));
+      expect(pendingStatus.state, ServerConnectionState.blocked);
+      expect(pendingStatus.detail, contains('has changed'));
+      expect(statuses.first.state, ServerConnectionState.disconnected);
+      expect(
+        statuses.skip(1).map((status) => status.state),
+        everyElement(ServerConnectionState.blocked),
+      );
     },
   );
 

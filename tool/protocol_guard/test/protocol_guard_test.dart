@@ -91,15 +91,18 @@ class ProgressCoalescer extends EngineEvent { final callback = () {}; }
     expect(await fixture._check(), [contains('ProgressCoalescer.callback')]);
   });
 
-  test('the connect-log coalescer cannot become a protocol subtype either',
-      () async {
-    await fixture._write('$_engine/connect_log_coalescer.dart', '''
+  test(
+    'the connect-log coalescer cannot become a protocol subtype either',
+    () async {
+      await fixture._write('$_engine/connect_log_coalescer.dart', '''
 import 'protocol.dart';
 class ConnectLogCoalescer extends EngineEvent { final callback = () {}; }
 ''');
-    expect(
-        await fixture._check(), [contains('ConnectLogCoalescer.callback')]);
-  });
+      expect(await fixture._check(), [
+        contains('ConnectLogCoalescer.callback'),
+      ]);
+    },
+  );
 
   for (final source in [
     'class Escaped extends EngineEvent {}',

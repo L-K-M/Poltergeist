@@ -95,6 +95,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get credentialKeyFileField => 'Key file';
 
   @override
+  String get credentialKeyFileRequired => 'Choose a key file.';
+
+  @override
   String get credentialPassphraseField => 'Passphrase';
 
   @override
@@ -108,7 +111,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get credentialVaultUnavailable =>
-      'Saved secrets are unavailable: the OS keyring is locked or missing. Unlock the login keyring (or install gnome-keyring), then retry — or enter the secret below.';
+      'Saved secrets are unavailable. Unlock or restore your system credential store, then retry — or enter the secret below.';
 
   @override
   String credentialKeyFileReadError(String error) {
@@ -143,7 +146,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connectionRetry => 'Retry';
 
   @override
-  String vaultSaveFailed(String error) {
-    return 'Could not save the secret to the vault: $error';
-  }
+  String get vaultSaveFailed =>
+      'Could not save the secret to the vault. The connection will continue.';
 }
