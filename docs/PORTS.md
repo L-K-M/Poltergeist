@@ -3,7 +3,7 @@
 ## app/poltergeist_app/lib/services/atomic_file.dart
 
 - Source: app/seance_app/lib/services/atomic_file.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at 2f99f4efb25a83340605464635bdf0f3ba95d931 (2026-09-03)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at a9add158015fc15d805cecd2754ac40bc7860a23 (2026-09-07)
 - Ported: 2026-09-02
 - Divergences: unique `.poltergeist-<uuid>.tmp` siblings prevent collisions
   and basename overflow; failed writes remove their temporary sibling without
@@ -16,7 +16,7 @@
 ## app/poltergeist_app/test/atomic_file_test.dart
 
 - Source: app/seance_app/test/atomic_file_test.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at 2f99f4efb25a83340605464635bdf0f3ba95d931 (2026-09-03)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at a9add158015fc15d805cecd2754ac40bc7860a23 (2026-09-07)
 - Ported: 2026-09-02
 - Divergences: uses the Poltergeist temp-file contract, adds failed-rename
   cleanup, and maps source store round-trip/quarantine cases to
@@ -34,7 +34,7 @@
 ## app/poltergeist_app/lib/services/secure_master_key.dart
 
 - Source: app/seance_app/lib/services/secure_master_key.dart
-- Séance commit: 30963c0c31f55e649b4b29487cf4c07b706b3056 (re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Séance commit: 30963c0c31f55e649b4b29487cf4c07b706b3056 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: keystore entry renamed `poltergeist.vault.masterKey.v1`
   (07 §3.3) so the two apps never share an entry;
@@ -52,7 +52,7 @@
 ## app/poltergeist_app/lib/services/file_stores.dart
 
 - Source: app/seance_app/lib/services/file_stores.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0; re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0; re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: only `FileVaultStore` and `FileHostKeyStore` are ported —
   `FileConfigStore`/`FileSnippetStore` have no Poltergeist counterpart
@@ -68,7 +68,7 @@
 ## app/poltergeist_app/lib/services/locked_secret_vault.dart
 
 - Source: app/seance_app/lib/services/app_services.dart (LockedSecretVault)
-- Séance commit: 99a35850a59e741b3e542447508dda2ef9424252 (re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Séance commit: 99a35850a59e741b3e542447508dda2ef9424252 (ported class re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: extracted into its own file — Poltergeist has no AppServices
   composition yet (it lands with the engine/prompt slices that consume the
@@ -78,7 +78,7 @@
 ## app/poltergeist_app/test/keystore_resilience_test.dart
 
 - Source: app/seance_app/test/keystore_resilience_test.dart
-- Séance commit: 30963c0c31f55e649b4b29487cf4c07b706b3056 (re-diffed unchanged at 2f99f4e, 2026-09-07)
+- Séance commit: 30963c0c31f55e649b4b29487cf4c07b706b3056 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: the dropped API-key methods' tests map to `setKeystoreKey`
   write-failure coverage plus a master-key entry-name assertion; imports via
@@ -87,9 +87,18 @@
 
 ## Pin findings
 
+The 2026-09-07 keepalive prerequisite re-pins both declarations to upstream
+`a9add15` ([Séance #77](https://github.com/L-K-M/Seance/pull/77)). All ported
+sources re-diff unchanged from `2f99f4e`; the `app_services.dart` changes are
+outside the ported `LockedSecretVault` class. No port edits, new copies or
+new port-back candidates. Existing candidates remain tracked above. No tag
+contains the new pin yet; STATUS item 2 owns the next-tag bump. M0's measured
+pins and evidence are unchanged.
+
 The 2026-09-07 reconnect slice uses the existing `Prober`/`TcpBannerProber`
 and SSH authentication APIs. No Séance source copy, pin change, or port is
-required. Idle-only keepalive still needs upstream controls (STATUS item 3).
+required. Its upstream keepalive gap is closed by the prerequisite above;
+pool wiring remains STATUS item 3.
 
 The 2026-09-07 vault/store ports copy app-layer sources whose last-touch
 revisions all predate the current pin; each re-diffs clean at `2f99f4e`, and
@@ -118,7 +127,8 @@ attribution lines in `522c9aaea8a8fcdb81932180aa4bd5e3aa6eaf73`,
 `c2d60a6f45a4f34828a596a492003822d43ed47c` are automation metadata,
 not separate rights holders.
 
-The vendored-path scan found 80 first-party files under `packages/` and the
+The original PR-S3 vendored-path scan found 80 first-party files under
+`packages/` and the
 112-file `third_party/xterm` fork. The latter retains upstream xterm.dart
 4.0.0's MIT license and patch ledger; it entered at
 `82ba43a64e88f5fb2647b41c82f3f607cedaba58` and is app-only, outside the
@@ -133,13 +143,13 @@ Full, non-shallow ancestor and tree audit. Raw streams are
 content-addressed by SHA-256; line counts aid review. Use
 `--print-findings` to reproduce them without adding names to docs.
 
-- Pin: `2f99f4efb25a83340605464635bdf0f3ba95d931` from `https://github.com/L-K-M/Seance.git`
-- Identity: 38 lines; `sha256:4ceaeaf3dab51c345975bf8085195d8f7ac8205eb6a7510f746cf9c72da251f4`
-- Companion: 213 lines; `sha256:8e123bcae01bb2412c412c7b1ff297f13b9b029685943fcb73835faa124552e9`
-- Companion orphans: 3 lines; `sha256:c144f63fd03bfb4cffd41748b8281e2b4e119cbc236c092bd0beb582bf377417`
-- Pinpoints: 387 lines; `sha256:295ee7ffd74cb8cb6b6a277bd785a5c63392dc61ffbe4def641a24b6af3adc54`
-- License scan: 29 lines; `sha256:61e18e16f5f0c91c3d07b749daf4dc9f4417924abb44cf6bc7b08eb5bd785813`
-- Vendored paths: 192 lines; `sha256:d49e9b6907d05d3db90884f504dacc48a6aedf38770ed0c417902f47c2103304`
-- Gitlinks: 0 lines; `sha256:28c900f0ad82ab353471bf2e21c3b74bf23f9cd2b158c4f944f3d8534d7fc908`
-- Tree: 437 lines; `sha256:b5c61cd90ebc7421fa6c675b0fa0960d287e54650fd7136d5a07aa9f75570f98`
+- Pin: `a9add158015fc15d805cecd2754ac40bc7860a23` from `https://github.com/L-K-M/Seance.git`
+- Identity: 43 lines; `sha256:629b1110cbc8d49fc3efb4504f5aee9f9152dab7a7b40c15c64c6e91f718de43`
+- Companion: 251 lines; `sha256:6e3739b0476eccce880c860f960301f235bf8d3347d76d037681a883edbe9e3b`
+- Companion orphans: 3 lines; `sha256:13cbe37c9c90dbf5a1b3ec1541fe8e3a6adfffbce40247e9293a9f849d315bed`
+- Pinpoints: 474 lines; `sha256:76e289a88ed507f8e4354ef3c07c7f729df9375c1f2e6575121f7ac2f93c51c7`
+- License scan: 30 lines; `sha256:27902a92c40facde6a04fc73fa77eb5512400261849607d1271b0eb0c8427bfc`
+- Vendored paths: 201 lines; `sha256:ce44d75b393dbac5d33a2e3a15fc3947cd2557b2e8a6661142c09e9f66336042`
+- Gitlinks: 0 lines; `sha256:3b777fa9bc6b4648ef7f07f8e8f1a69d11d66a5bb3ddd737716c64a7a828be9d`
+- Tree: 455 lines; `sha256:064c80a6cb4dd8354938cd73f50c603625aeb18616a5c2c5c67bce5ace43428d`
 <!-- SEANCE_PIN_AUDIT_V1:END -->
