@@ -65,7 +65,9 @@ void main() {
       browsePane(time, harness, 'extra', server: 's2');
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.every((t) => !t.closed), isTrue);
-      expect(time.pendingTimers, isEmpty);
+      // Both transports are alive, so only the pool's single periodic
+      // keepalive clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, _policy.keepAliveInterval);
       _disconnect(time, harness);
     });
   });
@@ -262,7 +264,9 @@ void main() {
       completeWithoutTimers(time, pane.close());
       time.elapse(defaultPolicy.idleExtraTransportTimeout * 2);
       expect(harness.opener.transports.single.closed, isFalse);
-      expect(time.pendingTimers, isEmpty);
+      // Alive under a lease, so only the pool's single periodic keepalive
+      // clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, defaultPolicy.keepAliveInterval);
       completeWithoutTimers(time, lease.release());
       // A server whose last channel has closed disconnects immediately
       // (pane-lifetime teardown); only surplus extra transports get the

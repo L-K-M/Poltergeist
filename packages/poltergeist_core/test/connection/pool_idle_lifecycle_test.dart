@@ -28,9 +28,12 @@ final _insideCloseCap = _closeCap - _lastSecond;
 
 // Every in-flight close arms the pinned cleanup bound's timer, so "no
 // timers at all" is never true while a close is pending — the suite's
-// invariant is that no IDLE clock is pending.
+// invariant is that no IDLE clock is pending. Periodic timers are the
+// pool's keepalive clock (03 §3.3), which is pending whenever a transport
+// is live and is never an idle clock.
 bool _idleTimerPending(FakeAsync time) => time.pendingTimers
     .whereType<FakeTimer>()
+    .where((timer) => !timer.isPeriodic)
     .any((timer) => timer.duration == _policy.idleExtraTransportTimeout);
 
 PoolHarness _harness({FakeTransportOpener? opener}) =>
@@ -99,7 +102,9 @@ void main() {
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(extra.closed, isFalse);
       expect(extra.channels.single.closed, isFalse);
-      expect(time.pendingTimers, isEmpty);
+      // The first transport is alive (its pane still browses), so only the
+      // pool's single periodic keepalive clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, _policy.keepAliveInterval);
 
       completeWithoutTimers(time, sibling.close());
       time.elapse(_beforeExpiry);
@@ -125,7 +130,9 @@ void main() {
       time.elapse(_policy.idleExtraTransportTimeout * 2);
       expect(first.channels.single.closed, isTrue);
       expect(first.closed, isFalse);
-      expect(time.pendingTimers, isEmpty);
+      // Retained-but-empty still counts as live, so only the pool's single
+      // periodic keepalive clock (D3) may be pending.
+      expectOnlyKeepAliveClock(time, _policy.keepAliveInterval);
 
       completeWithoutTimers(time, extraPane.close());
       expect(
@@ -209,7 +216,11 @@ void main() {
         expect(time.nonPeriodicTimerCount, 1,
             reason: 'Exactly the idle clock is armed on the emptied extra.');
         expect(
-          time.pendingTimers.whereType<FakeTimer>().single.duration,
+          time.pendingTimers
+              .whereType<FakeTimer>()
+              .where((timer) => !timer.isPeriodic)
+              .single
+              .duration,
           _policy.idleExtraTransportTimeout,
         );
 
@@ -246,7 +257,11 @@ void main() {
       expect(time.nonPeriodicTimerCount, 1,
           reason: 'Exactly the idle clock is armed on the emptied extra.');
       expect(
-        time.pendingTimers.whereType<FakeTimer>().single.duration,
+        time.pendingTimers
+            .whereType<FakeTimer>()
+            .where((timer) => !timer.isPeriodic)
+            .single
+            .duration,
         _policy.idleExtraTransportTimeout,
       );
 

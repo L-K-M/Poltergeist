@@ -50,6 +50,9 @@ extension _PoolRecovery on PooledConnectionManager {
   }
 
   void _watchTransport(_EndpointPool pool, _TransportSlot slot) {
+    // Every join also (re-)arms the pool's keepalive clock: recovery's
+    // transport re-arms it after the tick self-cancelled on emptiness.
+    _armKeepAlive(pool);
     // Pool-initiated closes detach first, making their completion a no-op.
     unawaited(
       slot.transport.done.then<void>(
@@ -62,6 +65,9 @@ extension _PoolRecovery on PooledConnectionManager {
   void _handleTransportDeath(_EndpointPool pool, _TransportSlot slot) {
     if (!pool.transports.remove(slot)) return;
     _cancelIdleTimer(slot);
+    // Zero live transports disarms the keepalive clock now instead of at
+    // its next tick; recovery re-arms it when its transport joins.
+    if (!_hasLiveTransport(pool)) _cancelKeepAlive(pool);
     pool._trustEpoch = Object(); // Reject growth handshakes from before loss.
 
     // Preserve pane and lease identities as demand, but never lend dead VFSs.

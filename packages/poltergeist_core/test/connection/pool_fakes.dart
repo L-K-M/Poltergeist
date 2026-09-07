@@ -39,6 +39,21 @@ PaneChannel browsePane(
       harness.manager.openBrowseChannel(server, paneTabId: tab),
     );
 
+/// No one-shot clock (idle, cleanup, backoff) may be pending, and the only
+/// periodic timer is the pool's keepalive clock at the given cadence — the
+/// D3 one-clock invariant, pinned instead of assumed.
+void expectOnlyKeepAliveClock(FakeAsync time, Duration interval) {
+  expect(time.nonPeriodicTimerCount, 0);
+  expect(
+    time.pendingTimers
+        .whereType<FakeTimer>()
+        .where((timer) => timer.isPeriodic)
+        .single
+        .duration,
+    interval,
+  );
+}
+
 /// In-memory TOFU pin store (tests never touch real persistence).
 class FakeHostKeyStore implements HostKeyStore {
   final Map<String, HostKey> pins = {};
@@ -169,10 +184,16 @@ class FakeTransport implements SshTransport {
   /// from a pool-initiated close in assertions.
   void simulateExternalDeath() => die();
 
-  FakeTransport({required this.authKind, this.openLimit});
+  /// When set, [isClosed] reports closure only once [close] has settled —
+  /// dartssh2's closed flag follows the socket teardown, not the close()
+  /// call, so a wedged close leaves the transport looking open (the window
+  /// where a ping-timeout verdict must not be stacked onto).
+  bool isClosedOnlyWhenSettled = false;
 
   @override
-  bool get isClosed => closed;
+  bool get isClosed => isClosedOnlyWhenSettled ? closeCompleted : closed;
+
+  FakeTransport({required this.authKind, this.openLimit});
 
   @override
   Future<SftpChannel> openChannel({Duration timeout = SshTransport.defaultOpenTimeout}) async {
@@ -208,6 +229,32 @@ class FakeTransport implements SshTransport {
     channels.add(channel);
     await openGate?.future;
     return channel;
+  }
+
+  /// Whether any VFS operation is outstanding (03 §3.3). Scripted
+  /// directly: the real transport aggregates its channels' concrete
+  /// adapters, which the fakes never build.
+  bool activeOperations = false;
+
+  /// When set, [ping] never completes on its own — an unanswered keepalive
+  /// whose timeout the pool (not the transport) owns.
+  Completer<void>? pingGate;
+
+  /// Thrown by every [ping] when set — a failed roundtrip that is not a
+  /// timeout, so closure stays the done-watcher's business.
+  Object? pingFailure;
+
+  int pingCalls = 0;
+
+  @override
+  bool get hasActiveOperations => activeOperations;
+
+  @override
+  Future<void> ping() async {
+    pingCalls++;
+    final failure = pingFailure;
+    if (failure != null) throw failure;
+    await pingGate?.future;
   }
 
   @override
