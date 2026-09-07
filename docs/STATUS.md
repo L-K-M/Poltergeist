@@ -4,13 +4,14 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M2 pooled reconnect recovery is implemented;
-keepalive, engine integration, and real-sshd recovery coverage remain open.
+_Last updated: 2026-09-07 — M2's upstream keepalive controls are merged and
+pinned. Pool keepalive wiring, engine integration, and real-sshd recovery
+coverage remain open; pooled reconnect recovery is implemented.
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
 dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
-the Séance fork pin is retired onto upstream main (`2f99f4e`, post PR-S3).
+the Séance pin is upstream main (`a9add15`, keepalive controls, post PR-S3).
 M2 is the active milestone: the initial pooled `ConnectionManager`,
 dependency-contract upgrade guards, extra-transport idle teardown, and
 resolver-prompt dismissal are in; the bookmark-model + vault/store-plumbing
@@ -22,9 +23,9 @@ slices, audit gaps, and decisions._
 | Area | State |
 |---|---|
 | Repo infrastructure | CI (`ci.yml`: Dart analyze+test now; Flutter + client-matrix jobs self-activate when `app/poltergeist_app` appears), GLM PR review workflow, release workflow (`v*` tags → per-platform client assets), `scripts/build.sh` / `release.sh` / `package-linux.sh` adapted from Séance, Unlicense, analyzer config, pub workspace. |
-| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `2f99f4e`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Connection suites run socket-free per 08 §3.2. This is an initial slice, not M2 completion; audit follow-ups remain in open item 5. |
+| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `a9add15`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Connection suites run socket-free per 08 §3.2. This is an initial slice, not M2 completion; audit follow-ups remain in open item 5. |
 | The plan | Complete in [`docs/plan/`](plan/) — overview + decision log (D1–D31), product, UX spec, architecture, Séance integration, sync, editor, milestones, testing, playbook. Reviewed via the GLM PR workflow, internal consistency passes, and a final whole-plan coherence pass (2026-08-31). |
-| Séance pin | Upstream `L-K-M/Seance@2f99f4e` (main, PR-S3 merge) — the M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's `computeHash` calls now resolve against upstream, its test suite passes on the new pin, and the PORTS.md audit record is regenerated. Committed-bundle validation now binds to the pins M0 actually measured instead of the live pin, so future re-pins cannot invalidate frozen evidence. Ported `atomic_file` sources re-diffed clean through the new pin. |
+| Séance pin | Upstream `L-K-M/Seance@a9add15` (main, keepalive-controls merge, post PR-S3) — the M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's `computeHash` calls now resolve against upstream, its test suite passes on the new pin, and the PORTS.md audit record is regenerated. Committed-bundle validation now binds to the pins M0 actually measured instead of the live pin, so future re-pins cannot invalidate frozen evidence. Ported `atomic_file` sources re-diffed clean through the new pin. |
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
 | Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
 | Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
@@ -38,6 +39,22 @@ slices, audit gaps, and decisions._
 | Plan precision patches | Closed the two dated 05 items: §2.1's exporter spec now carries 00 D6's interim ruling — a per-side `connectionShape` flag set on `ResolvedSyncEndpoints` and a prominent `# note:` per flagged gap whenever the pair's connection settings include an identity file or a jump host (golden fixtures pin the identity-file, jump-host, and both-flags variants) — and §8 rail 5 states 00 D15's trash naming (flat `<runId>/<seq>-<basename>` entries, journal-mapped origins) and the copy-then-delete fallback trigger (local pairs fall back only on EXDEV; other local rename failures surface as errors; for a remote pair any rename failure the sequence prefix did not prevent falls back), with rail 9's restore passage aligned. |
 | M2 — bookmark model + vault/store plumbing | The pinned `seance_protocol` bookmark model (PR-S1 is in the pin's ancestry, so 07 §3.3's temporary-copy clause never applies) and the vault plumbing surfaces — `SecretVault`, `VaultStore`, `HostKeyStore`, in-memory stores, `VaultCrypto`/`VaultKeys`/`Argon2Params`, `secureRandomBytes`, `Secret`, and the `ServerColor`/`ServerIcon` enums — now flow through the `poltergeist_core` barrel, with a barrel test pinning the 04 §2.1 decode contract (record-id binding, port-range refusal, unknown-kind refusal, verbatim rules retention) at the pin. App layer: ported `MasterKeyManager` (`poltergeist.vault.masterKey.v1`, legacy macOS login keychain), `FileVaultStore`/`FileHostKeyStore` (atomic writes, store-owned UTC-stamped quarantine), and `LockedSecretVault`, each with its PORTS.md entry and ported tests (`keystore_resilience_test`, new `file_stores_test`); `flutter_secure_storage` pinned 10.3.1 — the exact revision Séance's lock resolves, sha-identical. Ported exception messages are frozen port text allowlisted in the localization contract; D20 applies at the UI render site when prompt UI lands. No startup wiring yet — composition joins the engine/prompt slices that consume the vault. |
 | M2 — extra-transport idle teardown | Extra transports close after the configured `idleExtraTransportTimeout` (60 s default in `PoolPolicy`) without channels or pending channel opens/closes. Returned transfer channels serve waiters first and, when no waiter takes them, close immediately on an extra transport so caches cannot prevent retirement (03 §3.3); only the first transport caches returned channels. A channel whose close is in flight still occupies the server's MaxSessions budget (`_pendingCloses` is reserved against channel budgets, so no phantom-capacity opens). The first transport keeps its cache, its role is assigned at creation and never reassigned, and follows pane/lease lifetime. Settle-time waiter pumps never await the pump they may be running inside: closes settling within a pump's own call chain trigger a follow-up pass instead, so a failed waiter's cleanup cannot deadlock the pool (regression: pane close and disconnect stranding forever). Idle retirement itself re-drives queued demand — the pump grows a replacement transport (or fails the waiters) instead of leaving a queued lease waiting forever on a pool whose spare capacity just retired (regression: demand queued behind an SFTP-refusing extra). Twenty-seven fake-clock tests cover deadlines, renewed demand, shared bookmarks, queued handoff, delayed cleanup, teardown races, waiting acquisitions, capacity reservation during closes, idle retirement/state/role after primary failure, the pump-reentrancy and retirement-stranding regressions, and growth landing after pool abandonment ([PR #21](https://github.com/L-K-M/Poltergeist/pull/21)). |
+
+## M2 — keepalive prerequisite (2026-09-07)
+
+[Séance #77](https://github.com/L-K-M/Seance/pull/77) merged as
+`a9add158015fc15d805cecd2754ac40bc7860a23`: nullable SSH keepalive interval
+and read-only concrete-adapter activity, without changing the VFS interface
+or transfer safety. Its 25 new socket-free tests and all 345 Dart tests pass;
+all upstream CI checks pass. Poltergeist pins that merge in both declarations
+and all three locks; ported sources re-diff clean, with the pin audit refreshed.
+
+Validation: core 169, harness 79, Flutter 121 tests pass; analysis is clean.
+Core and harness each retain one sshd-fixture skip. Two new harness contract
+tests failed to compile on the old pin and pass on the new one. The existing
+attribution test caught the live harness revision needing the same bump;
+frozen M0 evidence and its measured pins remain unchanged. Pool timer wiring
+is the next slice, not part of this prerequisite; owner gates remain open.
 
 ## M2 — reconnect recovery (2026-09-07)
 
@@ -77,9 +94,9 @@ and the existing owner-decision gates remain open. No milestone-close claim.
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
    `LocalFileSystem` lands; this is not an M1 closure claim.
-2. **Séance pin: flip to the next tag.** The fork bridge is retired (see
-   the Done table) and the pin sits at upstream main `2f99f4e` — no Séance
-   tag contains the PR-S3 merge yet. `poltergeist_core` now carries the
+2. **2026-09-07 — Séance pin: flip to the next tag.** The fork bridge is
+   retired (see the Done table) and the pin sits at upstream main
+   `a9add15` — no Séance tag contains the keepalive-controls merge yet. `poltergeist_core` now carries the
    same rev pin (first workspace-package pin; the M0 bench pin set is
    unchanged, and the pin audit record still matches). When Séance cuts its
    next release (the same S1 release the M6 Design A gate needs), re-pin
@@ -90,11 +107,14 @@ and the existing owner-decision gates remain open. No milestone-close claim.
    roughly this order, subject to open item 4:
    - close the pool-behavior gaps in item 5 and settle item 6 before wiring
      production callers; the coverage items retain their stated gates;
-   - keepalive pings (03 §3.3). **2026-09-07 dependency gap:** the pinned
-     SSH helper constructs dartssh2 with its immutable default 10 s
-     keepalive; it exposes neither timer control nor VFS operation activity.
-     Add upstream controls before implementing the specified idle-only 30 s
-     ping and timeout. Do not add a second timer or wrap the VFS (D3).
+   - keepalive pings (03 §3.3). **2026-09-07 prerequisite closed:**
+     [Séance #77](https://github.com/L-K-M/Seance/pull/77) adds nullable
+     `keepAliveInterval` and concrete-adapter `hasActiveOperations`; both
+     declarations now pin its merge `a9add15`. Next: disable the built-in
+     timer and aggregate adapter activity plus pending channel opens/closes
+     to implement idle-only 30 s pings and timeout-triggered recovery.
+     Production still uses the existing 10 s default until that wiring lands;
+     do not add a second timer or wrap the VFS (D3).
      Reconnect recovery and the backoff-sequence tests are implemented below;
    - engine isolate + `EngineClient` + the typed port protocol (03 §5),
      incl. the protocol round-trip and coalescing tests;
