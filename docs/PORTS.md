@@ -87,6 +87,10 @@
 
 ## Pin findings
 
+The 2026-09-07 engine progress coalescer uses the M0 harness's rate and item
+caps, with shared flush windows for the aggregate stream. It adds no Séance
+source copy, dependency change, or port-back candidate.
+
 The 2026-09-07 reconnect slice uses the existing `Prober`/`TcpBannerProber`
 and SSH authentication APIs. No Séance source copy, pin change, or port is
 required. Idle-only keepalive still needs upstream controls (STATUS item 3).

@@ -1449,6 +1449,10 @@ class TransferProgressEvent extends EngineEvent {
                                   // is not sendable, so the UI cannot
                                   // derive the rollup itself
 }
+/// One bounded port message for all tasks progressing in a flush window.
+class TransferProgressBatchEvent extends EngineEvent {
+  final List<TransferProgressEvent> items; // immutable snapshot
+}
 class ServerStateEvent extends EngineEvent {
   final String serverId;
   final ServerConnectionState state;  // §3.2's enum
@@ -1491,8 +1495,20 @@ freed by mid-window completion can rotate to a new item within the same
 window, so a flush can carry more than 6 items — each flush is therefore
 also hard-capped with oldest-event-drop coalescing so the loose bound
 above can never translate into an unbounded flush; per-file sub-rows
-stay live while the flood is capped) — so ports never
-flood the UI.
+stay live while the flood is capped). One engine-wide timer shares those
+windows across tasks and sends a `TransferProgressBatchEvent` containing
+at most **64 items total**, keyed by the `(taskId, itemId)` tuple. Refreshing
+an item refreshes its eviction recency; overflow drops the oldest pending
+event. This bounds pending memory and the merged port stream to 30 batches/s
+even when many tasks rotate through transfer slots. Round the timer interval
+up to whole microseconds so it cannot exceed that rate. Item order follows
+update recency: apply rollups in order, never sum the repeated task counters.
+Progress is a lossy snapshot, not the source of completion or failure state.
+Terminal/state events bypass the buffer; detach a finished task or item's
+producer and discard its buffered progress before publishing its terminal
+state. Item discard preserves sibling progress and the existing deadline.
+Engine shutdown cancels the timer, drops pending progress, and ignores late
+producer callbacks. Neither completion nor shutdown forces an extra flush.
 
 The app resolves all storage directories via `path_provider` on the UI
 isolate and hands them to the engine in a typed `EngineConfig` message —

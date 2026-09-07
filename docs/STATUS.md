@@ -4,7 +4,8 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M2 pooled reconnect recovery is implemented;
+_Last updated: 2026-09-07 — M2 bounded engine progress coalescing is implemented;
+pooled reconnect recovery is implemented;
 keepalive, engine integration, and real-sshd recovery coverage remain open.
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
@@ -38,6 +39,24 @@ slices, audit gaps, and decisions._
 | Plan precision patches | Closed the two dated 05 items: §2.1's exporter spec now carries 00 D6's interim ruling — a per-side `connectionShape` flag set on `ResolvedSyncEndpoints` and a prominent `# note:` per flagged gap whenever the pair's connection settings include an identity file or a jump host (golden fixtures pin the identity-file, jump-host, and both-flags variants) — and §8 rail 5 states 00 D15's trash naming (flat `<runId>/<seq>-<basename>` entries, journal-mapped origins) and the copy-then-delete fallback trigger (local pairs fall back only on EXDEV; other local rename failures surface as errors; for a remote pair any rename failure the sequence prefix did not prevent falls back), with rail 9's restore passage aligned. |
 | M2 — bookmark model + vault/store plumbing | The pinned `seance_protocol` bookmark model (PR-S1 is in the pin's ancestry, so 07 §3.3's temporary-copy clause never applies) and the vault plumbing surfaces — `SecretVault`, `VaultStore`, `HostKeyStore`, in-memory stores, `VaultCrypto`/`VaultKeys`/`Argon2Params`, `secureRandomBytes`, `Secret`, and the `ServerColor`/`ServerIcon` enums — now flow through the `poltergeist_core` barrel, with a barrel test pinning the 04 §2.1 decode contract (record-id binding, port-range refusal, unknown-kind refusal, verbatim rules retention) at the pin. App layer: ported `MasterKeyManager` (`poltergeist.vault.masterKey.v1`, legacy macOS login keychain), `FileVaultStore`/`FileHostKeyStore` (atomic writes, store-owned UTC-stamped quarantine), and `LockedSecretVault`, each with its PORTS.md entry and ported tests (`keystore_resilience_test`, new `file_stores_test`); `flutter_secure_storage` pinned 10.3.1 — the exact revision Séance's lock resolves, sha-identical. Ported exception messages are frozen port text allowlisted in the localization contract; D20 applies at the UI render site when prompt UI lands. No startup wiring yet — composition joins the engine/prompt slices that consume the vault. |
 | M2 — extra-transport idle teardown | Extra transports close after the configured `idleExtraTransportTimeout` (60 s default in `PoolPolicy`) without channels or pending channel opens/closes. Returned transfer channels serve waiters first and, when no waiter takes them, close immediately on an extra transport so caches cannot prevent retirement (03 §3.3); only the first transport caches returned channels. A channel whose close is in flight still occupies the server's MaxSessions budget (`_pendingCloses` is reserved against channel budgets, so no phantom-capacity opens). The first transport keeps its cache, its role is assigned at creation and never reassigned, and follows pane/lease lifetime. Settle-time waiter pumps never await the pump they may be running inside: closes settling within a pump's own call chain trigger a follow-up pass instead, so a failed waiter's cleanup cannot deadlock the pool (regression: pane close and disconnect stranding forever). Idle retirement itself re-drives queued demand — the pump grows a replacement transport (or fails the waiters) instead of leaving a queued lease waiting forever on a pool whose spare capacity just retired (regression: demand queued behind an SFTP-refusing extra). Twenty-seven fake-clock tests cover deadlines, renewed demand, shared bookmarks, queued handoff, delayed cleanup, teardown races, waiting acquisitions, capacity reservation during closes, idle retirement/state/role after primary failure, the pump-reentrancy and retirement-stranding regressions, and growth landing after pool abandonment ([PR #21](https://github.com/L-K-M/Poltergeist/pull/21)). |
+
+## M2 — engine progress coalescing (2026-09-07)
+
+Typed, versioned item progress carries both per-file counters and task rollups.
+One engine-wide timer emits immutable batches at ≤ 30/s, retaining at most
+64 latest `(taskId, itemId)` updates across all tasks. Refreshes update
+eviction recency; overflow drops oldest progress. Task/item discard and shutdown
+cancel unused timers and prevent buffered counters following terminal state.
+The producer owner must detach callbacks before discarding a finished task.
+Terminal events bypass this lossy buffer. No forced final flush.
+
+Validation: 16 tests cover fake-clock floods, rolling-second limits, task/item
+identity, recency, lifecycle, immutable snapshots, and real-isolate round trips.
+The engine protocol AST guard has 30 fixture tests and runs in CI; callback
+fields are allowed only on the engine-internal coalescer. Core analysis and
+185 tests pass (one existing fixture skip). This is one M2 protocol component: engine spawn,
+`EngineClient`, connection requests/results, prompt cancellation, and production
+wiring remain open. No UI change, dependency bump, source port, or milestone close.
 
 ## M2 — reconnect recovery (2026-09-07)
 
@@ -96,8 +115,10 @@ and the existing owner-decision gates remain open. No milestone-close claim.
      Add upstream controls before implementing the specified idle-only 30 s
      ping and timeout. Do not add a second timer or wrap the VFS (D3).
      Reconnect recovery and the backoff-sequence tests are implemented below;
-   - engine isolate + `EngineClient` + the typed port protocol (03 §5),
-     incl. the protocol round-trip and coalescing tests;
+   - engine isolate + `EngineClient` + the typed port protocol (03 §5).
+     Bounded progress batches, their isolate round-trip/coalescing tests,
+     and the callback-field AST guard are implemented; connection/prompt
+     messages and their round trips remain open;
    - prompt UI (host-key dialogs, keyboard-interactive, credential prompt,
      live `SshConnectionLog` transcript) over the protocol — this slice also
      owns rendering the ported keystore/vault exception messages through ARB

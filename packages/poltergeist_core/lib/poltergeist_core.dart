@@ -81,6 +81,12 @@ export 'src/connection/ssh_transport.dart'
         SshTransport,
         SshTransportOpener,
         openDartSshTransport;
+export 'src/engine/protocol.dart'
+    show
+        engineProtocolVersion,
+        EngineEvent,
+        TransferProgressEvent,
+        TransferProgressBatchEvent;
 
 /// The user-facing product name.
 ///

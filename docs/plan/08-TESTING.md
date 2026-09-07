@@ -305,8 +305,12 @@ isolate-sendable and reconstructs intact — **not** closure-freedom,
 since Dart copies closures with sendable captures across isolates;
 function-typed fields in the protocol classes are banned by the §3.3
 AST walker instead); progress coalescing emits
-≤ 30 events/s per task under a flood, and the merged queue stream stays
-frame-bounded with many tasks transferring concurrently; a serialized
+≤ 30 flush windows/s per task under a flood, with one shared timer keeping
+the merged stream at ≤ 30 batches/s and ≤ 64 latest item events per batch
+(03 §5). Fake-clock tests cover rotating items/tasks, recency eviction,
+rolling-second limits, task/item discard, and shutdown without a final flush;
+the immutable batch and item/task counters cross a real isolate intact. A
+serialized
 `RemoteFileException` reconstructs kind + message intact.
 
 The existing product-identity test (ASCII name invariant) stays.
