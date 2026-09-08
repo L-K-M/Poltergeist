@@ -581,7 +581,10 @@ now mirrors the pin's rule exactly (a dedicated
 unchanged. Two named regressions (separator parity against the pin
 as oracle — space/tab/CR/VT/FF — and the hostInclude badge under a
 carriage-return separator) failed before the repair and pass after;
-the reproducer exits 0. Validation: core analysis clean, 301
+the reproducer exits 0. Review round 1 added two hardening
+regressions (quoted-pattern parity; NBSP in the separator map) —
+declined the RegExp-hoist churn (round-2 `_keyValueCut` precedent).
+Validation: core analysis clean, 302
 passes/15 integration skips; app analysis clean, 214 tests; import
 guard 92 + repo scan. No pin change, no upstream behavior change
 (the pin already tokenizes correctly).
