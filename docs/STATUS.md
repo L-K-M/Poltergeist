@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08. The identity-audit read-side privacy gate
+_Last updated: 2026-09-08. The identity-audit read-side repair gate
 now carries durable upstream regressions — Séance #81, rootless
 Linux procfs fixtures with runtime fail/pass evidence (open item 5);
 the port-backs themselves merged as Séance #80. Probe lifecycle
@@ -758,10 +758,13 @@ PORTS.md unchanged), no pin change, no milestone close.
      pinned `seance_core`/`seance_protocol` trees are untouched);
      PORTS.md records the one remaining divergence — upstream's review
      added a read-side repair gate (skip the chmod when no group/other
-     bits are set) that this port should mirror. **Gate regression
-     follow-up (2026-09-08):** that read-side gate now has durable
-     upstream regressions — [Séance #81](https://github.com/L-K-M/Seance/pull/81)
-     (merge `2e6d1f138f1704e683870f75e11262bf50e37379`, head
+     bits are set) that this port should mirror. Route guards remain
+     PORTS-led candidates. None blocks the safe local behavior or
+     production wiring.
+   - **2026-09-08 — gate regression follow-up (Séance #81):** that
+     read-side gate now has durable upstream regressions —
+     [Séance #81](https://github.com/L-K-M/Seance/pull/81) (merge
+     `2e6d1f138f1704e683870f75e11262bf50e37379`, head
      `cb4b010075bd0519914de27bc0a2231c449e204d`) commits two rootless
      Linux procfs tests over the public `IdentityAuditLog` API: an
      owner-only `/proc/self/io` (mode 0400, readable, chmod EPERM)
@@ -779,9 +782,7 @@ PORTS.md unchanged), no pin change, no milestone close.
      entries returned), both passing on merged main with all nine
      upstream CI checks and all 457 app tests green. This closes the
      durable-regression gap; the local gate mirror remains a PORTS-led
-     candidate (no Poltergeist production change). Route guards remain
-     PORTS-led candidates. None blocks the safe local behavior or
-     production wiring.
+     candidate (no Poltergeist production change).
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
