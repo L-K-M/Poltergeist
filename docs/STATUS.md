@@ -215,8 +215,10 @@ requirement; broader fixture-tool portability remains open below.
    Also register fixture cleanup before setup writes, so partial setup
    failures cannot orphan temporary directories.
    **2026-09-08 review follow-up (#41):** before expanding fixture-tool
-   tests to Windows, probe or explicitly gate their POSIX shell requirements.
-   These tools currently run only in the Ubuntu job.
+   or enabled SSH suites beyond Ubuntu, probe or explicitly gate their
+   POSIX shell and GNU-timeout requirements. This includes the pool SSH
+   suite; ordinary package runs skip it without fixture variables.
+   These tools currently run only in the Ubuntu job (08 §8).
 2. **2026-09-07 — Séance pin: flip to the next tag.** The fork bridge is
    retired (see the Done table) and the pin sits at upstream main
    `a9add15` — no Séance tag contains the keepalive-controls merge yet. `poltergeist_core` now carries the
@@ -332,6 +334,13 @@ requirement; broader fixture-tool portability remains open below.
    current review callback. The manager also has no bookmark-removal signal.
    Before production integration, the owner must choose restored-key
    review/removal behavior and whether incidents persist across restarts.
+7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
+   consistent `pub get --enforce-lockfile` use across CI and commit-SHA
+   pinning for third-party actions. The new integration job follows existing
+   resolution/action conventions; the Séance audit separately checks manifest
+   and lock pins. Also consider checking retained fixture account UIDs before
+   supporting modified base images; current restart tests reuse accounts
+   created by the same entrypoint in digest-pinned containers.
    No offline-review path, removal API, or new store/schema is added here.
 
 ## Independent audit
