@@ -58,6 +58,16 @@ void main() {
     expect(result.output, 'run=false');
   });
 
+  test('fixture or workflow PR changes run the existing fixture', () async {
+    final result = await _runGuard(
+      guard,
+      changed: 'true',
+      fixture: _FixtureState.present,
+    );
+    expect(result.exitCode, 0, reason: result.stderr);
+    expect(result.output, 'run=true');
+  });
+
   for (final event in [..._requiredEvents, 'pull_request']) {
     test('$event runs the existing SSH fixture', () async {
       final result = await _runGuard(

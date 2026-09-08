@@ -181,13 +181,22 @@ entrypoint recreating existing users; two regressions failed before the
 account helpers became restart-safe.
 
 Local validation: core and Flutter analysis pass, with 238 core, 121 app,
-and 40 fixture-tool tests passing; five integration tests skip without the
-fixture. The first Docker run passed keepalive and restart recovery, and
-exposed a nullable timeout callback against a non-nullable future in both
-growth tests; those assertions now expect the timeout directly. Final
-real-server results will follow the corrected PR run. No production wiring, source port,
+and 47 fixture-tool tests passing; five integration tests skip without the
+fixture. All five Docker tests pass in
+[CI run 34172611069](https://github.com/L-K-M/Poltergeist/actions/runs/34172611069).
+The first run exposed a nullable timeout callback against a non-nullable
+future in both growth tests; corrected assertions pass. Review also checks
+opener attempts while demand queues, so a pending third handshake cannot
+escape the cap assertion. No production wiring, source port,
 dependency change, or milestone close. Interactive-auth/TOFU integration and
 M4's mid-transfer queue recovery remain separate exit criteria.
+
+Review hardened the fixture harness: shell fakes load before extracted code,
+GNU timeout kills a stalled helper's process group, teardown audits unexpected
+prompts even when SSH catches callback errors, and the CI guard covers a
+fixture edit that leaves the file present. Regressions demonstrated a live
+helper after the old Dart timeout and late shell-stub installation; both pass
+after repair. Timing assertions retain independent 03 §3.3 bounds.
 
 ## Open items
 
@@ -198,6 +207,9 @@ M4's mid-transfer queue recovery remain separate exit criteria.
    when unavailable. Its current CI job runs on Ubuntu.
    Also register fixture cleanup before setup writes, so partial setup
    failures cannot orphan temporary directories.
+   **2026-09-08 review follow-up (#41):** before expanding fixture-tool
+   tests to Windows, probe or explicitly gate their POSIX shell requirements.
+   These tools currently run only in the Ubuntu job.
 2. **2026-09-07 — Séance pin: flip to the next tag.** The fork bridge is
    retired (see the Done table) and the pin sits at upstream main
    `a9add15` — no Séance tag contains the keepalive-controls merge yet. `poltergeist_core` now carries the

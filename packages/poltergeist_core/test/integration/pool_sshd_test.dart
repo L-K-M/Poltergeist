@@ -10,6 +10,8 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:seance_core/seance_core.dart' show TcpBannerProber;
 import 'package:test/test.dart';
 
+import '../../../../test/integration/fixture_process.dart';
+
 const _hostVariable = 'POLTERGEIST_SSHD';
 const _portVariable = 'POLTERGEIST_SSHD_MODERN';
 const _serverId = 'fixture';
@@ -104,15 +106,20 @@ void main() {
             expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
           }
 
-        final waiting = manager.leaseTransferChannel(_serverId);
-        await expectLater(
-          waiting.timeout(_queueObservation),
-          throwsA(isA<TimeoutException>()),
+          final waiting = manager.leaseTransferChannel(_serverId);
+          await expectLater(
+            waiting.timeout(_queueObservation),
+            throwsA(isA<TimeoutException>()),
+          );
+          expect(
+            harness._prompting,
+            hasLength(_defaultPolicy.maxTransports),
+            reason: 'a pending third handshake also exceeds the pool cap',
           );
           final returnedFs = leases.first.fs;
           await leases.first.release();
           final acquired = await waiting.timeout(_operationTimeout);
-        expect(acquired.fs, same(returnedFs));
+          expect(acquired.fs, same(returnedFs));
           expect(harness._transports, hasLength(_defaultPolicy.maxTransports));
           await acquired.release();
         },
@@ -348,15 +355,16 @@ class _Fixture {
   }
 
   Future<void> _control(_ServiceAction action) async {
-    final result = await Process.run(
+    final result = await runFixtureProcess(
       'bash',
       [
         _root.resolve('test/integration/service-control.sh').toFilePath(),
         action.name,
         'sshd-modern',
       ],
+      timeout: _serviceTimeout,
       environment: {'DART_BIN': Platform.resolvedExecutable},
-    ).timeout(_serviceTimeout);
+    );
     expect(
       result.exitCode,
       0,
@@ -376,6 +384,7 @@ class _PoolHarness {
   final _credentialsSeen = <SshCredentials>[];
   final _prompting = <ConnectPrompting>[];
   final _states = <ServerConnectionState>[];
+  final _unexpectedPrompts = <String>[];
   int _resolutions = 0;
   late final _prober = _ObservedProber(_clock);
   late final _manager = PooledConnectionManager(
@@ -388,9 +397,14 @@ class _PoolHarness {
       );
     },
     tofu: _tofu,
-    onHostKey: (_) async => fail('A pre-seeded fixture must never prompt.'),
-    onKeyboardInteractive: (_, _, _) async =>
-        fail('Stored credentials must not prompt.'),
+    onHostKey: (_) async {
+      _unexpectedPrompts.add('host key');
+      fail('A pre-seeded fixture must never prompt.');
+    },
+    onKeyboardInteractive: (_, _, _) async {
+      _unexpectedPrompts.add('keyboard interactive');
+      fail('Stored credentials must not prompt.');
+    },
     policy: _policy,
     prober: _prober,
     openTransport: _open,
@@ -435,6 +449,8 @@ class _PoolHarness {
       await _manager.disconnectServer(_serverId);
     } finally {
       await _watch.cancel();
+      // SSH/recovery may catch callback errors; teardown still reports them.
+      expect(_unexpectedPrompts, isEmpty, reason: 'Unexpected fixture prompts');
     }
   }
 }

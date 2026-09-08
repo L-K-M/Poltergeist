@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 const _entrypointPath = 'test/integration/sshd-common/entrypoint.sh';
 const _startupBoundary = r'if [ ! -s "$user_key" ]; then';
 const _account = 'poltergeist-restart-test';
+const _unexpectedExecutableExitCode = 77;
 
 void main() {
   test('reuses the fixture user when a stopped container restarts', () async {
@@ -18,6 +19,28 @@ void main() {
       await _expectReusableAccount('create_auxiliary_user $_account 1001');
     },
   );
+
+  test('top-level account setup uses fakes before loading helpers', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'poltergeist-account-command-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final fallback = File('${directory.path}/useradd');
+    await fallback.writeAsString(
+      '#!/bin/sh\nexit $_unexpectedExecutableExitCode\n',
+    );
+    final permission = await Process.run('chmod', ['+x', fallback.path]);
+    expect(permission.exitCode, 0, reason: '${permission.stderr}');
+
+    // A private PATH makes failure harmless: no host account tool is reachable.
+    final result = await Process.run(
+      '/bin/sh',
+      ['-eu', '-c', _accountScript('useradd $_account', 'id $_account')],
+      environment: {'PATH': directory.path},
+    );
+    expect(result.exitCode, 0, reason: '${result.stderr}');
+    expect('${result.stdout}'.trim(), _account);
+  });
 }
 
 Future<void> _expectReusableAccount(String command) async {
@@ -37,11 +60,16 @@ Future<void> _expectReusableAccount(String command) async {
   final result = await Process.run('sh', [
     '-eu',
     '-c',
-    '$definitions\n$_fakeAccountCommands\n$command\n$command',
+    _accountScript(definitions, command),
   ]);
 
   expect(result.exitCode, 0, reason: '${result.stderr}');
   expect('${result.stdout}'.trim().split('\n'), [_account]);
+}
+
+String _accountScript(String definitions, String command) {
+  // Install fakes before even top-level code in the extracted source can run.
+  return '$_fakeAccountCommands\n$definitions\n$command\n$command';
 }
 
 const _fakeAccountCommands = r'''
