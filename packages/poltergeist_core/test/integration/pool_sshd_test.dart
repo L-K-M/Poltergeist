@@ -412,7 +412,10 @@ class _PoolHarness {
   late final StreamSubscription<ServerConnectionState> _watch;
 
   _PoolHarness(this._server, this._credentials, this._tofu, this._policy) {
-    _watch = _manager.watchServer(_serverId).listen(_states.add);
+    _watch = _manager
+        .watchServer(_serverId)
+        .map((status) => status.state)
+        .listen(_states.add);
   }
 
   Future<SshTransport> _open({

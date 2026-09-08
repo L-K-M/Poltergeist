@@ -4,9 +4,9 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — M2 adds real-sshd pool integration coverage
-and its ordinary CI job (validation below). M2's prompt dialogs, coordinator,
-live connect transcript, state-associated failure details, and independent
+_Last updated: 2026-09-08 — merged PR #41 adds real-sshd pool integration
+coverage and its ordinary CI job (validation below). M2's prompt dialogs,
+coordinator, live connect transcript, state-associated failure details, and independent
 terminal-recovery diagnostics are implemented. Recovery ignores stale home
 failures from dead transports. Bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
@@ -156,14 +156,12 @@ diagnostics, malformed-prompt queue stalls, empty stored-secret answers,
 stale panel callbacks, uncleared key-path errors, opaque failure leakage,
 queued-waiter detail, stalled audit writes, closed prompt bridges,
 newest-line anchoring, scroll-safe prompts, and Enter focus/submission. After
-reconciliation with PRs #39 and #40: core analysis and 257 tests pass (one
-sshd fixture skip); app analysis and 196 tests pass;
-protocol guard (49), import guard (92), and pin audit pass. UI surfaces remain
-uncomposed, so screenshots ride the wiring slice that first renders them.
-`posix` 6.5.2 moved from a transitive to direct app dependency without changing
-resolution; no Séance
-pin change or milestone-close claim. Real-sshd transcript/keepalive legs
-remain with the 08 §5 matrix (open item 3).
+reconciliation with PRs #39–#41: core analysis and 257 tests pass (five
+integration tests skip without fixture variables); app analysis and 196 tests
+pass; protocol guard (49), import guard (92), and pin audit pass. UI surfaces
+remain uncomposed, so screenshots ride the wiring slice that first renders
+them. `posix` 6.5.2 moved from a transitive to direct app dependency without
+changing resolution; no Séance pin change or milestone-close claim.
 
 ## M2 — keepalive prerequisite (2026-09-07)
 
