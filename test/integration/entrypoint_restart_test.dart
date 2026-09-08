@@ -1,12 +1,18 @@
+@TestOn('linux')
+library;
+
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:test/test.dart';
 
+import 'fixture_process.dart';
+
 const _entrypointPath = 'test/integration/sshd-common/entrypoint.sh';
 const _startupBoundary = r'if [ ! -s "$user_key" ]; then';
 const _account = 'poltergeist-restart-test';
 const _unexpectedExecutableExitCode = 77;
+const _scriptTimeout = Duration(seconds: 5);
 
 void main() {
   test('reuses the fixture user when a stopped container restarts', () async {
@@ -21,25 +27,24 @@ void main() {
   );
 
   test('top-level account setup uses fakes before loading helpers', () async {
-    final directory = await Directory.systemTemp.createTemp(
-      'poltergeist-account-command-',
-    );
-    addTearDown(() => directory.delete(recursive: true));
-    final fallback = File('${directory.path}/useradd');
-    await fallback.writeAsString(
-      '#!/bin/sh\nexit $_unexpectedExecutableExitCode\n',
-    );
-    final permission = await Process.run('chmod', ['+x', fallback.path]);
-    expect(permission.exitCode, 0, reason: '${permission.stderr}');
-
-    // A private PATH makes failure harmless: no host account tool is reachable.
-    final result = await Process.run(
-      '/bin/sh',
-      ['-eu', '-c', _accountScript('useradd $_account', 'id $_account')],
-      environment: {'PATH': directory.path},
-    );
+    final result = await _runAccountScript('useradd $_account', 'id $_account');
     expect(result.exitCode, 0, reason: '${result.stderr}');
     expect('${result.stdout}'.trim(), _account);
+  });
+
+  test('account preamble has a private PATH and working directory', () async {
+    final result = await _runAccountScript(
+      r'printf "%s\n" "$PWD"'
+          '\n'
+          'if command -v chmod >/dev/null 2>&1; then '
+          'exit $_unexpectedExecutableExitCode; fi',
+      ':',
+    );
+    expect(result.exitCode, 0, reason: '${result.stderr}');
+    expect(
+      '${result.stdout}'.trim(),
+      startsWith('${Directory.systemTemp.path}/poltergeist-account-'),
+    );
   });
 }
 
@@ -56,20 +61,37 @@ Future<void> _expectReusableAccount(String command) async {
   expect(startupIndex, isNonNegative);
 
   // Execute the real account helpers; fake OS commands prevent host mutations.
-  final definitions = source.substring(0, startupIndex);
-  final result = await Process.run('sh', [
-    '-eu',
-    '-c',
-    _accountScript(definitions, command),
-  ]);
+  final preamble = source.substring(0, startupIndex);
+  final result = await _runAccountScript(preamble, command);
 
   expect(result.exitCode, 0, reason: '${result.stderr}');
   expect('${result.stdout}'.trim().split('\n'), [_account]);
 }
 
-String _accountScript(String definitions, String command) {
+Future<ProcessResult> _runAccountScript(String preamble, String command) async {
+  final directory = await Directory.systemTemp.createTemp(
+    'poltergeist-account-',
+  );
+  addTearDown(() => directory.delete(recursive: true));
+
+  // Resolve GNU timeout first, then isolate shell command lookup and relative I/O.
+  return runFixtureProcess(
+    '/bin/sh',
+    [
+      '-eu',
+      '-c',
+      'PATH="\$1"\nexport PATH\n${_accountScript(preamble, command)}',
+      'fixture',
+      directory.path,
+    ],
+    timeout: _scriptTimeout,
+    workingDirectory: directory.path,
+  );
+}
+
+String _accountScript(String preamble, String command) {
   // Install fakes before even top-level code in the extracted source can run.
-  return '$_fakeAccountCommands\n$definitions\n$command\n$command';
+  return '$_fakeAccountCommands\n$preamble\n$command\n$command';
 }
 
 const _fakeAccountCommands = r'''

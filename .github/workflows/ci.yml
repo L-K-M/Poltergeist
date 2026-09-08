@@ -168,6 +168,8 @@ jobs:
         with:
           filters: |
             integration:
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
               - 'packages/**/lib/**'
               - 'packages/**/test/**'
               - 'packages/**/pubspec.yaml'

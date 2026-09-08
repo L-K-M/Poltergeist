@@ -43,6 +43,37 @@ void main() {
     expect(result.stderr, contains('fixture diagnostic'));
   });
 
+  test(
+    'cleanup survives an empty PID file and stops the remaining process',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'fixture-cleanup-',
+      );
+      addTearDown(() async {
+        if (await directory.exists()) await directory.delete(recursive: true);
+      });
+      final process = await Process.start('sleep', [
+        '${_processFailsafe.inSeconds}',
+      ]);
+      addTearDown(() async {
+        process.kill(ProcessSignal.sigkill);
+        await process.exitCode;
+      });
+      await File('${directory.path}/child.pid').writeAsString('');
+      await File(
+        '${directory.path}/parent.pid',
+      ).writeAsString('${process.pid}');
+
+      await _HangingCommand(directory)._dispose();
+
+      expect(
+        await process.exitCode.timeout(_observationTimeout),
+        -ProcessSignal.sigkill.signalNumber,
+      );
+      expect(await directory.exists(), isFalse);
+    },
+  );
+
   for (final timeout in [Duration.zero, -_deadline]) {
     test('rejects $timeout before launching an unbounded process', () {
       expect(
@@ -86,7 +117,7 @@ void main() {
 
 enum _TermBehavior { exit, ignore }
 
-/// Records both PIDs so a failed regression assertion cannot leak the fixture.
+/// Records both PIDs for cleanup after a failed regression assertion.
 class _HangingCommand {
   final Directory _directory;
 
@@ -149,10 +180,11 @@ exec sleep ${_processFailsafe.inSeconds}
       final file = File('${_directory.path}/$name.pid');
       if (!await file.exists()) continue;
 
-      Process.killPid(
-        int.parse(await file.readAsString()),
-        ProcessSignal.sigkill,
-      );
+      // A deadline can interrupt the PID write; never signal a process group.
+      final pid = int.tryParse(await file.readAsString());
+      if (pid == null || pid <= 0) continue;
+
+      Process.killPid(pid, ProcessSignal.sigkill);
     }
     await _directory.delete(recursive: true);
   }

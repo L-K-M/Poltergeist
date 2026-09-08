@@ -181,7 +181,7 @@ entrypoint recreating existing users; two regressions failed before the
 account helpers became restart-safe.
 
 Local validation: core and Flutter analysis pass, with 238 core, 121 app,
-and 47 fixture-tool tests passing; five integration tests skip without the
+and 50 fixture-tool tests passing; five integration tests skip without the
 fixture. All five Docker tests pass in
 [CI run 34172611069](https://github.com/L-K-M/Poltergeist/actions/runs/34172611069).
 The first run exposed a nullable timeout callback against a non-nullable
@@ -197,6 +197,13 @@ prompts even when SSH catches callback errors, and the CI guard covers a
 fixture edit that leaves the file present. Regressions demonstrated a live
 helper after the old Dart timeout and late shell-stub installation; both pass
 after repair. Timing assertions retain independent 03 §3.3 bounds.
+
+Further review isolated account scripts with a private PATH/cwd and a process
+deadline, preserved cleanup after partial PID writes, and added root workspace
+manifests to the integration filter (08 §8 clarified). Each regression failed
+before repair. The workflow guard tests now match CI's shell flags and control
+their environment. Account/process suites declare their GNU-timeout Linux
+requirement; broader fixture-tool portability remains open below.
 
 ## Open items
 

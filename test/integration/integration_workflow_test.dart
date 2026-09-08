@@ -9,6 +9,7 @@ const _requiredEvents = ['push', 'workflow_dispatch'];
 
 void main() {
   late String guard;
+  late YamlList integrationPaths;
 
   setUpAll(() async {
     final workspace = await Isolate.resolvePackageUri(
@@ -26,8 +27,16 @@ void main() {
     final jobs = workflow['jobs'] as YamlMap;
     final detection = jobs['detect_integration'] as YamlMap;
     final steps = (detection['steps'] as YamlList).cast<YamlMap>();
+    final changes = steps.singleWhere((step) => step['id'] == 'changes');
+    final filters = loadYaml(changes['with']['filters'] as String) as YamlMap;
+    integrationPaths = filters['integration'] as YamlList;
     guard =
         steps.singleWhere((step) => step['id'] == 'fixture')['run'] as String;
+  });
+
+  test('workspace dependency changes select SSH integration', () {
+    // Root resolution can change SSH dependencies without touching packages.
+    expect(integrationPaths, containsAll(['pubspec.yaml', 'pubspec.lock']));
   });
 
   for (final event in _requiredEvents) {
@@ -106,11 +115,12 @@ Future<_GuardResult> _runGuard(
     await File('${directory.path}/$_fixturePath').create(recursive: true);
   }
 
-  // Execute the committed guard in an isolated checkout shape.
+  // Match CI's default bash flags without inheriting developer shell hooks.
   final result = await Process.run(
     'bash',
-    ['-euo', 'pipefail', '-c', guard],
+    ['-e', '-c', guard],
     workingDirectory: directory.path,
+    includeParentEnvironment: false,
     environment: {
       'EVENT_NAME': event,
       'FIXTURE_CHANGED': changed,

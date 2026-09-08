@@ -1,6 +1,9 @@
 import 'dart:io';
 
-/// Runs Linux fixture tools with a deadline covering their child processes.
+/// Bounds a Linux command's process group until that command exits.
+///
+/// Callers must wait for their children, as service-control.sh does. Detached
+/// descendants and children outliving the command are outside this deadline.
 ///
 /// Dart reports SIGKILL as -9 (shells use 137); the outer harness owns Docker
 /// cleanup when the command exceeds its deadline.
@@ -15,7 +18,7 @@ Future<ProcessResult> runFixtureProcess(
     throw ArgumentError.value(timeout, 'timeout', 'Must be positive.');
   }
 
-  // Kill the entire group, including children that ignore TERM after bash exits.
+  // Kill the monitored group even when a child ignores TERM.
   final seconds = timeout.inMicroseconds / Duration.microsecondsPerSecond;
   return Process.run(
     'timeout',
