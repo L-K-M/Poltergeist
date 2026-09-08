@@ -184,8 +184,11 @@ port candidates.
   the local hardening; record/rotate/serialize behavior remains identical.
 - Port-back candidates: none — both regressions (with their fixes) landed
   upstream in [Séance #80](https://github.com/L-K-M/Seance/pull/80), which
-  also splits the owner-only coverage into fresh-file, write-repair, and
-  read-repair cases and pins absent-field defaults.
+  also splits the owner-only coverage into fresh-file, write-repair,
+  read-repair, and rotation cases and pins absent-field defaults. When
+  the lib entry's read-side repair gate is mirrored here, port
+  upstream's read-repair regression alongside it so the gated path
+  stays test-covered.
 
 ## app/poltergeist_app/lib/services/identity_file_reader.dart
 
