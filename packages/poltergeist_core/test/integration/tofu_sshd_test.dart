@@ -19,7 +19,10 @@ const _siblingId = 'sibling';
 const _serverIds = [_primaryId, _siblingId];
 const _operationTimeout = Duration(seconds: 15);
 const _serviceTimeout = Duration(seconds: 50);
+// Swap, restoration, recovery, and explicit SSH reviews have separate bounds.
+const _swapTestTimeout = Timeout(Duration(minutes: 4));
 const _policy = PoolPolicy(
+  maxTransports: 2,
   maxTransferChannelsPerTransport: 1,
   maxChannelsPerTransport: 3,
 );
@@ -134,6 +137,14 @@ void main() {
     });
 
     test('a swapped key blocks both bookmarks until explicit review', () async {
+      // LIFO teardown closes the pool before restoring its original endpoint.
+      addTearDown(() async {
+        final restoring = restore;
+        if (restoring == null) return;
+
+        await restoring();
+        restore = null;
+      });
       final harness = fixture._pool();
       final panes = await Future.wait([
         harness._manager.openBrowseChannel(_primaryId, paneTabId: 'left'),
@@ -210,7 +221,7 @@ void main() {
       );
       expect(await sibling.fs.listDirectory(sibling.homePath), isNotEmpty);
       expect(harness._decisions, hasLength(3));
-    });
+    }, timeout: _swapTestTimeout);
 
     test('subsequent tests see the original fixture host key', () async {
       final harness = fixture._pool();

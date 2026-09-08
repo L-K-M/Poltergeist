@@ -260,7 +260,7 @@ requirement; broader fixture-tool portability remains open below.
 
 ## M2 — real-sshd TOFU coverage (2026-09-08)
 
-Three Linux integration tests use the production pool/opener and private,
+Four Linux integration tests use the production pool/opener and private,
 initially empty pin stores. Concurrent bookmarks share one pending first-use
 decision; approval pins the committed fixture fingerprint, while rejection
 leaves no pin and prompts again on retry. Actual transport growth and a fresh
@@ -269,12 +269,21 @@ bookmarks, existing pane/lease handles, and new worker acquisitions without
 prompting or re-pinning. Explicit changed-key rejection preserves the block;
 approval installs the replacement fingerprint and restores SFTP access.
 
-The suite uses the existing bounded swap/restore helper and registers stack
-restoration before mutation. Ordinary tests skip without both fixture host
-and modern-port variables; the existing serial integration CI job runs them.
+The suite uses the existing bounded swap/restore helper and registers per-test
+restoration before mutation, with suite teardown as a fallback. Ordinary tests
+skip without both fixture host and modern-port variables; the existing serial
+integration CI job runs them.
 Local core/Flutter analysis and 257 core plus 196 Flutter tests pass; the
-import guard passes. Eight integration tests skip because Docker is
-unavailable. Real-server validation is pending CI. No production
+import guard passes. Nine integration tests skip locally because Docker is
+unavailable; the initial eight passed in
+[CI run 34193296978](https://github.com/L-K-M/Poltergeist/actions/runs/34193296978),
+including the initial three TOFU cases. Review added a next-test pin check
+that failed in [run 34194044313](https://github.com/L-K-M/Poltergeist/actions/runs/34194044313)
+before per-test restoration. Its repaired CI run is pending. The test policy
+now fixes its two-transport cap; the swap test allows four minutes for its
+independently bounded Docker/recovery/review stages. `watchServer` replays
+current state, and the process helper inherits its environment; neither
+review concern requires a code change. No production
 change, source port, pin bump, or milestone close. Keyboard-interactive auth
 and auth-failure summaries remain open, as do the production-wiring gates.
 
