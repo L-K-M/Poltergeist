@@ -1,5 +1,11 @@
 # Séance ports and pin audits
 
+## M2 probe lifecycle prerequisite (2026-09-08)
+
+The periodic `ProbeService` repair belongs in Séance's core package (D2).
+No source copy or local scheduler is introduced. STATUS item 3 records the
+upstream repair and the required containing pin before probe wiring.
+
 ## M2 real-sshd pool and TOFU coverage (2026-09-08)
 
 Exercises the existing pinned opener, VFS, and TCP prober through Poltergeist's
