@@ -945,6 +945,70 @@ Host alpha beta
     );
   });
 
+  test('Host pattern separators agree with the pin for every whitespace kind',
+      () async {
+    // The pin tokenizes Host patterns with split(RegExp(r'\s+')); the
+    // scan must key its per-host badges by exactly that alias, or a
+    // control-character separator (carriage return, vertical tab, form
+    // feed) silently drops the badge. Regression: `Host alpha\rbeta`
+    // keyed the ProxyCommand badge under a token the pin never made.
+    const separators = {
+      'space': ' ',
+      'tab': '\t',
+      'carriage-return': '\r',
+      'vertical-tab': '\u000b',
+      'form-feed': '\u000c',
+      // NBSP rides the same \s class in both Regexps (ECMAScript set).
+      'unicode-space': '\u00a0',
+    };
+
+    for (final separator in separators.entries) {
+      final text = 'Host alpha${separator.value}beta\n'
+          '  ProxyCommand nc %h %p\n';
+      // The pinned importer is the oracle: the preview row must carry
+      // the same alias the pin minted, not a second host parser.
+      final pinnedAlias = SshConfigImporter.parse(text).single.alias;
+      final preview = await _load(text);
+
+      expect(preview.rows, hasLength(1), reason: separator.key);
+      expect(preview.rows.single.host.alias, pinnedAlias,
+          reason: separator.key);
+      expect(preview.rows.single.limitations,
+          contains(SshConfigImportLimitation.proxyCommand),
+          reason: separator.key);
+    }
+  });
+
+  test('an Include in a whitespace-separated Host block badges the pin alias',
+      () async {
+    // The hostInclude badge rides the same alias key as ProxyCommand;
+    // pin it with a carriage-return separator so neither badge path
+    // can drift from the pin's tokenization again.
+    final text = 'Host alpha\rbeta\n'
+        '  Include extra.conf\n';
+    final pinnedAlias = SshConfigImporter.parse(text).single.alias;
+    final preview = await _load(text);
+
+    expect(preview.rows.single.host.alias, pinnedAlias);
+    expect(preview.rows.single.limitations,
+        contains(SshConfigImportLimitation.hostInclude));
+  });
+
+  test('quoted Host patterns keep alias parity with the pin', () async {
+    // Quote stripping happens in _directiveValue before tokenization,
+    // exactly as the pin strips quotes before splitting — pin that
+    // order so the quote rule cannot drift and key badges under a
+    // token the pin never minted.
+    final text = 'Host "alpha" "beta"\n'
+        '  ProxyCommand nc %h %p\n';
+    final pinnedAlias = SshConfigImporter.parse(text).single.alias;
+    final preview = await _load(text);
+
+    expect(preview.rows.single.host.alias, pinnedAlias);
+    expect(preview.rows.single.limitations,
+        contains(SshConfigImportLimitation.proxyCommand));
+  });
+
   test('Host * connection defaults badge every row', () async {
     final preview = await _load('''
 Host *

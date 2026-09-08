@@ -5,7 +5,8 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-08 — the ssh_config import preview/dedupe slice
-(D22) landed as a bounded, unwired component (dated section below), and
+(D22) landed as a bounded, unwired component (dated section below,
+including its post-merge host-alias whitespace-parity correction), and
 keyswap cleanup now retries after partial swap/restoration failures
 (closed in open item 7). Before that: the real-sshd auth-failure-summary coverage
 (rejected key, method-not-accepted user, root prohibit-password) landed
@@ -564,6 +565,29 @@ description); two consecutive polish-only rounds, so steady state
 held and the PR merged without further code change. Local
 re-validation on the merge head `302fb14`: core 299/15 skips, app
 214, import guard 92 + scan.
+
+**2026-09-08 post-merge correction (follow-up PR):** supervisor
+verification produced runtime counterevidence to the rounds-4/5
+alias-parity refutation — the local scan tokenized Host patterns on
+space/tab only, while the pinned importer splits on every whitespace
+run (`RegExp(r'\s+')`), so `Host alpha\rbeta` keyed the per-host
+badges under a token the pin never minted and the row silently lost
+its ProxyCommand badge (reproducer:
+`pr45-alias-parity-proof.dart`, exit 255, two missing badges). The
+refutation's "scan and lookup share one rule" claim was true only
+within one file, not against the pin. Fix: Host-pattern tokenization
+now mirrors the pin's rule exactly (a dedicated
+`_tokenizeHostPatterns`); quoted include-path tokenization is
+unchanged. Two named regressions (separator parity against the pin
+as oracle — space/tab/CR/VT/FF — and the hostInclude badge under a
+carriage-return separator) failed before the repair and pass after;
+the reproducer exits 0. Review round 1 added two hardening
+regressions (quoted-pattern parity; NBSP in the separator map) —
+declined the RegExp-hoist churn (round-2 `_keyValueCut` precedent).
+Validation: core analysis clean, 302
+passes/15 integration skips; app analysis clean, 214 tests; import
+guard 92 + repo scan. No pin change, no upstream behavior change
+(the pin already tokenizes correctly).
 
 Deliberately unwired (bounded additive slice): no running surface opens
 the dialog yet — command registration rides the M3 command registry and

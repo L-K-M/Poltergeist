@@ -799,7 +799,7 @@ sealed class _BlockContext {
   const _BlockContext();
 
   factory _BlockContext.fromHostLine(String value) {
-    final alias = _tokenizeWhitespace(value)
+    final alias = _tokenizeHostPatterns(value)
         .firstWhere(_isConcretePattern, orElse: () => '');
     return alias.isEmpty
         ? const _BlockContextWildcard()
@@ -891,8 +891,20 @@ String _rawDirectiveValue(String line) {
   return line.substring(cut + 1).trim();
 }
 
-/// Whitespace-separated tokens, double-quote aware (paths may carry
-/// spaces); used for include arguments and Host patterns alike.
+/// Host patterns split on every whitespace run, mirroring the pinned
+/// importer's own `split(RegExp(r'\s+'))` rule: a carriage return,
+/// vertical tab, or form feed between patterns separates them there, so
+/// the scan must key per-host badges by the same tokens or the badge is
+/// silently dropped. Quote stripping already happened in
+/// [_directiveValue], exactly as the pin strips quotes before
+/// tokenizing.
+List<String> _tokenizeHostPatterns(String value) =>
+    value.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
+
+/// Whitespace-separated tokens for include arguments, double-quote
+/// aware (paths may carry spaces). Only space and tab separate — the
+/// include tokenizer owns its own quote rule, deliberately distinct
+/// from the pin-mirroring [_tokenizeHostPatterns].
 List<String> _tokenizeWhitespace(String value) {
   final tokens = <String>[];
   final current = StringBuffer();
