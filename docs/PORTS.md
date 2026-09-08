@@ -159,7 +159,7 @@ port candidates.
 
 - Source: app/seance_app/lib/services/identity_audit_log.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07;
-  re-diffed with the Séance #80 changes at bc53413, 2026-09-08)
+  re-diffed with the Séance #80/#81 changes at cb4b010, 2026-09-08)
 - Ported: 2026-09-07
 - Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
   (D23). The PR #38 security/reliability repairs (wrong-typed optional
@@ -168,39 +168,40 @@ port candidates.
   private-key paths) landed upstream in
   [Séance #80](https://github.com/L-K-M/Seance/pull/80) (merge
   `bc534136fa427ca9605babd47e44555e5dbfd4d1`, 2026-09-08), so the
-  behaviors now match. Upstream's review additionally gates `readAll`'s
-  repair on group/other bits — an already-private log skips the chmod
-  and stays readable on chmod-incapable mounts; this port still
-  restricts unconditionally, so its `readAll` still fails closed when
-  an existing log cannot be restricted. The record shape stays frozen
-  identical. That upstream gate now carries durable regressions —
-  [Séance #81](https://github.com/L-K-M/Seance/pull/81) (merge
-  `2e6d1f138f1704e683870f75e11262bf50e37379`, 2026-09-08) pins both
-  read-side branches with rootless Linux procfs fixtures.
-- Port-back candidates: mirror upstream's read-side repair gate
-  (`_groupOtherBits` in Séance's copy) here, porting its durable
-  procfs regressions alongside it.
+  behaviors now match. Upstream's review also gates `readAll`'s repair
+  on group/other bits (`_groupOtherBits`) — an already-private log
+  skips the chmod and stays readable on chmod-incapable mounts, while
+  a permissive log that cannot be restricted still fails the read
+  closed — mirrored here 2026-09-08 from
+  [Séance #81](https://github.com/L-K-M/Seance/pull/81) head
+  `cb4b010075bd0519914de27bc0a2231c449e204d` (merge
+  `2e6d1f138f1704e683870f75e11262bf50e37379`), whose durable rootless
+  Linux procfs regressions are ported alongside it. The record shape
+  stays frozen identical.
+- Port-back candidates: none — the read-side repair gate's mirror and
+  its procfs regressions close the last recorded divergence; both
+  sides now behave identically.
 
 ## app/poltergeist_app/test/services/identity_audit_log_test.dart
 
 - Source: app/seance_app/test/identity_audit_log_test.dart
-- Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07;
+  refreshed with the Séance #80/#81 coverage at cb4b010, 2026-09-08)
 - Ported: 2026-09-07
 - Divergences: adds wrong-typed-field and owner-only-mode regressions for
   the local hardening; record/rotate/serialize behavior remains identical.
-- Port-back candidates: none — both regressions (with their fixes) landed
-  upstream in [Séance #80](https://github.com/L-K-M/Seance/pull/80), which
-  also splits the owner-only coverage into fresh-file, write-repair,
-  read-repair, and rotation cases and pins absent-field defaults. The
-  read-side repair gate's own regressions are durable upstream since
+  2026-09-08: ported Séance #81's audit coverage — fresh-file mode,
+  existing-file write repair, read repair, absent-field defaults, and
+  both rootless Linux procfs regressions (owner-only `/proc/self/io`
+  reads without a repair chmod and with its mode untouched; a
+  world-readable `/proc/self/status` whose chmod fails EPERM fails
+  `readAll` closed with that errno pinned), mirroring the lib entry's
+  read-side repair gate. Temp prefix and home paths carry Poltergeist
+  names (`poltergeist-audit-`, `/home/...`) per the 08 §2 rename rule.
+- Port-back candidates: none — the procfs regressions landed upstream in
   [Séance #81](https://github.com/L-K-M/Seance/pull/81) (merge
-  `2e6d1f138f1704e683870f75e11262bf50e37379`): rootless Linux procfs
-  fixtures — an owner-only `/proc/self/io` reads without a repair chmod
-  and with its mode untouched, while a world-readable `/proc/self/status`
-  whose chmod fails EPERM fails `readAll` closed with that errno pinned.
-  When the lib entry's read-side repair gate is mirrored here, port
-  those procfs regressions alongside it so the gated path stays
-  test-covered here too.
+  `2e6d1f138f1704e683870f75e11262bf50e37379`) and are now ported here
+  with the gate, closing the recorded candidate.
 
 ## app/poltergeist_app/lib/services/identity_file_reader.dart
 
