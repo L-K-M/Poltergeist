@@ -4,7 +4,9 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — the ssh_config import preview/dedupe slice
+_Last updated: 2026-09-08. Probe lifecycle repair merged upstream; a
+containing pin remains required before M2 wiring (open item 3). The ssh_config
+import preview/dedupe slice
 (D22) landed as a bounded, unwired component (dated section below,
 including its post-merge host-alias whitespace-parity correction), and
 keyswap cleanup now retries after partial swap/restoration failures
@@ -650,7 +652,24 @@ PORTS.md unchanged), no pin change, no milestone close.
      surface, and the diagnostics one-liner landed; vault-unavailable and
      identity-read errors render through ARB-authored sentences;
      composition into a running app rides the production-wiring slice;
-   - `ProbeService` wiring + interim server list status dots;
+   - `ProbeService` wiring + interim server list status dots. **2026-09-08
+     prerequisite ([Séance #79](https://github.com/L-K-M/Seance/pull/79)):**
+     the current pin's periodic sweeps can overlap after
+     pause/resume or repeated start; paused/disposed sweeps still launch
+     queued probes, and target replacement can publish stale statuses.
+     The upstream repair serializes periodic sweeps, snapshots targets,
+     and invalidates stale queued work/results while preserving cadence
+     and standalone `probeAll`. Equivalent target updates preserve active
+     results. Seven regression tests failed before their repairs;
+     afterward, all 16 lifecycle tests, 594 upstream Dart tests, and 449
+     Flutter tests pass with clean analysis. Upstream merged as
+     `4a50782659ee4aa1f7ce0cb253a6f8d3a46c407c`; all CI checks passed.
+     Consume a containing pin before wiring; `a9add15` remains unchanged.
+     Existing probes may settle; no new stale work may start.
+     **2026-09-08 review follow-ups:** consider upstream tests for exact
+     timeout forwarding and jitter endpoints. Both contracts are unchanged;
+     neither blocks the lifecycle repair. A probe's drain is not bounded by
+     one timeout: TCP connection and banner reading each have a timeout.
    - ssh_config import with preview + dedupe (D22). **Done 2026-09-08**
      (see the dated section): the core import service (pinned-importer
      consumption, top-level include resolution, D22 limitation badges,

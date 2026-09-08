@@ -615,7 +615,7 @@ including those behind transfer waiters: sharing consumes no transfer slot.
 
 ### 3.4 Probe integration
 
-The ported `ProbeService`
+The git-pinned `ProbeService` (consumed, never copied, per D2)
 (`packages/seance_core/lib/src/probe/probe_service.dart`) drives sidebar
 status dots. `ConnectionManager` feeds it
 `connectedServerIds` so servers with live pools are skipped and reported
