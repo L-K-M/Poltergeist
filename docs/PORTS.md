@@ -173,9 +173,13 @@ port candidates.
   and stays readable on chmod-incapable mounts; this port still
   restricts unconditionally, so its `readAll` still fails closed when
   an existing log cannot be restricted. The record shape stays frozen
-  identical.
+  identical. That upstream gate now carries durable regressions —
+  [Séance #81](https://github.com/L-K-M/Seance/pull/81) (merge
+  `2e6d1f138f1704e683870f75e11262bf50e37379`, 2026-09-08) pins both
+  read-side branches with rootless Linux procfs fixtures.
 - Port-back candidates: mirror upstream's read-side repair gate
-  (`_groupOtherBits` in Séance's copy) here.
+  (`_groupOtherBits` in Séance's copy) here, porting its durable
+  procfs regressions alongside it.
 
 ## app/poltergeist_app/test/services/identity_audit_log_test.dart
 
@@ -187,10 +191,16 @@ port candidates.
 - Port-back candidates: none — both regressions (with their fixes) landed
   upstream in [Séance #80](https://github.com/L-K-M/Seance/pull/80), which
   also splits the owner-only coverage into fresh-file, write-repair,
-  read-repair, and rotation cases and pins absent-field defaults. When
-  the lib entry's read-side repair gate is mirrored here, port
-  upstream's read-repair regression alongside it so the gated path
-  stays test-covered.
+  read-repair, and rotation cases and pins absent-field defaults. The
+  read-side repair gate's own regressions are durable upstream since
+  [Séance #81](https://github.com/L-K-M/Seance/pull/81) (merge
+  `2e6d1f138f1704e683870f75e11262bf50e37379`): rootless Linux procfs
+  fixtures — an owner-only `/proc/self/io` reads without a repair chmod
+  and with its mode untouched, while a world-readable `/proc/self/status`
+  whose chmod fails EPERM fails `readAll` closed with that errno pinned.
+  When the lib entry's read-side repair gate is mirrored here, port
+  those procfs regressions alongside it so the gated path stays
+  test-covered here too.
 
 ## app/poltergeist_app/lib/services/identity_file_reader.dart
 

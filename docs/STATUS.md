@@ -4,9 +4,12 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08. Probe lifecycle repair merged upstream; a
-containing pin remains required before M2 wiring (open item 3). The
-identity-audit port-backs merged upstream as Séance #80 (open item 5).
+_Last updated: 2026-09-08. The identity-audit read-side repair gate
+now carries durable upstream regressions — Séance #81, rootless
+Linux procfs fixtures with runtime fail/pass evidence (open item 5);
+the port-backs themselves merged as Séance #80. Probe lifecycle
+repair merged upstream; a
+containing pin remains required before M2 wiring (open item 3).
 The ssh_config
 import preview/dedupe slice
 (D22) landed as a bounded, unwired component (dated section below,
@@ -758,6 +761,28 @@ PORTS.md unchanged), no pin change, no milestone close.
      bits are set) that this port should mirror. Route guards remain
      PORTS-led candidates. None blocks the safe local behavior or
      production wiring.
+   - **2026-09-08 — gate regression follow-up (Séance #81):** that
+     read-side gate now has durable upstream regressions —
+     [Séance #81](https://github.com/L-K-M/Seance/pull/81) (merge
+     `2e6d1f138f1704e683870f75e11262bf50e37379`, head
+     `cb4b010075bd0519914de27bc0a2231c449e204d`) commits two rootless
+     Linux procfs tests over the public `IdentityAuditLog` API: an
+     owner-only `/proc/self/io` (mode 0400, readable, chmod EPERM)
+     reads back empty with its mode untouched — no repair chmod fires —
+     while a world-readable `/proc/self/status` (mode 0444, chmod EPERM)
+     fails `readAll` closed with the repair chmod's `EPERM` pinned via
+     the `PosixException` errno. The throw itself is asserted (the
+     status text is not JSON, so empty entries would not prove the
+     rejection ran); fixtures use only this process's non-sensitive
+     metadata, never modify permissions, and skip off Linux or without
+     the fixture with an explicit reason while running in Ubuntu CI.
+     Runtime fail/pass evidence exists per branch: the skip-gate test
+     fails against pre-gate `70db26c` (EPERM out of `readAll`) and the
+     fail-closed test against pre-privacy `41d5261` (no throw; empty
+     entries returned), both passing on merged main with all nine
+     upstream CI checks and all 457 app tests green. This closes the
+     durable-regression gap; the local gate mirror remains a PORTS-led
+     candidate (no Poltergeist production change).
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
