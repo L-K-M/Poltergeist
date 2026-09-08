@@ -75,6 +75,11 @@ void main() {
         ];
         expect(answered, hasLength(1));
         expect(answered.single.prompts, hasLength(1));
+        expect(
+          harness._decisions,
+          isEmpty,
+          reason: 'a pre-seeded pin verifies without any host-key review',
+        );
 
         // Leases up to the single transport's transfer budget.
         final capacity = _defaultPolicy.maxTransferChannelsPerTransport;
@@ -207,8 +212,9 @@ void main() {
       final pane = await manager.openBrowseChannel(serverId, paneTabId: 'left');
       expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
 
-      await fixture.control(_FixtureAction.swap);
+      // Arm restore first: a swap that fails midway must still unwind.
       restore = () => fixture.control(_FixtureAction.restoreModern);
+      await fixture.control(_FixtureAction.swap);
 
       // Recovery reconnects without prompting; the changed key blocks it.
       await _until(
