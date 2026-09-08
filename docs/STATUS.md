@@ -517,6 +517,45 @@ dialog's localization surface grows one key. Validation: core
 analysis clean and 299 tests pass (42 import tests); app analysis
 clean and 214 tests pass; the import guard passes.
 
+Review round 4 (no code change; steady state declared per the owner's
+bar — none of the round's 21 findings is a correctness, security, or
+contract item). Refuted: the `mint_id` "compile break" (no such token
+exists — all three call sites spell `mintId:`, and CI's flutter job
+compiled and ran the suite on this head); the badge-alias drift claim
+(scan and lookup share one rule, mirrored byte for byte from the pin:
+both strip `"` from the value side, take the first `*`/`?`/`!`-free
+token as the alias, and keep its case verbatim — `Host gitlab gh` and
+mixed-case lines therefore key identically on both sides); the
+wildcard-row re-raise (the pin's `firstWhere(!_isWildcard)` drops
+`Host web-*` entirely — pinned by the round-1 `Host *` tests); and the
+serverConfigId-dedupe doc suggestion (the limitation text already sits
+verbatim at `_existingEndpoints`). Declined: the Windows
+symlink/`/dev/null` portability re-raises (rounds 2–3 declines stand;
+app tests run on Ubuntu only in CI, open item 1 gates Windows test
+portability); the listLexical partial-listing re-raise (round-3
+decline stands — no constructible mid-stream failure without a new
+seam, and the whole-directory-unreadable outcome matches ssh's fatal
+treatment of unreadable Include targets; an untested swallow path
+would violate 08 §1); the duplicate-catch-handler merge and the
+`_directiveKey`/`_rawDirectiveValue` dedup (behavior-neutral churn —
+round 2 declined the identical-parity `_keyValueCut` refactor — and
+the deliberate mirroring of the pin's separator logic is the point);
+the barrel `show`-list ordering, the widgetWithText finder spread, and
+the gate `Completer` type (consistency nits); and the four
+test-hardening items (depth-cap `hasLength(1)`, Port-drop and
+top-level-drop pins, the vacuous `find.text('web')` line in the
+disposal-race test — its real assertion is `takeException`, and the
+replacement-tree shape is that test's design). Deferred: an
+include-target size cap for `readText` (the pin's whole-string
+consumption model on a local-trust surface; a loud OOM is the
+inherited failure mode) and the `unreadable`-note granularity
+suggestion — both ride the wiring slice's badge/notice-surface pass
+with the round-2/3 deferred items. Validation on the merged head
+(origin/main #46 merge): the round-3 battery re-verified — core
+analysis clean, 299 tests/15 integration skips; app analysis clean,
+214 tests; fixture-tool 61; import guard 92 + repo scan; protocol
+guard 49; ARB regeneration byte-identical.
+
 Deliberately unwired (bounded additive slice): no running surface opens
 the dialog yet — command registration rides the M3 command registry and
 its entry point (sidebar/interim server list) is the production-wiring
