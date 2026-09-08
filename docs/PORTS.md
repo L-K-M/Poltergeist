@@ -159,7 +159,7 @@ port candidates.
 
 - Source: app/seance_app/lib/services/identity_audit_log.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07;
-  re-diffed again at bc53413, 2026-09-08 — see the port-back record)
+  re-diffed with the Séance #80 changes at bc53413, 2026-09-08)
 - Ported: 2026-09-07
 - Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
   (D23). The PR #38 security/reliability repairs (wrong-typed optional
@@ -171,7 +171,9 @@ port candidates.
   behaviors now match. Upstream's review additionally gates `readAll`'s
   repair on group/other bits — an already-private log skips the chmod
   and stays readable on chmod-incapable mounts; this port still
-  restricts unconditionally. The record shape stays frozen identical.
+  restricts unconditionally, so its `readAll` still fails closed when
+  an existing log cannot be restricted. The record shape stays frozen
+  identical.
 - Port-back candidates: mirror upstream's read-side repair gate
   (`_groupOtherBits` in Séance's copy) here.
 
