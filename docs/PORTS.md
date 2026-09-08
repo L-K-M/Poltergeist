@@ -26,7 +26,10 @@ port candidates.
   fallback is omitted per 09 §3.6; corrupt quarantine is store-owned,
   UTC-stamped, and reports move failures.
 - Port-back candidates: unique bounded temp names, best-effort cleanup,
-  owner-only writes, and timestamped quarantine.
+  and timestamped quarantine. Owner-only writes landed upstream in
+  [Séance #80](https://github.com/L-K-M/Seance/pull/80) as an optional
+  `privacy` parameter whose default preserves ordinary callers; upstream
+  keeps its fixed `.tmp` name and no failure cleanup.
 
 ## app/poltergeist_app/test/atomic_file_test.dart
 
@@ -155,16 +158,22 @@ port candidates.
 ## app/poltergeist_app/lib/services/identity_audit_log.dart
 
 - Source: app/seance_app/lib/services/identity_audit_log.dart
-- Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07;
+  re-diffed again at bc53413, 2026-09-08 — see the port-back record)
 - Ported: 2026-09-07
 - Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
-  (D23); wrong-typed optional JSON fields now skip as malformed instead of
-  poisoning the full read. Desktop POSIX logs are repaired/created mode 0600,
-  including atomic rotation, because they contain private-key paths; `readAll`
-  fails closed when an existing log cannot be restricted. These local
-  security/reliability repairs close PR #38 findings without waiting for
-  upstream (04 §6). The record shape stays frozen identical.
-- Port-back candidates: optional-field decode and owner-only audit storage.
+  (D23). The PR #38 security/reliability repairs (wrong-typed optional
+  JSON fields skip as malformed; desktop POSIX logs repaired/created
+  mode 0600, including atomic rotation, because they contain
+  private-key paths) landed upstream in
+  [Séance #80](https://github.com/L-K-M/Seance/pull/80) (merge
+  `bc534136fa427ca9605babd47e44555e5dbfd4d1`, 2026-09-08), so the
+  behaviors now match. Upstream's review additionally gates `readAll`'s
+  repair on group/other bits — an already-private log skips the chmod
+  and stays readable on chmod-incapable mounts; this port still
+  restricts unconditionally. The record shape stays frozen identical.
+- Port-back candidates: mirror upstream's read-side repair gate
+  (`_groupOtherBits` in Séance's copy) here.
 
 ## app/poltergeist_app/test/services/identity_audit_log_test.dart
 
@@ -173,7 +182,10 @@ port candidates.
 - Ported: 2026-09-07
 - Divergences: adds wrong-typed-field and owner-only-mode regressions for
   the local hardening; record/rotate/serialize behavior remains identical.
-- Port-back candidates: port both regressions with their fixes.
+- Port-back candidates: none — both regressions (with their fixes) landed
+  upstream in [Séance #80](https://github.com/L-K-M/Seance/pull/80), which
+  also splits the owner-only coverage into fresh-file, write-repair, and
+  read-repair cases and pins absent-field defaults.
 
 ## app/poltergeist_app/lib/services/identity_file_reader.dart
 

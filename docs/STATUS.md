@@ -5,7 +5,9 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-08. Probe lifecycle repair merged upstream; a
-containing pin remains required before M2 wiring (open item 3). The ssh_config
+containing pin remains required before M2 wiring (open item 3). The
+identity-audit port-backs merged upstream as Séance #80 (open item 5).
+The ssh_config
 import preview/dedupe slice
 (D22) landed as a bounded, unwired component (dated section below,
 including its post-merge host-alias whitespace-parity correction), and
@@ -737,12 +739,25 @@ PORTS.md unchanged), no pin change, no milestone close.
      and whole-pool correlation if a flat transcript needs to group per-server
      events. Opaque errors use the documented generic summary; never format
      arbitrary error internals.
-   - **2026-09-07 — prompt/audit port-backs:** the pinned Séance responder
-     drops RFC 4256's per-prompt echo bit before the engine protocol sees it;
-     fields therefore start masked with explicit reveal. Preserve the bit when
-     upstream exposes it. Route guards, malformed-line handling, and owner-only
-     audit storage also remain PORTS-led upstream candidates. None blocks the
-     safe local behavior or production wiring.
+   - **2026-09-07 — prompt/audit port-backs (audit legs closed 2026-09-08):**
+     the pinned Séance responder drops RFC 4256's per-prompt echo bit
+     before the engine protocol sees it; fields therefore start masked
+     with explicit reveal. Preserve the bit when upstream exposes it —
+     still open. The malformed-line and owner-only audit-storage legs
+     landed upstream in [Séance #80](https://github.com/L-K-M/Seance/pull/80)
+     (merge `bc534136fa427ca9605babd47e44555e5dbfd4d1`): wrong-typed
+     optional JSON fields now skip as malformed instead of poisoning
+     `readAll`, and the audit log is created/repaired/rotated mode 0600
+     on desktop POSIX. All five behavior regressions failed against the
+     previous upstream code before the repair; `flutter analyze` is
+     clean and all 455 Séance app tests pass, with all nine CI checks
+     green on the merged head. App-layer only, so no pin change (the
+     pinned `seance_core`/`seance_protocol` trees are untouched);
+     PORTS.md records the one remaining divergence — upstream's review
+     added a read-side repair gate (skip the chmod when no group/other
+     bits are set) that this port should mirror. Route guards remain
+     PORTS-led candidates. None blocks the safe local behavior or
+     production wiring.
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
