@@ -8,6 +8,8 @@ import 'package:test/test.dart';
 
 import '../connection/pool_fakes.dart';
 
+const _connectionLogPollTimeout = Duration(seconds: 1);
+
 /// Filesystem for the engine suite's channels: home resolution plus a
 /// scripted listing. Anything else fails loudly.
 class ScriptedFs implements RemoteFileSystem {
@@ -629,8 +631,8 @@ void main() {
       await h.pumping();
 
       // Transcript lines appended during the attempt reach the UI as a
-      // coalesced batch (03 §5): the flush window is a real 34 ms timer,
-      // so let it fire.
+      // coalesced batch (03 §5): the flush window is a real timer, so let
+      // it fire.
       h.reply(
         h.takePrompt(),
         const CredentialPromptReply(
@@ -654,7 +656,8 @@ void main() {
             event.serverId == 'srv-1' &&
             event.lines.contains('tcp connect example.com:2222'),
       );
-      for (var i = 0; i < 100 && !hasBatch(); i++) {
+      final poll = Stopwatch()..start();
+      while (!hasBatch() && poll.elapsed < _connectionLogPollTimeout) {
         await Future<void>.delayed(connectionLogFlushInterval ~/ 4);
       }
       expect(

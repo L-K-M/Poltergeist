@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 
 const _second = Duration(seconds: 1);
 const _millisecond = Duration(milliseconds: 1);
+const _overflowLineCount = 25;
 
 /// The coalescer is engine-internal (03 §5); these tests drive it directly
 /// with a fake clock, mirroring the progress coalescer suite.
@@ -107,16 +108,20 @@ void main() {
       final batches = <ConnectionLogEvent>[];
       final coalescer = ConnectLogCoalescer(batches.add);
 
-      for (var i = 0; i < connectionLogMaxLines + 25; i++) {
+      for (var i = 0; i < connectionLogMaxLines + _overflowLineCount; i++) {
         coalescer.add(ConnectLogLine(serverId: 's1', line: 'line $i'));
       }
       time.elapse(connectionLogFlushInterval);
 
-      final lines = batches.single.lines;
-      expect(lines, hasLength(connectionLogMaxLines));
-      // The flood dropped the first 25 lines, never reordered the rest.
-      expect(lines.first, 'line 25');
-      expect(lines.last, 'line ${connectionLogMaxLines + 24}');
+      // The flood drops the overflow and never reorders retained lines.
+      expect(batches.single.lines, [
+        for (
+          var i = _overflowLineCount;
+          i < connectionLogMaxLines + _overflowLineCount;
+          i++
+        )
+          'line $i',
+      ]);
 
       coalescer.dispose();
     });
