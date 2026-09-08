@@ -4,10 +4,11 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08. The identity-audit read-side repair gate
-now carries durable upstream regressions — Séance #81, rootless
-Linux procfs fixtures with runtime fail/pass evidence (open item 5);
-the port-backs themselves merged as Séance #80. Probe lifecycle
+_Last updated: 2026-09-08. Séance's identity-audit read-side repair
+gate is now mirrored locally with its durable procfs regressions
+([PR #52](https://github.com/L-K-M/Poltergeist/pull/52); open item 5's
+gate-mirror candidate closed). The port-backs themselves merged as
+Séance #80/#81. Probe lifecycle
 repair merged upstream; a
 containing pin remains required before M2 wiring (open item 3).
 The ssh_config
@@ -781,8 +782,23 @@ PORTS.md unchanged), no pin change, no milestone close.
      fail-closed test against pre-privacy `41d5261` (no throw; empty
      entries returned), both passing on merged main with all nine
      upstream CI checks and all 457 app tests green. This closes the
-     durable-regression gap; the local gate mirror remains a PORTS-led
-     candidate (no Poltergeist production change).
+     durable-regression gap. **2026-09-08 — local gate mirror landed
+     ([PR #52](https://github.com/L-K-M/Poltergeist/pull/52)):**
+     `readAll` now gates its repair chmod on the group/other mode bits
+     (`_groupOtherBits`, mirrored from Séance's `cb4b010`) — an
+     already-private log skips the chmod and stays readable on
+     chmod-incapable mounts, while a permissive log that cannot be
+     restricted still fails the read closed. All six #80/#81 audit
+     tests (fresh-file mode, write repair, read repair, absent-field
+     defaults, both procfs regressions) are ported; the skip-repair
+     regression was observed failing at runtime before the gate
+     (EPERM out of `readAll`) and passing after, and the fail-closed
+     test passed before and after. Local validation: app analysis
+     clean, 220 app tests pass; core analysis clean, 302 core tests
+     pass (15 integration skips); import guard 92 + repo scan pass;
+     the procfs fixtures run in the Ubuntu CI flutter job. PORTS.md
+     closes the gate-mirror candidate; no pin change (app-layer source
+     reuse).
    - **2026-09-05 — optional cleanup diagnostics (review follow-up):**
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
