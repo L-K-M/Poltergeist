@@ -729,7 +729,7 @@ PORTS.md unchanged), no pin change, no milestone close.
      failures. The pinned helper's ignore mode exposes no observer. This
      does not block the teardown repair or change error preservation.
    - **Dependency-contract coverage (updated 2026-09-08; hash-off CAS leg
-     closed 2026-09-08):** 09 §5's upgrade guards are covered below. The
+     closed):** 09 §5's upgrade guards are covered below. The
      hash-off second-preflight/CAS gap is closed upstream in
      [Séance #78](https://github.com/L-K-M/Seance/pull/78) (merge
      `41d526178a65470142cf4bcb60b8da548af1dbba`, test-only, so no pin
