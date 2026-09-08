@@ -152,4 +152,116 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get vaultSaveFailed =>
       'Could not save the secret to the vault. The connection will continue.';
+
+  @override
+  String get sshImportTitle => 'Import servers from ssh config';
+
+  @override
+  String get sshImportLoading => 'Reading ssh config…';
+
+  @override
+  String sshImportLoadFailed(String path) {
+    return 'Could not read $path.';
+  }
+
+  @override
+  String get sshImportRetry => 'Try Again';
+
+  @override
+  String sshImportEmpty(String path) {
+    return 'No importable hosts were found in $path.';
+  }
+
+  @override
+  String get sshImportColumnImport => 'Import';
+
+  @override
+  String get sshImportColumnHost => 'Host';
+
+  @override
+  String get sshImportColumnEndpoint => 'Endpoint';
+
+  @override
+  String get sshImportColumnUser => 'User';
+
+  @override
+  String get sshImportColumnAuth => 'Auth';
+
+  @override
+  String get sshImportColumnNotes => 'Notes';
+
+  @override
+  String get sshImportAuthPassword => 'Password';
+
+  @override
+  String sshImportAuthKey(String path) {
+    return 'Key: $path';
+  }
+
+  @override
+  String sshImportDuplicateExisting(String label) {
+    return 'Duplicate of bookmark “$label”';
+  }
+
+  @override
+  String sshImportDuplicateEarlier(String alias) {
+    return 'Duplicate of “$alias” in this import';
+  }
+
+  @override
+  String get sshImportLimitProxyJump =>
+      'Won’t behave as in ssh: ProxyJump — connects directly, not through the jump host';
+
+  @override
+  String get sshImportLimitProxyCommand =>
+      'Won’t behave as in ssh: ProxyCommand — never executed';
+
+  @override
+  String get sshImportLimitMatch =>
+      'Won’t behave as in ssh: Match blocks are ignored; settings may differ';
+
+  @override
+  String get sshImportLimitHostInclude =>
+      'Won’t behave as in ssh: Include inside this host block is not applied';
+
+  @override
+  String get sshImportLimitInvalidPort => 'Cannot import: port outside 1–65535';
+
+  @override
+  String get sshImportLimitWildcardDefaults =>
+      'Won’t behave as in ssh: defaults from a top-level or Host * block are not inherited';
+
+  @override
+  String get sshImportUnresolvedIncludes => 'Unresolved includes';
+
+  @override
+  String sshImportNoteCycle(String path) {
+    return '$path: include loop skipped';
+  }
+
+  @override
+  String sshImportNoteDepth(String path) {
+    return '$path: nested beyond the depth limit';
+  }
+
+  @override
+  String sshImportNoteUnreadable(String path) {
+    return '$path: could not be read';
+  }
+
+  @override
+  String get sshImportCancel => 'Cancel';
+
+  @override
+  String get sshImportAction => 'Import';
+
+  @override
+  String sshImportActionCount(int count) {
+    return 'Import $count';
+  }
+
+  @override
+  String sshImportRowSemantics(String alias) {
+    return 'Import $alias';
+  }
 }

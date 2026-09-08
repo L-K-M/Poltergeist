@@ -29,6 +29,7 @@ export 'package:seance_core/seance_core.dart'
         HostKeyPrompter,
         HostKeyStore,
         HostKeyVerdict,
+        ImportedHost,
         InMemoryHostKeyStore,
         InMemoryVaultStore,
         KeyboardInteractiveResponder,
@@ -49,6 +50,7 @@ export 'package:seance_core/seance_core.dart'
         ServerColor,
         ServerConfig,
         ServerIcon,
+        SshConfigImporter,
         SshConnectException,
         SshConnectionLog,
         SshCredentials,
@@ -85,6 +87,16 @@ export 'src/connection/ssh_transport.dart'
         SshTransport,
         SshTransportOpener,
         openDartSshTransport;
+export 'src/import/ssh_config_import.dart'
+    show
+        SshConfigFileSource,
+        SshConfigImportLimitation,
+        SshConfigImportPreview,
+        SshConfigImportRow,
+        SshConfigImportService,
+        SshConfigUnresolvedInclude,
+        SshConfigIncludeNote,
+        SshConfigUnreadableException;
 export 'src/engine/engine_client.dart'
     show EngineBrowseChannel, EngineClient, PromptBridge;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;

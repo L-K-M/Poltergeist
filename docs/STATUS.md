@@ -4,9 +4,11 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — keyswap cleanup now retries after partial
-swap/restoration failures (open item 7). The real-sshd auth-failure-summary coverage
-(rejected key, method-not-accepted user, root prohibit-password) lands
+_Last updated: 2026-09-08 — the ssh_config import preview/dedupe slice
+(D22) landed as a bounded, unwired component (dated section below), and
+keyswap cleanup now retries after partial swap/restoration failures
+(closed in open item 7). Before that: the real-sshd auth-failure-summary coverage
+(rejected key, method-not-accepted user, root prohibit-password) landed
 (validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
 and shared-decision/explicit-review TOFU tests landed below; merged PR #41
 added real-sshd pool integration coverage and its ordinary CI job. M2's
@@ -354,6 +356,215 @@ future outcomes. These review concerns require no code change.
 No production change, source port, pin bump, or milestone close.
 Auth-failure summaries and the production-wiring gates remain open.
 
+## M2 — ssh_config import preview/dedupe (2026-09-08)
+
+D22's v1 import slice. `SshConfigImportService` (pure core, injected
+`SshConfigFileSource` seam — no IO in core) consumes Séance's
+`SshConfigImporter` through the pin (re-exported from the core barrel;
+no copy, no second server model): imported rows build `Bookmark`s over
+`EmbeddedHostIdentity`. A plain, top-level `Include` resolves read-only
+at import time — multiple/quoted tokens, `~`, relative-to-`~/.ssh`,
+glob subset `*`/`?`/`[...]` sorted lexically, per-branch cycle detection
+(diamonds parse twice, like ssh), and ssh's 16-deep cap recorded as
+notes rather than failure. Includes inside host blocks resolve their
+hosts after the file's own (cutting there would fragment the enclosing
+block across the pin's chunk parsing) while the block keeps its badge;
+Match-nested includes stay unresolved. D22 limitation badges: ProxyJump
+(own block via the pin's `ImportedHost.proxyJump`, top-level defaults,
+wildcard `Host *` blocks), ProxyCommand (own block/top-level/wildcard),
+any Match block (every row — criteria evaluation would reimplement ssh
+semantics; loud beats silently wrong), host-block includes, and
+out-of-range ports (row unimportable; the checkbox is disabled).
+Dedupe is by host+port+username against existing bookmarks' embedded
+identities — `serverConfigId` refs carry no endpoint in Poltergeist
+(04 §2.2) so they are skipped, workspace/sync endpoint identities are
+included — and against earlier rows of the same import; duplicates
+start skipped but stay user-toggleable. IdentityFile maps to
+reference-style `AuthMethod.privateKey` carrying the verbatim path
+(`~` preserved, 04 §2.1); the bookmark's `remotePath` starts at `/`
+(connect canonicalizes home) and `sortKey` defaults to the row id until
+M5's store re-keys. App side: `LocalSshConfigFileSource` (dart:io,
+read-only, symlink-following lexical listing) and the ARB-complete
+preview dialog — per-row import/skip checkboxes with semantics labels,
+endpoint/user/auth columns, duplicate and “won't behave as in ssh”
+chips, unresolved-include notes, a count-labeled import action, retry
+on an unreadable config, and mounted-guarded async load.
+
+Validation: 24 core import tests (include resolution, globs, cycles,
+diamonds, depth, the badge matrix, existing/earlier dedupe,
+reference-style mapping, the 04 §2.1 decode round-trip, invalid ports,
+the glob subset) and 11 dialog widget tests (defaults, chips, toggling
+and count, key mapping, disabled action at zero selection, cancel,
+error+retry, empty config, disposal race). Core analysis and 281 tests
+pass; app analysis and 206 tests pass; the import guard passes. The
+dialog's technical literals (monospace endpoints/identity paths, empty
+label fallbacks) join the reviewed per-file exceptions in the
+localization contract test.
+
+Review round 1 (applied): the glob matcher now translates bracket
+classes per glob(3) — backslash and `^` are literals, `[]`/`[!]` match
+nothing, malformed classes fail closed instead of throwing, and a
+leading dot never matches unless the pattern names it; host-context
+includes no longer promote their block-less proxy directives to
+global badges (ssh scopes them to the enclosing host, whose hostInclude
+badge already covers the loss); the app file source decodes
+leniently (a stray non-UTF-8 byte no longer reads as "unreadable");
+the dialog handles unexpected importer exceptions with the retry
+surface, filters unimportable rows at the commit path, and asserts
+`takeException` in the disposal race; `SshConfigIncludeNotice` renamed
+to `SshConfigUnresolvedInclude`; the dedupe key, the glob-fidelity
+comment, and the test fake's doc were single-sourced/corrected; a
+pre-existing duplicated truncated bullet in open item 3 was removed.
+Six regressions (four glob corners, dotfile filtering, deferred
+coppering) plus the decode and retry cases failed before their repairs
+and pass after. Declined: horizontal-scrolling the preview table for
+sub-650-px windows — 02 §1 enforces a 720-px content minimum through
+the window lifecycle and the mobile posture (D29) cannot reach this
+v1-desktop dialog. Refuted: pattern-alias rows (`Host *`/`!x`/`web*`)
+never reach the preview — the pinned importer drops wildcard-only
+blocks and keeps only the first concrete pattern (pinned by the `Host
+*` tests); the `Key = value` handling matches the pin byte for byte
+(both cut at the first separator, so `Host = web` mangles the same way
+in both — an upstream port-back candidate for Séance's importer, not
+a local divergence). Multi-pattern `Host alpha beta` surfacing one row
+is pinned by a new test as the pin's own documented behavior.
+Validation after the round: core analysis clean and 30 import tests
+pass (full core suite below), app analysis clean and 215 tests pass.
+
+Review round 2 (applied; three regressions failed before repair): a
+file included from a wildcard `Host *` block now promotes its
+block-less proxy defaults to global limitations — ssh processes
+Include in place, so such a file applies to every connection, the
+mirror image of the round-1 named-host scoping, which is unchanged;
+multi-component include globs (`conf.d/*/*.conf`) surface an
+unreadable note instead of silently matching nothing (the
+single-listing seam cannot expand across components); an empty home
+directory now blocks only `~`-relative and bare-relative include
+tokens — absolute paths resolve without one. Hardening in the same
+round: row `limitations` lists are unmodifiable, the app file source
+catches `FileSystemException` only (programming errors stay loud
+instead of reading as an unreadable config), the dialog Match-badge
+test pins per-row chips across two rows, the core Match/ProxyJump
+tests gain row-count guards against vacuous passes, the diamond test
+asserts no notices, the `~otheruser` note kind is pinned, a
+leading-dot glob test covers the positive dotfile case, the
+depth-chain test documents its length against the 16 cap, and
+`_globMatch` documents its single-component invariant. Declined:
+the 640-px overflow re-raise (round-1 decline stands — 02 §1's
+enforced 720-px content minimum, D29's post-v1 mobile posture), a
+Windows symlink-skip for the file-source test (app tests run only on
+Ubuntu in CI; open item 1's recorded gate), and the `_keyValueCut`
+refactor (parity is pinned by tests; behavior-neutral churn).
+Deferred: default-off checkboxes for proxy-limited rows (D22 specifies
+the badge; revisited by the wiring slice). Refuted: quoted `#` in
+include paths and indented directives (the pin trims and cuts at the
+first `#` identically — its own `_stripComment`/`.trim()` — port-back
+candidates like the round-1 `Key = value` case), the wildcard-row
+outside-diff re-raise (round-1 refutation, pinned by tests), and the
+symlink-cycle recursion worry (`_maximumIncludeDepth` bounds every
+nesting level regardless of textual path distinctness). Validation:
+core analysis clean and 291 tests pass (34 import tests); app
+analysis clean and 211 tests pass (the round-1 record's 215 was a
+miscount of hidden setUp/tearDown events; the suite's test count is
+unchanged this round); the import guard passes.
+
+Review round 3 (applied; every behavior fix's regression failed
+before its repair): a new `wildcardDefaults` limitation badges rows
+whose `Port`/`User`/`HostName`/`IdentityFile` defaults arrive
+before the first block or inside a `Host *` block — ssh applies both
+shapes to every connection, while the pinned importer drops each
+(top-level directives land in no host block; a wildcard-only block is
+deliberately not a host) — so those bookmarks would prompt instead of
+inheriting (host-block values stay unbadged: the pin applies them; a
+host-deferred include's block-less defaults stay scoped exactly like
+its proxy defaults); brace include tokens (ssh globs with GLOB_BRACE)
+surface an unreadable note in pattern or directory position instead
+of silently matching nothing; a leading `]` in a glob class is a
+literal member as in glob(3) (`[]x].conf` matches `x.conf` and
+`].conf`); the dedupe key lowercases the host (DNS/ssh resolution is
+case-insensitive; usernames stay verbatim); the app file source
+refuses non-regular files so an Include pointing at a FIFO or device
+cannot hang the preview forever; the dialog's retry is re-entrancy
+guarded (a double-tap cannot start concurrent loads). Hardening: the
+round-trip test pins `username`/`authMethod`, the Import-button
+finder uses `widgetWithText`, and the wildcard-promotion test
+documents that its row order stays main-file-first (the chunking
+deviation) while "in place" governs directive scope. Declined: the
+narrow-viewport overflow re-raise (round-1/2 declines stand), the
+Windows symlink-skip re-raise (flutter test runs on ubuntu-latest
+only in CI; open item 1 gates Windows test portability), and per-entry
+stat tolerance in `listLexical` (no constructible failure — a
+mid-listing stat miss reads as notFound and is skipped, not thrown;
+ssh's own Include is fatal on unreadable targets, so the tolerance
+premise is wrong; untestable without a new seam, and 08 §1 treats
+untested rails as absent). Refuted: non-final-component include globs
+missing the note (the round-2 `_hasGlobMetacharacter(directory)`
+guard covers exactly that case at head, pinned by its regression),
+`Key = value` leaving a stray `=` (byte-for-byte parity with the pin's
+own `_splitKeyValue`, verified against the pinned source — a local
+fix would mis-key hostLimitations against the pin's rows; upstream
+port-back candidate, recorded), the round-3 row-order claim
+(host-context includes resolve main-file-first by documented design;
+option precedence is the pin's parse, not this scan), and the `.`/`..`
+glob-entry worry (dart:io's `Directory.list` never yields them and the
+app source filters to regular files). Deferred: a multi-pattern-alias
+badge (the pin's first-concrete-pattern truncation is documented and
+pinned; the badge-surface choice rides the wiring slice with the
+deferred default-off question). Verified without change: ARB keys
+regenerate identically (the new chip key apart) and every
+`_normalizeAbsolutePath` call site anchors relatives first. The
+dialog's localization surface grows one key. Validation: core
+analysis clean and 299 tests pass (42 import tests); app analysis
+clean and 214 tests pass; the import guard passes.
+
+Review round 4 (no code change; steady state declared per the owner's
+bar — none of the round's 21 findings is a correctness, security, or
+contract item). Refuted: the `mint_id` "compile break" (no such token
+exists — all three call sites spell `mintId:`, and CI's flutter job
+compiled and ran the suite on this head); the badge-alias drift claim
+(scan and lookup share one rule, mirrored byte for byte from the pin:
+both strip `"` from the value side, take the first `*`/`?`/`!`-free
+token as the alias, and keep its case verbatim — `Host gitlab gh` and
+mixed-case lines therefore key identically on both sides); the
+wildcard-row re-raise (the pin's `firstWhere(!_isWildcard)` drops
+`Host web-*` entirely — pinned by the round-1 `Host *` tests); and the
+serverConfigId-dedupe doc suggestion (the limitation text already sits
+verbatim at `_existingEndpoints`). Declined: the Windows
+symlink/`/dev/null` portability re-raises (rounds 2–3 declines stand;
+app tests run on Ubuntu only in CI, open item 1 gates Windows test
+portability); the listLexical partial-listing re-raise (round-3
+decline stands — no constructible mid-stream failure without a new
+seam, and the whole-directory-unreadable outcome matches ssh's fatal
+treatment of unreadable Include targets; an untested swallow path
+would violate 08 §1); the duplicate-catch-handler merge and the
+`_directiveKey`/`_rawDirectiveValue` dedup (behavior-neutral churn —
+round 2 declined the identical-parity `_keyValueCut` refactor — and
+the deliberate mirroring of the pin's separator logic is the point);
+the barrel `show`-list ordering, the widgetWithText finder spread, and
+the gate `Completer` type (consistency nits); and the four
+test-hardening items (depth-cap `hasLength(1)`, Port-drop and
+top-level-drop pins, the vacuous `find.text('web')` line in the
+disposal-race test — its real assertion is `takeException`, and the
+replacement-tree shape is that test's design). Deferred: an
+include-target size cap for `readText` (the pin's whole-string
+consumption model on a local-trust surface; a loud OOM is the
+inherited failure mode) and the `unreadable`-note granularity
+suggestion — both ride the wiring slice's badge/notice-surface pass
+with the round-2/3 deferred items. Validation on the merged head
+(origin/main #46 merge): the round-3 battery re-verified — core
+analysis clean, 299 tests/15 integration skips; app analysis clean,
+214 tests; fixture-tool 61; import guard 92 + repo scan; protocol
+guard 49; ARB regeneration byte-identical.
+
+Deliberately unwired (bounded additive slice): no running surface opens
+the dialog yet — command registration rides the M3 command registry and
+its entry point (sidebar/interim server list) is the production-wiring
+slice; imported bookmarks are not persisted (`BookmarkStore` is M5);
+IdentityFile entries connecting rides the connect flow gated on open
+item 6. Screenshots ride the wiring slice that first renders the dialog
+(prompt-UI precedent). No source port (importer consumed via the pin —
+PORTS.md unchanged), no pin change, no milestone close.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -407,9 +618,13 @@ Auth-failure summaries and the production-wiring gates remain open.
      identity-read errors render through ARB-authored sentences;
      composition into a running app rides the production-wiring slice;
    - `ProbeService` wiring + interim server list status dots;
-   - ssh_config import with preview + dedupe (D22);
+   - ssh_config import with preview + dedupe (D22). **Done 2026-09-08**
+     (see the dated section): the core import service (pinned-importer
+     consumption, top-level include resolution, D22 limitation badges,
+     host+port+username dedupe, reference-style IdentityFile mapping) and
+     the ARB-complete preview dialog landed; composition, persistence,
+     and command registration remain unwired as recorded there;
    - the debug-only connect → SFTP → `listDirectory` demo surface;
-   - Docker-integration pool coverage (growth, keepalive, reconnect against
    - Docker-integration pool coverage (growth, keepalive, reconnect against
      real sshd), interactive auth, TOFU flows, shared-bookmark decisions,
      and explicit trust review landed in the dated slices above; the
