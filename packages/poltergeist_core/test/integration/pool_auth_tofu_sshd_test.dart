@@ -67,8 +67,14 @@ void main() {
         // the end-to-end SFTP proof over the interactive transport.
         expect(await pane.fs.canonicalize('.'), pane.homePath);
         expect(harness._authKinds, everyElement(isIn(_interactiveKinds)));
-        expect(harness._challenges, hasLength(1));
-        expect(harness._challenges.single.prompts, hasLength(1));
+        // PAM may append an empty follow-up round after the password is
+        // accepted; only prompt-bearing rounds are user interaction (D5).
+        final answered = [
+          for (final challenge in harness._challenges)
+            if (challenge.prompts.isNotEmpty) challenge,
+        ];
+        expect(answered, hasLength(1));
+        expect(answered.single.prompts, hasLength(1));
 
         // Leases up to the single transport's transfer budget.
         final capacity = _defaultPolicy.maxTransferChannelsPerTransport;
@@ -89,7 +95,10 @@ void main() {
           throwsA(isA<TimeoutException>()),
         );
         expect(harness._opens, hasLength(1));
-        expect(harness._challenges, hasLength(1));
+        expect(
+          harness._challenges.where((challenge) => challenge.prompts.isNotEmpty),
+          hasLength(1),
+        );
 
         final returnedFs = leases.first.fs;
         await leases.first.release();
