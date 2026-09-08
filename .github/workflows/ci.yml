@@ -151,6 +151,71 @@ jobs:
           steps.changes.outputs.pin == 'true'
         run: scripts/audit-seance-pin.sh
 
+  detect_integration:
+    name: Detect SSH integration changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.fixture.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: changes
+        with:
+          filters: |
+            integration:
+              - 'packages/**/lib/**'
+              - 'packages/**/test/**'
+              - 'packages/**/pubspec.yaml'
+              - 'test/integration/**'
+              - '.github/workflows/ci.yml'
+            fixture:
+              - 'test/integration/**'
+              - '.github/workflows/ci.yml'
+      - name: Require fixture when its lifecycle changes
+        id: fixture
+        if: >-
+          github.event_name != 'pull_request' ||
+          steps.changes.outputs.integration == 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FIXTURE_CHANGED: ${{ steps.changes.outputs.fixture }}
+        run: |
+          readonly fixture_path='test/integration/docker-compose.yml'
+          if [[ -f "$fixture_path" ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Source-only PRs may precede the fixture; deletion must fail closed.
+          if [[ "$EVENT_NAME" != 'pull_request' || "$FIXTURE_CHANGED" == 'true' ]]; then
+            echo "::error::Missing integration fixture: $fixture_path"
+            exit 1
+          fi
+
+          echo 'run=false' >> "$GITHUB_OUTPUT"
+
+  integration:
+    name: SSH integration tests
+    needs: detect_integration
+    if: needs.detect_integration.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve workspace
+        run: dart pub get
+      # run.sh owns readiness, serialized tests, and teardown on every exit.
+      - name: Run SSH integration fixture
+        run: test/integration/run.sh
+
   # M0 measurements are expensive and historical, not a standing PR budget.
   # Dispatch a branch commit so the durable evidence keeps an ancestor SHA.
   m0_bench:

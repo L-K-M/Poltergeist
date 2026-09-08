@@ -13,6 +13,11 @@ create_user() {
   user_name="$1"
   user_home="$2"
 
+  # docker start retains accounts from the previous run.
+  if id "$user_name" >/dev/null 2>&1; then
+    return
+  fi
+
   if [ -f /etc/alpine-release ]; then
     adduser -D -u "$fixture_uid" -h "$user_home" -s /bin/sh "$user_name"
     return
@@ -25,6 +30,11 @@ create_user() {
 create_auxiliary_user() {
   user_name="$1"
   user_uid="$2"
+
+  # The auth-matrix service must also survive a stop/start cycle.
+  if id "$user_name" >/dev/null 2>&1; then
+    return
+  fi
 
   if [ -f /etc/alpine-release ]; then
     adduser -D -u "$user_uid" -h "/home/$user_name" -s /bin/sh "$user_name"

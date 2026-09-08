@@ -13,6 +13,15 @@ profile for unsafe publishing, waits for real SSH banners, runs the OpenSSH
 smoke checks, then runs tagged Dart integration tests serially. Its exit trap
 removes all services, including the profiled keyswap service.
 
+The core pool suite covers transport growth, real keepalive round trips, and
+browse recovery after an sshd restart. Restart tests restore the service and
+wait for its SSH banner. CI runs this lifecycle for source, test, fixture, and
+workflow PRs, plus every main push and manual dispatch.
+
+Ordinary package tests skip these cases unless `POLTERGEIST_SSHD` and the
+suite's service-port variable are set; `run.sh` exports the complete fixture
+environment. Use Docker Compose and the Dart SDK to run the command above.
+
 `sshd-legacy/Dockerfile` records how the public GHCR artifact was built. CI
 never rebuilds it, so an archive or package-index change cannot alter M0.
 

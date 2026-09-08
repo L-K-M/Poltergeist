@@ -4,13 +4,15 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M2 exposes terminal background recovery failures
-through the engine's local diagnostic stream and ignores stale home failures from
+_Last updated: 2026-09-08 — M2 adds real-sshd pool integration coverage
+and its ordinary CI job (validation below). M2 exposes terminal background
+recovery failures through the engine's local diagnostic stream and ignores
+stale home failures from
 dead recovery transports; bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
 `EngineClient` connection/prompt protocol are implemented; upstream
 keepalive controls are pinned. Production wiring (app composition) and
-real-sshd recovery coverage remain open.
+prompt UI remain open.
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
@@ -161,6 +163,30 @@ late answer but owns no dialog. These remain engine/pane integration work.
 M4 owns transfer retry/progress counters. Keepalive, real-sshd recovery,
 and the existing owner-decision gates remain open. No milestone-close claim.
 
+## M2 — real-sshd pool integration (2026-09-08)
+
+Four tagged tests exercise the production opener, SFTP adapters, and TCP
+prober: stored-key/password pool growth and queued excess demand, completed
+keepalive round trips on both transports, and stop/start recovery with
+backoff, state transitions, a replacement browse filesystem, and a fresh
+canonical home. Old transfer leases remain disconnected. Each test owns
+pre-seeded in-memory pins; unexpected trust/auth prompts fail. The existing
+service helper owns port-release and SSH-banner readiness; suite teardown
+restores sshd even after a failed assertion.
+
+The source-filtered CI integration job now runs the existing fixture lifecycle
+on relevant PRs and every main push. Missing fixtures fail closed on
+main/dispatch and fixture/workflow edits. Restart coverage exposed the
+entrypoint recreating existing users; two regressions failed before the
+account helpers became restart-safe.
+
+Local validation: core and Flutter analysis pass, with 238 core, 121 app,
+and 40 fixture-tool tests passing; five integration tests skip without the
+fixture. Docker is unavailable locally; real-server results
+will be recorded after the PR job runs. No production wiring, source port,
+dependency change, or milestone close. Interactive-auth/TOFU integration and
+M4's mid-transfer queue recovery remain separate exit criteria.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -207,8 +233,9 @@ and the existing owner-decision gates remain open. No milestone-close claim.
    - `ProbeService` wiring + interim server list status dots;
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
-   - then the Docker-integration legs of 08 §5's pool suite (growth,
-     keepalive, reconnect against real sshd) — the matrix exists from M0.
+   - Docker-integration pool coverage (growth, keepalive, reconnect against
+     real sshd) lands in the 2026-09-08 slice above. Interactive-auth/TOFU
+     flows and M4's mid-transfer queue recovery retain their own gates.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
