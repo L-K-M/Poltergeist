@@ -448,7 +448,7 @@ Future<void> _roundTrip(
 
   final event = returned;
   if (event is EngineEvent) {
-    expect(event.protocolVersion, 3);
+    expect(event.protocolVersion, 4);
     expect(event.protocolVersion, engineProtocolVersion);
   }
 }

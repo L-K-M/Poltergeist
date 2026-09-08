@@ -8,22 +8,37 @@ import '../connection/connection_manager.dart';
 import 'engine_host.dart';
 import 'protocol.dart';
 
+/// The prompt facet of the engine protocol (03 §5): the surface the app's
+/// prompt coordinator consumes. An interface so UI wiring and its tests
+/// depend on the contract, not on the isolate plumbing behind it.
+abstract interface class PromptBridge {
+  /// Prompts the engine is waiting on the UI to answer.
+  Stream<EnginePromptEvent> get prompts;
+
+  /// The engine withdrew a prompt: its dialog closes without answering.
+  Stream<PromptDismissedEvent> get promptDismissals;
+
+  /// Answers an open prompt; un-appliable replies are ignored by contract.
+  void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply);
+}
+
 /// The UI-side facade over the engine isolate (03 §5): Future/Stream APIs
-/// mirroring the connection surface, with requests correlated by requestId
-/// and every event fan-out exposed as a broadcast stream. Controllers talk
-/// only to this class; sockets, prompts, and the pool stay engine-side.
-class EngineClient {
+/// mirror the connection surface, requests correlate by requestId, and every
+/// event fan-out is a broadcast stream. Controllers talk only to this class;
+/// sockets, prompts, and the pool stay engine-side.
+class EngineClient implements PromptBridge {
   late final Isolate _isolate;
   final _booted = Completer<SendPort>();
   final _terminated = Completer<void>();
 
   final _pending = <int, Completer<EngineResult>>{};
-  final _serverStates = <String, StreamController<ServerConnectionState>>{};
+  final _serverStates = <String, StreamController<ServerStatus>>{};
   final _prompts = StreamController<EnginePromptEvent>.broadcast();
   final _promptDismissals = StreamController<PromptDismissedEvent>.broadcast();
   final _hostKeyPins = StreamController<HostKeyPinnedEvent>.broadcast();
   final _progress = StreamController<TransferProgressBatchEvent>.broadcast();
   final _recoveryFailures = StreamController<RecoveryFailedEvent>.broadcast();
+  final _connectLog = StreamController<ConnectionLogEvent>.broadcast();
 
   final ReceivePort _events;
   final ReceivePort _control;
@@ -86,9 +101,11 @@ class EngineClient {
 
   /// Prompts the engine is waiting on the UI to answer (03 §5). Exactly one
   /// [replyPrompt] per promptId; the rendering layer owns the dialogs.
+  @override
   Stream<EnginePromptEvent> get prompts => _prompts.stream;
 
   /// The engine withdrew a prompt: its dialog closes without answering.
+  @override
   Stream<PromptDismissedEvent> get promptDismissals => _promptDismissals.stream;
 
   /// Host keys the engine pinned; the app persists them in its pin store.
@@ -101,15 +118,20 @@ class EngineClient {
   /// Subscribe before connecting; events are live and close on engine death.
   Stream<RecoveryFailedEvent> get recoveryFailures => _recoveryFailures.stream;
 
-  /// The server's connection state, current value first (03 §3.2). Watching
-  /// again re-subscribes; dropping the last listener unsubscribes.
-  Stream<ServerConnectionState> watchServer(String serverId) {
+  /// Coalesced connect-attempt transcript lines (03 §5), rendered live during
+  /// connect and retained on failure.
+  Stream<ConnectionLogEvent> get connectionLog => _connectLog.stream;
+
+  /// The server's connection status — state plus the failure one-liner —
+  /// current value first (03 §3.2). Watching again re-subscribes; dropping
+  /// the last listener unsubscribes.
+  Stream<ServerStatus> watchServer(String serverId) {
     // Match `_call`'s fail-fast: a dead engine must not hand out a stream
     // that neither emits nor closes (`.first` would hang forever).
     if (_closed) throw _notRunning();
     final controller = _serverStates.putIfAbsent(
       serverId,
-      () => StreamController<ServerConnectionState>.broadcast(
+      () => StreamController<ServerStatus>.broadcast(
         onListen: () => _fireAndForget(
           (id) => WatchServerRequest(requestId: id, serverId: serverId),
         ),
@@ -159,6 +181,7 @@ class EngineClient {
   /// Answers an open prompt. Fire-and-forget by contract (03 §5): replies
   /// the engine cannot apply are ignored — there is deliberately no
   /// feedback channel.
+  @override
   void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply) {
     _fireAndForget(
       (id) => PromptReplyRequest(
@@ -206,7 +229,11 @@ class EngineClient {
       case final ResponseEvent event:
         _complete(event);
       case final ServerStateEvent event:
-        _serverStates[event.serverId]?.add(event.state);
+        _serverStates[event.serverId]?.add(
+          ServerStatus(event.state, detail: event.detail),
+        );
+      case final ConnectionLogEvent event:
+        _connectLog.add(event);
       case final EnginePromptEvent event:
         _prompts.add(event);
       case final PromptDismissedEvent event:
@@ -295,6 +322,7 @@ class EngineClient {
     _hostKeyPins.close();
     _progress.close();
     _recoveryFailures.close();
+    _connectLog.close();
     _events.close();
     _control.close();
     if (!_terminated.isCompleted) _terminated.complete();

@@ -111,7 +111,10 @@ void main() {
       _settle(clock, harness.manager.openBrowseChannel('s1', paneTabId: 'tab'));
       _settle(clock, harness.manager.leaseTransferChannel('s2'));
       final states = <ServerConnectionState>[];
-      harness.manager.watchServer('s2').listen(states.add);
+      final subscription = harness.manager
+          .watchServer('s2')
+          .listen((status) => states.add(status.state));
+      addTearDown(subscription.cancel);
       for (final channel in harness.channels) {
         channel.closeGate = Completer<void>();
       }

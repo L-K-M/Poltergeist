@@ -64,6 +64,37 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'DejaVu Sans Mono'",
     "'monospace'",
   },
+  // Ported Séance JSONL record shape (see docs/PORTS.md): the field names
+  // and separators are the frozen on-disk format, not UI copy.
+  'lib/services/identity_audit_log.dart': {
+    "'at'",
+    "'serverId'",
+    "'serverLabel'",
+    "'path'",
+    "'viaBookmark'",
+    "'ok'",
+    "'error'",
+    "''",
+    "'\${jsonEncode(event.toJson())}\\n'",
+    "'\${kept.join('\\n')}\\n'",
+    "'\\n'",
+  },
+  // Exception texts and audit-record fields — machine-facing data the
+  // dialog renders inside an ARB-authored sentence, never standalone UI
+  // copy (the reader's wording mirrors Séance's).
+  'lib/services/identity_file_reader.dart': {
+    "'\$_causeMessage (\$path)'",
+    "'Could not read identity file \$path: \$_causeMessage'",
+  },
+  'lib/services/prompt_coordinator.dart': {
+    "'No identity-file reader is wired'",
+    "'\${data.username}@\${data.host}'",
+  },
+  // Monospace rendering of machine data (fingerprints, endpoints,
+  // transcripts) plus list joins — no authored copy.
+  'lib/ui/connection_status_panel.dart': {"'\\n'", "'monospace'"},
+  'lib/ui/prompts/credential_dialog.dart': {"''", "'monospace'"},
+  'lib/ui/prompts/host_key_dialog.dart': {"'monospace'", "'\$type\\n\$value'"},
   'lib/ui/adaptive_shell.dart': {
     "'primary-pane'",
     "'secondary-pane'",

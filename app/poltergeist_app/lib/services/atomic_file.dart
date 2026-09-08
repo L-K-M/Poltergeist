@@ -3,10 +3,17 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'file_permissions.dart';
 import 'uuid.dart';
 
+enum AtomicFilePrivacy { processDefault, ownerOnly }
+
 /// Replaces [target] without exposing partially written contents.
-Future<void> writeStringAtomically(File target, String contents) async {
+Future<void> writeStringAtomically(
+  File target,
+  String contents, {
+  AtomicFilePrivacy privacy = AtomicFilePrivacy.processDefault,
+}) async {
   await target.parent.create(recursive: true);
   final temporaryPath = p.join(
     target.parent.path,
@@ -15,6 +22,11 @@ Future<void> writeStringAtomically(File target, String contents) async {
   final temporaryFile = File(temporaryPath);
 
   try {
+    // Restrict an empty file before sensitive contents become visible.
+    await temporaryFile.create();
+    if (privacy == AtomicFilePrivacy.ownerOnly) {
+      restrictFileToOwner(temporaryFile);
+    }
     await temporaryFile.writeAsString(contents, flush: true);
     await temporaryFile.rename(target.path);
   } on Object {

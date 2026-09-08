@@ -62,6 +62,11 @@ void main() {
         opener: FakeTransportOpener(transportOpenLimit: 0),
       )..addServer('s1');
       addTearDown(() => harness.manager.disconnectServer('s1'));
+      final statuses = <ServerStatus>[];
+      final subscription = harness.manager
+          .watchServer('s1')
+          .listen(statuses.add);
+      addTearDown(subscription.cancel);
       final errors = <Object>[];
       for (final tab in ['first', 'waiting']) {
         unawaited(
@@ -78,6 +83,14 @@ void main() {
       expect(errors, hasLength(2));
       expect(errors, everyElement(_unsupported));
       expect(await harness.manager.connectedServerIds(), isEmpty);
+      expect(statuses, isNotEmpty);
+      expect(
+        statuses.last,
+        const ServerStatus(
+          ServerConnectionState.disconnected,
+          detail: 'Channel open refused (fake MaxSessions limit).',
+        ),
+      );
     },
   );
 

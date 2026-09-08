@@ -30,6 +30,53 @@ enum ServerConnectionState {
   blocked,
 }
 
+/// One connection observation for a serverId: the state plus, when the
+/// state explains a failure, the user-facing one-liner that [watchServer]
+/// delivers with it (03 §3.2). Cancellation outcomes carry no detail —
+/// there is nothing to diagnose.
+class ServerStatus {
+  final ServerConnectionState state;
+
+  /// E.g. the summarized connect-failure line or the host-key block
+  /// reason; null for healthy and cancelled states.
+  final String? detail;
+
+  const ServerStatus(this.state, {this.detail});
+
+  @override
+  bool operator ==(Object other) =>
+      other is ServerStatus && other.state == state && other.detail == detail;
+
+  @override
+  int get hashCode => Object.hash(state, detail);
+
+  @override
+  String toString() =>
+      'ServerStatus(${state.name}${detail == null ? '' : ', $detail'})';
+}
+
+/// One appended line of a live connect-attempt transcript (03 §3.3),
+/// forwarded to every serverId referencing the pool that opened the
+/// attempt; the engine host coalesces these into port batches.
+class ConnectLogLine {
+  final String serverId;
+  final String line;
+
+  const ConnectLogLine({required this.serverId, required this.line});
+
+  @override
+  bool operator ==(Object other) =>
+      other is ConnectLogLine &&
+      other.serverId == serverId &&
+      other.line == line;
+
+  @override
+  int get hashCode => Object.hash(serverId, line);
+
+  @override
+  String toString() => 'ConnectLogLine($serverId, $line)';
+}
+
 /// The engine-side connection layer (03 §3.2). `serverId` strings are
 /// bookmark-derived server identities (03 §3.5).
 abstract interface class ConnectionManager {
@@ -43,16 +90,30 @@ abstract interface class ConnectionManager {
   /// allows it, then re-use of the least-recently-used backgrounded
   /// pane-tab's channel — the queue-don't-fail guarantee generalized to
   /// every exhaustion path.
-  Future<PaneChannel> openBrowseChannel(String serverId,
-      {required String paneTabId});
+  Future<PaneChannel> openBrowseChannel(
+    String serverId, {
+    required String paneTabId,
+  });
 
   /// A transfer worker borrows a channel; [TransferChannelLease.release]
   /// returns it to the pool. Blocks while the pool is at capacity.
   Future<TransferChannelLease> leaseTransferChannel(String serverId);
 
-  /// The server's connection state, current value first. A shared pool's
-  /// state fans out to every serverId referencing it (03 §3.5).
-  Stream<ServerConnectionState> watchServer(String serverId);
+  /// The server's connection status — state, current value first, plus
+  /// the failure one-liner when the state explains one. A shared pool's
+  /// status fans out to every serverId referencing it (03 §3.5).
+  Stream<ServerStatus> watchServer(String serverId);
+
+  /// Live connect-attempt transcript lines, one event per appended line
+  /// in attempt order. Not batched here: the engine host bounds port
+  /// traffic (03 §5); in-process callers get every line as written.
+  ///
+  /// Live-only: lines emitted before subscription are not replayed. Attach
+  /// before connecting when the complete attempt transcript is required.
+  /// One stream multiplexes every server; filter events by `serverId`.
+  /// Equality is structural, but repeated equal lines remain transcript data:
+  /// never apply `distinct()` to this stream.
+  Stream<ConnectLogLine> get connectLog;
 
   /// ServerIds with live pools — feeds ProbeService so connected servers
   /// are skipped and reported online for free (03 §3.4).
@@ -101,10 +162,7 @@ class ResolvedCredentials {
   final SshCredentials credentials;
   final CredentialOrigin origin;
 
-  const ResolvedCredentials({
-    required this.credentials,
-    required this.origin,
-  });
+  const ResolvedCredentials({required this.credentials, required this.origin});
 }
 
 /// [ConnectionManager] over per-endpoint transport pools.
@@ -131,8 +189,10 @@ class ResolvedCredentials {
 class PooledConnectionManager implements ConnectionManager {
   final Future<ServerConfig> Function(String serverId) _resolveServer;
   final Future<ResolvedCredentials> Function(
-      ServerConfig config, CredentialResolutionScope scope)
-      _resolveCredentials;
+    ServerConfig config,
+    CredentialResolutionScope scope,
+  )
+  _resolveCredentials;
   final TofuVerifier _tofu;
   final HostKeyPrompter _onHostKey;
   final KeyboardInteractiveResponder? _onKeyboardInteractive;
@@ -141,14 +201,16 @@ class PooledConnectionManager implements ConnectionManager {
   final Prober _prober;
   final Random _reconnectRandom;
   final void Function(String, RemoteFileException, {String? paneTabId})?
-      _onRecoveryFailure;
+  _onRecoveryFailure;
 
   final Map<String, _ServerReference> _references = {};
   final Map<String, Future<_ServerReference>> _pendingReferences = {};
   final Map<PoolKey, _EndpointPool> _pools = {};
   final Map<PoolKey, _HostKeyIncident> _incidents = {};
-  final Map<String, StreamController<ServerConnectionState>> _events = {};
-  final Map<String, ServerConnectionState> _lastStates = {};
+  final Map<String, StreamController<ServerStatus>> _events = {};
+  final Map<String, ServerStatus> _lastStatuses = {};
+  final StreamController<ConnectLogLine> _connectLog =
+      StreamController<ConnectLogLine>.broadcast();
 
   /// [resolveServer] loads config only; [resolveCredentials] may access the
   /// vault or prompt and runs once inside each pool's first connect. It
@@ -175,23 +237,35 @@ class PooledConnectionManager implements ConnectionManager {
     // A nonpositive cap turns an outage into a zero-delay retry loop.
     if (_policy.reconnectBackoffCap <= Duration.zero) {
       throw ArgumentError.value(
-          _policy.reconnectBackoffCap, 'reconnectBackoffCap', 'Must be positive.');
+        _policy.reconnectBackoffCap,
+        'reconnectBackoffCap',
+        'Must be positive.',
+      );
     }
     // A zero keepalive interval would spin the event loop with periodic
     // pings; the cadence must be a real interval.
     if (_policy.keepAliveInterval <= Duration.zero) {
       throw ArgumentError.value(
-          _policy.keepAliveInterval, 'keepAliveInterval', 'Must be positive.');
+        _policy.keepAliveInterval,
+        'keepAliveInterval',
+        'Must be positive.',
+      );
     }
   }
 
   @override
-  Future<PaneChannel> openBrowseChannel(String serverId,
-      {required String paneTabId}) =>
-      _withReference(serverId, (reference) => _openBrowse(reference, paneTabId));
+  Future<PaneChannel> openBrowseChannel(
+    String serverId, {
+    required String paneTabId,
+  }) => _withReference(
+    serverId,
+    (reference) => _openBrowse(reference, paneTabId),
+  );
 
   Future<PaneChannel> _openBrowse(
-      _ServerReference reference, String paneTabId) async {
+    _ServerReference reference,
+    String paneTabId,
+  ) async {
     final serverId = reference.serverId;
     final pool = reference.pool;
     final clientKey = (serverId, paneTabId);
@@ -223,8 +297,7 @@ class PooledConnectionManager implements ConnectionManager {
     try {
       _checkAcquisition(reference, handle);
       final homePath = handle.homePath;
-      handle.homePath =
-          homePath ?? await handle.channel.fs.canonicalize('.');
+      handle.homePath = homePath ?? await handle.channel.fs.canonicalize('.');
       _checkAcquisition(reference, handle);
     } on Object {
       try {
@@ -255,7 +328,9 @@ class PooledConnectionManager implements ConnectionManager {
   Future<TransferChannelLease> leaseTransferChannel(String serverId) =>
       _withReference(serverId, _leaseTransfer);
 
-  Future<TransferChannelLease> _leaseTransfer(_ServerReference reference) async {
+  Future<TransferChannelLease> _leaseTransfer(
+    _ServerReference reference,
+  ) async {
     final serverId = reference.serverId;
     final pool = reference.pool;
 
@@ -282,8 +357,10 @@ class PooledConnectionManager implements ConnectionManager {
     return _LeaseView(this, pool, handle);
   }
 
-  Future<T> _withReference<T>(String serverId,
-      Future<T> Function(_ServerReference reference) acquire) async {
+  Future<T> _withReference<T>(
+    String serverId,
+    Future<T> Function(_ServerReference reference) acquire,
+  ) async {
     final reference = await _referenceFor(serverId);
     _checkReference(reference);
     final pool = reference.pool;
@@ -318,52 +395,80 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   RemoteFileException _disconnectedAcquisition() => const RemoteFileException(
-        kind: RemoteFileErrorKind.disconnected,
-        operation: 'acquire channel',
-        message: 'The server was disconnected while acquiring a channel.',
-      );
+    kind: RemoteFileErrorKind.disconnected,
+    operation: 'acquire channel',
+    message: 'The server was disconnected while acquiring a channel.',
+  );
 
   @override
-  Stream<ServerConnectionState> watchServer(String serverId) {
+  Stream<ServerStatus> watchServer(String serverId) {
     // Current value first, then live updates, with plain async stream
     // semantics (`.first`, `await for`, and `listen` all behave normally).
     // The initial value is computed at listen time — a caller that stores
     // the stream and listens later must not start from a snapshot taken
     // before intermediate state changes.
     return Stream.multi((listener) {
-      listener.add(_currentStateOf(serverId));
-      final subscription = _eventsFor(serverId).stream
-          .listen(listener.add, onError: listener.addError);
+      listener.add(_currentStatusOf(serverId));
+      final subscription = _eventsFor(
+        serverId,
+      ).stream.listen(listener.add, onError: listener.addError);
       listener.onPause = subscription.pause;
       listener.onResume = subscription.resume;
       listener.onCancel = subscription.cancel;
     });
   }
 
+  @override
+  Stream<ConnectLogLine> get connectLog => _connectLog.stream;
+
   /// Use live pool state for snapshots and joins: cached emissions can
-  /// predate registration or transport death (03 §3.3).
-  ServerConnectionState _currentStateOf(String serverId) {
+  /// predate registration or transport death (03 §3.3). The detail rides
+  /// along only where the live pool knows one (a block reason); otherwise
+  /// a cached status whose state still matches supplies the last detail.
+  ServerStatus _currentStatusOf(String serverId) {
     final reference = _references[serverId];
     if (reference != null) {
       final pool = reference.pool;
-      if (pool.blocked) return ServerConnectionState.blocked;
-      if (pool._reconnect != null) return ServerConnectionState.reconnecting;
+      if (pool.blocked) {
+        return ServerStatus(
+          ServerConnectionState.blocked,
+          detail: pool.blockDetail,
+        );
+      }
+      if (pool._reconnect != null) {
+        return const ServerStatus(ServerConnectionState.reconnecting);
+      }
 
       // Transports die asynchronously and are evicted lazily — report
       // connected only while one is actually alive.
-      final hasLiveTransport =
-          pool.transports.any((slot) => !slot.transport.isClosed);
-      if (hasLiveTransport) return ServerConnectionState.connected;
-      if (pool.firstConnect != null) return ServerConnectionState.connecting;
+      final hasLiveTransport = pool.transports.any(
+        (slot) => !slot.transport.isClosed,
+      );
+      if (hasLiveTransport) {
+        return const ServerStatus(ServerConnectionState.connected);
+      }
+      if (pool.firstConnect != null) {
+        return const ServerStatus(ServerConnectionState.connecting);
+      }
 
       // A reference with no live transport and no in-flight connect is not
-      // connected — the emitted-state cache may still say `connected` from
+      // connected — the emitted-status cache may still say `connected` from
       // before the death, so it must not win here. Reconnect (03 §3.3) will
       // make this window report `reconnecting` instead.
-      if (pool.transports.isNotEmpty) return ServerConnectionState.disconnected;
+      if (pool.transports.isNotEmpty) {
+        final cached = _lastStatuses[serverId];
+        if (cached != null &&
+            cached.state == ServerConnectionState.disconnected) {
+          return cached;
+        }
+
+        return const ServerStatus(ServerConnectionState.disconnected);
+      }
     }
 
-    return _lastStates[serverId] ?? ServerConnectionState.disconnected;
+    final cached = _lastStatuses[serverId];
+    if (cached != null) return cached;
+    return const ServerStatus(ServerConnectionState.disconnected);
   }
 
   @override
@@ -375,8 +480,9 @@ class PooledConnectionManager implements ConnectionManager {
 
       // Transports die asynchronously and are evicted lazily — count only
       // pools that still hold a live one.
-      final hasLiveTransport =
-          pool.transports.any((slot) => !slot.transport.isClosed);
+      final hasLiveTransport = pool.transports.any(
+        (slot) => !slot.transport.isClosed,
+      );
       if (hasLiveTransport && !pool.blocked) connected.add(entry.key);
     }
 
@@ -391,14 +497,14 @@ class PooledConnectionManager implements ConnectionManager {
       if (pending == null) return;
 
       // Removing the pending identity invalidates its eventual resolution.
-      _emit(serverId, ServerConnectionState.disconnected);
+      _emit(serverId, const ServerStatus(ServerConnectionState.disconnected));
       return;
     }
 
     final pool = reference.pool;
     pool.references.remove(serverId);
-    _emit(serverId, ServerConnectionState.disconnected);
-    _lastStates.remove(serverId);
+    _emit(serverId, const ServerStatus(ServerConnectionState.disconnected));
+    _lastStatuses.remove(serverId);
 
     // Abandon the pool before cleanup: new sessions must not join its
     // pending connects, and idle timers must not outlive its last reference.
@@ -449,14 +555,14 @@ class PooledConnectionManager implements ConnectionManager {
     } else {
       await _pumpWaiters(pool);
     }
-
   }
 
   // ── Channel acquisition ────────────────────────────────────────────────
 
   Future<_ChannelHandle> _acquireBrowseChannel(
-      _ServerReference reference,
-      {_BrowseAcquisition origin = _BrowseAcquisition.caller}) async {
+    _ServerReference reference, {
+    _BrowseAcquisition origin = _BrowseAcquisition.caller,
+  }) async {
     final pool = reference.pool;
     final serverId = reference.serverId;
 
@@ -493,8 +599,11 @@ class PooledConnectionManager implements ConnectionManager {
 
       final grown = _browseSlot(pool, attempted);
       if (grown != null) {
-        final opened =
-            await _openChannelOn(pool, grown, use: _ChannelUse.browse);
+        final opened = await _openChannelOn(
+          pool,
+          grown,
+          use: _ChannelUse.browse,
+        );
         if (opened != null) return opened;
       }
     }
@@ -518,7 +627,8 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   Future<_ChannelHandle> _acquireTransferChannel(
-      _ServerReference reference) async {
+    _ServerReference reference,
+  ) async {
     final pool = reference.pool;
     final serverId = reference.serverId;
     final idle = _takeIdleTransfer(pool);
@@ -535,8 +645,11 @@ class PooledConnectionManager implements ConnectionManager {
     final attempted = <_TransportSlot>{};
     var slot = _transferSlot(pool);
     while (slot != null && attempted.add(slot)) {
-      final opened =
-          await _openChannelOn(pool, slot, use: _ChannelUse.transferLeased);
+      final opened = await _openChannelOn(
+        pool,
+        slot,
+        use: _ChannelUse.transferLeased,
+      );
       if (opened != null) return opened;
 
       _throwIfBlocked(pool);
@@ -551,8 +664,11 @@ class PooledConnectionManager implements ConnectionManager {
 
       final grown = _transferSlot(pool, attempted);
       if (grown != null) {
-        final opened =
-            await _openChannelOn(pool, grown, use: _ChannelUse.transferLeased);
+        final opened = await _openChannelOn(
+          pool,
+          grown,
+          use: _ChannelUse.transferLeased,
+        );
         if (opened != null) return opened;
       }
     }
@@ -580,8 +696,10 @@ class PooledConnectionManager implements ConnectionManager {
   /// spend the same last slot while their opens are in flight. Dead
   /// transports are skipped (their eviction is open-failure driven), and
   /// [exclude] skips transports a caller already tried.
-  _TransportSlot? _browseSlot(_EndpointPool pool,
-      [Set<_TransportSlot>? exclude]) {
+  _TransportSlot? _browseSlot(
+    _EndpointPool pool, [
+    Set<_TransportSlot>? exclude,
+  ]) {
     for (final slot in pool.transports) {
       if (slot.transport.isClosed) continue;
       if (exclude != null && exclude.contains(slot)) continue;
@@ -598,15 +716,17 @@ class PooledConnectionManager implements ConnectionManager {
   /// [exclude] skips transports a caller already tried and whose open was
   /// refused, so a multi-transport pool rotates instead of retrying the
   /// same refusing transport forever.
-  _TransportSlot? _transferSlot(_EndpointPool pool,
-      [Set<_TransportSlot>? exclude]) {
+  _TransportSlot? _transferSlot(
+    _EndpointPool pool, [
+    Set<_TransportSlot>? exclude,
+  ]) {
     for (final slot in pool.transports) {
       if (slot.transport.isClosed) continue;
       if (exclude != null && exclude.contains(slot)) continue;
       final total = _channelBudgetUsed(slot);
       final withinTotal = total < _policy.maxChannelsPerTransport;
-      final withinTransfer = total - _browseCount(slot) <
-          _policy.maxTransferChannelsPerTransport;
+      final withinTransfer =
+          total - _browseCount(slot) < _policy.maxTransferChannelsPerTransport;
       if (withinTotal && withinTransfer) return slot;
     }
     return null;
@@ -633,8 +753,10 @@ class PooledConnectionManager implements ConnectionManager {
   /// before the handle is visible so capacity accounting never miscounts an
   /// in-flight browse channel as a transfer one.
   Future<_ChannelHandle?> _openChannelOn(
-      _EndpointPool pool, _TransportSlot slot,
-      {required _ChannelUse use}) async {
+    _EndpointPool pool,
+    _TransportSlot slot, {
+    required _ChannelUse use,
+  }) async {
     _cancelIdleTimer(slot);
     if (slot.transport.isClosed) {
       _handleTransportDeath(pool, slot);
@@ -649,8 +771,7 @@ class PooledConnectionManager implements ConnectionManager {
       // a channel landing after the block's handle-closing loop would be
       // the one thing on a blocked pool that still looks live.
       if (pool.blocked || !pool.transports.contains(slot)) {
-        final orphan = _ChannelHandle(
-            slot: slot, channel: channel, use: use);
+        final orphan = _ChannelHandle(slot: slot, channel: channel, use: use);
         slot.channels.add(orphan);
         await _closeHandle(pool, orphan);
         return null;
@@ -687,11 +808,19 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   _PaneChannelView _bindBrowse(
-      _EndpointPool pool, (String, String) clientKey, _ChannelHandle handle) {
+    _EndpointPool pool,
+    (String, String) clientKey,
+    _ChannelHandle handle,
+  ) {
     handle.use = _ChannelUse.browse;
     handle.browseClients++;
-    final binding =
-        _PaneChannelView(this, pool, clientKey.$1, clientKey.$2, handle);
+    final binding = _PaneChannelView(
+      this,
+      pool,
+      clientKey.$1,
+      clientKey.$2,
+      handle,
+    );
     pool.browseByClient[clientKey] = binding;
 
     // Opens queued before any browse binding existed can now share it.
@@ -707,7 +836,9 @@ class PooledConnectionManager implements ConnectionManager {
   // ── First connect (growth rule 1) ──────────────────────────────────────
 
   Future<void> _ensureFirstTransport(
-      _EndpointPool pool, _ServerReference reference) async {
+    _EndpointPool pool,
+    _ServerReference reference,
+  ) async {
     for (final slot in List<_TransportSlot>.of(pool.transports)) {
       if (slot.transport.isClosed) _handleTransportDeath(pool, slot);
     }
@@ -736,11 +867,17 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   Future<void> _firstConnect(
-      _EndpointPool pool, _ServerReference reference) async {
+    _EndpointPool pool,
+    _ServerReference reference,
+  ) async {
     // A replacement session must publish the inherited block before review.
-    _setState(pool, pool.blocked
-        ? ServerConnectionState.blocked
-        : ServerConnectionState.connecting);
+    _setState(
+      pool,
+      pool.blocked
+          ? ServerConnectionState.blocked
+          : ServerConnectionState.connecting,
+      detail: pool.blocked ? pool.blockDetail : null,
+    );
 
     // Dead-slot eviction can leave a cached secret. A fresh attempt must
     // neither retain it on failure nor lend it to growth while resolving.
@@ -756,8 +893,7 @@ class PooledConnectionManager implements ConnectionManager {
       // Serialize vault access with first connect; joining bookmarks need
       // only metadata. Never open with a secret returned to a retired pool.
       final trustEpoch = pool._trustEpoch;
-      final resolved =
-          await _resolveCredentials(reference.config, resolution);
+      final resolved = await _resolveCredentials(reference.config, resolution);
       // The resolution finished — retire its scope now, not at the end of
       // the whole connect: a last-reference disconnect during the transport
       // handshake must not fire `dismissed` for a resolution that already
@@ -776,6 +912,7 @@ class PooledConnectionManager implements ConnectionManager {
         onHostKey: _hostKeyPrompterFor(pool, ConnectPrompting.enabled),
         onKeyboardInteractive: _onKeyboardInteractive,
         prompting: ConnectPrompting.enabled,
+        log: _forwardingLogFor(pool),
       );
 
       // Every serverId may have disconnected while the connect was in
@@ -800,24 +937,32 @@ class PooledConnectionManager implements ConnectionManager {
       // on — growth must never re-trigger a 2FA prompt (D5).
       pool.interactiveOnly =
           resolved.origin == CredentialOrigin.prompted ||
-              transport.authKind == AuthKind.keyboardInteractive ||
-              transport.authKind == AuthKind.promptedPassword;
+          transport.authKind == AuthKind.keyboardInteractive ||
+          transport.authKind == AuthKind.promptedPassword;
 
       final slot = _TransportSlot(transport, _TransportRole.primary);
       pool.transports.add(slot);
       _watchTransport(pool, slot);
 
       _setState(pool, ServerConnectionState.connected);
-    } on Object {
+    } on Object catch (error) {
       // A rejected stale prompt is cancellation, not an authentication failure.
       if (pool.references.isEmpty) throw _disconnectedAcquisition();
       if (pool.blocked) {
         // A declined changed key: surface the block, not the raw auth
         // failure behind it.
-        _setState(pool, ServerConnectionState.blocked);
+        _setState(
+          pool,
+          ServerConnectionState.blocked,
+          detail: pool.blockDetail,
+        );
         throw _blockedError(pool);
       }
-      _setState(pool, ServerConnectionState.disconnected);
+      _setState(
+        pool,
+        ServerConnectionState.disconnected,
+        detail: _failureSummary(error),
+      );
       rethrow;
     } finally {
       if (identical(pool._resolution, resolution)) pool._resolution = null;
@@ -867,6 +1012,7 @@ class PooledConnectionManager implements ConnectionManager {
         // concurrent 2FA prompt from a background growth attempt.
         onKeyboardInteractive: null,
         prompting: ConnectPrompting.disabled,
+        log: _forwardingLogFor(pool),
       );
 
       // Approval cannot revive an older handshake. A concurrent first connect
@@ -891,8 +1037,7 @@ class PooledConnectionManager implements ConnectionManager {
 
   // ── Host-key gate (D18) ────────────────────────────────────────────────
 
-  bool _isCurrentPool(_EndpointPool pool) =>
-      identical(_pools[pool.key], pool);
+  bool _isCurrentPool(_EndpointPool pool) => identical(_pools[pool.key], pool);
 
   bool _isCurrentTrustEpoch(_EndpointPool pool, Object epoch) =>
       _isCurrentPool(pool) && identical(pool._trustEpoch, epoch);
@@ -901,7 +1046,9 @@ class PooledConnectionManager implements ConnectionManager {
       _isCurrentPool(pool) && identical(_incidents[pool.key], incident);
 
   HostKeyPrompter _hostKeyPrompterFor(
-      _EndpointPool pool, ConnectPrompting prompting) {
+    _EndpointPool pool,
+    ConnectPrompting prompting,
+  ) {
     var trustEpoch = pool._trustEpoch;
     return (decision) async {
       if (!_isCurrentTrustEpoch(pool, trustEpoch)) return false;
@@ -927,9 +1074,12 @@ class PooledConnectionManager implements ConnectionManager {
           // an auth failure afterward must not recreate the resolved incident.
           _incidents.remove(pool.key);
           pool._incident = null;
-          _setState(pool, pool.firstConnect == null
-              ? ServerConnectionState.disconnected
-              : ServerConnectionState.connecting);
+          _setState(
+            pool,
+            pool.firstConnect == null
+                ? ServerConnectionState.disconnected
+                : ServerConnectionState.connecting,
+          );
           return true;
 
         case HostKeyVerdict.firstUse:
@@ -938,14 +1088,14 @@ class PooledConnectionManager implements ConnectionManager {
           if (pool.blocked) return false;
           final incident = pool._incident;
           final accepted = await _onHostKey(decision);
-          return accepted && _isCurrentTrustEpoch(pool, trustEpoch) &&
+          return accepted &&
+              _isCurrentTrustEpoch(pool, trustEpoch) &&
               _isCurrentIncident(pool, incident);
       }
     };
   }
 
-  Future<void> _blockPool(
-      _EndpointPool pool, _HostKeyIncident incident) async {
+  Future<void> _blockPool(_EndpointPool pool, _HostKeyIncident incident) async {
     final wasBlocked = pool.blocked;
     pool._trustEpoch = Object();
     _incidents[pool.key] = incident;
@@ -969,7 +1119,7 @@ class PooledConnectionManager implements ConnectionManager {
     pool.resolvedCredentials = null;
 
     _failAllWaiters(pool, message: pool.blockDetail);
-    _setState(pool, ServerConnectionState.blocked);
+    _setState(pool, ServerConnectionState.blocked, detail: pool.blockDetail);
 
     await _closeSlots(pool, slots);
   }
@@ -980,15 +1130,17 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   RemoteFileException _blockedError(_EndpointPool pool) => RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: 'connect',
-        message: pool.blockDetail ?? 'The server is blocked.',
-      );
+    kind: RemoteFileErrorKind.other,
+    operation: 'connect',
+    message: pool.blockDetail ?? 'The server is blocked.',
+  );
 
   // ── Release, teardown, waiters ─────────────────────────────────────────
 
   Future<void> _closeBrowseClient(
-      _EndpointPool pool, (String, String) clientKey) async {
+    _EndpointPool pool,
+    (String, String) clientKey,
+  ) async {
     final binding = pool.browseByClient.remove(clientKey);
     if (binding == null) return;
 
@@ -1043,8 +1195,9 @@ class PooledConnectionManager implements ConnectionManager {
     // keeps a future close path from silently breaking that convention.
     pool.leasedTransfer.remove(handle);
     handle.leaseServerId = null;
-    pool.browseByClient
-        .removeWhere((_, bound) => identical(bound._handle, handle));
+    pool.browseByClient.removeWhere(
+      (_, bound) => identical(bound._handle, handle),
+    );
 
     // Bounded cleanup (05 s cap) so a half-dead channel's close failure
     // cannot strand the caller; idle bookkeeping resumes once it settles.
@@ -1233,7 +1386,7 @@ class PooledConnectionManager implements ConnectionManager {
     await _tearDownPool(pool);
   }
 
-  Future<void> _tearDownPool(_EndpointPool pool) async {
+  Future<void> _tearDownPool(_EndpointPool pool, {String? detail}) async {
     _cancelReconnect(pool);
     _cancelKeepAlive(pool);
     final slots = List<_TransportSlot>.of(pool.transports);
@@ -1250,15 +1403,17 @@ class PooledConnectionManager implements ConnectionManager {
     // available. The next first connect re-resolves from the vault.
     pool.resolvedCredentials = null;
 
-    _failAllWaiters(pool);
-    _setState(pool, ServerConnectionState.disconnected);
+    _failAllWaiters(pool, message: detail);
+    _setState(pool, ServerConnectionState.disconnected, detail: detail);
 
     await _closeSlots(pool, slots);
     await Future.wait(List<Future<void>>.of(pool._retiring));
   }
 
   Future<void> _closeSlots(
-      _EndpointPool pool, List<_TransportSlot> slots) async {
+    _EndpointPool pool,
+    List<_TransportSlot> slots,
+  ) async {
     // Retired slots are detached before entry. Bound each phase regardless
     // of channel count, then close transports even if channels stalled.
     await Future.wait([
@@ -1288,11 +1443,13 @@ class PooledConnectionManager implements ConnectionManager {
     }
 
     // Only a still-attached, live transport can explain a current refusal.
-    final failure = liveFailure ?? const RemoteFileException(
-      kind: RemoteFileErrorKind.disconnected,
-      operation: 'open SFTP',
-      message: 'No SFTP channel is available.',
-    );
+    final failure =
+        liveFailure ??
+        const RemoteFileException(
+          kind: RemoteFileErrorKind.disconnected,
+          operation: 'open SFTP',
+          message: 'No SFTP channel is available.',
+        );
     _failAllWaiters(pool, error: failure);
     final recovery = pool._reconnect;
     if (recovery != null && _isCurrentReconnect(pool, recovery)) {
@@ -1302,12 +1459,17 @@ class PooledConnectionManager implements ConnectionManager {
     }
     // Teardown detaches transports synchronously; slow closes must not
     // delay or replace the open failure returned to callers.
-    unawaited(_tearDownPool(pool).catchError((Object _) {}));
+    unawaited(
+      _tearDownPool(pool, detail: failure.message).catchError((Object _) {}),
+    );
     return failure;
   }
 
-  Future<_ChannelHandle> _enqueueWaiter(_EndpointPool pool,
-      {required bool browse, required String serverId}) {
+  Future<_ChannelHandle> _enqueueWaiter(
+    _EndpointPool pool, {
+    required bool browse,
+    required String serverId,
+  }) {
     final waiter = _ChannelWaiter(browse: browse, serverId: serverId);
     pool.waiters.add(waiter);
     return waiter.completer.future;
@@ -1341,9 +1503,11 @@ class PooledConnectionManager implements ConnectionManager {
 
     final chained = running.then((_) => _pumpWaitersOnce(pool));
     pool.pumping = chained;
-    unawaited(chained.whenComplete(() {
-      if (identical(pool.pumping, chained)) pool.pumping = null;
-    }));
+    unawaited(
+      chained.whenComplete(() {
+        if (identical(pool.pumping, chained)) pool.pumping = null;
+      }),
+    );
   }
 
   Future<void> _pumpWaitersOnce(_EndpointPool pool) async {
@@ -1384,10 +1548,10 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   Future<_ChannelHandle?> _openForWaiter(
-      _EndpointPool pool, _ChannelWaiter waiter) async {
-    final use = waiter.browse
-        ? _ChannelUse.browse
-        : _ChannelUse.transferLeased;
+    _EndpointPool pool,
+    _ChannelWaiter waiter,
+  ) async {
+    final use = waiter.browse ? _ChannelUse.browse : _ChannelUse.transferLeased;
     final attempted = <_TransportSlot>{};
     _TransportSlot? nextSlot() => waiter.browse
         ? _browseSlot(pool, attempted)
@@ -1419,13 +1583,15 @@ class PooledConnectionManager implements ConnectionManager {
         continue;
       }
       if (waiter.serverId == serverId) {
-        waiter.completer.completeError(RemoteFileException(
-          kind: RemoteFileErrorKind.disconnected,
-          operation: waiter.browse
-              ? 'open browse channel'
-              : 'lease transfer channel',
-          message: 'The server was disconnected while waiting for a channel.',
-        ));
+        waiter.completer.completeError(
+          RemoteFileException(
+            kind: RemoteFileErrorKind.disconnected,
+            operation: waiter.browse
+                ? 'open browse channel'
+                : 'lease transfer channel',
+            message: 'The server was disconnected while waiting for a channel.',
+          ),
+        );
       } else {
         remaining.add(waiter);
       }
@@ -1436,15 +1602,21 @@ class PooledConnectionManager implements ConnectionManager {
       ..addAll(remaining);
   }
 
-  void _failAllWaiters(_EndpointPool pool,
-      {String? message, RemoteFileException? error}) {
+  void _failAllWaiters(
+    _EndpointPool pool, {
+    String? message,
+    RemoteFileException? error,
+  }) {
     for (final waiter in pool.waiters) {
       if (waiter.completer.isCompleted) continue;
-      waiter.completer.completeError(error ?? RemoteFileException(
-        kind: RemoteFileErrorKind.disconnected,
-        operation: 'wait for channel',
-        message: message ?? 'The connection pool was torn down.',
-      ));
+      waiter.completer.completeError(
+        error ??
+            RemoteFileException(
+              kind: RemoteFileErrorKind.disconnected,
+              operation: 'wait for channel',
+              message: message ?? 'The connection pool was torn down.',
+            ),
+      );
     }
     pool.waiters.clear();
   }
@@ -1461,10 +1633,12 @@ class PooledConnectionManager implements ConnectionManager {
     final request = Completer<_ServerReference>();
     final pendingIdentity = request.future;
     _pendingReferences[serverId] = pendingIdentity;
-    unawaited(_resolveReference(serverId, pendingIdentity).then(
-      request.complete,
-      onError: request.completeError,
-    ));
+    unawaited(
+      _resolveReference(
+        serverId,
+        pendingIdentity,
+      ).then(request.complete, onError: request.completeError),
+    );
     return pendingIdentity.whenComplete(() {
       if (identical(_pendingReferences[serverId], pendingIdentity)) {
         _pendingReferences.remove(serverId);
@@ -1473,7 +1647,9 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   Future<_ServerReference> _resolveReference(
-      String serverId, Future<_ServerReference> pendingIdentity) async {
+    String serverId,
+    Future<_ServerReference> pendingIdentity,
+  ) async {
     final config = await _resolveServer(serverId);
     // A cancelled resolve must not register or erase a newer session.
     if (!identical(_pendingReferences[serverId], pendingIdentity)) {
@@ -1484,23 +1660,29 @@ class PooledConnectionManager implements ConnectionManager {
     // invalidate them (M5's store owns that).
     final key = PoolKey.of(config);
     final pool = _pools.putIfAbsent(
-        key, () => _EndpointPool(key, _incidents[key]));
+      key,
+      () => _EndpointPool(key, _incidents[key]),
+    );
     final reference = _ServerReference(serverId, config, pool);
 
-    final previousState = _currentStateOf(serverId);
+    final previousState = _currentStatusOf(serverId);
     _references[serverId] = reference;
     pool.references[serverId] = reference;
 
     // Joining an existing pool may skip every connect emission. Publish
     // the joiner's transition without repeating states for its siblings.
-    final state = _currentStateOf(serverId);
+    final state = _currentStatusOf(serverId);
     if (state != previousState) _emit(serverId, state);
     return reference;
   }
 
-  void _setState(_EndpointPool pool, ServerConnectionState state) {
+  void _setState(
+    _EndpointPool pool,
+    ServerConnectionState state, {
+    String? detail,
+  }) {
     for (final serverId in pool.references.keys) {
-      _emit(serverId, state);
+      _emit(serverId, ServerStatus(state, detail: detail));
     }
   }
 
@@ -1508,17 +1690,62 @@ class PooledConnectionManager implements ConnectionManager {
   /// emission breaks the standard stream consumers (`.first`, `await for`);
   /// ordering within this controller is FIFO, and watchServer prepends the
   /// current value on subscribe.
-  StreamController<ServerConnectionState> _eventsFor(String serverId) =>
-      _events.putIfAbsent(
-        serverId,
-        () => StreamController<ServerConnectionState>.broadcast(),
-      );
+  StreamController<ServerStatus> _eventsFor(String serverId) => _events
+      .putIfAbsent(serverId, () => StreamController<ServerStatus>.broadcast());
 
-  void _emit(String serverId, ServerConnectionState state) {
-    _lastStates[serverId] = state;
+  void _emit(String serverId, ServerStatus status) {
+    _lastStatuses[serverId] = status;
 
     final controller = _events[serverId];
-    if (controller != null && !controller.isClosed) controller.add(state);
+    if (controller != null && !controller.isClosed) controller.add(status);
+  }
+
+  /// The user-facing one-liner for a terminal failure (03 §3.2 detail), or
+  /// null for local cancellation — there is nothing to diagnose when the
+  /// user or a teardown ended the attempt.
+  static String? _failureSummary(Object error) {
+    if (error is _ReconnectResolutionFailure) {
+      return _failureSummary(error._cause);
+    }
+    if (error is RemoteFileException) {
+      if (error.kind == RemoteFileErrorKind.cancelled) return null;
+      return error.message;
+    }
+    return switch (error) {
+      final SshConnectException e => e.message,
+      final AuthChallengeRequiredError e => e.message,
+      _ => 'Connection failed.',
+    };
+  }
+
+  /// One transcript source per open attempt, fanning each line out to the
+  /// serverIds referencing the pool *when the line is appended* — the set
+  /// can change mid-attempt as references join or leave.
+  SshConnectionLog _forwardingLogFor(_EndpointPool pool) {
+    return _ForwardingConnectionLog((line) {
+      for (final serverId in pool.references.keys.toList()) {
+        _connectLog.add(ConnectLogLine(serverId: serverId, line: line));
+      }
+    });
+  }
+}
+
+/// A [SshConnectionLog] that forwards every appended line until the
+/// attempt freezes. `onUpdate` doubles as the frozen flag: `freeze()` clears
+/// it (the class's own contract), and a frozen attempt must forward nothing
+/// even if a late writer calls `add`.
+class _ForwardingConnectionLog extends SshConnectionLog {
+  final void Function(String line) _onLine;
+
+  static void _noop() {}
+
+  _ForwardingConnectionLog(this._onLine) : super(onUpdate: _noop);
+
+  @override
+  void add(String line) {
+    if (onUpdate == null) return;
+    super.add(line);
+    _onLine(line);
   }
 }
 
@@ -1640,7 +1867,11 @@ class _ChannelHandle {
   String? homePath;
   bool closed = false;
 
-  _ChannelHandle({required this.slot, required this.channel, required this.use});
+  _ChannelHandle({
+    required this.slot,
+    required this.channel,
+    required this.use,
+  });
 }
 
 class _ChannelWaiter {
@@ -1660,7 +1891,12 @@ class _PaneChannelView implements PaneChannel {
   RemoteFileException? _failure;
 
   _PaneChannelView(
-      this._manager, this._pool, this._serverId, this._paneTabId, this._handle);
+    this._manager,
+    this._pool,
+    this._serverId,
+    this._paneTabId,
+    this._handle,
+  );
 
   @override
   RemoteFileSystem get fs {

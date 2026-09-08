@@ -33,7 +33,9 @@ void main() {
       fakeAsync((time) {
         final h = PoolHarness()..addServer('s1');
         final states = <ServerConnectionState>[];
-        final subscription = h.manager.watchServer('s1').listen(states.add);
+        final subscription = h.manager
+            .watchServer('s1')
+            .listen((status) => states.add(status.state));
         final pane = browsePane(time, h, 'a');
         final oldFs = pane.fs;
         h.opener.transports.single.die(deathError);
@@ -270,7 +272,9 @@ void main() {
         time.flushMicrotasks();
         for (final id in ['s1', 's2']) {
           final states = <ServerConnectionState>[];
-          final subscription = h.manager.watchServer(id).listen(states.add);
+          final subscription = h.manager
+              .watchServer(id)
+              .listen((status) => states.add(status.state));
           time.flushMicrotasks();
           expect(states, [ServerConnectionState.blocked]);
           unawaited(subscription.cancel());

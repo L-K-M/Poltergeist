@@ -135,6 +135,228 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Ready'**
   String get readyStatus;
+
+  /// Title of the first-use host-key approval dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown host key'**
+  String get hostKeyUnknownTitle;
+
+  /// Title of the changed-key hard-block dialog (D18).
+  ///
+  /// In en, this message translates to:
+  /// **'HOST KEY CHANGED'**
+  String get hostKeyChangedTitle;
+
+  /// Warning body of the changed-key dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'The key for {host} does not match the one you previously trusted. This can mean a man-in-the-middle attack. Only continue if you know why the key changed.'**
+  String hostKeyChangedWarning(String host);
+
+  /// The endpoint whose key is presented, host:port.
+  ///
+  /// In en, this message translates to:
+  /// **'{host}:{port}'**
+  String hostKeyEndpoint(String host, int port);
+
+  /// Label above the presented key's fingerprint (first use).
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint'**
+  String get hostKeyFingerprintLabel;
+
+  /// Label above the changed dialog's presented fingerprint.
+  ///
+  /// In en, this message translates to:
+  /// **'New key'**
+  String get hostKeyNewLabel;
+
+  /// Label above the changed dialog's pinned fingerprint.
+  ///
+  /// In en, this message translates to:
+  /// **'Previously trusted'**
+  String get hostKeyPreviousLabel;
+
+  /// Declines the host-key dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get hostKeyCancel;
+
+  /// Approves a first-use host key and continues connecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust and connect'**
+  String get hostKeyTrustConnect;
+
+  /// Re-pins a changed host key after explicit review.
+  ///
+  /// In en, this message translates to:
+  /// **'Trust the new key'**
+  String get hostKeyTrustNewKey;
+
+  /// Fallback title when the server sends no challenge name.
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication'**
+  String get keyboardAuthTitle;
+
+  /// Sends the keyboard-interactive answers.
+  ///
+  /// In en, this message translates to:
+  /// **'Submit'**
+  String get keyboardSubmit;
+
+  /// Cancels the keyboard-interactive challenge.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get keyboardCancel;
+
+  /// Tooltip revealing a challenge field.
+  ///
+  /// In en, this message translates to:
+  /// **'Show answer'**
+  String get keyboardShowAnswer;
+
+  /// Tooltip re-obscuring a challenge field.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide answer'**
+  String get keyboardHideAnswer;
+
+  /// Title of the connect-time credential dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication required'**
+  String get credentialTitle;
+
+  /// The endpoint the credential prompt is for.
+  ///
+  /// In en, this message translates to:
+  /// **'{username}@{host}:{port}'**
+  String credentialEndpoint(String username, String host, int port);
+
+  /// Label of the password field.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get credentialPasswordField;
+
+  /// Label of the identity-file path field.
+  ///
+  /// In en, this message translates to:
+  /// **'Key file'**
+  String get credentialKeyFileField;
+
+  /// Validation shown when key authentication has no identity-file path.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a key file.'**
+  String get credentialKeyFileRequired;
+
+  /// Label of the private-key passphrase field.
+  ///
+  /// In en, this message translates to:
+  /// **'Passphrase'**
+  String get credentialPassphraseField;
+
+  /// Checkbox storing the entered secret in the local vault.
+  ///
+  /// In en, this message translates to:
+  /// **'Save in vault'**
+  String get credentialSaveInVault;
+
+  /// Answers the credential prompt and continues connecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get credentialConnect;
+
+  /// Cancels the credential prompt; the connect fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get credentialCancel;
+
+  /// Banner shown when the vault could not be read before prompting (the localized render of the ported keystore exception, D20).
+  ///
+  /// In en, this message translates to:
+  /// **'Saved secrets are unavailable. Unlock or restore your system credential store, then retry — or enter the secret below.'**
+  String get credentialVaultUnavailable;
+
+  /// Sanitized detail for an identity file that cannot be decoded or otherwise read normally.
+  ///
+  /// In en, this message translates to:
+  /// **'The file could not be read as text.'**
+  String get credentialKeyFileUnreadable;
+
+  /// Inline error when the identity file cannot be read.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read the key file: {error}'**
+  String credentialKeyFileReadError(String error);
+
+  /// Status while a first connect attempt runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get connectionStateConnecting;
+
+  /// Status while automatic recovery retries.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnecting…'**
+  String get connectionStateReconnecting;
+
+  /// Heading of the failed-connection view.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection failed'**
+  String get connectionFailedTitle;
+
+  /// Heading shown while a host-key block is unresolved (D18).
+  ///
+  /// In en, this message translates to:
+  /// **'Connection blocked'**
+  String get connectionBlockedTitle;
+
+  /// Heading of the disconnected view.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get connectionDisconnectedTitle;
+
+  /// Header of the collapsible live transcript.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection log'**
+  String get connectionLogTitle;
+
+  /// Copies the transcript to the clipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get connectionLogCopy;
+
+  /// Placeholder when no transcript lines arrived.
+  ///
+  /// In en, this message translates to:
+  /// **'(no log captured)'**
+  String get connectionLogEmpty;
+
+  /// Reopens the connection after a failure.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get connectionRetry;
+
+  /// Transient notice when saving a prompted secret failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the secret to the vault. The connection will continue.'**
+  String get vaultSaveFailed;
 }
 
 class _AppLocalizationsDelegate

@@ -6,6 +6,7 @@ import 'package:seance_core/seance_core.dart';
 import '../connection/connection_manager.dart';
 import '../connection/credential_resolution.dart';
 import '../connection/ssh_transport.dart';
+import 'connect_log_coalescer.dart';
 import 'protocol.dart';
 
 /// Boots the engine isolate (the `Isolate.spawn` entrypoint).
@@ -46,10 +47,12 @@ class EngineHost {
   final SendPort _events;
   final _PromptBroker _prompts;
   late final PooledConnectionManager _manager;
+  late final ConnectLogCoalescer _logCoalescer;
+  StreamSubscription<ConnectLogLine>? _connectLogSubscription;
 
   final Map<String, ServerConfig> _servers = {};
   final Map<int, PaneChannel> _channels = {};
-  final Map<String, StreamSubscription<ServerConnectionState>> _watches = {};
+  final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   int _nextChannelId = 1;
   bool _shuttingDown = false;
 
@@ -63,6 +66,7 @@ class EngineHost {
     HostKeyStore? hostKeyStore,
   }) {
     final host = EngineHost._(events);
+    host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
       resolveServer: host._resolveKnownServer,
       resolveCredentials: host._prompts.resolveCredentials,
@@ -73,6 +77,14 @@ class EngineHost {
       openTransport: openTransport,
       prober: prober,
       onRecoveryFailure: host._recoveryFailed,
+    );
+    // The manager emits one event per transcript line; only the coalesced
+    // batch crosses the port (03 §5).
+    host._connectLogSubscription = host._manager.connectLog.listen(
+      host._logCoalescer.add,
+      // Transcript fan-out is diagnostic; a future stream error must not
+      // kill the engine isolate.
+      onError: (Object _) {},
     );
     return host;
   }
@@ -228,12 +240,17 @@ class EngineHost {
     // Last request wins: a fresh watch replaces any existing forwarding so
     // the first forwarded event is again the current state.
     _watches.remove(serverId)?.cancel();
-    late final StreamSubscription<ServerConnectionState> subscription;
+    late final StreamSubscription<ServerStatus> subscription;
     subscription = _manager
         .watchServer(serverId)
         .listen(
-          (state) =>
-              _events.send(ServerStateEvent(serverId: serverId, state: state)),
+          (status) => _events.send(
+            ServerStateEvent(
+              serverId: serverId,
+              state: status.state,
+              detail: status.detail,
+            ),
+          ),
           // The manager's streams neither error nor complete today; a
           // future change on either side must not kill the engine over a
           // state fan-out.
@@ -265,6 +282,12 @@ class EngineHost {
         // Shutdown must complete even if one server's cleanup is broken.
       }
     }
+    // Disconnect first, then stop forwarding: teardown closes no transports
+    // through the opener, so no transcript line can follow — but an early
+    // await here would let prompt dismissals win the disconnect race and
+    // change the abandoned opens' documented failure kind.
+    await _connectLogSubscription?.cancel();
+    _logCoalescer.dispose();
     for (final subscription in _watches.values) {
       await subscription.cancel();
     }

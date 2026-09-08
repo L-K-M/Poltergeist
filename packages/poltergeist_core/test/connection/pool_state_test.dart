@@ -25,7 +25,9 @@ Future<void> _join(PoolHarness harness, _ChannelKind kind) async {
 
 List<ServerConnectionState> _watch(PoolHarness harness, String serverId) {
   final states = <ServerConnectionState>[];
-  final subscription = harness.manager.watchServer(serverId).listen(states.add);
+  final subscription = harness.manager
+      .watchServer(serverId)
+      .listen((status) => states.add(status.state));
   addTearDown(subscription.cancel);
   return states;
 }
@@ -203,10 +205,8 @@ void main() {
         ServerConnectionState.blocked,
         ServerConnectionState.disconnected,
       ]);
-      expect(
-        await harness.manager.watchServer(_primaryServer).first,
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServer).first;
+      expect(status.state, ServerConnectionState.blocked);
     },
   );
 }

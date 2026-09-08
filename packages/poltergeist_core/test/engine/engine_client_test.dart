@@ -79,8 +79,11 @@ void main() {
     final client = await EngineClient.spawn(const EngineConfig());
     addTearDown(client.shutdown);
 
-    final states = await client.watchServer('srv-1').first;
-    expect(states, ServerConnectionState.disconnected);
+    final state = await client
+        .watchServer('srv-1')
+        .first
+        .then((status) => status.state);
+    expect(state, ServerConnectionState.disconnected);
   });
 
   test('watchServer re-subscribes after the last listener drops', () async {
@@ -90,11 +93,11 @@ void main() {
     // `.first` cancels its subscription: the engine-side watch ends, and a
     // later subscription re-watches and again sees the current state.
     expect(
-      await client.watchServer('srv-1').first,
+      await client.watchServer('srv-1').first.then((status) => status.state),
       ServerConnectionState.disconnected,
     );
     expect(
-      await client.watchServer('srv-1').first,
+      await client.watchServer('srv-1').first.then((status) => status.state),
       ServerConnectionState.disconnected,
     );
   });

@@ -56,6 +56,7 @@ export 'package:seance_core/seance_core.dart'
         VaultCrypto,
         VaultKeys,
         VaultStore,
+        expandHomePath,
         remoteBasename,
         remoteJoin,
         remoteParent,
@@ -64,11 +65,13 @@ export 'package:seance_core/seance_core.dart'
 export 'src/connection/connection_manager.dart'
     show
         ConnectionManager,
+        ConnectLogLine,
         PaneChannel,
         PooledConnectionManager,
         CredentialOrigin,
         ResolvedCredentials,
         ServerConnectionState,
+        ServerStatus,
         TransferChannelLease;
 export 'src/connection/credential_resolution.dart'
     show CredentialResolutionScope;
@@ -83,12 +86,13 @@ export 'src/connection/ssh_transport.dart'
         SshTransportOpener,
         openDartSshTransport;
 export 'src/engine/engine_client.dart'
-    show EngineBrowseChannel, EngineClient;
+    show EngineBrowseChannel, EngineClient, PromptBridge;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;
 export 'src/engine/protocol.dart'
     show
         CloseBrowseChannelRequest,
         ConnectedServerIdsRequest,
+        ConnectionLogEvent,
         CredentialPromptData,
         CredentialPromptReply,
         DirectoryListed,

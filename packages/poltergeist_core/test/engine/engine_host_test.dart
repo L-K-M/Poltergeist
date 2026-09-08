@@ -2,9 +2,13 @@ import 'dart:async';
 import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_core/src/engine/connect_log_coalescer.dart'
+    show connectionLogFlushInterval;
 import 'package:test/test.dart';
 
 import '../connection/pool_fakes.dart';
+
+const _connectionLogPollTimeout = Duration(seconds: 1);
 
 /// Filesystem for the engine suite's channels: home resolution plus a
 /// scripted listing. Anything else fails loudly.
@@ -608,4 +612,74 @@ void main() {
     expect(error.kind, RemoteFileErrorKind.other);
     expect(error.message, contains('socket exploded'));
   });
+
+  test(
+    'a failed connect forwards the failure detail and transcript batch',
+    () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      h.opener.connectFailure = SshConnectException(
+        'Connection refused.',
+        StateError('refused'),
+        SshConnectionLog(),
+      );
+
+      h.watch('srv-1');
+      await h.pumping();
+
+      final opened = h.openBrowse();
+      await h.pumping();
+
+      // Transcript lines appended during the attempt reach the UI as a
+      // coalesced batch (03 §5): the flush window is a real timer, so let
+      // it fire.
+      h.reply(
+        h.takePrompt(),
+        const CredentialPromptReply(
+          password: 'pw',
+          origin: CredentialOrigin.stored,
+        ),
+      );
+      await h.pumping();
+      // The opener runs after credentials resolve and parks on the
+      // first-use host-key prompt — the attempt log exists by now.
+      h.opener.calls.single.log.add('tcp connect example.com:2222');
+      h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: true));
+      await h.pumping();
+      final error = await expectError(opened);
+      expect(error.message, 'Connection refused.');
+
+      // The flush window is a real timer; poll instead of sleeping a fixed
+      // multiple so a slow machine cannot flake the batch assertion.
+      bool hasBatch() => h.events.whereType<ConnectionLogEvent>().any(
+        (event) =>
+            event.serverId == 'srv-1' &&
+            event.lines.contains('tcp connect example.com:2222'),
+      );
+      final poll = Stopwatch()..start();
+      while (!hasBatch() && poll.elapsed < _connectionLogPollTimeout) {
+        await Future<void>.delayed(connectionLogFlushInterval ~/ 4);
+      }
+      expect(
+        hasBatch(),
+        isTrue,
+        reason: 'The transcript batch did not arrive within the poll window.',
+      );
+
+      final states = h.events.whereType<ServerStateEvent>().toList();
+      expect(states.last.state, ServerConnectionState.disconnected);
+      expect(states.last.detail, 'Connection refused.');
+      expect(states.last.serverId, 'srv-1');
+
+      final batches = h.events
+          .whereType<ConnectionLogEvent>()
+          .where((e) => e.serverId == 'srv-1')
+          .toList();
+      expect(batches, isNotEmpty);
+      expect(
+        batches.expand((batch) => batch.lines),
+        contains('tcp connect example.com:2222'),
+      );
+    },
+  );
 }
