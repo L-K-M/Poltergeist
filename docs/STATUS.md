@@ -7,7 +7,7 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 _Last updated: 2026-09-08 — the ssh_config import preview/dedupe slice
 (D22) landed as a bounded, unwired component (dated section below).
 Before that: the real-sshd auth-failure-summary coverage
-(rejected key, method-not-accepted user, root prohibit-password) lands
+(rejected key, method-not-accepted user, root prohibit-password) landed
 (validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
 and shared-decision/explicit-review TOFU tests landed below; merged PR #41
 added real-sshd pool integration coverage and its ordinary CI job. M2's
@@ -392,7 +392,7 @@ on an unreadable config, and mounted-guarded async load.
 Validation: 24 core import tests (include resolution, globs, cycles,
 diamonds, depth, the badge matrix, existing/earlier dedupe,
 reference-style mapping, the 04 §2.1 decode round-trip, invalid ports,
-the glob subset) and 10 dialog widget tests (defaults, chips, toggling
+the glob subset) and 11 dialog widget tests (defaults, chips, toggling
 and count, key mapping, disabled action at zero selection, cancel,
 error+retry, empty config, disposal race). Core analysis and 281 tests
 pass; app analysis and 206 tests pass; the import guard passes. The
@@ -466,6 +466,55 @@ core analysis clean and 291 tests pass (34 import tests); app
 analysis clean and 211 tests pass (the round-1 record's 215 was a
 miscount of hidden setUp/tearDown events; the suite's test count is
 unchanged this round); the import guard passes.
+
+Review round 3 (applied; every behavior fix's regression failed
+before its repair): a new `wildcardDefaults` limitation badges rows
+whose `Port`/`User`/`HostName`/`IdentityFile` defaults arrive
+before the first block or inside a `Host *` block — ssh applies both
+shapes to every connection, while the pinned importer drops each
+(top-level directives land in no host block; a wildcard-only block is
+deliberately not a host) — so those bookmarks would prompt instead of
+inheriting (host-block values stay unbadged: the pin applies them; a
+host-deferred include's block-less defaults stay scoped exactly like
+its proxy defaults); brace include tokens (ssh globs with GLOB_BRACE)
+surface an unreadable note in pattern or directory position instead
+of silently matching nothing; a leading `]` in a glob class is a
+literal member as in glob(3) (`[]x].conf` matches `x.conf` and
+`].conf`); the dedupe key lowercases the host (DNS/ssh resolution is
+case-insensitive; usernames stay verbatim); the app file source
+refuses non-regular files so an Include pointing at a FIFO or device
+cannot hang the preview forever; the dialog's retry is re-entrancy
+guarded (a double-tap cannot start concurrent loads). Hardening: the
+round-trip test pins `username`/`authMethod`, the Import-button
+finder uses `widgetWithText`, and the wildcard-promotion test
+documents that its row order stays main-file-first (the chunking
+deviation) while "in place" governs directive scope. Declined: the
+narrow-viewport overflow re-raise (round-1/2 declines stand), the
+Windows symlink-skip re-raise (flutter test runs on ubuntu-latest
+only in CI; open item 1 gates Windows test portability), and per-entry
+stat tolerance in `listLexical` (no constructible failure — a
+mid-listing stat miss reads as notFound and is skipped, not thrown;
+ssh's own Include is fatal on unreadable targets, so the tolerance
+premise is wrong; untestable without a new seam, and 08 §1 treats
+untested rails as absent). Refuted: non-final-component include globs
+missing the note (the round-2 `_hasGlobMetacharacter(directory)`
+guard covers exactly that case at head, pinned by its regression),
+`Key = value` leaving a stray `=` (byte-for-byte parity with the pin's
+own `_splitKeyValue`, verified against the pinned source — a local
+fix would mis-key hostLimitations against the pin's rows; upstream
+port-back candidate, recorded), the round-3 row-order claim
+(host-context includes resolve main-file-first by documented design;
+option precedence is the pin's parse, not this scan), and the `.`/`..`
+glob-entry worry (dart:io's `Directory.list` never yields them and the
+app source filters to regular files). Deferred: a multi-pattern-alias
+badge (the pin's first-concrete-pattern truncation is documented and
+pinned; the badge-surface choice rides the wiring slice with the
+deferred default-off question). Verified without change: ARB keys
+regenerate identically (the new chip key apart) and every
+`_normalizeAbsolutePath` call site anchors relatives first. The
+dialog's localization surface grows one key. Validation: core
+analysis clean and 299 tests pass (42 import tests); app analysis
+clean and 214 tests pass; the import guard passes.
 
 Deliberately unwired (bounded additive slice): no running surface opens
 the dialog yet — command registration rides the M3 command registry and

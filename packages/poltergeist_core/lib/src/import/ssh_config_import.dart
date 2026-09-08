@@ -65,6 +65,14 @@ enum SshConfigImportLimitation {
   /// such ports (04 §2.1 — they would mint malformed `hostkey:` ids) and
   /// the row cannot be imported at all.
   invalidPort,
+
+  /// Connection defaults — `Port`, `User`, `HostName`, `IdentityFile` —
+  /// set before the first block or inside a wildcard `Host *` block.
+  /// ssh applies them to every connection; the pinned importer drops
+  /// both shapes (a top-level directive lands in no host block, and a
+  /// wildcard-only block is deliberately not a host), so the imported
+  /// bookmark will not inherit them.
+  wildcardDefaults,
 }
 
 /// How a top-level `Include` came to be left unresolved. Informational —
@@ -257,8 +265,11 @@ class SshConfigImportService {
   /// Canonical dedupe key (D22): host \0 port \0 username, built the
   /// same way for preview rows and existing bookmarks so the two sides
   /// can never drift apart. NUL can't appear in an ssh config token.
+  /// The host lowercases — ssh hostnames resolve case-insensitively —
+  /// while the username stays verbatim (its case sensitivity is
+  /// platform-dependent).
   static String _endpointKey(String host, int port, String username) =>
-      '$host\u0000$port\u0000$username';
+      '${host.toLowerCase()}\u0000$port\u0000$username';
 
   SshConfigImportPreview _buildPreview(
     _Resolver resolver,
@@ -280,8 +291,8 @@ class SshConfigImportService {
         limitations.add(SshConfigImportLimitation.invalidPort);
       }
 
-      // Verbatim host+port+username — the strings are already written
-      // the way the user writes them.
+      // Host+port+username — the host lowercased because DNS/ssh
+      // resolution is case-insensitive; the username stays verbatim.
       final endpoint = _endpointKey(
         parsed.host.effectiveHost,
         parsed.host.port ?? _defaultSshPort,
@@ -540,6 +551,29 @@ class _Resolver {
           }
           // Top-level includes resolve (the chunker cut them out); a
           // Match-block include is covered by the matchBlock badge.
+        case 'port':
+        case 'user':
+        case 'hostname':
+        case 'identityfile':
+          // Connection defaults the pinned importer drops: top-level
+          // directives land in no host block and a wildcard-only block
+          // is deliberately not a host, yet ssh applies both to every
+          // connection — the badge keeps that loss visible (D22).
+          switch (context) {
+            case _BlockContextTop():
+              if (promoteTopLevelDefaults) {
+                globalLimitations.add(
+                  SshConfigImportLimitation.wildcardDefaults,
+                );
+              }
+            case _BlockContextWildcard():
+              globalLimitations.add(
+                SshConfigImportLimitation.wildcardDefaults,
+              );
+            case _BlockContextHost():
+            case _BlockContextMatch():
+              break; // the pin applies host-block values; Match covers all
+          }
         default:
           break;
       }
@@ -629,6 +663,15 @@ class _Resolver {
     }
     path = _normalizeAbsolutePath(path);
 
+    // ssh's Include globs run with GLOB_BRACE, so `{a,b}` expands; this
+    // subset cannot expand braces, so such a token must surface as a
+    // note instead of silently matching nothing (or matching the
+    // literal braces ssh would never try).
+    if (path.contains('{') || path.contains('}')) {
+      noteUnreadable();
+      return const [];
+    }
+
     if (!_hasGlobMetacharacter(path)) return [path];
 
     final slash = path.lastIndexOf('/');
@@ -667,7 +710,8 @@ class _Resolver {
   /// Bracket classes have
   /// no escapes (`\` is literal) and `^` is not negation, so the class
   /// body is re-escaped for the regex translation; malformed classes
-  /// (empty, reversed ranges) match nothing rather than throwing.
+  /// (empty, reversed ranges) match nothing rather than throwing, and a
+  /// `]` first in the class is a literal member, as in glob(3).
   static bool _globMatch(String pattern, String name) {
     // glob(3) never matches a leading dot unless the pattern starts
     // with one: `*.conf` skips `.hidden.conf` and `.#backup.conf`.
@@ -682,7 +726,13 @@ class _Resolver {
       } else if (c == '?') {
         regex.write('[^/]');
       } else if (c == '[') {
-        final end = pattern.indexOf(']', i + 1);
+        // glob(3): a `]` first in the class (or right after `!`) is a
+        // literal member, so the closing-bracket scan must start past
+        // it — `[]x]` is the class {],x}, and `[!]x]` is "not ] or x".
+        var start = i + 1;
+        if (start < pattern.length && pattern[start] == '!') start++;
+        if (start < pattern.length && pattern[start] == ']') start++;
+        final end = pattern.indexOf(']', start);
         if (end < 0) {
           regex.write(RegExp.escape(c));
         } else {
@@ -691,6 +741,9 @@ class _Resolver {
           if (negated) klass = klass.substring(1);
           // Regex metacharacters are literals inside a glob class.
           klass = klass.replaceAll('\\', '\\\\');
+          // A leading `]` is a literal member; escape it after the
+          // backslash pass so the escape itself survives intact.
+          if (klass.startsWith(']')) klass = '\\]${klass.substring(1)}';
           if (klass.startsWith('^')) klass = '\\^${klass.substring(1)}';
           // `[]` and `[!]` match nothing in glob — the regex `[^]`
           // would match any character instead.

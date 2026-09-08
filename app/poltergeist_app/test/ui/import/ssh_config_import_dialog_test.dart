@@ -153,6 +153,32 @@ class _ThrowingService extends SshConfigImportService {
   }) async => throw Exception('importer bug');
 }
 
+/// The initial load fails fast (retry surface); each retry hands back a
+/// gated future so a double-tap's second call is observable in flight.
+class _FailingThenGatedService extends SshConfigImportService {
+  final Completer<SshConfigImportPreview> retry = Completer();
+  int calls = 0;
+
+  _FailingThenGatedService()
+    : super(
+        homeDirectory: _home,
+        source: const _NeverSource(),
+        mintId: () => 'unused',
+      );
+
+  @override
+  Future<SshConfigImportPreview> loadPreview({
+    required String configPath,
+    Iterable<Bookmark> existingBookmarks = const [],
+  }) async {
+    final attempt = ++calls;
+    if (attempt == 1) {
+      throw SshConfigUnreadableException(configPath);
+    }
+    return retry.future;
+  }
+}
+
 class _NeverSource implements SshConfigFileSource {
   const _NeverSource();
 
@@ -198,13 +224,7 @@ void main() {
     // Nothing selected: the action stays disabled and label-less (the
     // other "Import" text is the table header).
     final disabledButton = tester.widget<FilledButton>(
-      find.ancestor(
-        of: find.descendant(
-          of: find.byType(FilledButton),
-          matching: find.text('Import'),
-        ),
-        matching: find.byType(FilledButton),
-      ),
+      find.widgetWithText(FilledButton, 'Import'),
     );
     expect(disabledButton.onPressed, isNull);
 
@@ -212,6 +232,25 @@ void main() {
     await tester.tap(find.byType(Checkbox).at(0));
     await tester.pump();
     expect(find.text('Import 1'), findsOneWidget);
+  });
+
+  testWidgets('Host * defaults badge rows', (tester) async {
+    const config = '''
+Host *
+  User deploy
+
+Host web
+  HostName web.example.com
+''';
+    await _open(tester, _service(_FakeSource({_configPath: config})));
+
+    expect(
+      find.text(
+        'Won\u2019t behave as in ssh: defaults from a top-level or '
+        'Host * block are not inherited',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('match blocks badge every row', (tester) async {
@@ -381,6 +420,35 @@ Host second
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.text('Could not read $_configPath.'), findsOneWidget);
     expect(find.text('Try Again'), findsOneWidget);
+  });
+
+  testWidgets('a double-tapped retry starts only one load',
+      (tester) async {
+    final service = _FailingThenGatedService();
+
+    await tester.pumpWidget(_Harness(service, _configPath));
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pumpAndSettle(); // initial load failed: retry visible
+
+    // Two taps inside one frame — the button is still mounted, so an
+    // unguarded _load would fire a third loadPreview (initial + two
+    // retries); the guard holds it at initial + one retry.
+    await tester.tap(find.text('Try Again'));
+    await tester.tap(find.text('Try Again'));
+    await tester.pump();
+
+    expect(service.calls, 2);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    service.retry.complete(
+      const SshConfigImportPreview(rows: [], notices: []),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('No importable hosts were found in $_configPath.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a late load result never paints after disposal',

@@ -23,6 +23,15 @@ void main() {
     expect(await source.readText('${temp.path}/missing'), isNull);
   });
 
+  test('non-regular files are refused instead of read', () async {
+    // An Include pointing at a device (or FIFO) would otherwise block
+    // forever waiting for EOF; ssh's own read is bounded by the same
+    // regular-file expectation. On a platform without /dev/null the
+    // path simply reports missing, which is also null.
+    const source = LocalSshConfigFileSource();
+    expect(await source.readText('/dev/null'), isNull);
+  });
+
   test('non-UTF-8 bytes decode leniently instead of failing the read',
       () async {
     // A cp1252 smart quote in a comment (0x94) is legal bytes for ssh;

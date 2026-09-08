@@ -52,6 +52,7 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
   _LoadPhase _phase = _LoadPhase.loading;
   SshConfigImportPreview? _preview;
   final Set<String> _selectedRowIds = {};
+  bool _loadInFlight = false;
 
   @override
   void initState() {
@@ -60,6 +61,11 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
   }
 
   Future<void> _load() async {
+    // A double-tap on the retry button (or a racing re-open) must not
+    // start a second load over the first — the late completion would
+    // clobber a fresh selection (09 §3.1's post-await discipline).
+    if (_loadInFlight) return;
+    _loadInFlight = true;
     setState(() => _phase = _LoadPhase.loading);
 
     SshConfigImportPreview preview;
@@ -69,12 +75,14 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
         existingBookmarks: widget.existingBookmarks,
       );
     } on SshConfigUnreadableException {
+      _loadInFlight = false;
       if (!mounted) return;
       setState(() => _phase = _LoadPhase.failed);
       return;
     } on Exception {
       // An unexpected importer failure shows the retry surface instead
       // of parking on the spinner forever; Errors still crash loudly.
+      _loadInFlight = false;
       if (!mounted) return;
       setState(() => _phase = _LoadPhase.failed);
       return;
@@ -83,6 +91,7 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
     // The load window is exactly when dismissal can dispose this dialog;
     // a stale load must not paint after dispose (09 §3.1).
     if (!mounted) return;
+    _loadInFlight = false;
     setState(() {
       _preview = preview;
       _phase = _LoadPhase.ready;
@@ -386,5 +395,7 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
     SshConfigImportLimitation.matchBlock => l10n.sshImportLimitMatch,
     SshConfigImportLimitation.hostInclude => l10n.sshImportLimitHostInclude,
     SshConfigImportLimitation.invalidPort => l10n.sshImportLimitInvalidPort,
+    SshConfigImportLimitation.wildcardDefaults =>
+      l10n.sshImportLimitWildcardDefaults,
   };
 }

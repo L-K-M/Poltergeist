@@ -478,6 +478,12 @@ abstract class AppLocalizations {
   /// **'Cannot import: port outside 1–65535'**
   String get sshImportLimitInvalidPort;
 
+  /// Chip for rows whose User/Port/HostName/IdentityFile global defaults the pinned importer drops.
+  ///
+  /// In en, this message translates to:
+  /// **'Won’t behave as in ssh: defaults from a top-level or Host * block are not inherited'**
+  String get sshImportLimitWildcardDefaults;
+
   /// Heading of the informational include-resolution note list.
   ///
   /// In en, this message translates to:

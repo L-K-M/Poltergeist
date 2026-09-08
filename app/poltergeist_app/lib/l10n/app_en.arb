@@ -305,6 +305,10 @@
   "@sshImportLimitInvalidPort": {
     "description": "Chip for a row whose Port directive is out of range."
   },
+  "sshImportLimitWildcardDefaults": "Won’t behave as in ssh: defaults from a top-level or Host * block are not inherited",
+  "@sshImportLimitWildcardDefaults": {
+    "description": "Chip for rows whose User/Port/HostName/IdentityFile global defaults the pinned importer drops."
+  },
   "sshImportUnresolvedIncludes": "Unresolved includes",
   "@sshImportUnresolvedIncludes": {
     "description": "Heading of the informational include-resolution note list."

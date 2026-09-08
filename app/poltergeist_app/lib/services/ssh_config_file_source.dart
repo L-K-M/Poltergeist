@@ -14,8 +14,13 @@ class LocalSshConfigFileSource implements SshConfigFileSource {
   @override
   Future<String?> readText(String path) async {
     try {
+      // Only open regular files (missing paths report notFound): an
+      // Include pointing at a FIFO or device file would otherwise read
+      // forever waiting for EOF, hanging the preview with no error.
+      if (await FileSystemEntity.type(path) != FileSystemEntityType.file) {
+        return null;
+      }
       final file = File(path);
-      if (!await file.exists()) return null;
       // ssh treats the config as bytes; a stray cp1252 smart quote or
       // Latin-1 hostname must not make a readable file look unreadable.
       // Malformed sequences decode to U+FFFD, which no ssh directive

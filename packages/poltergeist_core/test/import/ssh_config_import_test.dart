@@ -153,6 +153,8 @@ Host keyed
     );
     expect(decoded.server!.identity!.identityFilePath, '~/.ssh/id_ed25519');
     expect(decoded.server!.identity!.port, 2200);
+    expect(decoded.server!.identity!.username, 'alice');
+    expect(decoded.server!.identity!.authMethod, AuthMethod.privateKey);
     expect(decoded.label, 'keyed');
   });
 
@@ -172,6 +174,27 @@ Host keyed
     expect(preview.rows[1].matchesExistingBookmark, isFalse);
     expect(preview.rows[2].matchesExistingBookmark, isFalse);
     expect(preview.rows[3].matchesExistingBookmark, isFalse);
+  });
+
+  test('dedupe ignores host case, not username case', () async {
+    final preview = await _load(
+      'Host same-host\n  HostName github.com\n  User deploy\n'
+      'Host same-user\n  HostName GitHub.com\n  User Deploy\n',
+      existing: [
+        _existingBookmark(
+          'Prod GitHub',
+          host: 'GitHub.com',
+          port: 22,
+          user: 'deploy',
+        ),
+      ],
+    );
+
+    // SSH hostnames resolve case-insensitively, so the hosts are the
+    // same endpoint; usernames stay verbatim (case sensitivity there is
+    // platform-dependent).
+    expect(preview.rows[0].matchesExistingBookmark, isTrue);
+    expect(preview.rows[1].matchesExistingBookmark, isFalse);
   });
 
   test('dedupe sees workspace and sync endpoint identities too', () async {
@@ -463,6 +486,49 @@ Include ~otheruser/keys.conf
     expect(preview.notices.single.path, '$_home/.ssh/conf.d/*/*.conf');
   });
 
+  test('brace include globs are noted unsupported, not silent', () async {
+    final dir = '$_home/.ssh/config.d';
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/{a,b}*.conf\n',
+        '$dir/alpha.conf': 'Host alpha\n',
+        '$dir/beta.conf': 'Host beta\n',
+      },
+      dirs: {
+        dir: ['$dir/alpha.conf', '$dir/beta.conf'],
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    // ssh's Include globs run with GLOB_BRACE, so `{a,b}*.conf` expands
+    // to two patterns; this subset cannot expand braces, so the token
+    // must surface as a note instead of silently matching nothing.
+    expect(preview.rows, isEmpty);
+    expect(preview.notices, hasLength(1));
+    expect(preview.notices.single.note, SshConfigIncludeNote.unreadable);
+    expect(preview.notices.single.path, '$dir/{a,b}*.conf');
+  });
+
+  test('a brace in an include directory is noted, not silent', () async {
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $_home/.ssh/conf{1,2}/*.conf\n',
+        '$_home/.ssh/conf1/a.conf': 'Host one\n',
+        '$_home/.ssh/conf2/b.conf': 'Host two\n',
+      },
+      dirs: {
+        '$_home/.ssh/conf1': ['$_home/.ssh/conf1/a.conf'],
+        '$_home/.ssh/conf2': ['$_home/.ssh/conf2/b.conf'],
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows, isEmpty);
+    expect(preview.notices, hasLength(1));
+    expect(preview.notices.single.note, SshConfigIncludeNote.unreadable);
+    expect(preview.notices.single.path, '$_home/.ssh/conf{1,2}/*.conf');
+  });
+
   test('an include cycle is detected per branch; diamonds parse twice',
       () async {
     final source = _FakeSource(files: {
@@ -710,6 +776,31 @@ Host fine
     expect(preview.rows, isEmpty);
   });
 
+  test('a leading ] in a glob class is a literal member', () async {
+    final dir = '$_home/.ssh/config.d';
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/[]x].conf\nInclude $dir/[!]x].conf\n',
+        '$dir/x.conf': 'Host ex\n',
+        '$dir/y.conf': 'Host why\n',
+        '$dir/].conf': 'Host literal-bracket\n',
+      },
+      dirs: {
+        dir: ['$dir/x.conf', '$dir/y.conf', '$dir/].conf'],
+      },
+    );
+
+    // glob(3): a `]` right after `[` or `[!` belongs to the class, so
+    // `[]x].conf` is "one of ] or x, then .conf" — matching ].conf and
+    // x.conf — and `[!]x].conf` is "not ] and not x, then .conf",
+    // matching only y.conf. Lexical order puts ].conf before x.conf.
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(
+      preview.rows.map((r) => r.host.alias).toList(),
+      ['literal-bracket', 'ex', 'why'],
+    );
+  });
+
   test('a reversed character range fails closed instead of throwing',
       () async {
     final dir = '$_home/.ssh/config.d';
@@ -824,6 +915,9 @@ Host web
     // behaves like the wildcard block's own directives: its block-less
     // proxy default applies to every connection and must badge every
     // row (the wildcard block's own lines already do, per _scanUnsupported).
+    // Row order itself stays main-file-first for host-context includes —
+    // the documented chunking deviation in _Resolver.resolveFile; "in
+    // place" here governs directive scope, not row order.
     expect(
       preview.rows.map((r) => r.host.alias).toList(),
       ['web', 'extra'],
@@ -848,6 +942,98 @@ Host alpha beta
     expect(
       preview.rows.single.limitations,
       contains(SshConfigImportLimitation.proxyCommand),
+    );
+  });
+
+  test('Host * connection defaults badge every row', () async {
+    final preview = await _load('''
+Host *
+  User deploy
+  Port 2222
+  IdentityFile ~/.ssh/id_ed25519
+
+Host web
+  HostName web.example.com
+''');
+
+    // The pinned importer drops the wildcard block, so none of these
+    // defaults reach the row — ssh would connect as deploy@…:2222 with
+    // that key; the badge keeps the preview honest (D22).
+    expect(preview.rows, hasLength(1));
+    expect(
+      preview.rows.single.limitations,
+      contains(SshConfigImportLimitation.wildcardDefaults),
+    );
+    expect(preview.rows.single.username, '');
+    expect(preview.rows.single.host.identityFile, isNull);
+  });
+
+  test('top-level connection defaults badge every row', () async {
+    final preview = await _load('''
+User deploy
+Port 2222
+
+Host web
+  HostName web.example.com
+''');
+
+    // Options before the first block apply to every connection in ssh;
+    // the pinned importer drops them, so the badge must carry the loss.
+    expect(preview.rows, hasLength(1));
+    expect(
+      preview.rows.single.limitations,
+      contains(SshConfigImportLimitation.wildcardDefaults),
+    );
+  });
+
+  test('host-block defaults never badge; the pin applies them', () async {
+    final preview = await _load('''
+Host web
+  HostName web.example.com
+  User deploy
+  Port 2222
+  IdentityFile ~/.ssh/id_ed25519
+''');
+
+    expect(preview.rows, hasLength(1));
+    expect(
+      preview.rows.single.limitations,
+      isNot(contains(SshConfigImportLimitation.wildcardDefaults)),
+    );
+    expect(preview.rows.single.username, 'deploy');
+    expect(preview.rows.single.port, 2222);
+    expect(preview.rows.single.host.identityFile, '~/.ssh/id_ed25519');
+  });
+
+  test('deferred-include defaults stay scoped, like proxy defaults',
+      () async {
+    final source = _FakeSource(
+      files: {
+        _configPath: '''
+Host hostwithinclude
+  HostName web.example.com
+  Include $_home/.ssh/defaults.conf
+
+Host clean
+  HostName clean.example.com
+''',
+        '$_home/.ssh/defaults.conf': 'User deploy\nPort 2222\n',
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    // ssh scopes a host-deferred include's block-less options to the
+    // enclosing host; the hostInclude badge already covers the loss, so
+    // no row may carry the global-defaults badge.
+    for (final row in preview.rows) {
+      expect(
+        row.limitations,
+        isNot(contains(SshConfigImportLimitation.wildcardDefaults)),
+      );
+    }
+    expect(
+      preview.rows[0].limitations,
+      contains(SshConfigImportLimitation.hostInclude),
     );
   });
 }
