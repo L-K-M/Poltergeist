@@ -69,6 +69,57 @@ void main() {
       expect(fixture._events.last, 'banner');
     });
   }
+
+  for (final wrongAttempt in [1, 2]) {
+    test(
+      'smoke rejects the wrong key after restoration $wrongAttempt',
+      () async {
+        final source = await (await _repoFile(
+          'test/integration/smoke.sh',
+        )).readAsString();
+        final swapCheck = source.indexOf(
+          'keyswap server presented the baseline',
+        );
+        expect(swapCheck, isNonNegative);
+        final start = source.indexOf('\nfi\n', swapCheck);
+        final end = source.indexOf('\n# The restricted server', start);
+        expect(start, isNonNegative);
+        expect(end, greaterThan(start));
+
+        final directory = await Directory.systemTemp.createTemp(
+          'poltergeist-smoke-restore-',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+
+        final helper = File('${directory.path}/service-control.sh');
+        await helper.writeAsString(_fakeRestoration);
+        final chmod = await Process.run('/bin/chmod', ['+x', helper.path]);
+        expect(chmod.exitCode, 0, reason: '${chmod.stderr}');
+        final attemptFile = File('${directory.path}/attempt');
+        await attemptFile.writeAsString('0\n');
+
+        // Execute the real restoration checks with controlled host-key results.
+        final result = await runFixtureProcess(
+          '/bin/bash',
+          [
+            '-eu',
+            '-o',
+            'pipefail',
+            '-c',
+            '$_fakeKeyscan\n${source.substring(start + '\nfi\n'.length, end)}',
+            'fixture',
+            directory.path,
+            '$wrongAttempt',
+          ],
+          workingDirectory: directory.path,
+          timeout: _scriptTimeout,
+        );
+
+        expect(result.exitCode, 1, reason: '${result.stderr}');
+        expect((await attemptFile.readAsString()).trim(), '$wrongAttempt');
+      },
+    );
+  }
 }
 
 Future<File> _repoFile(String path) async {
@@ -181,4 +232,29 @@ case "$3" in
   banner) [[ "$state" == modern ]] ;;
   *) exit 1 ;;
 esac
+''';
+
+const _fakeRestoration = r'''#!/bin/bash
+set -euo pipefail
+[[ "$1" == restore-modern ]]
+read -r attempt < attempt
+printf '%s\n' "$((attempt + 1))" > attempt
+''';
+
+const _fakeKeyscan = r'''
+readonly integration_dir="$1"
+readonly wrong_attempt="$2"
+readonly baseline_key=baseline
+PATH="$integration_dir"
+export PATH
+
+ssh-keyscan() {
+  read -r attempt < attempt
+  if [[ "$attempt" == "$wrong_attempt" ]]; then
+    printf 'wrong\n'
+    return
+  fi
+
+  printf '%s\n' "$baseline_key"
+}
 ''';

@@ -53,13 +53,15 @@ if [[ "$baseline_key" == "$swapped_key" ]]; then
   exit 1
 fi
 
-"$integration_dir/service-control.sh" restore-modern
-"$integration_dir/service-control.sh" restore-modern
-restored_key="$(ssh-keyscan -T 5 -t ed25519 -p 2201 127.0.0.1 2>/dev/null)"
-if [[ "$baseline_key" != "$restored_key" ]]; then
-  echo 'modern server did not restore its host key' >&2
-  exit 1
-fi
+# Check each result so repeated cleanup cannot hide a broken first restoration.
+for restoration in first repeated; do
+  "$integration_dir/service-control.sh" restore-modern
+  restored_key="$(ssh-keyscan -T 5 -t ed25519 -p 2201 127.0.0.1 2>/dev/null)"
+  if [[ "$baseline_key" != "$restored_key" ]]; then
+    echo "$restoration restoration did not serve the baseline key" >&2
+    exit 1
+  fi
+done
 
 # The restricted server must accept bytes, then reject metadata writes.
 restricted_port="$(resolve_service_port sshd-restricted)"

@@ -502,10 +502,13 @@ Auth-failure summaries and the production-wiring gates remain open.
    stops both swap services, waits for their fixed shared port to clear,
    then starts modern and verifies its SSH banner. Cleanup works before
    keyswap exists, after either startup/readiness failure, and on repeat.
-   Six regressions failed on the old port lookup; all nine new checks pass,
+   Six regressions failed on the old port lookup; all eleven new checks pass,
    including Compose-port consistency and stop/free/start/banner failure
    propagation. The smoke suite now restores before the first swap and
-   twice afterward. All 59 fixture-tool, 257 core, and 196 app tests pass locally
+   twice afterward. Review added a key check after each restoration: a wrong
+   first key previously passed when the second cleanup repaired it. That
+   regression failed before the check and passes afterward; a wrong second
+   key is also rejected. All 61 fixture-tool, 257 core, and 196 app tests pass locally
    (15 real-sshd skips); fixture/core/Flutter analysis is clean. Docker is
    unavailable locally; real-service smoke, all 15 SSH tests, and all five
    client builds pass in [CI run 34224282442](https://github.com/L-K-M/Poltergeist/actions/runs/34224282442).
