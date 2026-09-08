@@ -206,10 +206,11 @@ Future<void> _expectSummarized(
 /// Loads fixture configuration from the exported environment (08 §5):
 /// the authmatrix port plus the shared user key, password, and the
 /// committed host-key pin pre-seeded into every non-TOFU suite.
+/// The fixture username is not loaded — every case passes its own
+/// authmatrix user.
 class _Fixture {
   final String host;
   final int port;
-  final String username;
   final String privateKey;
   final String password;
   final HostKey hostKey;
@@ -217,7 +218,6 @@ class _Fixture {
   _Fixture(
     this.host,
     this.port,
-    this.username,
     this.privateKey,
     this.password,
     this.hostKey,
@@ -245,7 +245,6 @@ class _Fixture {
     return _Fixture(
       host,
       port,
-      requiredVariable('POLTERGEIST_SSHD_USER'),
       await File(requiredVariable('POLTERGEIST_SSHD_KEY')).readAsString(),
       requiredVariable('POLTERGEIST_SSHD_PASSWORD'),
       HostKey.fromPublicKey(
@@ -319,10 +318,14 @@ class _AuthHarness {
     onHostKey: (decision) async {
       _decisions.add(decision);
       // A pre-seeded fixture pin must never prompt (08 §5 pin isolation).
+      // If the manager converts this throw into a connect failure, the
+      // _decisions emptiness assertion in _expectSummarized still fails.
       fail('A pre-seeded fixture must never prompt: ${decision.verdict}');
     },
     onKeyboardInteractive: (prompts, name, _) async {
       _challenges.add((prompts: prompts, name: name));
+      // Same fallback as the host-key guard: the emptiness assertion
+      // catches a converted failure if this throw never surfaces raw.
       fail('An auth-failure case must not reach a prompt: $name');
     },
     policy: _defaultPolicy,
