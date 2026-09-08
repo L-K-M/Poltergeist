@@ -209,7 +209,7 @@ void main() {
     // exceed the library default; budget the named inner waits explicitly.
     test(
       'hard-blocks every operation without re-pinning',
-      timeout: const Timeout(
+      timeout: Timeout(
         _blockedTimeout + _serviceTimeout + _operationTimeout,
       ),
       () async {
