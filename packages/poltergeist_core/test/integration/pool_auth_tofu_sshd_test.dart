@@ -66,6 +66,8 @@ void main() {
         // The auxiliary fixture users own empty homes; canonicalization is
         // the end-to-end SFTP proof over the interactive transport.
         expect(await pane.fs.canonicalize('.'), pane.homePath);
+        // Guard the everyElement below against a vacuous empty pass.
+        expect(harness._authKinds, isNotEmpty);
         expect(harness._authKinds, everyElement(isIn(_interactiveKinds)));
         // PAM may append an empty follow-up round after the password is
         // accepted; only prompt-bearing rounds are user interaction (D5).
@@ -203,7 +205,14 @@ void main() {
     // A failed assertion after the swap must not strand later suites.
     tearDownAll(() => restore?.call());
 
-    test('hard-blocks every operation without re-pinning', () async {
+    // A slow swap that still succeeds plus a full blocked-wait budget can
+    // exceed the library default; budget the named inner waits explicitly.
+    test(
+      'hard-blocks every operation without re-pinning',
+      timeout: const Timeout(
+        _blockedTimeout + _serviceTimeout + _operationTimeout,
+      ),
+      () async {
       final store = await fixture.preSeededStore();
       final harness = fixture.manager(pinStore: store, review: _firstUseOnly);
       final manager = harness._manager;
