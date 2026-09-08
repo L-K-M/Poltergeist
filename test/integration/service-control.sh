@@ -5,6 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/fixture.sh"
 
 readonly action="${1:-}"
 readonly service="${2:-sshd-modern}"
+readonly shared_ssh_port='2201'
 
 case "$action" in
   start)
@@ -24,9 +25,10 @@ case "$action" in
     wait_for_service sshd-keyswap
     ;;
   restore-modern)
-    modern_port="$(resolve_service_port sshd-keyswap)"
-    compose stop sshd-keyswap
-    wait_for_free_port "$modern_port"
+    # Reset both sides so cleanup can retry after any partial swap or restore.
+    # The fixed Compose port remains known even when neither service runs.
+    compose stop sshd-keyswap sshd-modern
+    wait_for_free_port "$shared_ssh_port"
     compose up --detach sshd-modern
     wait_for_service sshd-modern
     ;;
