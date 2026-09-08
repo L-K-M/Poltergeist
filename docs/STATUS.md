@@ -728,10 +728,19 @@ PORTS.md unchanged), no pin change, no milestone close.
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
      does not block the teardown repair or change error preservation.
-   - **Dependency-contract coverage (updated 2026-09-06):** 09 §5's
-     upgrade guards are covered below. Hash-off second-preflight/CAS coverage
-     remains absent from the inspected Séance #62 adapter tests; those tests
-     stay upstream (08 §2). This is a test gap, not an observed VFS failure.
+   - **Dependency-contract coverage (updated 2026-09-06; hash-off CAS leg
+     closed 2026-09-08):** 09 §5's upgrade guards are covered below. The
+     hash-off second-preflight/CAS gap is closed upstream in
+     [Séance #78](https://github.com/L-K-M/Seance/pull/78) (merge
+     `41d526178a65470142cf4bcb60b8da548af1dbba`, test-only, so no pin
+     change per D2): six socket-free tests through the real adapter over a
+     path-aware SFTP fake cover both preflights, the `expectedTarget`
+     snapshot and digest CAS with `computeHash: false` (disabling the
+     outgoing digest never disables the CAS hash), preservation of
+     externally written targets, no commit rename on refusal, and temp
+     cleanup; guard liveness was proven with isolated, reverted adapter
+     mutations. Tests stay upstream (08 §2). No production adapter code
+     changed — this was a coverage gap, never an observed VFS failure.
 
 6. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
    incidents now survive disconnect, but not process restart. A returning
