@@ -4,9 +4,10 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — real-sshd TOFU coverage added for first-use
-decisions, silent reconnect/growth, and same-port changed-key blocking
-(validation below). M2's prompt dialogs,
+_Last updated: 2026-09-08 — PR #42 adds real-sshd interactive-auth/TOFU
+coverage. Additional TOFU tests cover shared pending decisions, first-use
+rejection, explicit changed-key approval, and per-test restoration below.
+M2's prompt dialogs,
 coordinator, live connect transcript, state-associated failure details, and independent
 terminal-recovery diagnostics are implemented. Recovery ignores stale home
 failures from dead transports. Bounded engine progress coalescing, pooled
@@ -216,6 +217,33 @@ engine/pane integration work.
 M4 owns transfer retry/progress counters. Keepalive, real-sshd recovery,
 and the existing owner-decision gates remain open. No milestone-close claim.
 
+## M2 — real-sshd interactive auth and TOFU (2026-09-08)
+
+Three tagged tests extend the real-sshd matrix to 07 §3.3's auth/TOFU exit
+criteria over the production opener (no fakes): keyboard-interactive auth
+against `sshd-authmatrix` (`keyboard-only` user) answers exactly one
+challenge via the responder, lands an interactive `AuthKind`, and caps the
+pool at one transport under excess demand — the queued fifth lease never
+dials again and is served by a released channel; TOFU first use against
+`sshd-modern` folds two concurrent panes into one prompt, pins the committed
+key, then growth and a fresh-pool reconnect verify silently (one decision,
+never a second prompt); the changed-key test swaps `sshd-modern` for
+`sshd-keyswap` mid-session — recovery blocks without prompting, every pane
+operation and a fresh acquisition fail with the changed-key reason after a
+declined review, and the store still holds only the original pin (D18, no
+auto-repin). Declining keeps the suite off restored-key-review behavior,
+which awaits the owner decision (open item 6). Group teardown runs
+`restore-modern`; the suite reuses the committed fixture lifecycle, the
+existing CI integration job, and per-suite pin-store isolation (08 §5).
+
+Local validation: core analysis clean; 257 core tests pass (eight
+integration skips without fixture variables — three of them these);
+fixture-tool, protocol-guard (49), and import-guard (92) tests pass. The
+Docker legs run in CI (Docker unavailable locally). The auth-failure
+summary leg of 08 §5 (rejected key, method-not-accepted user, root
+`prohibit-password`) remains ungated follow-up coverage. No production
+code, wiring, source port, dependency change, or milestone close.
+
 ## M2 — real-sshd pool integration (2026-09-08)
 
 Four tagged tests exercise the production opener, SFTP adapters, and TCP
@@ -241,8 +269,9 @@ The first run exposed a nullable timeout callback against a non-nullable
 future in both growth tests; corrected assertions pass. Review also checks
 opener attempts while demand queues, so a pending third handshake cannot
 escape the cap assertion. No production wiring, source port,
-dependency change, or milestone close. Interactive-auth/TOFU integration and
-M4's mid-transfer queue recovery remain separate exit criteria.
+dependency change, or milestone close. The auth-failure-summary
+integration leg and M4's mid-transfer queue recovery remain open exit
+criteria.
 
 Review hardened the fixture harness: shell fakes load before extracted code,
 GNU timeout kills a stalled helper's process group, teardown audits unexpected
@@ -258,13 +287,14 @@ before repair. The workflow guard tests now match CI's shell flags and control
 their environment. Account/process suites declare their GNU-timeout Linux
 requirement; broader fixture-tool portability remains open below.
 
-## M2 — real-sshd TOFU coverage (2026-09-08)
+## M2 — TOFU decisions across bookmarks (2026-09-08)
 
 Four Linux integration tests use the production pool/opener and private,
 initially empty pin stores. Concurrent bookmarks share one pending first-use
 decision; approval pins the committed fixture fingerprint, while rejection
-leaves no pin and prompts again on retry. Actual transport growth and a fresh
-session verify silently. Swapping sshd on the same host:port blocks both
+leaves no pin and prompts again on retry. PR #42 owns the growth/reconnect
+coverage.
+Swapping sshd on the same host:port blocks both
 bookmarks, existing pane/lease handles, and new worker acquisitions without
 prompting or re-pinning. Explicit changed-key rejection preserves the block;
 approval installs the replacement fingerprint and restores SFTP access.
@@ -274,19 +304,19 @@ restoration before mutation, with suite teardown as a fallback. Ordinary tests
 skip without both fixture host and modern-port variables; the existing serial
 integration CI job runs them.
 Local core/Flutter analysis and 257 core plus 196 Flutter tests pass; the
-import guard passes. Nine integration tests skip locally because Docker is
-unavailable; all nine pass in
+import guard passes. Twelve integration tests skip locally because Docker is
+unavailable. Before reconciliation with #42, all nine passed in
 [CI run 34194253564](https://github.com/L-K-M/Poltergeist/actions/runs/34194253564).
 Review added a next-test pin check that failed in
 [run 34194044313](https://github.com/L-K-M/Poltergeist/actions/runs/34194044313)
-before per-test restoration and passes after it. The test policy fixes its
-two-transport cap; the swap test allows four minutes for its
+before per-test restoration and passes after it. The swap test allows four
+minutes for its
 independently bounded Docker/recovery/review stages. `watchServer` replays
 current state, and the process helper inherits its environment. Blocked-handle
 assertions throw synchronously in the `fs` getter; the matcher also tracks
-future outcomes. These review concerns require no code change. No production
-change, source port, pin bump, or milestone close. Keyboard-interactive auth
-and auth-failure summaries remain open, as do the production-wiring gates.
+future outcomes. These review concerns require no code change. Combined-suite
+CI is pending. No production change, source port, pin bump, or milestone close.
+Auth-failure summaries and the production-wiring gates remain open.
 
 ## Open items
 
@@ -344,9 +374,10 @@ and auth-failure summaries remain open, as do the production-wiring gates.
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
    - Docker-integration pool coverage (growth, keepalive, reconnect against
-     real sshd) landed in the 2026-09-08 slice above. TOFU coverage is added
-     in the dated section above; keyboard-interactive auth, auth-failure
-     summaries, and M4's mid-transfer queue recovery remain open.
+     real sshd), interactive auth, and TOFU flows landed in the dated slices
+     above. Additional shared-bookmark decisions and explicit trust review
+     are covered above; auth-failure summaries and M4's mid-transfer queue
+     recovery remain open.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the

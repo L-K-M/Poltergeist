@@ -21,93 +21,61 @@ const _operationTimeout = Duration(seconds: 15);
 const _serviceTimeout = Duration(seconds: 50);
 // Swap, restoration, recovery, and explicit SSH reviews have separate bounds.
 const _swapTestTimeout = Timeout(Duration(minutes: 4));
-const _policy = PoolPolicy(
-  maxTransports: 2,
-  maxTransferChannelsPerTransport: 1,
-  maxChannelsPerTransport: 3,
-);
+const _policy = PoolPolicy();
 
 void main() {
   final environment = Platform.environment;
   final enabled =
       environment[_hostVariable] != null && environment[_portVariable] != null;
 
-  group('TOFU against real sshd', () {
+  group('shared TOFU decisions against real sshd', () {
     late _Fixture fixture;
     Future<void> Function()? restore;
     setUpAll(() async => fixture = await _Fixture._load());
     // Restore even when a swap or assertion fails; run.sh owns final cleanup.
     tearDownAll(() => restore?.call());
 
-    test(
-      'first use pins once; reconnect and pool growth verify silently',
-      () async {
-        final harness = fixture._pool();
-        final entered = Completer<void>();
-        final approval = Completer<bool>();
-        addTearDown(() {
-          if (!approval.isCompleted) approval.complete(false);
-        });
-        harness._onHostKey = (_) {
-          if (!entered.isCompleted) entered.complete();
-          return approval.future;
-        };
+    test('two bookmarks share one pending first-use decision', () async {
+      final harness = fixture._pool();
+      final entered = Completer<void>();
+      final approval = Completer<bool>();
+      addTearDown(() {
+        if (!approval.isCompleted) approval.complete(false);
+      });
+      harness._onHostKey = (_) {
+        if (!entered.isCompleted) entered.complete();
+        return approval.future;
+      };
 
-        // Two bookmarks at one endpoint share even a pending trust decision.
-        final opening = Future.wait([
-          harness._manager.openBrowseChannel(_primaryId, paneTabId: 'left'),
-          harness._manager.openBrowseChannel(_siblingId, paneTabId: 'right'),
-        ]);
-        final opened = expectLater(opening, completes);
-        await entered.future.timeout(_operationTimeout);
-        expect(await harness._store.all(), isEmpty);
-        approval.complete(true);
-        await opened;
-        final panes = await opening;
-        expect(harness._decisions, hasLength(1));
-        final decision = harness._decisions.single;
-        expect(decision.verdict, HostKeyVerdict.firstUse);
-        expect(decision.pinned, isNull);
-        expect(decision.presented.host, fixture._host);
-        expect(decision.presented.port, fixture._port);
-        expect(
-          decision.presented.fingerprintSha256,
-          fixture._originalFingerprint,
-        );
-        await harness._expectPin(fixture._originalFingerprint);
-        expect(harness._attempts, [ConnectPrompting.enabled]);
-        expect(panes.first.fs, isNot(same(panes.last.fs)));
+      // Two bookmarks at one endpoint share even a pending trust decision.
+      final opening = Future.wait([
+        harness._manager.openBrowseChannel(_primaryId, paneTabId: 'left'),
+        harness._manager.openBrowseChannel(_siblingId, paneTabId: 'right'),
+      ]);
+      final opened = expectLater(opening, completes);
+      await entered.future.timeout(_operationTimeout);
+      expect(await harness._store.all(), isEmpty);
+      approval.complete(true);
+      await opened;
+      final panes = await opening;
+      expect(harness._decisions, hasLength(1));
+      final decision = harness._decisions.single;
+      expect(decision.verdict, HostKeyVerdict.firstUse);
+      expect(decision.pinned, isNull);
+      expect(decision.presented.host, fixture._host);
+      expect(decision.presented.port, fixture._port);
+      expect(
+        decision.presented.fingerprintSha256,
+        fixture._originalFingerprint,
+      );
+      await harness._expectPin(fixture._originalFingerprint);
+      expect(harness._attempts, [ConnectPrompting.enabled]);
+      expect(panes.first.fs, isNot(same(panes.last.fs)));
 
-        // The first transport holds two panes and one lease; this forces growth.
-        await harness._manager.leaseTransferChannel(_primaryId);
-        final grown = await harness._manager
-            .leaseTransferChannel(_siblingId)
-            .timeout(_operationTimeout);
-        expect(harness._attempts, [
-          ConnectPrompting.enabled,
-          ConnectPrompting.disabled,
-        ]);
-        expect(harness._transports, hasLength(_policy.maxTransports));
-        expect(await grown.fs.canonicalize('.'), panes.first.homePath);
-        for (final pane in panes) {
-          expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
-        }
-
-        await harness._disconnect();
-        final reopened = await harness._manager.openBrowseChannel(
-          _primaryId,
-          paneTabId: 'fresh-session',
-        );
-        expect(await reopened.fs.listDirectory(reopened.homePath), isNotEmpty);
-        expect(harness._attempts, [
-          ConnectPrompting.enabled,
-          ConnectPrompting.disabled,
-          ConnectPrompting.enabled,
-        ]);
-        expect(harness._decisions, hasLength(1));
-        await harness._expectPin(fixture._originalFingerprint);
-      },
-    );
+      for (final pane in panes) {
+        expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
+      }
+    });
 
     test('declining first use stores no pin and retry asks again', () async {
       final harness = fixture._pool();

@@ -18,10 +18,12 @@ browse recovery after an sshd restart. Restart tests restore the service and
 wait for its SSH banner. CI runs this lifecycle for source, test, fixture, and
 workflow PRs, plus every main push and manual dispatch.
 
-The Linux TOFU suite owns an empty pin store per test. It covers first-use
-approval/rejection, silent reconnect and growth, and same-port key swaps that
-block both bookmarks until explicit review. Teardown stops keyswap, waits for
-the port to clear, and restores modern with an SSH-banner readiness check.
+The auth/TOFU suite covers keyboard-interactive auth, silent reconnect/growth,
+and changed-key rejection. The Linux shared-TOFU suite adds pending decisions
+across bookmarks, first-use rejection, and explicit changed-key approval.
+Each TOFU test owns its pins. Per-test teardown in the shared suite stops
+keyswap, waits for the port to clear, and restores modern with an SSH-banner
+readiness check; a subsequent test verifies the original key is served.
 
 Ordinary package tests skip these cases unless `POLTERGEIST_SSHD` and the
 suite's service-port variable are set; `run.sh` exports the complete fixture
