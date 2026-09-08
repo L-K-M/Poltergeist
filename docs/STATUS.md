@@ -507,7 +507,8 @@ Auth-failure summaries and the production-wiring gates remain open.
    propagation. The smoke suite now restores before the first swap and
    twice afterward. All 59 fixture-tool, 257 core, and 196 app tests pass locally
    (15 real-sshd skips); fixture/core/Flutter analysis is clean. Docker is
-   unavailable locally; CI owns the real-service smoke and integration run.
+   unavailable locally; real-service smoke, all 15 SSH tests, and all five
+   client builds pass in [CI run 34224282442](https://github.com/L-K-M/Poltergeist/actions/runs/34224282442).
    `run.sh` retains final profiled-stack teardown. No port or pin change.
    No offline-review path, removal API, or new store/schema is added here.
 
