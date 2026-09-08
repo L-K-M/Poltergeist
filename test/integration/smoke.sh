@@ -44,6 +44,8 @@ done
 
 # Same host:port must present a different key, then restore the original.
 baseline_key="$(ssh-keyscan -T 5 -t ed25519 -p 2201 127.0.0.1 2>/dev/null)"
+# Cleanup also works before keyswap exists and after a completed restoration.
+"$integration_dir/service-control.sh" restore-modern
 "$integration_dir/service-control.sh" swap
 swapped_key="$(ssh-keyscan -T 5 -t ed25519 -p 2201 127.0.0.1 2>/dev/null)"
 if [[ "$baseline_key" == "$swapped_key" ]]; then
@@ -51,6 +53,7 @@ if [[ "$baseline_key" == "$swapped_key" ]]; then
   exit 1
 fi
 
+"$integration_dir/service-control.sh" restore-modern
 "$integration_dir/service-control.sh" restore-modern
 restored_key="$(ssh-keyscan -T 5 -t ed25519 -p 2201 127.0.0.1 2>/dev/null)"
 if [[ "$baseline_key" != "$restored_key" ]]; then
