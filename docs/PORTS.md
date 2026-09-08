@@ -1,5 +1,10 @@
 # Séance ports and pin audits
 
+## M2 real-sshd pool coverage (2026-09-08)
+
+Exercises the existing pinned opener, VFS, and TCP prober through Poltergeist's
+pool. No copied sources, pin changes, or upstream port candidates.
+
 ## app/poltergeist_app/lib/services/atomic_file.dart
 
 - Source: app/seance_app/lib/services/atomic_file.dart

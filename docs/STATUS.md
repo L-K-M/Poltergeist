@@ -4,13 +4,15 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-07 — M2 exposes terminal background recovery failures
-through the engine's local diagnostic stream and ignores stale home failures from
+_Last updated: 2026-09-08 — M2 adds real-sshd pool integration coverage
+and its ordinary CI job (validation below). M2 exposes terminal background
+recovery failures through the engine's local diagnostic stream and ignores
+stale home failures from
 dead recovery transports; bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
 `EngineClient` connection/prompt protocol are implemented; upstream
 keepalive controls are pinned. Production wiring (app composition) and
-real-sshd recovery coverage remain open.
+prompt UI remain open.
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
@@ -161,6 +163,48 @@ late answer but owns no dialog. These remain engine/pane integration work.
 M4 owns transfer retry/progress counters. Keepalive, real-sshd recovery,
 and the existing owner-decision gates remain open. No milestone-close claim.
 
+## M2 — real-sshd pool integration (2026-09-08)
+
+Four tagged tests exercise the production opener, SFTP adapters, and TCP
+prober: stored-key/password pool growth and queued excess demand, completed
+keepalive round trips on both transports, and stop/start recovery with
+backoff, state transitions, a replacement browse filesystem, and a fresh
+canonical home. Old transfer leases remain disconnected. Each test owns
+pre-seeded in-memory pins; unexpected trust/auth prompts fail. The existing
+service helper owns port-release and SSH-banner readiness; suite teardown
+restores sshd even after a failed assertion.
+
+The source-filtered CI integration job now runs the existing fixture lifecycle
+on relevant PRs and every main push. Missing fixtures fail closed on
+main/dispatch and fixture/workflow edits. Restart coverage exposed the
+entrypoint recreating existing users; two regressions failed before the
+account helpers became restart-safe.
+
+Local validation: core and Flutter analysis pass, with 238 core, 121 app,
+and 50 fixture-tool tests passing; five integration tests skip without the
+fixture. All five Docker tests pass in
+[CI run 34172611069](https://github.com/L-K-M/Poltergeist/actions/runs/34172611069).
+The first run exposed a nullable timeout callback against a non-nullable
+future in both growth tests; corrected assertions pass. Review also checks
+opener attempts while demand queues, so a pending third handshake cannot
+escape the cap assertion. No production wiring, source port,
+dependency change, or milestone close. Interactive-auth/TOFU integration and
+M4's mid-transfer queue recovery remain separate exit criteria.
+
+Review hardened the fixture harness: shell fakes load before extracted code,
+GNU timeout kills a stalled helper's process group, teardown audits unexpected
+prompts even when SSH catches callback errors, and the CI guard covers a
+fixture edit that leaves the file present. Regressions demonstrated a live
+helper after the old Dart timeout and late shell-stub installation; both pass
+after repair. Timing assertions retain independent 03 §3.3 bounds.
+
+Further review isolated account scripts with a private PATH/cwd and a process
+deadline, preserved cleanup after partial PID writes, and added root workspace
+manifests to the integration filter (08 §8 clarified). Each regression failed
+before repair. The workflow guard tests now match CI's shell flags and control
+their environment. Account/process suites declare their GNU-timeout Linux
+requirement; broader fixture-tool portability remains open below.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -170,6 +214,11 @@ and the existing owner-decision gates remain open. No milestone-close claim.
    when unavailable. Its current CI job runs on Ubuntu.
    Also register fixture cleanup before setup writes, so partial setup
    failures cannot orphan temporary directories.
+   **2026-09-08 review follow-up (#41):** before expanding fixture-tool
+   or enabled SSH suites beyond Ubuntu, probe or explicitly gate their
+   POSIX shell and GNU-timeout requirements. This includes the pool SSH
+   suite; ordinary package runs skip it without fixture variables.
+   These tools currently run only in the Ubuntu job (08 §8).
 2. **2026-09-07 — Séance pin: flip to the next tag.** The fork bridge is
    retired (see the Done table) and the pin sits at upstream main
    `a9add15` — no Séance tag contains the keepalive-controls merge yet. `poltergeist_core` now carries the
@@ -207,8 +256,9 @@ and the existing owner-decision gates remain open. No milestone-close claim.
    - `ProbeService` wiring + interim server list status dots;
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
-   - then the Docker-integration legs of 08 §5's pool suite (growth,
-     keepalive, reconnect against real sshd) — the matrix exists from M0.
+   - Docker-integration pool coverage (growth, keepalive, reconnect against
+     real sshd) lands in the 2026-09-08 slice above. Interactive-auth/TOFU
+     flows and M4's mid-transfer queue recovery retain their own gates.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
@@ -284,6 +334,13 @@ and the existing owner-decision gates remain open. No milestone-close claim.
    current review callback. The manager also has no bookmark-removal signal.
    Before production integration, the owner must choose restored-key
    review/removal behavior and whether incidents persist across restarts.
+7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
+   consistent `pub get --enforce-lockfile` use across CI and commit-SHA
+   pinning for third-party actions. The new integration job follows existing
+   resolution/action conventions; the Séance audit separately checks manifest
+   and lock pins. Also consider checking retained fixture account UIDs before
+   supporting modified base images; current restart tests reuse accounts
+   created by the same entrypoint in digest-pinned containers.
    No offline-review path, removal API, or new store/schema is added here.
 
 ## Independent audit
