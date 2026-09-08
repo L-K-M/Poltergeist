@@ -556,6 +556,15 @@ analysis clean, 299 tests/15 integration skips; app analysis clean,
 214 tests; fixture-tool 61; import guard 92 + repo scan; protocol
 guard 49; ARB regeneration byte-identical.
 
+Merged as [PR #45](https://github.com/L-K-M/Poltergeist/pull/45)
+(merge `e328aaf`) after review round 5 — 20 findings, all
+refuted-with-evidence or declined as re-litigated rounds-1–4
+items, doc nits, and test hardening (full triage in the PR
+description); two consecutive polish-only rounds, so steady state
+held and the PR merged without further code change. Local
+re-validation on the merge head `302fb14`: core 299/15 skips, app
+214, import guard 92 + scan.
+
 Deliberately unwired (bounded additive slice): no running surface opens
 the dialog yet — command registration rides the M3 command registry and
 its entry point (sidebar/interim server list) is the production-wiring
