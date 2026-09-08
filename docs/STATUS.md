@@ -4,8 +4,9 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — merged PR #41 adds real-sshd pool integration
-coverage and its ordinary CI job (validation below). M2's prompt dialogs,
+_Last updated: 2026-09-08 — real-sshd TOFU coverage added for first-use
+decisions, silent reconnect/growth, and same-port changed-key blocking
+(validation below). M2's prompt dialogs,
 coordinator, live connect transcript, state-associated failure details, and independent
 terminal-recovery diagnostics are implemented. Recovery ignores stale home
 failures from dead transports. Bounded engine progress coalescing, pooled
@@ -257,6 +258,26 @@ before repair. The workflow guard tests now match CI's shell flags and control
 their environment. Account/process suites declare their GNU-timeout Linux
 requirement; broader fixture-tool portability remains open below.
 
+## M2 — real-sshd TOFU coverage (2026-09-08)
+
+Three Linux integration tests use the production pool/opener and private,
+initially empty pin stores. Concurrent bookmarks share one pending first-use
+decision; approval pins the committed fixture fingerprint, while rejection
+leaves no pin and prompts again on retry. Actual transport growth and a fresh
+session verify silently. Swapping sshd on the same host:port blocks both
+bookmarks, existing pane/lease handles, and new worker acquisitions without
+prompting or re-pinning. Explicit changed-key rejection preserves the block;
+approval installs the replacement fingerprint and restores SFTP access.
+
+The suite uses the existing bounded swap/restore helper and registers stack
+restoration before mutation. Ordinary tests skip without both fixture host
+and modern-port variables; the existing serial integration CI job runs them.
+Local core/Flutter analysis and 257 core plus 196 Flutter tests pass; the
+import guard passes. Eight integration tests skip because Docker is
+unavailable. Real-server validation is pending CI. No production
+change, source port, pin bump, or milestone close. Keyboard-interactive auth
+and auth-failure summaries remain open, as do the production-wiring gates.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -313,8 +334,9 @@ requirement; broader fixture-tool portability remains open below.
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
    - Docker-integration pool coverage (growth, keepalive, reconnect against
-     real sshd) lands in the 2026-09-08 slice above. Interactive-auth/TOFU
-     flows and M4's mid-transfer queue recovery retain their own gates.
+     real sshd) landed in the 2026-09-08 slice above. TOFU coverage is added
+     in the dated section above; keyboard-interactive auth, auth-failure
+     summaries, and M4's mid-transfer queue recovery remain open.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the

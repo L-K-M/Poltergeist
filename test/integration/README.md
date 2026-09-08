@@ -18,6 +18,11 @@ browse recovery after an sshd restart. Restart tests restore the service and
 wait for its SSH banner. CI runs this lifecycle for source, test, fixture, and
 workflow PRs, plus every main push and manual dispatch.
 
+The Linux TOFU suite owns an empty pin store per test. It covers first-use
+approval/rejection, silent reconnect and growth, and same-port key swaps that
+block both bookmarks until explicit review. Teardown stops keyswap, waits for
+the port to clear, and restores modern with an SSH-banner readiness check.
+
 Ordinary package tests skip these cases unless `POLTERGEIST_SSHD` and the
 suite's service-port variable are set; `run.sh` exports the complete fixture
 environment. Use Docker Compose and the Dart SDK to run the command above.
