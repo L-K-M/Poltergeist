@@ -104,16 +104,15 @@ void main() {
             expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
           }
 
-          final Future<TransferChannelLease?> waiting = manager
-              .leaseTransferChannel(_serverId);
-          expect(
-            await waiting.timeout(_queueObservation, onTimeout: () => null),
-            isNull,
+        final waiting = manager.leaseTransferChannel(_serverId);
+        await expectLater(
+          waiting.timeout(_queueObservation),
+          throwsA(isA<TimeoutException>()),
           );
           final returnedFs = leases.first.fs;
           await leases.first.release();
           final acquired = await waiting.timeout(_operationTimeout);
-          expect(acquired!.fs, same(returnedFs));
+        expect(acquired.fs, same(returnedFs));
           expect(harness._transports, hasLength(_defaultPolicy.maxTransports));
           await acquired.release();
         },

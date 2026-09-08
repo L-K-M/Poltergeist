@@ -182,8 +182,10 @@ account helpers became restart-safe.
 
 Local validation: core and Flutter analysis pass, with 238 core, 121 app,
 and 40 fixture-tool tests passing; five integration tests skip without the
-fixture. Docker is unavailable locally; real-server results
-will be recorded after the PR job runs. No production wiring, source port,
+fixture. The first Docker run passed keepalive and restart recovery, and
+exposed a nullable timeout callback against a non-nullable future in both
+growth tests; those assertions now expect the timeout directly. Final
+real-server results will follow the corrected PR run. No production wiring, source port,
 dependency change, or milestone close. Interactive-auth/TOFU integration and
 M4's mid-transfer queue recovery remain separate exit criteria.
 
