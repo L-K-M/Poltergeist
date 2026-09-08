@@ -1745,7 +1745,13 @@ class _ForwardingConnectionLog extends SshConnectionLog {
   void add(String line) {
     if (onUpdate == null) return;
     super.add(line);
-    _onLine(line);
+    // Forward the record as upstream stored it, not the raw argument:
+    // `SshConnectionLog.add` is where credential records are redacted, and
+    // forwarding the argument would bypass it — the live stream would carry
+    // what `redactConnectionTrace` exists to withhold. After `super.add` the
+    // stored copy is the last line; the 400-line bound trims from the front,
+    // so the newest record is always `lines.last`.
+    _onLine(lines.last);
   }
 }
 

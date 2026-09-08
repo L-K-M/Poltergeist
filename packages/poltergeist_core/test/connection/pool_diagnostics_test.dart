@@ -319,4 +319,208 @@ void main() {
       unawaited(subscription.cancel());
     });
   });
+
+  // Synthetic credential material only — never a real secret. The records
+  // below replay the one dartssh2 trace shape that interpolates a
+  // credential: `SSH_Message_Userauth_InfoResponse`'s
+  // `'$runtimeType(responses: $responses)'`, where the responses list *is*
+  // the password for hosts doing password auth over keyboard-interactive.
+  // The live fan-out must carry what upstream's `SshConnectionLog.add`
+  // stored (redacted), never its raw argument — and ordinary diagnostic
+  // lines must keep flowing verbatim beside them.
+  test('a live connect transcript never carries raw Userauth_InfoResponse '
+      'credentials', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+
+      final lines = <ConnectLogLine>[];
+      final subscription = h.manager.connectLog.listen(lines.add);
+
+      h.opener.connectGate = Completer<void>();
+      final opening = h.manager.openBrowseChannel('s1', paneTabId: 'a');
+      time.flushMicrotasks();
+
+      final log = h.opener.calls.single.log;
+      log.add('kex: curve25519-sha256');
+      // Canonical shape, plus the two whole-record shapes a bracket-bounded
+      // or line-bounded match would leak past (dartssh2 does not escape
+      // list elements, so `]` inside the password and a trailing newline
+      // from a password manager both print verbatim).
+      log.add(
+        'SSH_Message_Userauth_InfoResponse(responses: '
+        '[synthetic-password-4f3a])',
+      );
+      log.add(
+        'SSH_Message_Userauth_InfoResponse(responses: '
+        '[synthetic-pas]sword-9b2c])',
+      );
+      log.add(
+        'SSH_Message_Userauth_InfoResponse(responses: '
+        '[synthetic-line1\nline2-tail-7d1e])',
+      );
+      log.add('auth: publickey');
+      time.flushMicrotasks();
+
+      h.opener.connectGate!.complete();
+      completeWithoutTimers(time, opening);
+
+      final received = lines.map((l) => l.line).toList();
+      // Absence of the fixture secrets, not equality between two copies
+      // that could both be raw.
+      for (final secret in [
+        'synthetic-password-4f3a',
+        'synthetic-pas]sword-9b2c',
+        'synthetic-line1\nline2-tail-7d1e',
+      ]) {
+        expect(received.join('\n'), isNot(contains(secret)));
+      }
+      // The recognized records keep their name and position, redacted.
+      expect(
+        received.where((l) => l.contains('Userauth_InfoResponse')),
+        everyElement(contains('(responses: [redacted])')),
+      );
+      expect(
+        received.where((l) => l.contains('Userauth_InfoResponse')),
+        hasLength(3),
+      );
+      // Ordinary diagnostic lines still pass through verbatim.
+      expect(received.first, 'kex: curve25519-sha256');
+      expect(received.last, 'auth: publickey');
+
+      // Upstream storage must be redacted by the same add() the fan-out
+      // rides on — the transcript the failure view copies is this log.
+      final stored = log.lines.join('\n');
+      for (final secret in [
+        'synthetic-password-4f3a',
+        'synthetic-pas]sword-9b2c',
+        'synthetic-line1\nline2-tail-7d1e',
+      ]) {
+        expect(stored, isNot(contains(secret)));
+      }
+      expect(stored, contains('(responses: [redacted])'));
+
+      unawaited(subscription.cancel());
+    });
+  });
+
+  test('a malformed named auth record is withheld whole (upstream '
+      'fail-closed shape)', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+
+      final lines = <ConnectLogLine>[];
+      final subscription = h.manager.connectLog.listen(lines.add);
+
+      h.opener.connectGate = Completer<void>();
+      final opening = h.manager.openBrowseChannel('s1', paneTabId: 'a');
+      time.flushMicrotasks();
+
+      final log = h.opener.calls.single.log;
+      // A record that names Userauth_InfoResponse but no longer matches the
+      // responses shape: upstream replaces the whole record rather than
+      // risk printing a drifted credential. The live stream must carry the
+      // same withheld text, not the raw argument.
+      log.add(
+        'SSH_Message_Userauth_InfoResponse(payload: '
+        '[synthetic-drifted-secret-51aa])',
+      );
+      time.flushMicrotasks();
+
+      h.opener.connectGate!.complete();
+      completeWithoutTimers(time, opening);
+
+      expect(
+        lines.map((l) => l.line).join('\n'),
+        isNot(contains('synthetic-drifted-secret-51aa')),
+      );
+      expect(
+        lines.single.line,
+        contains('does not recognize the shape of this message'),
+      );
+      expect(
+        log.lines.join('\n'),
+        isNot(contains('synthetic-drifted-secret-51aa')),
+      );
+
+      unawaited(subscription.cancel());
+    });
+  });
+
+  test('redaction does not disturb server-id fan-out', () {
+    fakeAsync((time) {
+      // Two serverIds over one shared endpoint pool: the redacted record
+      // must reach both referencing watchers, and only them.
+      final h = PoolHarness()
+        ..addServer('s1')
+        ..addServer('s2');
+
+      final byServer = <String, List<String>>{};
+      final subscription = h.manager.connectLog.listen(
+        (line) => byServer.putIfAbsent(line.serverId, () => []).add(line.line),
+      );
+
+      h.opener.connectGate = Completer<void>();
+      final opening = h.manager.openBrowseChannel('s1', paneTabId: 'a');
+      final siblingOpening = h.manager.openBrowseChannel('s2', paneTabId: 'b');
+      time.flushMicrotasks();
+
+      final log = h.opener.calls.single.log;
+      log.add('connecting to example.com:22');
+      log.add(
+        'SSH_Message_Userauth_InfoResponse(responses: '
+        '[synthetic-fanout-secret-88c2])',
+      );
+      time.flushMicrotasks();
+
+      h.opener.connectGate!.complete();
+      completeWithoutTimers(time, opening);
+      completeWithoutTimers(time, siblingOpening);
+
+      expect(byServer.keys, unorderedEquals(['s1', 's2']));
+      for (final received in byServer.values) {
+        expect(
+          received.join('\n'),
+          isNot(contains('synthetic-fanout-secret-88c2')),
+        );
+        expect(received.first, 'connecting to example.com:22');
+        expect(received[1], contains('(responses: [redacted])'));
+      }
+
+      unawaited(subscription.cancel());
+    });
+  });
+
+  test('forwarding keeps the newest line when the transcript bound trims', () {
+    fakeAsync((time) {
+      final h = PoolHarness()..addServer('s1');
+
+      final lines = <ConnectLogLine>[];
+      final subscription = h.manager.connectLog.listen(lines.add);
+
+      h.opener.connectGate = Completer<void>();
+      final opening = h.manager.openBrowseChannel('s1', paneTabId: 'a');
+      time.flushMicrotasks();
+
+      final log = h.opener.calls.single.log;
+      // One past seance_core's 400-line bound: the stored transcript drops
+      // its head, but every appended line — the newest one included — must
+      // still fan out exactly once, so the live view never stalls behind
+      // the trim.
+      for (var i = 0; i < 401; i++) {
+        log.add('trace line $i');
+      }
+      time.flushMicrotasks();
+
+      h.opener.connectGate!.complete();
+      completeWithoutTimers(time, opening);
+
+      expect(lines, hasLength(401));
+      expect(lines.last.line, 'trace line 400');
+      // Storage, unlike the stream, is bounded by the upstream constant.
+      expect(log.lines, hasLength(400));
+      expect(log.lines.first, 'trace line 1');
+
+      unawaited(subscription.cancel());
+    });
+  });
 }

@@ -13,7 +13,7 @@ dependencies:
   seance_core:
     git:
       url: https://github.com/L-K-M/Seance.git
-      ref: a9add158015fc15d805cecd2754ac40bc7860a23
+      ref: 2e6d1f138f1704e683870f75e11262bf50e37379
       path: packages/seance_core
 
 dev_dependencies:
