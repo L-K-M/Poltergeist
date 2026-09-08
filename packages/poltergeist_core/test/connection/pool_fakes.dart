@@ -305,7 +305,7 @@ class RecordedOpenCall {
 
   /// The forwarding log the pool passed for this attempt; tests append
   /// lines through it to drive transcript fan-out.
-  late final SshConnectionLog log;
+  SshConnectionLog log = SshConnectionLog();
 
   FakeTransport? transport;
 

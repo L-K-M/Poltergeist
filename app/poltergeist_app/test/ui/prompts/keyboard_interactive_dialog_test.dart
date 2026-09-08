@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/ui/prompts/keyboard_interactive_dialog.dart';
@@ -224,9 +223,9 @@ void main() {
       'the ported use-after-dispose regression', (tester) async {
     await _open(tester);
 
-    // Focus a field so an IME composing region is active — the exact
-    // state under which Séance's early dispose threw (the port's doc
-    // comment records `clearComposing()` firing on focus loss).
+    // Focus a field so its IME connection is live — the exact state under
+    // which Séance's early dispose threw (the port's doc comment records
+    // `clearComposing()` firing on focus loss).
     await tester.enterText(find.widgetWithText(TextField, 'Passcode'), '1');
     await tester.pump();
 
@@ -244,22 +243,24 @@ void main() {
   ) async {
     await _open(tester);
 
-    // Real key events land in the first field without clicking it.
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
-    await tester.pump();
-
     final passcode = find.widgetWithText(TextField, 'Passcode');
+    final focusedEditor = find.descendant(
+      of: passcode,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is EditableText && widget.focusNode.hasFocus,
+      ),
+    );
     expect(passcode, findsOneWidget);
     expect(
-      find.descendant(
-        of: passcode,
-        matching: find.byWidgetPredicate(
-          (widget) => widget is EditableText && widget.focusNode.hasFocus,
-        ),
-      ),
+      focusedEditor,
       findsOneWidget,
       reason: 'the first prompt field must own keyboard focus',
     );
     expect(tester.testTextInput.hasAnyClients, isTrue);
+
+    // Text enters through the active IME without clicking the field.
+    tester.testTextInput.enterText('a');
+    await tester.pump();
+    expect(tester.widget<EditableText>(focusedEditor).controller.text, 'a');
   });
 }

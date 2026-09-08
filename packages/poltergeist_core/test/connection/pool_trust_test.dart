@@ -150,13 +150,8 @@ void main() {
     );
     expect(firstFailure, same(failure));
     expect(prompts, 1);
-    expect(
-      await harness.manager
-          .watchServer(_primaryServerId)
-          .first
-          .then((status) => status.state),
-      ServerConnectionState.connected,
-    );
+    final status = await harness.manager.watchServer(_primaryServerId).first;
+    expect(status.state, ServerConnectionState.connected);
   });
 
   test(
@@ -173,13 +168,8 @@ void main() {
         ),
         throwsA(isA<RemoteFileException>()),
       );
-      expect(
-        await harness.manager
-            .watchServer(_primaryServerId)
-            .first
-            .then((status) => status.state),
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServerId).first;
+      expect(status.state, ServerConnectionState.blocked);
       expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
       expect(await harness.manager.connectedServerIds(), isEmpty);
       expect(harness.openChannels, isEmpty);
@@ -281,13 +271,8 @@ void main() {
           RemoteFileErrorKind.disconnected,
         ),
       );
-      expect(
-        await harness.manager
-            .watchServer(_primaryServerId)
-            .first
-            .then((status) => status.state),
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServerId).first;
+      expect(status.state, ServerConnectionState.blocked);
       expect(await harness.manager.connectedServerIds(), isEmpty);
     },
   );
@@ -308,13 +293,8 @@ void main() {
       );
       expect(prompts, 1);
       expect(harness.opener.calls.single.prompting, ConnectPrompting.enabled);
-      expect(
-        await harness.manager
-            .watchServer(_primaryServerId)
-            .first
-            .then((status) => status.state),
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServerId).first;
+      expect(status.state, ServerConnectionState.blocked);
     },
   );
 
@@ -379,13 +359,8 @@ void main() {
         throwsA(isA<RemoteFileException>()),
       );
       expect([prompts, harness.store.pins.length], [0, 0]);
-      expect(
-        await harness.manager
-            .watchServer(_primaryServerId)
-            .first
-            .then((status) => status.state),
-        ServerConnectionState.blocked,
-      );
+      final status = await harness.manager.watchServer(_primaryServerId).first;
+      expect(status.state, ServerConnectionState.blocked);
     },
   );
 

@@ -359,9 +359,9 @@ enum ServerConnectionState {
 /// the state plus, when it explains a failure, the user-facing one-liner —
 /// a summarized connect failure, a terminal background-recovery error
 /// (so recovery ending with no awaiting acquisition is still delivered,
-/// never silently swallowed), or a host-key block reason. Null for healthy,
-/// connecting, reconnecting, and cancelled states; cancellation carries
-/// nothing to diagnose.
+/// never silently swallowed), or a host-key block reason. Null for connected,
+/// connecting, or reconnecting states, and when disconnection reflects
+/// cancellation rather than failure; those carry nothing to diagnose.
 class ServerStatus {
   final ServerConnectionState state;
   final String? detail;

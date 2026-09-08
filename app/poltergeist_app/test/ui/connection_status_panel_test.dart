@@ -22,7 +22,7 @@ class _LateStream<T> extends Stream<T> {
     bool? cancelOnError,
   }) {
     _listener = onData;
-    return Stream<T>.empty().listen(
+    return StreamController<T>().stream.listen(
       null,
       onError: onError,
       onDone: onDone,

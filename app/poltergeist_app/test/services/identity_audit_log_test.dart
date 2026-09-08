@@ -63,8 +63,6 @@ void main() {
   });
 
   test('audit storage stays owner-only on desktop POSIX', () async {
-    if (!Platform.isLinux && !Platform.isMacOS) return;
-
     await file.create();
     posix.chmod(dir.path, _permissiveDirectoryPermissions);
     posix.chmod(file.path, _permissiveFilePermissions);
@@ -78,7 +76,7 @@ void main() {
     // Privacy belongs to the file, even under a traversable app directory.
     expect((await dir.stat()).mode & _permissionBits, _permissiveDirectoryMode);
     expect((await file.stat()).mode & _permissionBits, _ownerOnlyFileMode);
-  });
+  }, skip: !Platform.isLinux && !Platform.isMacOS ? 'POSIX only' : false);
 
   test('malformed lines are skipped, not fatal', () async {
     final log = IdentityAuditLog(file);

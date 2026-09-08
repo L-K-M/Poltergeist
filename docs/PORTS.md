@@ -138,7 +138,7 @@ pool. No copied sources, pin changes, or upstream port candidates.
 - Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
 - Divergences: adapted to the protocol payload; adds reveal-toggle,
-  empty-name/instruction fallback, Enter navigation, autofocus, and
+  empty-name title fallback, Enter navigation, autofocus, and
   repeated-submit route-safety coverage.
 - Port-back candidates: Enter navigation, autofocus, and repeated-submit
   regressions.

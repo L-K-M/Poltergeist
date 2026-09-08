@@ -8,7 +8,8 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 ///
 /// v2 adds the connection/prompt surface (03 §5). v3 adds
 /// [RecoveryFailedEvent] for terminal background failures. v4 adds live
-/// transcript batches ([ConnectionLogEvent]) and [ServerStateEvent.detail].
+/// transcript batches ([ConnectionLogEvent]) and starts populating the
+/// previously reserved [ServerStateEvent.detail].
 const engineProtocolVersion = 4;
 
 // ── Engine → UI events ──────────────────────────────────────────────────

@@ -6,8 +6,6 @@ import 'package:posix/posix.dart' show PosixException;
 
 void main() {
   test('owner-only restriction reports chmod failure', () {
-    if (!Platform.isLinux && !Platform.isMacOS) return;
-
     final directory = Directory.systemTemp.createTempSync(
       'poltergeist-permissions-',
     );
@@ -18,5 +16,5 @@ void main() {
       () => restrictFileToOwner(missingFile),
       throwsA(isA<PosixException>()),
     );
-  });
+  }, skip: !Platform.isLinux && !Platform.isMacOS ? 'POSIX only' : false);
 }

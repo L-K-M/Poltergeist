@@ -111,6 +111,8 @@ abstract interface class ConnectionManager {
   /// Live-only: lines emitted before subscription are not replayed. Attach
   /// before connecting when the complete attempt transcript is required.
   /// One stream multiplexes every server; filter events by `serverId`.
+  /// Equality is structural, but repeated equal lines remain transcript data:
+  /// never apply `distinct()` to this stream.
   Stream<ConnectLogLine> get connectLog;
 
   /// ServerIds with live pools — feeds ProbeService so connected servers
