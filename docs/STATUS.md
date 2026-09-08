@@ -275,15 +275,16 @@ skip without both fixture host and modern-port variables; the existing serial
 integration CI job runs them.
 Local core/Flutter analysis and 257 core plus 196 Flutter tests pass; the
 import guard passes. Nine integration tests skip locally because Docker is
-unavailable; the initial eight passed in
-[CI run 34193296978](https://github.com/L-K-M/Poltergeist/actions/runs/34193296978),
-including the initial three TOFU cases. Review added a next-test pin check
-that failed in [run 34194044313](https://github.com/L-K-M/Poltergeist/actions/runs/34194044313)
-before per-test restoration. Its repaired CI run is pending. The test policy
-now fixes its two-transport cap; the swap test allows four minutes for its
+unavailable; all nine pass in
+[CI run 34194253564](https://github.com/L-K-M/Poltergeist/actions/runs/34194253564).
+Review added a next-test pin check that failed in
+[run 34194044313](https://github.com/L-K-M/Poltergeist/actions/runs/34194044313)
+before per-test restoration and passes after it. The test policy fixes its
+two-transport cap; the swap test allows four minutes for its
 independently bounded Docker/recovery/review stages. `watchServer` replays
-current state, and the process helper inherits its environment; neither
-review concern requires a code change. No production
+current state, and the process helper inherits its environment. Blocked-handle
+assertions throw synchronously in the `fs` getter; the matcher also tracks
+future outcomes. These review concerns require no code change. No production
 change, source port, pin bump, or milestone close. Keyboard-interactive auth
 and auth-failure summaries remain open, as do the production-wiring gates.
 
@@ -429,6 +430,11 @@ and auth-failure summaries remain open, as do the production-wiring gates.
    and lock pins. Also consider checking retained fixture account UIDs before
    supporting modified base images; current restart tests reuse accounts
    created by the same entrypoint in digest-pinned containers.
+   **2026-09-08 — keyswap recovery follow-up:** `restore-modern` requires
+   keyswap's published port, so partial swap/restore failures can defeat its
+   suite-level retry. Make the helper idempotent before requiring later suites
+   to continue after those setup failures; `run.sh` still removes the full
+   profiled stack on exit.
    No offline-review path, removal API, or new store/schema is added here.
 
 ## Independent audit
