@@ -478,6 +478,9 @@ void main() {
 
       expect(byServer.keys, unorderedEquals(['s1', 's2']));
       for (final received in byServer.values) {
+        // Exactly the two appended lines per server — a duplicate delivery
+        // to one serverId must fail, not just a missing one.
+        expect(received, hasLength(2));
         expect(
           received.join('\n'),
           isNot(contains('synthetic-fanout-secret-88c2')),

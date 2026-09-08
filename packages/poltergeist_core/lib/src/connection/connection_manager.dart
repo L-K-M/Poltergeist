@@ -1737,14 +1737,28 @@ class PooledConnectionManager implements ConnectionManager {
 class _ForwardingConnectionLog extends SshConnectionLog {
   final void Function(String line) _onLine;
 
-  static void _noop() {}
+  /// Whether the last `super.add` actually appended. Upstream invokes
+  /// `onUpdate` exactly once per stored record (never for the frozen no-op),
+  /// which is the one signal an override gets for "storage recorded this" —
+  /// a length delta cannot say it (the 400-line bound trims on the same add
+  /// that appends), and content comparison cannot either (identical records
+  /// are legal).
+  var _appendedByLastAdd = false;
 
-  _ForwardingConnectionLog(this._onLine) : super(onUpdate: _noop);
+  _ForwardingConnectionLog(this._onLine) {
+    onUpdate = () => _appendedByLastAdd = true;
+  }
 
   @override
   void add(String line) {
     if (onUpdate == null) return;
+    _appendedByLastAdd = false;
     super.add(line);
+    // If storage did not record the record, the stream must not emit one —
+    // neither a crash on an empty transcript nor a stale last line replayed
+    // as new. At this pin the only no-append path is frozen (excluded
+    // above); this holds the invariant across future re-pins.
+    if (!_appendedByLastAdd) return;
     // Forward the record as upstream stored it, not the raw argument:
     // `SshConnectionLog.add` is where credential records are redacted, and
     // forwarding the argument would bypass it — the live stream would carry
