@@ -1758,7 +1758,20 @@ class _ForwardingConnectionLog extends SshConnectionLog {
     // neither a crash on an empty transcript nor a stale last line replayed
     // as new. At this pin the only no-append path is frozen (excluded
     // above); this holds the invariant across future re-pins.
-    if (!_appendedByLastAdd) return;
+    if (!_appendedByLastAdd) {
+      // Debug tripwire, stripped in release: reaching here means the
+      // per-append onUpdate contract drifted on a re-pin (or onUpdate was
+      // reassigned), silently disabling the live fan-out. The regressions
+      // in pool_diagnostics_test.dart run with asserts on, so this fires
+      // the moment any such path is exercised.
+      assert(
+        false,
+        'SshConnectionLog.add stored no record while unfrozen; live '
+        'connectLog forwarding skipped. Re-verify the onUpdate-per-stored-'
+        'record contract after any Séance re-pin.',
+      );
+      return;
+    }
     // Forward the record as upstream stored it, not the raw argument:
     // `SshConnectionLog.add` is where credential records are redacted, and
     // forwarding the argument would bypass it — the live stream would carry

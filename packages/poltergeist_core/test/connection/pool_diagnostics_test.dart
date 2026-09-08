@@ -344,7 +344,7 @@ void main() {
       log.add('kex: curve25519-sha256');
       // Canonical shape, plus the two whole-record shapes a bracket-bounded
       // or line-bounded match would leak past (dartssh2 does not escape
-      // list elements, so `]` inside the password and a trailing newline
+      // list elements, so `]` inside the password and an embedded newline
       // from a password manager both print verbatim).
       log.add(
         'SSH_Message_Userauth_InfoResponse(responses: '
@@ -505,11 +505,14 @@ void main() {
       time.flushMicrotasks();
 
       final log = h.opener.calls.single.log;
-      // One past seance_core's 400-line bound: the stored transcript drops
-      // its head, but every appended line — the newest one included — must
-      // still fan out exactly once, so the live view never stalls behind
-      // the trim.
-      for (var i = 0; i < 401; i++) {
+      // Mirrors seance_core's private SshConnectionLog cap; if upstream moves
+      // it, this constant is the one place to update and the failure reads
+      // as a bound mismatch, not a mystery count.
+      const seanceTranscriptBound = 400;
+      // One past that bound: the stored transcript drops its head, but every
+      // appended line — the newest one included — must still fan out exactly
+      // once, so the live view never stalls behind the trim.
+      for (var i = 0; i < seanceTranscriptBound + 1; i++) {
         log.add('trace line $i');
       }
       time.flushMicrotasks();
@@ -517,10 +520,10 @@ void main() {
       h.opener.connectGate!.complete();
       completeWithoutTimers(time, opening);
 
-      expect(lines, hasLength(401));
-      expect(lines.last.line, 'trace line 400');
+      expect(lines, hasLength(seanceTranscriptBound + 1));
+      expect(lines.last.line, 'trace line $seanceTranscriptBound');
       // Storage, unlike the stream, is bounded by the upstream constant.
-      expect(log.lines, hasLength(400));
+      expect(log.lines, hasLength(seanceTranscriptBound));
       expect(log.lines.first, 'trace line 1');
 
       unawaited(subscription.cancel());
