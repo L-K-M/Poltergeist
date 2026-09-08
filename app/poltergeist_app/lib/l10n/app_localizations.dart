@@ -357,6 +357,174 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not save the secret to the vault. The connection will continue.'**
   String get vaultSaveFailed;
+
+  /// Title of the ssh_config import preview dialog (D22).
+  ///
+  /// In en, this message translates to:
+  /// **'Import servers from ssh config'**
+  String get sshImportTitle;
+
+  /// Shown while the config and its includes are read.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading ssh config…'**
+  String get sshImportLoading;
+
+  /// Error when the root ssh config is missing or unreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read {path}.'**
+  String sshImportLoadFailed(String path);
+
+  /// Re-runs the config load after a failure.
+  ///
+  /// In en, this message translates to:
+  /// **'Try Again'**
+  String get sshImportRetry;
+
+  /// Shown when the resolved config contains no host blocks.
+  ///
+  /// In en, this message translates to:
+  /// **'No importable hosts were found in {path}.'**
+  String sshImportEmpty(String path);
+
+  /// Table header over the per-row import checkboxes.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get sshImportColumnImport;
+
+  /// Table header for the host alias column.
+  ///
+  /// In en, this message translates to:
+  /// **'Host'**
+  String get sshImportColumnHost;
+
+  /// Table header for the host:port column.
+  ///
+  /// In en, this message translates to:
+  /// **'Endpoint'**
+  String get sshImportColumnEndpoint;
+
+  /// Table header for the username column.
+  ///
+  /// In en, this message translates to:
+  /// **'User'**
+  String get sshImportColumnUser;
+
+  /// Table header for the authentication method column.
+  ///
+  /// In en, this message translates to:
+  /// **'Auth'**
+  String get sshImportColumnAuth;
+
+  /// Table header for the duplicate/limitation notes column.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes'**
+  String get sshImportColumnNotes;
+
+  /// Auth cell for a host without an IdentityFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get sshImportAuthPassword;
+
+  /// Auth cell naming the referenced identity file (reference-style; the key itself is never read at import time).
+  ///
+  /// In en, this message translates to:
+  /// **'Key: {path}'**
+  String sshImportAuthKey(String path);
+
+  /// Note chip when an existing bookmark already targets the same host+port+username.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate of bookmark “{label}”'**
+  String sshImportDuplicateExisting(String label);
+
+  /// Note chip when an earlier row in the same import targets the same endpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate of “{alias}” in this import'**
+  String sshImportDuplicateEarlier(String alias);
+
+  /// Chip for a host whose ProxyJump Poltergeist does not execute (D10).
+  ///
+  /// In en, this message translates to:
+  /// **'Won’t behave as in ssh: ProxyJump — connects directly, not through the jump host'**
+  String get sshImportLimitProxyJump;
+
+  /// Chip for a host whose ProxyCommand Poltergeist does not execute.
+  ///
+  /// In en, this message translates to:
+  /// **'Won’t behave as in ssh: ProxyCommand — never executed'**
+  String get sshImportLimitProxyCommand;
+
+  /// Chip shown on every row when the config contains Match blocks.
+  ///
+  /// In en, this message translates to:
+  /// **'Won’t behave as in ssh: Match blocks are ignored; settings may differ'**
+  String get sshImportLimitMatch;
+
+  /// Chip for a host block whose Include directives are lost on import.
+  ///
+  /// In en, this message translates to:
+  /// **'Won’t behave as in ssh: Include inside this host block is not applied'**
+  String get sshImportLimitHostInclude;
+
+  /// Chip for a row whose Port directive is out of range.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot import: port outside 1–65535'**
+  String get sshImportLimitInvalidPort;
+
+  /// Heading of the informational include-resolution note list.
+  ///
+  /// In en, this message translates to:
+  /// **'Unresolved includes'**
+  String get sshImportUnresolvedIncludes;
+
+  /// Note for an include that re-enters a file already on its chain.
+  ///
+  /// In en, this message translates to:
+  /// **'{path}: include loop skipped'**
+  String sshImportNoteCycle(String path);
+
+  /// Note for an include nested past OpenSSH's own recursion cap.
+  ///
+  /// In en, this message translates to:
+  /// **'{path}: nested beyond the depth limit'**
+  String sshImportNoteDepth(String path);
+
+  /// Note for an include target that is missing or unreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'{path}: could not be read'**
+  String sshImportNoteUnreadable(String path);
+
+  /// Closes the import preview without importing.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get sshImportCancel;
+
+  /// Import button label when nothing is selected (disabled).
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get sshImportAction;
+
+  /// Import button label with the number of selected hosts.
+  ///
+  /// In en, this message translates to:
+  /// **'Import {count}'**
+  String sshImportActionCount(int count);
+
+  /// Accessibility label for a row's import checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Import {alias}'**
+  String sshImportRowSemantics(String alias);
 }
 
 class _AppLocalizationsDelegate

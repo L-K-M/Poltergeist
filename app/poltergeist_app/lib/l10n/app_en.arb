@@ -208,5 +208,148 @@
   "vaultSaveFailed": "Could not save the secret to the vault. The connection will continue.",
   "@vaultSaveFailed": {
     "description": "Transient notice when saving a prompted secret failed."
+  },
+
+  "sshImportTitle": "Import servers from ssh config",
+  "@sshImportTitle": {
+    "description": "Title of the ssh_config import preview dialog (D22)."
+  },
+  "sshImportLoading": "Reading ssh config…",
+  "@sshImportLoading": {
+    "description": "Shown while the config and its includes are read."
+  },
+  "sshImportLoadFailed": "Could not read {path}.",
+  "@sshImportLoadFailed": {
+    "description": "Error when the root ssh config is missing or unreadable.",
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "sshImportRetry": "Try Again",
+  "@sshImportRetry": {
+    "description": "Re-runs the config load after a failure."
+  },
+  "sshImportEmpty": "No importable hosts were found in {path}.",
+  "@sshImportEmpty": {
+    "description": "Shown when the resolved config contains no host blocks.",
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "sshImportColumnImport": "Import",
+  "@sshImportColumnImport": {
+    "description": "Table header over the per-row import checkboxes."
+  },
+  "sshImportColumnHost": "Host",
+  "@sshImportColumnHost": {
+    "description": "Table header for the host alias column."
+  },
+  "sshImportColumnEndpoint": "Endpoint",
+  "@sshImportColumnEndpoint": {
+    "description": "Table header for the host:port column."
+  },
+  "sshImportColumnUser": "User",
+  "@sshImportColumnUser": {
+    "description": "Table header for the username column."
+  },
+  "sshImportColumnAuth": "Auth",
+  "@sshImportColumnAuth": {
+    "description": "Table header for the authentication method column."
+  },
+  "sshImportColumnNotes": "Notes",
+  "@sshImportColumnNotes": {
+    "description": "Table header for the duplicate/limitation notes column."
+  },
+  "sshImportAuthPassword": "Password",
+  "@sshImportAuthPassword": {
+    "description": "Auth cell for a host without an IdentityFile."
+  },
+  "sshImportAuthKey": "Key: {path}",
+  "@sshImportAuthKey": {
+    "description": "Auth cell naming the referenced identity file (reference-style; the key itself is never read at import time).",
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "sshImportDuplicateExisting": "Duplicate of bookmark “{label}”",
+  "@sshImportDuplicateExisting": {
+    "description": "Note chip when an existing bookmark already targets the same host+port+username.",
+    "placeholders": {
+      "label": {"type": "String"}
+    }
+  },
+  "sshImportDuplicateEarlier": "Duplicate of “{alias}” in this import",
+  "@sshImportDuplicateEarlier": {
+    "description": "Note chip when an earlier row in the same import targets the same endpoint.",
+    "placeholders": {
+      "alias": {"type": "String"}
+    }
+  },
+  "sshImportLimitProxyJump": "Won’t behave as in ssh: ProxyJump — connects directly, not through the jump host",
+  "@sshImportLimitProxyJump": {
+    "description": "Chip for a host whose ProxyJump Poltergeist does not execute (D10)."
+  },
+  "sshImportLimitProxyCommand": "Won’t behave as in ssh: ProxyCommand — never executed",
+  "@sshImportLimitProxyCommand": {
+    "description": "Chip for a host whose ProxyCommand Poltergeist does not execute."
+  },
+  "sshImportLimitMatch": "Won’t behave as in ssh: Match blocks are ignored; settings may differ",
+  "@sshImportLimitMatch": {
+    "description": "Chip shown on every row when the config contains Match blocks."
+  },
+  "sshImportLimitHostInclude": "Won’t behave as in ssh: Include inside this host block is not applied",
+  "@sshImportLimitHostInclude": {
+    "description": "Chip for a host block whose Include directives are lost on import."
+  },
+  "sshImportLimitInvalidPort": "Cannot import: port outside 1–65535",
+  "@sshImportLimitInvalidPort": {
+    "description": "Chip for a row whose Port directive is out of range."
+  },
+  "sshImportUnresolvedIncludes": "Unresolved includes",
+  "@sshImportUnresolvedIncludes": {
+    "description": "Heading of the informational include-resolution note list."
+  },
+  "sshImportNoteCycle": "{path}: include loop skipped",
+  "@sshImportNoteCycle": {
+    "description": "Note for an include that re-enters a file already on its chain.",
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "sshImportNoteDepth": "{path}: nested beyond the depth limit",
+  "@sshImportNoteDepth": {
+    "description": "Note for an include nested past OpenSSH's own recursion cap.",
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "sshImportNoteUnreadable": "{path}: could not be read",
+  "@sshImportNoteUnreadable": {
+    "description": "Note for an include target that is missing or unreadable.",
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "sshImportCancel": "Cancel",
+  "@sshImportCancel": {
+    "description": "Closes the import preview without importing."
+  },
+  "sshImportAction": "Import",
+  "@sshImportAction": {
+    "description": "Import button label when nothing is selected (disabled)."
+  },
+  "sshImportActionCount": "Import {count}",
+  "@sshImportActionCount": {
+    "description": "Import button label with the number of selected hosts.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "sshImportRowSemantics": "Import {alias}",
+  "@sshImportRowSemantics": {
+    "description": "Accessibility label for a row's import checkbox.",
+    "placeholders": {
+      "alias": {"type": "String"}
+    }
   }
 }

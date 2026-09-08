@@ -4,7 +4,9 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — the real-sshd auth-failure-summary coverage
+_Last updated: 2026-09-08 — the ssh_config import preview/dedupe slice
+(D22) landed as a bounded, unwired component (dated section below).
+Before that: the real-sshd auth-failure-summary coverage
 (rejected key, method-not-accepted user, root prohibit-password) lands
 (validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
 and shared-decision/explicit-review TOFU tests landed below; merged PR #41
@@ -353,6 +355,60 @@ future outcomes. These review concerns require no code change.
 No production change, source port, pin bump, or milestone close.
 Auth-failure summaries and the production-wiring gates remain open.
 
+## M2 — ssh_config import preview/dedupe (2026-09-08)
+
+D22's v1 import slice. `SshConfigImportService` (pure core, injected
+`SshConfigFileSource` seam — no IO in core) consumes Séance's
+`SshConfigImporter` through the pin (re-exported from the core barrel;
+no copy, no second server model): imported rows build `Bookmark`s over
+`EmbeddedHostIdentity`. A plain, top-level `Include` resolves read-only
+at import time — multiple/quoted tokens, `~`, relative-to-`~/.ssh`,
+glob subset `*`/`?`/`[...]` sorted lexically, per-branch cycle detection
+(diamonds parse twice, like ssh), and ssh's 16-deep cap recorded as
+notes rather than failure. Includes inside host blocks resolve their
+hosts after the file's own (cutting there would fragment the enclosing
+block across the pin's chunk parsing) while the block keeps its badge;
+Match-nested includes stay unresolved. D22 limitation badges: ProxyJump
+(own block via the pin's `ImportedHost.proxyJump`, top-level defaults,
+wildcard `Host *` blocks), ProxyCommand (own block/top-level/wildcard),
+any Match block (every row — criteria evaluation would reimplement ssh
+semantics; loud beats silently wrong), host-block includes, and
+out-of-range ports (row unimportable; the checkbox is disabled).
+Dedupe is by host+port+username against existing bookmarks' embedded
+identities — `serverConfigId` refs carry no endpoint in Poltergeist
+(04 §2.2) so they are skipped, workspace/sync endpoint identities are
+included — and against earlier rows of the same import; duplicates
+start skipped but stay user-toggleable. IdentityFile maps to
+reference-style `AuthMethod.privateKey` carrying the verbatim path
+(`~` preserved, 04 §2.1); the bookmark's `remotePath` starts at `/`
+(connect canonicalizes home) and `sortKey` defaults to the row id until
+M5's store re-keys. App side: `LocalSshConfigFileSource` (dart:io,
+read-only, symlink-following lexical listing) and the ARB-complete
+preview dialog — per-row import/skip checkboxes with semantics labels,
+endpoint/user/auth columns, duplicate and “won't behave as in ssh”
+chips, unresolved-include notes, a count-labeled import action, retry
+on an unreadable config, and mounted-guarded async load.
+
+Validation: 24 core import tests (include resolution, globs, cycles,
+diamonds, depth, the badge matrix, existing/earlier dedupe,
+reference-style mapping, the 04 §2.1 decode round-trip, invalid ports,
+the glob subset) and 10 dialog widget tests (defaults, chips, toggling
+and count, key mapping, disabled action at zero selection, cancel,
+error+retry, empty config, disposal race). Core analysis and 281 tests
+pass; app analysis and 206 tests pass; the import guard passes. The
+dialog's technical literals (monospace endpoints/identity paths, empty
+label fallbacks) join the reviewed per-file exceptions in the
+localization contract test.
+
+Deliberately unwired (bounded additive slice): no running surface opens
+the dialog yet — command registration rides the M3 command registry and
+its entry point (sidebar/interim server list) is the production-wiring
+slice; imported bookmarks are not persisted (`BookmarkStore` is M5);
+IdentityFile entries connecting rides the connect flow gated on open
+item 6. Screenshots ride the wiring slice that first renders the dialog
+(prompt-UI precedent). No source port (importer consumed via the pin —
+PORTS.md unchanged), no pin change, no milestone close.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -406,7 +462,12 @@ Auth-failure summaries and the production-wiring gates remain open.
      identity-read errors render through ARB-authored sentences;
      composition into a running app rides the production-wiring slice;
    - `ProbeService` wiring + interim server list status dots;
-   - ssh_config import with preview + dedupe (D22);
+   - ssh_config import with preview + dedupe (D22). **Done 2026-09-08**
+     (see the dated section): the core import service (pinned-importer
+     consumption, top-level include resolution, D22 limitation badges,
+     host+port+username dedupe, reference-style IdentityFile mapping) and
+     the ARB-complete preview dialog landed; composition, persistence,
+     and command registration remain unwired as recorded there;
    - the debug-only connect → SFTP → `listDirectory` demo surface;
    - Docker-integration pool coverage (growth, keepalive, reconnect against
    - Docker-integration pool coverage (growth, keepalive, reconnect against
