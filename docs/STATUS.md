@@ -247,7 +247,7 @@ file), and per-suite pin isolation. Docker is unavailable locally; the
 three tests skip by name without the fixture variables and pass in CI (run
 linked from the PR checks).
 
-Local validation: core analysis clean; 257 core tests pass with eleven
+Local validation: core analysis clean; 257 core tests pass with fifteen
 integration skips (three of them these, twelve from the earlier real-sshd
 suites). No production code, wiring,
 source port, dependency change, or milestone close.
