@@ -1,10 +1,16 @@
-// Ported from Séance app/seance_app/lib/services/identity_audit_log.dart @ a9add15; see docs/PORTS.md.
+// Ported from Séance app/seance_app/lib/services/identity_audit_log.dart @ 82507ec
+// (re-diffed with the Séance #80/#81 read-side gate at cb4b010, 2026-09-08);
+// see docs/PORTS.md.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'atomic_file.dart';
 import 'file_permissions.dart';
+
+/// 0o077: the group + other rwx bits. A log with any of them set is
+/// permissive; without them it is already owner-only.
+const _groupOtherBits = 0x3f;
 
 /// One identity-file read attempt (successful or not).
 class IdentityReadEvent {
@@ -112,7 +118,14 @@ class IdentityAuditLog {
   /// write, hand edits) are skipped rather than wedging the log.
   Future<List<IdentityReadEvent>> readAll() async {
     if (!await file.exists()) return const [];
-    restrictFileToOwner(file);
+    // Reading is also the repair path for a log left permissive by an older
+    // build. An already-private log carries no exposure and needs no repair,
+    // so it stays readable on chmod-incapable mounts; a permissive log that
+    // cannot be restricted fails the read rather than returning a
+    // world-readable trail.
+    if ((await file.stat()).mode & _groupOtherBits != 0) {
+      restrictFileToOwner(file);
+    }
 
     final entries = <IdentityReadEvent>[];
     for (final line in const LineSplitter().convert(
