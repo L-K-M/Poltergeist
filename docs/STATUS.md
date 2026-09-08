@@ -5,8 +5,9 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-08 — the ssh_config import preview/dedupe slice
-(D22) landed as a bounded, unwired component (dated section below).
-Before that: the real-sshd auth-failure-summary coverage
+(D22) landed as a bounded, unwired component (dated section below), and
+keyswap cleanup now retries after partial swap/restoration failures
+(closed in open item 7). Before that: the real-sshd auth-failure-summary coverage
 (rejected key, method-not-accepted user, root prohibit-password) landed
 (validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
 and shared-decision/explicit-review TOFU tests landed below; merged PR #41
@@ -673,11 +674,21 @@ PORTS.md unchanged), no pin change, no milestone close.
    and lock pins. Also consider checking retained fixture account UIDs before
    supporting modified base images; current restart tests reuse accounts
    created by the same entrypoint in digest-pinned containers.
-   **2026-09-08 — keyswap recovery follow-up:** `restore-modern` requires
-   keyswap's published port, so partial swap/restore failures can defeat its
-   suite-level retry. Make the helper idempotent before requiring later suites
-   to continue after those setup failures; `run.sh` still removes the full
-   profiled stack on exit.
+   **2026-09-08 — keyswap recovery follow-up (closed):** `restore-modern`
+   stops both swap services, waits for their fixed shared port to clear,
+   then starts modern and verifies its SSH banner. Cleanup works before
+   keyswap exists, after either startup/readiness failure, and on repeat.
+   Six regressions failed on the old port lookup; all eleven new checks pass,
+   including Compose-port consistency and stop/free/start/banner failure
+   propagation. The smoke suite now restores before the first swap and
+   twice afterward. Review added a key check after each restoration: a wrong
+   first key previously passed when the second cleanup repaired it. That
+   regression failed before the check and passes afterward; a wrong second
+   key is also rejected. All 61 fixture-tool, 257 core, and 196 app tests pass locally
+   (15 real-sshd skips); fixture/core/Flutter analysis is clean. Docker is
+   unavailable locally; real-service smoke, all 15 SSH tests, and all five
+   client builds pass in [CI run 34224282442](https://github.com/L-K-M/Poltergeist/actions/runs/34224282442).
+   `run.sh` retains final profiled-stack teardown. No port or pin change.
    No offline-review path, removal API, or new store/schema is added here.
 
 ## Independent audit
@@ -859,6 +870,9 @@ PORTS.md unchanged), no pin change, no milestone close.
 
 ## Housekeeping
 
+- **2026-09-08 — review tooling:** this session lacks
+  `subscribe_pr_activity` / `send_later`; GitHub polling and an hourly
+  Paseo heartbeat cover PR monitoring, with heartbeat deletion on completion.
 - No server component is planned: bookmark backup uses Séance's sync server
   (E2E-encrypted blobs). Poltergeist's release ships client artifacts only.
 - `media-sources/poltergeist-icon.png` (the master icon) is created together

@@ -24,6 +24,8 @@ across bookmarks, first-use rejection, and explicit changed-key approval.
 Each TOFU test owns its pins. Per-test teardown in the shared suite stops
 keyswap, waits for the port to clear, and restores modern with an SSH-banner
 readiness check; a subsequent test verifies the original key is served.
+`restore-modern` stops both swap services before reclaiming their fixed
+shared port, so cleanup can retry after partial startup or readiness failures.
 
 Ordinary package tests skip these cases unless `POLTERGEIST_SSHD` and the
 suite's service-port variable are set; `run.sh` exports the complete fixture
