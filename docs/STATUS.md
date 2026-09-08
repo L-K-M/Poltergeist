@@ -634,13 +634,18 @@ Freeze/late-write behavior, the 400-line bound (forwarding keeps the
 newest line when the transcript trims), append-time fan-out ownership,
 and coalescing are unchanged and regression-pinned.
 
+(2026-09-08 correction, follow-up PR #54: the evidence figures below
+were amended against the saved pre-fix logs — three redaction failures
+with the trim test already passing, and the lock delta restated as field
+replacements.)
+
 Regression-first evidence (synthetic fixture secrets only, through the
 existing pool/opener seam): three new `pool_diagnostics_test.dart`
 redaction tests failed at runtime on the old pin — no redaction anywhere,
-raw secrets in the fan-out; both pre-fix logs end +10 -3 — and failed
-again, the same three, on the new pin with the bridge unfixed (a separate
-scratch proof recorded upstream storage redacted while the stream still
-leaked: `STREAM: ...[raw]` / `STORAGE: ...[redacted]`). The fourth new
+raw secrets in the fan-out; both pre-fix runs end at the test runner's
+`+10 -3` tally (10 passed, 3 failed) — and failed again, the same three,
+on the new pin with the bridge unfixed (a separate scratch proof
+recorded upstream storage redacted while the stream still leaked: `STREAM: ...[raw]` / `STORAGE: ...[redacted]`). The fourth new
 test, trim-bound conformance, already passed on both pre-fix pins; the
 13-test suite is green after the fix (+13). Canonical, bracket-containing,
 and newline-containing whole records plus the fail-closed malformed named
