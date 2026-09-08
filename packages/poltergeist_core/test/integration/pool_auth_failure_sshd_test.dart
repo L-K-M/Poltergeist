@@ -84,6 +84,8 @@ void main() {
       // Branch separation: neither other cause is claimed.
       expect(message, isNot(contains(_switchMethodPhrase)));
       expect(message, isNot(contains(_prohibitPasswordPhrase)));
+      expect(result.harness._challenges, isEmpty,
+          reason: 'a public-key-only flow never reaches a prompt');
     });
 
     test('a method-not-accepted user is told to switch methods', () async {
@@ -104,6 +106,8 @@ void main() {
       // That user's Match block leaves password as the only offered method.
       expect(message, contains(' The server accepts: password.'));
       expect(message, contains(_switchMethodPhrase));
+      expect(result.harness._challenges, isEmpty,
+          reason: 'a public-key-only flow never reaches a prompt');
 
       expect(message, isNot(contains(_rejectedKeyPhrase)));
       expect(message, isNot(contains(_prohibitPasswordPhrase)));
@@ -131,6 +135,17 @@ void main() {
         message,
         contains('Use a key, or log in as a non-root user and escalate.'),
       );
+
+      // Under UsePAM, sshd still drives one keyboard-interactive round for
+      // root (auth-pam.c answers it with a faked password, so PAM always
+      // fails); a real client answers the prompt and still receives the
+      // root-specific summary. dartssh2 reaches that round after the
+      // password method fails.
+      final answeredRounds = [
+        for (final challenge in result.harness._challenges)
+          if (challenge.prompts.isNotEmpty) challenge,
+      ];
+      expect(answeredRounds, hasLength(1));
 
       expect(message, isNot(contains(_rejectedKeyPhrase)));
       expect(message, isNot(contains(_switchMethodPhrase)));
@@ -167,8 +182,8 @@ _failingConnect(
 /// The invariants every summarized auth failure shares (08 §5): an
 /// actionable one-liner naming the target and the offered method, the real
 /// server's accepted-methods detail mined from the transcript — never a raw
-/// dartssh2 trace — delivered through one promptless production open whose
-/// one-liner also fans out as the state-associated detail (03 §3.2).
+/// dartssh2 trace — delivered through one production open whose one-liner
+/// also fans out as the state-associated detail (03 §3.2).
 Future<void> _expectSummarized(
   ({SshConnectException failure, _AuthHarness harness}) result, {
   required String prefix,
@@ -189,11 +204,6 @@ Future<void> _expectSummarized(
     result.harness._decisions,
     isEmpty,
     reason: 'the pre-seeded fixture pin verifies without a host-key review',
-  );
-  expect(
-    result.harness._challenges,
-    isEmpty,
-    reason: 'a rejected credential must never reach an interactive prompt',
   );
 
   expect(result.harness._states, containsAllInOrder([
@@ -282,6 +292,7 @@ class _Fixture {
     final harness = _AuthHarness(
       server,
       credentials,
+      password,
       await preSeededStore(),
     );
     addTearDown(harness._dispose);
@@ -302,6 +313,7 @@ final class _OpenCall {
 class _AuthHarness {
   final ServerConfig _server;
   final SshCredentials _credentials;
+  final String _challengeAnswer;
   final HostKeyStore _store;
   final _decisions = <HostKeyDecision>[];
   final _challenges = <({List<String> prompts, String name})>[];
@@ -322,18 +334,26 @@ class _AuthHarness {
       // _decisions emptiness assertion in _expectSummarized still fails.
       fail('A pre-seeded fixture must never prompt: ${decision.verdict}');
     },
-    onKeyboardInteractive: (prompts, name, _) async {
+    // Root's prohibit-password case drives one real PAM round (auth-pam.c
+    // substitutes a faked password for root, so answering still fails); a
+    // responder that throws would kill dartssh2's transport instead of
+    // letting the failure summarize. Per-test assertions pin how many
+    // prompt-bearing rounds each case reaches.
+    onKeyboardInteractive: (prompts, name, _) {
       _challenges.add((prompts: prompts, name: name));
-      // Same fallback as the host-key guard: the emptiness assertion
-      // catches a converted failure if this throw never surfaces raw.
-      fail('An auth-failure case must not reach a prompt: $name');
+      return Future.value([for (final _ in prompts) _challengeAnswer]);
     },
     policy: _defaultPolicy,
     openTransport: _open,
   );
   late final StreamSubscription<ServerStatus> _watch;
 
-  _AuthHarness(this._server, this._credentials, this._store) {
+  _AuthHarness(
+    this._server,
+    this._credentials,
+    this._challengeAnswer,
+    this._store,
+  ) {
     _watch = _manager.watchServer(_server.id).listen((status) {
       _states.add(status.state);
       _details.add(status.detail);

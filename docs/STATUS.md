@@ -233,7 +233,10 @@ switch-method guidance; root with its correct password asserts the
 invariants: the one-liner starts with the `Authentication failed for
 <user>@<host>:<port>` prefix, never carries raw dartssh2 text (`All
 authentication methods failed`, `SSH_Message`), rides exactly one
-promptless production open (pre-seeded pin, no interactive challenge), and
+production open with the pre-seeded pin (no host-key review; the two
+public-key flows reach no interactive prompt, while root's PAM round —
+auth-pam.c substitutes a faked password for root — is answered and pinned
+at one prompt-bearing round), and
 fans out as the disconnected `ServerStatus.detail` (03 §3.2). Branch
 separation is asserted per case: the other two cause phrases must not
 appear.
