@@ -239,7 +239,10 @@ class _Fixture {
     );
     if (package == null) throw StateError('Core package is unresolved.');
 
-    final root = package.resolve('../../../');
+    // `package` is lib/poltergeist_core.dart inside the workspace: three
+    // '..' reach the repo root, where the committed fixture keys live
+    // (test/integration/keys — shared with the sibling real-sshd suites).
+    final repoRoot = package.resolve('../../../');
     String requiredVariable(String name) =>
         Platform.environment[name] ??
         (throw StateError('The enabled fixture requires $name.'));
@@ -250,7 +253,7 @@ class _Fixture {
 
     final port = int.parse(requiredVariable(_authmatrixPortVariable));
     final publicKey = (await File.fromUri(
-      root.resolve('test/integration/keys/ssh_host_ed25519_key.pub'),
+      repoRoot.resolve('test/integration/keys/ssh_host_ed25519_key.pub'),
     ).readAsString()).trim().split(RegExp(r'\s+'));
     return _Fixture(
       host,
