@@ -141,7 +141,7 @@ Future<void> _open(WidgetTester tester, SshConfigImportService service,
 class _ThrowingService extends SshConfigImportService {
   _ThrowingService()
     : super(
-        homeDirectory: '/home/tester',
+        homeDirectory: _home,
         source: const _NeverSource(),
         mintId: () => 'unused',
       );
@@ -221,15 +221,20 @@ Match host *.internal
 
 Host web
   HostName web.example.com
+
+Host second
+  HostName second.example.com
 ''';
     await _open(tester, _service(_FakeSource({_configPath: config})));
 
+    // A per-row chip on each row — not one dialog-level banner that a
+    // single-row fixture could not distinguish from per-row badges.
     expect(
       find.text(
         'Won\u2019t behave as in ssh: Match blocks are ignored; '
         'settings may differ',
       ),
-      findsOneWidget,
+      findsNWidgets(2),
     );
   });
 

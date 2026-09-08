@@ -430,6 +430,43 @@ is pinned by a new test as the pin's own documented behavior.
 Validation after the round: core analysis clean and 30 import tests
 pass (full core suite below), app analysis clean and 215 tests pass.
 
+Review round 2 (applied; three regressions failed before repair): a
+file included from a wildcard `Host *` block now promotes its
+block-less proxy defaults to global limitations — ssh processes
+Include in place, so such a file applies to every connection, the
+mirror image of the round-1 named-host scoping, which is unchanged;
+multi-component include globs (`conf.d/*/*.conf`) surface an
+unreadable note instead of silently matching nothing (the
+single-listing seam cannot expand across components); an empty home
+directory now blocks only `~`-relative and bare-relative include
+tokens — absolute paths resolve without one. Hardening in the same
+round: row `limitations` lists are unmodifiable, the app file source
+catches `FileSystemException` only (programming errors stay loud
+instead of reading as an unreadable config), the dialog Match-badge
+test pins per-row chips across two rows, the core Match/ProxyJump
+tests gain row-count guards against vacuous passes, the diamond test
+asserts no notices, the `~otheruser` note kind is pinned, a
+leading-dot glob test covers the positive dotfile case, the
+depth-chain test documents its length against the 16 cap, and
+`_globMatch` documents its single-component invariant. Declined:
+the 640-px overflow re-raise (round-1 decline stands — 02 §1's
+enforced 720-px content minimum, D29's post-v1 mobile posture), a
+Windows symlink-skip for the file-source test (app tests run only on
+Ubuntu in CI; open item 1's recorded gate), and the `_keyValueCut`
+refactor (parity is pinned by tests; behavior-neutral churn).
+Deferred: default-off checkboxes for proxy-limited rows (D22 specifies
+the badge; revisited by the wiring slice). Refuted: quoted `#` in
+include paths and indented directives (the pin trims and cuts at the
+first `#` identically — its own `_stripComment`/`.trim()` — port-back
+candidates like the round-1 `Key = value` case), the wildcard-row
+outside-diff re-raise (round-1 refutation, pinned by tests), and the
+symlink-cycle recursion worry (`_maximumIncludeDepth` bounds every
+nesting level regardless of textual path distinctness). Validation:
+core analysis clean and 291 tests pass (34 import tests); app
+analysis clean and 211 tests pass (the round-1 record's 215 was a
+miscount of hidden setUp/tearDown events; the suite's test count is
+unchanged this round); the import guard passes.
+
 Deliberately unwired (bounded additive slice): no running surface opens
 the dialog yet — command registration rides the M3 command registry and
 its entry point (sidebar/interim server list) is the production-wiring

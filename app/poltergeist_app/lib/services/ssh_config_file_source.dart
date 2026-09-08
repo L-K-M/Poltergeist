@@ -23,9 +23,11 @@ class LocalSshConfigFileSource implements SshConfigFileSource {
       return await file.readAsString(
         encoding: const Utf8Codec(allowMalformed: true),
       );
-    } on Object {
+    } on FileSystemException {
       // Unreadable (permissions, races): the caller decides whether that
       // is a fatal root-config failure or a noted skipped include.
+      // Programming errors (Error subtypes) stay loud instead of
+      // masquerading as an unreadable config.
       return null;
     }
   }
@@ -50,7 +52,7 @@ class LocalSshConfigFileSource implements SshConfigFileSource {
       // the matcher's job (glob `*` never matches a leading dot).
       files.sort();
       return files;
-    } on Object {
+    } on FileSystemException {
       return null;
     }
   }

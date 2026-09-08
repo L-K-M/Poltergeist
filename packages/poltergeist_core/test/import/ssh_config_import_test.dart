@@ -270,6 +270,7 @@ Host web
 Host nas
 ''');
 
+    expect(preview.rows, hasLength(2));
     for (final row in preview.rows) {
       expect(row.limitations, contains(SshConfigImportLimitation.matchBlock));
     }
@@ -287,6 +288,7 @@ Host direct
   HostName d.example.com
 ''');
 
+    expect(preview.rows, hasLength(2));
     expect(
       preview.rows[0].limitations,
       contains(SshConfigImportLimitation.proxyJump),
@@ -438,7 +440,27 @@ Include ~otheruser/keys.conf
     expect(preview.notices, hasLength(2));
     expect(preview.notices[0].note, SshConfigIncludeNote.unreadable);
     expect(preview.notices[0].path, '$_home/.ssh/missing.conf');
+    expect(preview.notices[1].note, SshConfigIncludeNote.unreadable);
     expect(preview.notices[1].path, '~otheruser/keys.conf');
+  });
+
+  test('multi-component include globs are noted unsupported, not silent',
+      () async {
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $_home/.ssh/conf.d/*/*.conf\n',
+        '$_home/.ssh/conf.d/a/x.conf': 'Host nested\n',
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows, isEmpty);
+    // ssh's glob(3) would expand across components; this resolver
+    // cannot, so the whole token must surface as unreadable rather
+    // than silently matching nothing.
+    expect(preview.notices, hasLength(1));
+    expect(preview.notices.single.note, SshConfigIncludeNote.unreadable);
+    expect(preview.notices.single.path, '$_home/.ssh/conf.d/*/*.conf');
   });
 
   test('an include cycle is detected per branch; diamonds parse twice',
@@ -451,7 +473,6 @@ Include $_home/.ssh/b.conf
       '$_home/.ssh/a.conf': 'Host from-a\n\nInclude $_home/.ssh/shared.conf\n',
       '$_home/.ssh/b.conf': 'Host from-b\n\nInclude $_home/.ssh/shared.conf\n',
       '$_home/.ssh/shared.conf': 'Host shared-host\n',
-      '$_home/.ssh/self.conf': 'Include $_home/.ssh/self.conf\n',
     });
 
     final preview = await _service(source).loadPreview(configPath: _configPath);
@@ -460,6 +481,9 @@ Include $_home/.ssh/b.conf
       ['from-a', 'shared-host', 'from-b', 'shared-host'],
       reason: 'shared.conf parses once per branch, like ssh',
     );
+    // A diamond is legal ssh — re-parsing a shared target must not
+    // emit a spurious cycle or unreadable notice.
+    expect(preview.notices, isEmpty);
 
     // A self-including file cycles instead.
     final cycling = _FakeSource(files: {
@@ -476,6 +500,8 @@ Include $_home/.ssh/b.conf
   });
 
   test('nesting beyond the depth cap is noted, not fatal', () async {
+    // The cap is 16 (lib's _maximumIncludeDepth); 20 links make the
+    // depth check — not a missing l20.conf — the thing that fires.
     final files = <String, String>{_configPath: 'Include $_home/.ssh/l0.conf\n'};
     for (var i = 0; i < 20; i++) {
       files['$_home/.ssh/l$i.conf'] = 'Include $_home/.ssh/l${i + 1}.conf\n';
@@ -541,6 +567,37 @@ Host web
       preview.rows.single.limitations,
       contains(SshConfigImportLimitation.matchBlock),
     );
+  });
+
+  test('an absolute include resolves without a home directory', () async {
+    final source = _FakeSource(
+      files: {
+        _configPath: '''
+Include /etc/ssh/shared.conf
+Include ~/home-only.conf
+Include relative.conf
+''',
+        '/etc/ssh/shared.conf': 'Host absolute\n',
+      },
+    );
+    final service = SshConfigImportService(
+      homeDirectory: '',
+      source: source,
+      mintId: () => 'id',
+    );
+
+    final preview = await service.loadPreview(configPath: _configPath);
+    // Absolute paths need no home; only `~`-relative and bare-relative
+    // tokens (which ssh anchors to ~/.ssh) are noted unreadable.
+    expect(preview.rows.map((r) => r.host.alias).toList(), ['absolute']);
+    expect(
+      preview.notices.map((n) => n.note),
+      everyElement(SshConfigIncludeNote.unreadable),
+    );
+    expect(preview.notices.map((n) => n.path).toList(), [
+      '~/home-only.conf',
+      'relative.conf',
+    ]);
   });
 
   test('a duplicate alias merges its limitations across blocks', () async {
@@ -693,6 +750,23 @@ Host fine
     expect(preview.rows.map((r) => r.host.alias).toList(), ['visible']);
   });
 
+  test('a leading-dot glob pattern does match dotfiles', () async {
+    final dir = '$_home/.ssh/config.d';
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/.*.conf\n',
+        '$dir/.hidden.conf': 'Host hidden\n',
+        '$dir/visible.conf': 'Host visible\n',
+      },
+      dirs: {
+        dir: ['$dir/.hidden.conf', '$dir/visible.conf'],
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows.map((r) => r.host.alias).toList(), ['hidden']);
+  });
+
   test('block-less proxy defaults in a host-deferred include stay scoped',
       () async {
     final source = _FakeSource(
@@ -727,6 +801,39 @@ Host clean
       preview.rows[0].limitations,
       contains(SshConfigImportLimitation.hostInclude),
     );
+  });
+
+  test('a file included from a wildcard block promotes its proxy defaults',
+      () async {
+    final source = _FakeSource(
+      files: {
+        _configPath: '''
+Host *
+  Include $_home/.ssh/proxy.conf
+
+Host web
+  HostName web.example.com
+''',
+        '$_home/.ssh/proxy.conf':
+            'ProxyJump bastion.example.com\n\nHost extra\n',
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    // ssh processes Include in place, so a file pulled in by `Host *`
+    // behaves like the wildcard block's own directives: its block-less
+    // proxy default applies to every connection and must badge every
+    // row (the wildcard block's own lines already do, per _scanUnsupported).
+    expect(
+      preview.rows.map((r) => r.host.alias).toList(),
+      ['web', 'extra'],
+    );
+    for (final row in preview.rows) {
+      expect(
+        row.limitations,
+        contains(SshConfigImportLimitation.proxyJump),
+      );
+    }
   });
 
   test('multi-pattern Host blocks surface one row per the pin', () async {

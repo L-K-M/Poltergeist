@@ -299,7 +299,7 @@ class SshConfigImportService {
           existingBookmarkLabel: existingLabel,
           matchesEarlierImportRow: earlierAlias != null,
           earlierImportRowAlias: earlierAlias,
-          limitations: limitations.toList(growable: false),
+          limitations: List.unmodifiable(limitations),
         ),
       );
       firstByEndpoint.putIfAbsent(endpoint, () => parsed.host.alias);
@@ -460,13 +460,22 @@ class _Resolver {
         if (context is _BlockContextTop) {
           chunks.add(_Chunk(List.of(lines), [args]));
           lines = [];
-        } else if (context is _BlockContextHost ||
-            context is _BlockContextWildcard) {
+        } else if (context is _BlockContextHost) {
           // The line stays in the chunk text: the pinned parser ignores
           // it harmlessly as a directive, while the scan sees it and
-          // badges the enclosing host (hostInclude).
+          // badges the enclosing host (hostInclude). deferredContext
+          // keeps the included file's block-less directives scoped to
+          // that host, as ssh does.
           lines.add(raw);
           deferredIncludes.add((args, true));
+        } else if (context is _BlockContextWildcard) {
+          // ssh processes Include in place, so a file pulled in by
+          // `Host *` behaves like the block's own directives: matching
+          // every connection, and therefore promoting its block-less
+          // proxy defaults to global limitations (the mirror image of
+          // _scanUnsupported's wildcard case below).
+          lines.add(raw);
+          deferredIncludes.add((args, false));
         }
         // Inside a Match block the include stays unresolved: D22's badge
         // case, already covered by the matchBlock limitation on every row.
@@ -606,7 +615,10 @@ class _Resolver {
       noteUnreadable();
       return const [];
     }
-    if (home.isEmpty) {
+    // Only `~`-relative and bare-relative tokens need a home (ssh
+    // anchors the latter to ~/.ssh); absolute paths resolve without one.
+    final needsHome = token.startsWith('~') || !token.startsWith('/');
+    if (home.isEmpty && needsHome) {
       noteUnreadable();
       return const [];
     }
@@ -622,6 +634,14 @@ class _Resolver {
     final slash = path.lastIndexOf('/');
     final directory = slash == 0 ? '/' : path.substring(0, slash);
     final pattern = path.substring(slash + 1);
+    if (_hasGlobMetacharacter(directory)) {
+      // Multi-component globs (conf.d/*/*.conf) would need recursive
+      // directory expansion, which this single-listing seam cannot do;
+      // ssh's glob(3) would expand them, so the gap must surface as a
+      // note instead of silently matching nothing.
+      noteUnreadable();
+      return const [];
+    }
     final listing = await service.source.listLexical(directory);
     if (listing == null) return const [];
     // Sort here too: lexical order is ssh's rule, and the source's own
@@ -640,7 +660,11 @@ class _Resolver {
   /// POSIX-glob subset for one path component: `*`/`?` never cross `/`
   /// (they match a single component by construction), `[...]`/`[!...]`
   /// are character classes, and a leading dot never matches unless the
-  /// pattern names it — glob(3)'s common subset. Bracket classes have
+  /// pattern names it — glob(3)'s common subset. Both arguments are
+  /// single path components by construction — [_expandToken] splits the
+  /// pattern at the last `/` and matches basenames from one directory
+  /// listing — so the leading-dot rule needs no per-component walk.
+  /// Bracket classes have
   /// no escapes (`\` is literal) and `^` is not negation, so the class
   /// body is re-escaped for the regex translation; malformed classes
   /// (empty, reversed ranges) match nothing rather than throwing.
