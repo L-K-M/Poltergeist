@@ -72,11 +72,11 @@ enum SshConfigImportLimitation {
 enum SshConfigIncludeNote { cycle, depthExceeded, unreadable }
 
 /// One unresolved-include note: what happened and to which path.
-class SshConfigIncludeNotice {
+class SshConfigUnresolvedInclude {
   final SshConfigIncludeNote note;
   final String path;
 
-  const SshConfigIncludeNotice(this.note, this.path);
+  const SshConfigUnresolvedInclude(this.note, this.path);
 }
 
 /// The read-only local-file seam for import time, implemented by the app
@@ -203,7 +203,7 @@ class SshConfigImportRow {
 /// unresolved-include notes.
 class SshConfigImportPreview {
   final List<SshConfigImportRow> rows;
-  final List<SshConfigIncludeNotice> notices;
+  final List<SshConfigUnresolvedInclude> notices;
 
   const SshConfigImportPreview({required this.rows, required this.notices});
 }
@@ -254,6 +254,12 @@ class SshConfigImportService {
     return _buildPreview(resolver, _existingEndpoints(existingBookmarks));
   }
 
+  /// Canonical dedupe key (D22): host \0 port \0 username, built the
+  /// same way for preview rows and existing bookmarks so the two sides
+  /// can never drift apart. NUL can't appear in an ssh config token.
+  static String _endpointKey(String host, int port, String username) =>
+      '$host\u0000$port\u0000$username';
+
   SshConfigImportPreview _buildPreview(
     _Resolver resolver,
     Map<String, String> existingEndpoints,
@@ -274,11 +280,13 @@ class SshConfigImportService {
         limitations.add(SshConfigImportLimitation.invalidPort);
       }
 
-      // Verbatim host+port+username — the strings are already written the
-      // way the user writes them; NUL can't appear in an ssh config token.
-      final endpoint =
-          '${parsed.host.effectiveHost}\u0000${parsed.host.port ?? _defaultSshPort}'
-          '\u0000${parsed.host.user ?? ''}';
+      // Verbatim host+port+username — the strings are already written
+      // the way the user writes them.
+      final endpoint = _endpointKey(
+        parsed.host.effectiveHost,
+        parsed.host.port ?? _defaultSshPort,
+        parsed.host.user ?? '',
+      );
       final existingLabel = existingEndpoints[endpoint];
       final earlierAlias = firstByEndpoint[endpoint];
 
@@ -313,8 +321,11 @@ class SshConfigImportService {
       for (final ref in _serverRefs(bookmark)) {
         final identity = ref.identity;
         if (identity == null) continue;
-        endpoints['${identity.host}\u0000${identity.port}'
-            '\u0000${identity.username}'] = bookmark.label;
+        endpoints[_endpointKey(
+          identity.host,
+          identity.port,
+          identity.username,
+        )] = bookmark.label;
       }
     }
     return endpoints;
@@ -373,7 +384,7 @@ class _Resolver {
   /// Per-alias limitations from the alias's own host block.
   final Map<String, Set<SshConfigImportLimitation>> hostLimitations = {};
 
-  final List<SshConfigIncludeNotice> notices = [];
+  final List<SshConfigUnresolvedInclude> notices = [];
 
   _Resolver(this.service);
 
@@ -382,6 +393,7 @@ class _Resolver {
     required String text,
     required int depth,
     required Set<String> ancestors,
+    bool promoteTopLevelDefaults = true,
   }) async {
     // Host-context includes resolve after the file's own hosts: cutting
     // the text there would fragment the enclosing host block across
@@ -390,7 +402,12 @@ class _Resolver {
     // hostInclude badge already tells the user the block's own include
     // directives are lost. Only ssh's positional first-obtained order
     // deviates, and only when the same alias appears on both sides.
-    final deferredIncludes = <String>[];
+    //
+    // deferredContext: a file pulled in from inside a Host block has its
+    // block-less directives scoped to that host by ssh, so they must not
+    // promote to global limitations (the hostInclude badge covers the
+    // loss); Match blocks inside it still apply globally, as in ssh.
+    final deferredIncludes = <(String args, bool deferredContext)>[];
     final chunks = _splitAtTopLevelIncludes(text, deferredIncludes);
 
     for (final chunk in chunks) {
@@ -398,17 +415,23 @@ class _Resolver {
         SshConfigImporter.parse(chunk.text)
             .map((host) => _ParsedHost(host, path)),
       );
-      _scanUnsupported(chunk);
+      _scanUnsupported(chunk, promoteTopLevelDefaults);
       for (final args in chunk.includeArgsAfter) {
         await _resolveInclude(
           args: args,
           depth: depth,
           ancestors: ancestors,
+          promoteTopLevelDefaults: promoteTopLevelDefaults,
         );
       }
     }
-    for (final args in deferredIncludes) {
-      await _resolveInclude(args: args, depth: depth, ancestors: ancestors);
+    for (final (args, deferredContext) in deferredIncludes) {
+      await _resolveInclude(
+        args: args,
+        depth: depth,
+        ancestors: ancestors,
+        promoteTopLevelDefaults: !deferredContext && promoteTopLevelDefaults,
+      );
     }
   }
 
@@ -420,7 +443,7 @@ class _Resolver {
   /// map) and its arguments land in [deferredIncludes] instead.
   List<_Chunk> _splitAtTopLevelIncludes(
     String text,
-    List<String> deferredIncludes,
+    List<(String, bool)> deferredIncludes,
   ) {
     final chunks = <_Chunk>[];
     var lines = <String>[];
@@ -443,7 +466,7 @@ class _Resolver {
           // it harmlessly as a directive, while the scan sees it and
           // badges the enclosing host (hostInclude).
           lines.add(raw);
-          deferredIncludes.add(args);
+          deferredIncludes.add((args, true));
         }
         // Inside a Match block the include stays unresolved: D22's badge
         // case, already covered by the matchBlock limitation on every row.
@@ -457,7 +480,7 @@ class _Resolver {
   }
 
   /// Feeds the unsupported-directive scan for one chunk.
-  void _scanUnsupported(_Chunk chunk) {
+  void _scanUnsupported(_Chunk chunk, bool promoteTopLevelDefaults) {
     _BlockContext context = const _BlockContextTop();
 
     for (final raw in chunk.lines) {
@@ -481,8 +504,13 @@ class _Resolver {
               : SshConfigImportLimitation.proxyJump;
           switch (context) {
             case _BlockContextTop():
-              // Options before the first block apply to every connection.
-              globalLimitations.add(limitation);
+              // Options before the first block apply to every connection —
+              // unless this file arrived through a host-context include,
+              // where ssh scopes them to the enclosing host (whose
+              // hostInclude badge already covers the loss).
+              if (promoteTopLevelDefaults) {
+                globalLimitations.add(limitation);
+              }
             case _BlockContextHost(alias: final alias):
               // Host-block ProxyJump arrives via ImportedHost.proxyJump;
               // the scan still covers ProxyCommand there.
@@ -516,20 +544,21 @@ class _Resolver {
     required String args,
     required int depth,
     required Set<String> ancestors,
+    required bool promoteTopLevelDefaults,
   }) async {
     if (depth >= _maximumIncludeDepth) {
       notices.add(
-        SshConfigIncludeNotice(SshConfigIncludeNote.depthExceeded, args),
+        SshConfigUnresolvedInclude(SshConfigIncludeNote.depthExceeded, args),
       );
       return;
     }
 
     for (final token in _tokenizeWhitespace(args)) {
-      final targets = await _expandToken(token, ancestors);
+      final targets = await _expandToken(token);
       for (final target in targets) {
         if (ancestors.contains(target)) {
           notices.add(
-            SshConfigIncludeNotice(SshConfigIncludeNote.cycle, target),
+            SshConfigUnresolvedInclude(SshConfigIncludeNote.cycle, target),
           );
           continue;
         }
@@ -539,7 +568,10 @@ class _Resolver {
           // ssh ignores missing include targets; the note keeps the
           // preview honest about what was not read.
           notices.add(
-            SshConfigIncludeNotice(SshConfigIncludeNote.unreadable, target),
+            SshConfigUnresolvedInclude(
+              SshConfigIncludeNote.unreadable,
+              target,
+            ),
           );
           continue;
         }
@@ -549,6 +581,7 @@ class _Resolver {
           text: text,
           depth: depth + 1,
           ancestors: {...ancestors, target},
+          promoteTopLevelDefaults: promoteTopLevelDefaults,
         );
       }
     }
@@ -557,16 +590,14 @@ class _Resolver {
   /// Resolves one include token to concrete target path(s): a literal
   /// path yields itself (or nothing, noted unreadable, when it cannot be
   /// resolved); a glob metacharacter path expands against the parent
-  /// directory's lexical listing. Returns an empty list (with notes) when
-  /// nothing resolves.
-  Future<List<String>> _expandToken(
-    String token,
-    Set<String> ancestors,
-  ) async {
+  /// directory's lexical listing. Glob expansion is silent when nothing
+  /// matches — ssh's own behavior for a no-match glob — so only the
+  /// literal paths above carry notes.
+  Future<List<String>> _expandToken(String token) async {
     final home = service.homeDirectory;
 
     void noteUnreadable() => notices.add(
-      SshConfigIncludeNotice(SshConfigIncludeNote.unreadable, token),
+      SshConfigUnresolvedInclude(SshConfigIncludeNote.unreadable, token),
     );
 
     // `~otheruser` needs the passwd database; there is no home to
@@ -608,8 +639,16 @@ class _Resolver {
 
   /// POSIX-glob subset for one path component: `*`/`?` never cross `/`
   /// (they match a single component by construction), `[...]`/`[!...]`
-  /// are character classes — glob(3)'s common subset.
+  /// are character classes, and a leading dot never matches unless the
+  /// pattern names it — glob(3)'s common subset. Bracket classes have
+  /// no escapes (`\` is literal) and `^` is not negation, so the class
+  /// body is re-escaped for the regex translation; malformed classes
+  /// (empty, reversed ranges) match nothing rather than throwing.
   static bool _globMatch(String pattern, String name) {
+    // glob(3) never matches a leading dot unless the pattern starts
+    // with one: `*.conf` skips `.hidden.conf` and `.#backup.conf`.
+    if (name.startsWith('.') && !pattern.startsWith('.')) return false;
+
     final regex = StringBuffer('^');
     var i = 0;
     while (i < pattern.length) {
@@ -624,8 +663,15 @@ class _Resolver {
           regex.write(RegExp.escape(c));
         } else {
           var klass = pattern.substring(i + 1, end);
-          if (klass.startsWith('!')) klass = '^${klass.substring(1)}';
-          regex.write('[$klass]');
+          final negated = klass.startsWith('!');
+          if (negated) klass = klass.substring(1);
+          // Regex metacharacters are literals inside a glob class.
+          klass = klass.replaceAll('\\', '\\\\');
+          if (klass.startsWith('^')) klass = '\\^${klass.substring(1)}';
+          // `[]` and `[!]` match nothing in glob — the regex `[^]`
+          // would match any character instead.
+          if (klass.isEmpty) return false;
+          regex.write('[${negated ? '^' : ''}$klass]');
           i = end;
         }
       } else {
@@ -634,7 +680,13 @@ class _Resolver {
       i++;
     }
     regex.write(r'$');
-    return RegExp(regex.toString()).hasMatch(name);
+    try {
+      return RegExp(regex.toString()).hasMatch(name);
+    } on FormatException {
+      // Malformed class (e.g. a reversed range [z-a]): fail closed —
+      // glob(3) would not have matched either.
+      return false;
+    }
   }
 }
 

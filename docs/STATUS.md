@@ -400,6 +400,36 @@ dialog's technical literals (monospace endpoints/identity paths, empty
 label fallbacks) join the reviewed per-file exceptions in the
 localization contract test.
 
+Review round 1 (applied): the glob matcher now translates bracket
+classes per glob(3) — backslash and `^` are literals, `[]`/`[!]` match
+nothing, malformed classes fail closed instead of throwing, and a
+leading dot never matches unless the pattern names it; host-context
+includes no longer promote their block-less proxy directives to
+global badges (ssh scopes them to the enclosing host, whose hostInclude
+badge already covers the loss); the app file source decodes
+leniently (a stray non-UTF-8 byte no longer reads as "unreadable");
+the dialog handles unexpected importer exceptions with the retry
+surface, filters unimportable rows at the commit path, and asserts
+`takeException` in the disposal race; `SshConfigIncludeNotice` renamed
+to `SshConfigUnresolvedInclude`; the dedupe key, the glob-fidelity
+comment, and the test fake's doc were single-sourced/corrected; a
+pre-existing duplicated truncated bullet in open item 3 was removed.
+Six regressions (four glob corners, dotfile filtering, deferred
+coppering) plus the decode and retry cases failed before their repairs
+and pass after. Declined: horizontal-scrolling the preview table for
+sub-650-px windows — 02 §1 enforces a 720-px content minimum through
+the window lifecycle and the mobile posture (D29) cannot reach this
+v1-desktop dialog. Refuted: pattern-alias rows (`Host *`/`!x`/`web*`)
+never reach the preview — the pinned importer drops wildcard-only
+blocks and keeps only the first concrete pattern (pinned by the `Host
+*` tests); the `Key = value` handling matches the pin byte for byte
+(both cut at the first separator, so `Host = web` mangles the same way
+in both — an upstream port-back candidate for Séance's importer, not
+a local divergence). Multi-pattern `Host alpha beta` surfacing one row
+is pinned by a new test as the pin's own documented behavior.
+Validation after the round: core analysis clean and 30 import tests
+pass (full core suite below), app analysis clean and 215 tests pass.
+
 Deliberately unwired (bounded additive slice): no running surface opens
 the dialog yet — command registration rides the M3 command registry and
 its entry point (sidebar/interim server list) is the production-wiring
@@ -469,7 +499,6 @@ PORTS.md unchanged), no pin change, no milestone close.
      the ARB-complete preview dialog landed; composition, persistence,
      and command registration remain unwired as recorded there;
    - the debug-only connect → SFTP → `listDirectory` demo surface;
-   - Docker-integration pool coverage (growth, keepalive, reconnect against
    - Docker-integration pool coverage (growth, keepalive, reconnect against
      real sshd), interactive auth, TOFU flows, shared-bookmark decisions,
      and explicit trust review landed in the dated slices above; the

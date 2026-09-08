@@ -72,6 +72,12 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
       if (!mounted) return;
       setState(() => _phase = _LoadPhase.failed);
       return;
+    } on Exception {
+      // An unexpected importer failure shows the retry surface instead
+      // of parking on the spinner forever; Errors still crash loudly.
+      if (!mounted) return;
+      setState(() => _phase = _LoadPhase.failed);
+      return;
     }
 
     // The load window is exactly when dismissal can dispose this dialog;
@@ -106,7 +112,11 @@ class _SshConfigImportDialogState extends State<_SshConfigImportDialog> {
     Navigator.pop(
       context,
       preview.rows
-          .where((row) => _selectedRowIds.contains(row.id))
+          // The checkbox keeps unimportable rows out of the selection;
+          // the filter keeps the commit path from trusting that UI state.
+          .where(
+            (row) => row.importable && _selectedRowIds.contains(row.id),
+          )
           .map((row) => row.toBookmark(now: now))
           .toList(growable: false),
     );

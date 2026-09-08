@@ -1,8 +1,9 @@
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-/// In-memory file source: `files` maps path→text, `dirs` maps
-/// directory→lexical listing, `unreadable` forces a read failure.
+/// In-memory file source: `files` maps path→text; `dirs` maps
+/// directory→listing in any order (the service sorts glob results
+/// itself).
 class _FakeSource implements SshConfigFileSource {
   final Map<String, String> files;
   final Map<String, List<String>> dirs;
@@ -594,31 +595,152 @@ Host fine
     );
   });
 
-  test('the glob subset matches ?, classes, negation, and literal brackets',
+  test('glob classes treat backslash literally instead of throwing',
+      () async {
+    final dir = '$_home/.ssh/config.d';
+    // POSIX glob classes have no escapes: `[ab\]` is the class
+    // {a, b, backslash} closed by that `]`. A naive regex translation
+    // reads `\]` as an escaped bracket and throws FormatException.
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/[ab\\]?.conf\n',
+        '$dir/a1.conf': 'Host a-one\n',
+        '$dir/z1.conf': 'Host z-one\n',
+      },
+      dirs: {
+        dir: ['$dir/a1.conf', '$dir/z1.conf'],
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows.map((r) => r.host.alias).toList(), ['a-one']);
+  });
+
+  test('glob classes treat ^ as a literal, not regex negation', () async {
+    final dir = '$_home/.ssh/config.d';
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/[^a].conf\n',
+        '$dir/a.conf': 'Host alpha\n',
+        '$dir/b.conf': 'Host bravo\n',
+      },
+      dirs: {
+        dir: ['$dir/a.conf', '$dir/b.conf'],
+      },
+    );
+
+    // In glob, `[^a]` matches the character ^ or a — not "anything but
+    // a". Only alpha therefore matches; regex negation would pick bravo.
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows.map((r) => r.host.alias).toList(), ['alpha']);
+  });
+
+  test('empty glob classes match nothing', () async {
+    final dir = '$_home/.ssh/config.d';
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/[!].conf\n',
+        '$dir/b.conf': 'Host bravo\n',
+      },
+      dirs: {
+        dir: ['$dir/b.conf'],
+      },
+    );
+
+    // `[!]` (and `[]`) match nothing in glob; the regex translation
+    // `[^]` would match any character.
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows, isEmpty);
+  });
+
+  test('a reversed character range fails closed instead of throwing',
       () async {
     final dir = '$_home/.ssh/config.d';
     final source = _FakeSource(
       files: {
-        _configPath: 'Include $dir/[ab]?.conf\n',
-        '$dir/a1.conf': 'Host a-one\n',
-        '$dir/b2.conf': 'Host b-two\n',
-        '$dir/c1.conf': 'Host c-one\n',
-        '$dir/a12.conf': 'Host a-twelve\n',
+        _configPath: 'Include $dir/[z-a].conf\n',
+        '$dir/a.conf': 'Host alpha\n',
+      },
+      dirs: {
+        dir: ['$dir/a.conf'],
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows, isEmpty);
+  });
+
+  test("globs never match dotfiles unless the pattern leads with a dot",
+      () async {
+    final dir = '$_home/.ssh/config.d';
+    final source = _FakeSource(
+      files: {
+        _configPath: 'Include $dir/*.conf\n',
+        '$dir/visible.conf': 'Host visible\n',
+        '$dir/.hidden.conf': 'Host hidden\n',
+        '$dir/.#backup.conf': 'Host backup\n',
       },
       dirs: {
         dir: [
-          '$dir/a1.conf',
-          '$dir/a12.conf',
-          '$dir/b2.conf',
-          '$dir/c1.conf',
+          '$dir/.#backup.conf',
+          '$dir/.hidden.conf',
+          '$dir/visible.conf',
         ],
+      },
+    );
+
+    final preview = await _service(source).loadPreview(configPath: _configPath);
+    expect(preview.rows.map((r) => r.host.alias).toList(), ['visible']);
+  });
+
+  test('block-less proxy defaults in a host-deferred include stay scoped',
+      () async {
+    final source = _FakeSource(
+      files: {
+        _configPath: '''
+Host hostwithinclude
+  Include $_home/.ssh/extra.conf
+
+Host clean
+''',
+        // The pre-block ProxyJump applies (in ssh) to the enclosing host
+        // only — it must not badge every row as a global default.
+        '$_home/.ssh/extra.conf':
+            'ProxyJump bastion.example.com\n\nHost extra\n',
       },
     );
 
     final preview = await _service(source).loadPreview(configPath: _configPath);
     expect(
       preview.rows.map((r) => r.host.alias).toList(),
-      ['a-one', 'b-two'],
+      ['hostwithinclude', 'clean', 'extra'],
+    );
+    for (final row in preview.rows) {
+      expect(
+        row.limitations,
+        isNot(contains(SshConfigImportLimitation.proxyJump)),
+      );
+    }
+    // The enclosing host still wears the hostInclude badge for the lost
+    // directive.
+    expect(
+      preview.rows[0].limitations,
+      contains(SshConfigImportLimitation.hostInclude),
+    );
+  });
+
+  test('multi-pattern Host blocks surface one row per the pin', () async {
+    final preview = await _load('''
+Host alpha beta
+  ProxyCommand nc %h %p
+''');
+
+    // The pinned importer keeps only the first concrete pattern as the
+    // alias (one row); the badge follows that row.
+    expect(preview.rows.map((r) => r.host.alias).toList(), ['alpha']);
+    expect(
+      preview.rows.single.limitations,
+      contains(SshConfigImportLimitation.proxyCommand),
     );
   });
 }

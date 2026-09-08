@@ -94,7 +94,7 @@ export 'src/import/ssh_config_import.dart'
         SshConfigImportPreview,
         SshConfigImportRow,
         SshConfigImportService,
-        SshConfigIncludeNotice,
+        SshConfigUnresolvedInclude,
         SshConfigIncludeNote,
         SshConfigUnreadableException;
 export 'src/engine/engine_client.dart'

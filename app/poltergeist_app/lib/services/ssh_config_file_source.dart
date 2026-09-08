@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -15,7 +16,13 @@ class LocalSshConfigFileSource implements SshConfigFileSource {
     try {
       final file = File(path);
       if (!await file.exists()) return null;
-      return await file.readAsString();
+      // ssh treats the config as bytes; a stray cp1252 smart quote or
+      // Latin-1 hostname must not make a readable file look unreadable.
+      // Malformed sequences decode to U+FFFD, which no ssh directive
+      // cares about in practice.
+      return await file.readAsString(
+        encoding: const Utf8Codec(allowMalformed: true),
+      );
     } on Object {
       // Unreadable (permissions, races): the caller decides whether that
       // is a fatal root-config failure or a noted skipped include.
@@ -37,7 +44,10 @@ class LocalSshConfigFileSource implements SshConfigFileSource {
           files.add(entry.path);
         }
       }
-      // Byte-order sort: ssh processes glob results in lexical order.
+      // Deterministic code-unit sort. OpenSSH's glob(3) sorts with
+      // strcoll (locale-dependent) — an accepted approximation that only
+      // diverges for non-ASCII include filenames; dotfile filtering is
+      // the matcher's job (glob `*` never matches a leading dot).
       files.sort();
       return files;
     } on Object {

@@ -138,6 +138,31 @@ Future<void> _open(WidgetTester tester, SshConfigImportService service,
   await tester.pumpAndSettle(); // load completes
 }
 
+class _ThrowingService extends SshConfigImportService {
+  _ThrowingService()
+    : super(
+        homeDirectory: '/home/tester',
+        source: const _NeverSource(),
+        mintId: () => 'unused',
+      );
+
+  @override
+  Future<SshConfigImportPreview> loadPreview({
+    required String configPath,
+    Iterable<Bookmark> existingBookmarks = const [],
+  }) async => throw Exception('importer bug');
+}
+
+class _NeverSource implements SshConfigFileSource {
+  const _NeverSource();
+
+  @override
+  Future<String?> readText(String path) async => null;
+
+  @override
+  Future<List<String>?> listLexical(String directory) async => null;
+}
+
 void main() {
   testWidgets('renders rows with dedupe and limitation verdicts',
       (tester) async {
@@ -338,6 +363,21 @@ Host web
     );
   });
 
+  testWidgets('an unexpected load failure shows the retry UI',
+      (tester) async {
+    final service = _ThrowingService();
+
+    await tester.pumpWidget(_Harness(service, _configPath));
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // Not stuck on the spinner: the failure surface offers retry.
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Could not read $_configPath.'), findsOneWidget);
+    expect(find.text('Try Again'), findsOneWidget);
+  });
+
   testWidgets('a late load result never paints after disposal',
       (tester) async {
     final gate = Completer<String?>();
@@ -357,6 +397,7 @@ Host web
     // …then let the load finish: no setState may fire on the dead state.
     gate.complete(_sampleConfig);
     await tester.pump();
+    expect(tester.takeException(), isNull);
     expect(find.text('web'), findsNothing);
   });
 }
