@@ -4,9 +4,10 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — real-sshd interactive-auth/TOFU coverage
-lands (validation below). Merged PR #41 added real-sshd pool integration
-coverage and its ordinary CI job. M2's prompt dialogs,
+_Last updated: 2026-09-08 — PR #42 adds real-sshd interactive-auth/TOFU
+coverage. Additional TOFU tests cover shared pending decisions, first-use
+rejection, explicit changed-key approval, and per-test restoration below.
+M2's prompt dialogs,
 coordinator, live connect transcript, state-associated failure details, and independent
 terminal-recovery diagnostics are implemented. Recovery ignores stale home
 failures from dead transports. Bounded engine progress coalescing, pooled
@@ -286,6 +287,37 @@ before repair. The workflow guard tests now match CI's shell flags and control
 their environment. Account/process suites declare their GNU-timeout Linux
 requirement; broader fixture-tool portability remains open below.
 
+## M2 — TOFU decisions across bookmarks (2026-09-08)
+
+Four Linux integration tests use the production pool/opener and private,
+initially empty pin stores. Concurrent bookmarks share one pending first-use
+decision; approval pins the committed fixture fingerprint, while rejection
+leaves no pin and prompts again on retry. PR #42 owns the growth/reconnect
+coverage.
+Swapping sshd on the same host:port blocks both
+bookmarks, existing pane/lease handles, and new worker acquisitions without
+prompting or re-pinning. Explicit changed-key rejection preserves the block;
+approval installs the replacement fingerprint and restores SFTP access.
+
+The suite uses the existing bounded swap/restore helper and registers per-test
+restoration before mutation, with suite teardown as a fallback. Ordinary tests
+skip without both fixture host and modern-port variables; the existing serial
+integration CI job runs them.
+Local core/Flutter analysis and 257 core plus 196 Flutter tests pass; the
+import guard passes. Twelve integration tests skip locally because Docker is
+unavailable; all twelve pass after reconciliation with #42 in
+[CI run 34195476291](https://github.com/L-K-M/Poltergeist/actions/runs/34195476291).
+Review added a next-test pin check that failed in
+[run 34194044313](https://github.com/L-K-M/Poltergeist/actions/runs/34194044313)
+before per-test restoration and passes after it. The swap test allows four
+minutes for its
+independently bounded Docker/recovery/review stages. `watchServer` replays
+current state, and the process helper inherits its environment. Blocked-handle
+assertions throw synchronously in the `fs` getter; the matcher also tracks
+future outcomes. These review concerns require no code change.
+No production change, source port, pin bump, or milestone close.
+Auth-failure summaries and the production-wiring gates remain open.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -342,9 +374,10 @@ requirement; broader fixture-tool portability remains open below.
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
    - Docker-integration pool coverage (growth, keepalive, reconnect against
-     real sshd) lands in the 2026-09-08 slice above, and interactive-auth and
-     TOFU flows land in the auth/TOFU slice above it; 08 §5's auth-failure
-     summaries and M4's mid-transfer queue recovery retain their own gates.
+     real sshd), interactive auth, and TOFU flows landed in the dated slices
+     above. Additional shared-bookmark decisions and explicit trust review
+     are covered above; auth-failure summaries and M4's mid-transfer queue
+     recovery remain open.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
@@ -428,6 +461,11 @@ requirement; broader fixture-tool portability remains open below.
    and lock pins. Also consider checking retained fixture account UIDs before
    supporting modified base images; current restart tests reuse accounts
    created by the same entrypoint in digest-pinned containers.
+   **2026-09-08 — keyswap recovery follow-up:** `restore-modern` requires
+   keyswap's published port, so partial swap/restore failures can defeat its
+   suite-level retry. Make the helper idempotent before requiring later suites
+   to continue after those setup failures; `run.sh` still removes the full
+   profiled stack on exit.
    No offline-review path, removal API, or new store/schema is added here.
 
 ## Independent audit
