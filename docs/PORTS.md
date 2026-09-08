@@ -6,6 +6,8 @@ The periodic `ProbeService` repair merged in
 [Séance #79](https://github.com/L-K-M/Seance/pull/79) (D2).
 No source copy or local scheduler is introduced. STATUS item 3 records the
 required containing pin before wiring and optional upstream test follow-ups.
+The containing pin (`2e6d1f1`, 2026-09-08) is now in place — see the pin
+findings below; `ProbeService` wiring itself remains open.
 
 ## M2 real-sshd pool and TOFU coverage (2026-09-08)
 
@@ -17,14 +19,18 @@ port candidates.
 ## app/poltergeist_app/lib/services/atomic_file.dart
 
 - Source: app/seance_app/lib/services/atomic_file.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at a9add158015fc15d805cecd2754ac40bc7860a23 (2026-09-07)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at a9add158015fc15d805cecd2754ac40bc7860a23 (2026-09-07); source moved at 2e6d1f138f1704e683870f75e11262bf50e37379 with Séance #80's optional `privacy` parameter (2026-09-08) — see divergences
 - Ported: 2026-09-02
 - Divergences: unique `.poltergeist-<uuid>.tmp` siblings prevent collisions
   and basename overflow; failed writes remove their temporary sibling without
   masking the original failure; optional owner-only writes restrict an empty
   temporary before sensitive content; the source's delete-target Windows
   fallback is omitted per 09 §3.6; corrupt quarantine is store-owned,
-  UTC-stamped, and reports move failures.
+  UTC-stamped, and reports move failures. Séance #80's re-diff at the new
+  pin: the source gained `AtomicFilePrivacy` (create-empty-then-restrict via
+  the new `file_permissions.dart`) while keeping its fixed `.tmp` name and
+  no failure cleanup — the recorded divergences stand unchanged; no port
+  edit is required.
 - Port-back candidates: unique bounded temp names, best-effort cleanup,
   and timestamped quarantine. Owner-only writes landed upstream in
   [Séance #80](https://github.com/L-K-M/Seance/pull/80) as an optional
@@ -34,7 +40,7 @@ port candidates.
 ## app/poltergeist_app/test/atomic_file_test.dart
 
 - Source: app/seance_app/test/atomic_file_test.dart
-- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at a9add158015fc15d805cecd2754ac40bc7860a23 (2026-09-07)
+- Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0); re-diffed unchanged at a9add158015fc15d805cecd2754ac40bc7860a23 (2026-09-07) and at 2e6d1f138f1704e683870f75e11262bf50e37379 (2026-09-08)
 - Ported: 2026-09-02
 - Divergences: uses the Poltergeist temp-file contract, adds failed-rename
   cleanup, and maps source store round-trip/quarantine cases to
@@ -86,7 +92,7 @@ port candidates.
 ## app/poltergeist_app/lib/services/locked_secret_vault.dart
 
 - Source: app/seance_app/lib/services/app_services.dart (LockedSecretVault)
-- Séance commit: 99a35850a59e741b3e542447508dda2ef9424252 (ported class re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: 99a35850a59e741b3e542447508dda2ef9424252 (ported class re-diffed unchanged at a9add15, 2026-09-07; re-diffed unchanged as a class at 2e6d1f1, 2026-09-08 — the surrounding `app_services.dart` moved with assistant/sync work outside the ported block)
 - Ported: 2026-09-07
 - Divergences: extracted into its own file — Poltergeist has no AppServices
   composition yet (it lands with the engine/prompt slices that consume the
@@ -159,7 +165,8 @@ port candidates.
 
 - Source: app/seance_app/lib/services/identity_audit_log.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07;
-  re-diffed with the Séance #80/#81 changes at cb4b010, 2026-09-08)
+  re-diffed with the Séance #80/#81 changes at cb4b010, 2026-09-08;
+  identical between cb4b010 and the 2e6d1f1 pin, 2026-09-08)
 - Ported: 2026-09-07
 - Divergences: `viaBookmark` docs note Poltergeist is unsandboxed at v1
   (D23). The PR #38 security/reliability repairs (wrong-typed optional
@@ -186,7 +193,8 @@ port candidates.
 
 - Source: app/seance_app/test/identity_audit_log_test.dart
 - Séance commit: 82507ec (re-diffed unchanged at a9add15, 2026-09-07;
-  refreshed with the Séance #80/#81 coverage at cb4b010, 2026-09-08)
+  refreshed with the Séance #80/#81 coverage at cb4b010, 2026-09-08;
+  identical between cb4b010 and the 2e6d1f1 pin, 2026-09-08)
 - Ported: 2026-09-07
 - Divergences: adds wrong-typed-field and owner-only-mode regressions for
   the local hardening; record/rotate/serialize behavior remains identical.
@@ -207,7 +215,7 @@ port candidates.
 
 - Source: app/seance_app/lib/services/app_services.dart
   (`_readIdentityFile`/`_auditIdentityRead`) plus `IdentityFileException`
-- Séance commit: 99a3585 (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: 99a3585 (re-diffed unchanged at a9add15, 2026-09-07; re-diffed at 2e6d1f1, 2026-09-08 — upstream's `_readIdentityFile` gained an optional `bookmarkOverride` parameter for Séance's sandboxed draft-connection-test grants, a path this port dropped wholesale per D23, so the change does not apply; `_auditIdentityRead` is unchanged)
 - Ported: 2026-09-07
 - Divergences: extracted as a standalone service; no security-scoped-bookmark
   grant path (Poltergeist is unsandboxed at v1, D23 — plain expanded reads
@@ -233,7 +241,7 @@ port candidates.
 
 - Source: app/seance_app/lib/ui/terminal_pane.dart (the connecting view,
   `_ConnectionError`, and `_ConnectionLogView`)
-- Séance commit: d18f1ac (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: d18f1ac (re-diffed unchanged at a9add15, 2026-09-07; source moved at 2e6d1f1, 2026-09-08 — upstream extracted `_ConnectionLogView`'s body into a shared `connection_log_view.dart` while keeping the session-notifier wiring and behavior, so the ported block's semantics are unchanged)
 - Ported: 2026-09-07
 - Divergences: driven by the engine protocol's streams (03 §5) instead of
   an app-side session object; strings localize through ARB (D20); states
@@ -254,6 +262,44 @@ port candidates.
 - Port-back candidates: none.
 
 ## Pin findings
+
+The 2026-09-08 pin bump moves both live declarations and all three locks from
+upstream `a9add15` to `2e6d1f138f1704e683870f75e11262bf50e37379` (Séance
+#81's merge; a commit-rev bridge per D2 — no Séance tag contains #79's
+probe repair, checked by ancestry against all eleven published tags). The
+pin brings Séance #79's serialized probe sweeps, #80/#81's audit work
+(already mirrored in PR #52), SSH trace redaction inside
+`SshConnectionLog.add` with the `Iterable<String>` lines view, the
+typed `AgentAuthUnsupportedError`, `HostKey.recordId`/`hostKeyLocator`,
+`Secret.copyWith`, the additive `assistantSettings` record kind, and new
+first-party sources (`test_connection`, `zai_search`, `assistant_settings`)
+plus `fake_async` as a seance_core dev dependency. The newly available
+assistant/sync surfaces are not consumed (D19 scope; no Poltergeist account).
+`dartssh2` stays exactly 3.0.2 (sha-identical in all three locks).
+
+Every PORTS entry was re-diffed at the target against its recorded source
+block (2026-09-08): `secure_master_key`, `file_stores`, both dialogs and
+their tests, `keystore_resilience`, `atomic_file_test`, and
+`identity_file_reader_test` re-diff clean — their source files are unchanged
+since the recorded revisions, which predate the pin. The four sources that
+moved carry dated dispositions in their entries above (`atomic_file`'s #80
+privacy parameter; `app_services`' assistant/sync churn outside the ported
+`LockedSecretVault` and identity blocks, plus the inapplicable sandbox-grant
+override; `terminal_pane`'s behavior-identical `_ConnectionLogView`
+extraction; `identity_audit_log` identical since cb4b010). Attribution
+headers in ported files keep their original source revisions — provenance,
+not a live-pin claim.
+
+The consumer fix riding the same pin bump: the pool's transcript bridge
+forwarded the raw `add()` argument past upstream's new redaction to the live
+`connectLog` fan-out. It now forwards the record exactly as upstream stored
+it (`lines.last` after `super.add`), so the live stream and the stored
+transcript carry identical redacted text. Regressions in
+`pool_diagnostics_test.dart` failed at runtime on both the old pin (no
+redaction anywhere) and the new pin with the bridge unfixed (storage
+redacted, stream raw), and pass after the fix. No redaction logic is copied
+or forked; `dartssh2` 3.0.2 stays pinned (upstream's trace audit is
+version-bound).
 
 The 2026-09-07 recovery diagnostics change Poltergeist's pool and engine
 protocol only. No source copy, pin change, or upstream port is required.
@@ -331,13 +377,13 @@ Full, non-shallow ancestor and tree audit. Raw streams are
 content-addressed by SHA-256; line counts aid review. Use
 `--print-findings` to reproduce them without adding names to docs.
 
-- Pin: `a9add158015fc15d805cecd2754ac40bc7860a23` from `https://github.com/L-K-M/Seance.git`
-- Identity: 43 lines; `sha256:629b1110cbc8d49fc3efb4504f5aee9f9152dab7a7b40c15c64c6e91f718de43`
-- Companion: 251 lines; `sha256:6e3739b0476eccce880c860f960301f235bf8d3347d76d037681a883edbe9e3b`
-- Companion orphans: 3 lines; `sha256:13cbe37c9c90dbf5a1b3ec1541fe8e3a6adfffbce40247e9293a9f849d315bed`
-- Pinpoints: 474 lines; `sha256:76e289a88ed507f8e4354ef3c07c7f729df9375c1f2e6575121f7ac2f93c51c7`
-- License scan: 30 lines; `sha256:27902a92c40facde6a04fc73fa77eb5512400261849607d1271b0eb0c8427bfc`
-- Vendored paths: 201 lines; `sha256:ce44d75b393dbac5d33a2e3a15fc3947cd2557b2e8a6661142c09e9f66336042`
-- Gitlinks: 0 lines; `sha256:3b777fa9bc6b4648ef7f07f8e8f1a69d11d66a5bb3ddd737716c64a7a828be9d`
-- Tree: 455 lines; `sha256:064c80a6cb4dd8354938cd73f50c603625aeb18616a5c2c5c67bce5ace43428d`
+- Pin: `2e6d1f138f1704e683870f75e11262bf50e37379` from `https://github.com/L-K-M/Seance.git`
+- Identity: 51 lines; `sha256:644500f7f065b2103543d300aee698f0c940547e34b50070f44516cfb2f3033e`
+- Companion: 401 lines; `sha256:ec80181de09261fcba405b5d848b976640e06771e8b016681943fae7d2db2047`
+- Companion orphans: 3 lines; `sha256:cc2cba9a8662f129c19fdd790a6fd8c242033597118971576b039102bdfd92cc`
+- Pinpoints: 717 lines; `sha256:ab8a547be2ef620f895be3ec4cc8f142e72043a80adb99a5db64ace4e4c77115`
+- License scan: 31 lines; `sha256:27317917d7065cf9adb99fb4caefe74064f12a1bf362905bc70b9db2ce9591ba`
+- Vendored paths: 209 lines; `sha256:621fe5d365980d36c9940de8abba22190a8499d78945f3bc79350b45557f5c4e`
+- Gitlinks: 0 lines; `sha256:75fa9b1a198dfbacdcf8f2dfc2ace7d8988f2a7db103e084e8094217f538b6be`
+- Tree: 477 lines; `sha256:a9416355d909803fed9a52477d1adb7cdafb459f665da8027f809a33a0430f82`
 <!-- SEANCE_PIN_AUDIT_V1:END -->

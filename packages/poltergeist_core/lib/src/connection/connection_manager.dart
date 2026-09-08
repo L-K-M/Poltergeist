@@ -1737,15 +1737,48 @@ class PooledConnectionManager implements ConnectionManager {
 class _ForwardingConnectionLog extends SshConnectionLog {
   final void Function(String line) _onLine;
 
-  static void _noop() {}
+  /// Whether the last `super.add` actually appended. Upstream invokes
+  /// `onUpdate` exactly once per stored record (never for the frozen no-op),
+  /// which is the one signal an override gets for "storage recorded this" —
+  /// a length delta cannot say it (the 400-line bound trims on the same add
+  /// that appends), and content comparison cannot either (identical records
+  /// are legal).
+  var _appendedByLastAdd = false;
 
-  _ForwardingConnectionLog(this._onLine) : super(onUpdate: _noop);
+  _ForwardingConnectionLog(this._onLine) {
+    onUpdate = () => _appendedByLastAdd = true;
+  }
 
   @override
   void add(String line) {
     if (onUpdate == null) return;
+    _appendedByLastAdd = false;
     super.add(line);
-    _onLine(line);
+    // If storage did not record the record, the stream must not emit one —
+    // neither a crash on an empty transcript nor a stale last line replayed
+    // as new. At this pin the only no-append path is frozen (excluded
+    // above); this holds the invariant across future re-pins.
+    if (!_appendedByLastAdd) {
+      // Debug tripwire, stripped in release: reaching here means the
+      // per-append onUpdate contract drifted on a re-pin (or onUpdate was
+      // reassigned), silently disabling the live fan-out. The regressions
+      // in pool_diagnostics_test.dart run with asserts on, so this fires
+      // the moment any such path is exercised.
+      assert(
+        false,
+        'SshConnectionLog.add stored no record while unfrozen; live '
+        'connectLog forwarding skipped. Re-verify the onUpdate-per-stored-'
+        'record contract after any Séance re-pin.',
+      );
+      return;
+    }
+    // Forward the record as upstream stored it, not the raw argument:
+    // `SshConnectionLog.add` is where credential records are redacted, and
+    // forwarding the argument would bypass it — the live stream would carry
+    // what `redactConnectionTrace` exists to withhold. After `super.add` the
+    // stored copy is the last line; the 400-line bound trims from the front,
+    // so the newest record is always `lines.last`.
+    _onLine(lines.last);
   }
 }
 

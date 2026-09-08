@@ -11,12 +11,13 @@ environment:
 
 dependencies:
   # D2: git-pinned to Séance, never forked or copied. The steady state is a
-  # tag pin; this rev pin (keepalive controls, pre-next-tag) is recorded as a dated
+  # tag pin; this rev pin (Séance #79's probe-lifecycle repair plus #80/#81's
+  # audit and SSH-trace redaction work, pre-next-tag) is recorded as a dated
   # open item in docs/STATUS.md and re-pinned at Séance's next release.
   seance_core:
     git:
       url: https://github.com/L-K-M/Seance.git
-      ref: a9add158015fc15d805cecd2754ac40bc7860a23
+      ref: 2e6d1f138f1704e683870f75e11262bf50e37379
       path: packages/seance_core
   # Pinned exactly like seance_core pins it, and confined to
   # lib/src/connection/ by the CI import check (03 §1).
