@@ -305,8 +305,8 @@ skip without both fixture host and modern-port variables; the existing serial
 integration CI job runs them.
 Local core/Flutter analysis and 257 core plus 196 Flutter tests pass; the
 import guard passes. Twelve integration tests skip locally because Docker is
-unavailable. Before reconciliation with #42, all nine passed in
-[CI run 34194253564](https://github.com/L-K-M/Poltergeist/actions/runs/34194253564).
+unavailable; all twelve pass after reconciliation with #42 in
+[CI run 34195476291](https://github.com/L-K-M/Poltergeist/actions/runs/34195476291).
 Review added a next-test pin check that failed in
 [run 34194044313](https://github.com/L-K-M/Poltergeist/actions/runs/34194044313)
 before per-test restoration and passes after it. The swap test allows four
@@ -314,8 +314,8 @@ minutes for its
 independently bounded Docker/recovery/review stages. `watchServer` replays
 current state, and the process helper inherits its environment. Blocked-handle
 assertions throw synchronously in the `fs` getter; the matcher also tracks
-future outcomes. These review concerns require no code change. Combined-suite
-CI is pending. No production change, source port, pin bump, or milestone close.
+future outcomes. These review concerns require no code change.
+No production change, source port, pin bump, or milestone close.
 Auth-failure summaries and the production-wiring gates remain open.
 
 ## Open items
