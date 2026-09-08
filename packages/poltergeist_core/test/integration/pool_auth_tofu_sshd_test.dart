@@ -63,15 +63,15 @@ void main() {
           serverId,
           paneTabId: 'left',
         );
-        expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
+        // The auxiliary fixture users own empty homes; canonicalization is
+        // the end-to-end SFTP proof over the interactive transport.
+        expect(await pane.fs.canonicalize('.'), pane.homePath);
         expect(harness._authKinds, everyElement(isIn(_interactiveKinds)));
         expect(harness._challenges, hasLength(1));
         expect(harness._challenges.single.prompts, hasLength(1));
 
-        // Four transfer leases fill the single transport's budget.
-        final capacity =
-            _defaultPolicy.maxTransports *
-            _defaultPolicy.maxTransferChannelsPerTransport;
+        // Leases up to the single transport's transfer budget.
+        final capacity = _defaultPolicy.maxTransferChannelsPerTransport;
         final leases = <TransferChannelLease>[];
         for (var index = 0; index < capacity; index++) {
           leases.add(
@@ -95,7 +95,8 @@ void main() {
         await leases.first.release();
         final acquired = await waiting.timeout(_operationTimeout);
         expect(acquired.fs, same(returnedFs));
-        expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
+        expect(await pane.fs.canonicalize('.'), pane.homePath);
+        await acquired.release();
       },
     );
   }, skip: authmatrixEnabled ? false : 'Set $_hostVariable and '
@@ -135,7 +136,8 @@ void main() {
         fixture.hostKey.fingerprintSha256,
       );
 
-      // Pool growth verifies the pinned key silently (no second prompt).
+      // Pool growth verifies the pinned key silently (no second prompt):
+      // the fifth lease grows transport two, the cap fills both.
       final capacity =
           _defaultPolicy.maxTransports *
           _defaultPolicy.maxTransferChannelsPerTransport;
@@ -147,9 +149,6 @@ void main() {
               .timeout(_operationTimeout),
         );
       }
-      final grown = await manager
-          .leaseTransferChannel(serverId)
-          .timeout(_operationTimeout);
       expect(harness._opens, hasLength(2));
       expect(
         harness._opens.last.prompting,
@@ -159,7 +158,7 @@ void main() {
       expect(harness._decisions, hasLength(1));
 
       // A second connect on a fresh pool verifies the pin silently too.
-      for (final lease in [...leases, grown]) {
+      for (final lease in leases) {
         await lease.release();
       }
       for (final pane in panes) {
