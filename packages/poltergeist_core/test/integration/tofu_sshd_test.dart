@@ -211,6 +211,17 @@ void main() {
       expect(await sibling.fs.listDirectory(sibling.homePath), isNotEmpty);
       expect(harness._decisions, hasLength(3));
     });
+
+    test('subsequent tests see the original fixture host key', () async {
+      final harness = fixture._pool();
+      final pane = await harness._manager.openBrowseChannel(
+        _primaryId,
+        paneTabId: 'after-swap',
+      );
+      expect(await pane.fs.listDirectory(pane.homePath), isNotEmpty);
+      expect(harness._decisions.single.verdict, HostKeyVerdict.firstUse);
+      await harness._expectPin(fixture._originalFingerprint);
+    });
   }, skip: enabled ? false : 'Set $_hostVariable and $_portVariable to enable.');
 }
 
