@@ -4,10 +4,12 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08 — PR #42 adds real-sshd interactive-auth/TOFU
-coverage. Additional TOFU tests cover shared pending decisions, first-use
-rejection, explicit changed-key approval, and per-test restoration below.
-M2's prompt dialogs,
+_Last updated: 2026-09-08 — the real-sshd auth-failure-summary coverage
+(rejected key, method-not-accepted user, root prohibit-password) lands
+(validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
+and shared-decision/explicit-review TOFU tests landed below; merged PR #41
+added real-sshd pool integration coverage and its ordinary CI job. M2's
+prompt dialogs,
 coordinator, live connect transcript, state-associated failure details, and independent
 terminal-recovery diagnostics are implemented. Recovery ignores stale home
 failures from dead transports. Bounded engine progress coalescing, pooled
@@ -217,6 +219,36 @@ engine/pane integration work.
 M4 owns transfer retry/progress counters. Keepalive, real-sshd recovery,
 and the existing owner-decision gates remain open. No milestone-close claim.
 
+## M2 — real-sshd auth-failure summaries (2026-09-08)
+
+Three tagged tests close 08 §5's ungated auth-failure leg against
+`sshd-authmatrix` through the production opener (no fakes, no summarizer
+fork, no SSH-boundary bypass): a rejected key (publickey accepted, the
+offered key itself declined) asserts the summary names the exact key — its
+fingerprint cross-checks against the transcript's real "Offering key:"
+line — and points at `authorized_keys`; a method-not-accepted user
+(`password-only` offered a key) asserts the server-accepts line and the
+switch-method guidance; root with its correct password asserts the
+`prohibit-password` explanation. Every case also pins the shared
+invariants: the one-liner starts with the `Authentication failed for
+<user>@<host>:<port>` prefix, never carries raw dartssh2 text (`All
+authentication methods failed`, `SSH_Message`), rides exactly one
+promptless production open (pre-seeded pin, no interactive challenge), and
+fans out as the disconnected `ServerStatus.detail` (03 §3.2). Branch
+separation is asserted per case: the other two cause phrases must not
+appear.
+
+The suite reuses the committed fixture lifecycle, the existing CI
+integration job (its `packages/**/test/**` filter already covers the new
+file), and per-suite pin isolation. Docker is unavailable locally; the
+three tests skip by name without the fixture variables and pass in CI (run
+linked from the PR checks).
+
+Local validation: core analysis clean; 257 core tests pass with eleven
+integration skips (three of them these, twelve from the earlier real-sshd
+suites). No production code, wiring,
+source port, dependency change, or milestone close.
+
 ## M2 — real-sshd interactive auth and TOFU (2026-09-08)
 
 Three tagged tests extend the real-sshd matrix to 07 §3.3's auth/TOFU exit
@@ -374,10 +406,11 @@ Auth-failure summaries and the production-wiring gates remain open.
    - ssh_config import with preview + dedupe (D22);
    - the debug-only connect → SFTP → `listDirectory` demo surface;
    - Docker-integration pool coverage (growth, keepalive, reconnect against
-     real sshd), interactive auth, and TOFU flows landed in the dated slices
-     above. Additional shared-bookmark decisions and explicit trust review
-     are covered above; auth-failure summaries and M4's mid-transfer queue
-     recovery remain open.
+   - Docker-integration pool coverage (growth, keepalive, reconnect against
+     real sshd), interactive auth, TOFU flows, shared-bookmark decisions,
+     and explicit trust review landed in the dated slices above; the
+     auth-failure summaries land in their own 2026-09-08 slice, and M4's
+     mid-transfer queue recovery retains its gate.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
