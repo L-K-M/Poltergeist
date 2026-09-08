@@ -728,7 +728,7 @@ PORTS.md unchanged), no pin change, no milestone close.
      consider an upstream observer if real-sshd debugging needs cleanup
      failures. The pinned helper's ignore mode exposes no observer. This
      does not block the teardown repair or change error preservation.
-   - **Dependency-contract coverage (updated 2026-09-06; hash-off CAS leg
+   - **Dependency-contract coverage (updated 2026-09-08; hash-off CAS leg
      closed 2026-09-08):** 09 §5's upgrade guards are covered below. The
      hash-off second-preflight/CAS gap is closed upstream in
      [Séance #78](https://github.com/L-K-M/Seance/pull/78) (merge
