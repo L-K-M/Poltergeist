@@ -113,6 +113,30 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'ratio'",
     "'must be finite'",
   },
+  // Registered commands render from the registry keyed by id — widget
+  // plumbing, not authored copy.
+  'lib/ui/workspace_shell.dart': {"'command.\${command.id}'"},
+  // The demo controller's machine data: the pane-tab key the channel
+  // registers under, the ephemeral bookmark's label/path (never UI
+  // copy), and a dev-facing assert message.
+  'lib/services/sftp_demo_controller.dart': {
+    "'demo'",
+    r"'${facts.username}@${facts.host}'",
+    "'/'",
+  },
+  // The demo view's form keys and the prefilled default SSH port —
+  // widget plumbing, not authored copy.
+  'lib/ui/demo/sftp_demo_view.dart': {
+    "'connect.demoListing'",
+    "''",
+    r"'$_defaultSshPort'",
+    "'sftp-demo-host'",
+    "'sftp-demo-port'",
+    "'sftp-demo-username'",
+    "'sftp-demo-auth'",
+    "'sftp-demo-connect'",
+    "'sftp-demo-close'",
+  },
 };
 
 void main() {

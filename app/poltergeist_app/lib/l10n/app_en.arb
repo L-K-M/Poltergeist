@@ -355,5 +355,84 @@
     "placeholders": {
       "alias": {"type": "String"}
     }
+  },
+  "sftpDemoCommandLabel": "Demo: SFTP listing",
+  "@sftpDemoCommandLabel": {
+    "description": "Toolbar entry for the debug-only SFTP demo surface."
+  },
+  "sftpDemoTitle": "SFTP listing demo",
+  "@sftpDemoTitle": {
+    "description": "Title of the debug-only SFTP demo page."
+  },
+  "sftpDemoDebugNote": "Debug-only surface; the real panes replace it.",
+  "@sftpDemoDebugNote": {
+    "description": "Note that the demo surface is debug-only and throwaway."
+  },
+  "sftpDemoHostLabel": "Host",
+  "@sftpDemoHostLabel": {
+    "description": "Label of the demo connect form's host field."
+  },
+  "sftpDemoPortLabel": "Port",
+  "@sftpDemoPortLabel": {
+    "description": "Label of the demo connect form's port field."
+  },
+  "sftpDemoUsernameLabel": "Username",
+  "@sftpDemoUsernameLabel": {
+    "description": "Label of the demo connect form's username field."
+  },
+  "sftpDemoAuthMethodLabel": "Authentication",
+  "@sftpDemoAuthMethodLabel": {
+    "description": "Label of the demo connect form's authentication picker."
+  },
+  "sftpDemoAuthAgent": "SSH agent",
+  "@sftpDemoAuthAgent": {
+    "description": "Authentication picker entry for agent auth."
+  },
+  "sftpDemoAuthPassword": "Password",
+  "@sftpDemoAuthPassword": {
+    "description": "Authentication picker entry for password auth."
+  },
+  "sftpDemoHostRequired": "Enter a host.",
+  "@sftpDemoHostRequired": {
+    "description": "Validation error for a blank host."
+  },
+  "sftpDemoUsernameRequired": "Enter a username.",
+  "@sftpDemoUsernameRequired": {
+    "description": "Validation error for a blank username."
+  },
+  "sftpDemoPortInvalid": "Enter a port between 1 and 65535.",
+  "@sftpDemoPortInvalid": {
+    "description": "Validation error for a port outside the SSH range."
+  },
+  "sftpDemoConnect": "Connect",
+  "@sftpDemoConnect": {
+    "description": "Demo connect button label."
+  },
+  "sftpDemoDisconnect": "Disconnect",
+  "@sftpDemoDisconnect": {
+    "description": "Demo disconnect action label."
+  },
+  "sftpDemoListingLoading": "Loading the directory listing",
+  "@sftpDemoListingLoading": {
+    "description": "Progress line while the demo lists the home directory."
+  },
+  "sftpDemoListingEmpty": "The directory is empty.",
+  "@sftpDemoListingEmpty": {
+    "description": "Shown when the demo listing returns no entries."
+  },
+  "sftpDemoListingCount": "{count, plural, =1{1 entry} other{{count} entries}}",
+  "@sftpDemoListingCount": {
+    "description": "Count of listed entries above the demo listing.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "sftpDemoEngineFailed": "The connection engine could not start.",
+  "@sftpDemoEngineFailed": {
+    "description": "Notice when the engine isolate fails to spawn."
+  },
+  "sftpDemoClose": "Close",
+  "@sftpDemoClose": {
+    "description": "Accessibility label of the demo page's close action."
   }
 }

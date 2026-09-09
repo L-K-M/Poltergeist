@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 
 import 'l10n/app_localizations.dart';
 import 'services/content_size_reporter.dart';
+import 'services/sftp_demo_controller.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
 import 'ui/workspace_shell.dart';
@@ -17,12 +19,24 @@ class PoltergeistApp extends StatelessWidget {
     this.onContentSizeChanged,
     this.navigatorKey,
     this.scaffoldMessengerKey,
+    this.debugDemoEnabled = kDebugMode,
+    this.sftpDemoEngineFactory,
   });
 
   final double initialPaneRatio;
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
   final ValueChanged<Size>? onContentSizeChanged;
+
+  /// Gating flag for the debug-only SFTP demo surface (07 §3.3). The
+  /// flag can only disable the demo in debug builds, never enable it in
+  /// release: the workspace ANDs it with kDebugMode, which is false
+  /// there.
+  final bool debugDemoEnabled;
+
+  /// Engine factory behind the demo surface; tests inject a scripted
+  /// fake, production spawns the real engine isolate.
+  final SftpDemoEngineFactory? sftpDemoEngineFactory;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator.
@@ -57,6 +71,8 @@ class PoltergeistApp extends StatelessWidget {
       initialPaneRatio: initialPaneRatio,
       onPaneRatioChanged: onPaneRatioChanged,
       onPaneRatioSaveError: onPaneRatioSaveError,
+      debugDemoEnabled: debugDemoEnabled && kDebugMode,
+      sftpDemoEngineFactory: sftpDemoEngineFactory,
     );
     final callback = onContentSizeChanged;
     if (callback == null) return workspace;
