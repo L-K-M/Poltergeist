@@ -9,8 +9,9 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// v2 adds the connection/prompt surface (03 §5). v3 adds
 /// [RecoveryFailedEvent] for terminal background failures. v4 adds live
 /// transcript batches ([ConnectionLogEvent]) and starts populating the
-/// previously reserved [ServerStateEvent.detail].
-const engineProtocolVersion = 4;
+/// previously reserved [ServerStateEvent.detail]. v5 adds probe targets,
+/// activity control, and tri-state reachability snapshots.
+const engineProtocolVersion = 5;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -74,6 +75,15 @@ final class ServerStateEvent extends EngineEvent {
     required this.state,
     this.detail,
   });
+}
+
+/// Complete reachability snapshot for the currently eligible probe targets.
+/// Live connection state remains authoritative for the Connections section.
+final class ProbeStatusesEvent extends EngineEvent {
+  final Map<String, ProbeStatus> statuses;
+
+  ProbeStatusesEvent({required Map<String, ProbeStatus> statuses})
+    : statuses = Map.unmodifiable(statuses);
 }
 
 /// A terminal background recovery failure for local diagnostics (D19).
@@ -339,6 +349,31 @@ final class UnwatchServerRequest extends EngineRequest {
 
 final class ConnectedServerIdsRequest extends EngineRequest {
   const ConnectedServerIdsRequest({required super.requestId});
+}
+
+/// Probe permission combines foreground visibility with the global setting.
+enum ProbeActivity { paused, running }
+
+/// Replaces eligible, locally seen targets; an empty list clears them.
+/// Config ids are bookmark-derived serverIds (03 §3.5). The caller applies
+/// per-favorite settings and sync-provenance eligibility before sending.
+final class SetProbeTargetsRequest extends EngineRequest {
+  final List<ServerConfig> targets;
+
+  SetProbeTargetsRequest({
+    required super.requestId,
+    required List<ServerConfig> targets,
+  }) : targets = List.unmodifiable(targets);
+}
+
+/// No probes run until explicitly enabled; pause invalidates stale work.
+final class SetProbeActivityRequest extends EngineRequest {
+  final ProbeActivity activity;
+
+  const SetProbeActivityRequest({
+    required super.requestId,
+    required this.activity,
+  });
 }
 
 /// Drops this serverId's pool reference (03 §3.5): closes its browse

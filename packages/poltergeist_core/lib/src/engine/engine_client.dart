@@ -39,6 +39,7 @@ class EngineClient implements PromptBridge {
   final _progress = StreamController<TransferProgressBatchEvent>.broadcast();
   final _recoveryFailures = StreamController<RecoveryFailedEvent>.broadcast();
   final _connectLog = StreamController<ConnectionLogEvent>.broadcast();
+  final _probeStatuses = StreamController<ProbeStatusesEvent>.broadcast();
 
   final ReceivePort _events;
   final ReceivePort _control;
@@ -121,6 +122,25 @@ class EngineClient implements PromptBridge {
   /// Coalesced connect-attempt transcript lines (03 §5), rendered live during
   /// connect and retained on failure.
   Stream<ConnectionLogEvent> get connectionLog => _connectLog.stream;
+
+  /// Live reachability snapshots; subscribe before configuring probes.
+  /// Target changes clear removed/retargeted results. Closes on engine death.
+  Stream<ProbeStatusesEvent> get probeStatuses => _probeStatuses.stream;
+
+  /// Supplies only seen, permitted favorites; config ids identify bookmarks.
+  /// This does not grant permission to start probing (03 §3.4).
+  Future<void> setProbeTargets(List<ServerConfig> targets) async {
+    await _call(
+      (id) => SetProbeTargetsRequest(requestId: id, targets: targets),
+    );
+  }
+
+  /// Run only while foregrounded and enabled; the engine starts paused.
+  Future<void> setProbeActivity(ProbeActivity activity) async {
+    await _call(
+      (id) => SetProbeActivityRequest(requestId: id, activity: activity),
+    );
+  }
 
   /// The server's connection status — state plus the failure one-liner —
   /// current value first (03 §3.2). Watching again re-subscribes; dropping
@@ -234,6 +254,8 @@ class EngineClient implements PromptBridge {
         );
       case final ConnectionLogEvent event:
         _connectLog.add(event);
+      case final ProbeStatusesEvent event:
+        _probeStatuses.add(event);
       case final EnginePromptEvent event:
         _prompts.add(event);
       case final PromptDismissedEvent event:
@@ -323,6 +345,7 @@ class EngineClient implements PromptBridge {
     _progress.close();
     _recoveryFailures.close();
     _connectLog.close();
+    _probeStatuses.close();
     _events.close();
     _control.close();
     if (!_terminated.isCompleted) _terminated.complete();

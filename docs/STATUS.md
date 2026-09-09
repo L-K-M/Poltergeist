@@ -4,7 +4,9 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-08. The Séance pin is bumped to upstream main
+_Last updated: 2026-09-09. Engine-side probe control and status events are
+implemented (dated section below); interim list dots and app composition
+remain open. The Séance pin is bumped to upstream main
 `2e6d1f1` (Séance #81's merge — containing #79's probe-lifecycle repair
 and #80/#81's audit work) in both declarations and all three locks; the
 pool's live transcript bridge now forwards upstream-redacted records
@@ -14,7 +16,7 @@ repair gate is mirrored locally with its durable procfs regressions
 ([PR #52](https://github.com/L-K-M/Poltergeist/pull/52); open item 5's
 gate-mirror candidate closed). The port-backs themselves merged as
 Séance #80/#81. Probe lifecycle
-repair is in the pin; `ProbeService` wiring itself remains open (item 3).
+repair is in the pin; app-side `ProbeService` consumers remain open (item 3).
 The ssh_config
 import preview/dedupe slice
 (D22) landed as a bounded, unwired component (dated section below,
@@ -659,6 +661,36 @@ newly available assistant/sync surfaces at the pin are deliberately not
 consumed (D19 scope; no Poltergeist account). No upstream PR, no
 release/tag, no M0 evidence change.
 
+## M2 — engine probe control and status events (2026-09-09)
+
+Protocol v5 adds eligible-target replacement, paused/running control, and
+immutable tri-state status snapshots. The engine consumes the pinned
+`ProbeService` with 02 §4's 60 s interval, 3 s timeout, jitter, and six-probe
+cap. Host:port duplicates share a probe and fan out by bookmark id. Live
+pool ids come from a synchronous transport snapshot, avoiding stale state
+events and redundant probes. Target changes clear removed/retargeted results;
+repeated updates preserve cadence. Pause/shutdown discard stale results and
+queued work while already-started probes drain.
+
+The engine starts paused with no targets. The future app consumer must
+subscribe before configuring it, supply only seen/permitted targets under
+02 §4's settings and sync-provenance rules, and run it only while foregrounded
+and enabled. Global opt-out clears targets and pauses activity. No startup
+callers or status-dot widgets land here; those remain the next part of item 3.
+Item 6 still gates production connection composition. Chapter 03 clarifies
+engine ownership under D8 and the synchronous pool snapshot API. PORTS records
+pinned consumption; no copied source, dependency bump, release, or milestone close.
+
+Validation: core analysis and 333 tests pass (15 Docker-fixture skips);
+Flutter analysis and 220 tests pass; import/protocol scans and all 51
+protocol-guard tests pass. Fifteen service tests cover cadence, concurrency,
+validation, target identity, and lifecycle; six client tests exercise the
+real isolate boundary. Host tests verify live-pool skipping and teardown.
+The live-id retarget regression failed before endpoint matching (zero probes
+instead of one); the case-alias regression failed before normalization
+(two probes instead of one). Both pass after repair. Docker and five-platform
+build verification run in CI. No UI change, so screenshots do not apply.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -728,7 +760,10 @@ release/tag, no M0 evidence change.
      `4a50782659ee4aa1f7ce0cb253a6f8d3a46c407c`; all CI checks passed.
      **2026-09-08: the containing pin prerequisite is consumed** — the
      live pin is now `2e6d1f1` (dated section above); the wiring itself
-     (ProbeService + interim server list status dots) remains open here.
+     (ProbeService + interim server list status dots) remained open then.
+     **2026-09-09: engine control/status wiring is implemented** (dated
+     section above). Interim list dots, app lifecycle/settings eligibility,
+     and composition remain open; no current app caller initiates probes.
      Existing probes may settle; no new stale work may start.
      **2026-09-08 review follow-ups:** consider upstream tests for exact
      timeout forwarding and jitter endpoints. Both contracts are unchanged;
@@ -1084,7 +1119,7 @@ release/tag, no M0 evidence change.
 
 ## Housekeeping
 
-- **2026-09-08 — review tooling:** this session lacks
+- **2026-09-09 — review tooling:** this session lacks
   `subscribe_pr_activity` / `send_later`; GitHub polling and an hourly
   Paseo heartbeat cover PR monitoring, with heartbeat deletion on completion.
 - No server component is planned: bookmark backup uses Séance's sync server

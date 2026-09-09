@@ -188,6 +188,116 @@ Future<EngineError> expectError(Future<EngineResult> future) async {
 }
 
 void main() {
+  test('retargeted bookmark cannot borrow its old live pool status', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    await h.openWithDefaults();
+    h.prober.status = ProbeStatus.offline;
+
+    await h.call(
+      (id) => SetProbeTargetsRequest(
+        requestId: id,
+        targets: [_config().copyWith(host: 'new.example.com')],
+      ),
+    );
+    await h.call(
+      (id) => SetProbeActivityRequest(
+        requestId: id,
+        activity: ProbeActivity.running,
+      ),
+    );
+    await h.pumping();
+
+    expect(h.prober.calls, 1);
+    expect(h.events.whereType<ProbeStatusesEvent>().last.statuses, {
+      'srv-1': ProbeStatus.offline,
+    });
+  });
+
+  test(
+    'probe service skips live pools and resumes probing after close',
+    () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      final channel = await h.openWithDefaults();
+      h.prober.status = ProbeStatus.offline;
+
+      await h.call(
+        (id) => SetProbeTargetsRequest(requestId: id, targets: [_config()]),
+      );
+      await h.call(
+        (id) => SetProbeActivityRequest(
+          requestId: id,
+          activity: ProbeActivity.running,
+        ),
+      );
+      await h.pumping();
+
+      expect(h.prober.calls, 0);
+      expect(h.events.whereType<ProbeStatusesEvent>().last.statuses, {
+        'srv-1': ProbeStatus.online,
+      });
+
+      await h.call(
+        (id) => SetProbeActivityRequest(
+          requestId: id,
+          activity: ProbeActivity.paused,
+        ),
+      );
+      await h.call(
+        (id) => CloseBrowseChannelRequest(
+          requestId: id,
+          channelId: channel.channelId,
+        ),
+      );
+      await h.call(
+        (id) => SetProbeActivityRequest(
+          requestId: id,
+          activity: ProbeActivity.running,
+        ),
+      );
+      await h.pumping();
+
+      expect(h.prober.calls, 1);
+      expect(h.events.whereType<ProbeStatusesEvent>().last.statuses, {
+        'srv-1': ProbeStatus.offline,
+      });
+      expect(h.opener.calls, hasLength(1));
+    },
+  );
+
+  test('shutdown discards pending probes and refuses later activity', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    final gate = h.prober.gate = Completer<void>();
+    await h.call(
+      (id) => SetProbeTargetsRequest(requestId: id, targets: [_config()]),
+    );
+    await h.call(
+      (id) => SetProbeActivityRequest(
+        requestId: id,
+        activity: ProbeActivity.running,
+      ),
+    );
+    await h.pumping();
+    expect(h.prober.calls, 1);
+
+    await h.call((id) => ShutdownRequest(requestId: id));
+    final snapshots = h.events.whereType<ProbeStatusesEvent>().length;
+    gate.complete();
+    await h.pumping();
+    expect(h.events.whereType<ProbeStatusesEvent>(), hasLength(snapshots));
+
+    await h.call(
+      (id) => SetProbeActivityRequest(
+        requestId: id,
+        activity: ProbeActivity.running,
+      ),
+    );
+    await h.pumping();
+    expect(h.prober.calls, 1);
+  });
+
   test('open browse channel round-trips credentials and host key', () async {
     final h = HostHarness();
     addTearDown(h.dispose);

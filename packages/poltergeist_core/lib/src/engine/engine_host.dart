@@ -7,6 +7,7 @@ import '../connection/connection_manager.dart';
 import '../connection/credential_resolution.dart';
 import '../connection/ssh_transport.dart';
 import 'connect_log_coalescer.dart';
+import 'engine_probes.dart';
 import 'protocol.dart';
 
 /// Boots the engine isolate (the `Isolate.spawn` entrypoint).
@@ -48,6 +49,7 @@ class EngineHost {
   final _PromptBroker _prompts;
   late final PooledConnectionManager _manager;
   late final ConnectLogCoalescer _logCoalescer;
+  late final EngineProbes _probes;
   StreamSubscription<ConnectLogLine>? _connectLogSubscription;
 
   final Map<String, ServerConfig> _servers = {};
@@ -77,6 +79,15 @@ class EngineHost {
       openTransport: openTransport,
       prober: prober,
       onRecoveryFailure: host._recoveryFailed,
+    );
+    host._probes = EngineProbes(
+      emit: (statuses) {
+        if (host._shuttingDown) return;
+        events.send(ProbeStatusesEvent(statuses: statuses));
+      },
+      connectedServerIds: (targets) =>
+          host._manager.liveServerIds(matchingTargets: targets),
+      prober: prober,
     );
     // The manager emits one event per transcript line; only the coalesced
     // batch crosses the port (03 §5).
@@ -154,6 +165,16 @@ class EngineHost {
         _guard(request.requestId, () async {
           final ids = await _manager.connectedServerIds();
           return ServerIdsListed(ids: ids.toList()..sort());
+        });
+      case final SetProbeTargetsRequest request:
+        _guard(request.requestId, () async {
+          _probes.updateTargets(request.targets);
+          return const EngineAck();
+        });
+      case final SetProbeActivityRequest request:
+        _guard(request.requestId, () async {
+          _probes.setActivity(request.activity);
+          return const EngineAck();
         });
       case final DisconnectServerRequest request:
         _guard(request.requestId, () async {
@@ -272,6 +293,8 @@ class EngineHost {
   /// `EngineClient.shutdown`), so the host only cleans up and answers.
   Future<EngineResult> _shutdown(ShutdownRequest request) async {
     _shuttingDown = true;
+    // Stop queued probes before any teardown await; active sockets may drain.
+    final probesDisposed = _probes.dispose();
     // Still-open prompts are implicit cancels (03 §5): dismiss them so no
     // dialog outlives the engine.
     _prompts.dismissAll();
@@ -287,6 +310,7 @@ class EngineHost {
     // await here would let prompt dismissals win the disconnect race and
     // change the abandoned opens' documented failure kind.
     await _connectLogSubscription?.cancel();
+    await probesDisposed;
     _logCoalescer.dispose();
     for (final subscription in _watches.values) {
       await subscription.cancel();
