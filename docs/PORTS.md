@@ -154,9 +154,9 @@ port candidates.
   harness checks `mounted` before rebuilding. The scrollable coverage
   diverged in form only: upstream's #83 regressions assert reachability
   behavior (constrained layout, viewport-clipped visibility, scroll into
-  view, pinned buttons) where this port asserted the
-  `AlertDialog.scrollable` property — the behavior assertions subsume the
-  property check, so the candidate is closed, not merged back.
+  view, pinned buttons); this port retains its property-level check
+  (`AlertDialog.scrollable`) that the behavior assertions subsume, so the
+  candidate is closed, not merged back.
 - Port-back candidates: mounted harness guard.
 
 ## app/poltergeist_app/lib/ui/prompts/keyboard_interactive_dialog.dart

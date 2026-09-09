@@ -779,7 +779,8 @@ dialog in constrained layouts and Cancel/Trust stay pinned below the scroll
 area — matching this port, whose dialog already passed `scrollable: true`
 since 2026-09-07.
 
-Observed evidence (saved under `tasks/batch2-task10-*`): two upstream widget
+Observed evidence (saved under `tasks/batch2-task10-*`, the session
+task-log store — not committed to the repo): two upstream widget
 regressions written against unchanged upstream production at `5cadb18`
 failed at runtime with actual rendering overflow — the public dialog through
 a real `showDialog` route at 390×644 logical px, text scale 2.0, realistic
@@ -804,7 +805,8 @@ Widget-render captures (rootless container — native capture unavailable;
 data/theme): the BEFORE images paint overflow stripes with content spilling
 past the card and clipped at the viewport; the AFTER images show no
 stripes, a clean scroll clip, and buttons contained inside the card
-(`png/PROVENANCE.md`, `SHA256SUMS.txt`; pairs inspected visually, not
+(`png/PROVENANCE.md` and `SHA256SUMS.txt`, both relative to
+`tasks/batch2-task10-logs`; pairs inspected visually, not
 pixel-diffed). Local conformance on the same head: app analysis clean and
 the affected dialog suites pass (15 = 5 host + 10 keyboard). No local
 production change: the port already carried the behavior, so this PR is
