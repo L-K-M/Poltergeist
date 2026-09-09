@@ -19,7 +19,7 @@ class PoltergeistApp extends StatelessWidget {
     this.onContentSizeChanged,
     this.navigatorKey,
     this.scaffoldMessengerKey,
-    this.debugDemoEnabled = kDebugMode,
+    this.debugDemoEnabled = false,
     this.sftpDemoEngineFactory,
   });
 
@@ -28,10 +28,11 @@ class PoltergeistApp extends StatelessWidget {
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
   final ValueChanged<Size>? onContentSizeChanged;
 
-  /// Gating flag for the debug-only SFTP demo surface (07 §3.3). The
-  /// flag can only disable the demo in debug builds, never enable it in
-  /// release: _buildWorkspace ANDs it with kDebugMode, which is false
-  /// there.
+  /// Gating flag for the debug-only SFTP demo surface (07 §3.3). Defaults
+  /// off so tests and alternate boot paths opt in explicitly; the debug
+  /// entrypoint (main.dart) passes kDebugMode. The flag can only disable
+  /// the demo in debug builds, never enable it in release: _buildWorkspace
+  /// ANDs it with kDebugMode, which is false there.
   final bool debugDemoEnabled;
 
   /// Engine factory behind the demo surface; tests inject a scripted

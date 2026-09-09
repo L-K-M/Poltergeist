@@ -86,14 +86,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  /// Runs one registered command; the demo command's session flag keeps
-  /// the entry disabled while its route is open. Escaping failures are
-  /// reported — the toolbar's onPressed discards the returned future, so
-  /// an unhandled error here would surface only as a zone complaint.
+  /// Runs one registered command. Escaping failures are reported — the
+  /// toolbar's onPressed discards the returned future, so an unhandled
+  /// error here would surface only as a zone complaint.
   Future<void> _runCommand(RegisteredCommand command) async {
-    // The button only reads the flag at rebuild time; a second tap in the
-    // same frame would otherwise start a second session.
-    if (_demoSessionActive) return;
+    // The command's own enabled() predicate is the authority: it flips
+    // synchronously, so a second tap in the same frame (before the
+    // disabled rebuild lands) is still refused, and a future command
+    // with its own lifecycle is never blocked by this one's session.
+    if (!command.enabled()) return;
     setState(() => _demoSessionActive = true);
     try {
       await command.run(context);
@@ -131,14 +132,26 @@ class _Toolbar extends StatelessWidget {
               color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(width: 8),
-            Text(title, style: Theme.of(context).textTheme.titleSmall),
+            Flexible(
+              child: Text(
+                title,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
             const Spacer(),
             for (final command in commands)
-              TextButton.icon(
-                key: ValueKey('command.${command.id}'),
-                onPressed: command.enabled() ? () => onRun(command) : null,
-                icon: const Icon(Icons.bug_report_outlined, size: 18),
-                label: Text(command.label(l10n)),
+              Flexible(
+                child: TextButton.icon(
+                  key: ValueKey('command.${command.id}'),
+                  onPressed: command.enabled() ? () => onRun(command) : null,
+                  icon: const Icon(Icons.bug_report_outlined, size: 18),
+                  label: Text(
+                    command.label(l10n),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
           ],
         ),

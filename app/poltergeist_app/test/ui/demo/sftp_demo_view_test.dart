@@ -111,6 +111,7 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
     required ServerConfig config,
   }) async {
     openCalls.add((serverId: serverId, paneTabId: paneTabId, config: config));
+    final repliesAtOpenStart = replies.length;
     statesController.add(const ServerStatus(ServerConnectionState.connecting));
     logController.add(
       ConnectionLogEvent(serverId: serverId, lines: openLogLines),
@@ -128,12 +129,14 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
       final declinedChangedKey = promptScript.any(
         (prompt) =>
             prompt.kind == EnginePromptKind.hostKeyChanged &&
-            replies.any(
-              (reply) =>
-                  reply.$1 == prompt.promptId &&
-                  reply.$3 is HostKeyPromptReply &&
-                  !(reply.$3 as HostKeyPromptReply).accepted,
-            ),
+            replies
+                .skip(repliesAtOpenStart)
+                .any(
+                  (reply) =>
+                      reply.$1 == prompt.promptId &&
+                      reply.$3 is HostKeyPromptReply &&
+                      !(reply.$3 as HostKeyPromptReply).accepted,
+                ),
       );
       statesController.add(
         ServerStatus(
@@ -429,6 +432,82 @@ void main() {
       expect(find.text('SFTP listing demo'), findsNothing);
       expect(engine.shutdownCalls, 1);
       expect(channel.closeCalls, 1);
+    });
+
+    testWidgets(
+      'system back dismisses an open prompt before closing the demo',
+      (tester) async {
+        tester.view.physicalSize = const Size(1180, 760);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        final engine =
+            successfulEngine(
+                channel: FakeDemoBrowseChannel(
+                  homePath: '/home/deploy',
+                  entries: _scriptedEntries,
+                ),
+              )
+              ..promptScript = [_hostKeyFirstUse('b1')]
+              ..openGate = Completer<void>();
+        addTearDown(
+          () =>
+              engine.openGate!.isCompleted ? null : engine.openGate!.complete(),
+        );
+        addTearDown(engine.close);
+        await tester.pumpWidget(
+          PoltergeistApp(
+            debugDemoEnabled: true,
+            sftpDemoEngineFactory: () async => engine,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(_commandButtonKey));
+        await tester.pumpAndSettle();
+        await submitDemoForm(tester);
+        engine.openGate!.complete();
+        await pumpUntilFound(tester, find.text('Unknown host key'));
+        expect(find.text('Unknown host key'), findsOneWidget);
+
+        // Back first dismisses the prompt on the demo's nested navigator;
+        // the demo route stays mounted.
+        final root = tester.state<NavigatorState>(find.byType(Navigator).first);
+        await root.maybePop();
+        await tester.pumpAndSettle();
+
+        expect(find.text('Unknown host key'), findsNothing);
+        expect(find.text('SFTP listing demo'), findsOneWidget);
+        expect(engine.replies, hasLength(1));
+
+        // A second back (nothing left to dismiss) closes the demo route
+        // and ends the session.
+        await root.maybePop();
+        await tester.pumpAndSettle();
+
+        expect(find.text('SFTP listing demo'), findsNothing);
+        expect(engine.shutdownCalls, 1);
+      },
+    );
+
+    testWidgets('the toolbar tolerates a narrow window', (tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        PoltergeistApp(
+          debugDemoEnabled: true,
+          sftpDemoEngineFactory: () async => FakeSftpDemoEngine(),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_commandButtonKey), findsOneWidget);
+      await tester.tap(find.byKey(_commandButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.text('SFTP listing demo'), findsOneWidget);
     });
 
     testWidgets('a double tap cannot start two demo sessions', (tester) async {
@@ -1005,7 +1084,7 @@ void main() {
       // never evict the newest event — and the replay buffer it feeds.
       final flood = ConnectionLogEvent(
         serverId: 's1',
-        lines: List.filled(401, 'x'),
+        lines: List.filled(kSftpDemoTranscriptLineCap + 1, 'x'),
       );
       engine.logController.add(flood);
       await Future<void>.delayed(Duration.zero);

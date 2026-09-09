@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -29,6 +30,9 @@ Future<void> main() async {
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
+      // The debug-only demo surface is an explicit opt-in at the boot
+      // site; tests and alternate paths stay opted out by default.
+      debugDemoEnabled: kDebugMode,
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
       onContentSizeChanged: (size) {

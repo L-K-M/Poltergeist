@@ -39,9 +39,8 @@ class RegisteredCommand {
   static bool _alwaysEnabled() => true;
 
   /// Per-platform shortcut chords; null when the command has none.
-  /// The returned list must be treated as immutable: implementations
-  /// return a const or freshly built list per platform, never a shared
-  /// mutable one — consumers may reuse it across surfaces.
+  /// The returned list is freshly built (or const) per call and must be
+  /// treated as immutable — callers copy before mutating.
   final List<ShortcutActivator> Function(TargetPlatform)? activators;
 
   /// Executes the command with the invoking surface's [context].

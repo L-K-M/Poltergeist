@@ -88,11 +88,20 @@ class SftpDemoView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Navigator(
-      key: controller.navigatorKey,
-      onGenerateRoute: (settings) => MaterialPageRoute<void>(
-        settings: settings,
-        builder: (_) => _SftpDemoPage(controller),
+    // System back must dismiss an open prompt dialog on the nested
+    // navigator first, not pop the whole demo route: the handler pops the
+    // nested navigator while it can (a dialog is open), and the enclosing
+    // route pops normally once the nested navigator is back at home.
+    return NavigatorPopHandler(
+      onPopWithResult: (_) {
+        controller.navigatorKey.currentState?.pop();
+      },
+      child: Navigator(
+        key: controller.navigatorKey,
+        onGenerateRoute: (settings) => MaterialPageRoute<void>(
+          settings: settings,
+          builder: (_) => _SftpDemoPage(controller),
+        ),
       ),
     );
   }
@@ -147,6 +156,7 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
             actions: [
               if (serverId != null)
                 TextButton.icon(
+                  key: const ValueKey('sftp-demo-disconnect'),
                   onPressed: controller.isConnecting
                       ? null
                       : controller.disconnect,

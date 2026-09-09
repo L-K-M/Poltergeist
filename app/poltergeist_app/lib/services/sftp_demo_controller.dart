@@ -11,8 +11,9 @@ import 'uuid.dart';
 const kSftpDemoPaneTabId = 'demo';
 
 /// The transcript line bound mirrored from seance_core's
-/// `SshConnectionLog` (and the status panel's display cap).
-const _transcriptLineCap = 400;
+/// `SshConnectionLog` (and the status panel's display cap). Public so the
+/// boundary tests derive their fixtures from the real constant.
+const kSftpDemoTranscriptLineCap = 400;
 
 /// The engine surface the demo connect flow consumes: the [EngineClient]
 /// public API the slice needs (EngineClient implements it). Widget tests
@@ -143,8 +144,12 @@ class SftpDemoController extends ChangeNotifier {
     _prompts.start();
     _logSubscription ??= engine.connectionLog.listen(
       _onLogLine,
-      // Transcript fan-out is diagnostic; a fault must not kill the demo.
-      onError: (Object _) {},
+      // Transcript fan-out is diagnostic; a fault must not kill the demo,
+      // but it must still surface through the error reporter.
+      onError: (Object error, StackTrace stackTrace) {
+        if (_disposed) return;
+        _errorReporter.report(error, stackTrace);
+      },
     );
   }
 
@@ -157,7 +162,8 @@ class SftpDemoController extends ChangeNotifier {
     // exceeds the cap must not evict itself and empty the replay buffer.
     _bufferedLines += event.lines.length;
     _transcript.add(event);
-    while (_bufferedLines > _transcriptLineCap && _transcript.length > 1) {
+    while (_bufferedLines > kSftpDemoTranscriptLineCap &&
+        _transcript.length > 1) {
       _bufferedLines -= _transcript.removeAt(0).lines.length;
     }
     _logReplay.add(event);

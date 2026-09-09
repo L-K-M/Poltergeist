@@ -136,6 +136,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sftp-demo-auth'",
     "'sftp-demo-connect'",
     "'sftp-demo-close'",
+    "'sftp-demo-disconnect'",
   },
 };
 
