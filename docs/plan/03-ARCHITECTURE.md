@@ -636,6 +636,18 @@ Repeated target/activity updates preserve the periodic cadence. In-flight
 probes may drain after pause or shutdown; queued work and stale results
 must not continue.
 
+The app's probe controller consumes only `EngineClient`'s `ProbeBridge`
+facet. Its owner supplies immutable favorite facts, global preference, and
+the current lifecycle state; only `resumed` permits probing (unknown state
+pauses). Exposure, origin, and successful-local-connection facts belong to
+this device and the bookmark's current host:port, never to synced consent.
+Retargeting resets exposure and connection history at the owning store.
+The controller subscribes before configuring targets, buffers the latest
+snapshot until the target acknowledgement, and checks request identity after
+awaiting before resuming. Restrictions send immediately, ahead of pending
+acknowledgements. Engine loss clears probe truth to unknown. The controller
+does not own persistence or override live connection state.
+
 ### 3.5 Server identity
 
 - **`serverId` is the id of the server-carrying bookmark** (04 §2.1).

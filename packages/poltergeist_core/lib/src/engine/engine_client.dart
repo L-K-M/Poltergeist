@@ -22,11 +22,22 @@ abstract interface class PromptBridge {
   void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply);
 }
 
+/// The app controls eligibility; socket work stays behind the engine port.
+/// Calls send commands in invocation order, before their futures complete.
+abstract interface class ProbeBridge {
+  /// Subscribe before sending targets: replacement snapshots precede the ack.
+  Stream<ProbeStatusesEvent> get probeStatuses;
+
+  Future<void> setProbeTargets(List<ServerConfig> targets);
+
+  Future<void> setProbeActivity(ProbeActivity activity);
+}
+
 /// The UI-side facade over the engine isolate (03 §5): Future/Stream APIs
 /// mirror the connection surface, requests correlate by requestId, and every
 /// event fan-out is a broadcast stream. Controllers talk only to this class;
 /// sockets, prompts, and the pool stay engine-side.
-class EngineClient implements PromptBridge {
+class EngineClient implements PromptBridge, ProbeBridge {
   late final Isolate _isolate;
   final _booted = Completer<SendPort>();
   final _terminated = Completer<void>();
@@ -125,10 +136,12 @@ class EngineClient implements PromptBridge {
 
   /// Live reachability snapshots; subscribe before configuring probes.
   /// Target changes clear removed/retargeted results. Closes on engine death.
+  @override
   Stream<ProbeStatusesEvent> get probeStatuses => _probeStatuses.stream;
 
   /// Supplies only seen, permitted favorites; config ids identify bookmarks.
   /// This does not grant permission to start probing (03 §3.4).
+  @override
   Future<void> setProbeTargets(List<ServerConfig> targets) async {
     await _call(
       (id) => SetProbeTargetsRequest(requestId: id, targets: targets),
@@ -136,6 +149,7 @@ class EngineClient implements PromptBridge {
   }
 
   /// Run only while foregrounded and enabled; the engine starts paused.
+  @override
   Future<void> setProbeActivity(ProbeActivity activity) async {
     await _call(
       (id) => SetProbeActivityRequest(requestId: id, activity: activity),

@@ -98,7 +98,7 @@ export 'src/import/ssh_config_import.dart'
         SshConfigIncludeNote,
         SshConfigUnreadableException;
 export 'src/engine/engine_client.dart'
-    show EngineBrowseChannel, EngineClient, PromptBridge;
+    show EngineBrowseChannel, EngineClient, ProbeBridge, PromptBridge;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;
 export 'src/engine/protocol.dart'
     show
