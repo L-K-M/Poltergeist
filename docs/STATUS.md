@@ -48,9 +48,9 @@ slices, audit gaps, and decisions._
 | Area | State |
 |---|---|
 | Repo infrastructure | CI (`ci.yml`: Dart analyze+test now; Flutter + client-matrix jobs self-activate when `app/poltergeist_app` appears), GLM PR review workflow, release workflow (`v*` tags → per-platform client assets), `scripts/build.sh` / `release.sh` / `package-linux.sh` adapted from Séance, Unlicense, analyzer config, pub workspace. |
-| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `a9add15`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Connection suites run socket-free per 08 §3.2. This is an initial slice, not M2 completion; audit follow-ups remain in open item 5. |
+| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `2e6d1f1`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Connection suites run socket-free per 08 §3.2. This is an initial slice, not M2 completion; audit follow-ups remain in open item 5. |
 | The plan | Complete in [`docs/plan/`](plan/) — overview + decision log (D1–D31), product, UX spec, architecture, Séance integration, sync, editor, milestones, testing, playbook. Reviewed via the GLM PR workflow, internal consistency passes, and a final whole-plan coherence pass (2026-08-31). |
-| Séance pin | Upstream `L-K-M/Seance@2e6d1f1` (main, Séance #81 merge — contains #79's probe-lifecycle repair, #80/#81's audit work, and SSH-trace redaction) — still a commit-rev bridge: no Séance tag contains #79 (all eleven tags checked by ancestry), so open item 2 keeps owning the next-tag re-pin. Both declarations and all three locks moved together; nothing else in the locks drifted (dartssh2 sha-identical at 3.0.2). The M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's live-revision constant follows the pin while committed-bundle validation keeps binding to the pins M0 actually measured, so frozen evidence is unaffected. Ported sources re-diffed at the new pin with dated dispositions in PORTS.md; the full ancestor/tree/license/identity audit is regenerated. The pool's transcript bridge now forwards the upstream-redacted record (see the dated section). |
+| Séance pin | Upstream `L-K-M/Seance@2e6d1f1` (main, Séance #81 merge — contains #79's probe-lifecycle repair, #80/#81's audit work, and #74's SSH-trace redaction) — still a commit-rev bridge: no Séance tag contains #79 (all eleven tags checked by ancestry), so open item 2 keeps owning the next-tag re-pin. Both declarations and all three locks moved together; nothing else in the locks drifted (dartssh2 sha-identical at 3.0.2). The M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's live-revision constant follows the pin while committed-bundle validation keeps binding to the pins M0 actually measured, so frozen evidence is unaffected. Ported sources re-diffed at the new pin with dated dispositions in PORTS.md; the full ancestor/tree/license/identity audit is regenerated. The pool's transcript bridge now forwards the upstream-redacted record (see the dated section). |
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
 | Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
 | Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
@@ -615,10 +615,12 @@ PORTS.md unchanged), no pin change, no milestone close.
 The pin moves from `a9add15` to `2e6d1f138f1704e683870f75e11262bf50e37379`
 (Séance #81's merge) in both declarations (`poltergeist_core`, bench
 harness) and all three locks — a commit-rev bridge per D2: no Séance tag
-contains #79's probe repair (all eleven tags checked by ancestry). Only
-the pin's 8 lock lines changed; no unrelated dependency drift, and
-dartssh2 stays exactly 3.0.2 (sha-identical), keeping upstream's
-version-bound trace audit valid.
+contains #79's probe repair (all eleven tags checked by ancestry). In
+the locks, only the Séance `ref`/`resolved-ref` fields changed — four
+replacements per lockfile (`seance_core` and `seance_protocol` in each of
+the three lockfiles; 12 replacements, 12 added/12 removed lines total) —
+with no unrelated dependency drift, and dartssh2 stays exactly 3.0.2
+(sha-identical), keeping upstream's version-bound trace audit valid.
 
 The consumer fix in the same change: the new pin redacts credential
 records inside `SshConnectionLog.add` (whole `Userauth_InfoResponse`
@@ -632,14 +634,22 @@ Freeze/late-write behavior, the 400-line bound (forwarding keeps the
 newest line when the transcript trims), append-time fan-out ownership,
 and coalescing are unchanged and regression-pinned.
 
+(2026-09-08 correction, follow-up PR #54: the evidence figures below
+were amended against the saved pre-fix logs — three redaction failures
+with the trim test already passing, and the lock delta above restated as
+field replacements.)
+
 Regression-first evidence (synthetic fixture secrets only, through the
-existing pool/opener seam): four new `pool_diagnostics_test.dart` tests
-failed at runtime on the old pin (no redaction anywhere — raw secrets in
-the fan-out), failed again on the new pin with the bridge unfixed (a
-separate scratch proof recorded upstream storage redacted while the
-stream still leaked: `STREAM: ...[raw]` / `STORAGE: ...[redacted]`), and
-all pass after the fix. Canonical, bracket-containing, and
-newline-containing whole records plus the fail-closed malformed named
+existing pool/opener seam): three new `pool_diagnostics_test.dart`
+redaction tests failed at runtime on the old pin — no redaction anywhere,
+raw secrets in the fan-out; both pre-fix runs end at the test runner's
+`+10 -3` tally (10 passed, 3 failed) — and failed again, the same three,
+on the new pin with the bridge unfixed (a separate scratch proof
+recorded upstream storage redacted while the stream still leaked:
+`STREAM: ...[raw]` / `STORAGE: ...[redacted]`). The fourth new test,
+trim-bound conformance, already passed on both pre-fix pins; the
+13-test suite is green after the fix (+13). Canonical, bracket-containing,
+and newline-containing whole records plus the fail-closed malformed named
 shape are covered; assertions check fixture-secret absence, not equality
 between two possibly-raw copies.
 
