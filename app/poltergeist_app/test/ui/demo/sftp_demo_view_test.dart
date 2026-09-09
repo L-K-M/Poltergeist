@@ -173,7 +173,9 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
 
   Future<void> close() async {
     // A test that fails while a scripted prompt is unanswered must not
-    // leave the pending open suspended through teardown.
+    // leave the pending open suspended through teardown. The gate also
+    // completes first — the resumed open's stream adds must never hit
+    // the just-closed controllers below.
     final pending = _pendingReplies.values.toList();
     _pendingReplies.clear();
     for (final completer in pending) {
@@ -182,6 +184,10 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
           StateError('engine closed while awaiting a scripted reply'),
         );
       }
+    }
+    final gate = openGate;
+    if (gate != null && !gate.isCompleted) {
+      gate.completeError(StateError('engine closed while the open was gated'));
     }
     await promptsController.close();
     await dismissalsController.close();
@@ -498,7 +504,11 @@ void main() {
       await tester.pumpWidget(
         PoltergeistApp(
           debugDemoEnabled: true,
-          sftpDemoEngineFactory: () async => FakeSftpDemoEngine(),
+          sftpDemoEngineFactory: () async {
+            final engine = FakeSftpDemoEngine();
+            addTearDown(engine.close);
+            return engine;
+          },
         ),
       );
       await tester.pump();

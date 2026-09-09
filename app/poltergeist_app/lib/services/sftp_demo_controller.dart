@@ -313,13 +313,17 @@ class SftpDemoController extends ChangeNotifier {
     _listing = false;
     _entries = const [];
     _failureDetail = null;
-    notifyListeners();
 
     final channel = _channel;
     _channel = null;
     // The teardown below uses the captured id; clearing the getter stops
     // a later connect/dispose from double-disconnecting the same session.
     _serverId = null;
+
+    // Notify only once the session refs are cleared: listeners observe
+    // the fully idle state, never a torn one.
+    notifyListeners();
+
     if (channel == null && serverId == null) return;
     await _closeChannelAndServer(channel, serverId);
   }
