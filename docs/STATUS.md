@@ -8,9 +8,8 @@ _Last updated: 2026-09-09. The prompt dialogs' current-route action
 guards are ported back to Séance ([Séance #82](https://github.com/L-K-M/Seance/pull/82),
 dated section below) and the four dialog PORTS entries are corrected
 against a fresh upstream re-diff; engine-side probe control and status
-events are
-implemented (dated section below); interim list dots and app composition
-remain open. The Séance pin is bumped to upstream main
+events are implemented (dated section below); interim list dots and app
+composition remain open. The Séance pin is bumped to upstream main
 `2e6d1f1` (Séance #81's merge — containing #79's probe-lifecycle repair
 and #80/#81's audit work) in both declarations and all three locks; the
 pool's live transcript bridge now forwards upstream-redacted records
@@ -745,7 +744,7 @@ and a helper-extraction info declined with reasons recorded in the PR body;
 an outside-diff pre-existing `[]`-cancel-sentinel observation deferred to
 the upstream SSH-layer contract owner) — steady state per the owner's bar.
 
-Companion ledger corrections in the same PR: the four dialog PORTS entries
+Companion ledger corrections in this PR: the four dialog PORTS entries
 are re-diffed at `5cadb18` — upstream already carried keyboard scrolling
 (`86b1e4d`, 2026-09-04), explicit per-field reveal (`1c2c29b`, 2026-09-04),
 empty-name fallback, first-field autofocus, and the controller lifecycle
@@ -754,8 +753,9 @@ empty-name fallback, first-field autofocus, and the controller lifecycle
 additions) while the original dated port provenance and the legitimate
 ARB/payload/coordinator/dialogKey/Enter-navigation divergences stand. The
 route-guard port-back candidates close; Enter navigation, the echo-bit
-preservation, and the host-key scrollable-content/scrollable-assertion/
-mounted-harness candidates stay open (owner gates unchanged).
+preservation, the keyboard autofocus-test candidate, and the host-key
+scrollable-content/scrollable-assertion/mounted-harness candidates stay
+open (owner gates unchanged).
 
 This is app-layer upstream work only: no pin change (the pinned
 `seance_core`/`seance_protocol` trees are untouched by #82), no local
