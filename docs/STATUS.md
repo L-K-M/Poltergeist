@@ -787,21 +787,20 @@ a real `showDialog` route at 390×644 logical px, text scale 2.0, realistic
 43-character fingerprints — `A RenderFlex overflowed by 1616 pixels`
 (changed-key) and `280 pixels` (first-use) — the flutter test runner's
 per-case tally read `+5 -2` (the suite's five pre-existing cases passed,
-the two new regressions failed); both pass with
-the fix (`+7` — all seven cases), additionally scrolling the previously trusted fingerprint
-and the warning into view and back with the pinned buttons asserted on
-screen at the deepest scroll. Review rounds 1–3 each produced applied
-hardening (restored indentation, below-the-fold premise assertions,
-predicate-driven scroll helper anchored on the dialog's scroll view,
-deepest-scroll button
+the two new regressions failed); both pass with the fix (`+7` — all seven
+cases), additionally scrolling the previously trusted fingerprint and the
+warning into view and back with the pinned buttons asserted on screen at
+the deepest scroll. Review rounds 1–3 each produced applied hardening
+(restored indentation, below-the-fold premise assertions, predicate-driven
+scroll helper anchored on the dialog's scroll view, deepest-scroll button
 assertions); round 2's viewport-clip finding was confirmed real by
 measurement (a print at y 616..820 against a viewport of 24..428 counted as
 "on screen" under surface bounds) and repaired — visibility is now clipped
 to the scroll viewport. All 465 upstream Flutter tests (463 baseline + 2)
 and `flutter analyze` are green; all nine Séance CI checks pass on the
 merged head's PR run. Rounds 3–4 surfaced only polish-level findings
-(severity — round 3's two hardening asserts were applied); steady state per
-the owner's bar, all five threads resolved after merge.
+(round 3's two hardening asserts were applied); steady state per the
+owner's bar, all five threads resolved after merge.
 
 Widget-render captures (rootless container — native capture unavailable;
 `matchesGoldenFile` harness, 390×644, DPR 1.0, text scale 2.0, identical

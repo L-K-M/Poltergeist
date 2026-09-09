@@ -130,8 +130,9 @@ port candidates.
   another route. The current-route action guards were ported back to
   Séance as [Séance #82](https://github.com/L-K-M/Seance/pull/82) (head
   `5d9da5195a3a9a4d8110d0b2425d55e5cb3fddde`, merge
-  `5cadb18e823ca1ae089b9fdd940432876e93fd9c`, 2026-09-09), and the
-  scrollable content was ported back as
+  `5cadb18e823ca1ae089b9fdd940432876e93fd9c`, 2026-09-09) with the same
+  `ModalRoute.isCurrent` semantics, and the scrollable content was
+  ported back as
   [Séance #83](https://github.com/L-K-M/Seance/pull/83) (head
   `2f6c49ce6a4af424003261dae3ec116eeb80fa74`, merge
   `b8fc1111119cd6c0744b9de9bc35d16c07ae3e9d`, 2026-09-09) — upstream now
