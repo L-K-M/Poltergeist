@@ -735,7 +735,8 @@ widget regressions — three per dialog, opening the public dialogs above a
 pushed page through real Navigator routes and capturing the existing
 button `onPressed` seams, with outer-page/result/newer-route/exception
 assertions — failed against the unmodified upstream dialogs at `2e6d1f1`
-(`+7 -6`: the four double-activation cases by the page below being popped,
+(`flutter test` counter `+7 -6`, six failures: the four double-activation
+cases by the page below being popped,
 the two obscured-callback cases by the newer route disappearing) and pass
 with the guard (`+13`). All 463 upstream Flutter tests and `flutter analyze`
 are green; all nine Séance CI checks pass on the merged head's PR run.
@@ -928,7 +929,7 @@ production code change, no release, no milestone-close claim.
      bits are set) that this port should mirror. Route guards — previously
      a PORTS-led candidate — closed 2026-09-09:
      [Séance #82](https://github.com/L-K-M/Seance/pull/82) ports the
-     dialogs' current-route action guards upstream (dated section below).
+     dialogs' current-route action guards upstream (dated section above).
      None of the remaining candidates blocks the safe local behavior or
      production wiring.
    - **2026-09-08 — gate regression follow-up (Séance #81):** that
