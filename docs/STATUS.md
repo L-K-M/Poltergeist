@@ -6,7 +6,8 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 
 _Last updated: 2026-09-09. The host-key dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
-dated section below), closing the two host_key PORTS candidates. The prompt
+dated section below), closing the two scrollable host_key candidates (the
+mounted-harness candidate stays open). The prompt
 dialogs' current-route action
 guards are ported back to Séance ([Séance #82](https://github.com/L-K-M/Seance/pull/82),
 dated section below) and the four dialog PORTS entries are corrected
@@ -786,9 +787,10 @@ a real `showDialog` route at 390×644 logical px, text scale 2.0, realistic
 (changed-key) and `280 pixels` (first-use), counter `+5 -2`; both pass with
 the fix (`+7`), additionally scrolling the previously trusted fingerprint
 and the warning into view and back with the pinned buttons asserted on
-screen at the deepest scroll. Review rounds 1/3 added hardening (restored
-indentation, below-the-fold premise assertions, predicate-driven scroll
-helper anchored on the dialog's scroll view, deepest-scroll button
+screen at the deepest scroll. Review rounds 1–3 each produced applied
+hardening (restored indentation, below-the-fold premise assertions,
+predicate-driven scroll helper anchored on the dialog's scroll view,
+deepest-scroll button
 assertions); round 2's viewport-clip finding was confirmed real by
 measurement (a print at y 616..820 against a viewport of 24..428 counted as
 "on screen" under surface bounds) and repaired — visibility is now clipped
