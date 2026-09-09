@@ -149,10 +149,12 @@ class SftpDemoController extends ChangeNotifier {
   }
 
   void _onLogLine(ConnectionLogEvent event) {
-    // Mirror the source log's 400-line bound (and the panel's cap).
+    // Mirror the source log's 400-line bound (and the panel's cap),
+    // drop-oldest. The newest event always stays — an event that alone
+    // exceeds the cap must not evict itself and empty the replay buffer.
     _bufferedLines += event.lines.length;
     _transcript.add(event);
-    while (_bufferedLines > _transcriptLineCap && _transcript.isNotEmpty) {
+    while (_bufferedLines > _transcriptLineCap && _transcript.length > 1) {
       _bufferedLines -= _transcript.removeAt(0).lines.length;
     }
     _logReplay.add(event);
@@ -241,7 +243,8 @@ class SftpDemoController extends ChangeNotifier {
         config: config,
       );
       if (_disposed || attempt != _attempt) {
-        unawaited(channel.close());
+        // Cleanup failures must not escape as unhandled async errors.
+        unawaited(_closeChannelAndServer(channel, null));
         return;
       }
       _channel = channel;
@@ -275,6 +278,7 @@ class SftpDemoController extends ChangeNotifier {
   /// entries, the failure one-liner, and the recorded status clear. A
   /// connect in flight drops itself.
   Future<void> disconnect() async {
+    if (_disposed) return;
     final serverId = _serverId;
 
     // Invalidate the in-flight attempt so its completions drop themselves

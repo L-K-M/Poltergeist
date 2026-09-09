@@ -67,16 +67,15 @@ class PoltergeistApp extends StatelessWidget {
   }
 
   Widget _buildWorkspace() {
+    final bool demoEnabled = debugDemoEnabled && kDebugMode;
     final workspace = WorkspaceShell(
       initialPaneRatio: initialPaneRatio,
       onPaneRatioChanged: onPaneRatioChanged,
       onPaneRatioSaveError: onPaneRatioSaveError,
-      debugDemoEnabled: debugDemoEnabled && kDebugMode,
+      debugDemoEnabled: demoEnabled,
       // Forward the seam only where the gated surface can consume it;
       // release/profile builds never see a spawnable engine factory.
-      sftpDemoEngineFactory: debugDemoEnabled && kDebugMode
-          ? sftpDemoEngineFactory
-          : null,
+      sftpDemoEngineFactory: demoEnabled ? sftpDemoEngineFactory : null,
     );
     final callback = onContentSizeChanged;
     if (callback == null) return workspace;

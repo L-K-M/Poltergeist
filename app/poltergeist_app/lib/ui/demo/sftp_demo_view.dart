@@ -62,8 +62,10 @@ Future<void> _runSftpDemoSession(
     engine: engine,
     navigatorKey: navigatorKey,
   );
-  controller.start();
   try {
+    // Inside the try so a failing start() still reaches the dispose in
+    // the finally — the spawned engine must not be stranded.
+    controller.start();
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => SftpDemoView(controller)));

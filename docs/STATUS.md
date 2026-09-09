@@ -11,7 +11,8 @@ and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
 (dated section below). The app-side probe controller now enforces
 favorite eligibility and lifecycle/settings policy through the engine port
 (dated section below). Persistence, lifecycle forwarding, list dots,
-startup composition, and probe/pin persistence remain open. The host-key dialog's scrollable review content
+startup composition, and probe/pin persistence remain open. The host-key
+dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
 mounted-harness candidate stays open). The prompt

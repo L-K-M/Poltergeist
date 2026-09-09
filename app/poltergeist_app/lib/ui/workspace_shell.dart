@@ -91,6 +91,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// reported — the toolbar's onPressed discards the returned future, so
   /// an unhandled error here would surface only as a zone complaint.
   Future<void> _runCommand(RegisteredCommand command) async {
+    // The button only reads the flag at rebuild time; a second tap in the
+    // same frame would otherwise start a second session.
+    if (_demoSessionActive) return;
     setState(() => _demoSessionActive = true);
     try {
       await command.run(context);

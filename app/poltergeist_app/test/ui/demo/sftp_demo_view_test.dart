@@ -286,6 +286,7 @@ Future<void> pumpUntilFound(
     await tester.pump(step);
     if (finder.evaluate().isNotEmpty) return;
   }
+  fail('pumpUntilFound timed out waiting for: $finder');
 }
 
 /// Opens the panel's collapsed transcript (children build lazily —
@@ -354,8 +355,19 @@ void scriptedDemoEngineMain(SendPort events) {
         events.send(
           ResponseEvent(requestId: request.requestId, result: EngineAck()),
         );
-      default:
+      // Watch/unwatch are fire-and-forget in the protocol; the scripted
+      // engine emits the state events above and needs no forwarding.
+      case WatchServerRequest():
         break;
+      case UnwatchServerRequest():
+        break;
+      default:
+        // A new protocol message reaching this script means the demo
+        // seam grew a dependency the script does not model — fail the
+        // isolate loudly instead of hanging the waiting call.
+        throw StateError(
+          'scriptedDemoEngineMain received an unhandled message: $message',
+        );
     }
   });
 }
@@ -406,6 +418,36 @@ void main() {
       expect(channel.closeCalls, 1);
     });
 
+    testWidgets('a double tap cannot start two demo sessions', (tester) async {
+      tester.view.physicalSize = const Size(1180, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      var spawns = 0;
+      final engine = FakeSftpDemoEngine();
+      addTearDown(engine.close);
+      await tester.pumpWidget(
+        PoltergeistApp(
+          debugDemoEnabled: true,
+          sftpDemoEngineFactory: () async {
+            spawns++;
+            return engine;
+          },
+        ),
+      );
+      await tester.pump();
+
+      // Two taps in the same frame: the rebuild that disables the button
+      // has not happened yet, so only the in-flight guard can stop the
+      // second session from spawning.
+      await tester.tap(find.byKey(_commandButtonKey));
+      await tester.tap(find.byKey(_commandButtonKey));
+      await tester.pumpAndSettle();
+
+      expect(spawns, 1);
+      expect(find.text('SFTP listing demo'), findsOneWidget);
+    });
+
     testWidgets('a failed engine spawn reports and never opens the demo', (
       tester,
     ) async {
@@ -450,6 +492,9 @@ void main() {
             )
             ..promptScript = [_hostKeyFirstUse('p1')]
             ..openGate = Completer<void>();
+      addTearDown(
+        () => engine.openGate!.isCompleted ? null : engine.openGate!.complete(),
+      );
       await pumpDemoView(tester, engine);
 
       await submitDemoForm(tester);
@@ -591,6 +636,10 @@ void main() {
                 operation: 'connect',
                 message: 'The host key changed for example.com:22.',
               );
+        addTearDown(
+          () =>
+              engine.openGate!.isCompleted ? null : engine.openGate!.complete(),
+        );
         await pumpDemoView(tester, engine);
 
         await submitDemoForm(tester);
@@ -637,6 +686,9 @@ void main() {
             )
             ..openLogLines = ['Authentication succeeded']
             ..openGate = Completer<void>();
+      addTearDown(
+        () => engine.openGate!.isCompleted ? null : engine.openGate!.complete(),
+      );
       await pumpDemoView(tester, engine);
 
       await submitDemoForm(tester);
@@ -700,6 +752,8 @@ void main() {
         engine: engine,
         navigatorKey: GlobalKey<NavigatorState>(),
       );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
 
       const facts = SftpDemoConnectFacts(
         host: 'example.com',
@@ -712,8 +766,6 @@ void main() {
       engine.openGate!.complete();
       await Future.wait([first, second]);
       await controller.disconnect();
-      await engine.close();
-      controller.dispose();
 
       expect(engine.openCalls, hasLength(1));
     });
@@ -725,6 +777,8 @@ void main() {
         engine: engine,
         navigatorKey: GlobalKey<NavigatorState>(),
       );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
 
       const facts = SftpDemoConnectFacts(
         host: 'example.com',
@@ -744,9 +798,6 @@ void main() {
       expect(engine.openCalls, hasLength(2));
       expect(firstChannel.closeCalls, 1);
       expect(engine.disconnectCalls, 1);
-
-      await engine.close();
-      controller.dispose();
     });
 
     test('an unexpected connect failure cannot wedge the guard', () async {
@@ -764,6 +815,8 @@ void main() {
           sink: (error, _) => reported.add(error),
         ),
       );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
 
       const facts = SftpDemoConnectFacts(
         host: 'example.com',
@@ -782,9 +835,6 @@ void main() {
       await controller.connect(facts);
       expect(engine.openCalls, hasLength(2));
       expect(controller.entries, hasLength(2));
-
-      await engine.close();
-      controller.dispose();
     });
 
     test('an unexpected listing failure keeps the one-liner', () async {
@@ -800,6 +850,8 @@ void main() {
           sink: (error, _) => reported.add(error),
         ),
       );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
 
       await controller.connect(
         const SftpDemoConnectFacts(
@@ -815,9 +867,6 @@ void main() {
       expect(controller.isListing, isFalse);
       expect(controller.failureDetail, contains('listing hiccup'));
       expect(controller.entries, isEmpty);
-
-      await engine.close();
-      controller.dispose();
     });
 
     test('a status-stream fault is reported, not unhandled', () async {
@@ -835,6 +884,8 @@ void main() {
           sink: (error, _) => reported.add(error),
         ),
       );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
 
       const facts = SftpDemoConnectFacts(
         host: 'example.com',
@@ -849,9 +900,6 @@ void main() {
 
       expect(reported, contains(isA<StateError>()));
       expect(controller.entries, hasLength(2));
-
-      await engine.close();
-      controller.dispose();
     });
 
     test('disconnect clears the recorded status and replays none', () async {
@@ -860,6 +908,8 @@ void main() {
         engine: engine,
         navigatorKey: GlobalKey<NavigatorState>(),
       );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
 
       await controller.connect(
         const SftpDemoConnectFacts(
@@ -880,8 +930,49 @@ void main() {
       await subscription.cancel();
       expect(replayed, isEmpty);
 
-      await engine.close();
+      // disconnect() after dispose() must no-op, not notify a disposed
+      // ChangeNotifier.
       controller.dispose();
+      await controller.disconnect();
+    });
+
+    test('an oversized transcript event stays in the replay buffer', () async {
+      final engine = successfulEngine();
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+      );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
+      controller.start();
+
+      // One event carrying more lines than the cap: drop-oldest must
+      // never evict the newest event — and the replay buffer it feeds.
+      final flood = ConnectionLogEvent(
+        serverId: 's1',
+        lines: List.filled(401, 'x'),
+      );
+      engine.logController.add(flood);
+      await Future<void>.delayed(Duration.zero);
+
+      final replayed = <ConnectionLogEvent>[];
+      final first = controller.connectLog.listen(replayed.add);
+      await Future<void>.delayed(Duration.zero);
+      await first.cancel();
+      expect(replayed, [flood]);
+
+      // A follow-up event then evicts the flood, keeping the newest.
+      engine.logController.add(
+        ConnectionLogEvent(serverId: 's1', lines: ['tail']),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final second = <ConnectionLogEvent>[];
+      final sub = controller.connectLog.listen(second.add);
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+      expect(second.map((event) => event.lines), [
+        ['tail'],
+      ]);
     });
   });
 
@@ -901,6 +992,13 @@ void main() {
       (event) => logLines.addAll(event.lines),
     );
 
+    // Registered teardown preserves the cleanup guarantee even when an
+    // assertion fails mid-test: the spawned isolate must never leak.
+    // (Registered in reverse execution order: wait, dispose, cancel.)
+    addTearDown(() => client.terminated.timeout(const Duration(seconds: 10)));
+    addTearDown(controller.dispose);
+    addTearDown(logSub.cancel);
+
     await controller.connect(
       const SftpDemoConnectFacts(
         host: 'demo.example.com',
@@ -919,10 +1017,8 @@ void main() {
     expect(logLines, contains('Connecting to demo.example.com'));
 
     await controller.disconnect();
-    await logSub.cancel();
-    controller.dispose();
     // If the shutdown-ack/termination wiring regresses, the isolate never
-    // exits and this wait would hang the shard — fail fast instead.
-    await client.terminated.timeout(const Duration(seconds: 10));
+    // exits; the registered teardown fails fast instead of hanging the
+    // shard.
   });
 }
