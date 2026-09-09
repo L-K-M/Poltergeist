@@ -39,6 +39,14 @@ void main() {
     lifecycle: lifecycle,
   );
 
+  void expectLastCalls(List<String> expected) {
+    expect(bridge.calls.length, greaterThanOrEqualTo(expected.length));
+    expect(
+      bridge.calls.sublist(bridge.calls.length - expected.length),
+      expected,
+    );
+  }
+
   test(
     'subscribes before configuration and retains the pre-ack snapshot',
     () async {
@@ -123,10 +131,7 @@ void main() {
         _favorite(),
       ], preference: ProbePreference.disabled);
 
-      expect(bridge.calls.sublist(bridge.calls.length - 2), [
-        'paused',
-        'targets:',
-      ]);
+      expectLastCalls(['paused', 'targets:']);
       expect(controller.statuses['local'], ProbeStatus.unknown);
       bridge.emit({'local': ProbeStatus.online});
       ack.complete();
@@ -260,10 +265,7 @@ void main() {
       expect(errors, [failure]);
       expect(controller.statuses['local'], ProbeStatus.unknown);
       expect(bridge.calls, isNot(contains('running')));
-      expect(bridge.calls.sublist(bridge.calls.length - 2), [
-        'paused',
-        'targets:',
-      ]);
+      expectLastCalls(['paused', 'targets:']);
 
       await update([_favorite()]);
       expect(bridge.calls.last, 'running');
@@ -305,10 +307,7 @@ void main() {
 
       expect(errors, [failure]);
       expect(controller.statuses['local'], ProbeStatus.unknown);
-      expect(bridge.calls.sublist(bridge.calls.length - 2), [
-        'paused',
-        'targets:',
-      ]);
+      expectLastCalls(['paused', 'targets:']);
     },
   );
 
@@ -371,10 +370,7 @@ void main() {
 
     expect(errors, [failure]);
     expect(controller.statuses['local'], ProbeStatus.unknown);
-    expect(bridge.calls.sublist(bridge.calls.length - 2), [
-      'paused',
-      'targets:',
-    ]);
+    expectLastCalls(['paused', 'targets:']);
   });
 
   test('opt-out overtakes a pending running acknowledgement', () async {
@@ -416,7 +412,8 @@ void main() {
       await configure('replacement.example', AppLifecycleState.resumed);
       expect(mirror.statuses, {'local': ProbeStatus.offline});
 
-      // Equivalent targets publish nothing, including across pause/resume.
+      // The fixture emits nothing for equivalent targets. The controller must
+      // retain its snapshot without waiting for an event on pause/resume.
       await configure('replacement.example', AppLifecycleState.hidden);
       await configure('replacement.example', AppLifecycleState.resumed);
       expect(mirror.statuses, {'local': ProbeStatus.offline});
@@ -555,7 +552,9 @@ void _probeEngine(SendPort events) {
         );
         requests.close();
       default:
-        throw StateError('Unexpected probe fixture request.');
+        throw StateError(
+          'Unexpected probe fixture request: ${message.runtimeType}.',
+        );
     }
   });
 }

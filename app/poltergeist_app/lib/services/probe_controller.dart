@@ -44,6 +44,7 @@ final class ProbeFavorite {
 ///
 /// One controller owns the bridge's probe configuration. The composition root
 /// forwards lifecycle/settings changes and disposes it before the engine.
+/// Recreate it with each engine; updates after stream closure are ignored.
 /// Live connection state is composed separately and outranks these results.
 final class ProbeController extends ChangeNotifier {
   ProbeController(this._bridge, {ApplicationErrorReporter? errors})
@@ -72,10 +73,12 @@ final class ProbeController extends ChangeNotifier {
   bool _disposed = false;
 
   /// Complete immutable snapshot, including unknown for ineligible favorites.
+  /// Lifecycle pause retains the last observation; settings opt-out clears it.
   Map<String, ProbeStatus> get statuses => _statuses;
 
   /// Applies a complete policy snapshot. Unknown lifecycle state fails closed.
-  /// Errors are reported locally; a later explicit update may retry them.
+  /// Bridge failures are reported locally; a later explicit update may retry.
+  /// Throws [ArgumentError] synchronously for duplicate favorite ids.
   Future<void> update({
     required List<ProbeFavorite> favorites,
     required ProbePreference preference,
@@ -145,7 +148,7 @@ final class ProbeController extends ChangeNotifier {
   ) async {
     try {
       // Send restrictions now, never behind an older request's pending ack.
-      // Future.wait observes both failures even when the first one fails.
+      // Observe both completions to avoid unhandled errors; report only the first.
       await Future.wait([
         if (activity == ProbeActivity.paused)
           Future.sync(() => _bridge.setProbeActivity(ProbeActivity.paused)),

@@ -26,10 +26,14 @@ abstract interface class PromptBridge {
 /// Calls send commands in invocation order, before their futures complete.
 abstract interface class ProbeBridge {
   /// Subscribe before sending targets: replacement snapshots precede the ack.
+  /// Broadcast stream; closes on engine death.
   Stream<ProbeStatusesEvent> get probeStatuses;
 
+  /// Supplies seen, permitted favorites; config ids identify bookmarks.
+  /// Replacing targets does not grant permission to start probing (03 §3.4).
   Future<void> setProbeTargets(List<ServerConfig> targets);
 
+  /// Run only while foregrounded and enabled; the engine starts paused.
   Future<void> setProbeActivity(ProbeActivity activity);
 }
 

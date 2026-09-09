@@ -740,6 +740,15 @@ identity was established ahead of notification and passes after the repair.
 App and core analysis are clean; 244 app and 333 core tests pass (15
 Docker-fixture skips). CI validation is recorded in the PR.
 
+Review round 1 found no important defect. Bridge/duplicate-input/lifetime
+contracts and first-error reporting are clarified; test failure diagnostics
+and the no-op fixture comment are tightened. Paused snapshots deliberately
+retain the last known result; opt-out and engine loss clear to unknown.
+Automatic duplicate selection and extra public lifecycle state are declined:
+the owner supplies unique ids and already owns engine termination. The
+host/port probe contract excludes credentials, paths, and TLS settings.
+All five client builds and SSH integration passed on the first PR head.
+
 This is an unwired M2 component. The owning store must supply device-local
 facts for the current endpoint and reset exposure/history on retargeting.
 Persistence, lifecycle forwarding, interim list dots, live connection-state
