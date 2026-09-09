@@ -125,7 +125,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'/'",
   },
   // The demo view's form keys and the prefilled default SSH port —
-  // widget plumbing, not authored copy.
+  // widget plumbing, not authored copy. The app.dart entry is the debug
+  // assert tripping on a dropped engine factory.
+  'lib/app.dart': {
+    "'sftpDemoEngineFactory was provided but debugDemoEnabled is off; '",
+    "'the factory will be silently ignored.'",
+  },
   'lib/ui/demo/sftp_demo_view.dart': {
     "'connect.demoListing'",
     "''",

@@ -40,9 +40,11 @@ class FakeDemoBrowseChannel implements SftpDemoBrowseChannel {
   Object? listFailure;
   int listCalls = 0;
   int closeCalls = 0;
+  final requestedPaths = <String>[];
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
+    requestedPaths.add(path);
     listCalls++;
     final failure = listFailure;
     if (failure != null) throw failure;
@@ -155,6 +157,10 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   }
 
   Future<PromptReply> _waitForReply(String promptId) {
+    assert(
+      !_pendingReplies.containsKey(promptId),
+      'promptScript reuses promptId "$promptId"; the earlier reply is dropped',
+    );
     final completer = Completer<PromptReply>();
     _pendingReplies[promptId] = completer;
     return completer.future;
@@ -187,6 +193,9 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
     }
     final gate = openGate;
     if (gate != null && !gate.isCompleted) {
+      // No open may actually be awaiting the gate (a test that gated
+      // without submitting); the error must not leak unhandled.
+      gate.future.ignore();
       gate.completeError(StateError('engine closed while the open was gated'));
     }
     await promptsController.close();
@@ -263,7 +272,8 @@ Future<FakeSftpDemoEngine> pumpApp(
   await tester.pumpWidget(
     PoltergeistApp(
       debugDemoEnabled: debugDemoEnabled,
-      sftpDemoEngineFactory: () async => engine,
+      // A gated-off app must not receive a factory (the app asserts it).
+      sftpDemoEngineFactory: debugDemoEnabled ? () async => engine : null,
     ),
   );
   await tester.pump();
@@ -285,6 +295,10 @@ Future<void> submitDemoForm(
     username,
   );
   if (authMethod != AuthMethod.agent) {
+    assert(
+      authMethod == AuthMethod.password,
+      'submitDemoForm only knows how to select Agent and Password',
+    );
     await tester.tap(find.byKey(const ValueKey('sftp-demo-auth')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Password').last);
@@ -585,15 +599,13 @@ void main() {
     testWidgets('host-key first use: transcript live, trust, then listing', (
       tester,
     ) async {
-      final engine =
-          successfulEngine(
-              channel: FakeDemoBrowseChannel(
-                homePath: '/home/deploy',
-                entries: _scriptedEntries,
-              ),
-            )
-            ..promptScript = [_hostKeyFirstUse('p1')]
-            ..openGate = Completer<void>();
+      final channel = FakeDemoBrowseChannel(
+        homePath: '/home/deploy',
+        entries: _scriptedEntries,
+      );
+      final engine = successfulEngine(channel: channel)
+        ..promptScript = [_hostKeyFirstUse('p1')]
+        ..openGate = Completer<void>();
       addTearDown(
         () => engine.openGate!.isCompleted ? null : engine.openGate!.complete(),
       );
@@ -625,6 +637,9 @@ void main() {
       expect(find.text('2 entries'), findsOneWidget);
       expect(find.text('docs'), findsOneWidget);
       expect(find.text('notes.txt'), findsOneWidget);
+
+      // The listing targets the channel's canonicalized home path.
+      expect(channel.requestedPaths, ['/home/deploy']);
 
       // The connection facts ride the pinned bookmark model: the config's
       // id is the ephemeral bookmark id the pool keyed on (03 §3.5).
@@ -774,9 +789,7 @@ void main() {
       },
     );
 
-    testWidgets('a failed listing keeps the transcript and the one-liner', (
-      tester,
-    ) async {
+    testWidgets('a failed listing keeps the one-liner', (tester) async {
       final engine =
           successfulEngine(
               channel: FakeDemoBrowseChannel(homePath: '/home/deploy')
@@ -804,6 +817,11 @@ void main() {
 
       expect(find.text('Permission denied.'), findsOneWidget);
       expect(find.text('docs'), findsNothing);
+
+      // The connection is healthy, so the panel hides the transcript by
+      // its own connected-state contract; the session buffer keeps it
+      // (covered by the replay-buffer test). Connection failures keep it
+      // visible — the changed-key test above pins that.
     });
   });
 

@@ -94,6 +94,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // synchronously, so a second tap in the same frame (before the
     // disabled rebuild lands) is still refused, and a future command
     // with its own lifecycle is never blocked by this one's session.
+    // Contract: run() stays pending for the command's whole session (the
+    // demo awaits its route's pop), so the flag tracks the session.
     if (!command.enabled()) return;
     setState(() => _demoSessionActive = true);
     try {

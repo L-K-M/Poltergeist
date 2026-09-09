@@ -51,7 +51,9 @@ Future<SftpDemoEngine> spawnSftpDemoEngine() async =>
 
 /// Wraps an already-spawned [EngineClient] as the demo seam. The isolate
 /// leg of the widget suite drives a scripted engine entrypoint through
-/// real ports; production uses [spawnSftpDemoEngine].
+/// real ports; production uses [spawnSftpDemoEngine]. Disposing the
+/// returned controller shuts this client down — the wrapper is not for
+/// engines shared with other consumers.
 SftpDemoEngine sftpDemoEngineOf(EngineClient client) =>
     _EngineClientAdapter(client);
 
@@ -141,6 +143,7 @@ class SftpDemoController extends ChangeNotifier {
   /// The transcript subscription also starts here — before any connect —
   /// because the live log stream keeps no replay (03 §5: subscribe first).
   void start() {
+    if (_disposed) return;
     _prompts.start();
     _logSubscription ??= engine.connectionLog.listen(
       _onLogLine,
@@ -262,7 +265,9 @@ class SftpDemoController extends ChangeNotifier {
         // Cleanup failures must not escape as unhandled async errors.
         // The server reference follows unless dispose already tore it
         // down: a disconnect-during-connect left the late-opened session
-        // for this id behind, and nothing else tracks it.
+        // for this id behind, and nothing else tracks it. NOTE: disconnect
+        // may already have issued disconnectServer for this id — the
+        // engine treats unknown ids as a no-op, never an error.
         unawaited(
           _closeChannelAndServer(channel, _disposed ? null : bookmark.id),
         );

@@ -71,6 +71,11 @@ class PoltergeistApp extends StatelessWidget {
     // Runtime-gated only: the demo code stays linked into release
     // binaries until M3 deletes this surface wholesale.
     final bool demoEnabled = debugDemoEnabled && kDebugMode;
+    assert(
+      demoEnabled || sftpDemoEngineFactory == null,
+      'sftpDemoEngineFactory was provided but debugDemoEnabled is off; '
+      'the factory will be silently ignored.',
+    );
     final workspace = WorkspaceShell(
       initialPaneRatio: initialPaneRatio,
       onPaneRatioChanged: onPaneRatioChanged,

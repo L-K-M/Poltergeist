@@ -150,6 +150,9 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
               key: const ValueKey('sftp-demo-close'),
               tooltip: l10n.sftpDemoClose,
               icon: const Icon(Icons.close),
+              // The demo route is the root navigator's topmost route:
+              // prompts live on the nested navigator, and nothing in the
+              // app pushes above the demo route while it is open.
               onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
             ),
             title: Text(l10n.sftpDemoTitle),
@@ -214,6 +217,8 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
       _controller.connect(
         SftpDemoConnectFacts(
           host: _host.text.trim(),
+          // Validation has already rejected unparseable ports; a silent
+          // fallback to the default would connect to the wrong endpoint.
           port: int.parse(_port.text.trim()),
           username: _username.text.trim(),
           authMethod: _authMethod,
