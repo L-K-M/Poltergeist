@@ -115,54 +115,75 @@ port candidates.
 ## app/poltergeist_app/lib/ui/prompts/host_key_dialog.dart
 
 - Source: app/seance_app/lib/ui/host_key_dialog.dart
-- Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07;
+  re-diffed at 5cadb18, 2026-09-09 — upstream gained the route-guard
+  port-back below, nothing else changed)
 - Ported: 2026-09-07
 - Divergences: strings localize through ARB (D20); the decision payload is
   the engine protocol's `HostKeyPromptData` (plain data crossing the
   isolate, 03 §5) instead of seance_core's `HostKeyDecision`; a `changed`
   verdict still renders the alarming two-fingerprint review with the
   destructive-styled trust button (D18 hard block, never auto-repin).
-  Scrollable content, coordinator-owned route identity, and current-route
-  action guards prevent overflow or a dismissal/repeated activation from
-  popping another route.
-- Port-back candidates: scrollable content and current-route action guards.
+  Scrollable content and coordinator-owned route identity prevent overflow
+  or a withdrawal from popping another route. The current-route action
+  guards were ported back to Séance as
+  [Séance #82](https://github.com/L-K-M/Seance/pull/82) (head
+  `5d9da5195a3a9a4d8110d0b2425d55e5cb3fddde`, merge
+  `5cadb18e823ca1ae089b9fdd940432876e93fd9c`, 2026-09-09) with the same
+  `ModalRoute.isCurrent` semantics, so that divergence is closed.
+- Port-back candidates: scrollable content.
 
 ## app/poltergeist_app/test/ui/prompts/host_key_dialog_test.dart
 
 - Source: app/seance_app/test/host_key_dialog_test.dart
-- Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07;
+  re-diffed at 5cadb18, 2026-09-09 — upstream gained the three
+  route-guard regressions from Séance #82, nothing else changed)
 - Ported: 2026-09-07
 - Divergences: adapted to the protocol payload; adds ARB-string, scrollable,
-  and non-dismissible coverage beyond the source's two cases; the async test
+  and non-dismissible coverage beyond the source's cases; the async test
   harness checks `mounted` before rebuilding.
 - Port-back candidates: scrollable assertion and mounted harness guard.
 
 ## app/poltergeist_app/lib/ui/prompts/keyboard_interactive_dialog.dart
 
 - Source: app/seance_app/lib/ui/keyboard_interactive_dialog.dart
-- Séance commit: d1a98f1 (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: d1a98f1 (re-diffed unchanged at a9add15, 2026-09-07;
+  re-diffed at 5cadb18, 2026-09-09 — upstream gained the route-guard
+  port-back below, nothing else changed)
 - Ported: 2026-09-07
 - Divergences: strings localize through ARB (D20); the payload is the
-  engine protocol's `KeyboardInteractivePromptData` (03 §5); adds per-field
-  reveal toggles absent from the source (echo metadata is absent on the
-  wire, so reveal is explicit-only), coordinator-owned route identity,
-  current-route action guards, and Enter focus navigation/final submission.
-  The controller-dispose-in-State lifecycle and its IME use-after-dispose
-  lesson are ported verbatim.
-- Port-back candidates: current-route action guards and Enter navigation;
-  preserve RFC 4256's
-  per-prompt echo bit once the upstream responder exposes it.
+  engine protocol's `KeyboardInteractivePromptData` (03 §5);
+  coordinator-owned route identity and Enter focus navigation/final
+  submission are local. Masked-by-default fields with explicit per-field
+  reveal, scrollable content, empty-name title fallback, first-field
+  autofocus, and the controller-dispose-in-State lifecycle (with its IME
+  use-after-dispose lesson) all exist upstream at the recorded commits —
+  they are ported behavior, not local additions. The current-route action
+  guards were ported back to Séance as
+  [Séance #82](https://github.com/L-K-M/Seance/pull/82) (head
+  `5d9da5195a3a9a4d8110d0b2425d55e5cb3fddde`, merge
+  `5cadb18e823ca1ae089b9fdd940432876e93fd9c`, 2026-09-09) with the same
+  `ModalRoute.isCurrent` semantics, so that divergence is closed.
+- Port-back candidates: Enter focus navigation/final submission; preserve
+  RFC 4256's per-prompt echo bit once the upstream responder exposes it.
 
 ## app/poltergeist_app/test/ui/prompts/keyboard_interactive_dialog_test.dart
 
 - Source: app/seance_app/test/keyboard_interactive_dialog_test.dart
-- Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07)
+- Séance commit: fd01515 (re-diffed unchanged at a9add15, 2026-09-07;
+  re-diffed at 5cadb18, 2026-09-09 — upstream gained the three
+  route-guard regressions from Séance #82, nothing else changed)
 - Ported: 2026-09-07
-- Divergences: adapted to the protocol payload; adds reveal-toggle,
-  empty-name title fallback, Enter navigation, autofocus, and
-  repeated-submit route-safety coverage.
-- Port-back candidates: Enter navigation, autofocus, and repeated-submit
-  regressions.
+- Divergences: adapted to the protocol payload; adds empty-name title
+  fallback, Enter-navigation, autofocus, and IME/regression-harness
+  coverage beyond the source's cases. Reveal-toggle and submit/cancel
+  coverage exist upstream at the recorded commit — the earlier
+  "adds reveal-toggle" wording was corrected against that re-diff
+  (2026-09-09); the original dated port provenance stands.
+- Port-back candidates: Enter-navigation and autofocus tests (upstream has
+  no autofocus test); the repeated-submit route-safety regression went
+  upstream with Séance #82 in its double-activation form.
 
 ## app/poltergeist_app/lib/services/identity_audit_log.dart
 

@@ -4,7 +4,11 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-09. Engine-side probe control and status events are
+_Last updated: 2026-09-09. The prompt dialogs' current-route action
+guards are ported back to Séance ([Séance #82](https://github.com/L-K-M/Seance/pull/82),
+dated section below) and the four dialog PORTS entries are corrected
+against a fresh upstream re-diff; engine-side probe control and status
+events are
 implemented (dated section below); interim list dots and app composition
 remain open. The Séance pin is bumped to upstream main
 `2e6d1f1` (Séance #81's merge — containing #79's probe-lifecycle repair
@@ -709,6 +713,53 @@ and case-alias tests pin the existing normalization. All five client builds,
 SSH integration, and other CI gates passed on the first head. The PR
 description records the full triage; review continues on the test-only update.
 
+## M2 — prompt dialog route guards ported back to Séance (2026-09-09)
+
+The current-route action guards in the ported host-key and
+keyboard-interactive dialogs are ported back to Séance as
+[Séance #82](https://github.com/L-K-M/Seance/pull/82) (head
+`5d9da5195a3a9a4d8110d0b2425d55e5cb3fddde`, merge
+`5cadb18e823ca1ae089b9fdd940432876e93fd9c`, merged 2026-09-09T01:28:38Z,
+"Guard prompt dialogs against stray route pops"). Upstream, every dialog
+action now routes through a private `ModalRoute.isCurrent` check (a `close`
+closure in the host-key builder, `_close`/`_submit` in the keyboard State),
+so a rapid second activation during the exit animation cannot pop the page
+below and a callback from an obscured dialog cannot pop or answer a newer
+route — the same semantics as the local guards, with result contracts,
+barrier behavior, warning/fingerprint/button semantics, answer order,
+cancellation, controller-dispose-after-exit-animation, and current
+reveal/echo behavior unchanged.
+
+Observed evidence (saved under `tasks/batch2-task9-*.log`): six new upstream
+widget regressions — three per dialog, opening the public dialogs above a
+pushed page through real Navigator routes and capturing the existing
+button `onPressed` seams, with outer-page/result/newer-route/exception
+assertions — failed against the unmodified upstream dialogs at `2e6d1f1`
+(`+7 -6`: the four double-activation cases by the page below being popped,
+the two obscured-callback cases by the newer route disappearing) and pass
+with the guard (`+13`). All 463 upstream Flutter tests and `flutter analyze`
+are green; all nine Séance CI checks pass on the merged head's PR run.
+Review round 1 found no correctness item (two debug-log hardening minors
+and a helper-extraction info declined with reasons recorded in the PR body;
+an outside-diff pre-existing `[]`-cancel-sentinel observation deferred to
+the upstream SSH-layer contract owner) — steady state per the owner's bar.
+
+Companion ledger corrections in the same PR: the four dialog PORTS entries
+are re-diffed at `5cadb18` — upstream already carried keyboard scrolling
+(`86b1e4d`, 2026-09-04), explicit per-field reveal (`1c2c29b`, 2026-09-04),
+empty-name fallback, first-field autofocus, and the controller lifecycle
+(`c2d60a6`, 2026-07-09), all inside `a9add15`'s ancestry, so the entries'
+"adds reveal toggles" wording is corrected (ported behavior, not local
+additions) while the original dated port provenance and the legitimate
+ARB/payload/coordinator/dialogKey/Enter-navigation divergences stand. The
+route-guard port-back candidates close; Enter navigation, the echo-bit
+preservation, and the host-key scrollable-content/scrollable-assertion/
+mounted-harness candidates stay open (owner gates unchanged).
+
+This is app-layer upstream work only: no pin change (the pinned
+`seance_core`/`seance_protocol` trees are untouched by #82), no local
+production code change, no release, no milestone-close claim.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -874,8 +925,11 @@ description records the full triage; review continues on the test-only update.
      pinned `seance_core`/`seance_protocol` trees are untouched);
      PORTS.md records the one remaining divergence — upstream's review
      added a read-side repair gate (skip the chmod when no group/other
-     bits are set) that this port should mirror. Route guards remain
-     PORTS-led candidates. None blocks the safe local behavior or
+     bits are set) that this port should mirror. Route guards — previously
+     a PORTS-led candidate — closed 2026-09-09:
+     [Séance #82](https://github.com/L-K-M/Seance/pull/82) ports the
+     dialogs' current-route action guards upstream (dated section below).
+     None of the remaining candidates blocks the safe local behavior or
      production wiring.
    - **2026-09-08 — gate regression follow-up (Séance #81):** that
      read-side gate now has durable upstream regressions —
