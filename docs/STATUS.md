@@ -691,6 +691,14 @@ instead of one); the case-alias regression failed before normalization
 (two probes instead of one). Both pass after repair. Docker and five-platform
 build verification run in CI. No UI change, so screenshots do not apply.
 
+Review round 1 found no important defect. Applied the host shutdown-error
+assertion, shared sweep-deadline expressions, and the sequential-query
+fixture caveat. Declined unused-metadata refresh and a normalization-helper
+extraction: the callback contract reads only id/host/port, while validation
+and case-alias tests pin the existing normalization. All five client builds,
+SSH integration, and other CI gates passed on the first head. The PR
+description records the full triage; review continues on the test-only update.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -764,6 +772,10 @@ build verification run in CI. No UI change, so screenshots do not apply.
      **2026-09-09: engine control/status wiring is implemented** (dated
      section above). Interim list dots, app lifecycle/settings eligibility,
      and composition remain open; no current app caller initiates probes.
+     **2026-09-09 review follow-up (#55):** the app consumer must subscribe
+     to live probe snapshots before sending targets/activity. Evaluate
+     replay only if its eventual ownership cannot guarantee that ordering;
+     the current documented API retains no replay cache.
      Existing probes may settle; no new stale work may start.
      **2026-09-08 review follow-ups:** consider upstream tests for exact
      timeout forwarding and jitter endpoints. Both contracts are unchanged;

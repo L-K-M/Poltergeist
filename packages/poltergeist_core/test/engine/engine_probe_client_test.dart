@@ -237,7 +237,8 @@ void _probeEngine(SendPort events) {
     }
 
     // Let already-scheduled immediate sweeps settle before the query ack.
-    // Negative probe assertions then need no wall-clock sleeps.
+    // Every test awaits each query before its next command; this barrier
+    // is not a fixture for pipelined requests or their ordering.
     if (message is ConnectedServerIdsRequest) {
       Timer.run(() => host!.handle(message));
       return;

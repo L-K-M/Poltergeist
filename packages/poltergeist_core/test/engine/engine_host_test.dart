@@ -288,10 +288,12 @@ void main() {
     await h.pumping();
     expect(h.events.whereType<ProbeStatusesEvent>(), hasLength(snapshots));
 
-    await h.call(
-      (id) => SetProbeActivityRequest(
-        requestId: id,
-        activity: ProbeActivity.running,
+    await expectError(
+      h.call(
+        (id) => SetProbeActivityRequest(
+          requestId: id,
+          activity: ProbeActivity.running,
+        ),
       ),
     );
     await h.pumping();

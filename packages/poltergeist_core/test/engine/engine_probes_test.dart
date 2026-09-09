@@ -191,7 +191,7 @@ void main() {
 
         h.owner.updateTargets([_server('a', host: 'new.example')]);
         expect(h.emitted.last, {'a': ProbeStatus.unknown});
-        time.elapse(const Duration(seconds: 78));
+        time.elapse(_beforeEarliestSweep + _throughLatestSweep);
         expect(h.prober.calls.single.host, 'new.example');
         h.prober.calls.single.result.complete(ProbeStatus.offline);
         time.flushMicrotasks();
@@ -250,7 +250,7 @@ void main() {
       time.flushMicrotasks();
       expect(h.emitted, hasLength(count));
 
-      time.elapse(const Duration(seconds: 78));
+      time.elapse(_beforeEarliestSweep + _throughLatestSweep);
       expect(h.prober.calls.last.host, 'replacement.example');
       h.prober.calls.last.result.complete(ProbeStatus.offline);
       time.flushMicrotasks();
