@@ -4,7 +4,10 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-09. The host-key dialog's scrollable review content
+_Last updated: 2026-09-09. The app-side probe controller now enforces
+favorite eligibility and lifecycle/settings policy through the engine port
+(dated section below). Persistence, lifecycle forwarding, list dots, and
+startup composition remain open. The host-key dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
 mounted-harness candidate stays open). The prompt
@@ -716,6 +719,43 @@ and case-alias tests pin the existing normalization. All five client builds,
 SSH integration, and other CI gates passed on the first head. The PR
 description records the full triage; review continues on the test-only update.
 
+## M2 — app-side probe eligibility controller (2026-09-09)
+
+`ProbeController` consumes `EngineClient`'s new `ProbeBridge` facet and
+publishes immutable probe snapshots independently of root app state.
+Only seen, permitted favorites qualify; synced favorites additionally
+require a successful connection from this device. Global opt-out clears
+targets and results. Only resumed lifecycle state runs probes. Equivalent
+endpoint sets preserve cadence; removed/retargeted results clear immediately.
+The controller subscribes before sending targets and buffers snapshots that
+precede acknowledgements. Restrictions overtake pending acknowledgements;
+stale continuations cannot resume probing. Engine loss clears truth to
+unknown; request/stream errors use the existing local error sink.
+
+Validation: 24 controller tests cover the eligibility matrix, lifecycle
+states, opt-outs, retargeting, delayed/failed acknowledgements, disposal,
+engine loss, reentrant listeners, and real-client isolate ordering (including
+no-op target updates). The listener-opt-out regression failed before request
+identity was established ahead of notification and passes after the repair.
+App and core analysis are clean; 244 app and 333 core tests pass (15
+Docker-fixture skips). CI validation is recorded in the PR.
+
+Review round 1 found no important defect. Bridge/duplicate-input/lifetime
+contracts and first-error reporting are clarified; test failure diagnostics
+and the no-op fixture comment are tightened. Paused snapshots deliberately
+retain the last known result; opt-out and engine loss clear to unknown.
+Automatic duplicate selection and extra public lifecycle state are declined:
+the owner supplies unique ids and already owns engine termination. The
+host/port probe contract excludes credentials, paths, and TLS settings.
+All five client builds and SSH integration passed on the first PR head.
+
+This is an unwired M2 component. The owning store must supply device-local
+facts for the current endpoint and reset exposure/history on retargeting.
+Persistence, lifecycle forwarding, interim list dots, live connection-state
+composition, and startup remain open; item 6 still gates production wiring.
+Chapter 03 records the controller contract. No source port, dependency/pin
+change, UI change, release, or milestone close.
+
 ## M2 — prompt dialog route guards ported back to Séance (2026-09-09)
 
 The current-route action guards in the ported host-key and
@@ -889,9 +929,11 @@ no milestone-close claim.
      **2026-09-08: the containing pin prerequisite is consumed** — the
      live pin is now `2e6d1f1` (dated section above); the wiring itself
      (ProbeService + interim server list status dots) remained open then.
-     **2026-09-09: engine control/status wiring is implemented** (dated
-     section above). Interim list dots, app lifecycle/settings eligibility,
-     and composition remain open; no current app caller initiates probes.
+     **2026-09-09: engine control/status wiring and the app eligibility
+     controller are implemented** (dated sections above). The controller
+     applies lifecycle/settings policy to supplied device-local facts.
+     Persistence, lifecycle forwarding, interim list dots, and composition
+     remain open; no current app caller initiates probes.
      **2026-09-09 review follow-up (#55):** the app consumer must subscribe
      to live probe snapshots before sending targets/activity. Evaluate
      replay only if its eventual ownership cannot guarantee that ordering;

@@ -12,6 +12,12 @@ service owns scheduling and sockets; Poltergeist adds target grouping,
 activity control, and port events. No source copy or pin change. Interim
 list dots and app composition remain open in STATUS item 3.
 
+The app-side eligibility controller (2026-09-09) consumes the engine's
+`ProbeBridge`; scheduling and sockets remain in the pinned service. Its
+device-local policy and isolate orchestration are new Poltergeist code,
+with no copied source or upstream port candidate. Persistence, lifecycle
+forwarding, and the rendered status composition remain open in STATUS item 3.
+
 ## M2 real-sshd pool and TOFU coverage (2026-09-08)
 
 Exercises the existing pinned opener, VFS, and TCP prober through Poltergeist's
