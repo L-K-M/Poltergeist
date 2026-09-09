@@ -117,33 +117,48 @@ port candidates.
 - Source: app/seance_app/lib/ui/host_key_dialog.dart
 - Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07;
   re-diffed at 5cadb18, 2026-09-09 — upstream gained the route-guard
-  port-back below, nothing else changed)
+  port-back below, nothing else changed; re-diffed at b8fc111, 2026-09-09
+  — upstream gained the scrollable-content port-back below, nothing else
+  changed)
 - Ported: 2026-09-07
 - Divergences: strings localize through ARB (D20); the decision payload is
   the engine protocol's `HostKeyPromptData` (plain data crossing the
   isolate, 03 §5) instead of seance_core's `HostKeyDecision`; a `changed`
   verdict still renders the alarming two-fingerprint review with the
   destructive-styled trust button (D18 hard block, never auto-repin).
-  Scrollable content and coordinator-owned route identity prevent overflow
-  or a withdrawal from popping another route. The current-route action
-  guards were ported back to Séance as
-  [Séance #82](https://github.com/L-K-M/Seance/pull/82) (head
+  Coordinator-owned route identity prevents a withdrawal from popping
+  another route. The current-route action guards were ported back to
+  Séance as [Séance #82](https://github.com/L-K-M/Seance/pull/82) (head
   `5d9da5195a3a9a4d8110d0b2425d55e5cb3fddde`, merge
   `5cadb18e823ca1ae089b9fdd940432876e93fd9c`, 2026-09-09) with the same
-  `ModalRoute.isCurrent` semantics, so that divergence is closed.
-- Port-back candidates: scrollable content.
+  `ModalRoute.isCurrent` semantics, and the scrollable content was
+  ported back as
+  [Séance #83](https://github.com/L-K-M/Seance/pull/83) (head
+  `2f6c49ce6a4af424003261dae3ec116eeb80fa74`, merge
+  `b8fc1111119cd6c0744b9de9bc35d16c07ae3e9d`, 2026-09-09) — upstream now
+  sets `AlertDialog.scrollable` with its own reachability regressions, so
+  both divergences are closed.
+- Port-back candidates: none.
 
 ## app/poltergeist_app/test/ui/prompts/host_key_dialog_test.dart
 
 - Source: app/seance_app/test/host_key_dialog_test.dart
 - Séance commit: 27552b2 (re-diffed unchanged at a9add15, 2026-09-07;
   re-diffed at 5cadb18, 2026-09-09 — upstream gained the three
-  route-guard regressions from Séance #82, nothing else changed)
+  route-guard regressions from Séance #82, nothing else changed;
+  re-diffed at b8fc111, 2026-09-09 — upstream gained the two
+  constrained-layout reachability regressions from Séance #83, nothing
+  else changed)
 - Ported: 2026-09-07
-- Divergences: adapted to the protocol payload; adds ARB-string, scrollable,
-  and non-dismissible coverage beyond the source's cases; the async test
-  harness checks `mounted` before rebuilding.
-- Port-back candidates: scrollable assertion and mounted harness guard.
+- Divergences: adapted to the protocol payload; adds ARB-string and
+  non-dismissible coverage beyond the source's cases; the async test
+  harness checks `mounted` before rebuilding. The scrollable coverage
+  diverged in form only: upstream's #83 regressions assert reachability
+  behavior (constrained layout, viewport-clipped visibility, scroll into
+  view, pinned buttons); this port retains its property-level check
+  (`AlertDialog.scrollable`) that the behavior assertions subsume, so the
+  candidate is closed, not merged back.
+- Port-back candidates: mounted harness guard.
 
 ## app/poltergeist_app/lib/ui/prompts/keyboard_interactive_dialog.dart
 
