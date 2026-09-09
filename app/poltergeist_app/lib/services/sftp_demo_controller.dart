@@ -188,6 +188,10 @@ class SftpDemoController extends ChangeNotifier {
   Future<void> connect(SftpDemoConnectFacts facts) async {
     if (_disposed || _connecting) return;
 
+    // Prompt answering and transcript buffering must be live before any
+    // open; the route normally ran start() already, and it is idempotent.
+    start();
+
     // The previous session (a completed connect, or a failed one that
     // minted a serverId) must not linger: every connect mints a fresh
     // bookmark id (03 §3.5), so the old reference is closed, never reused.
@@ -250,7 +254,12 @@ class SftpDemoController extends ChangeNotifier {
       );
       if (_disposed || attempt != _attempt) {
         // Cleanup failures must not escape as unhandled async errors.
-        unawaited(_closeChannelAndServer(channel, null));
+        // The server reference follows unless dispose already tore it
+        // down: a disconnect-during-connect left the late-opened session
+        // for this id behind, and nothing else tracks it.
+        unawaited(
+          _closeChannelAndServer(channel, _disposed ? null : bookmark.id),
+        );
         return;
       }
       _channel = channel;

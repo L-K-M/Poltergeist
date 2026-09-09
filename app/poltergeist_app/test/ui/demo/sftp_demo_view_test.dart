@@ -81,6 +81,7 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   Object? openFailure;
   FakeDemoBrowseChannel? channel;
   int disconnectCalls = 0;
+  final disconnectIds = <String>[];
   int shutdownCalls = 0;
 
   @override
@@ -159,6 +160,7 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   @override
   Future<void> disconnectServer(String serverId) async {
     disconnectCalls++;
+    disconnectIds.add(serverId);
   }
 
   @override
@@ -167,6 +169,17 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   }
 
   Future<void> close() async {
+    // A test that fails while a scripted prompt is unanswered must not
+    // leave the pending open suspended through teardown.
+    final pending = _pendingReplies.values.toList();
+    _pendingReplies.clear();
+    for (final completer in pending) {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          StateError('engine closed while awaiting a scripted reply'),
+        );
+      }
+    }
     await promptsController.close();
     await dismissalsController.close();
     await statesController.close();
@@ -908,6 +921,39 @@ void main() {
       expect(reported, contains(isA<StateError>()));
       expect(controller.entries, hasLength(2));
     });
+
+    test(
+      'a disconnect during a pending connect drops the late session',
+      () async {
+        final engine = successfulEngine()..openGate = Completer<void>();
+        final controller = SftpDemoController(
+          engine: engine,
+          navigatorKey: GlobalKey<NavigatorState>(),
+        );
+        addTearDown(engine.close);
+        addTearDown(controller.dispose);
+
+        const facts = SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        );
+        final connect = controller.connect(facts);
+        await Future<void>.delayed(Duration.zero);
+        await controller.disconnect();
+
+        // The open completes after the disconnect: the stale attempt must
+        // drop the just-established session for its serverId, or nothing
+        // else ever tracks it.
+        engine.openGate!.complete();
+        await connect;
+        await Future<void>.delayed(Duration.zero);
+
+        expect(engine.disconnectCalls, 2);
+        expect(engine.disconnectIds.toSet(), hasLength(1));
+      },
+    );
 
     test('disconnect clears the recorded status and replays none', () async {
       final engine = successfulEngine();

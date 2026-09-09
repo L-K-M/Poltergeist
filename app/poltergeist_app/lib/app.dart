@@ -30,7 +30,7 @@ class PoltergeistApp extends StatelessWidget {
 
   /// Gating flag for the debug-only SFTP demo surface (07 §3.3). The
   /// flag can only disable the demo in debug builds, never enable it in
-  /// release: the workspace ANDs it with kDebugMode, which is false
+  /// release: _buildWorkspace ANDs it with kDebugMode, which is false
   /// there.
   final bool debugDemoEnabled;
 
@@ -67,6 +67,8 @@ class PoltergeistApp extends StatelessWidget {
   }
 
   Widget _buildWorkspace() {
+    // Runtime-gated only: the demo code stays linked into release
+    // binaries until M3 deletes this surface wholesale.
     final bool demoEnabled = debugDemoEnabled && kDebugMode;
     final workspace = WorkspaceShell(
       initialPaneRatio: initialPaneRatio,

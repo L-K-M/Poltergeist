@@ -283,6 +283,8 @@ class _DemoForm extends StatelessWidget {
           const SizedBox(height: 8),
           DropdownButtonFormField<AuthMethod>(
             key: const ValueKey('sftp-demo-auth'),
+            // initialValue is initial-only; the field is unkeyed because
+            // _authMethod only ever changes through its own onChanged.
             initialValue: authMethod,
             items: [
               DropdownMenuItem(
