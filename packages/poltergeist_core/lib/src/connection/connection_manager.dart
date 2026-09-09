@@ -472,11 +472,28 @@ class PooledConnectionManager implements ConnectionManager {
   }
 
   @override
-  Future<Set<String>> connectedServerIds() async {
+  Future<Set<String>> connectedServerIds() async => liveServerIds();
+
+  /// Current transport truth for the engine's synchronous probe callback.
+  /// Each read returns a fresh set; delayed state events cannot stale it.
+  /// Matching targets prevent an edited bookmark borrowing its old pool's
+  /// reachability while that transport still serves an existing pane.
+  Set<String> liveServerIds({List<ServerConfig>? matchingTargets}) {
     final connected = <String>{};
+    final targets = matchingTargets == null
+        ? null
+        : {for (final target in matchingTargets) target.id: target};
 
     for (final entry in _references.entries) {
       final pool = entry.value.pool;
+      if (targets != null) {
+        final target = targets[entry.key];
+        if (target == null ||
+            pool.key.host != target.host.trim().toLowerCase() ||
+            pool.key.port != target.port) {
+          continue;
+        }
+      }
 
       // Transports die asynchronously and are evicted lazily — count only
       // pools that still hold a live one.

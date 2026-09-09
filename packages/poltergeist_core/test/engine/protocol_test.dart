@@ -4,6 +4,13 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
+const _expectedProtocolVersion = 5;
+const _probeStatuses = {
+  'reachable': ProbeStatus.online,
+  'refused': ProbeStatus.offline,
+  'uncertain': ProbeStatus.unknown,
+};
+
 const _sample = TransferProgressEvent(
   taskId: 'task',
   itemId: 'item',
@@ -60,6 +67,29 @@ void main() {
     expect(() => batch.items[0] = _unknownTotals, throwsUnsupportedError);
   });
 
+  test('probe targets snapshot their input and remain immutable', () {
+    final source = [_config];
+    final request = SetProbeTargetsRequest(requestId: 1, targets: source);
+    source.clear();
+
+    expect(request.targets, [_config]);
+    expect(() => request.targets.clear(), throwsUnsupportedError);
+    expect(() => request.targets[0] = _config, throwsUnsupportedError);
+  });
+
+  test('probe statuses snapshot their input and remain immutable', () {
+    final source = Map<String, ProbeStatus>.of(_probeStatuses);
+    final event = ProbeStatusesEvent(statuses: source);
+    source.clear();
+
+    expect(event.statuses, _probeStatuses);
+    expect(() => event.statuses.clear(), throwsUnsupportedError);
+    expect(
+      () => event.statuses['uncertain'] = ProbeStatus.offline,
+      throwsUnsupportedError,
+    );
+  });
+
   test(
     'every protocol message round-trips through a spawned isolate',
     () async {
@@ -83,6 +113,12 @@ void main() {
         engine,
         TransferProgressBatchEvent([_sample, _unknownTotals]),
       );
+      await _roundTrip(
+        incoming,
+        engine,
+        ProbeStatusesEvent(statuses: _probeStatuses),
+      );
+      await _roundTrip(incoming, engine, ProbeStatusesEvent(statuses: {}));
 
       await _roundTrip(
         incoming,
@@ -235,6 +271,23 @@ void main() {
       await _roundTrip(
         incoming,
         engine,
+        SetProbeTargetsRequest(requestId: 16, targets: [_config]),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        SetProbeTargetsRequest(requestId: 17, targets: []),
+      );
+      for (final activity in ProbeActivity.values) {
+        await _roundTrip(
+          incoming,
+          engine,
+          SetProbeActivityRequest(requestId: 18, activity: activity),
+        );
+      }
+      await _roundTrip(
+        incoming,
+        engine,
         const DisconnectServerRequest(requestId: 7, serverId: 'srv-1'),
       );
       await _roundTrip(
@@ -363,6 +416,9 @@ Future<void> _roundTrip(
       expect(got.serverId, sent.serverId);
       expect(got.state, sent.state);
       expect(got.detail, sent.detail);
+    case (final ProbeStatusesEvent sent, final ProbeStatusesEvent got):
+      expect(got.statuses, sent.statuses);
+      expect(() => got.statuses.clear(), throwsUnsupportedError);
     case (final RecoveryFailedEvent sent, final RecoveryFailedEvent got):
       expect(got.serverId, sent.serverId);
       expect(got.paneTabId, sent.paneTabId);
@@ -421,6 +477,19 @@ Future<void> _roundTrip(
       final ConnectedServerIdsRequest got,
     ):
       expect(got.requestId, sent.requestId);
+    case (final SetProbeTargetsRequest sent, final SetProbeTargetsRequest got):
+      expect(got.requestId, sent.requestId);
+      expect(
+        got.targets.map((target) => target.toJson()).toList(),
+        sent.targets.map((target) => target.toJson()).toList(),
+      );
+      expect(() => got.targets.clear(), throwsUnsupportedError);
+    case (
+      final SetProbeActivityRequest sent,
+      final SetProbeActivityRequest got,
+    ):
+      expect(got.requestId, sent.requestId);
+      expect(got.activity, sent.activity);
     case (final ShutdownRequest sent, final ShutdownRequest got):
       expect(got.requestId, sent.requestId);
     case (final PromptReplyRequest sent, final PromptReplyRequest got):
@@ -448,7 +517,7 @@ Future<void> _roundTrip(
 
   final event = returned;
   if (event is EngineEvent) {
-    expect(event.protocolVersion, 4);
+    expect(event.protocolVersion, _expectedProtocolVersion);
     expect(event.protocolVersion, engineProtocolVersion);
   }
 }

@@ -91,6 +91,28 @@ class ProgressCoalescer extends EngineEvent { final callback = () {}; }
     expect(await fixture._check(), [contains('ProgressCoalescer.callback')]);
   });
 
+  test('probe callbacks stay confined to the internal owner', () async {
+    await fixture._write('$_engine/engine_probes.dart', '''
+class EngineProbes { final callback = () {}; }
+class Other { final callback = () {}; }
+''');
+    await fixture._write('$_engine/elsewhere.dart', '''
+class EngineProbes { final callback = () {}; }
+''');
+    expect(await fixture._check(), [
+      contains('elsewhere.dart: EngineProbes.callback'),
+      contains('engine_probes.dart: Other.callback'),
+    ]);
+  });
+
+  test('probe callback owner cannot become a protocol payload', () async {
+    await fixture._write('$_engine/engine_probes.dart', '''
+import 'protocol.dart';
+class EngineProbes extends EngineEvent { final callback = () {}; }
+''');
+    expect(await fixture._check(), [contains('EngineProbes.callback')]);
+  });
+
   test(
     'the connect-log coalescer cannot become a protocol subtype either',
     () async {

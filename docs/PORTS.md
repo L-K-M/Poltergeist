@@ -7,7 +7,10 @@ The periodic `ProbeService` repair merged in
 No source copy or local scheduler is introduced. STATUS item 3 records the
 required containing pin before wiring and optional upstream test follow-ups.
 The containing pin (`2e6d1f1`, 2026-09-08) is now in place — see the pin
-findings below; `ProbeService` wiring itself remains open.
+findings below. Engine-side consumption lands on 2026-09-09: the pinned
+service owns scheduling and sockets; Poltergeist adds target grouping,
+activity control, and port events. No source copy or pin change. Interim
+list dots and app composition remain open in STATUS item 3.
 
 ## M2 real-sshd pool and TOFU coverage (2026-09-08)
 

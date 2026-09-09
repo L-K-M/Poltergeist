@@ -325,12 +325,7 @@ abstract interface class ConnectionManager {
 
   /// State plus the failure one-liner (see `ServerStatus` below).
   Stream<ServerStatus> watchServer(String serverId);
-  Future<Set<String>> connectedServerIds();  // feeds ProbeService (§3.4);
-                                             // served across the engine
-                                             // isolate (§5) — the app-side
-                                             // proxy keeps a cached replica
-                                             // fed by watchServer for the
-                                             // probe loop's sync reads
+  Future<Set<String>> connectedServerIds();  // also served across §5's port
   Future<void> disconnectServer(String serverId);
 }
 
@@ -617,11 +612,29 @@ including those behind transfer waiters: sharing consumes no transfer slot.
 
 The git-pinned `ProbeService` (consumed, never copied, per D2)
 (`packages/seance_core/lib/src/probe/probe_service.dart`) drives sidebar
-status dots. `ConnectionManager` feeds it
-`connectedServerIds` so servers with live pools are skipped and reported
+status dots from the **engine isolate**: probes open sockets, so D8 rules
+out an app-side probe loop. The concrete pool exposes a synchronous
+`liveServerIds(matchingTargets:)` snapshot for the service's callback;
+matching requires both bookmark id and host:port, so a retargeted bookmark
+cannot borrow its previous endpoint's live status. The asynchronous
+`connectedServerIds` API uses the same unfiltered snapshot. Live pools are skipped and reported
 online for free — same fail2ban-friendly philosophy as Séance: jittered
 sweeps, ≤ 6 concurrent probes, pause when the app is hidden, tri-state
 `online/offline/unknown` (unknown is never rendered as offline).
+
+The host starts with no targets and probing paused. Typed target/activity
+requests and immutable status snapshots cross §5's port. Targets use
+`ServerConfig.id` as the bookmark-derived serverId, independently of the
+connection-request config cache. The app supplies only targets eligible
+under 02 §4 (seen locally, permitted by global/per-favorite settings and
+sync provenance); `running` is permitted only while foregrounded and
+probing enabled. Removing or retargeting a row clears its old result.
+The service explicitly uses 02 §4's 60 s interval and 3 s timeout, dedupes
+host:port targets within a sweep (case-insensitive hosts), and fans each
+result back to their ids.
+Repeated target/activity updates preserve the periodic cadence. In-flight
+probes may drain after pause or shutdown; queued work and stale results
+must not continue.
 
 ### 3.5 Server identity
 
@@ -1474,6 +1487,13 @@ class CloseBrowseChannelRequest extends EngineRequest { final int channelId; }
 class WatchServerRequest extends EngineRequest { final String serverId; }
 class UnwatchServerRequest extends EngineRequest { final String serverId; }
 class ConnectedServerIdsRequest extends EngineRequest {}
+class SetProbeTargetsRequest extends EngineRequest {
+  final List<ServerConfig> targets; // eligible targets only (§3.4)
+}
+enum ProbeActivity { paused, running }
+class SetProbeActivityRequest extends EngineRequest {
+  final ProbeActivity activity;
+}
 class DisconnectServerRequest extends EngineRequest { final String serverId; }
 class ShutdownRequest extends EngineRequest {}
 /// The first message after spawn: pool policy and the UI-side pin store's
@@ -1485,6 +1505,9 @@ class ShutdownRequest extends EngineRequest {}
 /// (the app).
 
 sealed class EngineEvent {}
+class ProbeStatusesEvent extends EngineEvent {
+  final Map<String, ProbeStatus> statuses; // complete immutable snapshot
+}
 /// payload is a sealed result type: the value, or a serialized
 /// RemoteFileException — never a bare Object (the protocol stays typed).
 class ResponseEvent extends EngineEvent {

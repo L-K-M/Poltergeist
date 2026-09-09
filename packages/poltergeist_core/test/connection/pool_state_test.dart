@@ -45,6 +45,25 @@ void main() {
     await harness.manager.disconnectServer(_primaryServer);
   });
 
+  test(
+    'probe snapshot reads live transports before death events drain',
+    () async {
+      await harness.manager.openBrowseChannel(
+        _primaryServer,
+        paneTabId: 'keep',
+      );
+      final snapshot = harness.manager.liveServerIds();
+      expect(snapshot, {_primaryServer});
+      snapshot.clear();
+      expect(harness.manager.liveServerIds(), {_primaryServer});
+
+      // No await: the synchronous probe callback must already see the death.
+      harness.opener.transports.single.die();
+      expect(harness.manager.liveServerIds(), isEmpty);
+      expect(await harness.manager.connectedServerIds(), isEmpty);
+    },
+  );
+
   for (final kind in _ChannelKind.values) {
     test(
       '${kind.name} join publishes connected to an existing watcher',

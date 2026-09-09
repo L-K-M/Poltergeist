@@ -12,11 +12,11 @@ import 'package:path/path.dart' as p;
 const _engineDirectory = 'packages/poltergeist_core/lib/src/engine';
 const _protocolBases = {'EngineRequest', 'EngineEvent'};
 
-// The coalescers run inside the engine; their flush callbacks are never
-// payloads.
+// These owners run inside the engine; their callbacks are never payloads.
 const _callbackOwners = {
   '$_engineDirectory/progress_coalescer.dart': {'ProgressCoalescer'},
   '$_engineDirectory/connect_log_coalescer.dart': {'ConnectLogCoalescer'},
+  '$_engineDirectory/engine_probes.dart': {'EngineProbes'},
 };
 const _generatedDirectories = {
   '.dart_tool',
