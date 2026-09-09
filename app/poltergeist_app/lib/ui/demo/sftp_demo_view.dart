@@ -63,11 +63,13 @@ Future<void> _runSftpDemoSession(
     navigatorKey: navigatorKey,
   );
   try {
-    // Inside the try so a failing start() still reaches the dispose in
-    // the finally — the spawned engine must not be stranded.
+    // Inside the try so a failing start() (synchronous throws only — the
+    // method is sync) still reaches the dispose in the finally: the
+    // spawned engine must not be stranded.
     controller.start();
     await Navigator.of(
       context,
+      rootNavigator: true, // matches the close button's root pop
     ).push(MaterialPageRoute<void>(builder: (_) => SftpDemoView(controller)));
   } finally {
     // Popping the route ends the session: prompts close, the browse

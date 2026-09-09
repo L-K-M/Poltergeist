@@ -726,7 +726,11 @@ void main() {
 
       expect(engine.disconnectCalls, 1);
       expect(find.text('docs'), findsNothing);
-      expect(find.text('The directory is empty.'), findsOneWidget);
+
+      // Disconnect returns the demo to its idle form: no server, so the
+      // status panel and the listing surface are gone.
+      expect(find.text('Connection log'), findsNothing);
+      expect(find.text('The directory is empty.'), findsNothing);
     });
 
     testWidgets('the form validates entry points before connecting', (
@@ -894,6 +898,9 @@ void main() {
         authMethod: AuthMethod.agent,
       );
       final connect = controller.connect(facts);
+      // Let connect() reach its first suspension point so the status
+      // subscription is guaranteed live before the fault is injected.
+      await Future<void>.delayed(Duration.zero);
       engine.statesController.addError(StateError('status fault'));
       engine.openGate!.complete();
       await connect;
@@ -924,6 +931,7 @@ void main() {
       await controller.disconnect();
 
       expect(controller.status, isNull);
+      expect(controller.serverId, isNull);
       final replayed = <ServerStatus>[];
       final subscription = controller.states.listen(replayed.add);
       await Future<void>.delayed(Duration.zero);
@@ -931,9 +939,10 @@ void main() {
       expect(replayed, isEmpty);
 
       // disconnect() after dispose() must no-op, not notify a disposed
-      // ChangeNotifier.
+      // ChangeNotifier; teardown must not double-disconnect the id.
       controller.dispose();
       await controller.disconnect();
+      expect(engine.disconnectCalls, 1);
     });
 
     test('an oversized transcript event stays in the replay buffer', () async {

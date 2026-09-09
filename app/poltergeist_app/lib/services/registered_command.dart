@@ -21,7 +21,7 @@ class RegisteredCommand {
     required this.id,
     required this.scope,
     required this.label,
-    required this.enabled,
+    this.enabled = _alwaysEnabled,
     required this.run,
     this.activators,
   });
@@ -36,11 +36,16 @@ class RegisteredCommand {
 
   final bool Function() enabled;
 
+  static bool _alwaysEnabled() => true;
+
   /// Per-platform shortcut chords; null when the command has none.
   /// The returned list must be treated as immutable: implementations
   /// return a const or freshly built list per platform, never a shared
   /// mutable one — consumers may reuse it across surfaces.
   final List<ShortcutActivator> Function(TargetPlatform)? activators;
 
+  /// Executes the command with the invoking surface's [context].
+  /// Implementations must not capture [context] and must re-check
+  /// `context.mounted` after any `await` before using it again.
   final Future<void> Function(BuildContext context) run;
 }

@@ -149,6 +149,9 @@ class SftpDemoController extends ChangeNotifier {
   }
 
   void _onLogLine(ConnectionLogEvent event) {
+    // Dispose closes _logReplay; a racing event must not throw into the
+    // zone through the closed controller.
+    if (_disposed) return;
     // Mirror the source log's 400-line bound (and the panel's cap),
     // drop-oldest. The newest event always stays — an event that alone
     // exceeds the cap must not evict itself and empty the replay buffer.
@@ -208,22 +211,6 @@ class SftpDemoController extends ChangeNotifier {
     notifyListeners();
 
     unawaited(_states?.cancel());
-    _states = engine
-        .watchServer(bookmark.id)
-        .listen(
-          (status) {
-            if (_disposed || attempt != _attempt) return;
-            _status = status;
-            _statusReplay.add(status);
-            notifyListeners();
-          },
-          // The log subscription guards the same way: a status-stream fault
-          // must not become an unhandled async error.
-          onError: (Object error, StackTrace stackTrace) {
-            if (_disposed || attempt != _attempt) return;
-            _errorReporter.report(error, stackTrace);
-          },
-        );
 
     final config = ServerConfig(
       id: bookmark.id,
@@ -237,6 +224,25 @@ class SftpDemoController extends ChangeNotifier {
     );
 
     try {
+      // The subscription lives inside the guarded block: a synchronous
+      // throw from watchServer/listen (e.g. a dead engine seam) must
+      // reach the catch below, not wedge _connecting.
+      _states = engine
+          .watchServer(bookmark.id)
+          .listen(
+            (status) {
+              if (_disposed || attempt != _attempt) return;
+              _status = status;
+              _statusReplay.add(status);
+              notifyListeners();
+            },
+            // The log subscription guards the same way: a status-stream
+            // fault must not become an unhandled async error.
+            onError: (Object error, StackTrace stackTrace) {
+              if (_disposed || attempt != _attempt) return;
+              _errorReporter.report(error, stackTrace);
+            },
+          );
       final channel = await engine.openBrowseChannel(
         serverId: bookmark.id,
         paneTabId: kSftpDemoPaneTabId,
@@ -274,9 +280,10 @@ class SftpDemoController extends ChangeNotifier {
     await connect(facts);
   }
 
-  /// Disconnects the demo session. The transcript stays visible; the
-  /// entries, the failure one-liner, and the recorded status clear. A
-  /// connect in flight drops itself.
+  /// Disconnects the demo session and returns to the idle form: the
+  /// serverId, entries, failure one-liner, and recorded status clear (the
+  /// transcript stays with the session's log owner until the next
+  /// connect). A connect in flight drops itself.
   Future<void> disconnect() async {
     if (_disposed) return;
     final serverId = _serverId;
@@ -295,6 +302,9 @@ class SftpDemoController extends ChangeNotifier {
 
     final channel = _channel;
     _channel = null;
+    // The teardown below uses the captured id; clearing the getter stops
+    // a later connect/dispose from double-disconnecting the same session.
+    _serverId = null;
     if (channel == null && serverId == null) return;
     await _closeChannelAndServer(channel, serverId);
   }
