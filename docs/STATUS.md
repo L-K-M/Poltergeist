@@ -8,11 +8,10 @@ _Last updated: 2026-09-09. The debug-only demo surface now composes the
 existing connection slices into the running app for the first time — engine
 spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
 and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
-(dated section below). Production wiring (startup composition, probe/pin
-persistence) remains open. The app-side probe controller now enforces
+(dated section below). The app-side probe controller now enforces
 favorite eligibility and lifecycle/settings policy through the engine port
-(dated section below). Persistence, lifecycle forwarding, list dots, and
-startup composition remain open. The host-key dialog's scrollable review content
+(dated section below). Persistence, lifecycle forwarding, list dots,
+startup composition, and probe/pin persistence remain open. The host-key dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
 mounted-harness candidate stays open). The prompt
@@ -1003,8 +1002,8 @@ no milestone-close claim.
      `connect.demoListing` entry opens the throwaway listing view over the
      spawned engine, the pool, the real prompt coordinator, and the live
      transcript; M3 replaces it. The remaining M2 work is the
-     owner-gated item 6 decision, the Docker legs that already landed
-     below, and the milestone-close chores;
+     owner-gated item 6 decision and the milestone-close chores; the
+     Docker legs recorded below already landed;
    - Docker-integration pool coverage (growth, keepalive, reconnect against
      real sshd), interactive auth, TOFU flows, shared-bookmark decisions,
      and explicit trust review landed in the dated slices above; the

@@ -177,9 +177,21 @@ class SftpDemoController extends ChangeNotifier {
 
   /// Connects with [facts] and lists the home directory. Re-entrancy
   /// guarded: one attempt at a time; a stale attempt's completions drop
-  /// themselves on the attempt generation (09 §3.1/§3.2).
+  /// themselves on the attempt generation (09 §3.1/§3.2). A previous
+  /// session's channel and server reference close first, so reconnects
+  /// cannot orphan engine-side sessions.
   Future<void> connect(SftpDemoConnectFacts facts) async {
     if (_disposed || _connecting) return;
+
+    // The previous session (a completed connect, or a failed one that
+    // minted a serverId) must not linger: every connect mints a fresh
+    // bookmark id (03 §3.5), so the old reference is closed, never reused.
+    final staleChannel = _channel;
+    final staleServerId = _serverId;
+    _channel = null;
+    if (staleChannel != null || staleServerId != null) {
+      unawaited(_closeChannelAndServer(staleChannel, staleServerId));
+    }
 
     final attempt = ++_attempt;
     _lastFacts = facts;
@@ -194,12 +206,22 @@ class SftpDemoController extends ChangeNotifier {
     notifyListeners();
 
     unawaited(_states?.cancel());
-    _states = engine.watchServer(bookmark.id).listen((status) {
-      if (_disposed || attempt != _attempt) return;
-      _status = status;
-      _statusReplay.add(status);
-      notifyListeners();
-    });
+    _states = engine
+        .watchServer(bookmark.id)
+        .listen(
+          (status) {
+            if (_disposed || attempt != _attempt) return;
+            _status = status;
+            _statusReplay.add(status);
+            notifyListeners();
+          },
+          // The log subscription guards the same way: a status-stream fault
+          // must not become an unhandled async error.
+          onError: (Object error, StackTrace stackTrace) {
+            if (_disposed || attempt != _attempt) return;
+            _errorReporter.report(error, stackTrace);
+          },
+        );
 
     final config = ServerConfig(
       id: bookmark.id,
@@ -230,6 +252,15 @@ class SftpDemoController extends ChangeNotifier {
       _connecting = false;
       _failureDetail = error.message;
       notifyListeners();
+    } on Object catch (error, stackTrace) {
+      // The protocol wraps engine failures as RemoteFileExceptions, but a
+      // non-VFS fault (a broken seam, an isolate death mid-call) must not
+      // wedge the re-entrancy guard with _connecting stuck true.
+      if (_disposed || attempt != _attempt) return;
+      _errorReporter.report(error, stackTrace);
+      _connecting = false;
+      _failureDetail = error.toString();
+      notifyListeners();
     }
   }
 
@@ -240,14 +271,18 @@ class SftpDemoController extends ChangeNotifier {
     await connect(facts);
   }
 
-  /// Disconnects the demo session. The transcript and the failure
-  /// one-liner stay visible; a connect in flight drops itself.
+  /// Disconnects the demo session. The transcript stays visible; the
+  /// entries, the failure one-liner, and the recorded status clear. A
+  /// connect in flight drops itself.
   Future<void> disconnect() async {
     final serverId = _serverId;
 
     // Invalidate the in-flight attempt so its completions drop themselves
     // (09 §3.1); the engine-side connect keeps running until teardown.
     _attempt++;
+    unawaited(_states?.cancel());
+    _states = null;
+    _status = null;
     _connecting = false;
     _listing = false;
     _entries = const [];
@@ -256,19 +291,8 @@ class SftpDemoController extends ChangeNotifier {
 
     final channel = _channel;
     _channel = null;
-    if (channel != null) {
-      try {
-        await channel.close();
-      } on Object catch (error, stackTrace) {
-        _errorReporter.report(error, stackTrace);
-      }
-    }
-    if (serverId == null) return;
-    try {
-      await engine.disconnectServer(serverId);
-    } on Object catch (error, stackTrace) {
-      _errorReporter.report(error, stackTrace);
-    }
+    if (channel == null && serverId == null) return;
+    await _closeChannelAndServer(channel, serverId);
   }
 
   @override
@@ -308,11 +332,12 @@ class SftpDemoController extends ChangeNotifier {
     }
   }
 
-  /// Closes the browse channel and shuts the engine down; dispose cannot
-  /// block, so teardown is fire-and-forget (idempotent both sides).
-  Future<void> _teardown() async {
-    final channel = _channel;
-    _channel = null;
+  /// Closes a browse channel and drops its server reference; cleanup
+  /// failures are reported, never thrown, so teardown always completes.
+  Future<void> _closeChannelAndServer(
+    SftpDemoBrowseChannel? channel,
+    String? serverId,
+  ) async {
     if (channel != null) {
       try {
         await channel.close();
@@ -320,6 +345,21 @@ class SftpDemoController extends ChangeNotifier {
         _errorReporter.report(error, stackTrace);
       }
     }
+    if (serverId == null) return;
+    try {
+      await engine.disconnectServer(serverId);
+    } on Object catch (error, stackTrace) {
+      _errorReporter.report(error, stackTrace);
+    }
+  }
+
+  /// Closes the browse channel and shuts the engine down; dispose cannot
+  /// block, so teardown is fire-and-forget (idempotent both sides).
+  Future<void> _teardown() async {
+    final channel = _channel;
+    final serverId = _serverId;
+    _channel = null;
+    await _closeChannelAndServer(channel, serverId);
     try {
       await engine.shutdown();
     } on Object catch (error, stackTrace) {

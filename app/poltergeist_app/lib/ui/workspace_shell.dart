@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/application_error_reporter.dart';
 import '../services/registered_command.dart';
 import '../services/sftp_demo_controller.dart';
 import 'adaptive_shell.dart';
@@ -86,11 +87,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   /// Runs one registered command; the demo command's session flag keeps
-  /// the entry disabled while its route is open.
+  /// the entry disabled while its route is open. Escaping failures are
+  /// reported — the toolbar's onPressed discards the returned future, so
+  /// an unhandled error here would surface only as a zone complaint.
   Future<void> _runCommand(RegisteredCommand command) async {
     setState(() => _demoSessionActive = true);
     try {
       await command.run(context);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
     } finally {
       if (mounted) setState(() => _demoSessionActive = false);
     }

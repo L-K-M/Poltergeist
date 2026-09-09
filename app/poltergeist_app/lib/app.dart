@@ -72,7 +72,11 @@ class PoltergeistApp extends StatelessWidget {
       onPaneRatioChanged: onPaneRatioChanged,
       onPaneRatioSaveError: onPaneRatioSaveError,
       debugDemoEnabled: debugDemoEnabled && kDebugMode,
-      sftpDemoEngineFactory: sftpDemoEngineFactory,
+      // Forward the seam only where the gated surface can consume it;
+      // release/profile builds never see a spawnable engine factory.
+      sftpDemoEngineFactory: debugDemoEnabled && kDebugMode
+          ? sftpDemoEngineFactory
+          : null,
     );
     final callback = onContentSizeChanged;
     if (callback == null) return workspace;

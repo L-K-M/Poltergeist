@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/application_error_reporter.dart';
 import 'package:poltergeist_app/services/sftp_demo_controller.dart';
 import 'package:poltergeist_app/ui/demo/sftp_demo_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -121,11 +122,23 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
     }
     final failure = openFailure;
     if (failure != null) {
-      // The engine's teardown fan-out: the failed connect ends with the
-      // failure detail on the disconnected state.
+      // The engine's teardown fan-out: a declined changed key ends
+      // blocked; every other failure ends disconnected with the detail.
+      final declinedChangedKey = promptScript.any(
+        (prompt) =>
+            prompt.kind == EnginePromptKind.hostKeyChanged &&
+            replies.any(
+              (reply) =>
+                  reply.$1 == prompt.promptId &&
+                  reply.$3 is HostKeyPromptReply &&
+                  !(reply.$3 as HostKeyPromptReply).accepted,
+            ),
+      );
       statesController.add(
         ServerStatus(
-          ServerConnectionState.disconnected,
+          declinedChangedKey
+              ? ServerConnectionState.blocked
+              : ServerConnectionState.disconnected,
           detail: failure is RemoteFileException ? failure.message : null,
         ),
       );
@@ -257,15 +270,30 @@ Future<void> submitDemoForm(
   }
   await tester.tap(find.byKey(const ValueKey('sftp-demo-connect')));
   await tester.pump();
-  await tester.pump(const Duration(milliseconds: 50));
 }
 
-/// Opens the panel's collapsed transcript with fixed pumps (the pending
-/// view's spinner keeps pumpAndSettle from settling).
-Future<void> expandTranscript(WidgetTester tester) async {
+/// Pumps in bounded steps until [finder] matches — the pending view's
+/// spinner keeps pumpAndSettle from settling, so fixed-step pumping is
+/// the only way to wait on prompts and transcript lines without racing
+/// machine speed.
+Future<void> pumpUntilFound(
+  WidgetTester tester,
+  Finder finder, {
+  Duration step = const Duration(milliseconds: 50),
+  int maxSteps = 40,
+}) async {
+  for (var i = 0; i < maxSteps; i++) {
+    await tester.pump(step);
+    if (finder.evaluate().isNotEmpty) return;
+  }
+}
+
+/// Opens the panel's collapsed transcript (children build lazily —
+/// Séance's `_ConnectionLogView` starts collapsed too) and waits for the
+/// given line to render.
+Future<void> expandTranscript(WidgetTester tester, String expectedLine) async {
   await tester.tap(find.text('Connection log'));
-  await tester.pump(const Duration(milliseconds: 300));
-  await tester.pump(const Duration(milliseconds: 300));
+  await pumpUntilFound(tester, find.textContaining(expectedLine));
 }
 
 /// A socket-free engine entrypoint running in a real spawned isolate:
@@ -357,7 +385,11 @@ void main() {
       addTearDown(tester.view.reset);
 
       final engine = await pumpApp(tester, debugDemoEnabled: true);
+      final channel = FakeDemoBrowseChannel(homePath: '/home/deploy');
+      engine.channel = channel;
       await tester.tap(find.byKey(_commandButtonKey));
+      await tester.pumpAndSettle();
+      await submitDemoForm(tester);
       await tester.pumpAndSettle();
 
       expect(find.text('SFTP listing demo'), findsOneWidget);
@@ -371,6 +403,7 @@ void main() {
 
       expect(find.text('SFTP listing demo'), findsNothing);
       expect(engine.shutdownCalls, 1);
+      expect(channel.closeCalls, 1);
     });
 
     testWidgets('a failed engine spawn reports and never opens the demo', (
@@ -424,15 +457,14 @@ void main() {
       // The transcript renders while the connect is still pending (the
       // gate holds the open before the prompt appears, so the panel is
       // tappable).
-      await expandTranscript(tester);
+      await expandTranscript(tester, 'Connecting to example.com:22');
       expect(
         find.textContaining('Connecting to example.com:22'),
         findsOneWidget,
       );
 
       engine.openGate!.complete();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+      await pumpUntilFound(tester, find.text('Unknown host key'));
       expect(find.text('Unknown host key'), findsOneWidget);
 
       await tester.tap(find.text('Trust and connect'));
@@ -564,24 +596,16 @@ void main() {
         await submitDemoForm(tester);
 
         // The transcript renders during connect, before the prompt shows.
-        await expandTranscript(tester);
+        await expandTranscript(tester, 'Offering the server key');
         expect(find.textContaining('Offering the server key'), findsOneWidget);
 
         engine.openGate!.complete();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 50));
+        await pumpUntilFound(tester, find.text('HOST KEY CHANGED'));
         expect(find.text('HOST KEY CHANGED'), findsOneWidget);
 
         await tester.tap(find.text('Cancel'));
+        await pumpUntilFound(tester, find.text('Connection blocked'));
         await tester.pump();
-
-        engine.statesController.add(
-          const ServerStatus(
-            ServerConnectionState.blocked,
-            detail: 'The host key changed.',
-          ),
-        );
-        await tester.pumpAndSettle();
 
         expect(
           (engine.replies.single.$3 as HostKeyPromptReply).accepted,
@@ -590,7 +614,7 @@ void main() {
         expect(find.text('Connection blocked'), findsOneWidget);
         expect(
           find.text('The host key changed for example.com:22.'),
-          findsOneWidget,
+          findsNWidgets(2), // panel detail + listing one-liner
         );
         expect(find.text('docs'), findsNothing);
 
@@ -618,7 +642,7 @@ void main() {
       await submitDemoForm(tester);
 
       // The transcript renders while the connect is still pending.
-      await expandTranscript(tester);
+      await expandTranscript(tester, 'Authentication succeeded');
       expect(find.textContaining('Authentication succeeded'), findsOneWidget);
 
       engine.openGate!.complete();
@@ -693,6 +717,172 @@ void main() {
 
       expect(engine.openCalls, hasLength(1));
     });
+
+    test('a new connect closes the previous channel and server', () async {
+      final firstChannel = FakeDemoBrowseChannel(homePath: '/home/deploy');
+      final engine = successfulEngine(channel: firstChannel);
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+      );
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      await controller.connect(facts);
+      expect(engine.openCalls, hasLength(1));
+
+      // Every connect mints a fresh bookmark id (03 §3.5); the previous
+      // session's channel and server reference must not linger.
+      engine.channel = FakeDemoBrowseChannel(homePath: '/home/deploy');
+      await controller.connect(facts);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(engine.openCalls, hasLength(2));
+      expect(firstChannel.closeCalls, 1);
+      expect(engine.disconnectCalls, 1);
+
+      await engine.close();
+      controller.dispose();
+    });
+
+    test('an unexpected connect failure cannot wedge the guard', () async {
+      final reported = <Object>[];
+      final engine = successfulEngine(
+        channel: FakeDemoBrowseChannel(
+          homePath: '/home/deploy',
+          entries: _scriptedEntries,
+        ),
+      )..openFailure = StateError('engine hiccup');
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        errorReporter: ApplicationErrorReporter(
+          sink: (error, _) => reported.add(error),
+        ),
+      );
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      await controller.connect(facts);
+
+      expect(reported, contains(isA<StateError>()));
+      expect(controller.isConnecting, isFalse);
+      expect(controller.failureDetail, contains('engine hiccup'));
+
+      // The next attempt is not blocked by the stale guard.
+      engine.openFailure = null;
+      await controller.connect(facts);
+      expect(engine.openCalls, hasLength(2));
+      expect(controller.entries, hasLength(2));
+
+      await engine.close();
+      controller.dispose();
+    });
+
+    test('an unexpected listing failure keeps the one-liner', () async {
+      final reported = <Object>[];
+      final engine = successfulEngine(
+        channel: FakeDemoBrowseChannel(homePath: '/home/deploy')
+          ..listFailure = StateError('listing hiccup'),
+      );
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        errorReporter: ApplicationErrorReporter(
+          sink: (error, _) => reported.add(error),
+        ),
+      );
+
+      await controller.connect(
+        const SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        ),
+      );
+
+      expect(reported, contains(isA<StateError>()));
+      expect(controller.isConnecting, isFalse);
+      expect(controller.isListing, isFalse);
+      expect(controller.failureDetail, contains('listing hiccup'));
+      expect(controller.entries, isEmpty);
+
+      await engine.close();
+      controller.dispose();
+    });
+
+    test('a status-stream fault is reported, not unhandled', () async {
+      final reported = <Object>[];
+      final engine = successfulEngine(
+        channel: FakeDemoBrowseChannel(
+          homePath: '/home/deploy',
+          entries: _scriptedEntries,
+        ),
+      )..openGate = Completer<void>();
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        errorReporter: ApplicationErrorReporter(
+          sink: (error, _) => reported.add(error),
+        ),
+      );
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      final connect = controller.connect(facts);
+      engine.statesController.addError(StateError('status fault'));
+      engine.openGate!.complete();
+      await connect;
+
+      expect(reported, contains(isA<StateError>()));
+      expect(controller.entries, hasLength(2));
+
+      await engine.close();
+      controller.dispose();
+    });
+
+    test('disconnect clears the recorded status and replays none', () async {
+      final engine = successfulEngine();
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+      );
+
+      await controller.connect(
+        const SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        ),
+      );
+      expect(controller.status?.state, ServerConnectionState.connected);
+
+      await controller.disconnect();
+
+      expect(controller.status, isNull);
+      final replayed = <ServerStatus>[];
+      final subscription = controller.states.listen(replayed.add);
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+      expect(replayed, isEmpty);
+
+      await engine.close();
+      controller.dispose();
+    });
   });
 
   test('the production seam drives the flow over real isolate ports', () async {
@@ -731,6 +921,8 @@ void main() {
     await controller.disconnect();
     await logSub.cancel();
     controller.dispose();
-    await client.terminated;
+    // If the shutdown-ack/termination wiring regresses, the isolate never
+    // exits and this wait would hang the shard — fail fast instead.
+    await client.terminated.timeout(const Duration(seconds: 10));
   });
 }
