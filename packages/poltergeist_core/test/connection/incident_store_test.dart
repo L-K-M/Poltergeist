@@ -46,8 +46,24 @@ void main() {
     });
 
     test('normalizes the endpoint identity like PoolKey.of', () {
+      // Parity with the factory live pools key under: any drift would
+      // silently detach a persisted block from the pool it belongs to.
+      final record = _record(host: '  Example.COM  ', username: ' Test ');
+      final config = ServerConfig(
+        id: 'bm1',
+        label: 'bm1',
+        host: record.host,
+        port: record.port,
+        username: record.username,
+        authMethod: AuthMethod.privateKey,
+        jumpHostId: record.jumpHostId,
+        createdAt: 0,
+        updatedAt: 0,
+      );
+
+      expect(record.poolKey, PoolKey.of(config));
       expect(
-        _record(host: '  Example.COM  ', username: ' Test ').poolKey,
+        record.poolKey,
         PoolKey(host: 'example.com', port: 22, username: 'Test'),
       );
     });
@@ -58,6 +74,7 @@ void main() {
       final bad = <Map<String, Object?>>[
         valid()..['serverId'] = '',
         valid()..['host'] = 22,
+        valid()..['host'] = '   ',
         valid()..['port'] = '22',
         valid()..['port'] = 0,
         valid()..['port'] = 65536,
@@ -179,6 +196,28 @@ void main() {
       await store.put(_record());
       final mode = FileStat.statSync(path).mode;
       expect(mode & 0x1FF, 0x180, reason: 'expected mode 0600, got $mode');
+    });
+
+    test('an unreadable file loads empty and stays in place', () async {
+      if (!Platform.isLinux && !Platform.isMacOS) {
+        markTestSkipped('mode-000 read denial applies on desktop POSIX only');
+        return;
+      }
+
+      final file = File(path);
+      await file.parent.create(recursive: true);
+      await file.writeAsString('[]');
+      await Process.run('chmod', ['--', '000', file.path]);
+      addTearDown(() => Process.run('chmod', ['--', '600', file.path]));
+
+      // Unreadable ≠ corrupt: the load reads empty, the valid file stays.
+      expect(await FileIncidentStore(file).load(), isEmpty);
+      expect(await file.exists(), isTrue);
+      final quarantine = await dir
+          .list()
+          .where((entry) => entry.path.contains('.corrupt-'))
+          .toList();
+      expect(quarantine, isEmpty);
     });
 
     test('an atomic write leaves no partial file behind', () async {

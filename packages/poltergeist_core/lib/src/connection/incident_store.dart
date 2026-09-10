@@ -43,13 +43,13 @@ final class IncidentRecord {
     this.pinnedFingerprintSha256,
   });
 
-  /// The endpoint identity in normalized pool-key form — the same
-  /// normalization [PoolKey.of] applies to configs, so a record written
-  /// from one bookmark re-keys under the pool its siblings share.
-  PoolKey get poolKey => PoolKey(
-    host: host.trim().toLowerCase(),
+  /// The endpoint identity in normalized pool-key form — [PoolKey.normalize],
+  /// the single factory configs key through, so a record written from one
+  /// bookmark re-keys under the pool its siblings share.
+  PoolKey get poolKey => PoolKey.normalize(
+    host: host,
     port: port,
-    username: username.trim(),
+    username: username,
     jumpHostId: jumpHostId,
   );
 
@@ -67,7 +67,7 @@ final class IncidentRecord {
     if (serverId is! String ||
         serverId.isEmpty ||
         host is! String ||
-        host.isEmpty ||
+        host.trim().isEmpty ||
         port is! int ||
         port < 1 ||
         port > 65535 ||
@@ -165,6 +165,11 @@ class InMemoryIncidentStore implements IncidentStore {
 /// file stores. Mutations serialize through one chain so concurrent
 /// unawaited writes from the pool cannot interleave read-modify-write
 /// flushes (03 §6's single-writer discipline for persisted stores).
+///
+/// Serialization is per instance: construct exactly one [FileIncidentStore]
+/// per file — two instances over the same path race read-modify-write
+/// flushes and lose each other's records (a file lock is a follow-up, not
+/// needed by the single-store wiring).
 class FileIncidentStore implements IncidentStore {
   final File file;
   final Map<String, IncidentRecord> _records = {};
@@ -176,8 +181,13 @@ class FileIncidentStore implements IncidentStore {
   Future<void> _loadInner() async {
     if (_loaded) return;
     if (await file.exists()) {
+      // Unreadable ≠ corrupt: a transient read failure (permissions, a
+      // backup lock, EIO) rethrows and leaves the valid file in place so
+      // a later session still loads it — only a decode failure
+      // quarantines. Callers that must stay fail-safe (load) catch it.
+      final contents = await file.readAsString();
       try {
-        final list = jsonDecode(await file.readAsString()) as List;
+        final list = jsonDecode(contents) as List;
         for (final entry in list) {
           final record = IncidentRecord.fromJson(
             (entry as Map).cast<String, Object?>(),
@@ -185,7 +195,7 @@ class FileIncidentStore implements IncidentStore {
           _records[record.serverId] = record;
         }
       } catch (_) {
-        // Fail-safe: an unreadable store means no persisted incidents —
+        // Fail-safe: a corrupt store means no persisted incidents —
         // never a crash, never auto-trust. The corrupt file is moved
         // aside (best effort) so the evidence survives and a fresh write
         // cannot be confused with it.
@@ -205,7 +215,13 @@ class FileIncidentStore implements IncidentStore {
 
   @override
   Future<List<IncidentRecord>> load() => _serialized(() async {
-    await _loadInner();
+    try {
+      await _loadInner();
+    } on FileSystemException {
+      // The interface's fail-safe contract: unreadable reads as empty
+      // for this session — the file stays intact for a later one.
+      return const [];
+    }
     return List.of(_records.values);
   });
 

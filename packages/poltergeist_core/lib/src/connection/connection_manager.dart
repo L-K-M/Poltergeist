@@ -209,6 +209,7 @@ class PooledConnectionManager implements ConnectionManager {
   final Prober _prober;
   final Random _reconnectRandom;
   final IncidentStore? _incidentStore;
+  final void Function(Object error)? _onIncidentStoreError;
   final void Function(String, RemoteFileException, {String? paneTabId})?
   _onRecoveryFailure;
 
@@ -243,6 +244,11 @@ class PooledConnectionManager implements ConnectionManager {
   /// (owner decision 2a); null keeps them session-only. The store is
   /// loaded lazily at the first reference resolution — an unreadable
   /// store means no incidents, never a crash, never auto-trust.
+  ///
+  /// [onIncidentStoreError] observes persistence failures without affecting
+  /// them: writes and deletes are best-effort, so the wiring slice can
+  /// surface a local notice (like vault-save failures) without the pool
+  /// changing behavior. The observer must not throw.
   PooledConnectionManager({
     required this._resolveServer,
     required this._resolveCredentials,
@@ -254,6 +260,7 @@ class PooledConnectionManager implements ConnectionManager {
     this._prober = const TcpBannerProber(),
     Random? reconnectRandom,
     this._incidentStore,
+    this._onIncidentStoreError,
     this._onRecoveryFailure,
   }) : _reconnectRandom = reconnectRandom ?? Random() {
     // A nonpositive cap turns an outage into a zero-delay retry loop.
@@ -598,6 +605,12 @@ class PooledConnectionManager implements ConnectionManager {
 
   @override
   Future<void> removeBookmark(String serverId) async {
+    // Load before touching owners: a delete racing the lazy store load
+    // could otherwise let the in-flight load re-register the removed
+    // bookmark as an owner from the record it already read, leaving a
+    // block no live bookmark owns.
+    await _ensureIncidentsLoaded();
+
     // The bookmark is gone entirely: its pool reference goes first, then
     // its incident records (3a).
     await disconnectServer(serverId);
@@ -1247,10 +1260,11 @@ class PooledConnectionManager implements ConnectionManager {
             .putIfAbsent(record.poolKey, () => <String>{})
             .add(record.serverId);
       }
-    } on Object {
+    } on Object catch (error) {
       // Fail-safe: an unreadable store means no persisted incidents —
       // never a crash, never auto-trust. The next connect re-detects
       // whatever key the server presents.
+      _reportIncidentStoreError(error);
     }
   }
 
@@ -1273,10 +1287,11 @@ class PooledConnectionManager implements ConnectionManager {
     final store = _incidentStore;
     if (store == null) return;
     unawaited(
-      store.put(incident.recordFor(serverId)).catchError((Object _) {
+      store.put(incident.recordFor(serverId)).catchError((Object error) {
         // Best-effort: persistence failure must not affect the live block
         // — the incident still applies in memory, and the next decline
-        // re-writes the record.
+        // re-writes the record. The observer makes the failure visible.
+        _reportIncidentStoreError(error);
       }),
     );
   }
@@ -1286,9 +1301,19 @@ class PooledConnectionManager implements ConnectionManager {
     if (store == null) return;
     try {
       await store.remove(serverId);
-    } on Object {
+    } on Object catch (error) {
       // Best-effort: a failed delete must not affect the live pool; a
       // stale record only re-blocks after the next restart.
+      _reportIncidentStoreError(error);
+    }
+  }
+
+  /// Observer errors cannot replace or interrupt persistence handling.
+  void _reportIncidentStoreError(Object error) {
+    try {
+      _onIncidentStoreError?.call(error);
+    } on Object {
+      // The observer is diagnostics, not control flow.
     }
   }
 
@@ -2035,8 +2060,10 @@ class _TrustObservation {
   HostKeyDecision? decision;
 }
 
-/// A [TofuVerifier] decorator that records each check's verdict. Pins
-/// route through the same store as the wrapped verifier.
+/// A [TofuVerifier] decorator that records each check's verdict and
+/// delegates every other overridable member (pin) to the wrapped verifier,
+/// so a wrapped verifier's overrides are never bypassed on the connect path
+/// that can lift blocks.
 class _ObservingTofu extends TofuVerifier {
   final TofuVerifier _inner;
   final _TrustObservation _observation;
@@ -2049,6 +2076,9 @@ class _ObservingTofu extends TofuVerifier {
     _observation.decision = decision;
     return decision;
   }
+
+  @override
+  Future<void> pin(HostKey key) => _inner.pin(key);
 }
 
 class _EndpointPool {

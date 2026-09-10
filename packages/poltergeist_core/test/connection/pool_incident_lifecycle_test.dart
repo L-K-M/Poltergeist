@@ -76,16 +76,68 @@ Matcher _blockedError() => isA<RemoteFileException>().having(
 /// briefly instead of racing them. [load] must return a fresh read: a
 /// file-backed store caches its first load, so the caller supplies a new
 /// instance per poll.
-Future<void> _eventuallyRecords(
-  Future<List<IncidentRecord>> Function() load,
-  bool Function(List<IncidentRecord> records) check,
+Future<void> _eventually<T>(
+  Future<T> Function() load,
+  bool Function(T value) check,
 ) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
   while (!check(await load())) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('The incident store never reached the expected state.');
+      fail('The store never reached the expected state.');
     }
     await pumpEventQueue(times: 2);
+  }
+}
+
+IncidentRecord _record({String serverId = 's1'}) => IncidentRecord(
+  serverId: serverId,
+  host: 'example.com',
+  port: 22,
+  username: 'test',
+  presentedFingerprintSha256: _changedKey,
+  pinnedFingerprintSha256: _originalKey,
+);
+
+/// A store whose load parks on [gate] and returns the pre-gate snapshot —
+/// the shape of a file-backed load racing a removal's delete.
+final class _GatedIncidentStore implements IncidentStore {
+  final Map<String, IncidentRecord> records;
+  final gate = Completer<void>();
+
+  _GatedIncidentStore({required List<IncidentRecord> records})
+    : records = {for (final record in records) record.serverId: record};
+
+  @override
+  Future<List<IncidentRecord>> load() async {
+    final snapshot = List.of(records.values);
+    await gate.future;
+    return snapshot;
+  }
+
+  @override
+  Future<void> put(IncidentRecord record) async {
+    records[record.serverId] = record;
+  }
+
+  @override
+  Future<void> remove(String serverId) async {
+    records.remove(serverId);
+  }
+}
+
+/// Every mutation fails — the observer hook's fixture.
+final class _ThrowingIncidentStore implements IncidentStore {
+  @override
+  Future<List<IncidentRecord>> load() async => const [];
+
+  @override
+  Future<void> put(IncidentRecord record) async {
+    throw const FileSystemException('Simulated incident write failure.');
+  }
+
+  @override
+  Future<void> remove(String serverId) async {
+    throw const FileSystemException('Simulated incident delete failure.');
   }
 }
 
@@ -98,10 +150,7 @@ void main() {
       _originalKey,
     ], store: store);
     await _declineViaGrowth(harness);
-    await _eventuallyRecords(
-      () => store.load(),
-      (records) => records.isNotEmpty,
-    );
+    await _eventually(() => store.load(), (records) => records.isNotEmpty);
     var prompts = 0;
     harness.onHostKey = (_) async {
       prompts++;
@@ -119,7 +168,7 @@ void main() {
     // Both bookmarks reference the shared pool: once the block lifts, the
     // live transport serves both.
     expect(await harness.manager.connectedServerIds(), {'s1', 's2'});
-    await _eventuallyRecords(() => store.load(), (records) => records.isEmpty);
+    await _eventually(() => store.load(), (records) => records.isEmpty);
     await pane.close();
   });
 
@@ -127,10 +176,7 @@ void main() {
     final store = InMemoryIncidentStore();
     final first = await _harness([_originalKey, _changedKey], store: store);
     await _declineViaGrowth(first);
-    await _eventuallyRecords(
-      () => store.load(),
-      (records) => records.length == 2,
-    );
+    await _eventually(() => store.load(), (records) => records.length == 2);
 
     // Restart: fresh manager and pin store, same incident store. The
     // server still presents the changed key.
@@ -156,7 +202,7 @@ void main() {
     );
     expect(prompts, 1);
     expect(restarted.store.pins.values.single.fingerprintSha256, _changedKey);
-    await _eventuallyRecords(() => store.load(), (records) => records.isEmpty);
+    await _eventually(() => store.load(), (records) => records.isEmpty);
     await pane.close();
   });
 
@@ -178,7 +224,7 @@ void main() {
         _changedKey,
       ], store: FileIncidentStore(File(path)));
       await _declineViaGrowth(first);
-      await _eventuallyRecords(
+      await _eventually(
         () => FileIncidentStore(File(path)).load(),
         (records) => records.length == 2,
       );
@@ -204,16 +250,13 @@ void main() {
         _originalKey,
       ], store: store);
       await _declineViaGrowth(harness);
-      await _eventuallyRecords(
-        () => store.load(),
-        (records) => records.length == 2,
-      );
+      await _eventually(() => store.load(), (records) => records.length == 2);
 
       // Identity rule for a shared server: the block is per-endpoint and
       // survives while any referencing bookmark still carries its record —
       // removing one bookmark only withdraws that bookmark's stake.
       await harness.manager.removeBookmark('s1');
-      await _eventuallyRecords(
+      await _eventually(
         () => store.load(),
         (records) => records.length == 1 && records.single.serverId == 's2',
       );
@@ -225,10 +268,7 @@ void main() {
       // Last bookmark out: its incident goes with it (3a), and a fresh
       // bookmark id at the same endpoint starts without any inherited block.
       await harness.manager.removeBookmark('s2');
-      await _eventuallyRecords(
-        () => store.load(),
-        (records) => records.isEmpty,
-      );
+      await _eventually(() => store.load(), (records) => records.isEmpty);
       harness.addServer('s3');
       var prompts = 0;
       harness.onHostKey = (_) async {
@@ -251,10 +291,7 @@ void main() {
       final store = InMemoryIncidentStore();
       final first = await _harness([_originalKey, _changedKey], store: store);
       await _declineViaGrowth(first);
-      await _eventuallyRecords(
-        () => store.load(),
-        (records) => records.length == 2,
-      );
+      await _eventually(() => store.load(), (records) => records.length == 2);
 
       final restarted = await _harness([
         _originalKey,
@@ -268,7 +305,7 @@ void main() {
       // s2 never connects in this session; its record is an orphan that the
       // removal still clears — but the block survives while s1's stake holds.
       await restarted.manager.removeBookmark('s2');
-      await _eventuallyRecords(
+      await _eventually(
         () => store.load(),
         (records) => records.length == 1 && records.single.serverId == 's1',
       );
@@ -278,10 +315,7 @@ void main() {
       );
 
       await restarted.manager.removeBookmark('s1');
-      await _eventuallyRecords(
-        () => store.load(),
-        (records) => records.isEmpty,
-      );
+      await _eventually(() => store.load(), (records) => records.isEmpty);
 
       // Same manager, fresh id: the endpoint connects without a block.
       restarted.addServer('s3');
@@ -296,6 +330,81 @@ void main() {
       );
       expect(prompts, 0);
       await pane.close();
+    },
+  );
+
+  test(
+    'a removal racing the lazy store load leaves no phantom owner',
+    () async {
+      final store = _GatedIncidentStore(
+        records: [
+          _record(serverId: 's1'),
+          _record(serverId: 's2'),
+        ],
+      );
+      final harness = PoolHarness(
+        policy: _policy,
+        opener: FakeTransportOpener(presentedFingerprints: [_changedKey]),
+        incidentStore: store,
+      )..addServer('s1');
+      addTearDown(() async {
+        for (final id in harness.servers.keys.toList()) {
+          await harness.manager.disconnectServer(id);
+        }
+      });
+      final config = harness.servers['s1']!;
+      await harness.store.put(
+        HostKey(
+          host: config.host,
+          port: config.port,
+          type: _hostKeyType,
+          fingerprintSha256: _originalKey,
+          pinnedAt: 0,
+        ),
+      );
+      harness.onHostKey = (_) async => false;
+
+      // A reference resolution parks inside the store load while a removal
+      // for the same bookmark runs; the load's snapshot predates the delete
+      // (the file-store race shape).
+      final opening = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+      final removal = harness.manager.removeBookmark('s2');
+      store.gate.complete();
+      await expectLater(opening, throwsA(_blockedError()));
+      await removal;
+
+      // The last live bookmark leaves: with the phantom owner the block
+      // would survive s1's removal, and the fresh id's worker would throw
+      // blocked instead of connecting.
+      await harness.manager.removeBookmark('s1');
+      harness.addServer('s3');
+      var prompts = 0;
+      harness.onHostKey = (_) async {
+        prompts++;
+        return true;
+      };
+      final lease = await harness.manager.leaseTransferChannel('s3');
+      expect(prompts, 1);
+      await lease.release();
+    },
+  );
+
+  test(
+    'store failures reach the observer without affecting the block',
+    () async {
+      final store = _ThrowingIncidentStore();
+      final harness = await _harness([_originalKey, _changedKey], store: store);
+      await _declineViaGrowth(harness);
+      await _eventually(
+        () async => harness.incidentStoreErrors,
+        (errors) => errors.isNotEmpty,
+      );
+
+      // The live block is untouched by the failed persistence.
+      await expectLater(
+        harness.manager.leaseTransferChannel('s1'),
+        throwsA(_blockedError()),
+      );
     },
   );
 }

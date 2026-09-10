@@ -535,6 +535,9 @@ class PoolHarness {
     RemoteFileException error,
   })>[];
 
+  /// Incident-store failures reported by the manager's observer hook.
+  final incidentStoreErrors = <Object>[];
+
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
   Completer<void>? resolveGate;
@@ -548,6 +551,7 @@ class PoolHarness {
     Prober? prober,
     Random? random,
     IncidentStore? incidentStore,
+    void Function(Object error)? onIncidentStoreError,
     void Function(String, RemoteFileException, {String? paneTabId})?
         onRecoveryFailure,
   }) {
@@ -579,6 +583,12 @@ class PoolHarness {
       prober: prober ?? FakeReconnectProber(),
       reconnectRandom: random ?? FixedRandom(0),
       incidentStore: this.incidentStore,
+      onIncidentStoreError: (error) {
+        // Record before custom hooks so throwing observers remain
+        // inspectable.
+        incidentStoreErrors.add(error);
+        onIncidentStoreError?.call(error);
+      },
       onRecoveryFailure: (serverId, error, {paneTabId}) {
         // Record before custom hooks so throwing observers remain inspectable.
         recoveryFailures.add((

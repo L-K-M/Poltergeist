@@ -1016,6 +1016,31 @@ CI run was repaired on main in the separate fixture PR #61 — the
 integration leg passed on this PR's head without further fixture
 changes.)
 
+Review round 1 (applied; both regressions failed before their repairs):
+`removeBookmark` now awaits the lazy incident load — a delete racing an
+in-flight load previously let the load re-register the removed bookmark
+as an in-memory owner, stranding the block past its last real owner
+(regression: gated-load store + removal race); persistence failures now
+reach an optional `onIncidentStoreError` observer (mirroring
+`onRecoveryFailure`) so a failing store is visible without affecting the
+live block (regression: throwing store + observer assertions);
+`IncidentRecord.poolKey` and `PoolKey.of` share one `PoolKey.normalize`
+factory so record and config keying cannot drift (parity test against an
+equivalent config); the record decode rejects whitespace-only hosts;
+`_ObservingTofu` delegates `pin` so a wrapped verifier's overrides are
+never bypassed; the file store distinguishes an unreadable file (empty
+load, file left in place) from a corrupt one (quarantine), documents its
+single-instance-per-file contract, and `load` honors the interface's
+fail-safe contract on read failures while `put`/`remove` propagate them;
+the lifecycle tests disconnect every registered server at teardown and
+pin the decline on the blocked failure mode. Refuted with pinned-source
+evidence: the presented-host identity premise (the pinned opener passes
+`config.host` verbatim to the verifier, so presented == configured host;
+the shared normalization makes keying provable regardless) and the
+jump-host multi-verdict premise (the pinned opener verifies exactly one
+host key per attempt; jump-host chains are D10 work). File locking for
+concurrent store instances is deferred to the wiring slice.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
