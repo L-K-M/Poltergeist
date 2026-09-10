@@ -39,12 +39,27 @@ class PoolKey {
     this.jumpHostId,
   });
 
-  factory PoolKey.of(ServerConfig config) => PoolKey(
-        host: config.host.trim().toLowerCase(),
-        port: config.port,
-        username: config.username.trim(),
-        jumpHostId: config.jumpHostId,
-      );
+  factory PoolKey.of(ServerConfig config) => PoolKey.normalize(
+    host: config.host,
+    port: config.port,
+    username: config.username,
+    jumpHostId: config.jumpHostId,
+  );
+
+  /// The single normalization both config-derived keys and persisted
+  /// incident records key under: any drift between them would silently
+  /// detach a persisted block from the pool it belongs to.
+  factory PoolKey.normalize({
+    required String host,
+    required int port,
+    required String username,
+    String? jumpHostId,
+  }) => PoolKey(
+    host: host.trim().toLowerCase(),
+    port: port,
+    username: username.trim(),
+    jumpHostId: jumpHostId,
+  );
 
   @override
   bool operator ==(Object other) =>

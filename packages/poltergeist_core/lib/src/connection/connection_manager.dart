@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:seance_core/seance_core.dart';
 
 import 'credential_resolution.dart';
+import 'incident_store.dart';
 import 'pool_key.dart';
 import 'pool_policy.dart';
 import 'ssh_cleanup.dart';
@@ -123,6 +124,13 @@ abstract interface class ConnectionManager {
   /// channels, force-releases its transfer leases. The pool (and its
   /// resolved credentials) survives while sibling serverIds reference it.
   Future<void> disconnectServer(String serverId);
+
+  /// Deletes the bookmark's connection state: drops its pool reference
+  /// like [disconnectServer], then cascades deletion of its trust-incident
+  /// records (owner decision 2026-09-09, option 3a). The endpoint's block
+  /// ends when its last bookmark's records are gone; a later connect
+  /// re-detects whatever key the server presents (D18 unchanged).
+  Future<void> removeBookmark(String serverId);
 }
 
 /// A browse channel bound to one pane-tab (03 §3.2).
@@ -200,6 +208,8 @@ class PooledConnectionManager implements ConnectionManager {
   final SshTransportOpener _openTransport;
   final Prober _prober;
   final Random _reconnectRandom;
+  final IncidentStore? _incidentStore;
+  final void Function(Object error)? _onIncidentStoreError;
   final void Function(String, RemoteFileException, {String? paneTabId})?
   _onRecoveryFailure;
 
@@ -207,6 +217,15 @@ class PooledConnectionManager implements ConnectionManager {
   final Map<String, Future<_ServerReference>> _pendingReferences = {};
   final Map<PoolKey, _EndpointPool> _pools = {};
   final Map<PoolKey, _HostKeyIncident> _incidents = {};
+
+  /// Which bookmark ids own the incident for each blocked endpoint — the
+  /// 3a cascade keys (each owning bookmark also holds a persisted record
+  /// when a store is configured). Populated from the store at load and
+  /// kept in sync with it; the endpoint's block ends when the last owner
+  /// leaves.
+  final Map<PoolKey, Set<String>> _incidentOwners = {};
+  bool _incidentsLoaded = false;
+  Future<void>? _incidentsLoading;
   final Map<String, StreamController<ServerStatus>> _events = {};
   final Map<String, ServerStatus> _lastStatuses = {};
   final StreamController<ConnectLogLine> _connectLog =
@@ -222,6 +241,16 @@ class PooledConnectionManager implements ConnectionManager {
   /// null means the whole pool failed. Observer errors cannot affect recovery.
   /// The observer runs synchronously during cleanup; it must not re-enter
   /// this manager. Forward diagnostics to the owning service instead.
+  ///
+  /// [incidentStore] persists declined trust incidents across restarts
+  /// (owner decision 2a); null keeps them session-only. The store is
+  /// loaded lazily at the first reference resolution — an unreadable
+  /// store means no incidents, never a crash, never auto-trust.
+  ///
+  /// [onIncidentStoreError] observes persistence failures without affecting
+  /// them: writes and deletes are best-effort, so the wiring slice can
+  /// surface a local notice (like vault-save failures) without the pool
+  /// changing behavior. The observer must not throw.
   PooledConnectionManager({
     required this._resolveServer,
     required this._resolveCredentials,
@@ -232,6 +261,8 @@ class PooledConnectionManager implements ConnectionManager {
     this._openTransport = openDartSshTransport,
     this._prober = const TcpBannerProber(),
     Random? reconnectRandom,
+    this._incidentStore,
+    this._onIncidentStoreError,
     this._onRecoveryFailure,
   }) : _reconnectRandom = reconnectRandom ?? Random() {
     // A nonpositive cap turns an outage into a zero-delay retry loop.
@@ -574,6 +605,42 @@ class PooledConnectionManager implements ConnectionManager {
     }
   }
 
+  @override
+  Future<void> removeBookmark(String serverId) async {
+    // Load before touching owners: a delete racing the lazy store load
+    // could otherwise let the in-flight load re-register the removed
+    // bookmark as an owner from the record it already read, leaving a
+    // block no live bookmark owns.
+    await _ensureIncidentsLoaded();
+
+    // The bookmark is gone entirely: its pool reference goes first, then
+    // its incident records (3a).
+    await disconnectServer(serverId);
+
+    // Withdraw this bookmark's stake in every blocked endpoint. The block
+    // survives while any other bookmark still carries a record — deleting
+    // one bookmark of a shared server must not unblock its siblings.
+    for (final key in _incidentOwners.keys.toList()) {
+      final owners = _incidentOwners[key]!;
+      if (!owners.remove(serverId)) continue;
+      if (owners.isNotEmpty) continue;
+
+      // Last owner out: the endpoint's block ends. A live pool drops the
+      // block (it has no transports); later connects re-detect whatever
+      // key the server presents — the verifier, never this cascade, is
+      // the trust authority (D18).
+      _incidentOwners.remove(key);
+      _incidents.remove(key);
+      final pool = _pools[key];
+      if (pool != null && pool._incident != null) {
+        pool._incident = null;
+        _setState(pool, ServerConnectionState.disconnected);
+      }
+    }
+
+    await _deleteStoredBookmark(serverId);
+  }
+
   // ── Channel acquisition ────────────────────────────────────────────────
 
   Future<_ChannelHandle> _acquireBrowseChannel(
@@ -910,6 +977,7 @@ class PooledConnectionManager implements ConnectionManager {
       // Serialize vault access with first connect; joining bookmarks need
       // only metadata. Never open with a secret returned to a retired pool.
       final trustEpoch = pool._trustEpoch;
+      final observation = _TrustObservation();
       final resolved = await _resolveCredentials(reference.config, resolution);
       // The resolution finished — retire its scope now, not at the end of
       // the whole connect: a last-reference disconnect during the transport
@@ -925,19 +993,29 @@ class PooledConnectionManager implements ConnectionManager {
       final transport = await _openTransport(
         config: reference.config,
         credentials: resolved.credentials,
-        tofu: _tofu,
+        tofu: _observingTofu(observation),
         onHostKey: _hostKeyPrompterFor(pool, ConnectPrompting.enabled),
         onKeyboardInteractive: _onKeyboardInteractive,
         prompting: ConnectPrompting.enabled,
         log: _forwardingLogFor(pool),
       );
 
+      // Owner decision 1a: a presented key that returns to the pinned one
+      // lifts a declined changed-key block. The opener never invokes the
+      // prompter for a trusted key, so this attempt observes its verdict
+      // through the wrapper — nothing is re-verdict'd, nothing is pinned,
+      // and only this exact match unblocks (D18's changed-key block is
+      // otherwise unchanged).
+      if (pool.blocked &&
+          _isCurrentPool(pool) &&
+          observation.decision?.isTrusted == true) {
+        _forgetIncident(pool);
+      }
+
       // Every serverId may have disconnected while the connect was in
       // flight (the disconnect hook tears the pool down immediately). A
       // landed transport must not resurrect a torn-down pool — close it
       // and fail the callers.
-      // A trusted key can reappear without invoking the prompter; that is
-      // not approval to clear a previously observed changed-key block.
       if (!_isCurrentPool(pool) || pool.references.isEmpty || pool.blocked) {
         await closeSshResource(transport.close);
         _throwIfBlocked(pool);
@@ -1076,7 +1154,7 @@ class PooledConnectionManager implements ConnectionManager {
 
         case HostKeyVerdict.changed:
           // Every detection gets a fresh identity, even for the same key.
-          final incident = _HostKeyIncident(decision);
+          final incident = _HostKeyIncident(pool.key, decision);
           final blocking = _blockPool(pool, incident);
           // Installation is synchronous; only this detector adopts the epoch.
           trustEpoch = pool._trustEpoch;
@@ -1089,8 +1167,7 @@ class PooledConnectionManager implements ConnectionManager {
 
           // Approval resolves trust before auth. The opener persists the pin;
           // an auth failure afterward must not recreate the resolved incident.
-          _incidents.remove(pool.key);
-          pool._incident = null;
+          _forgetIncident(pool);
           _setState(
             pool,
             pool.firstConnect == null
@@ -1119,6 +1196,16 @@ class PooledConnectionManager implements ConnectionManager {
     pool._incident = incident;
     _cancelReconnect(pool);
     _cancelKeepAlive(pool);
+
+    // Persist the decline (2a): every bookmark currently referencing the
+    // endpoint owns a record — the 3a cascade key. Existing owners
+    // re-write so a repeated decline updates the stored payload.
+    final owners = _incidentOwners.putIfAbsent(pool.key, () => <String>{});
+    owners.addAll(pool.references.keys);
+    for (final serverId in List.of(owners)) {
+      _persistIncidentRecord(serverId, incident);
+    }
+
     // The first block detached all slots; late opens cannot reattach them.
     if (wasBlocked) return;
 
@@ -1151,6 +1238,108 @@ class PooledConnectionManager implements ConnectionManager {
     operation: 'connect',
     message: pool.blockDetail ?? 'The server is blocked.',
   );
+
+  // ── Incident persistence (owner decision 2a/3a) ────────────────────────
+
+  Future<void> _ensureIncidentsLoaded() {
+    if (_incidentsLoaded) return Future<void>.value();
+    return _incidentsLoading ??= _loadIncidents().then((_) {
+      _incidentsLoaded = true;
+    });
+  }
+
+  Future<void> _loadIncidents() async {
+    final store = _incidentStore;
+    if (store == null) return;
+    try {
+      final records = await store.load();
+      for (final record in records) {
+        _incidents.putIfAbsent(
+          record.poolKey,
+          () => _HostKeyIncident.fromRecord(record),
+        );
+        _incidentOwners
+            .putIfAbsent(record.poolKey, () => <String>{})
+            .add(record.serverId);
+      }
+    } on Object catch (error) {
+      // Fail-safe: an unreadable store means no persisted incidents —
+      // never a crash, never auto-trust. The next connect re-detects
+      // whatever key the server presents.
+      _reportIncidentStoreError(error);
+    }
+  }
+
+  /// Removes the endpoint's incident everywhere: the manager map, the live
+  /// pool, the owner bookkeeping, and the persistent store. Emits nothing —
+  /// the caller owns the state transition it already emits (approval
+  /// re-emits connecting/disconnected, the trusted-key path emits connected
+  /// next, the cascade emits disconnected).
+  void _forgetIncident(_EndpointPool pool) {
+    _incidents.remove(pool.key);
+    pool._incident = null;
+    final owners = _incidentOwners.remove(pool.key);
+    if (owners == null) return;
+    for (final serverId in owners) {
+      // Scoped to the endpoint this incident belongs to: a bookmark
+      // re-pointed to a new endpoint (whose record now holds the new
+      // endpoint's block) keeps it, while a stale payload of this same
+      // endpoint is still removed.
+      unawaited(_deleteStoredRecord(serverId, pool.key));
+    }
+  }
+
+  void _persistIncidentRecord(String serverId, _HostKeyIncident incident) {
+    final store = _incidentStore;
+    if (store == null) return;
+    unawaited(
+      store.put(incident.recordFor(serverId)).catchError((Object error) {
+        // Best-effort: persistence failure must not affect the live block
+        // — the incident still applies in memory, and the next decline
+        // re-writes the record. The observer makes the failure visible.
+        _reportIncidentStoreError(error);
+      }),
+    );
+  }
+
+  Future<void> _deleteStoredRecord(String serverId, PoolKey endpoint) async {
+    final store = _incidentStore;
+    if (store == null) return;
+    try {
+      await store.removeFor(serverId, endpoint);
+    } on Object catch (error) {
+      // Best-effort: a failed delete must not affect the live pool; a
+      // stale record only re-blocks after the next restart.
+      _reportIncidentStoreError(error);
+    }
+  }
+
+  Future<void> _deleteStoredBookmark(String serverId) async {
+    final store = _incidentStore;
+    if (store == null) return;
+    try {
+      await store.removeAllFor(serverId);
+    } on Object catch (error) {
+      // Best-effort: a failed delete must not affect the live pool; a
+      // stale record only re-blocks after the next restart.
+      _reportIncidentStoreError(error);
+    }
+  }
+
+  /// Observer errors cannot replace or interrupt persistence handling.
+  void _reportIncidentStoreError(Object error) {
+    try {
+      _onIncidentStoreError?.call(error);
+    } on Object {
+      // The observer is diagnostics, not control flow.
+    }
+  }
+
+  /// The opener never invokes the prompter for a trusted key (the pinned
+  /// Séance verifier returns early), so the block-lifting observation (1a)
+  /// rides this wrapper instead.
+  TofuVerifier _observingTofu(_TrustObservation observation) =>
+      _ObservingTofu(_tofu, observation);
 
   // ── Release, teardown, waiters ─────────────────────────────────────────
 
@@ -1667,6 +1856,7 @@ class PooledConnectionManager implements ConnectionManager {
     String serverId,
     Future<_ServerReference> pendingIdentity,
   ) async {
+    await _ensureIncidentsLoaded();
     final config = await _resolveServer(serverId);
     // A cancelled resolve must not register or erase a newer session.
     if (!identical(_pendingReferences[serverId], pendingIdentity)) {
@@ -1681,6 +1871,17 @@ class PooledConnectionManager implements ConnectionManager {
       () => _EndpointPool(key, _incidents[key]),
     );
     final reference = _ServerReference(serverId, config, pool);
+
+    // A bookmark joining a blocked endpoint carries the block's record:
+    // the endpoint stays blocked while any of its bookmarks still exists
+    // (3a's identity rule for shared servers).
+    final incident = _incidents[key];
+    if (incident != null) {
+      final owners = _incidentOwners.putIfAbsent(key, () => <String>{});
+      if (owners.add(serverId)) {
+        _persistIncidentRecord(serverId, incident);
+      }
+    }
 
     final previousState = _currentStatusOf(serverId);
     _references[serverId] = reference;
@@ -1824,18 +2025,78 @@ class _ServerReference {
 
 /// Unresolved review state survives pool retirement without retaining secrets.
 class _HostKeyIncident {
-  final HostKeyDecision _decision;
+  /// The presented (declined) key's endpoint, verbatim for the block detail.
+  final String host;
+  final int port;
 
-  _HostKeyIncident(this._decision);
+  /// The endpoint identity the record re-keys under ([PoolKey]).
+  final String username;
+  final String? jumpHostId;
+
+  final String presentedFingerprintSha256;
+  final String? pinnedFingerprintSha256;
+
+  _HostKeyIncident(PoolKey key, HostKeyDecision decision)
+    : host = decision.presented.host,
+      port = decision.presented.port,
+      username = key.username,
+      jumpHostId = key.jumpHostId,
+      presentedFingerprintSha256 = decision.presented.fingerprintSha256,
+      pinnedFingerprintSha256 = decision.pinned?.fingerprintSha256;
+
+  _HostKeyIncident.fromRecord(IncidentRecord record)
+    : host = record.host,
+      port = record.port,
+      username = record.username,
+      jumpHostId = record.jumpHostId,
+      presentedFingerprintSha256 = record.presentedFingerprintSha256,
+      pinnedFingerprintSha256 = record.pinnedFingerprintSha256;
 
   String get _detail {
-    final presented = _decision.presented;
-    final pinnedFingerprint = _decision.pinned?.fingerprintSha256 ?? 'none';
-    return 'Host key for ${presented.host}:${presented.port} '
-        'has changed (presented ${presented.fingerprintSha256}, '
-        'pinned $pinnedFingerprint). The server is blocked until the new key '
+    final pinned = pinnedFingerprintSha256 ?? 'none';
+    return 'Host key for $host:$port '
+        'has changed (presented $presentedFingerprintSha256, '
+        'pinned $pinned). The server is blocked until the new key '
         'is reviewed.';
   }
+
+  IncidentRecord recordFor(String serverId) => IncidentRecord(
+    serverId: serverId,
+    host: host,
+    port: port,
+    username: username,
+    jumpHostId: jumpHostId,
+    presentedFingerprintSha256: presentedFingerprintSha256,
+    pinnedFingerprintSha256: pinnedFingerprintSha256,
+  );
+}
+
+/// The TOFU verdict of one connect attempt. The opener never invokes the
+/// prompter for a trusted key, so first-connect unblocking (1a) reads the
+/// observed verdict after the transport lands.
+class _TrustObservation {
+  HostKeyDecision? decision;
+}
+
+/// A [TofuVerifier] decorator that records each check's verdict and
+/// delegates every other overridable member (pin) to the wrapped verifier,
+/// so a wrapped verifier's overrides are never bypassed on the connect path
+/// that can lift blocks.
+class _ObservingTofu extends TofuVerifier {
+  final TofuVerifier _inner;
+  final _TrustObservation _observation;
+
+  _ObservingTofu(this._inner, this._observation) : super(_inner.store);
+
+  @override
+  Future<HostKeyDecision> check(HostKey presented) async {
+    final decision = await _inner.check(presented);
+    _observation.decision = decision;
+    return decision;
+  }
+
+  @override
+  Future<void> pin(HostKey key) => _inner.pin(key);
 }
 
 class _EndpointPool {

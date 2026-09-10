@@ -514,6 +514,10 @@ class FixedRandom implements Random {
 /// controls.
 class PoolHarness {
   final FakeHostKeyStore store = FakeHostKeyStore();
+
+  /// The incident store the harness wired into its manager (a fresh
+  /// in-memory one by default) — tests assert persisted records on it.
+  late final IncidentStore incidentStore;
   late final FakeTransportOpener opener;
   late final PooledConnectionManager manager;
 
@@ -531,6 +535,9 @@ class PoolHarness {
     RemoteFileException error,
   })>[];
 
+  /// Incident-store failures reported by the manager's observer hook.
+  final incidentStoreErrors = <Object>[];
+
   /// When set, every resolve parks on this completer — for tests that race
   /// a disconnect against an in-flight first connect.
   Completer<void>? resolveGate;
@@ -543,10 +550,13 @@ class PoolHarness {
     PoolPolicy policy = const PoolPolicy(),
     Prober? prober,
     Random? random,
+    IncidentStore? incidentStore,
+    void Function(Object error)? onIncidentStoreError,
     void Function(String, RemoteFileException, {String? paneTabId})?
         onRecoveryFailure,
   }) {
     this.opener = opener ?? FakeTransportOpener();
+    this.incidentStore = incidentStore ?? InMemoryIncidentStore();
     manager = PooledConnectionManager(
       resolveServer: _resolve,
       resolveCredentials: (_, scope) async {
@@ -572,6 +582,13 @@ class PoolHarness {
       openTransport: this.opener.opener,
       prober: prober ?? FakeReconnectProber(),
       reconnectRandom: random ?? FixedRandom(0),
+      incidentStore: this.incidentStore,
+      onIncidentStoreError: (error) {
+        // Record before custom hooks so throwing observers remain
+        // inspectable.
+        incidentStoreErrors.add(error);
+        onIncidentStoreError?.call(error);
+      },
       onRecoveryFailure: (serverId, error, {paneTabId}) {
         // Record before custom hooks so throwing observers remain inspectable.
         recoveryFailures.add((

@@ -946,6 +946,205 @@ locally, as before). The real build + all 15 SSH tests ride the CI
 integration leg on the PR head. No PORTS, pin, dependency, or
 milestone-close change.
 
+## M2 — trust-incident lifecycle (2026-09-10)
+
+Item 6's owner decision (1a/2a/3a, 2026-09-09T19:52Z) lands in the pool:
+
+- **Restored-key unblock (1a).** A declined changed-key block lifts when a
+  connect attempt presents a key the TOFU verifier accepts as `trusted` —
+  presented equals pinned, the verifier being the single trust authority.
+  The opener never invokes the prompter for a trusted key (the pinned
+  Séance verifier returns early), so the first connect observes the
+  attempt's verdict through a verifier decorator and clears the incident
+  after the transport lands. No new verdict, no prompt, no pin write, no
+  state fan-out beyond blocked → connected; a `changed`/`firstUse`
+  presentation keeps the existing hard block (D18 unchanged: the block
+  ends only via this restored-key match or an explicit approval —
+  growth and recovery connects never lift it — and deleted pins still
+  cannot enable first-use approval).
+- **Persistence (2a).** `IncidentStore` (seam) + `IncidentRecord` (schema:
+  `serverId`, `host`, `port`, `username`, `jumpHostId`,
+  `presentedFingerprintSha256`, `pinnedFingerprintSha256`; strict
+  `fromJson` with port-range refusal, matching 04 §2.1's decode posture).
+  Records are keyed by bookmark-derived serverId — the 3a cascade key —
+  and re-associate with pools through the normalized endpoint identity
+  (`PoolKey`). The manager loads the injected store lazily at the first
+  reference resolution and treats an unreadable/absent store as no
+  incidents (never a crash, never auto-trust); declines persist
+  best-effort (a failed write never affects the live block), approvals,
+  restored-key unblocks, and removals delete the records.
+  `FileIncidentStore` (core, dart:io — the `LocalFileSystem` precedent)
+  follows the app-layer port conventions: JSON, atomic temp+rename writes
+  (exclusive create, bounded retry), 0600 owner-only on desktop POSIX
+  (chmod failure fails the write), corrupt-file quarantine with a UTC
+  stamp, and a serialized write chain so the pool's unawaited writes
+  cannot interleave read-modify-write flushes. `InMemoryIncidentStore`
+  serves tests and the not-yet-wired engine default.
+- **Bookmark-removal cascade (3a).** `ConnectionManager.removeBookmark`
+  drops the pool reference (disconnect semantics) and withdraws the
+  bookmark's incident stake: its store records are deleted, and the
+  endpoint's block clears when the last owning bookmark leaves. Identity
+  rule for two bookmarks sharing a server: the block is per-endpoint and
+  every bookmark referencing a blocked endpoint carries a record (a join
+  persists its own copy), so deleting one bookmark never unblocks its
+  sibling — the sibling keeps its review path, and a fresh id at the
+  endpoint starts clean with the verifier re-detecting on connect.
+
+Validation: the 1a regressions (`pool_trust_test` repurposes the two
+"trusted key reappearing" tests: in-session unblock and unblock after pool
+retirement, plus a new changed-key-still-blocks leg) failed at runtime on
+the pre-fix code and pass after; the persistence and cascade regressions
+(`pool_incident_lifecycle_test` — manager restart round-trips over both
+stores, a real on-disk round-trip through `FileIncidentStore`, the shared-
+endpoint identity rule, orphan-owner removal) and the store suite
+(`incident_store_test` — JSON round-trip, malformed-record refusal,
+absent/corrupt-file fail-safe, owner-only mode, serialized writes) failed
+to compile before the seam existed and pass after. Core analysis clean;
+349 core tests pass (15 Docker-fixture skips); import guard (92 + scan),
+protocol guard (51), pin audit (9), fixture tools (61), bench harness
+(79), license gate (34), and release-version (155) tests pass.
+
+Remaining wiring (item 3/item 6, deliberately out of this slice): the
+engine protocol does not yet seed incidents at spawn or forward incident
+changes/removals across the isolate — `EngineConfig`, an
+incident-change event, and a `removeBookmark` request land with
+production wiring, when the app owns bookmarks (M5) and supplies the
+store path. `EngineHost` passes no store yet, so production sessions stay
+session-only until then. No production change, source port, pin change,
+UI change, release, or milestone-close claim.
+
+(The Alpine `iproute2` fixture pin drift that reddened this PR's first
+CI run was repaired on main in the separate fixture PR #61 — the
+integration leg passed on this PR's head without further fixture
+changes.)
+
+Review round 1 (applied; both regressions failed before their repairs):
+`removeBookmark` now awaits the lazy incident load — a delete racing an
+in-flight load previously let the load re-register the removed bookmark
+as an in-memory owner, stranding the block past its last real owner
+(regression: gated-load store + removal race); persistence failures now
+reach an optional `onIncidentStoreError` observer (mirroring
+`onRecoveryFailure`) so a failing store is visible without affecting the
+live block (regression: throwing store + observer assertions);
+`IncidentRecord.poolKey` and `PoolKey.of` share one `PoolKey.normalize`
+factory so record and config keying cannot drift (parity test against an
+equivalent config); the record decode rejects whitespace-only hosts;
+`_ObservingTofu` delegates `pin` so a wrapped verifier's overrides are
+never bypassed; the file store distinguishes an unreadable file (empty
+load, file left in place) from a corrupt one (quarantine), documents its
+single-instance-per-file contract, and `load` honors the interface's
+fail-safe contract on read failures while `put`/`remove` propagate them;
+the lifecycle tests disconnect every registered server at teardown and
+pin the decline on the blocked failure mode. Refuted with pinned-source
+evidence: the presented-host identity premise (the pinned opener passes
+`config.host` verbatim to the verifier, so presented == configured host;
+the shared normalization makes keying provable regardless) and the
+jump-host multi-verdict premise (the pinned opener verifies exactly one
+host key per attempt; jump-host chains are D10 work). File locking for
+concurrent store instances is deferred to the wiring slice.
+
+Review round 2 (applied; the over-delete regression failed before its
+repair): `IncidentStore.remove` is scoped to a record — it deletes only
+when the stored record still equals the one being lifted, so a bookmark
+re-pointed to a new endpoint cannot lose the new endpoint's block when
+an old endpoint's block lifts (regression: newer-record survival
+through a 1a lift); `removeAllFor(serverId)` carries the
+bookmark-deletion cascade. The store contract now states the mutation
+ordering both shipped stores provide (puts/removes apply in issue
+order), the chmod failure normalizes to `FileSystemException`, the
+owner-map comment reflects its cascade role in session-only mode, the
+1a bullet names the exact block-lifting set, and the polling helper
+reports the last observed state on timeout. Declined with recorded
+reasons: a bookmark-registry reconciliation callback for orphan records
+(the engine deliberately holds no bookmark registry — the UI owns
+bookmarks and signals removal via `removeBookmark`; an orphan is
+self-healing on the endpoint's next review); awaiting join-adoption
+writes (would add store I/O latency to reference resolution, and the
+ordering contract plus the stores' serialized chains already preserve
+put-before-delete); narrowing the barrel's store exports (concrete
+in-memory stores already ship in the barrel — Séance's
+`InMemoryHostKeyStore` precedent — and the single-instance contract is
+documented). Refuted with evidence: the "owners never shrink" premise
+(removal and every lift drain the owner set); the "clearing must purge
+all owner records" premise (the code already deletes every owner's
+record — pinned by the shared-endpoint lift test); the re-raised
+presented-host keying premise (round-1 refutation stands — the pinned
+opener passes `config.host` verbatim, and `PoolKey.normalize` is shared
+by construction); the interface-breakage premise (no other
+`ConnectionManager` implementations exist; the suite compiles).
+Deferred: a `FileIncidentStore.onLoadError` hook (no consumer exists
+until the wiring slice owns store construction).
+
+Review round 3 (applied; the stale-payload regression failed before its
+repair): `IncidentStore.removeFor(serverId, endpoint)` replaces the
+payload-equality delete — a lift matches the stored record's endpoint
+identity, so a stale payload of the same endpoint (a failed re-write) is
+still removed while a re-pointed bookmark's newer-endpoint record
+survives (both regressions pin the pair); the strict decode rejects
+empty fingerprint strings and negative ports; the unreadable-file test
+skips when running as root (chmod 000 does not deny root); item 6's
+cross-reference now points upward to the dated section. Declined with
+recorded reasons: per-serverId write chaining in the manager (re-litigated
+round-2 ordering — the store contract documents the issue-order
+invariant both shipped stores provide, the reviewer's own alternative);
+the bookmark-registry reconciliation re-raise (round-2 decline stands);
+the last-write-wins verdict re-raise (the pinned opener verifies exactly
+one host key per attempt; jump chains are D10); delegating hypothetical
+future `TofuVerifier` members (the production wrapped verifier is the
+concrete base class); a crash-orphaned `.tmp` sweep (parity with the
+ported atomic-file helper, 0600 temp, no security exposure — a startup
+sweep rides the wiring slice); the fixture pin-coupling note (CI on the
+head rebuilt the image and ran the 15 real-sshd tests — the pin resolved;
+pin rot is the fixture's pre-existing maintenance property). Refuted:
+the unhandled-async-error premise (every call site catches —
+`catchError` before `unawaited` or an awaited try/catch — no future can
+complete unhandled) and, for the teardown-misses-s3 premise, round 4
+showed the snapshot fix had landed only in the gated-store test —
+`_harness`'s teardown now snapshots `harness.servers.keys` too (see the
+round-4 record).
+
+Review round 4 (applied; first polish-only round — both majors are
+re-litigations): `_harness`'s teardown snapshots `harness.servers.keys`
+(the round-3 refutation had overstated the earlier fix's reach); the
+re-pointed test's poll check guards `.single` with a length check; the
+M2 heading gained its missing blank line; a file-store test covers
+`removeFor`'s endpoint guard and its early-return-before-flush.
+Declined with recorded reasons: the fire-and-forget ordering re-raise
+(third packaging — the store contract documents the issue-order
+invariant both shipped stores provide, the reviewer's own alternative);
+the `chmod` PATH re-raise (03 §2.2 prescribes PATH-based `Process.run`
+chmod for core; a same-user PATH influence yields at worst
+process-default modes — content authority stays in-process); the
+first-record-wins payload divergence (payloads affect only the block
+detail; the schema carries no ordering data by design); the
+last-verdict re-raise (one verification per attempt at this pin); the
+quarantine-stamp overwrite (microsecond-precision stamp, best-effort
+evidence preservation — parity with the ported helper).
+
+Review round 5 (applied; the invalid-UTF-8 regression failed before its
+repair): a torn write's invalid UTF-8 is treated as corruption
+(quarantine + recovered writes) instead of wedging every later write;
+`_forgetIncident` dropped its vestigial null-incident guard (the delete
+is endpoint-scoped, not payload-dependent); the strict decode rejects
+blank usernames. Declined with recorded reasons: the store-delete-first
+ordering for `removeBookmark` (fourth packaging of the orphan-record
+family — the claimed permanent block is self-healing through the
+endpoint's next review; either crash window leaves only a stale block,
+never a trust grant); the cached-failed-load retry (matches the
+fail-safe contract and the ported store convention; re-detection covers
+it); one-bad-record skip (whole-file quarantine is the ported
+convention, and atomic writes make partial corruption the rare case);
+the stack-trace observer shape (parity with `onRecoveryFailure`); the
+chmod re-raise (round-4 decline stands); the pin-observation and
+verifier-delegation re-raises; the fsync-durability and
+blank-username-block re-raises (best-effort persistence; username
+blankness is now rejected anyway). Refuted: the epoch-guard premise
+(no concurrent block source exists while a serialized first connect
+holds the attempt), the late-load resurrection premise (reference
+resolution awaits the load; no pool exists before it), the
+observation-never-cleared premise (a fresh per-attempt instance), and
+the teardown re-raise (round 4 fixed it).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1182,12 +1381,27 @@ milestone-close change.
      mutations. Tests stay upstream (08 §2). No production adapter code
      changed — this was a coverage gap, never an observed VFS failure.
 
-6. **2026-09-05 — escalation: trust-incident recovery (D18).** Unresolved
-   incidents now survive disconnect, but not process restart. A returning
-   trusted key remains blocked; it produces no changed-key verdict for the
-   current review callback. The manager also has no bookmark-removal signal.
-   Before production integration, the owner must choose restored-key
-   review/removal behavior and whether incidents persist across restarts.
+6. **2026-09-05 — escalation: trust-incident recovery (D18).**
+   Escalated because unresolved incidents survive disconnect but not
+   process restart, a returning trusted key stays blocked without a
+   changed-key verdict for the current review callback, and the manager
+   has no bookmark-removal signal.
+   **Owner decision 2026-09-09T19:52Z** (the owner chose recommendations
+   1a/2a/3a; the question is closed):
+   - **1a)** a presented host key that returns to the originally pinned
+     key lifts the declined-incident block and connects normally (matches
+     trust; no new verdict or prompt);
+   - **2a)** declined incidents persist to disk across app restarts
+     (device-local only, D19 unchanged);
+   - **3a)** deleting a bookmark cascades deletion of its incident.
+   **Implemented 2026-09-10** in the trust-incident lifecycle slice
+   (dated section above): restored-key unblock, incident persistence with
+   a defined record schema/keying, and the bookmark-removal cascade.
+   Remaining: the engine-protocol bridging (incident seeding at spawn, an
+   incident-change event for app-side persistence, and the
+   `removeBookmark` request crossing) rides production wiring (item 3) —
+   no app-side bookmark deletion exists before M5's store, and the
+   manager-side seam and cascade are complete and tested.
 7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
    consistent `pub get --enforce-lockfile` use across CI and commit-SHA
    pinning for third-party actions. The new integration job follows existing
