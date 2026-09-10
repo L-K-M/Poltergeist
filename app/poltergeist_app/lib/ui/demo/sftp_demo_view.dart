@@ -10,7 +10,7 @@ import '../../services/probe_settings_store.dart';
 import '../../services/registered_command.dart';
 import '../../services/sftp_demo_controller.dart';
 import '../connection_status_panel.dart';
-import '../probe_status_dot.dart';
+import '../server_state_indicator.dart';
 
 /// The registered id of the debug entry command (02 §8.1's connect.*
 /// group; D21).
@@ -164,6 +164,9 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
         final probeStatus = serverId == null
             ? null
             : controller.probeStatus(serverId);
+        // Gated like the probe read: the indicator attributes state to the
+        // selected server, so neither truth may outlive the selection.
+        final connectionStatus = serverId == null ? null : controller.status;
         return Scaffold(
           appBar: AppBar(
             // The nested navigator's home route cannot pop itself; the
@@ -177,9 +180,10 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
               // app pushes above the demo route while it is open.
               onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
             ),
-            // The interim server list's status dot: the listed server's
-            // live probe truth renders beside the title (02 §4; the
-            // sidebar reuses this dot in M5).
+            // The interim server list's composed indicator: one glyph per
+            // server (02 §4, SEA-021), where a blocked or failed connection
+            // outranks the probe result instead of sitting behind a green
+            // "reachable" dot.
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -189,9 +193,12 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (probeStatus != null) ...[
+                if (connectionStatus != null || probeStatus != null) ...[
                   const SizedBox(width: 8),
-                  ProbeStatusDot(probeStatus),
+                  ServerStateIndicator(
+                    status: connectionStatus,
+                    probe: probeStatus,
+                  ),
                 ],
               ],
             ),

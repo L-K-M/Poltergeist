@@ -4,6 +4,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 
 import 'l10n/app_localizations.dart';
+import 'services/bookmark_store.dart';
+import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/probe_settings_store.dart';
 import 'services/sftp_demo_controller.dart';
@@ -25,6 +27,8 @@ class PoltergeistApp extends StatelessWidget {
     this.sftpDemoEngineFactory,
     this.probeSettings,
     this.sshConfigImport,
+    this.bookmarks,
+    this.connectionEngine,
   });
 
   final double initialPaneRatio;
@@ -50,6 +54,16 @@ class PoltergeistApp extends StatelessWidget {
   /// path). Null leaves the import command unregistered; `main.dart`
   /// supplies it from the app-support directory.
   final SshConfigImportSetup? sshConfigImport;
+
+  /// The persisted bookmark store behind the Connections surface (03 §6's
+  /// `BookmarkStore` seam). Null leaves that command unregistered.
+  final BookmarkRepository? bookmarks;
+
+  /// The engine's connection-state lanes for the Connections surface. Null
+  /// while no production engine exists: the startup-wiring slice owns the
+  /// spawn, which must seed host-key pins and trust incidents together
+  /// (STATUS item 6, audit finding A).
+  final ConnectionStateBridge? connectionEngine;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator.
@@ -103,6 +117,8 @@ class PoltergeistApp extends StatelessWidget {
       sftpDemoEngineFactory: demoEnabled ? sftpDemoEngineFactory : null,
       probeSettings: demoEnabled ? probeSettings : null,
       sshConfigImport: sshConfigImport,
+      bookmarks: bookmarks,
+      connectionEngine: connectionEngine,
     );
     final callback = onContentSizeChanged;
     if (callback == null) return workspace;

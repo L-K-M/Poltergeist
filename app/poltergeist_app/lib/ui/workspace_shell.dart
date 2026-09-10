@@ -3,19 +3,23 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/application_error_reporter.dart';
+import '../services/bookmark_store.dart';
+import '../services/connection_state_bridge.dart';
+import '../services/connection_status_controller.dart';
 import '../services/probe_settings_store.dart';
 import '../services/registered_command.dart';
 import '../services/sftp_demo_controller.dart';
 import '../services/ssh_config_import_setup.dart';
 import 'adaptive_shell.dart';
+import 'connections/connections_command.dart';
 import 'demo/sftp_demo_view.dart';
 import 'import/ssh_config_import_command.dart';
 
 /// Provides the M1 chrome and placeholder pane content. Renders every
-/// registered command (D21): the D22 ssh_config import entry when wired,
-/// plus — in debug builds only (app.dart ANDs the flag with kDebugMode) —
-/// the M2 demo command (07 §3.3's debug-only listing surface; throwaway,
-/// M3 replaces it).
+/// registered command (D21): the Connections surface and the D22 ssh_config
+/// import entry when wired, plus — in debug builds only (app.dart ANDs the
+/// flag with kDebugMode) — the M2 demo command (07 §3.3's debug-only listing
+/// surface; throwaway, M3 replaces it).
 class WorkspaceShell extends StatefulWidget {
   const WorkspaceShell({
     super.key,
@@ -26,6 +30,8 @@ class WorkspaceShell extends StatefulWidget {
     this.sftpDemoEngineFactory,
     this.probeSettings,
     this.sshConfigImport,
+    this.bookmarks,
+    this.connectionEngine,
   });
 
   final double initialPaneRatio;
@@ -39,12 +45,75 @@ class WorkspaceShell extends StatefulWidget {
   /// unregistered (tests and alternate boot paths stay opted out).
   final SshConfigImportSetup? sshConfigImport;
 
+  /// The persisted bookmark store the Connections surface lists (03 §6's
+  /// `BookmarkStore` seam). Null leaves that command unregistered.
+  ///
+  /// Callers must pass a stable instance across rebuilds: the shell keys
+  /// its controller lifecycle on seam identity, so a fresh wrapper per
+  /// rebuild would churn watches and drop the loaded list.
+  final BookmarkRepository? bookmarks;
+
+  /// The engine's connection-state lanes; null while no production engine
+  /// exists (the startup-wiring slice spawns one), which leaves every
+  /// listed server without live truth rather than guessing at it.
+  /// Same identity-stability contract as [bookmarks].
+  final ConnectionStateBridge? connectionEngine;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
 
 class _WorkspaceShellState extends State<WorkspaceShell> {
   bool _commandSessionActive = false;
+
+  /// 03 §6's app-wide `ConnectionStatus`: one per window root, owned here so
+  /// its watches die with the shell. M5's sidebar composition consumes the
+  /// same instance instead of a second watcher.
+  ConnectionStatusController? _connections;
+
+  @override
+  void initState() {
+    super.initState();
+    _connections = _buildConnections();
+  }
+
+  @override
+  void didUpdateWidget(WorkspaceShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The composition root supplies the store once but may supply the
+    // engine later (the startup-wiring flow mounts the shell before any
+    // engine exists); a replacement of either must not leave the surface
+    // listing the previous store's bookmarks or a dead engine seam.
+    if (identical(oldWidget.bookmarks, widget.bookmarks) &&
+        identical(oldWidget.connectionEngine, widget.connectionEngine)) {
+      return;
+    }
+
+    _connections?.dispose();
+    _connections = _buildConnections();
+  }
+
+  /// 03 §6's app-wide `ConnectionStatus`, or null where the composition root
+  /// supplied no store and the surface therefore stays unregistered.
+  ///
+  /// The controller's own default error reporter routes to
+  /// `FlutterError.reportError` — the same default sink main.dart's
+  /// app-wide reporter uses — so failures surface without a wired sink.
+  ConnectionStatusController? _buildConnections() {
+    final bookmarks = widget.bookmarks;
+    if (bookmarks == null) return null;
+
+    return ConnectionStatusController(
+      bookmarks: bookmarks,
+      bridge: widget.connectionEngine,
+    );
+  }
+
+  @override
+  void dispose() {
+    _connections?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +129,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final probeSettings = widget.probeSettings;
     assert(!widget.debugDemoEnabled || probeSettings != null);
     final sshConfigImport = widget.sshConfigImport;
+    final connections = _connections;
     final commands = <RegisteredCommand>[
+      if (connections != null)
+        buildConnectionsCommand(
+          controller: connections,
+          enabled: () => !_commandSessionActive,
+        ),
       if (sshConfigImport != null)
         buildSshConfigImportCommand(
           setup: sshConfigImport,

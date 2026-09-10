@@ -2,18 +2,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 
+import '../support/fake_bookmark_store.dart';
+
 void main() {
+  late BookmarkRepository bookmarks;
+
+  setUp(() {
+    // The setup must forward the caller's store, never build its own: the
+    // Connections surface lists the same bookmarks, and a second instance
+    // over one file would race the first one's write tail.
+    bookmarks = FakeBookmarkStore();
+  });
+
   SshConfigImportSetup? build({
     Map<String, String> environment = const {'HOME': '/home/tester'},
     bool isMacOS = false,
     bool isWindows = false,
-    String supportPath = '/support',
   }) => buildSshConfigImportSetup(
     environment: environment,
     isMacOS: isMacOS,
     isWindows: isWindows,
-    supportPath: supportPath,
-    onError: (_, _) {},
+    bookmarks: bookmarks,
   );
 
   test('builds the POSIX wiring from the environment', () {
@@ -22,7 +31,7 @@ void main() {
     expect(setup, isNotNull);
     expect(setup!.configPath, '/home/tester/.ssh/config');
     expect(setup.service.homeDirectory, '/home/tester');
-    expect(setup.bookmarks, isA<FileBookmarkStore>());
+    expect(setup.bookmarks, same(bookmarks));
   });
 
   test('stays unregistered without a home directory', () {
