@@ -1145,6 +1145,15 @@ resolution awaits the load; no pool exists before it), the
 observation-never-cleared premise (a fresh per-attempt instance), and
 the teardown re-raise (round 4 fixed it).
 
+Review round 6 (applied; docs-only): the round-5 record edit had
+overwritten the round-4 record, so the round-4 record is restored in
+full and item 6 keeps its original escalation description alongside the
+owner decision. The round also suggested broadening `load()`'s
+fail-safe catch and asserting the test-setup `chmod` succeeded; the
+head applies only the doc restoration. The scorecard records no
+correctness, security, or contract finding in rounds 4-6 and declares
+steady state.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
