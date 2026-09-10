@@ -1492,7 +1492,7 @@ v1 does not have: one app process (D13), one store instance built at
 startup. The ported app-layer file stores lock nothing either, so locking
 here would diverge from the port convention (09 §4).
 
-Validation: twenty-one new core tests, each observed failing before its fix
+Validation: twenty-two new core tests, each observed failing before its fix
 (or, for the protocol seams, failing to compile before the types existed).
 The audit's scratch scenario is now a regression: a restored record with no
 pin comes up blocked with no prompt and no escape, and after the fix it is
@@ -1511,7 +1511,7 @@ broadcast, removal-closed watch, and shutdown closure round-trip through
 spawned isolates; protocol v6 round-trips the new request, both events, and
 `EngineConfig.incidents`.
 
-Core analysis clean; 377 core tests pass (15 Docker-fixture skips — Docker
+Core analysis clean; 378 core tests pass (15 Docker-fixture skips — Docker
 unavailable locally, so the real-sshd leg rides CI on the PR head). Import
 guard (92 + scan), protocol guard (51 + scan), pin audit (9), fixture tools
 (62), bench harness (79), license gate (34), and release-version (155 +
@@ -1550,6 +1550,47 @@ same file — no credential, no connection, and CI's Gitleaks and
 fixture-key-scope leg passes on this head. Already satisfied: the load-time
 drop routes through `store.removeFor`, so the app mirror converges — pinned
 by "a seeded incident without its pin is dropped and mirrored".
+
+Review round 2 (two applied, one applied as a pin, five refuted or declined
+with evidence): incident seeding is now structural —
+`InMemoryIncidentStore.seeded` fills the map in its constructor, so the
+manager's lazy, pin-filtered load cannot read a half-seeded store even if
+`put` later grows an `await`; the invariant had lived in a comment. The pin
+seed keeps the unawaited-put convention because `InMemoryHostKeyStore` is
+Séance's pinned class, and a missing pin fails closed (a first-use
+re-prompt) where a missing record would not. The observer test asserts the
+quarantine length before `.single`. A new test pins that a removal during a
+parked first connect leaves nothing behind — no dial, no state, no record —
+which is the evidence for the refuted race finding: `disconnectServer` drops
+the pending identity synchronously, `_resolveReference` re-checks it after
+its await, `_firstConnect` re-checks the epoch and its references before and
+after the transport lands, `_emit` guards a closed controller, and the engine
+forgets the id's config so a later connect cannot resolve one.
+Refuted with evidence: `File.absolute` not stripping `..` does not defeat the
+sweep — `Directory.list()` joins the unnormalized parent path it was given
+(verified: `/cwd/data/../incidents.json.tmp-old` matches the prefix built
+from `/cwd/data/../incidents.json`), so the suggested URI normalization would
+create the mismatch it claims to fix; the observer assertions cannot race —
+`_dropStaleRecord` is awaited inside `_loadIncidents`, which
+`_resolveReference` awaits, and `_deleteStoredBookmark` is awaited inside
+`removeBookmark`, so both report before the call returns, and `_eventually`
+there would weaken a guarantee that holds; the epoch guard cannot strand an
+approved-key unblock — `_blockPool` is the only site that advances the epoch,
+and the approval path adopts the new epoch before awaiting the prompt, then
+guards on incident identity; `IncidentRecord` and `PoolKey` are already
+barrel exports, which the protocol test proves by naming both through the
+barrel alone.
+Declined (second raise, no new evidence): the "weak or hardcoded password" at
+`engine_host_test.dart:72` — a socket-free fixture reply (`'pw'`) predating
+this PR, used by some ten existing tests in the same file; CI's Gitleaks and
+fixture-key-scope leg passes on this head. Declined: `pumpEventQueue` drains
+in the client test — the assertions follow the file's existing convention
+(the recovery-failure test asserts the same way and has been stable since
+#55), and the ordering is guaranteed by port FIFO plus microtask scheduling;
+pumping in one of the two would leave the file inconsistent.
+Recorded for the app-side composition: the mirror must apply removals
+idempotently — including for a record it just seeded, which the engine drops
+when its pin is gone — and must never re-seed the engine in response.
 
 ## Open items
 
@@ -1844,7 +1885,9 @@ by "a seeded incident without its pin is dropped and mirrored".
    `removeBookmark` from bookmark deletion) rides production wiring
    (item 3) — no app-side bookmark deletion exists before M5's store, so
    production engines still spawn an empty config and sessions stay
-   session-only until then.
+   session-only until then. The mirror must apply removals idempotently,
+   including for a record it just seeded that the engine dropped because
+   its pin was gone, and must never re-seed the engine in response.
 7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
    consistent `pub get --enforce-lockfile` use across CI and commit-SHA
    pinning for third-party actions. The new integration job follows existing

@@ -573,6 +573,38 @@ void main() {
   );
 
   test(
+    'a removal during an in-flight connect leaves no state behind',
+    () async {
+      final store = InMemoryIncidentStore();
+      final harness = await _harness([
+        _originalKey,
+        _changedKey,
+      ], store: store);
+      harness.credentialGate = Completer<void>();
+
+      // The first connect parks inside credential resolution while the
+      // bookmark is deleted. The pool's reference and pending identity are
+      // gone before the resolution returns, so the late completion must not
+      // dial, re-register state, or persist a record for a deleted id.
+      final opening = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+      await pumpEventQueue();
+      final states = harness.manager.watchServer('s1').toList();
+
+      await harness.manager.removeBookmark('s1');
+      harness.credentialGate!.complete();
+
+      await expectLater(opening, throwsA(isA<RemoteFileException>()));
+      final observed = await states.timeout(_watchClosureTimeout);
+      expect(
+        observed.last,
+        const ServerStatus(ServerConnectionState.disconnected),
+      );
+      expect(harness.opener.calls, isEmpty);
+      expect(await store.load(), isEmpty);
+    },
+  );
+
+  test(
     'store failures reach the observer without affecting the block',
     () async {
       final store = _ThrowingIncidentStore();

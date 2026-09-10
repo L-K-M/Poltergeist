@@ -141,21 +141,22 @@ class EngineHost {
   }
 
   /// Incident records from the config seed the in-memory store; every later
-  /// put/remove forwards to the app-owned store as a typed event. In-memory
-  /// puts are synchronous map writes, so the seed is complete before the
-  /// manager's lazy load reads it — that load drops a record whose pin is
-  /// missing (audit finding A's safety net), so the pin seed above must be
-  /// in place too.
+  /// put/remove forwards to the app-owned store as a typed event. The seed
+  /// is structural, not conventional: the manager's lazy load filters these
+  /// records against the pin seed (audit finding A's safety net), so a
+  /// half-seeded store would silently drop a restored block — and this
+  /// factory cannot await, hence the synchronous seeding constructor.
+  ///
+  /// The pin seed above keeps the unawaited-put convention because
+  /// `InMemoryHostKeyStore` is Séance's pinned class; a missing pin fails
+  /// closed (a first-use re-prompt), where a missing record would not.
   static IncidentStore _seededIncidentStore(
     EngineConfig config,
     SendPort events,
-  ) {
-    final incidents = InMemoryIncidentStore();
-    for (final record in config.incidents) {
-      unawaited(incidents.put(record));
-    }
-    return _IncidentBridge(incidents, events);
-  }
+  ) => _IncidentBridge(
+    InMemoryIncidentStore.seeded(config.incidents),
+    events,
+  );
 
   void handle(Object? message) {
     switch (message) {

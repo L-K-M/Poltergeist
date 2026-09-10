@@ -309,6 +309,7 @@ void main() {
           .list()
           .where((entry) => entry.path.contains('.corrupt-'))
           .toList();
+      expect(quarantine, hasLength(1));
       await quarantine.single.delete();
       await file.writeAsBytes([...utf8.encode('[]'), 0xFF]);
       final torn = <Object>[];

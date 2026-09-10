@@ -157,7 +157,17 @@ abstract interface class IncidentStore {
 
 /// Session-only store (tests and the not-yet-wired engine default).
 class InMemoryIncidentStore implements IncidentStore {
-  final Map<String, IncidentRecord> _records = {};
+  final Map<String, IncidentRecord> _records;
+
+  InMemoryIncidentStore() : _records = {};
+
+  /// Seeds records synchronously, keyed by serverId like [put]'s upsert.
+  /// A caller that reads straight after seeding — the engine's spawn-time
+  /// seed, which the manager's lazy load then filters against the pins —
+  /// cannot observe a half-seeded store. [put] is async by interface, so a
+  /// loop of unawaited puts would leave that ordering to convention.
+  InMemoryIncidentStore.seeded(Iterable<IncidentRecord> records)
+    : _records = {for (final record in records) record.serverId: record};
 
   @override
   Future<List<IncidentRecord>> load() async => List.of(_records.values);
