@@ -752,7 +752,7 @@ pinned model's bounds). No pin/lock change, no production composition
 slices), no milestone-close claim. All strings ARB-authored (D20); the
 localization contract gains the demo files' reviewed technical exceptions.
 
-Validation: 22 new tests — gating/registration, spawn-failure notice,
+Validation: 23 new tests — gating/registration, spawn-failure notice,
 double-tap session guard, host-key first-use through the real coordinator
 with the transcript live during connect, credential collection,
 keyboard-interactive round trip, declined changed-key hard block with
@@ -762,9 +762,10 @@ connect re-entrancy (guard, previous channel/server handoff, and the
 disconnect-during-connect late session), connect-failure guard
 unwedging, unexpected listing-failure reporting, status-stream fault
 reporting, transcript replay-buffer bounds, disconnect-after-dispose
-no-op, system-back prompt dismissal, narrow-window toolbar overflow — plus one
+no-op, system-back prompt dismissal, narrow-window toolbar overflow, broken-transcript-seam
+unwedging — plus one
 real-isolate leg driving the production
-`EngineClient` seam over spawned isolate ports. App analyze clean, 266 app
+`EngineClient` seam over spawned isolate ports. App analyze clean, 267 app
 tests pass; core untouched (analyze clean, 333 tests, 15 fixture skips).
 Real-sshd legs were not extended to this surface: no Docker-enabled
 Flutter CI job exists (the integration leg runs pure-Dart core tests), and

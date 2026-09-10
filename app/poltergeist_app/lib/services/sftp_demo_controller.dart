@@ -197,18 +197,16 @@ class SftpDemoController extends ChangeNotifier {
   Future<void> connect(SftpDemoConnectFacts facts) async {
     if (_disposed || _connecting) return;
 
-    // Prompt answering and transcript buffering must be live before any
-    // open; the route normally ran start() already, and it is idempotent.
-    start();
-
     // The previous session (a completed connect, or a failed one that
     // minted a serverId) must not linger: every connect mints a fresh
-    // bookmark id (03 §3.5), so the old reference is closed, never reused.
+    // bookmark id (03 §3.5), so the old reference is closed, never
+    // reused. Awaited so the retry's open cannot interleave with the
+    // old channel's close.
     final staleChannel = _channel;
     final staleServerId = _serverId;
     _channel = null;
     if (staleChannel != null || staleServerId != null) {
-      unawaited(_closeChannelAndServer(staleChannel, staleServerId));
+      await _closeChannelAndServer(staleChannel, staleServerId);
     }
 
     final attempt = ++_attempt;
@@ -237,6 +235,12 @@ class SftpDemoController extends ChangeNotifier {
     );
 
     try {
+      // Prompt answering and transcript buffering must be live before any
+      // open; the route normally ran start() already, and it is
+      // idempotent. Inside the guarded block so a seam fault here reaches
+      // the catch below instead of escaping connect() unhandled.
+      start();
+
       // The subscription lives inside the guarded block: a synchronous
       // throw from watchServer/listen (e.g. a dead engine seam) must
       // reach the catch below, not wedge _connecting.
@@ -284,11 +288,12 @@ class SftpDemoController extends ChangeNotifier {
     } on Object catch (error, stackTrace) {
       // The protocol wraps engine failures as RemoteFileExceptions, but a
       // non-VFS fault (a broken seam, an isolate death mid-call) must not
-      // wedge the re-entrancy guard with _connecting stuck true.
+      // wedge the re-entrancy guard with _connecting stuck true — unwedge
+      // before anything that could throw.
       if (_disposed || attempt != _attempt) return;
-      _errorReporter.report(error, stackTrace);
       _connecting = false;
       _failureDetail = error.toString();
+      _errorReporter.report(error, stackTrace);
       notifyListeners();
     }
   }

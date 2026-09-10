@@ -10,7 +10,7 @@ import 'package:poltergeist_app/services/sftp_demo_controller.dart';
 import 'package:poltergeist_app/ui/demo/sftp_demo_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
-const _commandButtonKey = ValueKey('command.connect.demoListing');
+const _commandButtonKey = ValueKey('command.$kSftpDemoCommandId');
 
 const _scriptedEntries = [
   RemoteFileEntry(
@@ -203,6 +203,14 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
     await statesController.close();
     await logController.close();
   }
+}
+
+/// A fake whose transcript seam is dead: start() must fail through the
+/// connect guard, not escape it.
+class _BrokenLogEngine extends FakeSftpDemoEngine {
+  @override
+  Stream<ConnectionLogEvent> get connectionLog =>
+      throw StateError('dead log seam');
 }
 
 EnginePromptEvent _hostKeyFirstUse(String promptId) => EnginePromptEvent(
@@ -1096,6 +1104,33 @@ void main() {
       controller.dispose();
       await controller.disconnect();
       expect(engine.disconnectCalls, 1);
+    });
+
+    test('a broken transcript seam unwedges instead of escaping', () async {
+      final reported = <Object>[];
+      final engine = _BrokenLogEngine();
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        errorReporter: ApplicationErrorReporter(
+          sink: (error, _) => reported.add(error),
+        ),
+      );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      // Completes normally: the guarded catch unwedges and reports.
+      await controller.connect(facts);
+
+      expect(reported, contains(isA<StateError>()));
+      expect(controller.isConnecting, isFalse);
+      expect(controller.failureDetail, contains('dead log seam'));
     });
 
     test('an oversized transcript event stays in the replay buffer', () async {
