@@ -267,9 +267,16 @@ void main() {
     // The composed indicator inherits the probe dot's contrast floor
     // (02 §4, SEA-019) for every color it can paint. The delegated probe
     // offline/unknown states reuse the scheme colors already pinned below
-    // (`error`/`outline`), so no delegated color escapes the pin.
+    // (`error`/`outline`), so no delegated color escapes the pin. The
+    // backgrounds mirror the probe dot's own floor: the resting surface
+    // (the app bar is pinned to paint it) and the scrolled-under tint.
     for (final brightness in Brightness.values) {
       final scheme = buildPoltergeistTheme(brightness).colorScheme;
+      final scrolled = ElevationOverlay.applySurfaceTint(
+        scheme.surface,
+        scheme.surfaceTint,
+        3,
+      );
 
       for (final (name, color) in <(String, Color)>[
         ('connected', ProbeStatusDot.onlineColor),
@@ -278,11 +285,16 @@ void main() {
         ('idle', scheme.outline),
         ('pending', scheme.primary),
       ]) {
-        expect(
-          contrast(color, scheme.surface),
-          greaterThanOrEqualTo(minimumNonTextContrast),
-          reason: '$name on surface (${brightness.name})',
-        );
+        for (final background in <(String, Color)>[
+          ('surface', scheme.surface),
+          ('scrolled-under', scrolled),
+        ]) {
+          expect(
+            contrast(color, background.$2),
+            greaterThanOrEqualTo(minimumNonTextContrast),
+            reason: '$name on ${background.$1} (${brightness.name})',
+          );
+        }
       }
     }
   });

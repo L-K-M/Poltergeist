@@ -47,11 +47,16 @@ class WorkspaceShell extends StatefulWidget {
 
   /// The persisted bookmark store the Connections surface lists (03 §6's
   /// `BookmarkStore` seam). Null leaves that command unregistered.
+  ///
+  /// Callers must pass a stable instance across rebuilds: the shell keys
+  /// its controller lifecycle on seam identity, so a fresh wrapper per
+  /// rebuild would churn watches and drop the loaded list.
   final BookmarkRepository? bookmarks;
 
   /// The engine's connection-state lanes; null while no production engine
   /// exists (the startup-wiring slice spawns one), which leaves every
   /// listed server without live truth rather than guessing at it.
+  /// Same identity-stability contract as [bookmarks].
   final ConnectionStateBridge? connectionEngine;
 
   @override
@@ -90,6 +95,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// 03 §6's app-wide `ConnectionStatus`, or null where the composition root
   /// supplied no store and the surface therefore stays unregistered.
+  ///
+  /// The controller's own default error reporter routes to
+  /// `FlutterError.reportError` — the same default sink main.dart's
+  /// app-wide reporter uses — so failures surface without a wired sink.
   ConnectionStatusController? _buildConnections() {
     final bookmarks = widget.bookmarks;
     if (bookmarks == null) return null;

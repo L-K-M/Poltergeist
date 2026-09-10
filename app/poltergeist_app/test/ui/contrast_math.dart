@@ -9,6 +9,14 @@ const minimumNonTextContrast = 3.0;
 /// WCAG relative luminance, shared by every contrast pin so one formula
 /// cannot drift from another.
 double relativeLuminance(Color color) {
+  // The math assumes an opaque color: a translucent one must be composited
+  // against its real background (e.g. Color.alphaBlend) before measuring,
+  // or the pin reports a ratio the user never sees.
+  assert(
+    color.a == 1.0,
+    'Contrast math assumes opaque colors; composite translucent colors '
+    'against their background before measuring.',
+  );
   double channel(double value) => value <= 0.03928
       ? value / 12.92
       : math.pow((value + 0.055) / 1.055, 2.4).toDouble();

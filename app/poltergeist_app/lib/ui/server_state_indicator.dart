@@ -201,6 +201,16 @@ class ServerStateGlyph extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
+    // Probe truth has no paint here: it must render through
+    // ProbeStatusDot (via ServerStateIndicator), so a caller resolving
+    // both truths and reaching for this glyph gets a loud failure instead
+    // of an invisible indicator.
+    assert(
+      glyph != ServerIndicatorGlyph.probe,
+      'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '
+      'ServerStateGlyph has no probe paint.',
+    );
+
     return SizedBox(
       width: boxSize,
       height: boxSize,

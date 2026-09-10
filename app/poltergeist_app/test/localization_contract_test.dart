@@ -172,7 +172,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The composed indicator's empty label for the "neither truth" case: it
   // paints nothing, so there is no wording to author.
-  'lib/ui/server_state_indicator.dart': {"''"},
+  // '' is the none-appearance's empty label. The two long literals are a
+  // developer-facing debug assert message, never rendered to users.
+  'lib/ui/server_state_indicator.dart': {
+    "''",
+    "'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '",
+    "'ServerStateGlyph has no probe paint.'",
+  },
   // The Connections surface's widget keys plus the endpoint line — machine
   // data (username@host:port) rendered beside ARB-authored copy.
   'lib/ui/connections/connections_view.dart': {

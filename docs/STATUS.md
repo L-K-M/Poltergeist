@@ -1490,15 +1490,20 @@ SHA256SUMS.txt; tofu text — the container ships no fonts). No core
 change, no pin/dependency change, no source port, no milestone close.
 
 Declined in review: a try/catch around the `recoveryFailures` listen
-(refuted twice — the getter is a plain broadcast stream in the
-production client and the fake; it cannot throw, and a listen on the
-closed stream delivers `onDone` to the graceful engine-stopped path);
-keying the demo's status read by a selected server id (the demo is
-single-session: status is minted and cleared with its serverId, and no
-cross-server selection exists). Deferred: an open Connections pane
+(refuted in three rounds — the getter is a plain broadcast stream in
+the production client and the fake; it cannot throw, broadcast streams
+accept re-listeners, and a listen on the closed stream delivers
+`onDone` to the graceful engine-stopped path); keying the demo's
+status read by a selected server id (the demo is single-session:
+status is minted and cleared with its serverId, and no cross-server
+selection exists). Deferred: an open Connections pane
 following a swapped engine seam — no production path swaps the seam
 yet, and the lookup/provider composition belongs to the startup-wiring
-slice (item 6) that will actually spawn lazily.
+slice (item 6) that will actually spawn lazily. Round 3's remaining
+applies were hardening only (shared contrast math asserting opacity,
+the indicator pin gaining the scrolled-under background the probe dot
+already pins, a debug assert that the glyph paints no probe truth, and
+test-support consistency); no behavior changed.
 
 ## Open items
 

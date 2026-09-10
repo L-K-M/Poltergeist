@@ -1660,7 +1660,7 @@ void main() {
       expect(find.byTooltip(l10n.connectionStateConnected), findsOneWidget);
     });
 
-    testWidgets('an unscripted snapshot leaves the dot unknown', (
+    testWidgets('an unscripted snapshot leaves the glyph answering', (
       tester,
     ) async {
       final engine = successfulEngine(
@@ -1683,7 +1683,7 @@ void main() {
       expect(find.byTooltip(l10n.connectionStateConnected), findsOneWidget);
     });
 
-    testWidgets('a global opt-out keeps probes paused and the dot unknown', (
+    testWidgets('a global opt-out keeps probes paused; the glyph answers', (
       tester,
     ) async {
       final engine = successfulEngine(
@@ -1708,6 +1708,7 @@ void main() {
       expect(engine.probeCalls, isNot(contains('running')));
       expect(engine.probeCalls.last, 'targets:');
       expect(find.byTooltip(l10n.probeStatusOnline), findsNothing);
+      expect(find.byType(ProbeStatusDot), findsNothing);
       expect(find.byTooltip(l10n.connectionStateConnected), findsOneWidget);
     });
 

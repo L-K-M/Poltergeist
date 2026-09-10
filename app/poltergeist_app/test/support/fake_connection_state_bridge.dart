@@ -70,6 +70,7 @@ final class FakeConnectionStateBridge implements ConnectionStateBridge {
     String? paneTabId,
     String message = 'Could not resolve the home directory.',
   }) {
+    _failFastIfStopped();
     _recovery.add(
       RecoveryFailedEvent(
         serverId: serverId,

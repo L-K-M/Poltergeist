@@ -34,13 +34,16 @@ final class FakeBookmarkStore implements BookmarkRepository {
 
   @override
   Future<void> upsertAll(Iterable<Bookmark> bookmarks) async {
-    upserted.addAll(bookmarks);
+    // Materialized once: a lazy or one-shot iterable must not enumerate
+    // differently across the recording, the id set, and the rows.
+    final incoming = List<Bookmark>.of(bookmarks);
+    upserted.addAll(incoming);
     // Update-or-insert by id, like the file store: an upserted bookmark
     // replaces its row instead of appending a duplicate.
-    final ids = bookmarks.map((bookmark) => bookmark.id).toSet();
+    final ids = incoming.map((bookmark) => bookmark.id).toSet();
     this.bookmarks = [
       ...this.bookmarks.where((bookmark) => !ids.contains(bookmark.id)),
-      ...bookmarks,
+      ...incoming,
     ];
   }
 }
