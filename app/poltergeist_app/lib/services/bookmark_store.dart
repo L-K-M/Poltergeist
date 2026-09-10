@@ -120,6 +120,12 @@ final class FileBookmarkStore implements BookmarkRepository {
   }
 
   Future<void> _load() async {
+    // A retried load (a previous attempt failed on the read) must start
+    // from a clean slate so partially populated state can never be
+    // double-appended.
+    _bookmarks.clear();
+    _preserved.clear();
+
     late final String? contents;
     try {
       await _file.parent.create(recursive: true);
@@ -140,7 +146,27 @@ final class FileBookmarkStore implements BookmarkRepository {
       return;
     }
 
-    if (decoded is! Map || decoded[_bookmarksKey] is! List) {
+    if (decoded is! Map) {
+      await _quarantine();
+      _report(
+        const FormatException('bookmark store root'),
+        StackTrace.current,
+      );
+      return;
+    }
+
+    // A newer store format is data this version must not overwrite: fail
+    // like an unreadable file (no quarantine, no empty start) so a local
+    // re-save can never replace it with a v1 shape. M5/M6 own real
+    // migrations; until then this is the fail-closed posture.
+    final version = decoded[_versionKey];
+    if (version is int && version > _storeVersion) {
+      final error = FormatException('bookmark store version $version');
+      _report(error, StackTrace.current);
+      throw error;
+    }
+
+    if (decoded[_bookmarksKey] is! List) {
       await _quarantine();
       _report(
         const FormatException('bookmark store root'),

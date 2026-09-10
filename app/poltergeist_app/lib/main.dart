@@ -89,6 +89,10 @@ SshConfigImportSetup? _sshConfigImport(
       path: '$supportPath${Platform.pathSeparator}bookmarks.json',
       onError: onError,
     ),
+    // ssh_config paths are POSIX-shaped: the core import service
+    // normalizes on `/` (its include base is `.ssh/`), so these literal
+    // separators are deliberate. Windows import awaits that path
+    // handling, not `Platform.pathSeparator` here.
     configPath: '$home/.ssh/config',
   );
 }

@@ -135,20 +135,116 @@ void main() {
     expect(records.map((record) => record['id']), containsAll(['a', 'b']));
   });
 
+  test('preserves a record whose field has the wrong JSON type', () async {
+    final path = pathIn('bookmarks.json');
+    // A malformed port is a decode failure, not a fatal load error: the
+    // record is preserved verbatim like any other unreadable record.
+    final malformed = <String, dynamic>{
+      'id': 'bad',
+      'kind': 'remotePath',
+      'label': 'bad',
+      'server': {
+        'identity': {
+          'host': 'web.example.com',
+          'port': 'not-a-number',
+          'username': 'deploy',
+          'authMethod': 'password',
+        },
+      },
+      'remotePath': '/',
+      'sortKey': 'bad',
+      'createdAt': '2026-09-08T12:00:00.000Z',
+      'updatedAt': '2026-09-08T12:00:00.000Z',
+    };
+    File(path).writeAsStringSync(
+      jsonEncode({
+        'version': 1,
+        'bookmarks': [malformed, _bookmark('a').toJson()],
+      }),
+    );
+
+    final store = FileBookmarkStore(path: path);
+    expect((await store.load()).map((bookmark) => bookmark.id), ['a']);
+
+    await store.upsertAll([_bookmark('b')]);
+    final records =
+        ((jsonDecode(File(path).readAsStringSync()) as Map)['bookmarks'] as List)
+            .cast<Map>();
+    expect(records.any((record) => record['id'] == 'bad'), isTrue);
+  });
+
+  test('a newer store version fails without quarantining', () async {
+    final path = pathIn('bookmarks.json');
+    final contents = jsonEncode({
+      'version': 2,
+      'bookmarks': [_bookmark('a').toJson()],
+    });
+    File(path).writeAsStringSync(contents);
+
+    await expectLater(
+      FileBookmarkStore(path: path).load(),
+      throwsA(isA<FormatException>()),
+    );
+
+    // The unreadable newer store must stay in place so this version's
+    // next save cannot replace it (no quarantine, no empty start).
+    expect(File(path).readAsStringSync(), contents);
+    expect(
+      dir.listSync().where((entity) => entity.path.contains('.corrupt-')),
+      isEmpty,
+    );
+  });
+
+  test('rethrows read failures instead of silently starting empty', () async {
+    if (!Platform.isLinux && !Platform.isMacOS) {
+      markTestSkipped('mode-000 read denial applies on desktop POSIX only');
+      return;
+    }
+    final uid = await Process.run('id', ['-u']);
+    if ((uid.stdout as String).trim() == '0') {
+      markTestSkipped('chmod 000 does not deny reads when running as root');
+      return;
+    }
+
+    final path = pathIn('bookmarks.json');
+    File(path).writeAsStringSync('{"version":1,"bookmarks":[]}');
+    await Process.run('chmod', ['--', '000', path]);
+    addTearDown(() => Process.run('chmod', ['--', '600', path]));
+
+    // An unreadable-but-present file must fail the load, never read as
+    // empty (a later save would then overwrite data nobody could read).
+    await expectLater(
+      FileBookmarkStore(path: path).load(),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(
+      dir.listSync().where((entity) => entity.path.contains('.corrupt-')),
+      isEmpty,
+    );
+  });
+
   test('serializes concurrent writes so neither bookmark is lost', () async {
     final path = pathIn('bookmarks.json');
     final gate = Completer<void>();
+    final firstWriteParked = Completer<void>();
     var writes = 0;
     final store = FileBookmarkStore(
       path: path,
       atomicWriter: (file, contents) async {
         writes++;
-        if (writes == 1) await gate.future;
+        if (writes == 1) {
+          firstWriteParked.complete();
+          await gate.future;
+        }
         await writeStringAtomically(file, contents);
       },
     );
 
     final first = store.upsertAll([_bookmark('a')]);
+    // Park the first write in flight, then enqueue the second: a store
+    // without a serialized write tail would snapshot the same empty state
+    // and let the second write clobber the first.
+    await firstWriteParked.future;
     final second = store.upsertAll([_bookmark('b')]);
     gate.complete();
     await Future.wait([first, second]);

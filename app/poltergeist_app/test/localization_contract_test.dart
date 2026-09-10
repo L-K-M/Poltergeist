@@ -154,6 +154,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'bookmarks'",
     "'id'",
     "'bookmark store root'",
+    "'bookmark store version \$version'",
     "'bookmark:\$id'",
     r"'${_file.path}.corrupt-${_stamp()}'",
     "'-'",
