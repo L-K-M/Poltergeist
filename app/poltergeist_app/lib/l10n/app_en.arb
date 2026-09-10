@@ -465,5 +465,45 @@
   "probeStatusOffline": "Unreachable",
   "@probeStatusOffline": {
     "description": "Tooltip and semantics label of the red status dot: the server did not answer the reachability probe."
+  },
+  "connectionStateConnected": "Connected",
+  "@connectionStateConnected": {
+    "description": "Label of the composed server indicator while authenticated transports exist."
+  },
+  "connectionStateNotConnected": "Not connected",
+  "@connectionStateNotConnected": {
+    "description": "Label of the composed server indicator while the pool holds no transport for the server and no failure is known."
+  },
+  "connectionsTitle": "Connections",
+  "@connectionsTitle": {
+    "description": "Toolbar command label and page title of the Connections surface (02 §4)."
+  },
+  "connectionsLoading": "Loading servers",
+  "@connectionsLoading": {
+    "description": "Semantics label of the Connections list's loading spinner."
+  },
+  "connectionsEmpty": "No servers yet.",
+  "@connectionsEmpty": {
+    "description": "Empty state of the Connections list: the app holds no server reference."
+  },
+  "connectionsLoadFailed": "Could not read the favorites file.",
+  "@connectionsLoadFailed": {
+    "description": "Inline error when the bookmark store cannot be read for the Connections list."
+  },
+  "connectionsBlockedWarning": "Blocked until you review the host key at the next connection attempt.",
+  "@connectionsBlockedWarning": {
+    "description": "Warning copy on a host-key-blocked row (D18: the block is never lifted silently)."
+  },
+  "connectionsReviewHostKey": "Review host key…",
+  "@connectionsReviewHostKey": {
+    "description": "Affordance leading to the changed-key review dialog, which the next connect attempt raises."
+  },
+  "connectionsPaneFailure": "Pane {pane} failed: {message}",
+  "@connectionsPaneFailure": {
+    "description": "Per-pane attribution of a terminal recovery failure (03 §3.3).",
+    "placeholders": {
+      "pane": {"type": "String"},
+      "message": {"type": "String"}
+    }
   }
 }

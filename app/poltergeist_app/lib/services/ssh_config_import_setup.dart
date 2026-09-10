@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'bookmark_store.dart';
@@ -26,7 +24,10 @@ class SshConfigImportSetup {
 
 /// Builds the D22 import wiring for the platform described by
 /// [environment]: `~/.ssh/config` read read-only, imported rows persisted
-/// to `bookmarks.json` under [supportPath].
+/// through [bookmarks].
+///
+/// The store is the caller's: the Connections surface lists the same
+/// bookmarks, and two instances over one file would race their write tails.
 ///
 /// Returns null when no home directory resolves, or on Windows — the core
 /// import service normalizes POSIX paths (its include base is `.ssh/`), so
@@ -36,8 +37,7 @@ SshConfigImportSetup? buildSshConfigImportSetup({
   required Map<String, String> environment,
   required bool isMacOS,
   required bool isWindows,
-  required String supportPath,
-  required void Function(Object, StackTrace) onError,
+  required BookmarkRepository bookmarks,
 }) {
   if (isWindows) return null;
 
@@ -53,10 +53,7 @@ SshConfigImportSetup? buildSshConfigImportSetup({
       source: const LocalSshConfigFileSource(),
       mintId: uuidV4,
     ),
-    bookmarks: FileBookmarkStore(
-      path: '$supportPath${Platform.pathSeparator}bookmarks.json',
-      onError: onError,
-    ),
+    bookmarks: bookmarks,
     // ssh_config paths are POSIX-shaped: the core import service
     // normalizes on `/` (its include base is `.ssh/`), so these literal
     // separators are deliberate.

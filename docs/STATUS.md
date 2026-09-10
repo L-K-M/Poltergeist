@@ -4,15 +4,21 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-10. The M2 probe-wiring remainder landed:
+_Last updated: 2026-09-10. Live connection-state composition landed
+(the Connections-section surface, dated section below): the app-wide
+`ConnectionStatus` notifier over the engine's existing state lanes, the
+production-shell Connections surface composed with the bookmark store,
+and the composed indicator in which a blocked or failed connection
+outranks a green probe dot (the audit note's fix). Startup composition
+remains open. The M2 probe-wiring remainder landed:
 persisted probe eligibility/settings through settings.json (global
 opt-out plus the per-server device-local map with retarget reset),
 lifecycle forwarding through a binding-seam observer, the tri-state
 interim status dot with pinned contrast, and the subscribing app caller
-(dated section below) — live connection-state composition and startup
-remain open. The Alpine iproute2 apk pin in the sshd
-fixture is bumped to `7.2.0-r0` after upstream rotation broke main's
-SSH-integration leg, with a fixture-tool pin regression (dated section
+(dated section below). The Alpine
+iproute2 apk pin in the sshd fixture is bumped to `7.2.0-r0` after
+upstream rotation broke main's SSH-integration leg, with a fixture-tool
+pin regression (dated section
 below). The debug-only demo surface now composes the
 existing connection slices into the running app for the first time — engine
 spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
@@ -1412,6 +1418,93 @@ gated on open item 6), and any core/pin change. The import writes exactly
 the 04 §2.1 model through the pinned importer; key material is never read
 (D18). No source port, dependency change, release, or milestone close.
 
+## M2 — live connection-state composition (2026-09-10)
+
+Item 3's remaining app-side slice and the audit finding 4-note's recorded
+open work: the Connections surface and 03 §6's app-wide `ConnectionStatus`
+notifier, consuming the engine's existing state lanes.
+
+- `ConnectionStatusController` (the app-wide notifier): the bookmark store
+  supplies the rows — endpoint-bearing bookmarks, whose id is the pool's
+  serverId (03 §3.5); `serverConfigId` references and workspace/saved-sync
+  endpoint identities carry no serverId of their own and stay with M5's
+  sidebar — and `ConnectionStateBridge`, a two-lane seam over `EngineClient`
+  (`watchServer` plus `recoveryFailures`), supplies live truth. Engine loss
+  clears truth and keeps the rows; a refused watch or a faulting lane is
+  reported, never rendered as a guessed state. A reload carries live
+  truth forward by serverId (the recovery lane is replay-free, so fresh
+  rows would erase an unresolved pane failure), a removed bookmark keeps
+  nothing, and a byte-identical replay does not re-notify. Probe truth is
+  deliberately absent here: 02 §4 gives the Connections section pool
+  state, and 03 §3.4 keeps the probe controller from overriding live
+  connection state.
+- `serverIndicatorOf` composes the one indicator per server (SEA-021).
+  Connection truth that contradicts a probe result outranks it: a block,
+  a failure the state explains, or — the review rounds' addition — an
+  authenticated transport over any non-online result (offline or
+  unknown; live truth outranks probes, 02 §4, in both directions). That
+  is the audit note's fix, a green "reachable" dot no longer rendered
+  beside a blocked panel (the demo's interim-list dot now composes
+  through it; the regression failed on the pre-fix head). Where the
+  truths do not contradict, 02 §4's tri-state probe dot stays the
+  favorite row's indicator, which is what 07 §3.3 requires the interim
+  list to render.
+- `ConnectionsView` and the `view.connections` registered command (D21),
+  in the production shell and not debug-gated: rows carry the endpoint,
+  the state label, the state-associated detail one-liner, per-pane
+  attribution from the recovery lane (a pool-level terminal failure rides
+  the status detail with the same summary, so the lane adds attribution
+  only), and for a blocked row the warning copy plus a review affordance
+  wired to a seam that leads into the existing changed-key prompt path —
+  absent while no composition can start a connect, the same posture as
+  the panel's optional retry. A pane's terminal-failure attribution stays
+  until the rows reload; clearing it on a successful pane reopen lands
+  with M3's reopen flow (the only caller that can know one happened).
+- Composition: `main.dart` now owns the one `FileBookmarkStore` instance,
+  shared by the import command and this surface (two instances over one
+  file would race their write tails), so `buildSshConfigImportSetup` takes
+  the store instead of building one. The shell rebuilds its controller
+  when either seam is replaced (the review round's guard: the
+  startup-wiring flow can supply an engine after mounting with the same
+  store). The engine seam is null in
+  production: the startup-wiring slice owns the spawn, which must seed
+  host-key pins and trust incidents together (item 6, audit finding A);
+  until then every row reads "not connected" — the app holds no transport
+  — rather than guessing at a failure.
+
+Validation: regressions observed failing first — the blocked-outranks
+regression failed on the pre-fix head, and each rail (state mapping,
+outranking, detail one-liner, command registration, empty/offline list
+states) re-failed under an isolated mutation of its own code; the
+review rounds' connected-over-offline/unknown, engine-swap,
+reload-preserves-truth, and re-notify regressions likewise failed on
+the pre-fix heads. 49 new
+tests: 19 controller (including a leg over a real spawned `EngineClient`,
+proving the adapter consumes the real lanes, with the shutdown lane-close
+asserted), 15 indicator (including the
+≥ 3:1 contrast pin for every color it paints), 14 surface, 1 demo
+regression. App analysis clean and 401 tests pass; core untouched
+(analyze clean, import guard passes). Rootless widget captures
+before/after in `tasks/m2-connection-state` (PROVENANCE.md and
+SHA256SUMS.txt; tofu text — the container ships no fonts). No core
+change, no pin/dependency change, no source port, no milestone close.
+
+Declined in review: a try/catch around the `recoveryFailures` listen
+(refuted in three rounds — the getter is a plain broadcast stream in
+the production client and the fake; it cannot throw, broadcast streams
+accept re-listeners, and a listen on the closed stream delivers
+`onDone` to the graceful engine-stopped path); keying the demo's
+status read by a selected server id (the demo is single-session:
+status is minted and cleared with its serverId, and no cross-server
+selection exists). Deferred: an open Connections pane
+following a swapped engine seam — no production path swaps the seam
+yet, and the lookup/provider composition belongs to the startup-wiring
+slice (item 6) that will actually spawn lazily. Round 3's remaining
+applies were hardening only (shared contrast math asserting opacity,
+the indicator pin gaining the scrolled-under background the probe dot
+already pins, a debug assert that the glyph paints no probe truth, and
+test-support consistency); no behavior changed.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1493,8 +1586,12 @@ the 04 §2.1 model through the pinned importer; key material is never read
      device-local map with retarget reset), the binding-seam lifecycle
      forwarder, the tri-state ARB/semantics dot with pinned contrast, and
      the owning-store `ProbeCoordinator` now drive the demo session as the
-     first subscribing app caller. Live connection-state composition (the
-     Connections-section surface) and startup composition remain open;
+     first subscribing app caller. **2026-09-10: live connection-state
+     composition (the Connections-section surface) landed** (dated
+     section above): the `ConnectionStatusController`, the Connections
+     surface and its registered command, and the composed indicator.
+     Startup composition (the production engine spawn, which must seed
+     pins and incidents together) remains open;
      per-favorite opt-out persists with M5's bookmark store.
      **2026-09-09 review follow-up (#55):** the app consumer must subscribe
      to live probe snapshots before sending targets/activity. Evaluate

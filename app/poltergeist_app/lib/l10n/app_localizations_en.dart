@@ -361,4 +361,34 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get probeStatusOffline => 'Unreachable';
+
+  @override
+  String get connectionStateConnected => 'Connected';
+
+  @override
+  String get connectionStateNotConnected => 'Not connected';
+
+  @override
+  String get connectionsTitle => 'Connections';
+
+  @override
+  String get connectionsLoading => 'Loading servers';
+
+  @override
+  String get connectionsEmpty => 'No servers yet.';
+
+  @override
+  String get connectionsLoadFailed => 'Could not read the favorites file.';
+
+  @override
+  String get connectionsBlockedWarning =>
+      'Blocked until you review the host key at the next connection attempt.';
+
+  @override
+  String get connectionsReviewHostKey => 'Review host key…';
+
+  @override
+  String connectionsPaneFailure(String pane, String message) {
+    return 'Pane $pane failed: $message';
+  }
 }

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
+import 'services/bookmark_store.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/probe_settings_store.dart';
 import 'services/settings_store.dart';
@@ -19,6 +20,13 @@ Future<void> main() async {
   final settingsPath =
       '${supportDirectory.path}${Platform.pathSeparator}settings.json';
   final errorReporter = ApplicationErrorReporter();
+  // One store instance for the whole app: the ssh_config import writes it and
+  // the Connections surface lists from it, and two instances over one path
+  // would race their serialized write tails.
+  final bookmarks = FileBookmarkStore(
+    path: '${supportDirectory.path}${Platform.pathSeparator}bookmarks.json',
+    onError: errorReporter.report,
+  );
   final settingsStore = SettingsStore(
     path: settingsPath,
     onError: errorReporter.report,
@@ -43,12 +51,12 @@ Future<void> main() async {
       // site; tests and alternate paths stay opted out by default.
       debugDemoEnabled: kDebugMode,
       probeSettings: probeSettings,
+      bookmarks: bookmarks,
       sshConfigImport: buildSshConfigImportSetup(
         environment: Platform.environment,
         isMacOS: Platform.isMacOS,
         isWindows: Platform.isWindows,
-        supportPath: supportDirectory.path,
-        onError: errorReporter.report,
+        bookmarks: bookmarks,
       ),
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,

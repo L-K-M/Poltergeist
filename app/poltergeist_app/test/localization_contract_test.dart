@@ -17,11 +17,12 @@ const _generatedDartSuffixes = {'.freezed.dart', '.g.dart', '.mocks.dart'};
 const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/main.dart': {
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
+    r"'${supportDirectory.path}${Platform.pathSeparator}bookmarks.json'",
   },
-  // The import wiring's on-disk bookmarks path and the POSIX-shaped
-  // ssh_config path (core import normalizes on `/`).
+  // The import wiring's POSIX-shaped ssh_config path (the core import
+  // normalizes on `/`). The bookmark store it writes is the caller's now:
+  // one instance serves the import command and the Connections surface.
   'lib/services/ssh_config_import_setup.dart': {
-    r"'$supportPath${Platform.pathSeparator}bookmarks.json'",
     r"'$home/.ssh/config'",
     "'~'",
   },
@@ -168,6 +169,32 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   'lib/ui/import/ssh_config_import_command.dart': {
     "'favorite.importSshConfig'",
+  },
+  // The composed indicator's empty label for the "neither truth" case: it
+  // paints nothing, so there is no wording to author.
+  // '' is the none-appearance's empty label. The two long literals are a
+  // developer-facing debug assert message, never rendered to users.
+  'lib/ui/server_state_indicator.dart': {
+    "''",
+    "'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '",
+    "'ServerStateGlyph has no probe paint.'",
+  },
+  // The Connections surface's widget keys plus the endpoint line — machine
+  // data (username@host:port) rendered beside ARB-authored copy.
+  'lib/ui/connections/connections_view.dart': {
+    "'connections-retry'",
+    r"'connection.${server.serverId}'",
+    r"'connection.review.${server.serverId}'",
+    r"'${server.username}@${server.host}:${server.port}'",
+  },
+  'lib/ui/connections/connections_command.dart': {
+    "'view.connections'",
+  },
+  // Debug diagnostics only (`toString` of two immutable rows); never
+  // rendered, so there is no copy to author.
+  'lib/services/connection_status_controller.dart': {
+    r"'PaneFailure($paneTabId, $message)'",
+    r"'ConnectionServer($serverId, $label, $status)'",
   },
   'lib/ui/demo/sftp_demo_view.dart': {
     "'connect.demoListing'",
