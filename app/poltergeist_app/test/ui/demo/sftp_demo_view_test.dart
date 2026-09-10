@@ -192,6 +192,9 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
     _pendingReplies.clear();
     for (final completer in pending) {
       if (!completer.isCompleted) {
+        // A suspended open awaits this future; an abandoned one must not
+        // leak an unhandled error either way.
+        completer.future.ignore();
         completer.completeError(
           StateError('engine closed while awaiting a scripted reply'),
         );

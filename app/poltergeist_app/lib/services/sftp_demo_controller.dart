@@ -212,6 +212,10 @@ class SftpDemoController extends ChangeNotifier {
     _connecting = true;
     final attempt = ++_attempt;
 
+    // Surface the connecting state immediately — the cleanup below can
+    // suspend, and the button must read disabled during it.
+    notifyListeners();
+
     // The previous session (a completed connect, or a failed one that
     // minted a serverId) must not linger: every connect mints a fresh
     // bookmark id (03 §3.5), so the old reference is closed, never
