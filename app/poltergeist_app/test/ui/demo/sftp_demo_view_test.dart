@@ -1771,6 +1771,37 @@ void main() {
       expect(engine.probeCalls.last, 'targets:');
       expect(find.byType(ProbeStatusDot), findsNothing);
     });
+
+    testWidgets('a blocked connection outranks the online probe dot', (
+      tester,
+    ) async {
+      final engine = successfulEngine(
+        channel: FakeDemoBrowseChannel(
+          homePath: '/home/deploy',
+          entries: _scriptedEntries,
+        ),
+      );
+      await pumpDemoView(tester, engine);
+      await resume(tester);
+      await submitDemoForm(tester);
+      await tester.pumpAndSettle();
+
+      // Probe truth says reachable (the fake's default online snapshot).
+      expect(find.byTooltip(l10n.probeStatusOnline), findsOneWidget);
+
+      // The pool then hard-blocks the server (D18). Live connection truth
+      // outranks probe results (02 §4), so the green dot must go.
+      engine.statesController.add(
+        const ServerStatus(
+          ServerConnectionState.blocked,
+          detail: 'Host key changed for example.com:22.',
+        ),
+      ); // The stream delivery and the rebuild it triggers each need a turn.
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ProbeStatusDot), findsNothing);
+      expect(find.byTooltip(l10n.connectionBlockedTitle), findsOneWidget);
+    });
   });
 
   test('the production seam drives the flow over real isolate ports', () async {

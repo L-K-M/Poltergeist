@@ -687,6 +687,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unreachable'**
   String get probeStatusOffline;
+
+  /// Label of the composed server indicator while authenticated transports exist.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get connectionStateConnected;
+
+  /// Label of the composed server indicator while the pool holds no transport for the server and no failure is known.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected'**
+  String get connectionStateNotConnected;
+
+  /// Toolbar command label and page title of the Connections surface (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Connections'**
+  String get connectionsTitle;
+
+  /// Semantics label of the Connections list's loading spinner.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading servers'**
+  String get connectionsLoading;
+
+  /// Empty state of the Connections list: the app holds no server reference.
+  ///
+  /// In en, this message translates to:
+  /// **'No servers yet.'**
+  String get connectionsEmpty;
+
+  /// Inline error when the bookmark store cannot be read for the Connections list.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read the favorites file.'**
+  String get connectionsLoadFailed;
+
+  /// Warning copy on a host-key-blocked row (D18: the block is never lifted silently).
+  ///
+  /// In en, this message translates to:
+  /// **'Blocked until you review the host key at the next connection attempt.'**
+  String get connectionsBlockedWarning;
+
+  /// Affordance leading to the changed-key review dialog, which the next connect attempt raises.
+  ///
+  /// In en, this message translates to:
+  /// **'Review host key…'**
+  String get connectionsReviewHostKey;
+
+  /// Per-pane attribution of a terminal recovery failure (03 §3.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Pane {pane} failed: {message}'**
+  String connectionsPaneFailure(String pane, String message);
 }
 
 class _AppLocalizationsDelegate
