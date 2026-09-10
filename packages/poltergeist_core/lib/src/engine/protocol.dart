@@ -162,6 +162,11 @@ final class HostKeyPinnedEvent extends EngineEvent {
 /// store. The engine mirrors every put/remove here so a restart seeds it from
 /// exactly the records the app persisted — one writer, one store owner,
 /// exactly like [HostKeyPinnedEvent].
+///
+/// These events and the [EngineConfig.incidents] seed cross an isolate port:
+/// [IncidentRecord] and [PoolKey] must stay deeply sendable and immutable,
+/// and a receiver must treat them as snapshots — object identity does not
+/// survive the port.
 sealed class IncidentStoreEvent extends EngineEvent {
   const IncidentStoreEvent();
 }
@@ -536,12 +541,15 @@ final class EngineConfig {
   final List<HostKey> hostKeyPins;
 
   /// Trust-incident records restored from the app-owned store; the engine
-  /// seeds its in-memory incident store from these. A record is dropped at
-  /// load (audit finding A) unless its `pinnedFingerprintSha256` matches the
-  /// pin [hostKeyPins] holds for the record's own endpoint — the verifier's
-  /// `(host, port)` lookup, never a fingerprint found anywhere in the list,
-  /// because only that endpoint's pin can review or lift the block.
-  /// Re-detection covers a dropped record's endpoint on the next connect.
+  /// seeds its in-memory incident store from these. A record is not restored
+  /// unless its `pinnedFingerprintSha256` matches the pin [hostKeyPins] holds
+  /// for the record's own endpoint — the verifier's `(host, port)` lookup,
+  /// never a fingerprint found anywhere in the list, because only that
+  /// endpoint's pin can review or lift the block (audit finding A).
+  /// Re-detection covers the endpoint on the next connect. A skipped record
+  /// is deleted only when the endpoint holds a *different* pin: with no pin
+  /// at all the app keeps it, because an empty pin seed is indistinguishable
+  /// from a pin store that failed to load.
   final List<IncidentRecord> incidents;
 
   const EngineConfig({

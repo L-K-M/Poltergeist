@@ -131,8 +131,10 @@ abstract interface class ConnectionManager {
   /// ends when its last bookmark's records are gone; a later connect
   /// re-detects whatever key the server presents (D18 unchanged).
   ///
-  /// The id is gone for good, so its [watchServer] stream completes —
-  /// unlike [disconnectServer], which keeps it open for a reconnect.
+  /// The id is gone for good, so the watches it had complete — unlike
+  /// [disconnectServer], which keeps them open for a reconnect. The manager
+  /// keeps no tombstone: watching the id again afterwards behaves like
+  /// watching any id it never saw.
   Future<void> removeBookmark(String serverId);
 }
 
@@ -1283,11 +1285,15 @@ class PooledConnectionManager implements ConnectionManager {
     try {
       final records = await store.load();
       for (final record in records) {
-        if (!await _namesCurrentPin(record)) {
+        final match = await _pinMatchOf(record);
+        if (match != _PinMatch.names) {
           // Audit finding A: a record that no longer names the endpoint's
-          // pin carries a block with no escape. Drop it and delete the
-          // stale record; the next connect re-detects against the real pin.
-          await _dropStaleRecord(store, record);
+          // pin carries a block with no escape, so it is not restored — the
+          // next connect re-detects against the real pin. Deleting it is
+          // safe only when the pin store definitively answered.
+          if (match == _PinMatch.differs) {
+            await _deleteStaleRecord(store, record);
+          }
           continue;
         }
         _incidents.putIfAbsent(
@@ -1306,39 +1312,41 @@ class PooledConnectionManager implements ConnectionManager {
     }
   }
 
-  /// Whether the record's pinned half still names the endpoint's current
-  /// pin — the invariant a restored block needs to stay honest and
-  /// escapable (audit finding A). Two ways it breaks:
+  /// What the record's pinned half means against the pin the verifier holds
+  /// for the record's own endpoint — the invariant a restored block needs to
+  /// stay honest and escapable (audit finding A).
   ///
-  /// - No pin at all: every connect verifies `firstUse`, which a blocked
-  ///   pool refuses to prompt for, and 1a's restored-key match has nothing
-  ///   to match. The block would outlive both of D18's escapes.
-  /// - The pin moved on: the block's detail would name a fingerprint the
-  ///   pin store no longer holds, and 1a would lift it on a key this
-  ///   record never recorded.
+  /// Only [_PinMatch.names] restores the block. Otherwise the block would
+  /// outlive both of D18's escapes: with no pin every connect verifies
+  /// `firstUse`, which a blocked pool refuses to prompt for, and 1a's
+  /// restored-key match has nothing to match; with a different pin the
+  /// block's detail would name a fingerprint the store no longer holds, and
+  /// 1a would lift it on a key this record never recorded.
   ///
-  /// Dropping costs no protection: the next connect re-detects against the
+  /// Skipping costs no protection: the next connect re-detects against the
   /// real pin, and the verifier — never a persisted record — is the trust
   /// authority (D18).
-  Future<bool> _namesCurrentPin(IncidentRecord record) async {
-    final pinned = record.pinnedFingerprintSha256;
-    if (pinned == null) return false;
-
-    // The verifier's own lookup key: the opener passes the config's host
-    // and port to it verbatim, and the record stored them the same way.
+  Future<_PinMatch> _pinMatchOf(IncidentRecord record) async {
+    // The verifier's own lookup key: the opener passes the config's host and
+    // port to it verbatim, and the record stored them the same way. The same
+    // fingerprint pinned at ANOTHER endpoint (a cloned machine, a shared jump
+    // host) says nothing about this one.
     final key = await _tofu.store.get(record.host, record.port);
-    return key != null && key.fingerprintSha256 == pinned;
+    if (key == null) return _PinMatch.absent;
+    return key.fingerprintSha256 == record.pinnedFingerprintSha256
+        ? _PinMatch.names
+        : _PinMatch.differs;
   }
 
-  Future<void> _dropStaleRecord(
+  Future<void> _deleteStaleRecord(
     IncidentStore store,
     IncidentRecord record,
   ) async {
     try {
       await store.removeFor(record.serverId, record.poolKey);
     } on Object catch (error) {
-      // Best-effort cleanup: an undeleted stale record is still dropped in
-      // memory, and the next load drops it again.
+      // Best-effort cleanup: an undeleted stale record is still skipped in
+      // memory, and the next load skips it again.
       _reportIncidentStoreError(error);
     }
   }
@@ -2142,6 +2150,23 @@ class _HostKeyIncident {
     presentedFingerprintSha256: presentedFingerprintSha256,
     pinnedFingerprintSha256: pinnedFingerprintSha256,
   );
+}
+
+/// What a restored incident record's pinned half means against the pin the
+/// verifier holds for that record's own endpoint.
+enum _PinMatch {
+  /// The endpoint is pinned to exactly this record's key: restore the block.
+  names,
+
+  /// The endpoint is pinned to a different key, so the record is stale. The
+  /// store definitively answered, which makes deleting it safe.
+  differs,
+
+  /// No pin at all. Ambiguous by nature: a pin store that failed to load
+  /// reads the same way, so the record is skipped but never deleted —
+  /// erasing a user's persisted declines over a transient read is
+  /// irreversible, and the block returns if the pin does.
+  absent,
 }
 
 /// The TOFU verdict of one connect attempt. The opener never invokes the

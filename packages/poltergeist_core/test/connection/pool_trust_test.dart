@@ -110,9 +110,7 @@ void main() {
     },
   );
 
-  test(
-    'a block installed mid-attempt is never lifted by that attempt',
-    () async {
+  test('a mid-attempt block is never lifted by that attempt', () async {
     final harness = await _harness([_originalKey]);
     harness.onHostKey = (_) async => false;
 

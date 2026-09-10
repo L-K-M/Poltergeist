@@ -57,6 +57,15 @@ const _pinnedKey = HostKey(
 
 const _changedFingerprint = 'SHA256:changed';
 
+/// A pin the seeded record never named — the endpoint's pin moved on.
+const _otherPinnedKey = HostKey(
+  host: 'example.com',
+  port: 2222,
+  type: 'ssh-ed25519',
+  fingerprintSha256: 'SHA256:other-pinned',
+  pinnedAt: 0,
+);
+
 /// A declined changed-key record for [_config]'s endpoint, as the app's
 /// persisted store would restore it (owner decision 2a).
 const _incidentRecord = IncidentRecord(
@@ -840,9 +849,7 @@ void main() {
     expect(h.events.whereType<IncidentRecordRemovedEvent>(), isEmpty);
   });
 
-  test(
-    'a seeded incident and pin restore a block the pinned key lifts',
-    () async {
+  test('seeded incidents and pins restore a liftable block', () async {
     final h = HostHarness(
       config: const EngineConfig(
         hostKeyPins: [_pinnedKey],
@@ -915,7 +922,7 @@ void main() {
     expect(removed.endpoint, _incidentRecord.poolKey);
   });
 
-  test('a seeded incident without its pin is dropped and mirrored', () async {
+  test('a seeded incident without its pin is skipped, not deleted', () async {
     final h = HostHarness(
       config: const EngineConfig(incidents: [_incidentRecord]),
       opener: FakeTransportOpener(
@@ -932,9 +939,11 @@ void main() {
     await h.pumping();
 
     // Audit finding A: with the pin half gone the restored block could
-    // never be reviewed or lifted, so the load drops the record and the
+    // never be reviewed or lifted, so the load skips the record and the
     // endpoint re-detects — here as a first use, which a blocked pool would
-    // have refused to prompt for.
+    // have refused to prompt for. Nothing is mirrored: "no pin" is also what
+    // an app pin store that failed to load reads as, so the app keeps the
+    // record and the block returns if the pin does.
     final review = h.takePrompt();
     expect(review.kind, EnginePromptKind.hostKeyFirstUse);
     h.reply(review, const HostKeyPromptReply(accepted: true));
@@ -945,10 +954,36 @@ void main() {
       h.events.whereType<ServerStateEvent>().map((event) => event.state),
       isNot(contains(ServerConnectionState.blocked)),
     );
+    expect(h.events.whereType<IncidentRecordRemovedEvent>(), isEmpty);
+    expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
+  });
+
+  test('a contradicted seeded incident is deleted and mirrored', () async {
+    final h = HostHarness(
+      config: const EngineConfig(
+        hostKeyPins: [_otherPinnedKey],
+        incidents: [_incidentRecord],
+      ),
+      opener: FakeTransportOpener(
+        presentedFingerprints: const ['SHA256:other-pinned'],
+      ),
+    );
+    addTearDown(h.dispose);
+
+    final opened = h.openBrowse();
+    await h.pumping();
+    h.reply(h.takePrompt(), _credentials);
+    expect(await opened, isA<BrowseChannelOpened>());
+    await h.pumping();
+
+    // The endpoint IS pinned, just to a key this record never named: the
+    // store definitively answered, so the stale record is deleted and the
+    // app's store converges. The trusted connect installs no new one.
     final removed = h.events.whereType<IncidentRecordRemovedEvent>().single;
     expect(removed.serverId, 'srv-1');
     expect(removed.endpoint, _incidentRecord.poolKey);
     expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
+    expect(h.events.whereType<EnginePromptEvent>(), isEmpty);
   });
 
   test('removeBookmark mirrors the cascade delete', () async {

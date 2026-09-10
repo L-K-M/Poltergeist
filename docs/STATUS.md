@@ -1431,17 +1431,22 @@ caller exists yet, so production engines still spawn an empty config.
 - **Seeding is coupled (audit A).** `EngineConfig.incidents` joins
   `hostKeyPins`, and `EngineHost` seeds both from that one config: an
   in-memory incident store behind a forwarding bridge, and the verifier's
-  pins. A seeded record whose `pinnedFingerprintSha256` no longer names a
-  pin at its endpoint is dropped at load and deleted from the store
-  (03 §3.2 rule 1 and §5, amended in this PR). With no pin, every connect
-  verifies `firstUse` — which a blocked pool refuses to prompt for — and
-  1a's restored-key match has nothing to match, so the restored block would
-  outlive both of D18's escapes and leave `removeBookmark` the only way out.
-  A pin that moved on drops the record as well: the block's detail would
-  name a fingerprint the pin store no longer holds, and 1a would lift it on
-  a key the record never named. Dropping costs no protection — the next
-  connect re-detects against the pin store, which is the trust authority.
-  No verdict, prompt, or crypto semantics changed (D18).
+  pins. A seeded record is restored only while its
+  `pinnedFingerprintSha256` names the pin at its *own* endpoint — the
+  verifier's `(host, port)` lookup, never the same fingerprint pinned
+  somewhere else (03 §3.2 rule 1 and §5, amended in this PR). Otherwise the
+  block would outlive both of D18's escapes and leave `removeBookmark` the
+  only way out: with no pin every connect verifies `firstUse`, which a
+  blocked pool refuses to prompt for, and 1a's restored-key match has
+  nothing to match; with a different pin the block's detail would name a
+  fingerprint the store no longer holds and 1a would lift it on a key the
+  record never named. Skipping costs no protection — the next connect
+  re-detects against the pin store, which is the trust authority. The stale
+  record is deleted only when the endpoint definitively holds a different
+  pin; with no pin at all the app keeps it, because an empty pin seed is
+  indistinguishable from a pin store that failed to load and erasing a
+  persisted decline cannot be undone. No verdict, prompt, or crypto
+  semantics changed (D18).
 - **The incident bridge (03 §5, protocol v6).** Every engine-side mutation
   crosses as a typed `IncidentStoreEvent`: `IncidentRecordStoredEvent` (a
   declined changed-key block installed or re-written) and
@@ -1492,7 +1497,7 @@ v1 does not have: one app process (D13), one store instance built at
 startup. The ported app-layer file stores lock nothing either, so locking
 here would diverge from the port convention (09 §4).
 
-Validation: twenty-three new core tests, each observed failing before its fix
+Validation: twenty-four new core tests, each observed failing before its fix
 (or, for the protocol seams, failing to compile before the types existed).
 The audit's scratch scenario is now a regression: a restored record with no
 pin comes up blocked with no prompt and no escape, and after the fix it is
@@ -1511,7 +1516,7 @@ broadcast, removal-closed watch, and shutdown closure round-trip through
 spawned isolates; protocol v6 round-trips the new request, both events, and
 `EngineConfig.incidents`.
 
-Core analysis clean; 379 core tests pass (15 Docker-fixture skips — Docker
+Core analysis clean; 380 core tests pass (15 Docker-fixture skips — Docker
 unavailable locally, so the real-sshd leg rides CI on the PR head). Import
 guard (92 + scan), protocol guard (51 + scan), pin audit (9), fixture tools
 (62), bench harness (79), license gate (34), and release-version (155 +
@@ -1548,8 +1553,9 @@ password" at `engine_host_test.dart:72` is a socket-free fixture reply
 (`'pw'`) that predates this PR and appears in some ten existing tests in the
 same file — no credential, no connection, and CI's Gitleaks and
 fixture-key-scope leg passes on this head. Already satisfied: the load-time
-drop routes through `store.removeFor`, so the app mirror converges — pinned
-by "a seeded incident without its pin is dropped and mirrored".
+skip deletes through `store.removeFor` when the endpoint holds a different
+pin (round 4 narrowed it to that case), so the app mirror converges — pinned
+by "a seeded incident without its pin is skipped, not deleted".
 
 Review round 2 (two applied, one applied as a pin, five refuted or declined
 with evidence): incident seeding is now structural —
@@ -1627,6 +1633,64 @@ No correctness, security, or contract finding is open after round 3: the two
 majors are a hypothetical whose premise the code contradicts and a doc
 precision fix (applied), and the rest is polish or re-litigation. Steady
 state per the owner's bar.
+
+Review round 4 (one substantive finding applied; two majors refuted; the rest
+declined as polish or re-litigation): a skipped record is now deleted only
+when its endpoint definitively holds a *different* pin. "No pin at all" is
+indistinguishable from a pin store that failed to load — both ported file
+stores read an unreadable file as empty — and the previous rule deleted the
+app's persisted declines in that case: irreversible, and exactly the state
+the app-side composition reaches if its pin load fails while its incident
+load succeeds. The record is now skipped in memory (the endpoint stays
+unblocked and reviewable, so audit finding A's fix is intact) and kept on
+disk, so the block returns if the pin does. Three tests pin the split,
+observed failing against the delete-on-absent rule. 03 §3.2, 03 §5, and
+`EngineConfig.incidents` state the endpoint-scoped match and the two-case
+delete rule.
+Refuted with evidence: both "resurrection" majors. The engine's
+`_servers[serverId] = request.config` runs synchronously at the top of the
+open handler, before its first await, so a removal starting later removes it
+and the open's continuation registers only a channelId; `_watch` is reachable
+only from `WatchServerRequest`, so an open cannot re-arm a watch. In the
+manager, `disconnectServer` drops the pending identity synchronously and
+`_resolveReference` re-checks it after its await, so a resolve in flight is
+rejected. The residual window — a *new* open arriving between
+`disconnectServer` and the fan-out drop — needs the app to open a bookmark it
+is concurrently deleting, ends in a bounded pool that no later open can join
+(the engine forgets the config) and that its pane's close tears down, and
+changes no trust state. A tombstone or per-id generation would add
+never-shrinking per-id state, the growth audit finding C targets, so that
+shape belongs to M3's Quick Connect design (item 3).
+Declined with recorded reasons: absorbing `disconnectServer`'s error (round
+3's decline stands); the re-raised `finally`-body throw
+(`_withdrawIncidentStakes` and `_forgetStateFanOut` are synchronous map
+operations and a closed-guarded controller add, with no throw path); the
+quarantine-report reorder (`_quarantineCorruptFile` catches internally, so it
+cannot mask the reported cause); the event-shape split for bulk versus scoped
+removals (the
+nullable endpoint mirrors `IncidentStore.removeFor`/`removeAllFor` and is the
+documented protocol shape; two event types would be a new seam for no
+behavioral gain); the `chmod` exit-code assertions (both tests fail loudly
+without the mode change — the observer and `throwsA` assertions cannot pass
+if `chmod` no-ops); the `dart format` nit (the repository is not
+format-clean: 21 pre-existing core files deviate and CI has no format gate);
+the two assertion-precision nits on tests whose failure modes are already
+loud; and the fourth raise of the fixture-password "critical".
+Steady state stands: round 4's one substantive finding is applied and no
+correctness, security, or contract finding remains open.
+Also applied from round 4 (doc precision, no behavior change): 03 §5's
+`RemoveBookmarkRequest` copy now carries the finality-on-throw guarantee the
+source doc states; `_forgetServer`'s doc says it runs from the cascade's
+`finally` rather than asserting the manager finished; the bridge's bulk erase
+states that a null endpoint means "every record for this serverId", never an
+unmatched lookup; `IncidentStoreEvent` records that `IncidentRecord` and
+`PoolKey` must stay deeply sendable and are received as snapshots;
+`removeBookmark`'s interface doc says the manager keeps no tombstone, so
+watching a removed id afterwards behaves like watching an id it never saw.
+That last point is recorded in item 3 as audit finding C's residual: a
+re-watch of a deleted id allocates a controller nothing will close, and a
+tombstone is the same never-shrinking per-id state M3's lifecycle design
+owns.
 
 ## Open items
 
@@ -1763,6 +1827,13 @@ state per the owner's bar.
      completes. Still open: the disconnect path keeps its controllers (a
      disconnected bookmark may reconnect, so that is correct) and
      `EngineHost._channels`, which no request maps back to a serverId.
+     Also open, from the same family: a *new* open arriving between
+     `disconnectServer` and the fan-out drop can register a bounded pool for
+     an id being removed, and a *new* watch of an already-removed id
+     allocates a controller nothing will close (the manager keeps no
+     tombstone by design). Both need per-id removal state that never
+     shrinks, so decide them with M3's Quick Connect lifecycle rather than
+     piecemeal here.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the

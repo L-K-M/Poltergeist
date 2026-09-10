@@ -304,7 +304,7 @@ void main() {
   });
 
   test(
-    'a restored record with no pin is dropped and reviewable again',
+    'a restored record with no pin is skipped but never deleted',
     () async {
       final store = InMemoryIncidentStore();
       await store.put(_record(serverId: 's1'));
@@ -312,8 +312,10 @@ void main() {
       // Audit finding A: the record survived a restart but its pin did not.
       // Restoring that block leaves it with no escape — every connect
       // verifies firstUse, which a blocked pool refuses to prompt for, and
-      // 1a has no pin to match — so the load drops the record, deletes it,
-      // and lets the endpoint re-detect.
+      // 1a has no pin to match — so the load skips it and lets the endpoint
+      // re-detect. It does NOT delete it: "no pin" is also what a pin store
+      // that failed to load reads as, and erasing the user's persisted
+      // declines over a transient read is irreversible.
       final harness = await _harness(
         [_changedKey],
         store: store,
@@ -331,7 +333,7 @@ void main() {
       );
       expect(verdicts, [HostKeyVerdict.firstUse]);
       expect(harness.store.pins.values.single.fingerprintSha256, _changedKey);
-      await _eventually(() => store.load(), (records) => records.isEmpty);
+      expect(await store.load(), [_record(serverId: 's1')]);
       await pane.close();
     },
   );
@@ -369,7 +371,9 @@ void main() {
       paneTabId: 'review',
     );
     expect(verdicts, [HostKeyVerdict.firstUse]);
-    await _eventually(() => store.load(), (records) => records.isEmpty);
+    // Skipped, not deleted: the record's own endpoint has no pin, which is
+    // also what a pin store that failed to load reads as.
+    expect(await store.load(), [_record(serverId: 's1')]);
     await pane.close();
   });
 
@@ -404,13 +408,13 @@ void main() {
     },
   );
 
-  test('a dropped record whose delete fails still loads unblocked', () async {
+  test('a stale record whose delete fails still loads unblocked', () async {
     final inner = InMemoryIncidentStore();
     await inner.put(_record(serverId: 's1'));
     final harness = await _harness(
       [_changedKey],
       store: _DeleteFailingIncidentStore(inner),
-      pinnedFingerprint: null,
+      pinnedFingerprint: _thirdKey,
     );
     var prompts = 0;
     harness.onHostKey = (_) async {
@@ -418,12 +422,14 @@ void main() {
       return true;
     };
 
-    // Dropping the record in memory is what restores the review path;
-    // deleting the dead record is best-effort and reports to the observer.
-    final pane = await harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+    // The endpoint is pinned, just to another key, so the record is stale
+    // and its delete is attempted. A worker never prompts, so a lease that
+    // connects at all proves the block was not restored; the failed delete
+    // reaches only the observer.
+    final lease = await harness.manager.leaseTransferChannel('s1');
     expect(prompts, 1);
     expect(harness.incidentStoreErrors, isNotEmpty);
-    await pane.close();
+    await lease.release();
   });
 
   test(

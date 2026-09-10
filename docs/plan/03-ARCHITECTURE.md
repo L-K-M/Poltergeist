@@ -451,13 +451,17 @@ boundary when it wraps resolvers — one mechanism, both sides.
    are gone. A `blocked` pool with no user action and no restored-key
    presentation stays blocked indefinitely.
    A *restored* record re-installs its block only while it still names the
-   endpoint's pinned key: a record whose pinned fingerprint has no matching
-   pin at load is dropped and deleted instead, because neither exit above is
+   pin at its own endpoint: a record that endpoint's pin contradicts, or one
+   with no pin at all, is not restored, because neither exit above is
    reachable for it — with no pin every connect verifies `firstUse`, which a
    blocked pool refuses to prompt for, and the restored-key match has nothing
-   to match. Dropping costs no protection: the next connect re-detects
-   against the pin store, which is the trust authority. Incident seeding and
-   pin seeding therefore land together (§5's `EngineConfig`).
+   to match. Skipping costs no protection: the next connect re-detects
+   against the pin store, which is the trust authority. The stale record is
+   deleted only when the endpoint definitively holds a different pin; with no
+   pin at all it is kept, because an empty pin seed is indistinguishable from
+   a pin store that failed to load and erasing a persisted decline cannot be
+   undone. Incident seeding and pin seeding therefore land together (§5's
+   `EngineConfig`).
 2. **Interactive auth caps the pool at one transport.** Record how the first
    connect authenticated. If keyboard-interactive ran or a password was
    prompted interactively, `maxTransports` is effectively 1 — additional
@@ -1533,7 +1537,9 @@ class DisconnectServerRequest extends EngineRequest { final String serverId; }
 /// (§3.2's `removeBookmark`, owner decision 3a): the disconnect plus the
 /// incident cascade. The engine also forgets the id's config and watch, and
 /// the client closes the id's state stream — a removed bookmark can never
-/// emit again.
+/// emit again. The removal is final even when the teardown throws: the
+/// cascade's `finally` still withdraws the owners and deletes the records
+/// (§3.2's rule, audit finding F), and the caller must not retry it.
 class RemoveBookmarkRequest extends EngineRequest { final String serverId; }
 class ShutdownRequest extends EngineRequest {}
 /// The first message after spawn: pool policy, the UI-side pin store's
@@ -1547,8 +1553,10 @@ class ShutdownRequest extends EngineRequest {}
 /// (the app). The two seeds are coupled and must be supplied together: an
 /// incident restored without the pin it names would block an endpoint with
 /// no review path and no restored-key escape (§3.2 rule 1), so the engine
-/// drops a seeded record whose pinned fingerprint no longer names a seeded
-/// pin, mirrors the delete, and lets the next connect re-detect.
+/// refuses to restore a seeded record whose pinned fingerprint does not name
+/// the pin at the record's own endpoint — never one pinned only elsewhere —
+/// mirrors the delete when that endpoint holds a different pin, keeps the
+/// record when it holds none, and lets the next connect re-detect.
 
 sealed class EngineEvent {}
 class ProbeStatusesEvent extends EngineEvent {

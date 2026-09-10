@@ -288,9 +288,7 @@ void main() {
       expect(quarantine, isEmpty);
     });
 
-    test(
-      'load failures reach the observer without changing the result',
-      () async {
+    test('load failures reach the observer, not the result', () async {
       final file = File(path);
       await file.parent.create(recursive: true);
 
@@ -329,9 +327,7 @@ void main() {
       );
     });
 
-    test(
-      'an unreadable file reports a FileSystemException to the observer',
-      () async {
+    test('an unreadable file reports FileSystemException', () async {
       if (!Platform.isLinux && !Platform.isMacOS) {
         markTestSkipped('mode-000 read denial applies on desktop POSIX only');
         return;

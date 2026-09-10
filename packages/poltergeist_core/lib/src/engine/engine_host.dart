@@ -326,10 +326,11 @@ class EngineHost {
     _watches.remove(serverId)?.cancel();
   }
 
-  /// Drops every host-side trace of a removed bookmark. The manager already
-  /// closed its channels and records; this releases the config and watch so
-  /// a long-lived engine does not retain state for ids that no longer exist
-  /// (audit finding C's engine-side growth).
+  /// Drops every host-side trace of a removed bookmark. Runs from the
+  /// removal's `finally`, so it also fires when the manager's own cleanup
+  /// failed partway: host state must never outlive the bookmark, and a
+  /// long-lived engine must not retain config or a watch for an id that no
+  /// longer exists (audit finding C's engine-side growth).
   void _forgetServer(String serverId) {
     _servers.remove(serverId);
     _unwatch(serverId);
@@ -422,6 +423,8 @@ final class _IncidentBridge implements IncidentStore {
   @override
   Future<void> removeAllFor(String serverId) async {
     await _store.removeAllFor(serverId);
+    // No endpoint means bulk erase: the mirror must read a null endpoint as
+    // "delete every record for this serverId", never as an unmatched lookup.
     _events.send(IncidentRecordRemovedEvent(serverId: serverId));
   }
 }
