@@ -68,6 +68,17 @@ const _incident = IncidentRecord(
 );
 const _endpoint = PoolKey(host: 'example.com', port: 2222, username: 'user');
 
+/// A second record at a different endpoint: one element cannot distinguish
+/// "the list crossed" from "the first element crossed and the rest dropped".
+const _otherIncident = IncidentRecord(
+  serverId: 'srv-2',
+  host: 'other.example.com',
+  port: 22,
+  username: 'ops',
+  presentedFingerprintSha256: 'SHA256:other-presented',
+  pinnedFingerprintSha256: 'SHA256:other-pinned',
+);
+
 void main() {
   test('batch snapshots its input and exposes an immutable item list', () {
     final source = [_sample];
@@ -419,7 +430,7 @@ void main() {
         const EngineConfig(
           policy: PoolPolicy(maxTransports: 3),
           hostKeyPins: [_pin],
-          incidents: [_incident],
+          incidents: [_incident, _otherIncident],
         ),
       );
     },
@@ -565,6 +576,7 @@ Future<void> _roundTrip(
         sent.hostKeyPins.single.fingerprintSha256,
       );
       expect(got.hostKeyPins.single.pinnedAt, sent.hostKeyPins.single.pinnedAt);
+      expect(got.incidents, hasLength(sent.incidents.length));
       expect(got.incidents, sent.incidents);
     default:
       fail(

@@ -629,8 +629,12 @@ class PooledConnectionManager implements ConnectionManager {
       await disconnectServer(serverId);
     } finally {
       _withdrawIncidentStakes(serverId);
-      await _deleteStoredBookmark(serverId);
+      // Fan-out teardown before the awaited delete: the id can emit nothing
+      // from here on, and the delete's outcome cannot skip it.
+      // (`_deleteStoredBookmark` catches and reports its own failures — a
+      // stale record must not fail a removal the app cannot retry.)
       _forgetStateFanOut(serverId);
+      await _deleteStoredBookmark(serverId);
     }
   }
 

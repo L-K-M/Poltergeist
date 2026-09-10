@@ -329,10 +329,14 @@ const _abandonedTempAge = Duration(hours: 1);
 /// break loading, and a temp that is too young or undeletable is swept on a
 /// later startup.
 Future<void> _sweepOrphanedTemps(File target) async {
-  final prefix = '${target.path}.tmp-';
+  // Resolve once: a directory listing yields parent-joined paths, so a bare
+  // relative target ('incidents.json', parent '.') would never match its own
+  // temps ('./incidents.json.tmp-…') and the sweep would silently do nothing.
+  final resolved = target.absolute;
+  final prefix = '${resolved.path}.tmp-';
   final abandonedBefore = DateTime.now().subtract(_abandonedTempAge);
   try {
-    final parent = target.parent;
+    final parent = resolved.parent;
     if (!await parent.exists()) return;
     await for (final entry in parent.list(followLinks: false)) {
       if (entry is! File) continue;

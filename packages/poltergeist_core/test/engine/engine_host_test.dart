@@ -981,12 +981,22 @@ void main() {
     expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
     expect(h.opener.calls, isEmpty);
 
-    // An id the engine never saw is a clean no-op ack.
+    // An id the engine never saw is a clean no-op ack. The bridge mirrors
+    // the command, not its effect, so the app also sees a delete for an id
+    // holding no records — idempotent on its store, and never scoped to an
+    // endpoint it does not own.
     expect(
       await h.call(
         (id) => RemoveBookmarkRequest(requestId: id, serverId: 'srv-9'),
       ),
       isA<EngineAck>(),
+    );
+    await h.pumping();
+    expect(
+      h.events.whereType<IncidentRecordRemovedEvent>().map(
+        (event) => (event.serverId, event.endpoint),
+      ),
+      [('srv-1', null), ('srv-9', null)],
     );
   });
 }

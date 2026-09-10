@@ -683,6 +683,27 @@ void main() {
     expect(await store.load(), isEmpty);
   });
 
+  test(
+    'a failing record delete neither fails the removal nor strands the watch',
+    () async {
+      final harness = await _harness(
+        [_originalKey],
+        store: _ThrowingIncidentStore(),
+      );
+      final states = harness.manager.watchServer('s1').toList();
+
+      // The delete is best-effort and reports through the observer: it must
+      // not fail a removal the app cannot retry, and the fan-out teardown
+      // runs before it, so the watch still completes.
+      await harness.manager.removeBookmark('s1');
+
+      expect(harness.incidentStoreErrors, isNotEmpty);
+      expect(await states.timeout(_watchClosureTimeout), [
+        const ServerStatus(ServerConnectionState.disconnected),
+      ]);
+    },
+  );
+
   test('removing a bookmark completes its state watch', () async {
     final harness = await _harness(
       [_originalKey],

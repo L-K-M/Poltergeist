@@ -1492,7 +1492,7 @@ v1 does not have: one app process (D13), one store instance built at
 startup. The ported app-layer file stores lock nothing either, so locking
 here would diverge from the port convention (09 §4).
 
-Validation: nineteen new core tests, each observed failing before its fix
+Validation: twenty-one new core tests, each observed failing before its fix
 (or, for the protocol seams, failing to compile before the types existed).
 The audit's scratch scenario is now a regression: a restored record with no
 pin comes up blocked with no prompt and no escape, and after the fix it is
@@ -1511,7 +1511,7 @@ broadcast, removal-closed watch, and shutdown closure round-trip through
 spawned isolates; protocol v6 round-trips the new request, both events, and
 `EngineConfig.incidents`.
 
-Core analysis clean; 375 core tests pass (15 Docker-fixture skips — Docker
+Core analysis clean; 377 core tests pass (15 Docker-fixture skips — Docker
 unavailable locally, so the real-sshd leg rides CI on the PR head). Import
 guard (92 + scan), protocol guard (51 + scan), pin audit (9), fixture tools
 (62), bench harness (79), license gate (34), and release-version (155 +
@@ -1524,6 +1524,32 @@ calling `removeBookmark` from bookmark deletion — which rides production
 wiring (item 3) and M5's bookmark store, since no app-side bookmark
 deletion exists before it. No source port, pin, dependency, UI, release, or
 milestone-close change.
+
+Review round 1 (three applied, one applied in corrected form, two refuted
+with evidence, one already satisfied): the temp sweep resolves its target
+before building the prefix — a bare relative filename's parent is `.`, whose
+listing yields `./name.tmp-…`, so the unresolved prefix matched nothing and
+the sweep was dead code in that wiring (regression: a chdir'd basename store
+sweeps an aged temp and spares a live one; observed failing without the
+resolution). The protocol round-trip now carries a second incident record at
+a different endpoint, so a dropped or misaligned entry fails. The removal
+test asserts both mirror events, the unknown id's included. The major
+finding — a throwing `_deleteStoredBookmark` skipping the fan-out teardown —
+rests on a path that does not exist: `_deleteStoredBookmark` catches every
+error and reports it through the guarded observer, so it cannot throw (the
+STATUS line the finding cites describes `FileIncidentStore`'s own API, whose
+write failures propagate to *its* callers; every manager call site catches).
+The fan-out teardown moved before the awaited delete regardless — the
+finding's own alternative — which drops the sequential dependency without a
+nested `finally`; a new test pins that a store whose deletes throw neither
+fails the removal nor strands the watch (it passes before and after the
+reorder, so it is a pin, not a regression). Refuted: the "weak or hardcoded
+password" at `engine_host_test.dart:72` is a socket-free fixture reply
+(`'pw'`) that predates this PR and appears in some ten existing tests in the
+same file — no credential, no connection, and CI's Gitleaks and
+fixture-key-scope leg passes on this head. Already satisfied: the load-time
+drop routes through `store.removeFor`, so the app mirror converges — pinned
+by "a seeded incident without its pin is dropped and mirrored".
 
 ## Open items
 

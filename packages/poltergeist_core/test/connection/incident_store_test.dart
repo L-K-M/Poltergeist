@@ -411,6 +411,25 @@ void main() {
       expect(await sibling.exists(), isTrue);
     });
 
+    test('the sweep matches a bare relative filename', () async {
+      // A basename-only target's parent is '.', and listing '.' yields
+      // './incidents.json.tmp-…': an unresolved prefix matches nothing, so
+      // the sweep would silently never run for a relative wiring.
+      final previous = Directory.current;
+      Directory.current = dir;
+      addTearDown(() => Directory.current = previous);
+
+      final abandoned = File('incidents.json.tmp-abandoned');
+      await abandoned.writeAsString('partial');
+      await abandoned.setLastModified(DateTime.now().subtract(_agedTemp));
+      final live = File('incidents.json.tmp-live');
+      await live.writeAsString('partial');
+
+      expect(await FileIncidentStore(File('incidents.json')).load(), isEmpty);
+      expect(await abandoned.exists(), isFalse);
+      expect(await live.exists(), isTrue);
+    });
+
     test('an atomic write leaves no partial file behind', () async {
       final store = FileIncidentStore(File(path));
       await store.put(_record(serverId: 'a'));
