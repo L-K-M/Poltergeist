@@ -8,6 +8,7 @@ import 'app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/probe_settings_store.dart';
 import 'services/settings_store.dart';
 
 Future<void> main() async {
@@ -17,9 +18,12 @@ Future<void> main() async {
   final settingsPath =
       '${supportDirectory.path}${Platform.pathSeparator}settings.json';
   final errorReporter = ApplicationErrorReporter();
-  final preferences = AppPreferences(
-    store: SettingsStore(path: settingsPath, onError: errorReporter.report),
+  final settingsStore = SettingsStore(
+    path: settingsPath,
+    onError: errorReporter.report,
   );
+  final preferences = AppPreferences(store: settingsStore);
+  final probeSettings = ProbeSettingsStore(store: settingsStore);
   final paneRatio = await preferences.loadPaneRatio();
   final windowLifecycle = DesktopWindowLifecycle(
     preferences,
@@ -33,6 +37,7 @@ Future<void> main() async {
       // The debug-only demo surface is an explicit opt-in at the boot
       // site; tests and alternate paths stay opted out by default.
       debugDemoEnabled: kDebugMode,
+      probeSettings: probeSettings,
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
       onContentSizeChanged: (size) {

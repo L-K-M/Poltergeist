@@ -5,6 +5,7 @@ import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 
 import 'l10n/app_localizations.dart';
 import 'services/content_size_reporter.dart';
+import 'services/probe_settings_store.dart';
 import 'services/sftp_demo_controller.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -21,6 +22,7 @@ class PoltergeistApp extends StatelessWidget {
     this.scaffoldMessengerKey,
     this.debugDemoEnabled = false,
     this.sftpDemoEngineFactory,
+    this.probeSettings,
   });
 
   final double initialPaneRatio;
@@ -38,6 +40,9 @@ class PoltergeistApp extends StatelessWidget {
   /// Engine factory behind the demo surface; tests inject a scripted
   /// fake, production spawns the real engine isolate.
   final SftpDemoEngineFactory? sftpDemoEngineFactory;
+
+  /// Persisted probe settings behind the demo surface's probe wiring.
+  final ProbeSettings? probeSettings;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator.
@@ -76,6 +81,11 @@ class PoltergeistApp extends StatelessWidget {
       'sftpDemoEngineFactory was provided but debugDemoEnabled is off; '
       'the factory will be silently ignored.',
     );
+    assert(
+      !demoEnabled || probeSettings != null,
+      'debugDemoEnabled requires probeSettings: the demo session\'s '
+      'probe wiring must persist.',
+    );
     final workspace = WorkspaceShell(
       initialPaneRatio: initialPaneRatio,
       onPaneRatioChanged: onPaneRatioChanged,
@@ -84,6 +94,7 @@ class PoltergeistApp extends StatelessWidget {
       // Forward the seam only where the gated surface can consume it;
       // release/profile builds never see a spawnable engine factory.
       sftpDemoEngineFactory: demoEnabled ? sftpDemoEngineFactory : null,
+      probeSettings: demoEnabled ? probeSettings : null,
     );
     final callback = onContentSizeChanged;
     if (callback == null) return workspace;

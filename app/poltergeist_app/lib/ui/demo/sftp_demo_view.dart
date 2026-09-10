@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/app_lifecycle_forwarder.dart';
 import '../../services/application_error_reporter.dart';
+import '../../services/probe_settings_store.dart';
 import '../../services/registered_command.dart';
 import '../../services/sftp_demo_controller.dart';
 import '../connection_status_panel.dart';
+import '../probe_status_dot.dart';
 
 /// The registered id of the debug entry command (02 §8.1's connect.*
 /// group; D21).
@@ -22,6 +25,7 @@ const _defaultSshPort = 22;
 /// engine isolate. Throwaway: M3 replaces this surface.
 RegisteredCommand buildSftpDemoCommand({
   required SftpDemoEngineFactory spawnEngine,
+  required ProbeSettings probeSettings,
   required bool Function() enabled,
 }) {
   return RegisteredCommand(
@@ -29,13 +33,14 @@ RegisteredCommand buildSftpDemoCommand({
     scope: CommandScope.app,
     label: (l10n) => l10n.sftpDemoCommandLabel,
     enabled: enabled,
-    run: (context) => _runSftpDemoSession(context, spawnEngine),
+    run: (context) => _runSftpDemoSession(context, spawnEngine, probeSettings),
   );
 }
 
 Future<void> _runSftpDemoSession(
   BuildContext context,
   SftpDemoEngineFactory spawnEngine,
+  ProbeSettings probeSettings,
 ) async {
   final SftpDemoEngine engine;
   try {
@@ -61,6 +66,7 @@ Future<void> _runSftpDemoSession(
   final controller = SftpDemoController(
     engine: engine,
     navigatorKey: navigatorKey,
+    probeSettings: probeSettings,
   );
   try {
     // Inside the try so a failing start() (synchronous throws only — the
@@ -122,11 +128,24 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
   final _port = TextEditingController(text: '$_defaultSshPort');
   final _username = TextEditingController();
   AuthMethod _authMethod = AuthMethod.agent;
+  late final AppLifecycleForwarder _lifecycleForwarder;
 
   SftpDemoController get _controller => widget.controller;
 
   @override
+  void initState() {
+    super.initState();
+    // The demo route is the only surface whose session can probe, so the
+    // forwarder lives and dies with it: backgrounding pauses probes and
+    // returning resumes them (02 §4).
+    _lifecycleForwarder = AppLifecycleForwarder(
+      onState: _controller.forwardLifecycle,
+    )..attach();
+  }
+
+  @override
   void dispose() {
+    _lifecycleForwarder.detach();
     _host.dispose();
     _port.dispose();
     _username.dispose();
@@ -142,6 +161,9 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
       listenable: controller,
       builder: (context, _) {
         final serverId = controller.serverId;
+        final probeStatus = serverId == null
+            ? null
+            : controller.probeStatus(serverId);
         return Scaffold(
           appBar: AppBar(
             // The nested navigator's home route cannot pop itself; the
@@ -155,7 +177,24 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
               // app pushes above the demo route while it is open.
               onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
             ),
-            title: Text(l10n.sftpDemoTitle),
+            // The interim server list's status dot: the listed server's
+            // live probe truth renders beside the title (02 §4; the
+            // sidebar reuses this dot in M5).
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    l10n.sftpDemoTitle,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (probeStatus != null) ...[
+                  const SizedBox(width: 8),
+                  ProbeStatusDot(probeStatus),
+                ],
+              ],
+            ),
             actions: [
               if (serverId != null)
                 TextButton.icon(

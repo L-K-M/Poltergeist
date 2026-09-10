@@ -330,4 +330,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sftpDemoClose => 'Close';
+
+  @override
+  String get probeStatusUnknown => 'Reachability unknown';
+
+  @override
+  String get probeStatusOnline => 'Reachable';
+
+  @override
+  String get probeStatusOffline => 'Unreachable';
 }

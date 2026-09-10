@@ -645,6 +645,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Close'**
   String get sftpDemoClose;
+
+  /// Tooltip and semantics label of the grey status dot: the server has not been probed yet or probing is disabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Reachability unknown'**
+  String get probeStatusUnknown;
+
+  /// Tooltip and semantics label of the green status dot: the server answered the reachability probe.
+  ///
+  /// In en, this message translates to:
+  /// **'Reachable'**
+  String get probeStatusOnline;
+
+  /// Tooltip and semantics label of the red status dot: the server did not answer the reachability probe.
+  ///
+  /// In en, this message translates to:
+  /// **'Unreachable'**
+  String get probeStatusOffline;
 }
 
 class _AppLocalizationsDelegate
