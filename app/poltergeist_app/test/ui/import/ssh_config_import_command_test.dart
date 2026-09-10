@@ -107,10 +107,15 @@ void main() {
     store = _FakeBookmarkStore();
   });
 
-  SshConfigImportSetup setup({Map<String, String>? files}) {
+  SshConfigImportSetup setup({
+    Map<String, String>? files,
+    BookmarkRepository? bookmarks,
+  }) {
     return SshConfigImportSetup(
-      service: _service(FakeSshConfigSource(files ?? {_configPath: _sampleConfig})),
-      bookmarks: store,
+      service: _service(
+        FakeSshConfigSource(files ?? {_configPath: _sampleConfig}),
+      ),
+      bookmarks: bookmarks ?? store,
       configPath: _configPath,
     );
   }
@@ -210,14 +215,7 @@ void main() {
   testWidgets('a missing config file shows the retry surface, not a crash', (
     tester,
   ) async {
-    await pumpApp(
-      tester,
-      wiring: SshConfigImportSetup(
-        service: _service(FakeSshConfigSource(const {})),
-        bookmarks: store,
-        configPath: _configPath,
-      ),
-    );
+    await pumpApp(tester, wiring: setup(files: const {}));
 
     await tester.tap(commandButton);
     await tester.pumpAndSettle();
@@ -234,13 +232,7 @@ void main() {
   ) async {
     await pumpApp(
       tester,
-      wiring: SshConfigImportSetup(
-        service: _service(
-          FakeSshConfigSource({_configPath: _sampleConfig}),
-        ),
-        bookmarks: _LoadFailingBookmarkStore(),
-        configPath: _configPath,
-      ),
+      wiring: setup(bookmarks: _LoadFailingBookmarkStore()),
     );
 
     await tester.tap(commandButton);
@@ -258,13 +250,7 @@ void main() {
   ) async {
     await pumpApp(
       tester,
-      wiring: SshConfigImportSetup(
-        service: _service(
-          FakeSshConfigSource({_configPath: _sampleConfig}),
-        ),
-        bookmarks: _SaveFailingBookmarkStore(),
-        configPath: _configPath,
-      ),
+      wiring: setup(bookmarks: _SaveFailingBookmarkStore()),
     );
 
     await tester.tap(commandButton);

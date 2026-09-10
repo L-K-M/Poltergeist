@@ -149,11 +149,7 @@ void main() {
 
     final written = jsonDecode(File(path).readAsStringSync()) as Map;
     final records = (written['bookmarks'] as List).cast<Map>();
-    expect(
-      records.any((record) => record['id'] == 'future' && record['kind'] == 'fromTheFuture'),
-      isTrue,
-      reason: 'an unknown-kind record must be re-emitted verbatim',
-    );
+    expect(records, contains(equals(future)));
     expect(records.map((record) => record['id']), containsAll(['a', 'b']));
   });
 
@@ -192,7 +188,7 @@ void main() {
     final records =
         ((jsonDecode(File(path).readAsStringSync()) as Map)['bookmarks'] as List)
             .cast<Map>();
-    expect(records.any((record) => record['id'] == 'bad'), isTrue);
+    expect(records, contains(equals(malformed)));
   });
 
   test('a newer store version fails without quarantining', () async {
@@ -252,12 +248,18 @@ void main() {
 
   test('an unrecognized store version encoding fails closed', () async {
     final path = pathIn('bookmarks.json');
-    // A non-integer version is a format this version cannot read, so it
-    // must fail like a newer integer version rather than load as v1.
-    File(path).writeAsStringSync('{"version":"2","bookmarks":[]}');
-    final store = FileBookmarkStore(path: path);
-    await expectLater(store.load(), throwsA(isA<FormatException>()));
-    expect(File(path).readAsStringSync(), '{"version":"2","bookmarks":[]}');
+    const unreadable = '{"version":"2","bookmarks":[]}';
+    // A non-integer version and an older integer are both formats this
+    // version cannot read, so they fail like a newer version rather than
+    // load as v1.
+    for (final contents in [unreadable, '{"version":0,"bookmarks":[]}']) {
+      File(path).writeAsStringSync(contents);
+      await expectLater(
+        FileBookmarkStore(path: path).load(),
+        throwsA(isA<FormatException>()),
+      );
+      expect(File(path).readAsStringSync(), contents);
+    }
 
     // An absent version and the current version both load normally.
     File(path).writeAsStringSync('{"bookmarks":[]}');

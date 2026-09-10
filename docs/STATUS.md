@@ -1389,8 +1389,22 @@ source's doc says listings are absent, not empty. Refuted again (third
 raise, no new evidence): widening `_decode`'s catch to `on Object` —
 `_guardFormat` in the pinned model normalizes every failure to
 `FormatException`, and the wrong-typed-field regression passes through
-skip-and-preserve. No correctness, security, or contract finding
-survives triage; the remaining raise is a re-litigated decline.
+skip-and-preserve.
+
+Review round 4 (applied; polish, one re-raise): the version gate now
+rejects any non-null value other than this store's integer (an older or
+non-integer encoding included — a v0 test joins the v2 case), the two
+skip-and-preserve tests assert deep record equality instead of spot
+fields (verified: the store preserves the whole nested record, wrong-typed
+field included), and the widget suite's `setup()` helper takes a store
+override, collapsing three hand-rolled wirings. Refuted with evidence: a
+composition-level re-selection test — the #45 dialog suite already pins
+re-selection (`toggling rows updates the count and the imported set`
+selects the flagged row and imports it), and this suite pins that the
+returned rows persist, so the union covers the claim. Declined (fourth
+raise, no new evidence): widening `_decode`'s catch. No correctness,
+security, or contract finding survives triage; the only repeat is a
+re-litigated decline. Steady state per the owner's bar.
 
 Deliberately out of scope: M5's `BookmarkStore` UI (grouping, reorder,
 sidebar), the connect flow that consumes an imported IdentityFile (still

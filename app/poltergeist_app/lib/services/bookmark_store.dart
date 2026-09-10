@@ -176,10 +176,11 @@ final class FileBookmarkStore implements BookmarkRepository {
     // like an unreadable file (no quarantine, no empty start) so a local
     // re-save can never replace it with a v1 shape. M5/M6 own real
     // migrations; until then this is the fail-closed posture, and the
-    // calling service reports the thrown error. Any non-null version that
-    // is not the v1 integer is unrecognized and fails closed too.
+    // calling service reports the thrown error. Only this store's own
+    // version integer is understood; any other non-null value fails
+    // closed rather than being read as v1.
     final version = decoded[_versionKey];
-    if (version != null && (version is! int || version > _storeVersion)) {
+    if (version != null && version != _storeVersion) {
       throw FormatException('bookmark store version $version');
     }
 
