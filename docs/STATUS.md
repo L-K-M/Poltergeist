@@ -1826,8 +1826,9 @@ Close-prep evidence work for 07 §3.12's PORTS chore — **not a
 milestone-close claim**: startup wiring is still pending and the chore
 runs again at M2 close. Task 6's incident/pin engine bridging
 ([PR #66](https://github.com/L-K-M/Poltergeist/pull/66)) merged while
-this sweep was in review (merge `d853aa8`); it touched no PORTS
-entries, so no entry needed a task-6 re-diff marker.
+this sweep was in review (merge `d853aa8`); it changed no ported source
+or PORTS entry — the #66 citations in PORTS were added by this sweep as
+context, not by #66 — so no entry needed a task-6 re-diff marker.
 
 Method: every PORTS entry re-diffed against the pinned Séance tree
 (`2e6d1f1`, full non-shallow worktree — recorded-revision → pin source
@@ -1846,11 +1847,12 @@ tail — interim dots, persistence, lifecycle forwarding, and composition
 landed in #62, connection-state composition in #67 — and the cleanup
 dependency's `2f99f4e` pin reference (the consumed file is unchanged
 through the #35/#53 bumps to `2e6d1f1`). Open candidates re-verified
-open against the pin: the RFC 4256 echo bit is still dropped upstream,
-upstream's identity read still catches only `FileSystemException` with
-an unbounded audit write, upstream's log view still has no newest-line
-anchoring, and the mounted-harness, Enter-navigation, and autofocus-test
-candidates remain upstream-absent. Owner-gated candidates unchanged.
+open against the pin and upstream HEAD (`b8fc111`, 2026-09-09): the
+RFC 4256 echo bit is still dropped in the responder, the identity read
+still catches only `FileSystemException` with an unbounded audit write,
+the log view still has no newest-line anchoring, and the
+mounted-harness, Enter-navigation, and autofocus-test candidates remain
+upstream-absent. Owner-gated candidates unchanged.
 
 Recorded follow-up (not fixed in this docs-only sweep): four ported
 files lack the 09 §4 attribution header — `identity_file_reader.dart`,

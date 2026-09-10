@@ -7,7 +7,7 @@ The periodic `ProbeService` repair merged in
 No source copy or local scheduler is introduced. STATUS item 3 records the
 required containing pin before wiring and optional upstream test follow-ups.
 The containing pin (`2e6d1f1`, 2026-09-08) is now in place — see the pin
-findings below. Engine-side consumption lands on 2026-09-09: the pinned
+findings below. Engine-side consumption landed on 2026-09-09: the pinned
 service owns scheduling and sockets; Poltergeist adds target grouping,
 activity control, and port events. No source copy or pin change. The
 remainder landed 2026-09-10: persisted eligibility/settings, lifecycle
@@ -362,14 +362,19 @@ locally since the 2026-09-08 refresh except through the already-recorded
 PR #52 gate mirror. Two stale records are corrected in place above, each
 with its citing PR: the probe prerequisite's open-item tail (#62/#67) and
 the cleanup dependency's pin reference (#35/#53). The open port-back
-candidates were re-verified against the pin and stay open: the pinned
-responder still drops RFC 4256's per-prompt echo bit, upstream's identity
-read still catches only `FileSystemException` with an unbounded audit
-write, upstream's log view still has no newest-line anchoring, and the
-mounted-harness, Enter-navigation, and autofocus-test candidates remain
-upstream-absent. Local `file_permissions.dart` and `uuid.dart` are
-Poltergeist originals (the helper went upstream in Séance #80's port-back,
-not the reverse), so they carry no entries. The pin audit block below was
+candidates were re-verified against the pin and against upstream HEAD
+(`b8fc111`, 2026-09-09 — only the #82/#83 dialog changes sit between
+them) and stay open: the responder still drops RFC 4256's per-prompt
+echo bit, the identity read still catches only `FileSystemException`
+with an unbounded audit write, the log view still has no newest-line
+anchoring, and the mounted-harness, Enter-navigation, and autofocus-test
+candidates remain upstream-absent. Local `file_permissions.dart` and
+`uuid.dart` are Poltergeist originals (the helper went upstream in
+Séance #80's port-back, not the reverse), so they carry no entries.
+Four ported files still lack the 09 §4 attribution header
+(`identity_file_reader.dart`, `identity_file_reader_test.dart`, and both
+prompt-dialog test files) — recorded as a follow-up, not fixed in this
+docs-only sweep. The pin audit block below was
 re-verified with `tool/seance_pin_audit` (verify mode matches). This is
 close-prep, not the 07 §3.12 milestone-close chore: that sweep runs
 after startup wiring lands (task 6's engine bridging merged as PR #66
