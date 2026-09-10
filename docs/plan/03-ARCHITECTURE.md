@@ -1642,7 +1642,7 @@ class HostKeyPinnedEvent extends EngineEvent { final HostKey key; }
 /// changed-key block installed or re-written. A removal scopes to one
 /// endpoint when `endpoint` is set (a lifted or re-reviewed block, so a
 /// bookmark re-pointed elsewhere keeps its newer record) and deletes every
-/// record for `serverId` when it is null (§3.2's removal cascade, 3a).
+/// record for `serverId` when `endpoint` is null (§3.2's removal cascade, 3a).
 sealed class IncidentStoreEvent extends EngineEvent {}
 class IncidentRecordStoredEvent extends IncidentStoreEvent {
   final IncidentRecord record;

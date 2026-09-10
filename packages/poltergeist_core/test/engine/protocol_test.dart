@@ -491,7 +491,6 @@ Future<void> _roundTrip(
       final IncidentRecordStoredEvent got,
     ):
       expect(got.record, sent.record);
-      expect(got.record.poolKey, sent.record.poolKey);
     case (
       final IncidentRecordRemovedEvent sent,
       final IncidentRecordRemovedEvent got,
@@ -576,7 +575,6 @@ Future<void> _roundTrip(
         sent.hostKeyPins.single.fingerprintSha256,
       );
       expect(got.hostKeyPins.single.pinnedAt, sent.hostKeyPins.single.pinnedAt);
-      expect(got.incidents, hasLength(sent.incidents.length));
       expect(got.incidents, sent.incidents);
     default:
       fail(

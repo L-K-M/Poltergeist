@@ -1492,7 +1492,7 @@ v1 does not have: one app process (D13), one store instance built at
 startup. The ported app-layer file stores lock nothing either, so locking
 here would diverge from the port convention (09 §4).
 
-Validation: twenty-two new core tests, each observed failing before its fix
+Validation: twenty-three new core tests, each observed failing before its fix
 (or, for the protocol seams, failing to compile before the types existed).
 The audit's scratch scenario is now a regression: a restored record with no
 pin comes up blocked with no prompt and no escape, and after the fix it is
@@ -1511,7 +1511,7 @@ broadcast, removal-closed watch, and shutdown closure round-trip through
 spawned isolates; protocol v6 round-trips the new request, both events, and
 `EngineConfig.incidents`.
 
-Core analysis clean; 378 core tests pass (15 Docker-fixture skips — Docker
+Core analysis clean; 379 core tests pass (15 Docker-fixture skips — Docker
 unavailable locally, so the real-sshd leg rides CI on the PR head). Import
 guard (92 + scan), protocol guard (51 + scan), pin audit (9), fixture tools
 (62), bench harness (79), license gate (34), and release-version (155 +
@@ -1591,6 +1591,42 @@ pumping in one of the two would leave the file inconsistent.
 Recorded for the app-side composition: the mirror must apply removals
 idempotently — including for a record it just seeded, which the engine drops
 when its pin is gone — and must never re-seed the engine in response.
+
+Review round 3 (five applied, four declined or refuted with evidence):
+`EngineConfig.incidents` now states that the drop rule matches the pin at the
+record's *own* endpoint (the verifier's `(host, port)` lookup), never a
+fingerprint found anywhere in the pin list, and a test pins it — a record
+whose fingerprint is pinned only at another endpoint (a cloned machine, a
+shared jump host) still drops; observed failing against a fingerprint-only
+check. 03 §5 names `endpoint` instead of an ambiguous pronoun in the removal
+event's cascade clause, `RemoveBookmarkRequest`'s doc states the removal is
+final even when the teardown throws, the torn-write leg asserts its own
+quarantine, and two subsumed round-trip assertions are gone.
+Declined with recorded reasons: swallowing `disconnectServer`'s error inside
+the cascade (raised as major). The finding's "an id the engine never
+connected" case does not throw — `disconnectServer` returns early, pinned by
+the host test's unknown-id ack — and no throw path exists on that route today
+(audit F's own verification: every cleanup await there runs
+`CleanupFailureMode.ignore`). The suggested `_reportIncidentStoreError`
+channel is documented for *store* failures, a new removal-failure observer is
+a public seam this slice's boundary excludes, and silently absorbing an
+unexpected internal failure contradicts the repo's explicit-errors rule. The
+`finally` already delivers audit F's guarantee, which is the part the owner
+decision requires.
+Refuted (second raise): the in-flight-connect race — round 2's evidence
+stands and is now pinned by a test. A late host-key answer is rejected by the
+prompter's own epoch and incident rechecks (the pool left `_pools`, so it is
+no longer current), and the engine forgets the id's config, so a later
+connect cannot resolve one. `_forgetServer`'s remaining per-id state
+(`_channels`, probe targets) is audit finding C's tracked M3 scope in item 3:
+probe targets are app-driven and refreshed on every bookmark-list change, and
+no request maps a channelId back to a serverId.
+Declined (third raise, no new evidence): the "weak or hardcoded password"
+fixture literal.
+No correctness, security, or contract finding is open after round 3: the two
+majors are a hypothetical whose premise the code contradicts and a doc
+precision fix (applied), and the rest is polish or re-litigation. Steady
+state per the owner's bar.
 
 ## Open items
 

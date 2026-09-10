@@ -318,6 +318,15 @@ void main() {
         isEmpty,
       );
       expect(torn.single, isA<FormatException>());
+      // Invalid UTF-8 quarantines like undecodable JSON: a torn file must be
+      // moved aside, not re-read and re-failed on every load.
+      expect(
+        await dir
+            .list()
+            .where((entry) => entry.path.contains('.corrupt-'))
+            .length,
+        1,
+      );
     });
 
     test(

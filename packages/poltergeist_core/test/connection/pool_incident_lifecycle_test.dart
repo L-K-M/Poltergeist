@@ -336,6 +336,43 @@ void main() {
     },
   );
 
+  test('a pin at another endpoint does not restore a record', () async {
+    final store = InMemoryIncidentStore();
+    await store.put(_record(serverId: 's1'));
+
+    final harness = await _harness(
+      [_changedKey],
+      store: store,
+      pinnedFingerprint: null,
+    );
+    // The record's own fingerprint, pinned at a DIFFERENT endpoint (a cloned
+    // machine, a shared jump host). Only the pin at the record's endpoint can
+    // review or lift its block, so a fingerprint found elsewhere in the store
+    // must not restore it.
+    await harness.store.put(
+      HostKey(
+        host: 'other.example',
+        port: 2222,
+        type: _hostKeyType,
+        fingerprintSha256: _originalKey,
+        pinnedAt: 0,
+      ),
+    );
+    final verdicts = <HostKeyVerdict>[];
+    harness.onHostKey = (decision) async {
+      verdicts.add(decision.verdict);
+      return true;
+    };
+
+    final pane = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'review',
+    );
+    expect(verdicts, [HostKeyVerdict.firstUse]);
+    await _eventually(() => store.load(), (records) => records.isEmpty);
+    await pane.close();
+  });
+
   test(
     'a restored record whose pin moved on is dropped and re-detected',
     () async {

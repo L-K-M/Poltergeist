@@ -423,7 +423,9 @@ final class DisconnectServerRequest extends EngineRequest {
 /// Deletes the bookmark's connection state and its trust-incident records
 /// (owner decision 2026-09-09, option 3a). Like [DisconnectServerRequest] for
 /// the pool, plus the incident cascade; the engine also forgets the id's
-/// config and watch.
+/// config and watch. The cascade runs even when the pool teardown throws:
+/// the error still reaches the caller, but the removal is final and must not
+/// be retried — the app has already deleted the bookmark.
 final class RemoveBookmarkRequest extends EngineRequest {
   final String serverId;
 
@@ -534,10 +536,12 @@ final class EngineConfig {
   final List<HostKey> hostKeyPins;
 
   /// Trust-incident records restored from the app-owned store; the engine
-  /// seeds its in-memory incident store from these. A record whose
-  /// `pinnedFingerprintSha256` has no matching entry in [hostKeyPins] is
-  /// dropped at load (audit finding A): its block cannot be reviewed or
-  /// lifted, so re-detection covers the endpoint on the next connect.
+  /// seeds its in-memory incident store from these. A record is dropped at
+  /// load (audit finding A) unless its `pinnedFingerprintSha256` matches the
+  /// pin [hostKeyPins] holds for the record's own endpoint — the verifier's
+  /// `(host, port)` lookup, never a fingerprint found anywhere in the list,
+  /// because only that endpoint's pin can review or lift the block.
+  /// Re-detection covers a dropped record's endpoint on the next connect.
   final List<IncidentRecord> incidents;
 
   const EngineConfig({
