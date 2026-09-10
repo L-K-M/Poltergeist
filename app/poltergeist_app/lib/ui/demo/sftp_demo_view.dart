@@ -333,7 +333,10 @@ class _DemoForm extends StatelessWidget {
   }
 
   String? _validatePort(BuildContext context, String? value) {
-    final parsed = int.tryParse(value?.trim() ?? '');
+    if (value == null) {
+      return AppLocalizations.of(context).sftpDemoPortInvalid;
+    }
+    final parsed = int.tryParse(value.trim());
     if (parsed == null || parsed < 1 || parsed > 65535) {
       return AppLocalizations.of(context).sftpDemoPortInvalid;
     }

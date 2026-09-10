@@ -193,6 +193,10 @@ class SftpDemoController extends ChangeNotifier {
   String? get failureDetail => _failureDetail;
 
   /// The server's status stream for the panel (current value first).
+  ///
+  /// Emits no cleared/terminal event when [disconnect] resets the session:
+  /// render the idle state from [serverId]/[status], not from the last
+  /// emitted value.
   Stream<ServerStatus> get states => _statusReplay.stream;
 
   /// The live transcript stream; the panel filters by serverId.
@@ -233,36 +237,41 @@ class SftpDemoController extends ChangeNotifier {
       if (_disposed || attempt != _attempt) return;
     }
 
-    _lastFacts = facts;
-    final now = DateTime.now().toUtc();
-    final bookmark = _ephemeralBookmark(facts, now);
-
-    // A new session starts honest: the replay buffer serves the current
-    // connect's transcript only, never a previous session's lines.
-    _transcript.clear();
-    _bufferedLines = 0;
-
-    _serverId = bookmark.id;
-    _status = null;
-    _entries = const [];
-    _failureDetail = null;
-    _listing = false;
-    notifyListeners();
-
-    unawaited(_states?.cancel());
-
-    final config = ServerConfig(
-      id: bookmark.id,
-      label: bookmark.label,
-      host: facts.host,
-      port: facts.port,
-      username: facts.username,
-      authMethod: facts.authMethod,
-      createdAt: now.millisecondsSinceEpoch,
-      updatedAt: now.millisecondsSinceEpoch,
-    );
-
+    // The stale-cleanup await above is the first suspension; everything
+    // from here down is synchronous model construction or guarded engine
+    // work. The construction can throw (the pinned model asserts bounds
+    // in debug builds), so it lives inside the guarded block too: a fault
+    // must not wedge the re-entrancy guard with _connecting stuck true.
     try {
+      _lastFacts = facts;
+      final now = DateTime.now().toUtc();
+      final bookmark = _ephemeralBookmark(facts, now);
+
+      // A new session starts honest: the replay buffer serves the current
+      // connect's transcript only, never a previous session's lines.
+      _transcript.clear();
+      _bufferedLines = 0;
+
+      _serverId = bookmark.id;
+      _status = null;
+      _entries = const [];
+      _failureDetail = null;
+      _listing = false;
+      notifyListeners();
+
+      unawaited(_states?.cancel());
+
+      final config = ServerConfig(
+        id: bookmark.id,
+        label: bookmark.label,
+        host: facts.host,
+        port: facts.port,
+        username: facts.username,
+        authMethod: facts.authMethod,
+        createdAt: now.millisecondsSinceEpoch,
+        updatedAt: now.millisecondsSinceEpoch,
+      );
+
       // Prompt answering and transcript buffering must be live before any
       // open; the route normally ran start() already, and it is
       // idempotent. Inside the guarded block so a seam fault here reaches

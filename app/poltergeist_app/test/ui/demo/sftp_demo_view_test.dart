@@ -982,6 +982,53 @@ void main() {
       expect(controller.entries, hasLength(2));
     });
 
+    test('an invalid-facts throw during connect cannot wedge the guard', () async {
+      final reported = <Object>[];
+      final engine = successfulEngine(
+        channel: FakeDemoBrowseChannel(
+          homePath: '/home/deploy',
+          entries: _scriptedEntries,
+        ),
+      );
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        errorReporter: ApplicationErrorReporter(
+          sink: (error, _) => reported.add(error),
+        ),
+      );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
+
+      // The pinned model asserts port bounds (EmbeddedHostIdentity), so a
+      // debug-build throw lands in connect()'s synchronous construction
+      // span. It must reach the unwedging catch instead of escaping with
+      // _connecting stuck.
+      const invalidFacts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 0,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      await controller.connect(invalidFacts);
+
+      expect(reported, contains(isA<AssertionError>()));
+      expect(controller.isConnecting, isFalse);
+      expect(controller.failureDetail, isNotNull);
+
+      // The guard is unwedged: a valid connect proceeds.
+      await controller.connect(
+        const SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        ),
+      );
+      expect(engine.openCalls, hasLength(1));
+      expect(controller.entries, hasLength(2));
+    });
+
     test('an unexpected listing failure keeps the one-liner', () async {
       final reported = <Object>[];
       final engine = successfulEngine(

@@ -133,7 +133,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   'lib/ui/demo/sftp_demo_view.dart': {
     "'connect.demoListing'",
-    "''",
     r"'$_defaultSshPort'",
     "'sftp-demo-host'",
     "'sftp-demo-port'",
