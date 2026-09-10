@@ -110,11 +110,14 @@ final class _Settings implements ProbeSettings {
     if (hook != null) {
       return hook(serverId: serverId, host: host, port: port);
     }
+    final existing = servers[serverId];
+    final sameEndpoint =
+        existing != null && existing.host == host && existing.port == port;
     _write(
       serverId,
       host,
       port,
-      connected: servers[serverId]?.connected ?? false,
+      connected: sameEndpoint ? existing.connected : false,
     );
   }
 
@@ -278,7 +281,10 @@ void main() {
     await pump();
 
     expect(bridge.targets.single.id, 'bookmark-b');
-    expect(settings.calls, isNot(contains('remove:bookmark-a')));
+    // The stale hide cannot drop the replacement's record; the replaced
+    // A record is removed by showServer itself.
+    expect(settings.servers.keys, ['bookmark-b']);
+    expect(settings.calls, isNot(contains('remove:bookmark-b')));
   });
 
   test('forwardLifecycle pauses and resumes without store reloads', () async {
@@ -331,6 +337,18 @@ void main() {
     expect(bridge.targets.single.id, 'bookmark-b');
   });
 
+  test('a replaced server\'s record is dropped', () async {
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+    coordinator.showServer(_server());
+    await pump();
+
+    coordinator.showServer(_server(id: 'bookmark-b', host: 'other.example'));
+    await pump();
+
+    expect(settings.servers, isNot(contains('bookmark-a')));
+    expect(settings.servers.keys, ['bookmark-b']);
+  });
+
   test(
     'hide then dispose in the same frame updates nothing after dispose',
     () async {
@@ -344,7 +362,9 @@ void main() {
       await pump();
 
       expect(settings.calls.last, 'remove:bookmark-a');
-      expect(bridge.calls.length, greaterThanOrEqualTo(callsBefore));
+      // dispose() emits exactly its own stop (pause + empty targets); the
+      // queued hide adds nothing further.
+      expect(bridge.calls.sublist(callsBefore), ['paused', 'targets:']);
       expect(bridge.events.hasListener, isFalse);
     },
   );
@@ -377,13 +397,14 @@ void main() {
     await pump();
 
     // A's targets were sent exactly once (its own configuration); the
-    // queued lifecycle change describes B, never A.
-    expect(
-      bridge.calls.where((call) => call == 'targets:bookmark-a'),
-      isEmpty,
-    );
+    // queued lifecycle change describes B, never A, and B's configuration
+    // already carries the pause (paused precedes B's targets).
+    expect(bridge.calls.where((call) => call == 'targets:bookmark-a'), isEmpty);
     expect(bridge.targets.single.id, 'bookmark-b');
-    expect(bridge.calls, contains('paused'));
+    expect(
+      bridge.calls.indexOf('paused'),
+      lessThan(bridge.calls.indexOf('targets:bookmark-b')),
+    );
   });
 
   test('unwritable settings report failures and fail closed', () async {

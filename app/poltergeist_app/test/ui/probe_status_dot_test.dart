@@ -10,12 +10,15 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 const _minimumDotContrast = 3.0;
 
-Future<void> _pump(WidgetTester tester, ProbeStatus status) async {
+/// The shared localization harness: a production-theme MaterialApp with
+/// [child] centered in the scaffold body.
+Future<void> _pump(WidgetTester tester, Widget child) async {
   await tester.pumpWidget(
     MaterialApp(
+      theme: buildPoltergeistTheme(Brightness.light),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: ProbeStatusDot(status)),
+      home: Scaffold(body: Center(child: child)),
     ),
   );
 }
@@ -60,7 +63,7 @@ void main() {
     testWidgets('renders ${entry.$1.name} with tooltip and semantics', (
       tester,
     ) async {
-      await _pump(tester, entry.$1);
+      await _pump(tester, ProbeStatusDot(entry.$1));
 
       final scheme = Theme.of(
         tester.element(find.byType(ProbeStatusDot)),
@@ -106,22 +109,11 @@ void main() {
     // Pins the rendered pixels, not just the decoration: a golden-capture
     // color-space artifact must never hide a real paint regression.
     for (final status in ProbeStatus.values) {
-      await tester.pumpWidget(
-        MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: Center(
-              child: RepaintBoundary(
-                key: const ValueKey('dot-boundary'),
-                child: SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: ProbeStatusDot(status),
-                ),
-              ),
-            ),
-          ),
+      await _pump(
+        tester,
+        RepaintBoundary(
+          key: const ValueKey('dot-boundary'),
+          child: SizedBox(width: 40, height: 40, child: ProbeStatusDot(status)),
         ),
       );
 
@@ -137,7 +129,9 @@ void main() {
           final data = await image.toByteData();
           final width = image.width;
           final center = (width ~/ 2) * width + width ~/ 2;
-          return data!.buffer.asUint8List(center * 4, 4);
+          // Honor the view's offset: a view-backed ByteData must sample
+          // from its own start, never the underlying buffer's zero.
+          return data!.buffer.asUint8List(data.offsetInBytes + center * 4, 4);
         } finally {
           image.dispose();
         }

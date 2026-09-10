@@ -76,7 +76,6 @@ void main() {
       port: 22,
     );
 
-    expect(await load('bookmark-a'), isA<ProbeServerFacts>());
     expect((await load('bookmark-a')).exposure, FavoriteExposure.seen);
     expect(
       (await reopened().loadServerFacts(
@@ -109,6 +108,40 @@ void main() {
     );
     expect(facts.exposure, FavoriteExposure.seen);
     expect(facts.connected, FavoriteConnection.connected);
+  });
+
+  test('concurrent mutations cannot clobber each other', () async {
+    // Both operations read the servers map before either writes; without
+    // internal serialization the second write clobbers the first record.
+    final first = probe.markSeen(
+      serverId: 'bookmark-a',
+      host: 'a.example',
+      port: 22,
+    );
+    final second = probe.markConnected(
+      serverId: 'bookmark-b',
+      host: 'b.example',
+      port: 22,
+    );
+
+    await Future.wait([first, second]);
+
+    expect(
+      (await probe.loadServerFacts(
+        serverId: 'bookmark-a',
+        host: 'a.example',
+        port: 22,
+      )).exposure,
+      FavoriteExposure.seen,
+    );
+    expect(
+      (await probe.loadServerFacts(
+        serverId: 'bookmark-b',
+        host: 'b.example',
+        port: 22,
+      )).connected,
+      FavoriteConnection.connected,
+    );
   });
 
   test('markSeen preserves an already-recorded connection', () async {

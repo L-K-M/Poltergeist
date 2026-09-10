@@ -1640,10 +1640,14 @@ void main() {
       expect(find.byType(ProbeStatusDot), findsOneWidget);
       expect(find.byTooltip(l10n.probeStatusOnline), findsOneWidget);
 
-      // The dot tracks the engine snapshot, not a local guess.
-      engine.autoProbeStatus = ProbeStatus.offline;
-      await submitDemoForm(tester);
-      await tester.pumpAndSettle();
+      // The dot tracks the engine snapshot, not a local guess: an
+      // unsolicited mid-session push flips it without any reconnect.
+      engine.probeStatusesController.add(
+        ProbeStatusesEvent(
+          statuses: {engine.probeTargets.single.id: ProbeStatus.offline},
+        ),
+      );
+      await tester.pump();
       expect(find.byTooltip(l10n.probeStatusOffline), findsOneWidget);
     });
 

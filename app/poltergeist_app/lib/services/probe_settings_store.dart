@@ -73,6 +73,12 @@ final class ProbeSettingsStore implements ProbeSettings {
 
   final SettingsStore _store;
 
+  /// Serializes read-modify-write operations on the shared servers map:
+  /// concurrent callers must never clobber each other's records (the
+  /// coordinator serializes its own calls, but the facade is a shared
+  /// settings surface — M5's owner can call it from several places).
+  Future<void> _tail = Future.value();
+
   @override
   Future<ProbePreference> loadGlobalPreference() async {
     final stored = await _store.get<Object>(_probeEnabledKey);
@@ -85,7 +91,7 @@ final class ProbeSettingsStore implements ProbeSettings {
     required String serverId,
     required String host,
     required int port,
-  }) async {
+  }) => _serialized(() async {
     final servers = await _loadServersMap();
     final stored = servers[serverId];
 
@@ -98,14 +104,14 @@ final class ProbeSettingsStore implements ProbeSettings {
       await _writeServer(serverId, host, port, seen: false, connected: false);
     }
     return ProbeServerFacts.unseen;
-  }
+  });
 
   @override
   Future<void> markSeen({
     required String serverId,
     required String host,
     required int port,
-  }) async {
+  }) => _serialized(() async {
     final servers = await _loadServersMap();
     final previous = servers[serverId];
     // Only the *same endpoint's* connection survives: a retargeted record
@@ -114,22 +120,24 @@ final class ProbeSettingsStore implements ProbeSettings {
         _readFacts(previous, host, port)?.connected ==
         FavoriteConnection.connected;
     await _writeServer(serverId, host, port, seen: true, connected: connected);
-  }
+  });
 
   @override
   Future<void> markConnected({
     required String serverId,
     required String host,
     required int port,
-  }) => _writeServer(serverId, host, port, seen: true, connected: true);
+  }) => _serialized(
+    () => _writeServer(serverId, host, port, seen: true, connected: true),
+  );
 
   @override
-  Future<void> removeServer(String serverId) async {
+  Future<void> removeServer(String serverId) => _serialized(() async {
     final servers = await _loadServersMap();
     if (!servers.containsKey(serverId)) return;
     servers.remove(serverId);
     await _store.set(_probeServersKey, servers);
-  }
+  });
 
   /// Returns the stored facts when the record's shape is valid and its
   /// endpoint binding matches; null for absent, malformed, or retargeted
@@ -177,5 +185,11 @@ final class ProbeSettingsStore implements ProbeSettings {
       for (final entry in stored.entries)
         if (entry.key is String) entry.key as String: entry.value,
     };
+  }
+
+  Future<T> _serialized<T>(Future<T> Function() operation) {
+    final run = _tail.then((_) => operation());
+    _tail = run.then<void>((_) {}, onError: (_, _) {});
+    return run;
   }
 }

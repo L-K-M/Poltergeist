@@ -48,9 +48,22 @@ final class ProbeCoordinator extends ChangeNotifier {
   Map<String, ProbeStatus> get statuses => _controller.statuses;
 
   /// The interim list now shows [config]: persist exposure and configure
-  /// the controller with the store's device-local facts.
+  /// the controller with the store's device-local facts. Replacing a
+  /// shown server drops the previous record — a replaced row's ephemeral
+  /// id can never recur.
   void showServer(ServerConfig config) {
     if (_disposed) return;
+    final previous = _server;
+    if (previous != null && previous.id != config.id) {
+      final replacedId = previous.id;
+      _enqueue(() async {
+        try {
+          await _settings.removeServer(replacedId);
+        } catch (error, stackTrace) {
+          _errors.report(error, stackTrace);
+        }
+      });
+    }
     _server = config;
     _enqueue(() => _markSeenAndConfigure(config));
   }

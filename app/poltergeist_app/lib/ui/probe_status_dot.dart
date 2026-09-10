@@ -11,7 +11,7 @@ import '../l10n/app_localizations.dart';
 class ProbeStatusDot extends StatelessWidget {
   const ProbeStatusDot(this.status, {super.key});
 
-  /// Material green 600: ≥ 3:1 on the seeded light and dark surfaces.
+  /// Material green 800: ≥ 3:1 on the seeded light and dark surfaces.
   static const onlineColor = Color(0xFF2E7D32);
 
   final ProbeStatus status;
