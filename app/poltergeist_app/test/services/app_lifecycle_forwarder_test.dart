@@ -20,10 +20,7 @@ void main() {
   test('attach registers the observer and reports the current state', () {
     final source = _FakeSource()..state = AppLifecycleState.resumed;
     final seen = <AppLifecycleState?>[];
-    final forwarder = AppLifecycleForwarder(
-      source: source,
-      onState: seen.add,
-    );
+    final forwarder = AppLifecycleForwarder(source: source, onState: seen.add);
 
     forwarder.attach();
 
@@ -34,10 +31,7 @@ void main() {
   test('lifecycle changes forward to the listener', () {
     final source = _FakeSource();
     final seen = <AppLifecycleState?>[];
-    AppLifecycleForwarder(
-      source: source,
-      onState: seen.add,
-    ).attach();
+    AppLifecycleForwarder(source: source, onState: seen.add).attach();
     seen.clear();
 
     source.observers.single.didChangeAppLifecycleState(
@@ -49,10 +43,7 @@ void main() {
 
   test('detach unregisters once; a second detach is a no-op', () {
     final source = _FakeSource();
-    final forwarder = AppLifecycleForwarder(
-      source: source,
-      onState: (_) {},
-    );
+    final forwarder = AppLifecycleForwarder(source: source, onState: (_) {});
 
     forwarder.detach();
     expect(source.observers, isEmpty);
@@ -84,10 +75,8 @@ void main() {
   test('detach stops forwarding later lifecycle changes', () {
     final source = _FakeSource();
     final seen = <AppLifecycleState?>[];
-    final forwarder = AppLifecycleForwarder(
-      source: source,
-      onState: seen.add,
-    )..attach();
+    final forwarder = AppLifecycleForwarder(source: source, onState: seen.add)
+      ..attach();
     final observer = source.observers.single;
     seen.clear();
 

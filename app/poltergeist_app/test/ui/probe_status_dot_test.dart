@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/probe_status_dot.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -19,17 +20,17 @@ Future<void> _pump(WidgetTester tester, ProbeStatus status) async {
   );
 }
 
-Container _dot(WidgetTester tester) =>
-    tester.widget<Container>(
-      find.descendant(
-        of: find.byType(ProbeStatusDot),
-        matching: find.byType(Container),
-      ),
-    );
+Container _dot(WidgetTester tester) => tester.widget<Container>(
+  find.descendant(
+    of: find.byType(ProbeStatusDot),
+    matching: find.byType(Container),
+  ),
+);
 
 double _relativeLuminance(Color color) {
-  double channel(double value) =>
-      value <= 0.03928 ? value / 12.92 : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
+  double channel(double value) => value <= 0.03928
+      ? value / 12.92
+      : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
 
   return 0.2126 * channel(color.r) +
       0.7152 * channel(color.g) +
@@ -48,7 +49,11 @@ void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
 
   for (final entry in <(ProbeStatus, String, Color Function(ColorScheme))>[
-    (ProbeStatus.online, l10n.probeStatusOnline, (_) => ProbeStatusDot.onlineColor),
+    (
+      ProbeStatus.online,
+      l10n.probeStatusOnline,
+      (_) => ProbeStatusDot.onlineColor,
+    ),
     (ProbeStatus.offline, l10n.probeStatusOffline, (s) => s.error),
     (ProbeStatus.unknown, l10n.probeStatusUnknown, (s) => s.outline),
   ]) {
@@ -57,24 +62,27 @@ void main() {
     ) async {
       await _pump(tester, entry.$1);
 
-      final scheme = Theme.of(tester.element(find.byType(ProbeStatusDot)))
-          .colorScheme;
+      final scheme = Theme.of(
+        tester.element(find.byType(ProbeStatusDot)),
+      ).colorScheme;
       final dot = _dot(tester);
       final decoration = dot.decoration! as BoxDecoration;
       expect(decoration.color, entry.$3(scheme));
       expect(find.byTooltip(entry.$2), findsOneWidget);
+
+      final semantics = tester.ensureSemantics();
+      expect(find.bySemanticsLabel(entry.$2), findsOneWidget);
+      semantics.dispose();
     });
   }
 
-  testWidgets('dot colors stay above 3:1 on both theme surfaces', (
-    tester,
-  ) async {
+  test('dot colors stay above 3:1 on both theme surfaces', () {
     // 02 §4: status colors are theme-aware and contrast-checked (SEA-019).
+    // Uses the production theme builder: the demo app bar paints
+    // scheme.surface (verified by pixel sampling; M3's default AppBar
+    // background), so the surface contrast is the rendered chrome.
     for (final brightness in Brightness.values) {
-      final scheme = ColorScheme.fromSeed(
-        seedColor: const Color(0xFF3D8A78),
-        brightness: brightness,
-      );
+      final scheme = buildPoltergeistTheme(brightness).colorScheme;
 
       expect(
         _contrast(ProbeStatusDot.onlineColor, scheme.surface),

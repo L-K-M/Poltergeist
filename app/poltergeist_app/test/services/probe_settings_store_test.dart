@@ -33,18 +33,18 @@ void main() {
       settingsFile.writeAsString(jsonEncode(contents));
 
   Future<Map<String, Object?>> readFile() async =>
-      (jsonDecode(await settingsFile.readAsString()) as Map).cast<
-        String,
-        Object?
-      >();
+      (jsonDecode(await settingsFile.readAsString()) as Map)
+          .cast<String, Object?>();
 
   /// A second facade over the same file: proves facts survive a restart.
-  ProbeSettingsStore reopened() => ProbeSettingsStore(
-    store: SettingsStore(path: settingsFile.path),
-  );
+  ProbeSettingsStore reopened() =>
+      ProbeSettingsStore(store: SettingsStore(path: settingsFile.path));
 
-  Future<ProbeServerFacts> load(String serverId, {String host = 'sftp.example', int port = 22}) =>
-      probe.loadServerFacts(serverId: serverId, host: host, port: port);
+  Future<ProbeServerFacts> load(
+    String serverId, {
+    String host = 'sftp.example',
+    int port = 22,
+  }) => probe.loadServerFacts(serverId: serverId, host: host, port: port);
 
   test('global preference defaults to enabled on a fresh store', () async {
     expect(await probe.loadGlobalPreference(), ProbePreference.enabled);
@@ -70,16 +70,20 @@ void main() {
   });
 
   test('markSeen round-trips through the file and a fresh store', () async {
-    await probe.markSeen(serverId: 'bookmark-a', host: 'sftp.example', port: 22);
+    await probe.markSeen(
+      serverId: 'bookmark-a',
+      host: 'sftp.example',
+      port: 22,
+    );
 
     expect(await load('bookmark-a'), isA<ProbeServerFacts>());
     expect((await load('bookmark-a')).exposure, FavoriteExposure.seen);
     expect(
       (await reopened().loadServerFacts(
-            serverId: 'bookmark-a',
-            host: 'sftp.example',
-            port: 22,
-          )).exposure,
+        serverId: 'bookmark-a',
+        host: 'sftp.example',
+        port: 22,
+      )).exposure,
       FavoriteExposure.seen,
     );
     final servers = (await readFile())['probe.servers'] as Map;
@@ -113,79 +117,113 @@ void main() {
       host: 'sftp.example',
       port: 22,
     );
-    await probe.markSeen(serverId: 'bookmark-a', host: 'sftp.example', port: 22);
-
-    expect(
-      (await load('bookmark-a')).connected,
-      FavoriteConnection.connected,
+    await probe.markSeen(
+      serverId: 'bookmark-a',
+      host: 'sftp.example',
+      port: 22,
     );
+
+    expect((await load('bookmark-a')).connected, FavoriteConnection.connected);
   });
 
-  test('retargeting resets exposure and history and persists the reset', () async {
+  test('markSeen on a retargeted endpoint drops the old connection', () async {
     await probe.markConnected(
       serverId: 'bookmark-a',
       host: 'old.example',
       port: 22,
     );
 
-    final facts = await probe.loadServerFacts(
-      serverId: 'bookmark-a',
-      host: 'new.example',
-      port: 22,
-    );
+    await probe.markSeen(serverId: 'bookmark-a', host: 'new.example', port: 22);
 
-    expect(facts.exposure, FavoriteExposure.unseen);
-    expect(facts.connected, FavoriteConnection.neverConnected);
-    // The reset is durable: the record now binds the new endpoint.
-    final servers = (await readFile())['probe.servers'] as Map;
-    expect(servers['bookmark-a'], {
-      'host': 'new.example',
-      'port': 22,
-      'exposure': 'unseen',
-      'connected': false,
-    });
-    final reloaded = await reopened().loadServerFacts(
-      serverId: 'bookmark-a',
-      host: 'new.example',
-      port: 22,
+    // The connection fact belongs to the old endpoint; the retarget reset
+    // (03 §3.4) must not let it survive the rebind.
+    expect(
+      (await probe.loadServerFacts(
+        serverId: 'bookmark-a',
+        host: 'new.example',
+        port: 22,
+      )).connected,
+      FavoriteConnection.neverConnected,
     );
-    expect(reloaded.exposure, FavoriteExposure.unseen);
   });
 
+  test(
+    'retargeting resets exposure and history and persists the reset',
+    () async {
+      await probe.markConnected(
+        serverId: 'bookmark-a',
+        host: 'old.example',
+        port: 22,
+      );
+
+      final facts = await probe.loadServerFacts(
+        serverId: 'bookmark-a',
+        host: 'new.example',
+        port: 22,
+      );
+
+      expect(facts.exposure, FavoriteExposure.unseen);
+      expect(facts.connected, FavoriteConnection.neverConnected);
+      // The reset is durable: the record now binds the new endpoint.
+      final servers = (await readFile())['probe.servers'] as Map;
+      expect(servers['bookmark-a'], {
+        'host': 'new.example',
+        'port': 22,
+        'exposure': 'unseen',
+        'connected': false,
+      });
+      final reloaded = await reopened().loadServerFacts(
+        serverId: 'bookmark-a',
+        host: 'new.example',
+        port: 22,
+      );
+      expect(reloaded.exposure, FavoriteExposure.unseen);
+    },
+  );
+
   test('a port change is a retarget', () async {
-    await probe.markSeen(serverId: 'bookmark-a', host: 'sftp.example', port: 22);
+    await probe.markSeen(
+      serverId: 'bookmark-a',
+      host: 'sftp.example',
+      port: 22,
+    );
 
     expect(
       (await probe.loadServerFacts(
-            serverId: 'bookmark-a',
-            host: 'sftp.example',
-            port: 2222,
-          )).exposure,
+        serverId: 'bookmark-a',
+        host: 'sftp.example',
+        port: 2222,
+      )).exposure,
       FavoriteExposure.unseen,
     );
   });
 
   test('the host binding ignores case', () async {
-    await probe.markSeen(serverId: 'bookmark-a', host: 'SFTP.EXAMPLE', port: 22);
+    await probe.markSeen(
+      serverId: 'bookmark-a',
+      host: 'SFTP.EXAMPLE',
+      port: 22,
+    );
 
     expect(
       (await probe.loadServerFacts(
-            serverId: 'bookmark-a',
-            host: 'sftp.example',
-            port: 22,
-          )).exposure,
+        serverId: 'bookmark-a',
+        host: 'sftp.example',
+        port: 22,
+      )).exposure,
       FavoriteExposure.seen,
     );
   });
 
   test('removeServer drops the device-local record', () async {
-    await probe.markSeen(serverId: 'bookmark-a', host: 'sftp.example', port: 22);
+    await probe.markSeen(
+      serverId: 'bookmark-a',
+      host: 'sftp.example',
+      port: 22,
+    );
     await probe.removeServer('bookmark-a');
 
-    expect(
-      (await load('bookmark-a')).exposure,
-      FavoriteExposure.unseen,
-    );
+    expect((await load('bookmark-a')).exposure, FavoriteExposure.unseen);
     expect((await readFile())['probe.servers'], isEmpty);
   });
 
@@ -218,6 +256,22 @@ void main() {
     });
   });
 
+  test('invalid JSON reads as a fresh store', () async {
+    await settingsFile.writeAsString('{not json');
+
+    // SettingsStore quarantines the corrupt file and starts empty; the
+    // probe facade sees the 02 §4 defaults, never the garbage.
+    expect(
+      (await reopened().loadServerFacts(
+        serverId: 'bookmark-a',
+        host: 'sftp.example',
+        port: 22,
+      )).exposure,
+      FavoriteExposure.unseen,
+    );
+    expect(await reopened().loadGlobalPreference(), ProbePreference.enabled);
+  });
+
   test('unknown exposure and connection values read as unseen', () async {
     await seed({
       'probe.servers': {
@@ -248,6 +302,9 @@ void main() {
 
     final servers = (await readFile())['probe.servers'] as Map;
     final record = servers['bookmark-a'] as Map;
-    expect(record.keys, unorderedEquals(['host', 'port', 'exposure', 'connected']));
+    expect(
+      record.keys,
+      unorderedEquals(['host', 'port', 'exposure', 'connected']),
+    );
   });
 }

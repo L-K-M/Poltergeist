@@ -457,7 +457,6 @@ class SftpDemoController extends ChangeNotifier {
       // the fact (02 §4's sync-provenance rule).
       final config = _probeConfig;
       if (config != null) _probes.markConnected(config);
-
     } on RemoteFileException catch (error) {
       if (_disposed || attempt != _attempt) return;
       _failureDetail = error.message;

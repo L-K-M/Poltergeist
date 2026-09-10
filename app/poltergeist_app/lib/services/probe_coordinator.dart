@@ -77,6 +77,9 @@ final class ProbeCoordinator extends ChangeNotifier {
         // below clears targets regardless.
         _errors.report(error, stackTrace);
       }
+      // Teardown may have disposed the controller while this closure was
+      // queued; a disposed controller must not receive configuration.
+      if (_disposed) return;
       await _controller.update(
         favorites: const [],
         preference: _preference,
@@ -86,20 +89,26 @@ final class ProbeCoordinator extends ChangeNotifier {
   }
 
   /// Forwards the app lifecycle: probes run only while foregrounded
-  /// (02 §4). Unknown state fails closed inside the controller.
+  /// (02 §4). Unknown state fails closed inside the controller. Queued
+  /// like the store-driven updates so a lifecycle change can never
+  /// overtake a pending configuration with the previous favorite.
   void forwardLifecycle(AppLifecycleState? state) {
     if (_disposed || _lifecycle == state) return;
     _lifecycle = state;
-    _errors.observe(
-      _controller.update(
+    _enqueue(() async {
+      if (_disposed) return;
+      await _controller.update(
         favorites: _favorite == null ? const [] : [_favorite!],
         preference: _preference,
         lifecycle: state,
-      ),
-    );
+      );
+    });
   }
 
   Future<void> _markSeenAndConfigure(ServerConfig config) async {
+    // A superseded config never persists its record: the replacement's
+    // showServer landed before this queue slot ran.
+    if (_disposed || !_isCurrent(config)) return;
     try {
       await _settings.markSeen(
         serverId: config.id,
@@ -116,11 +125,16 @@ final class ProbeCoordinator extends ChangeNotifier {
     } catch (error, stackTrace) {
       // An unreadable store must never enable probing: fail closed.
       _errors.report(error, stackTrace);
-      await _configure(config, ProbePreference.disabled, ProbeServerFacts.unseen);
+      await _configure(
+        config,
+        ProbePreference.disabled,
+        ProbeServerFacts.unseen,
+      );
     }
   }
 
   Future<void> _markConnectedAndConfigure(ServerConfig config) async {
+    if (_disposed || !_isCurrent(config)) return;
     try {
       await _settings.markConnected(
         serverId: config.id,
@@ -136,7 +150,11 @@ final class ProbeCoordinator extends ChangeNotifier {
       await _configure(config, global, facts);
     } catch (error, stackTrace) {
       _errors.report(error, stackTrace);
-      await _configure(config, ProbePreference.disabled, ProbeServerFacts.unseen);
+      await _configure(
+        config,
+        ProbePreference.disabled,
+        ProbeServerFacts.unseen,
+      );
     }
   }
 

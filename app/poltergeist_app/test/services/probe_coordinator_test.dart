@@ -52,8 +52,7 @@ final class _Bridge implements ProbeBridge {
 
   void _record(String call) {
     calls.add(call);
-    subscribedBeforeCommands =
-        subscribedBeforeCommands && events.hasListener;
+    subscribedBeforeCommands = subscribedBeforeCommands && events.hasListener;
   }
 
   void emit(Map<String, ProbeStatus> statuses) =>
@@ -65,10 +64,12 @@ final class _Settings implements ProbeSettings {
   bool failReads = false;
   bool failWrites = false;
   final calls = <String>[];
+  final reads = <String>[];
   final servers = <String, ({String host, int port, bool connected})>{};
 
   @override
   Future<ProbePreference> loadGlobalPreference() async {
+    reads.add('global');
     if (failReads) throw StateError('settings unreadable');
     return global;
   }
@@ -79,6 +80,7 @@ final class _Settings implements ProbeSettings {
     required String host,
     required int port,
   }) async {
+    reads.add('facts:$serverId');
     if (failReads) throw StateError('settings unreadable');
     final facts = servers[serverId];
     if (facts == null) return ProbeServerFacts.unseen;
@@ -90,13 +92,30 @@ final class _Settings implements ProbeSettings {
     );
   }
 
+  /// Replaces markSeen for sequencing tests (a gate or scripted write).
+  Future<void> Function({
+    required String serverId,
+    required String host,
+    required int port,
+  })?
+  markSeenHook;
+
   @override
   Future<void> markSeen({
     required String serverId,
     required String host,
     required int port,
   }) async {
-    _write(serverId, host, port, connected: servers[serverId]?.connected ?? false);
+    final hook = markSeenHook;
+    if (hook != null) {
+      return hook(serverId: serverId, host: host, port: port);
+    }
+    _write(
+      serverId,
+      host,
+      port,
+      connected: servers[serverId]?.connected ?? false,
+    );
   }
 
   @override
@@ -108,7 +127,12 @@ final class _Settings implements ProbeSettings {
     _write(serverId, host, port, connected: true);
   }
 
-  void _write(String serverId, String host, int port, {required bool connected}) {
+  void _write(
+    String serverId,
+    String host,
+    int port, {
+    required bool connected,
+  }) {
     if (failWrites) throw StateError('settings unwritable');
     calls.add('write:$serverId');
     servers[serverId] = (host: host, port: port, connected: connected);
@@ -179,7 +203,11 @@ void main() {
 
     // The favorite carries the stored connection fact (the sync-provenance
     // rule: a synced-in favorite becomes eligible only after connecting
-    // here), and markSeen preserves it.
+    // here). The write and the read prove showServer actually persisted
+    // exposure and consulted the stored facts — the seeded value alone
+    // would pass vacuously.
+    expect(settings.calls, contains('write:bookmark-a'));
+    expect(settings.reads, contains('facts:bookmark-a'));
     expect(settings.servers['bookmark-a']!.connected, isTrue);
     expect(bridge.targets.single.id, 'bookmark-a');
   });
@@ -240,27 +268,25 @@ void main() {
     expect(bridge.calls.last, 'targets:');
   });
 
-  test(
-    'a stale hideServer cannot drop a replacement server',
-    () async {
-      coordinator.forwardLifecycle(AppLifecycleState.resumed);
-      coordinator.showServer(_server());
-      await pump();
+  test('a stale hideServer cannot drop a replacement server', () async {
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+    coordinator.showServer(_server());
+    await pump();
 
-      coordinator.showServer(_server(id: 'bookmark-b', host: 'other.example'));
-      coordinator.hideServer('bookmark-a');
-      await pump();
+    coordinator.showServer(_server(id: 'bookmark-b', host: 'other.example'));
+    coordinator.hideServer('bookmark-a');
+    await pump();
 
-      expect(bridge.targets.single.id, 'bookmark-b');
-      expect(settings.calls, isNot(contains('remove:bookmark-a')));
-    },
-  );
+    expect(bridge.targets.single.id, 'bookmark-b');
+    expect(settings.calls, isNot(contains('remove:bookmark-a')));
+  });
 
   test('forwardLifecycle pauses and resumes without store reloads', () async {
     coordinator.forwardLifecycle(AppLifecycleState.resumed);
     coordinator.showServer(_server());
     await pump();
     final writeCalls = settings.calls.length;
+    final readCalls = settings.reads.length;
     bridge.calls.clear();
 
     coordinator.forwardLifecycle(AppLifecycleState.hidden);
@@ -271,14 +297,118 @@ void main() {
     await pump();
     expect(bridge.calls.last, 'running');
     expect(settings.calls.length, writeCalls);
+    expect(settings.reads.length, readCalls);
   });
 
-  test('unknown lifecycle pauses probes', () async {
+  test(
+    'before any lifecycle event, targets are set but probes stay paused',
+    () async {
+      coordinator.showServer(_server());
+      await pump();
+
+      expect(bridge.calls, isNot(contains('running')));
+      expect(bridge.targets.single.id, 'bookmark-a');
+    },
+  );
+
+  test('a non-resumed lifecycle state pauses probes', () async {
+    coordinator.forwardLifecycle(AppLifecycleState.inactive);
     coordinator.showServer(_server());
     await pump();
 
     expect(bridge.calls, isNot(contains('running')));
     expect(bridge.targets.single.id, 'bookmark-a');
+  });
+
+  test('a superseded showServer never persists its record', () async {
+    coordinator.showServer(_server());
+    // The replacement lands before the first operation's queue slot runs.
+    coordinator.showServer(_server(id: 'bookmark-b', host: 'other.example'));
+    await pump();
+
+    expect(settings.servers, isNot(contains('bookmark-a')));
+    expect(settings.servers.keys, ['bookmark-b']);
+    expect(bridge.targets.single.id, 'bookmark-b');
+  });
+
+  test(
+    'hide then dispose in the same frame updates nothing after dispose',
+    () async {
+      coordinator.forwardLifecycle(AppLifecycleState.resumed);
+      coordinator.showServer(_server());
+      await pump();
+      final callsBefore = bridge.calls.length;
+
+      coordinator.hideServer('bookmark-a');
+      coordinator.dispose();
+      await pump();
+
+      expect(settings.calls.last, 'remove:bookmark-a');
+      expect(bridge.calls.length, greaterThanOrEqualTo(callsBefore));
+      expect(bridge.events.hasListener, isFalse);
+    },
+  );
+
+  test('lifecycle changes serialize behind pending store operations', () async {
+    final first = Completer<void>();
+    final gate = Completer<void>();
+    settings
+        .markSeenHook = ({required serverId, required host, required port}) {
+      settings.calls.add('write:$serverId');
+      settings.servers[serverId] = (host: host, port: port, connected: false);
+      if (serverId == 'bookmark-b') {
+        first.complete();
+        return gate.future;
+      }
+      return Future.value();
+    };
+
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+    coordinator.showServer(_server(id: 'bookmark-a'));
+    await pump();
+    bridge.calls.clear();
+
+    // B's markSeen is pending when the lifecycle change arrives; the
+    // lifecycle update must not overtake B's configuration and re-send A.
+    coordinator.showServer(_server(id: 'bookmark-b', host: 'other.example'));
+    await first.future;
+    coordinator.forwardLifecycle(AppLifecycleState.hidden);
+    gate.complete();
+    await pump();
+
+    // A's targets were sent exactly once (its own configuration); the
+    // queued lifecycle change describes B, never A.
+    expect(
+      bridge.calls.where((call) => call == 'targets:bookmark-a'),
+      isEmpty,
+    );
+    expect(bridge.targets.single.id, 'bookmark-b');
+    expect(bridge.calls, contains('paused'));
+  });
+
+  test('unwritable settings report failures and fail closed', () async {
+    settings.failWrites = true;
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+
+    coordinator.showServer(_server());
+    await pump();
+
+    expect(errors, isNotEmpty);
+    expect(bridge.targets, isEmpty);
+    expect(bridge.calls, isNot(contains('running')));
+  });
+
+  test('a failed removal still clears targets and reports', () async {
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+    coordinator.showServer(_server());
+    await pump();
+    settings.failWrites = true;
+
+    coordinator.hideServer('bookmark-a');
+    await pump();
+
+    expect(errors, isNotEmpty);
+    expect(bridge.targets, isEmpty);
   });
 
   test('dispose removes the record and unsubscribes', () async {

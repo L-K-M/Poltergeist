@@ -976,12 +976,28 @@ same path.
 Validation: regressions observed failing before implementation where
 behavior is new (the four suites reference the not-yet-written services;
 subscribe-before-send ordering, pause/resume forwarding, retarget reset,
-and file round-trips all pass after). 315 app tests (29 new: store
+and file round-trips all pass after). 323 app tests (37 new: store
 round-trips/defaults/retarget/malformed-repair, forwarder attach/detach/
 duplicate-attach, coordinator policy incl. fail-closed store reads and
 stale-hide refusal, dot rendering/contrast/pixel pinning, demo-level
 ordering/lifecycle/opt-out/disconnect/persistence) and analyze pass; core
-untouched (analyze clean, 333 tests, 15 fixture skips). Widget-render
+untouched (analyze clean, 333 tests, 15 fixture skips). Review round 1
+repaired the retarget-preserving-markSeen bug (a connection fact could
+survive an endpoint rebind; regression failed before the fix), serialized
+lifecycle forwarding through the coordinator's queue (a hidden change
+could re-send a replaced favorite's targets; regression failed before),
+skipped store writes for superseded configs (regression failed before),
+and hardened the queued-hide path against a disposed controller; the
+dot's tooltip excludes semantics so the label announces once; the demo
+command gates release-safely on the settings seam. Refuted: hideServer
+runs in disconnect(), never against a disposed coordinator from
+_teardown (the reviewer's attribution was wrong; the same-frame
+hide-then-dispose path is the guarded case above); the app bar's
+background is scheme.surface, not surfaceContainer (pixel-sampled in
+the theme builder), so the surface contrast pin is the rendered chrome.
+Declined: value-equality in _isCurrent — the identical() recheck is the
+required post-await idiom (09 §3.1) and the constructor contract keeps
+the config instance. Widget-render
 captures before/after the dot in `tasks/probe-wiring-captures` (rootless
 container, labeled). No core changes, no pin/dependency change, no source
 port, no milestone-close claim: live connection-state composition (the

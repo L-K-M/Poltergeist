@@ -46,13 +46,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // Every user action is a registered command (D21); the toolbar
     // renders registered commands, it never hard-codes a button.
     // The probe wiring must persist: the composition root supplies the
-    // store-backed settings whenever the demo surface is enabled.
-    assert(!widget.debugDemoEnabled || widget.probeSettings != null);
+    // store-backed settings whenever the demo surface is enabled. The
+    // assert trips in debug; release builds gate the command instead of
+    // crashing on a misconfigured shell.
+    final probeSettings = widget.probeSettings;
+    assert(!widget.debugDemoEnabled || probeSettings != null);
     final commands = <RegisteredCommand>[
-      if (widget.debugDemoEnabled)
+      if (widget.debugDemoEnabled && probeSettings != null)
         buildSftpDemoCommand(
           spawnEngine: widget.sftpDemoEngineFactory ?? spawnSftpDemoEngine,
-          probeSettings: widget.probeSettings!,
+          probeSettings: probeSettings,
           enabled: () => !_demoSessionActive,
         ),
     ];

@@ -33,6 +33,10 @@ class ProbeStatusDot extends StatelessWidget {
 
     return Tooltip(
       message: label,
+      // The Semantics node below is the single screen-reader source; the
+      // tooltip stays visual-only (long-press/hover) so the label is not
+      // announced twice.
+      excludeFromSemantics: true,
       child: Semantics(
         label: label,
         container: true,

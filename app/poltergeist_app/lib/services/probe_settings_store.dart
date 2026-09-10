@@ -45,10 +45,7 @@ abstract interface class ProbeSettings {
 
 /// Immutable device-local probe facts for one server.
 final class ProbeServerFacts {
-  const ProbeServerFacts({
-    required this.exposure,
-    required this.connected,
-  });
+  const ProbeServerFacts({required this.exposure, required this.connected});
 
   /// The default for an unknown endpoint: nothing was seen or connected.
   static const unseen = ProbeServerFacts(
@@ -111,7 +108,11 @@ final class ProbeSettingsStore implements ProbeSettings {
   }) async {
     final servers = await _loadServersMap();
     final previous = servers[serverId];
-    final connected = previous is Map && previous[_connectedKey] == true;
+    // Only the *same endpoint's* connection survives: a retargeted record
+    // must not carry the old endpoint's history into the rebind (03 §3.4).
+    final connected =
+        _readFacts(previous, host, port)?.connected ==
+        FavoriteConnection.connected;
     await _writeServer(serverId, host, port, seen: true, connected: connected);
   }
 

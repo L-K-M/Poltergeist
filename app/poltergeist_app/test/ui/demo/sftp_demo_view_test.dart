@@ -128,7 +128,8 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   Stream<ConnectionLogEvent> get connectionLog => logController.stream;
 
   @override
-  Stream<ProbeStatusesEvent> get probeStatuses => probeStatusesController.stream;
+  Stream<ProbeStatusesEvent> get probeStatuses =>
+      probeStatusesController.stream;
 
   @override
   Future<void> setProbeTargets(List<ServerConfig> targets) {
@@ -404,6 +405,10 @@ Future<FakeSftpDemoEngine> pumpApp(
   required bool debugDemoEnabled,
   ProbeSettings? probeSettings,
 }) async {
+  assert(
+    debugDemoEnabled || probeSettings == null,
+    'probeSettings must not be provided when the demo is gated off',
+  );
   final engine = FakeSftpDemoEngine();
   addTearDown(engine.close);
   await tester.pumpWidget(
@@ -1118,53 +1123,56 @@ void main() {
       expect(controller.entries, hasLength(2));
     });
 
-    test('an invalid-facts throw during connect cannot wedge the guard', () async {
-      final reported = <Object>[];
-      final engine = successfulEngine(
-        channel: FakeDemoBrowseChannel(
-          homePath: '/home/deploy',
-          entries: _scriptedEntries,
-        ),
-      );
-      final controller = SftpDemoController(
-        engine: engine,
-        navigatorKey: GlobalKey<NavigatorState>(),
-        probeSettings: _FakeProbeSettings(),
-        errorReporter: ApplicationErrorReporter(
-          sink: (error, _) => reported.add(error),
-        ),
-      );
-      addTearDown(engine.close);
-      addTearDown(controller.dispose);
+    test(
+      'an invalid-facts throw during connect cannot wedge the guard',
+      () async {
+        final reported = <Object>[];
+        final engine = successfulEngine(
+          channel: FakeDemoBrowseChannel(
+            homePath: '/home/deploy',
+            entries: _scriptedEntries,
+          ),
+        );
+        final controller = SftpDemoController(
+          engine: engine,
+          navigatorKey: GlobalKey<NavigatorState>(),
+          probeSettings: _FakeProbeSettings(),
+          errorReporter: ApplicationErrorReporter(
+            sink: (error, _) => reported.add(error),
+          ),
+        );
+        addTearDown(engine.close);
+        addTearDown(controller.dispose);
 
-      // The pinned model asserts port bounds (EmbeddedHostIdentity), so a
-      // debug-build throw lands in connect()'s synchronous construction
-      // span. It must reach the unwedging catch instead of escaping with
-      // _connecting stuck.
-      const invalidFacts = SftpDemoConnectFacts(
-        host: 'example.com',
-        port: 0,
-        username: 'deploy',
-        authMethod: AuthMethod.agent,
-      );
-      await controller.connect(invalidFacts);
-
-      expect(reported, contains(isA<AssertionError>()));
-      expect(controller.isConnecting, isFalse);
-      expect(controller.failureDetail, isNotNull);
-
-      // The guard is unwedged: a valid connect proceeds.
-      await controller.connect(
-        const SftpDemoConnectFacts(
+        // The pinned model asserts port bounds (EmbeddedHostIdentity), so a
+        // debug-build throw lands in connect()'s synchronous construction
+        // span. It must reach the unwedging catch instead of escaping with
+        // _connecting stuck.
+        const invalidFacts = SftpDemoConnectFacts(
           host: 'example.com',
-          port: 22,
+          port: 0,
           username: 'deploy',
           authMethod: AuthMethod.agent,
-        ),
-      );
-      expect(engine.openCalls, hasLength(1));
-      expect(controller.entries, hasLength(2));
-    });
+        );
+        await controller.connect(invalidFacts);
+
+        expect(reported, contains(isA<AssertionError>()));
+        expect(controller.isConnecting, isFalse);
+        expect(controller.failureDetail, isNotNull);
+
+        // The guard is unwedged: a valid connect proceeds.
+        await controller.connect(
+          const SftpDemoConnectFacts(
+            host: 'example.com',
+            port: 22,
+            username: 'deploy',
+            authMethod: AuthMethod.agent,
+          ),
+        );
+        expect(engine.openCalls, hasLength(1));
+        expect(controller.entries, hasLength(2));
+      },
+    );
 
     test('an unexpected listing failure keeps the one-liner', () async {
       final reported = <Object>[];
@@ -1243,7 +1251,7 @@ void main() {
         final controller = SftpDemoController(
           engine: engine,
           navigatorKey: GlobalKey<NavigatorState>(),
-        probeSettings: _FakeProbeSettings(),
+          probeSettings: _FakeProbeSettings(),
         );
         addTearDown(engine.close);
         addTearDown(controller.dispose);
@@ -1282,7 +1290,7 @@ void main() {
         final controller = SftpDemoController(
           engine: engine,
           navigatorKey: GlobalKey<NavigatorState>(),
-        probeSettings: _FakeProbeSettings(),
+          probeSettings: _FakeProbeSettings(),
         );
         addTearDown(engine.close);
         addTearDown(controller.dispose);
@@ -1325,7 +1333,7 @@ void main() {
         final controller = SftpDemoController(
           engine: engine,
           navigatorKey: GlobalKey<NavigatorState>(),
-        probeSettings: _FakeProbeSettings(),
+          probeSettings: _FakeProbeSettings(),
         );
         addTearDown(engine.close);
         addTearDown(controller.dispose);
@@ -1595,10 +1603,6 @@ void main() {
     testWidgets(
       'the app consumer subscribes before sending targets or activity',
       (tester) async {
-        tester.view.physicalSize = const Size(1180, 760);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-
         final engine = successfulEngine(
           channel: FakeDemoBrowseChannel(
             homePath: '/home/deploy',
@@ -1619,10 +1623,6 @@ void main() {
     testWidgets('renders the engine\'s live status for the listed server', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1180, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
           homePath: '/home/deploy',
@@ -1650,10 +1650,6 @@ void main() {
     testWidgets('an unscripted snapshot leaves the dot unknown', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1180, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
           homePath: '/home/deploy',
@@ -1673,37 +1669,31 @@ void main() {
     testWidgets('a global opt-out keeps probes paused and the dot unknown', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1180, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
           homePath: '/home/deploy',
           entries: _scriptedEntries,
         ),
       );
-      final settings = _FakeProbeSettings(
-        global: ProbePreference.disabled,
-      );
+      final settings = _FakeProbeSettings(global: ProbePreference.disabled);
       await pumpDemoView(tester, engine, probeSettings: settings);
       await resume(tester);
 
       await submitDemoForm(tester);
       await tester.pumpAndSettle();
 
-      expect(engine.probeTargets, isEmpty);
+      // The opt-out contract: the wiring still configures the engine
+      // (the controller owns the pause), but never with targets or
+      // running activity.
+      expect(engine.probeCalls, contains('paused'));
       expect(engine.probeCalls, isNot(contains('running')));
+      expect(engine.probeCalls.last, 'targets:');
       expect(find.byTooltip(l10n.probeStatusUnknown), findsOneWidget);
     });
 
     testWidgets('hiding the app pauses probes; returning resumes them', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1180, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
           homePath: '/home/deploy',
@@ -1729,10 +1719,6 @@ void main() {
     testWidgets('a successful listing persists the connection fact', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1180, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
           homePath: '/home/deploy',
@@ -1754,10 +1740,6 @@ void main() {
     testWidgets('disconnecting clears probe targets and hides the dot', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(1180, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
           homePath: '/home/deploy',
@@ -1788,7 +1770,7 @@ void main() {
     final controller = SftpDemoController(
       engine: engine,
       navigatorKey: GlobalKey<NavigatorState>(),
-        probeSettings: _FakeProbeSettings(),
+      probeSettings: _FakeProbeSettings(),
     );
     controller.start();
     final logLines = <String>[];
