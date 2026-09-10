@@ -7,16 +7,27 @@ The periodic `ProbeService` repair merged in
 No source copy or local scheduler is introduced. STATUS item 3 records the
 required containing pin before wiring and optional upstream test follow-ups.
 The containing pin (`2e6d1f1`, 2026-09-08) is now in place — see the pin
-findings below. Engine-side consumption lands on 2026-09-09: the pinned
+findings below. Engine-side consumption landed on 2026-09-09: the pinned
 service owns scheduling and sockets; Poltergeist adds target grouping,
-activity control, and port events. No source copy or pin change. Interim
-list dots and app composition remain open in STATUS item 3.
+activity control, and port events. No source copy or pin change. The
+remainder landed 2026-09-10: persisted eligibility/settings, lifecycle
+forwarding, the interim list dots, and the coordinator composition in
+[PR #62](https://github.com/L-K-M/Poltergeist/pull/62), then the live
+connection-state composition (the Connections surface and the composed
+indicator) in [PR #67](https://github.com/L-K-M/Poltergeist/pull/67).
+Startup composition remains open in STATUS item 3 — it rides item 6's
+engine spawn, whose incident/pin bridging landed in
+[PR #66](https://github.com/L-K-M/Poltergeist/pull/66) (task 6, merge
+`d853aa8`).
 
 The app-side eligibility controller (2026-09-09) consumes the engine's
 `ProbeBridge`; scheduling and sockets remain in the pinned service. Its
 device-local policy and isolate orchestration are new Poltergeist code,
 with no copied source or upstream port candidate. Persistence, lifecycle
-forwarding, and the rendered status composition remain open in STATUS item 3.
+forwarding, and the rendered status composition landed 2026-09-10 in
+[PR #62](https://github.com/L-K-M/Poltergeist/pull/62); the composed
+indicator landed in
+[PR #67](https://github.com/L-K-M/Poltergeist/pull/67).
 
 ## M2 real-sshd pool and TOFU coverage (2026-09-08)
 
@@ -59,7 +70,12 @@ port candidates.
 ## Connection cleanup dependency
 
 - Consumes `packages/seance_core/lib/src/ssh/sequential_cleanup.dart` at the
-  existing `2f99f4e` pin; no source copy or pin change (2026-09-05).
+  then-current `2f99f4e` pin; no source copy or pin change (2026-09-05).
+- 2026-09-10 re-diff sweep: the pin moved to `a9add15`
+  ([PR #35](https://github.com/L-K-M/Poltergeist/pull/35)) and then
+  `2e6d1f1` ([PR #53](https://github.com/L-K-M/Poltergeist/pull/53)); the
+  consumed file is byte-identical between `2f99f4e` and `2e6d1f1`, so the
+  consumption note stands unchanged at the current pin.
 - `ssh_cleanup.dart` selects the session's five-second grace period and
   best-effort failure mode. Pool regressions cover stalled and late-error
   cleanup. No port-back change: Séance already uses this primitive.
@@ -334,6 +350,35 @@ override; `terminal_pane`'s behavior-identical `_ConnectionLogView`
 extraction; `identity_audit_log` identical since cb4b010). Attribution
 headers in ported files keep their original source revisions — provenance,
 not a live-pin claim.
+
+The 2026-09-10 full re-diff sweep (run 3 task 8; per-entry diffs saved
+under `tasks/run3-task8-*`, not committed) re-verified every entry above
+against the `2e6d1f1` pinned tree. All sixteen file entries re-diff as
+recorded: every recorded Séance revision exists with the claimed content
+identity, every recorded divergence is still present in the local port,
+the four recorded source moves (`atomic_file`, `app_services`,
+`terminal_pane`, `identity_audit_log`) verify, and no ported file changed
+locally since the 2026-09-08 refresh except through the already-recorded
+PR #52 gate mirror. Two stale records are corrected in place above, each
+with its citing PR: the probe prerequisite's open-item tail (#62/#67) and
+the cleanup dependency's pin reference (#35/#53). The open port-back
+candidates were re-verified against the pin and against upstream HEAD
+(`b8fc111`, 2026-09-09 — only the #82/#83 dialog changes sit between
+them) and stay open: the responder still drops RFC 4256's per-prompt
+echo bit, the identity read still catches only `FileSystemException`
+with an unbounded audit write, the log view still has no newest-line
+anchoring, and the mounted-harness, Enter-navigation, and autofocus-test
+candidates remain upstream-absent. Local `file_permissions.dart` and
+`uuid.dart` are Poltergeist originals (the helper went upstream in
+Séance #80's port-back, not the reverse), so they carry no entries.
+Four ported files still lack the 09 §4 attribution header
+(`identity_file_reader.dart`, `identity_file_reader_test.dart`, and both
+prompt-dialog test files) — recorded as a follow-up, not fixed in this
+docs-only sweep. The pin audit block below was
+re-verified with `tool/seance_pin_audit` (verify mode matches). This is
+close-prep, not the 07 §3.12 milestone-close chore: that sweep runs
+after startup wiring lands (task 6's engine bridging merged as PR #66
+while this sweep was in review).
 
 The consumer fix riding the same pin bump: the pool's transcript bridge
 forwarded the raw `add()` argument past upstream's new redaction to the live
