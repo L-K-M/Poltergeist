@@ -157,7 +157,17 @@ abstract interface class IncidentStore {
 
 /// Session-only store (tests and the not-yet-wired engine default).
 class InMemoryIncidentStore implements IncidentStore {
-  final Map<String, IncidentRecord> _records = {};
+  final Map<String, IncidentRecord> _records;
+
+  InMemoryIncidentStore() : _records = {};
+
+  /// Seeds records synchronously, keyed by serverId like [put]'s upsert.
+  /// A caller that reads straight after seeding — the engine's spawn-time
+  /// seed, which the manager's lazy load then filters against the pins —
+  /// cannot observe a half-seeded store. [put] is async by interface, so a
+  /// loop of unawaited puts would leave that ordering to convention.
+  InMemoryIncidentStore.seeded(Iterable<IncidentRecord> records)
+    : _records = {for (final record in records) record.serverId: record};
 
   @override
   Future<List<IncidentRecord>> load() async => List.of(_records.values);
@@ -189,18 +199,35 @@ class InMemoryIncidentStore implements IncidentStore {
 ///
 /// Serialization is per instance: construct exactly one [FileIncidentStore]
 /// per file — two instances over the same path race read-modify-write
-/// flushes and lose each other's records (a file lock is a follow-up, not
-/// needed by the single-store wiring).
+/// flushes and lose each other's records. A file lock would not close that:
+/// `dart:io`'s locks are per-process on POSIX, so two instances in one
+/// process still race (STATUS records the measurement and the deferral).
 class FileIncidentStore implements IncidentStore {
+  /// Absolute at construction, so the temp names a write creates and the
+  /// prefix the startup sweep matches stay the same paths even if
+  /// `Directory.current` moves later (a relative store would otherwise read,
+  /// write, and sweep three different files).
   final File file;
+
+  /// Observes load failures (an unreadable file, a quarantined corrupt one)
+  /// without changing the fail-safe result: the load still reads empty. The
+  /// wiring slice surfaces a local notice through this hook — it is
+  /// diagnostics, never telemetry (D19). Observer errors cannot break the
+  /// load.
+  final void Function(Object error)? onLoadError;
+
   final Map<String, IncidentRecord> _records = {};
   Future<void> _pending = Future<void>.value();
   bool _loaded = false;
 
-  FileIncidentStore(this.file);
+  FileIncidentStore(File file, {this.onLoadError}) : file = file.absolute;
 
   Future<void> _loadInner() async {
     if (_loaded) return;
+    // Startup sweep: a crash mid-write can leave a `.tmp-*` file behind.
+    // Only temps old enough to be abandoned go — a concurrent writer's
+    // temp, in this process or another, must survive a reader's load.
+    await _sweepOrphanedTemps(file);
     if (await file.exists()) {
       // Unreadable ≠ corrupt: a transient read failure (permissions, a
       // backup lock, EIO) rethrows and leaves the valid file in place so
@@ -210,11 +237,12 @@ class FileIncidentStore implements IncidentStore {
       final String contents;
       try {
         contents = utf8.decode(bytes);
-      } on FormatException {
+      } on FormatException catch (error) {
         // Invalid UTF-8 is a torn write's artifact (a crash mid-character),
         // not a readable file: quarantine like any other corruption.
         _records.clear();
         await _quarantineCorruptFile(file);
+        _reportLoadError(error);
         _loaded = true;
         return;
       }
@@ -226,13 +254,14 @@ class FileIncidentStore implements IncidentStore {
           );
           _records[record.serverId] = record;
         }
-      } catch (_) {
+      } catch (error) {
         // Fail-safe: a corrupt store means no persisted incidents —
         // never a crash, never auto-trust. The corrupt file is moved
         // aside (best effort) so the evidence survives and a fresh write
         // cannot be confused with it.
         _records.clear();
         await _quarantineCorruptFile(file);
+        _reportLoadError(error);
       }
     }
     _loaded = true;
@@ -249,9 +278,10 @@ class FileIncidentStore implements IncidentStore {
   Future<List<IncidentRecord>> load() => _serialized(() async {
     try {
       await _loadInner();
-    } on FileSystemException {
+    } on FileSystemException catch (error) {
       // The interface's fail-safe contract: unreadable reads as empty
       // for this session — the file stays intact for a later one.
+      _reportLoadError(error);
       return const [];
     }
     return List.of(_records.values);
@@ -288,6 +318,64 @@ class FileIncidentStore implements IncidentStore {
     final run = _pending.then((_) => operation());
     _pending = run.then<void>((_) {}, onError: (Object _) {});
     return run;
+  }
+
+  /// Observer errors cannot replace or interrupt the fail-safe load.
+  void _reportLoadError(Object error) {
+    try {
+      onLoadError?.call(error);
+    } on Object {
+      // The observer is diagnostics, not control flow.
+    }
+  }
+}
+
+/// How old a `.tmp-*` file must be before the sweep treats it as a crashed
+/// process's litter. One atomic write creates, fills, and renames its temp
+/// within milliseconds, so this bound sits orders of magnitude above any
+/// write in flight — in this process or another. A sweep without it deletes
+/// a concurrent writer's temp and fails its write (observed: a second store
+/// instance reading while the first persisted).
+const _abandonedTempAge = Duration(hours: 1);
+
+/// Deletes this target's orphaned `.tmp-*` files (parity with the ported
+/// atomic-file helper's crash posture). Best-effort: a failed sweep must not
+/// break loading, and a temp that is too young or undeletable is swept on a
+/// later startup.
+Future<void> _sweepOrphanedTemps(File target) async {
+  // Resolve once: a directory listing yields parent-joined paths, so a bare
+  // relative target ('incidents.json', parent '.') would never match its own
+  // temps ('./incidents.json.tmp-…') and the sweep would silently do nothing.
+  final resolved = target.absolute;
+  final prefix = '${resolved.path}.tmp-';
+  final abandonedBefore = DateTime.now().subtract(_abandonedTempAge);
+  try {
+    final parent = resolved.parent;
+    if (!await parent.exists()) return;
+    await for (final entry in parent.list(followLinks: false)) {
+      if (entry is! File) continue;
+      // Scoped to this target: a sibling store's temp belongs to its own
+      // sweep, and may belong to a write in flight right now.
+      if (!entry.path.startsWith(prefix)) continue;
+
+      final DateTime modified;
+      try {
+        modified = await entry.lastModified();
+      } on Object {
+        // An unreadable mtime is not proof of abandonment.
+        continue;
+      }
+      // A future stamp (a clock step) reads as young, so it stays too.
+      if (modified.isAfter(abandonedBefore)) continue;
+
+      try {
+        await entry.delete();
+      } on Object {
+        // Best-effort: a temp we cannot delete is retried next startup.
+      }
+    }
+  } on Object {
+    // The sweep is hygiene; the load must still proceed.
   }
 }
 

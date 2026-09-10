@@ -13,7 +13,9 @@ import 'pool_fakes.dart';
 
 const _originalKey = 'SHA256:original';
 const _changedKey = 'SHA256:changed';
+const _thirdKey = 'SHA256:third';
 const _hostKeyType = 'ssh-ed25519';
+const _watchClosureTimeout = Duration(seconds: 5);
 const _policy = PoolPolicy(
   maxTransports: 2,
   maxTransferChannelsPerTransport: 1,
@@ -24,6 +26,7 @@ Future<PoolHarness> _harness(
   List<String> fingerprints, {
   required IncidentStore store,
   List<String> serverIds = const ['s1', 's2'],
+  String? pinnedFingerprint = _originalKey,
 }) async {
   final harness = PoolHarness(
     policy: _policy,
@@ -38,14 +41,16 @@ Future<PoolHarness> _harness(
       await harness.manager.disconnectServer(id);
     }
   });
-  // Pre-pin the original key, as an earlier session would have.
+  // Pre-pin the original key, as an earlier session would have. Null models
+  // a pin store that lost the endpoint's pin — audit finding A's premise.
+  if (pinnedFingerprint == null) return harness;
   final config = harness.servers[serverIds.first]!;
   await harness.store.put(
     HostKey(
       host: config.host,
       port: config.port,
       type: _hostKeyType,
-      fingerprintSha256: _originalKey,
+      fingerprintSha256: pinnedFingerprint,
       pinnedAt: 0,
     ),
   );
@@ -94,13 +99,14 @@ IncidentRecord _record({
   String serverId = 's1',
   String host = 'example.com',
   int port = 22,
+  String? pinned = _originalKey,
 }) => IncidentRecord(
   serverId: serverId,
   host: host,
   port: port,
   username: 'test',
   presentedFingerprintSha256: _changedKey,
-  pinnedFingerprintSha256: _originalKey,
+  pinnedFingerprintSha256: pinned,
 );
 
 /// A store whose load parks on [gate] and returns the pre-gate snapshot —
@@ -154,6 +160,51 @@ final class _ThrowingIncidentStore implements IncidentStore {
   @override
   Future<void> removeAllFor(String serverId) async {
     throw const FileSystemException('Simulated incident delete failure.');
+  }
+}
+
+/// Loads and stores normally but fails every delete — the fixture for the
+/// load-time drop whose cleanup is best-effort.
+final class _DeleteFailingIncidentStore implements IncidentStore {
+  final IncidentStore _inner;
+
+  _DeleteFailingIncidentStore(this._inner);
+
+  @override
+  Future<List<IncidentRecord>> load() => _inner.load();
+
+  @override
+  Future<void> put(IncidentRecord record) => _inner.put(record);
+
+  @override
+  Future<void> removeFor(String serverId, PoolKey endpoint) async {
+    throw const FileSystemException('Simulated incident delete failure.');
+  }
+
+  @override
+  Future<void> removeAllFor(String serverId) async {
+    throw const FileSystemException('Simulated incident delete failure.');
+  }
+}
+
+/// A manager whose teardown throws. No production path does today — every
+/// cleanup await on that route runs through `closeSshResource`'s ignore
+/// mode — so the cascade's exception safety (audit finding F) is pinned by
+/// overriding the only await `removeBookmark` makes before it.
+final class _FailingTeardownManager extends PooledConnectionManager {
+  _FailingTeardownManager({
+    required super.resolveServer,
+    required super.resolveCredentials,
+    required super.tofu,
+    required super.onHostKey,
+    required super.openTransport,
+    super.incidentStore,
+    super.policy,
+  });
+
+  @override
+  Future<void> disconnectServer(String serverId) async {
+    throw StateError('simulated teardown failure');
   }
 }
 
@@ -220,6 +271,166 @@ void main() {
     expect(restarted.store.pins.values.single.fingerprintSha256, _changedKey);
     await _eventually(() => store.load(), (records) => records.isEmpty);
     await pane.close();
+  });
+
+  test('a restored block lifts when the pinned key returns', () async {
+    final store = InMemoryIncidentStore();
+    await store.put(_record(serverId: 's1'));
+
+    // Item 6's coupling: the record and its pin are restored together, so
+    // the inherited block keeps both of D18's escapes — explicit review,
+    // and 1a's restored-key match.
+    final harness = await _harness([_originalKey], store: store);
+    await expectLater(
+      harness.manager.leaseTransferChannel('s1'),
+      throwsA(_blockedError()),
+    );
+    // Nothing was dialed: the block came from the restored record.
+    expect(harness.opener.calls, isEmpty);
+
+    var prompts = 0;
+    harness.onHostKey = (_) async {
+      prompts++;
+      return true;
+    };
+    final pane = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'back',
+    );
+    expect(prompts, 0);
+    expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
+    await _eventually(() => store.load(), (records) => records.isEmpty);
+    await pane.close();
+  });
+
+  test(
+    'a restored record with no pin is skipped but never deleted',
+    () async {
+      final store = InMemoryIncidentStore();
+      await store.put(_record(serverId: 's1'));
+
+      // Audit finding A: the record survived a restart but its pin did not.
+      // Restoring that block leaves it with no escape — every connect
+      // verifies firstUse, which a blocked pool refuses to prompt for, and
+      // 1a has no pin to match — so the load skips it and lets the endpoint
+      // re-detect. It does NOT delete it: "no pin" is also what a pin store
+      // that failed to load reads as, and erasing the user's persisted
+      // declines over a transient read is irreversible.
+      final harness = await _harness(
+        [_changedKey],
+        store: store,
+        pinnedFingerprint: null,
+      );
+      final verdicts = <HostKeyVerdict>[];
+      harness.onHostKey = (decision) async {
+        verdicts.add(decision.verdict);
+        return true;
+      };
+
+      final pane = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 'review',
+      );
+      expect(verdicts, [HostKeyVerdict.firstUse]);
+      expect(harness.store.pins.values.single.fingerprintSha256, _changedKey);
+      expect(await store.load(), [_record(serverId: 's1')]);
+      await pane.close();
+    },
+  );
+
+  test('a pin at another endpoint does not restore a record', () async {
+    final store = InMemoryIncidentStore();
+    await store.put(_record(serverId: 's1'));
+
+    final harness = await _harness(
+      [_changedKey],
+      store: store,
+      pinnedFingerprint: null,
+    );
+    // The record's own fingerprint, pinned at a DIFFERENT endpoint (a cloned
+    // machine, a shared jump host). Only the pin at the record's endpoint can
+    // review or lift its block, so a fingerprint found elsewhere in the store
+    // must not restore it.
+    await harness.store.put(
+      HostKey(
+        host: 'other.example',
+        port: 2222,
+        type: _hostKeyType,
+        fingerprintSha256: _originalKey,
+        pinnedAt: 0,
+      ),
+    );
+    final verdicts = <HostKeyVerdict>[];
+    harness.onHostKey = (decision) async {
+      verdicts.add(decision.verdict);
+      return true;
+    };
+
+    final pane = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'review',
+    );
+    expect(verdicts, [HostKeyVerdict.firstUse]);
+    // Skipped, not deleted: the record's own endpoint has no pin, which is
+    // also what a pin store that failed to load reads as.
+    expect(await store.load(), [_record(serverId: 's1')]);
+    await pane.close();
+  });
+
+  test(
+    'a restored record whose pin moved on is dropped and re-detected',
+    () async {
+      final store = InMemoryIncidentStore();
+      await store.put(_record(serverId: 's1'));
+      // A record with no pinned half can never name the current pin either.
+      await store.put(_record(serverId: 's2', pinned: null));
+
+      final harness = await _harness(
+        [_changedKey],
+        store: store,
+        pinnedFingerprint: _thirdKey,
+      );
+      final verdicts = <HostKeyVerdict>[];
+      harness.onHostKey = (decision) async {
+        verdicts.add(decision.verdict);
+        return true;
+      };
+
+      // The stored block names a pin the store no longer holds: its detail
+      // would be wrong, and 1a would lift it on a key the record never
+      // named. Re-detection against the real pin decides instead — the
+      // endpoint comes up unblocked, so even a worker reaches the review.
+      final lease = await harness.manager.leaseTransferChannel('s1');
+      expect(verdicts, [HostKeyVerdict.changed]);
+      expect(harness.store.pins.values.single.fingerprintSha256, _changedKey);
+      await _eventually(() => store.load(), (records) => records.isEmpty);
+      await lease.release();
+    },
+  );
+
+  test('a stale record whose delete fails still loads unblocked', () async {
+    final inner = InMemoryIncidentStore();
+    await inner.put(_record(serverId: 's1'));
+    final harness = await _harness(
+      [_changedKey],
+      store: _DeleteFailingIncidentStore(inner),
+      pinnedFingerprint: _thirdKey,
+    );
+    var prompts = 0;
+    harness.onHostKey = (_) async {
+      prompts++;
+      return true;
+    };
+
+    // The endpoint is pinned, just to another key, so the record is stale
+    // and its delete is attempted. A worker never reviews an inherited
+    // block, so a lease that connects at all proves the block was not
+    // restored; the prompt counted here is the fresh changed-key review, and
+    // the failed delete reaches only the observer.
+    final lease = await harness.manager.leaseTransferChannel('s1');
+    expect(prompts, 1);
+    expect(harness.incidentStoreErrors, isNotEmpty);
+    await lease.release();
   });
 
   test(
@@ -406,6 +617,38 @@ void main() {
   );
 
   test(
+    'a removal during an in-flight connect leaves no state behind',
+    () async {
+      final store = InMemoryIncidentStore();
+      final harness = await _harness([
+        _originalKey,
+        _changedKey,
+      ], store: store);
+      harness.credentialGate = Completer<void>();
+
+      // The first connect parks inside credential resolution while the
+      // bookmark is deleted. The pool's reference and pending identity are
+      // gone before the resolution returns, so the late completion must not
+      // dial, re-register state, or persist a record for a deleted id.
+      final opening = harness.manager.openBrowseChannel('s1', paneTabId: 'a');
+      await pumpEventQueue();
+      final states = harness.manager.watchServer('s1').toList();
+
+      await harness.manager.removeBookmark('s1');
+      harness.credentialGate!.complete();
+
+      await expectLater(opening, throwsA(isA<RemoteFileException>()));
+      final observed = await states.timeout(_watchClosureTimeout);
+      expect(
+        observed.last,
+        const ServerStatus(ServerConnectionState.disconnected),
+      );
+      expect(harness.opener.calls, isEmpty);
+      expect(await store.load(), isEmpty);
+    },
+  );
+
+  test(
     'store failures reach the observer without affecting the block',
     () async {
       final store = _ThrowingIncidentStore();
@@ -492,5 +735,80 @@ void main() {
     );
     await pane.close();
     await _eventually(() => store.load(), (records) => records.isEmpty);
+  });
+
+  test('the removal cascade survives a thrown teardown', () async {
+    final store = InMemoryIncidentStore();
+    await store.put(_record(serverId: 's1'));
+    final manager = _FailingTeardownManager(
+      // Nothing resolves or dials: removeBookmark fails before any of it.
+      resolveServer: (serverId) async => throw StateError('unused $serverId'),
+      resolveCredentials: (config, scope) async =>
+          throw StateError('unused ${config.id}'),
+      tofu: TofuVerifier(FakeHostKeyStore()),
+      onHostKey: (_) async => true,
+      openTransport: FakeTransportOpener().opener,
+      incidentStore: store,
+      policy: _policy,
+    );
+
+    // The app has already deleted the bookmark, so removeBookmark may never
+    // be retried: its cascade must run even when the teardown throws
+    // (audit finding F), or the record and its owner stake outlive it.
+    await expectLater(manager.removeBookmark('s1'), throwsStateError);
+    expect(await store.load(), isEmpty);
+  });
+
+  test(
+    'a failing record delete neither fails the removal nor strands the watch',
+    () async {
+      final harness = await _harness(
+        [_originalKey],
+        store: _ThrowingIncidentStore(),
+      );
+      final states = harness.manager.watchServer('s1').toList();
+
+      // The delete is best-effort and reports through the observer: it must
+      // not fail a removal the app cannot retry, and the fan-out teardown
+      // runs before it, so the watch still completes.
+      await harness.manager.removeBookmark('s1');
+
+      expect(harness.incidentStoreErrors, isNotEmpty);
+      expect(await states.timeout(_watchClosureTimeout), [
+        const ServerStatus(ServerConnectionState.disconnected),
+      ]);
+    },
+  );
+
+  test('removing a bookmark completes its state watch', () async {
+    final harness = await _harness(
+      [_originalKey],
+      store: InMemoryIncidentStore(),
+    );
+
+    // A disconnected bookmark keeps its watch open — it may reconnect. A
+    // removed one can never emit again, so its stream completes instead of
+    // leaving per-id state behind in a long-lived engine (audit finding C).
+    final states = harness.manager.watchServer('s1').toList();
+    final pane = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'a',
+    );
+    await pane.close();
+    await harness.manager.removeBookmark('s1');
+
+    final observed = await states.timeout(_watchClosureTimeout);
+    expect(
+      observed.first,
+      const ServerStatus(ServerConnectionState.disconnected),
+    );
+    expect(
+      observed,
+      contains(const ServerStatus(ServerConnectionState.connected)),
+    );
+    expect(
+      observed.last,
+      const ServerStatus(ServerConnectionState.disconnected),
+    );
   });
 }

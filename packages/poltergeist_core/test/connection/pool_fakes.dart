@@ -354,6 +354,13 @@ class FakeTransportOpener {
   /// Hold a growth verdict before it reaches the pool's trust gate.
   Completer<void>? growthVerificationGate;
 
+  /// Extra verifications inside one open, run after the scripted
+  /// fingerprint's own check and prompt. No production opener verifies
+  /// twice per attempt; this exists so a test can stage one attempt that
+  /// installs a block and then observes a trusted key — the shape the 1a
+  /// lift's trust-epoch guard refuses.
+  Future<void> Function(RecordedOpenCall call, TofuVerifier tofu)? reverify;
+
   /// Fail authentication after TOFU has persisted any approved key.
   Object? connectFailure;
   Object? Function(RecordedOpenCall call)? failureForCall;
@@ -431,6 +438,9 @@ class FakeTransportOpener {
           }
           await tofu.pin(presented);
         }
+
+        final extraVerification = reverify;
+        if (extraVerification != null) await extraVerification(call, tofu);
 
         if (prompting == ConnectPrompting.disabled) {
           if (growthGate != null) await growthGate!.future;

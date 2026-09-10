@@ -450,6 +450,18 @@ boundary when it wraps resolvers — one mechanism, both sides.
    records, and the block ends when its last owning bookmark's records
    are gone. A `blocked` pool with no user action and no restored-key
    presentation stays blocked indefinitely.
+   A *restored* record re-installs its block only while it still names the
+   pin at its own endpoint: a record that endpoint's pin contradicts, or one
+   with no pin at all, is not restored, because neither exit above is
+   reachable for it — with no pin every connect verifies `firstUse`, which a
+   blocked pool refuses to prompt for, and the restored-key match has nothing
+   to match. Skipping costs no protection: the next connect re-detects
+   against the pin store, which is the trust authority. The stale record is
+   deleted only when the endpoint definitively holds a different pin; with no
+   pin at all it is kept, because an empty pin seed is indistinguishable from
+   a pin store that failed to load and erasing a persisted decline cannot be
+   undone. Incident seeding and pin seeding therefore land together (§5's
+   `EngineConfig`).
 2. **Interactive auth caps the pool at one transport.** Record how the first
    connect authenticated. If keyboard-interactive ran or a password was
    prompted interactively, `maxTransports` is effectively 1 — additional
@@ -1521,14 +1533,30 @@ class SetProbeActivityRequest extends EngineRequest {
   final ProbeActivity activity;
 }
 class DisconnectServerRequest extends EngineRequest { final String serverId; }
+/// Deletes the bookmark's connection state and its trust-incident records
+/// (§3.2's `removeBookmark`, owner decision 3a): the disconnect plus the
+/// incident cascade. The engine also forgets the id's config and watch, and
+/// the client closes the id's state stream — a removed bookmark can never
+/// emit again. The removal is final even when the teardown throws: the
+/// cascade's `finally` still withdraws the owners and deletes the records
+/// (§3.2's rule, audit finding F), and the caller must not retry it.
+class RemoveBookmarkRequest extends EngineRequest { final String serverId; }
 class ShutdownRequest extends EngineRequest {}
-/// The first message after spawn: pool policy and the UI-side pin store's
-/// current pins (EngineConfig — support/journal directories and initial
-/// bandwidth limits join with the M4 slices that consume them). Pin
-/// storage stays app-side: the engine seeds an in-memory verifier from
-/// these and surfaces every later pin write as a HostKeyPinnedEvent for
-/// the UI to persist — one TOFU authority (the engine), one store owner
-/// (the app).
+/// The first message after spawn: pool policy, the UI-side pin store's
+/// current pins, and the UI-side incident store's current records
+/// (EngineConfig — support/journal directories and initial bandwidth limits
+/// join with the M4 slices that consume them). Pin and incident storage both
+/// stay app-side: the engine seeds an in-memory verifier and an in-memory
+/// incident store from these, and surfaces every later pin write as a
+/// HostKeyPinnedEvent and every incident mutation as an IncidentStoreEvent
+/// for the UI to persist — one TOFU authority (the engine), one store owner
+/// (the app). The two seeds are coupled and must be supplied together: an
+/// incident restored without the pin it names would block an endpoint with
+/// no review path and no restored-key escape (§3.2 rule 1), so the engine
+/// refuses to restore a seeded record whose pinned fingerprint does not name
+/// the pin at the record's own endpoint — never one pinned only elsewhere —
+/// mirrors the delete when that endpoint holds a different pin, keeps the
+/// record when it holds none, and lets the next connect re-detect.
 
 sealed class EngineEvent {}
 class ProbeStatusesEvent extends EngineEvent {
@@ -1616,6 +1644,21 @@ class PromptDismissedEvent extends EngineEvent {
 }
 /// The engine pinned (or re-pinned) a host key; the UI persists it.
 class HostKeyPinnedEvent extends EngineEvent { final HostKey key; }
+/// A trust-incident store mutation, mirrored for the UI to persist (owner
+/// decision 2a) — the incident half of the pin bridge above, with the same
+/// split: the engine decides, the app stores. A stored record is a declined
+/// changed-key block installed or re-written. A removal scopes to one
+/// endpoint when `endpoint` is set (a lifted or re-reviewed block, so a
+/// bookmark re-pointed elsewhere keeps its newer record) and deletes every
+/// record for `serverId` when `endpoint` is null (§3.2's removal cascade, 3a).
+sealed class IncidentStoreEvent extends EngineEvent {}
+class IncidentRecordStoredEvent extends IncidentStoreEvent {
+  final IncidentRecord record;
+}
+class IncidentRecordRemovedEvent extends IncidentStoreEvent {
+  final String serverId;
+  final PoolKey? endpoint;
+}
 ```
 
 The UI-side facade is `EngineClient` (in `poltergeist_core`), exposing

@@ -130,6 +130,11 @@ abstract interface class ConnectionManager {
   /// records (owner decision 2026-09-09, option 3a). The endpoint's block
   /// ends when its last bookmark's records are gone; a later connect
   /// re-detects whatever key the server presents (D18 unchanged).
+  ///
+  /// The id is gone for good, so the watches it had complete — unlike
+  /// [disconnectServer], which keeps them open for a reconnect. The manager
+  /// keeps no tombstone: watching the id again afterwards behaves like
+  /// watching any id it never saw.
   Future<void> removeBookmark(String serverId);
 }
 
@@ -440,9 +445,13 @@ class PooledConnectionManager implements ConnectionManager {
     // before intermediate state changes.
     return Stream.multi((listener) {
       listener.add(_currentStatusOf(serverId));
-      final subscription = _eventsFor(
-        serverId,
-      ).stream.listen(listener.add, onError: listener.addError);
+      final subscription = _eventsFor(serverId).stream.listen(
+        listener.add,
+        onError: listener.addError,
+        // The controller closes when its bookmark is removed: complete the
+        // watcher instead of leaving it on a stream that can never emit.
+        onDone: listener.close,
+      );
       listener.onPause = subscription.pause;
       listener.onResume = subscription.resume;
       listener.onCancel = subscription.cancel;
@@ -614,12 +623,36 @@ class PooledConnectionManager implements ConnectionManager {
     await _ensureIncidentsLoaded();
 
     // The bookmark is gone entirely: its pool reference goes first, then
-    // its incident records (3a).
-    await disconnectServer(serverId);
+    // its incident records (3a). The cascade runs in a `finally` so a
+    // thrown teardown cannot strand records or owner stakes for an id the
+    // app has already deleted from its store (audit finding F) — removeBookmark
+    // may never be retried after that.
+    try {
+      await disconnectServer(serverId);
+    } finally {
+      _withdrawIncidentStakes(serverId);
+      // Fan-out teardown before the awaited delete: the id can emit nothing
+      // from here on, and the delete's outcome cannot skip it.
+      // (`_deleteStoredBookmark` catches and reports its own failures — a
+      // stale record must not fail a removal the app cannot retry.)
+      _forgetStateFanOut(serverId);
+      await _deleteStoredBookmark(serverId);
+    }
+  }
 
-    // Withdraw this bookmark's stake in every blocked endpoint. The block
-    // survives while any other bookmark still carries a record — deleting
-    // one bookmark of a shared server must not unblock its siblings.
+  /// Drops the removed bookmark's state fan-out (audit finding C): a
+  /// deleted id can never emit again, so its controller closes instead of
+  /// accumulating per-id state in a long-lived engine. `disconnectServer`
+  /// deliberately keeps it — a disconnected bookmark may reconnect.
+  void _forgetStateFanOut(String serverId) {
+    _lastStatuses.remove(serverId);
+    unawaited(_events.remove(serverId)?.close());
+  }
+
+  /// Withdraws this bookmark's stake in every blocked endpoint. The block
+  /// survives while any other bookmark still carries a record — deleting
+  /// one bookmark of a shared server must not unblock its siblings.
+  void _withdrawIncidentStakes(String serverId) {
     for (final key in _incidentOwners.keys.toList()) {
       final owners = _incidentOwners[key]!;
       if (!owners.remove(serverId)) continue;
@@ -637,8 +670,6 @@ class PooledConnectionManager implements ConnectionManager {
         _setState(pool, ServerConnectionState.disconnected);
       }
     }
-
-    await _deleteStoredBookmark(serverId);
   }
 
   // ── Channel acquisition ────────────────────────────────────────────────
@@ -1007,7 +1038,7 @@ class PooledConnectionManager implements ConnectionManager {
       // and only this exact match unblocks (D18's changed-key block is
       // otherwise unchanged).
       if (pool.blocked &&
-          _isCurrentPool(pool) &&
+          _isCurrentTrustEpoch(pool, trustEpoch) &&
           observation.decision?.isTrusted == true) {
         _forgetIncident(pool);
       }
@@ -1254,6 +1285,17 @@ class PooledConnectionManager implements ConnectionManager {
     try {
       final records = await store.load();
       for (final record in records) {
+        final match = await _pinMatchOf(record);
+        if (match != _PinMatch.names) {
+          // Audit finding A: a record that no longer names the endpoint's
+          // pin carries a block with no escape, so it is not restored — the
+          // next connect re-detects against the real pin. Deleting it is
+          // safe only when the pin store definitively answered.
+          if (match == _PinMatch.differs) {
+            await _deleteStaleRecord(store, record);
+          }
+          continue;
+        }
         _incidents.putIfAbsent(
           record.poolKey,
           () => _HostKeyIncident.fromRecord(record),
@@ -1266,6 +1308,45 @@ class PooledConnectionManager implements ConnectionManager {
       // Fail-safe: an unreadable store means no persisted incidents —
       // never a crash, never auto-trust. The next connect re-detects
       // whatever key the server presents.
+      _reportIncidentStoreError(error);
+    }
+  }
+
+  /// What the record's pinned half means against the pin the verifier holds
+  /// for the record's own endpoint — the invariant a restored block needs to
+  /// stay honest and escapable (audit finding A).
+  ///
+  /// Only [_PinMatch.names] restores the block. Otherwise the block would
+  /// outlive both of D18's escapes: with no pin every connect verifies
+  /// `firstUse`, which a blocked pool refuses to prompt for, and 1a's
+  /// restored-key match has nothing to match; with a different pin the
+  /// block's detail would name a fingerprint the store no longer holds, and
+  /// 1a would lift it on a key this record never recorded.
+  ///
+  /// Skipping costs no protection: the next connect re-detects against the
+  /// real pin, and the verifier — never a persisted record — is the trust
+  /// authority (D18).
+  Future<_PinMatch> _pinMatchOf(IncidentRecord record) async {
+    // The verifier's own lookup key: the opener passes the config's host and
+    // port to it verbatim, and the record stored them the same way. The same
+    // fingerprint pinned at ANOTHER endpoint (a cloned machine, a shared jump
+    // host) says nothing about this one.
+    final key = await _tofu.store.get(record.host, record.port);
+    if (key == null) return _PinMatch.absent;
+    return key.fingerprintSha256 == record.pinnedFingerprintSha256
+        ? _PinMatch.names
+        : _PinMatch.differs;
+  }
+
+  Future<void> _deleteStaleRecord(
+    IncidentStore store,
+    IncidentRecord record,
+  ) async {
+    try {
+      await store.removeFor(record.serverId, record.poolKey);
+    } on Object catch (error) {
+      // Best-effort cleanup: an undeleted stale record is still skipped in
+      // memory, and the next load skips it again.
       _reportIncidentStoreError(error);
     }
   }
@@ -2069,6 +2150,23 @@ class _HostKeyIncident {
     presentedFingerprintSha256: presentedFingerprintSha256,
     pinnedFingerprintSha256: pinnedFingerprintSha256,
   );
+}
+
+/// What a restored incident record's pinned half means against the pin the
+/// verifier holds for that record's own endpoint.
+enum _PinMatch {
+  /// The endpoint is pinned to exactly this record's key: restore the block.
+  names,
+
+  /// The endpoint is pinned to a different key, so the record is stale. The
+  /// store definitively answered, which makes deleting it safe.
+  differs,
+
+  /// No pin at all. Ambiguous by nature: a pin store that failed to load
+  /// reads the same way, so the record is skipped but never deleted —
+  /// erasing a user's persisted declines over a transient read is
+  /// irreversible, and the block returns if the pin does.
+  absent,
 }
 
 /// The TOFU verdict of one connect attempt. The opener never invokes the

@@ -5,6 +5,8 @@ import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart';
 import '../connection/credential_resolution.dart';
+import '../connection/incident_store.dart';
+import '../connection/pool_key.dart';
 import '../connection/ssh_transport.dart';
 import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
@@ -78,6 +80,12 @@ class EngineHost {
       policy: config.policy,
       openTransport: openTransport,
       prober: prober,
+      // The app owns incident persistence: the bridge keeps the engine's
+      // in-memory records in step with the app by forwarding every
+      // put/remove as an [IncidentStoreEvent]. Audit finding A's coupling:
+      // pins and incidents seed from the same app-owned config, so a
+      // restored block always keeps both of D18's escapes.
+      incidentStore: _seededIncidentStore(config, events),
       onRecoveryFailure: host._recoveryFailed,
     );
     host._probes = EngineProbes(
@@ -132,6 +140,24 @@ class EngineHost {
     return _PinningStore(pins, events);
   }
 
+  /// Incident records from the config seed the in-memory store; every later
+  /// put/remove forwards to the app-owned store as a typed event. The seed
+  /// is structural, not conventional: the manager's lazy load filters these
+  /// records against the pin seed (audit finding A's safety net), so a
+  /// half-seeded store would silently drop a restored block — and this
+  /// factory cannot await, hence the synchronous seeding constructor.
+  ///
+  /// The pin seed above keeps the unawaited-put convention because
+  /// `InMemoryHostKeyStore` is Séance's pinned class; a missing pin fails
+  /// closed (a first-use re-prompt), where a missing record would not.
+  static IncidentStore _seededIncidentStore(
+    EngineConfig config,
+    SendPort events,
+  ) => _IncidentBridge(
+    InMemoryIncidentStore.seeded(config.incidents),
+    events,
+  );
+
   void handle(Object? message) {
     switch (message) {
       case final OpenBrowseChannelRequest request:
@@ -179,6 +205,17 @@ class EngineHost {
       case final DisconnectServerRequest request:
         _guard(request.requestId, () async {
           await _manager.disconnectServer(request.serverId);
+          return const EngineAck();
+        });
+      case final RemoveBookmarkRequest request:
+        _guard(request.requestId, () async {
+          try {
+            await _manager.removeBookmark(request.serverId);
+          } finally {
+            // The bookmark is gone regardless of the cascade's outcome:
+            // never keep serving its config or watch afterwards.
+            _forgetServer(request.serverId);
+          }
           return const EngineAck();
         });
       case final PromptReplyRequest request:
@@ -289,6 +326,16 @@ class EngineHost {
     _watches.remove(serverId)?.cancel();
   }
 
+  /// Drops every host-side trace of a removed bookmark. Runs from the
+  /// removal's `finally`, so it also fires when the manager's own cleanup
+  /// failed partway: host state must never outlive the bookmark, and a
+  /// long-lived engine must not retain config or a watch for an id that no
+  /// longer exists (audit finding C's engine-side growth).
+  void _forgetServer(String serverId) {
+    _servers.remove(serverId);
+    _unwatch(serverId);
+  }
+
   /// The spawner owns the isolate's lifetime: it kills after the ack (see
   /// `EngineClient.shutdown`), so the host only cleans up and answers.
   Future<EngineResult> _shutdown(ShutdownRequest request) async {
@@ -343,6 +390,42 @@ final class _PinningStore implements HostKeyStore {
   Future<void> put(HostKey key) async {
     await _pins.put(key);
     _events.send(HostKeyPinnedEvent(key: key));
+  }
+}
+
+/// An incident store that forwards every mutation to the UI (03 §5's
+/// incident bridge). Reads stay engine-local: the app seeds the engine with
+/// its records through [EngineConfig.incidents], then persists the engine's
+/// mutations from the mirror events.
+final class _IncidentBridge implements IncidentStore {
+  final IncidentStore _store;
+  final SendPort _events;
+
+  _IncidentBridge(this._store, this._events);
+
+  @override
+  Future<List<IncidentRecord>> load() => _store.load();
+
+  @override
+  Future<void> put(IncidentRecord record) async {
+    await _store.put(record);
+    _events.send(IncidentRecordStoredEvent(record: record));
+  }
+
+  @override
+  Future<void> removeFor(String serverId, PoolKey endpoint) async {
+    await _store.removeFor(serverId, endpoint);
+    _events.send(
+      IncidentRecordRemovedEvent(serverId: serverId, endpoint: endpoint),
+    );
+  }
+
+  @override
+  Future<void> removeAllFor(String serverId) async {
+    await _store.removeAllFor(serverId);
+    // No endpoint means bulk erase: the mirror must read a null endpoint as
+    // "delete every record for this serverId", never as an unmatched lookup.
+    _events.send(IncidentRecordRemovedEvent(serverId: serverId));
   }
 }
 

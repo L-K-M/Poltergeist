@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 5;
+const _expectedProtocolVersion = 6;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,
@@ -54,6 +54,29 @@ const _pin = HostKey(
   type: 'ssh-ed25519',
   fingerprintSha256: 'SHA256:pinned',
   pinnedAt: 12,
+);
+
+/// A declined changed-key record and the endpoint it blocks — the incident
+/// bridge's payloads (03 §5).
+const _incident = IncidentRecord(
+  serverId: 'srv-1',
+  host: 'example.com',
+  port: 2222,
+  username: 'user',
+  presentedFingerprintSha256: 'SHA256:presented',
+  pinnedFingerprintSha256: 'SHA256:pinned',
+);
+const _endpoint = PoolKey(host: 'example.com', port: 2222, username: 'user');
+
+/// A second record at a different endpoint: one element cannot distinguish
+/// "the list crossed" from "the first element crossed and the rest dropped".
+const _otherIncident = IncidentRecord(
+  serverId: 'srv-2',
+  host: 'other.example.com',
+  port: 22,
+  username: 'ops',
+  presentedFingerprintSha256: 'SHA256:other-presented',
+  pinnedFingerprintSha256: 'SHA256:other-pinned',
 );
 
 void main() {
@@ -232,6 +255,27 @@ void main() {
 
       await _roundTrip(incoming, engine, const HostKeyPinnedEvent(key: _pin));
 
+      // The incident bridge: a stored record, an endpoint-scoped delete (a
+      // lifted block), and a whole-bookmark delete (the 3a cascade).
+      await _roundTrip(
+        incoming,
+        engine,
+        const IncidentRecordStoredEvent(record: _incident),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const IncidentRecordRemovedEvent(
+          serverId: 'srv-1',
+          endpoint: _endpoint,
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const IncidentRecordRemovedEvent(serverId: 'srv-1'),
+      );
+
       // ── Requests (every EngineRequest crosses intact). ──────────────────
       await _roundTrip(
         incoming,
@@ -289,6 +333,11 @@ void main() {
         incoming,
         engine,
         const DisconnectServerRequest(requestId: 7, serverId: 'srv-1'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const RemoveBookmarkRequest(requestId: 19, serverId: 'srv-1'),
       );
       await _roundTrip(
         incoming,
@@ -381,6 +430,7 @@ void main() {
         const EngineConfig(
           policy: PoolPolicy(maxTransports: 3),
           hostKeyPins: [_pin],
+          incidents: [_incident, _otherIncident],
         ),
       );
     },
@@ -437,6 +487,17 @@ Future<void> _roundTrip(
       expect(got.key.fingerprintSha256, sent.key.fingerprintSha256);
       expect(got.key.pinnedAt, sent.key.pinnedAt);
     case (
+      final IncidentRecordStoredEvent sent,
+      final IncidentRecordStoredEvent got,
+    ):
+      expect(got.record, sent.record);
+    case (
+      final IncidentRecordRemovedEvent sent,
+      final IncidentRecordRemovedEvent got,
+    ):
+      expect(got.serverId, sent.serverId);
+      expect(got.endpoint, sent.endpoint);
+    case (
       final OpenBrowseChannelRequest sent,
       final OpenBrowseChannelRequest got,
     ):
@@ -469,6 +530,12 @@ Future<void> _roundTrip(
     case (
       final DisconnectServerRequest sent,
       final DisconnectServerRequest got,
+    ):
+      expect(got.requestId, sent.requestId);
+      expect(got.serverId, sent.serverId);
+    case (
+      final RemoveBookmarkRequest sent,
+      final RemoveBookmarkRequest got,
     ):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);
@@ -508,6 +575,7 @@ Future<void> _roundTrip(
         sent.hostKeyPins.single.fingerprintSha256,
       );
       expect(got.hostKeyPins.single.pinnedAt, sent.hostKeyPins.single.pinnedAt);
+      expect(got.incidents, sent.incidents);
     default:
       fail(
         'Message type changed across the port: '

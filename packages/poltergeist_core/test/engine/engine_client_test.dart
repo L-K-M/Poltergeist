@@ -9,7 +9,20 @@ import 'package:test/test.dart';
 /// round trip without needing an sshd fixture (08 §5 owns those legs).
 const _refusedPort = 1;
 const _connectedServerId = 'srv-2';
+const _removedServerId = 'srv-1';
 const _streamClosureTimeout = Duration(seconds: 5);
+
+/// A declined changed-key record, as the engine's incident store mirrors it
+/// to the app for persistence (owner decision 2a).
+const _incidentRecord = IncidentRecord(
+  serverId: _removedServerId,
+  host: 'example.com',
+  port: 2222,
+  username: 'user',
+  presentedFingerprintSha256: 'SHA256:changed',
+  pinnedFingerprintSha256: 'SHA256:pinned',
+);
+
 const _recoveryFailure = RecoveryFailedEvent(
   serverId: 'srv-1',
   paneTabId: 'tab-1',
@@ -229,6 +242,56 @@ void main() {
     expect(await failures.timeout(_streamClosureTimeout), isEmpty);
   });
 
+  test('incident changes broadcast and a removal closes its watch', () async {
+    final client = await EngineClient.spawnForTesting(
+      const EngineConfig(),
+      entrypoint: _incidentEngine,
+    );
+    addTearDown(client.shutdown);
+
+    final changes = <IncidentStoreEvent>[];
+    final subscription = client.incidentChanges.listen(changes.add);
+    addTearDown(subscription.cancel);
+    final states = client.watchServer(_removedServerId).toList();
+
+    // The mirror event rides the same port as the response, so awaiting the
+    // response drains the forwarding without a sleep.
+    expect(await client.connectedServerIds(), isEmpty);
+    expect(changes, hasLength(1));
+    expect(
+      (changes.single as IncidentRecordStoredEvent).record,
+      _incidentRecord,
+    );
+
+    await client.removeBookmark(_removedServerId);
+    expect(changes, hasLength(2));
+    final removed = changes.last as IncidentRecordRemovedEvent;
+    expect(removed.serverId, _removedServerId);
+    // A whole-bookmark delete carries no endpoint (owner decision 3a).
+    expect(removed.endpoint, isNull);
+
+    // The removed bookmark's watch completes, delivering the state the
+    // engine sent before its ack.
+    expect(await states.timeout(_streamClosureTimeout), [
+      const ServerStatus(ServerConnectionState.disconnected),
+      const ServerStatus(ServerConnectionState.disconnected),
+    ]);
+
+    // The engine keeps serving after a removal.
+    expect(await client.connectedServerIds(), isEmpty);
+    expect(changes, hasLength(2));
+  });
+
+  test('shutdown closes the incident change stream', () async {
+    final client = await EngineClient.spawn(const EngineConfig());
+    addTearDown(client.shutdown);
+
+    final changes = client.incidentChanges.toList();
+    await client.shutdown();
+
+    expect(await changes.timeout(_streamClosureTimeout), isEmpty);
+  });
+
   test('dead-engine surfaces: watch fails fast', () async {
     final client = await EngineClient.spawn(const EngineConfig());
     await client.shutdown();
@@ -301,6 +364,65 @@ void _diagnosticEngine(SendPort events) {
         requests.close();
       default:
         throw StateError('Unexpected diagnostic fixture request.');
+    }
+  });
+}
+
+/// Mirrors one stored record on the first query, then answers a removal
+/// with the cascade's mirror event and the removed bookmark's last state —
+/// the engine's ordering, so the client delivers both before it closes.
+void _incidentEngine(SendPort events) {
+  final requests = ReceivePort();
+  events.send(requests.sendPort);
+  var storedPending = true;
+  requests.listen((message) {
+    switch (message) {
+      case EngineConfig():
+        return;
+      case final WatchServerRequest request:
+        events.send(
+          ServerStateEvent(
+            serverId: request.serverId,
+            state: ServerConnectionState.disconnected,
+          ),
+        );
+      case UnwatchServerRequest():
+        return;
+      case final ConnectedServerIdsRequest request:
+        if (storedPending) {
+          storedPending = false;
+          events.send(const IncidentRecordStoredEvent(record: _incidentRecord));
+        }
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const ServerIdsListed(ids: []),
+          ),
+        );
+      case final RemoveBookmarkRequest request:
+        events.send(
+          ServerStateEvent(
+            serverId: request.serverId,
+            state: ServerConnectionState.disconnected,
+          ),
+        );
+        events.send(IncidentRecordRemovedEvent(serverId: request.serverId));
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const EngineAck(),
+          ),
+        );
+      case final ShutdownRequest request:
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const EngineAck(),
+          ),
+        );
+        requests.close();
+      default:
+        throw StateError('Unexpected incident fixture request.');
     }
   });
 }
