@@ -30,9 +30,11 @@ final class FakeConnectionStateBridge implements ConnectionStateBridge {
 
   @override
   Stream<ServerStatus> watchServer(String serverId) {
-    watched.add(serverId);
     final failure = watchFailure;
     if (failure != null) throw failure;
+    // Recorded only for watches that returned a lane: a refused call is
+    // never a subscription.
+    watched.add(serverId);
     return _controller(serverId).stream;
   }
 
@@ -70,6 +72,10 @@ final class FakeConnectionStateBridge implements ConnectionStateBridge {
 
   /// The engine died: every lane closes, as `EngineClient._terminate` does.
   Future<void> stopEngine() async {
+    // A dead engine also fails fast on new watches (see [watchFailure]), so
+    // a reload after termination cannot silently re-subscribe to a done
+    // lane — matching the production client's `_closed` guard.
+    watchFailure ??= StateError('The engine has terminated.');
     if (!_controllersClosed) {
       _controllersClosed = true;
       for (final controller in _controllers.values) {

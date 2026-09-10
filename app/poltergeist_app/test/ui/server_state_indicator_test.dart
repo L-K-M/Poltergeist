@@ -130,6 +130,19 @@ void main() {
       );
     });
 
+    test('a connected server outranks an offline probe', () {
+      // The reverse contradiction of the audit finding: authenticated
+      // transports prove reachability, so a stale offline result cannot
+      // paint beside a session the user is actively using (02 §4).
+      expect(
+        glyphOf(
+          status: const ServerStatus(ServerConnectionState.connected),
+          probe: ProbeStatus.offline,
+        ),
+        ServerIndicatorGlyph.connected,
+      );
+    });
+
     test('a truth that does not contradict leaves the probe dot', () {
       // 02 §4 gives the favorite row its tri-state probe dot, and 07 §3.3
       // requires it to render in the interim list: a healthy or pending
@@ -210,6 +223,32 @@ void main() {
       }
     });
 
+    testWidgets('a connected server replaces the offline probe dot', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const ServerStateIndicator(
+          status: ServerStatus(ServerConnectionState.connected),
+          probe: ProbeStatus.offline,
+        ),
+      );
+
+      expect(find.byType(ProbeStatusDot), findsNothing);
+      expect(find.byTooltip(_l10n.connectionStateConnected), findsOneWidget);
+
+      final semantics = tester.ensureSemantics();
+      try {
+        expect(
+          find.bySemanticsLabel(_l10n.connectionStateConnected),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel(_l10n.probeStatusOffline), findsNothing);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets('paints nothing when neither truth exists', (tester) async {
       await _pump(tester, const ServerStateIndicator(status: null));
 
@@ -233,7 +272,9 @@ void main() {
 
   test('indicator colors stay above 3:1 on both theme surfaces', () {
     // The composed indicator inherits the probe dot's contrast floor
-    // (02 §4, SEA-019) for every color it can paint.
+    // (02 §4, SEA-019) for every color it can paint. The delegated probe
+    // offline/unknown states reuse the scheme colors already pinned below
+    // (`error`/`outline`), so no delegated color escapes the pin.
     for (final brightness in Brightness.values) {
       final scheme = buildPoltergeistTheme(brightness).colorScheme;
 

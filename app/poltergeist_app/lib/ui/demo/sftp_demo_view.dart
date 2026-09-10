@@ -164,7 +164,9 @@ class _SftpDemoPageState extends State<_SftpDemoPage> {
         final probeStatus = serverId == null
             ? null
             : controller.probeStatus(serverId);
-        final connectionStatus = controller.status;
+        // Gated like the probe read: the indicator attributes state to the
+        // selected server, so neither truth may outlive the selection.
+        final connectionStatus = serverId == null ? null : controller.status;
         return Scaffold(
           appBar: AppBar(
             // The nested navigator's home route cannot pop itself; the

@@ -8,7 +8,8 @@ abstract interface class ConnectionStateBridge {
   /// One server's connection status, current value first (03 §3.2).
   ///
   /// Live-only and replay-free apart from that first value: subscribe before
-  /// the state you need can change (03 §5).
+  /// the state you need can change (03 §5). Completes only when the engine
+  /// tears its lanes down — never per server — so `onDone` means engine death.
   Stream<ServerStatus> watchServer(String serverId);
 
   /// Terminal recovery failures, delivered independently of any watch and

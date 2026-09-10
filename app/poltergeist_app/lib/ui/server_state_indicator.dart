@@ -55,7 +55,9 @@ ServerIndicatorAppearance serverIndicatorOf(
   final connection = status == null
       ? null
       : _connectionAppearance(l10n, status);
-  if (connection != null && _outranksProbe(connection.glyph)) return connection;
+  if (connection != null && _outranksProbe(connection.glyph, probe)) {
+    return connection;
+  }
 
   final reachability = probe == null ? null : _probeAppearance(l10n, probe);
   if (reachability != null) return reachability;
@@ -63,11 +65,17 @@ ServerIndicatorAppearance serverIndicatorOf(
   return connection ?? (glyph: ServerIndicatorGlyph.none, label: '');
 }
 
-/// The glyphs that contradict a probe result and therefore replace it.
-bool _outranksProbe(ServerIndicatorGlyph glyph) => switch (glyph) {
-  ServerIndicatorGlyph.blocked || ServerIndicatorGlyph.failed => true,
-  _ => false,
-};
+/// The glyphs that contradict a probe result and therefore replace it:
+/// adverse truth (a block, a failure the state explains) always, and
+/// authenticated transports over an offline result — the reverse of the
+/// audit finding's contradiction, since connected transports prove
+/// reachability.
+bool _outranksProbe(ServerIndicatorGlyph glyph, ProbeStatus? probe) =>
+    switch (glyph) {
+      ServerIndicatorGlyph.blocked || ServerIndicatorGlyph.failed => true,
+      ServerIndicatorGlyph.connected => probe == ProbeStatus.offline,
+      _ => false,
+    };
 
 /// A `detail` on the status means the state explains a failure (03 §3.2);
 /// cancellation and idle teardown carry none, so `disconnected` splits into
@@ -127,8 +135,9 @@ ServerIndicatorAppearance _probeAppearance(
   };
 }
 
-/// The labeled composed indicator for a server: connection truth when it
-/// exists, else the probe dot, else nothing.
+/// The labeled composed indicator for a server, resolved by
+/// [serverIndicatorOf]: the probe dot while no connection truth outranks
+/// it, else the connection glyph, else nothing.
 ///
 /// Used where the indicator is the row's only state wording (the interim
 /// list's app bar; M5's sidebar badge corner). A list that renders the state
@@ -139,7 +148,8 @@ class ServerStateIndicator extends StatelessWidget {
   /// Live connection truth; null when no engine reports this server.
   final ServerStatus? status;
 
-  /// Reachability truth; rendered only while [status] is null.
+  /// Reachability truth; rendered while [status] is null or its resolved
+  /// glyph does not outrank it (see [serverIndicatorOf]).
   final ProbeStatus? probe;
 
   @override
@@ -179,11 +189,11 @@ class ServerStateGlyph extends StatelessWidget {
 
   /// The dot diameter [ProbeStatusDot] paints, so one server's indicator is
   /// the same size whichever truth produced it.
-  static const dotSize = 10.0;
+  static const dotSize = ProbeStatusDot.dotSize;
 
   /// The padded box [ProbeStatusDot] keeps its dot in: a 10 px paint alone is
   /// not a practical hover or touch target.
-  static const boxSize = 24.0;
+  static const boxSize = ProbeStatusDot.boxSize;
 
   final ServerIndicatorGlyph glyph;
 

@@ -14,6 +14,13 @@ class ProbeStatusDot extends StatelessWidget {
   /// Material green 800: ≥ 3:1 on the seeded light and dark surfaces.
   static const onlineColor = Color(0xFF2E7D32);
 
+  /// The dot's painted diameter and the padded box holding it — the one
+  /// geometry every server indicator shares ([ServerStateGlyph] references
+  /// both), so a server's indicator is the same size whichever truth
+  /// produced it.
+  static const dotSize = 10.0;
+  static const boxSize = 24.0;
+
   final ProbeStatus status;
 
   @override
@@ -43,12 +50,12 @@ class ProbeStatusDot extends StatelessWidget {
         label: label,
         container: true,
         child: SizedBox(
-          width: 24,
-          height: 24,
+          width: boxSize,
+          height: boxSize,
           child: Center(
             child: Container(
-              width: 10,
-              height: 10,
+              width: dotSize,
+              height: dotSize,
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
           ),

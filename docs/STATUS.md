@@ -15,9 +15,10 @@ persisted probe eligibility/settings through settings.json (global
 opt-out plus the per-server device-local map with retarget reset),
 lifecycle forwarding through a binding-seam observer, the tri-state
 interim status dot with pinned contrast, and the subscribing app caller
-(dated section below) — startup composition remains open. The Alpine iproute2 apk pin in the sshd
-fixture is bumped to `7.2.0-r0` after upstream rotation broke main's
-SSH-integration leg, with a fixture-tool pin regression (dated section
+(dated section below) — startup composition remains open. The Alpine
+iproute2 apk pin in the sshd fixture is bumped to `7.2.0-r0` after
+upstream rotation broke main's SSH-integration leg, with a fixture-tool
+pin regression (dated section
 below). The debug-only demo surface now composes the
 existing connection slices into the running app for the first time — engine
 spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
@@ -1434,13 +1435,15 @@ notifier, consuming the engine's existing state lanes.
   absent here: 02 §4 gives the Connections section pool state, and 03 §3.4
   keeps the probe controller from overriding live connection state.
 - `serverIndicatorOf` composes the one indicator per server (SEA-021).
-  Adverse connection truth — a block, or a failure the state explains —
-  outranks a probe result: that is the audit note's fix, a green
-  "reachable" dot no longer rendered beside a blocked panel (the demo's
-  interim-list dot now composes through it; the regression failed on the
-  pre-fix head). Where the truths do not contradict, 02 §4's tri-state
-  probe dot stays the favorite row's indicator, which is what 07 §3.3
-  requires the interim list to render.
+  Connection truth that contradicts a probe result outranks it: a block,
+  a failure the state explains, or — the review round's addition — an
+  authenticated transport over a stale offline result (live truth outranks
+  probes, 02 §4, in both directions). That is the audit note's fix, a
+  green "reachable" dot no longer rendered beside a blocked panel (the
+  demo's interim-list dot now composes through it; the regression failed
+  on the pre-fix head). Where the truths do not contradict, 02 §4's
+  tri-state probe dot stays the favorite row's indicator, which is what
+  07 §3.3 requires the interim list to render.
 - `ConnectionsView` and the `view.connections` registered command (D21),
   in the production shell and not debug-gated: rows carry the endpoint,
   the state label, the state-associated detail one-liner, per-pane
@@ -1449,11 +1452,16 @@ notifier, consuming the engine's existing state lanes.
   only), and for a blocked row the warning copy plus a review affordance
   wired to a seam that leads into the existing changed-key prompt path —
   absent while no composition can start a connect, the same posture as
-  the panel's optional retry.
+  the panel's optional retry. A pane's terminal-failure attribution stays
+  until the rows reload; clearing it on a successful pane reopen lands
+  with M3's reopen flow (the only caller that can know one happened).
 - Composition: `main.dart` now owns the one `FileBookmarkStore` instance,
   shared by the import command and this surface (two instances over one
   file would race their write tails), so `buildSshConfigImportSetup` takes
-  the store instead of building one. The engine seam is null in
+  the store instead of building one. The shell rebuilds its controller
+  when either seam is replaced (the review round's guard: the
+  startup-wiring flow can supply an engine after mounting with the same
+  store). The engine seam is null in
   production: the startup-wiring slice owns the spawn, which must seed
   host-key pins and trust incidents together (item 6, audit finding A);
   until then every row reads "not connected" — the app holds no transport
@@ -1462,11 +1470,13 @@ notifier, consuming the engine's existing state lanes.
 Validation: regressions observed failing first — the blocked-outranks
 regression failed on the pre-fix head, and each rail (state mapping,
 outranking, detail one-liner, command registration, empty/offline list
-states) re-failed under an isolated mutation of its own code. 41 new
+states) re-failed under an isolated mutation of its own code; the review
+round's connected-over-offline and engine-swap regressions likewise
+failed on the pre-fix head. 44 new
 tests: 15 controller (including a leg over a real spawned `EngineClient`,
-proving the adapter consumes the real lanes), 12 indicator (including the
-≥ 3:1 contrast pin for every color it paints), 13 surface, 1 demo
-regression. App analysis clean and 393 tests pass; core untouched
+proving the adapter consumes the real lanes), 14 indicator (including the
+≥ 3:1 contrast pin for every color it paints), 14 surface, 1 demo
+regression. App analysis clean and 396 tests pass; core untouched
 (analyze clean, import guard passes). Rootless widget captures
 before/after in `tasks/m2-connection-state` (PROVENANCE.md and
 SHA256SUMS.txt; tofu text — the container ships no fonts). No core

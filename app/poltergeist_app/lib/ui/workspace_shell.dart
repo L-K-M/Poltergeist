@@ -75,9 +75,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   @override
   void didUpdateWidget(WorkspaceShell oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // The composition root supplies the store once; a replacement must not
-    // leave the surface listing the previous store's bookmarks.
-    if (identical(oldWidget.bookmarks, widget.bookmarks)) return;
+    // The composition root supplies the store once but may supply the
+    // engine later (the startup-wiring flow mounts the shell before any
+    // engine exists); a replacement of either must not leave the surface
+    // listing the previous store's bookmarks or a dead engine seam.
+    if (identical(oldWidget.bookmarks, widget.bookmarks) &&
+        identical(oldWidget.connectionEngine, widget.connectionEngine)) {
+      return;
+    }
 
     _connections?.dispose();
     _connections = _buildConnections();

@@ -181,6 +181,34 @@ void main() {
   });
 
   group('the list', () {
+    testWidgets('the shell picks up a later engine over the same store', (
+      tester,
+    ) async {
+      // The startup-wiring flow: the shell mounts before any engine exists,
+      // then the composition root supplies one without rebuilding the
+      // store. The surface must track truth from the new engine, not keep
+      // the null seam it was built with.
+      store.bookmarks = [_server('a')];
+      await pumpApp(tester, bookmarks: store);
+      await pumpApp(tester, bookmarks: store, engine: bridge);
+      await openConnections(tester);
+
+      bridge.emitStatus(
+        'a',
+        const ServerStatus(ServerConnectionState.connecting),
+      );
+      await tester.pump();
+
+      final row = find.byKey(const ValueKey('connection.a'));
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.text(l10n.connectionStateConnecting),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('renders the store\'s servers with their endpoints', (
       tester,
     ) async {

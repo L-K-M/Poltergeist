@@ -1646,14 +1646,18 @@ void main() {
       expect(find.byTooltip(l10n.probeStatusOnline), findsOneWidget);
 
       // The dot tracks the engine snapshot, not a local guess: an
-      // unsolicited mid-session push flips it without any reconnect.
+      // unsolicited mid-session push reaches it without any reconnect.
+      // An offline push cannot flip it while a transport is connected —
+      // the push contradicts live truth, so the composed indicator keeps
+      // the connected glyph (02 §4).
       engine.probeStatusesController.add(
         ProbeStatusesEvent(
           statuses: {engine.probeTargets.single.id: ProbeStatus.offline},
         ),
       );
       await tester.pump();
-      expect(find.byTooltip(l10n.probeStatusOffline), findsOneWidget);
+      expect(find.byType(ProbeStatusDot), findsNothing);
+      expect(find.byTooltip(l10n.connectionStateConnected), findsOneWidget);
     });
 
     testWidgets('an unscripted snapshot leaves the dot unknown', (
