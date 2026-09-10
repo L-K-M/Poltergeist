@@ -945,6 +945,7 @@ clean, 333 tests pass (15 Docker-fixture skips — Docker unavailable
 locally, as before). The real build + all 15 SSH tests ride the CI
 integration leg on the PR head. No PORTS, pin, dependency, or
 milestone-close change.
+
 ## M2 — trust-incident lifecycle (2026-09-10)
 
 Item 6's owner decision (1a/2a/3a, 2026-09-09T19:52Z) lands in the pool:
@@ -1097,8 +1098,28 @@ head rebuilt the image and ran the 15 real-sshd tests — the pin resolved;
 pin rot is the fixture's pre-existing maintenance property). Refuted:
 the unhandled-async-error premise (every call site catches —
 `catchError` before `unawaited` or an awaited try/catch — no future can
-complete unhandled) and the teardown-misses-s3 premise (round 1 already
-switched teardown to a snapshot of `harness.servers.keys`).
+complete unhandled) and, for the teardown-misses-s3 premise, round 4
+showed the snapshot fix had landed only in the gated-store test —
+`_harness`'s teardown now snapshots `harness.servers.keys` too (see the
+round-4 record).
+
+Review round 4 (applied; first polish-only round — both majors are
+re-litigations): `_harness`'s teardown snapshots `harness.servers.keys`
+(the round-3 refutation had overstated the earlier fix's reach); the
+re-pointed test's poll check guards `.single` with a length check; the
+M2 heading gained its missing blank line; a file-store test covers
+`removeFor`'s endpoint guard and its early-return-before-flush.
+Declined with recorded reasons: the fire-and-forget ordering re-raise
+(third packaging — the store contract documents the issue-order
+invariant both shipped stores provide, the reviewer's own alternative);
+the `chmod` PATH re-raise (03 §2.2 prescribes PATH-based `Process.run`
+chmod for core; a same-user PATH influence yields at worst
+process-default modes — content authority stays in-process); the
+first-record-wins payload divergence (payloads affect only the block
+detail; the schema carries no ordering data by design); the
+last-verdict re-raise (one verification per attempt at this pin); the
+quarantine-stamp overwrite (microsecond-precision stamp, best-effort
+evidence preservation — parity with the ported helper).
 
 ## Open items
 

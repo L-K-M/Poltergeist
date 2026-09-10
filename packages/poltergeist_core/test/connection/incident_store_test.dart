@@ -177,6 +177,23 @@ void main() {
       expect((await afterRemoval.load()).map((r) => r.serverId), ['b']);
     });
 
+    test('removeFor skips a record of a different endpoint', () async {
+      final store = FileIncidentStore(File(path));
+      await store.put(_record(serverId: 'a', host: 'other.example'));
+
+      // The endpoint guard (and its early-return-before-flush) must hold
+      // for the file store too, not only the in-memory one.
+      await store.removeFor('a', _record(serverId: 'a').poolKey);
+
+      final reloaded = FileIncidentStore(File(path));
+      expect(
+        (await reloaded.load()).single.host,
+        'other.example',
+      );
+      await store.removeFor('a', _record(host: 'other.example').poolKey);
+      expect(await FileIncidentStore(File(path)).load(), isEmpty);
+    });
+
     test('serializes concurrent writes without interleaving', () async {
       final store = FileIncidentStore(File(path));
       await Future.wait([

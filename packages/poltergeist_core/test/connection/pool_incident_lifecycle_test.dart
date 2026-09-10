@@ -453,6 +453,7 @@ void main() {
       await _eventually(
         () => store.load(),
         (records) =>
+            records.length == 1 &&
             records.single.serverId == 's1' &&
             records.single.host == 'other.example',
       );
