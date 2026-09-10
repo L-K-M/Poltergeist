@@ -1046,6 +1046,13 @@ fourth re-raise of the hideServer-in-_teardown misattribution
 (hideServer is only called from disconnect()). Declined (re-raised a
 fourth time, recorded): _isCurrent value-equality. Declined (re-raised):
 clearServers/orphan sweep — the round-3 footgun rationale stands.
+Rounds 5–6 re-raised the same items again (the hideServer-in-_teardown
+misattribution, _isCurrent value-equality, the failed-connect leak, the
+stale-favorite window, the compile claim CI already disproved) plus
+comment nits; the applied items were the opt-out clear pin, the bounded
+gate wait, and two doc/comment corrections. Steady state per the
+owner's bar: no correctness, security, or contract finding survived
+triage in any of rounds 2–6.
 Widget-render
 captures before/after the dot in `tasks/probe-wiring-captures` (rootless
 container, labeled). No core changes, no pin/dependency change, no source
