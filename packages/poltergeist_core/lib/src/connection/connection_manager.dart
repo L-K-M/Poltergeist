@@ -218,9 +218,11 @@ class PooledConnectionManager implements ConnectionManager {
   final Map<PoolKey, _EndpointPool> _pools = {};
   final Map<PoolKey, _HostKeyIncident> _incidents = {};
 
-  /// Which bookmark ids own a persisted record for each blocked endpoint
-  /// (3a's cascade keys). Populated from the store at load and kept in
-  /// sync with it; the endpoint's block ends when the last owner leaves.
+  /// Which bookmark ids own the incident for each blocked endpoint — the
+  /// 3a cascade keys (each owning bookmark also holds a persisted record
+  /// when a store is configured). Populated from the store at load and
+  /// kept in sync with it; the endpoint's block ends when the last owner
+  /// leaves.
   final Map<PoolKey, Set<String>> _incidentOwners = {};
   bool _incidentsLoaded = false;
   Future<void>? _incidentsLoading;
@@ -636,7 +638,7 @@ class PooledConnectionManager implements ConnectionManager {
       }
     }
 
-    await _deleteStoredIncident(serverId);
+    await _deleteStoredBookmark(serverId);
   }
 
   // ── Channel acquisition ────────────────────────────────────────────────
@@ -1274,12 +1276,16 @@ class PooledConnectionManager implements ConnectionManager {
   /// re-emits connecting/disconnected, the trusted-key path emits connected
   /// next, the cascade emits disconnected).
   void _forgetIncident(_EndpointPool pool) {
+    final incident = pool._incident;
     _incidents.remove(pool.key);
     pool._incident = null;
     final owners = _incidentOwners.remove(pool.key);
-    if (owners == null) return;
+    if (owners == null || incident == null) return;
     for (final serverId in owners) {
-      unawaited(_deleteStoredIncident(serverId));
+      // Scoped to the record this incident produced: a bookmark re-pointed
+      // to a new endpoint (whose record now holds the new endpoint's
+      // block) must not lose it when this old endpoint's block lifts.
+      unawaited(_deleteStoredRecord(incident.recordFor(serverId)));
     }
   }
 
@@ -1296,11 +1302,23 @@ class PooledConnectionManager implements ConnectionManager {
     );
   }
 
-  Future<void> _deleteStoredIncident(String serverId) async {
+  Future<void> _deleteStoredRecord(IncidentRecord record) async {
     final store = _incidentStore;
     if (store == null) return;
     try {
-      await store.remove(serverId);
+      await store.remove(record);
+    } on Object catch (error) {
+      // Best-effort: a failed delete must not affect the live pool; a
+      // stale record only re-blocks after the next restart.
+      _reportIncidentStoreError(error);
+    }
+  }
+
+  Future<void> _deleteStoredBookmark(String serverId) async {
+    final store = _incidentStore;
+    if (store == null) return;
+    try {
+      await store.removeAllFor(serverId);
     } on Object catch (error) {
       // Best-effort: a failed delete must not affect the live pool; a
       // stale record only re-blocks after the next restart.

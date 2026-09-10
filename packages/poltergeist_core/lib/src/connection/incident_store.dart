@@ -131,14 +131,25 @@ final class IncidentRecord {
 /// store (the app owns storage). Implementations must be fail-safe on
 /// load: an unreadable or absent store reads as no incidents — never a
 /// crash, never auto-trust.
+///
+/// Mutations to the same record must observe issue order: the manager
+/// issues puts and removes without awaiting them, and a remove issued
+/// after a newer put of the same serverId must never overtake it (the
+/// shipped stores serialize internally).
 abstract interface class IncidentStore {
   Future<List<IncidentRecord>> load();
 
   /// Upserts by [IncidentRecord.serverId].
   Future<void> put(IncidentRecord record);
 
-  /// Deletes every record owned by [serverId].
-  Future<void> remove(String serverId);
+  /// Deletes the stored record only when it still equals [record]: a
+  /// bookmark re-pointed to a new endpoint must not lose the new
+  /// endpoint's block when an old endpoint's block lifts.
+  Future<void> remove(IncidentRecord record);
+
+  /// Deletes every record owned by [serverId] — the bookmark-deletion
+  /// cascade (3a), where the whole bookmark is gone.
+  Future<void> removeAllFor(String serverId);
 }
 
 /// Session-only store (tests and the not-yet-wired engine default).
@@ -154,7 +165,13 @@ class InMemoryIncidentStore implements IncidentStore {
   }
 
   @override
-  Future<void> remove(String serverId) async {
+  Future<void> remove(IncidentRecord record) async {
+    if (_records[record.serverId] != record) return;
+    _records.remove(record.serverId);
+  }
+
+  @override
+  Future<void> removeAllFor(String serverId) async {
     _records.remove(serverId);
   }
 }
@@ -233,7 +250,15 @@ class FileIncidentStore implements IncidentStore {
   });
 
   @override
-  Future<void> remove(String serverId) => _serialized(() async {
+  Future<void> remove(IncidentRecord record) => _serialized(() async {
+    await _loadInner();
+    if (_records[record.serverId] != record) return;
+    _records.remove(record.serverId);
+    await _flush();
+  });
+
+  @override
+  Future<void> removeAllFor(String serverId) => _serialized(() async {
     await _loadInner();
     if (_records.remove(serverId) == null) return;
     await _flush();
@@ -298,11 +323,20 @@ String _randomHexSuffix() {
 }
 
 /// Owner-only mode bits (0600) on desktop POSIX, mirroring the app-layer
-/// port's posture. A failed chmod aborts the write: the record either
-/// lands owner-only or not at all.
+/// port's posture. A failed or unavailable chmod aborts the write: the
+/// record either lands owner-only or not at all.
 Future<void> _restrictToOwner(File file) async {
   if (!Platform.isLinux && !Platform.isMacOS) return;
-  final result = await Process.run('chmod', ['--', '600', file.path]);
+  ProcessResult result;
+  try {
+    result = await Process.run('chmod', ['--', '600', file.path]);
+  } on ProcessException catch (error) {
+    throw FileSystemException(
+      'chmod is unavailable; cannot restrict the incident store to the '
+      'owner (${error.message})',
+      file.path,
+    );
+  }
   if (result.exitCode != 0) {
     throw FileSystemException(
       'Could not restrict the incident store to the owner.',

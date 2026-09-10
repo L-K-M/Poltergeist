@@ -957,9 +957,10 @@ Item 6's owner decision (1a/2a/3a, 2026-09-09T19:52Z) lands in the pool:
   attempt's verdict through a verifier decorator and clears the incident
   after the transport lands. No new verdict, no prompt, no pin write, no
   state fan-out beyond blocked → connected; a `changed`/`firstUse`
-  presentation keeps the existing hard block (D18 unchanged — growth and
-  recovery never clear blocks; deleted pins still cannot enable first-use
-  approval).
+  presentation keeps the existing hard block (D18 unchanged: the block
+  ends only via this restored-key match or an explicit approval —
+  growth and recovery connects never lift it — and deleted pins still
+  cannot enable first-use approval).
 - **Persistence (2a).** `IncidentStore` (seam) + `IncidentRecord` (schema:
   `serverId`, `host`, `port`, `username`, `jumpHostId`,
   `presentedFingerprintSha256`, `pinnedFingerprintSha256`; strict
@@ -1040,6 +1041,38 @@ the shared normalization makes keying provable regardless) and the
 jump-host multi-verdict premise (the pinned opener verifies exactly one
 host key per attempt; jump-host chains are D10 work). File locking for
 concurrent store instances is deferred to the wiring slice.
+
+Review round 2 (applied; the over-delete regression failed before its
+repair): `IncidentStore.remove` is scoped to a record — it deletes only
+when the stored record still equals the one being lifted, so a bookmark
+re-pointed to a new endpoint cannot lose the new endpoint's block when
+an old endpoint's block lifts (regression: newer-record survival
+through a 1a lift); `removeAllFor(serverId)` carries the
+bookmark-deletion cascade. The store contract now states the mutation
+ordering both shipped stores provide (puts/removes apply in issue
+order), the chmod failure normalizes to `FileSystemException`, the
+owner-map comment reflects its cascade role in session-only mode, the
+1a bullet names the exact block-lifting set, and the polling helper
+reports the last observed state on timeout. Declined with recorded
+reasons: a bookmark-registry reconciliation callback for orphan records
+(the engine deliberately holds no bookmark registry — the UI owns
+bookmarks and signals removal via `removeBookmark`; an orphan is
+self-healing on the endpoint's next review); awaiting join-adoption
+writes (would add store I/O latency to reference resolution, and the
+ordering contract plus the stores' serialized chains already preserve
+put-before-delete); narrowing the barrel's store exports (concrete
+in-memory stores already ship in the barrel — Séance's
+`InMemoryHostKeyStore` precedent — and the single-instance contract is
+documented). Refuted with evidence: the "owners never shrink" premise
+(removal and every lift drain the owner set); the "clearing must purge
+all owner records" premise (the code already deletes every owner's
+record — pinned by the shared-endpoint lift test); the re-raised
+presented-host keying premise (round-1 refutation stands — the pinned
+opener passes `config.host` verbatim, and `PoolKey.normalize` is shared
+by construction); the interface-breakage premise (no other
+`ConnectionManager` implementations exist; the suite compiles).
+Deferred: a `FileIncidentStore.onLoadError` hook (no consumer exists
+until the wiring slice owns store construction).
 
 ## Open items
 

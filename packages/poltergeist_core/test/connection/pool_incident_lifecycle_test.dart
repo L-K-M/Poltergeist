@@ -81,18 +81,23 @@ Future<void> _eventually<T>(
   bool Function(T value) check,
 ) async {
   final deadline = DateTime.now().add(const Duration(seconds: 5));
-  while (!check(await load())) {
+  T? latest;
+  while (!check(latest = await load())) {
     if (DateTime.now().isAfter(deadline)) {
-      fail('The store never reached the expected state.');
+      fail('The store never reached the expected state; last value: $latest');
     }
     await pumpEventQueue(times: 2);
   }
 }
 
-IncidentRecord _record({String serverId = 's1'}) => IncidentRecord(
+IncidentRecord _record({
+  String serverId = 's1',
+  String host = 'example.com',
+  int port = 22,
+}) => IncidentRecord(
   serverId: serverId,
-  host: 'example.com',
-  port: 22,
+  host: host,
+  port: port,
   username: 'test',
   presentedFingerprintSha256: _changedKey,
   pinnedFingerprintSha256: _originalKey,
@@ -120,7 +125,12 @@ final class _GatedIncidentStore implements IncidentStore {
   }
 
   @override
-  Future<void> remove(String serverId) async {
+  Future<void> remove(IncidentRecord record) async {
+    if (records[record.serverId] == record) records.remove(record.serverId);
+  }
+
+  @override
+  Future<void> removeAllFor(String serverId) async {
     records.remove(serverId);
   }
 }
@@ -136,7 +146,12 @@ final class _ThrowingIncidentStore implements IncidentStore {
   }
 
   @override
-  Future<void> remove(String serverId) async {
+  Future<void> remove(IncidentRecord record) async {
+    throw const FileSystemException('Simulated incident delete failure.');
+  }
+
+  @override
+  Future<void> removeAllFor(String serverId) async {
     throw const FileSystemException('Simulated incident delete failure.');
   }
 }
@@ -404,6 +419,41 @@ void main() {
       await expectLater(
         harness.manager.leaseTransferChannel('s1'),
         throwsA(_blockedError()),
+      );
+    },
+  );
+
+  test(
+    'lifting a block spares a re-pointed bookmark\'s newer record',
+    () async {
+      final store = InMemoryIncidentStore();
+      final harness = await _harness([
+        _originalKey,
+        _changedKey,
+        _originalKey,
+      ], store: store);
+      await _declineViaGrowth(harness);
+      await _eventually(() => store.load(), (records) => records.length == 2);
+
+      // The bookmark s1 was re-pointed to another endpoint and declined
+      // there: the store now holds the NEW endpoint's block under s1
+      // (single-record-per-serverId stores upsert).
+      await store.put(
+        _record(serverId: 's1', host: 'other.example', port: 2022),
+      );
+
+      // The old endpoint's block lifts via the pinned key (1a). The scoped
+      // delete must not touch s1's new-endpoint record.
+      final pane = await harness.manager.openBrowseChannel(
+        's1',
+        paneTabId: 'back',
+      );
+      await pane.close();
+      await _eventually(
+        () => store.load(),
+        (records) =>
+            records.single.serverId == 's1' &&
+            records.single.host == 'other.example',
       );
     },
   );

@@ -112,9 +112,23 @@ void main() {
         isNull,
       );
 
-      await store.remove('a');
+      await store.remove(
+        (await store.load()).singleWhere((r) => r.serverId == 'a'),
+      );
       expect((await store.load()).map((r) => r.serverId), ['b']);
-      await store.remove('missing');
+      await store.remove(_record(serverId: 'missing'));
+
+      // The scoped delete leaves a newer record under the same id alone:
+      // a bookmark re-pointed to a new endpoint must not lose the new
+      // endpoint's block when an old endpoint's block lifts.
+      await store.put(_record(serverId: 'c', host: 'other.example'));
+      await store.remove(_record(serverId: 'c'));
+      expect(
+        (await store.load()).singleWhere((r) => r.serverId == 'c').host,
+        'other.example',
+      );
+      await store.removeAllFor('c');
+      expect((await store.load()).map((r) => r.serverId), ['b']);
     });
   });
 
@@ -151,7 +165,9 @@ void main() {
         unorderedEquals(['a', 'b']),
       );
 
-      await reloaded.remove('a');
+      await reloaded.remove(
+        (await reloaded.load()).singleWhere((r) => r.serverId == 'a'),
+      );
       final afterRemoval = FileIncidentStore(File(path));
       expect((await afterRemoval.load()).map((r) => r.serverId), ['b']);
     });
@@ -163,7 +179,9 @@ void main() {
       ]);
       expect((await store.load()), hasLength(10));
 
-      await Future.wait([for (var i = 0; i < 5; i++) store.remove('bm$i')]);
+      await Future.wait([
+        for (var i = 0; i < 5; i++) store.remove(_record(serverId: 'bm$i')),
+      ]);
       expect((await store.load()), hasLength(5));
     });
 
