@@ -531,6 +531,120 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Import {alias}'**
   String sshImportRowSemantics(String alias);
+
+  /// Toolbar entry for the debug-only SFTP demo surface.
+  ///
+  /// In en, this message translates to:
+  /// **'Demo: SFTP listing'**
+  String get sftpDemoCommandLabel;
+
+  /// Title of the debug-only SFTP demo page.
+  ///
+  /// In en, this message translates to:
+  /// **'SFTP listing demo'**
+  String get sftpDemoTitle;
+
+  /// Note that the demo surface is debug-only and throwaway.
+  ///
+  /// In en, this message translates to:
+  /// **'Debug-only surface; the real panes replace it.'**
+  String get sftpDemoDebugNote;
+
+  /// Label of the demo connect form's host field.
+  ///
+  /// In en, this message translates to:
+  /// **'Host'**
+  String get sftpDemoHostLabel;
+
+  /// Label of the demo connect form's port field.
+  ///
+  /// In en, this message translates to:
+  /// **'Port'**
+  String get sftpDemoPortLabel;
+
+  /// Label of the demo connect form's username field.
+  ///
+  /// In en, this message translates to:
+  /// **'Username'**
+  String get sftpDemoUsernameLabel;
+
+  /// Label of the demo connect form's authentication picker.
+  ///
+  /// In en, this message translates to:
+  /// **'Authentication'**
+  String get sftpDemoAuthMethodLabel;
+
+  /// Authentication picker entry for agent auth.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH agent'**
+  String get sftpDemoAuthAgent;
+
+  /// Authentication picker entry for password auth.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get sftpDemoAuthPassword;
+
+  /// Validation error for a blank host.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a host.'**
+  String get sftpDemoHostRequired;
+
+  /// Validation error for a blank username.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a username.'**
+  String get sftpDemoUsernameRequired;
+
+  /// Validation error for a port outside the SSH range.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a port between 1 and 65535.'**
+  String get sftpDemoPortInvalid;
+
+  /// Demo connect button label.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get sftpDemoConnect;
+
+  /// Demo disconnect action label.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get sftpDemoDisconnect;
+
+  /// Progress line while the demo lists the home directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Loading the directory listing'**
+  String get sftpDemoListingLoading;
+
+  /// Shown when the demo listing returns no entries.
+  ///
+  /// In en, this message translates to:
+  /// **'The directory is empty.'**
+  String get sftpDemoListingEmpty;
+
+  /// Count of listed entries above the demo listing.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 entry} other{{count} entries}}'**
+  String sftpDemoListingCount(int count);
+
+  /// Notice when the engine isolate fails to spawn.
+  ///
+  /// In en, this message translates to:
+  /// **'The connection engine could not start.'**
+  String get sftpDemoEngineFailed;
+
+  /// Accessibility label of the demo page's close action.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get sftpDemoClose;
 }
 
 class _AppLocalizationsDelegate

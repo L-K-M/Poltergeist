@@ -4,10 +4,15 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-09. The app-side probe controller now enforces
+_Last updated: 2026-09-09. The debug-only demo surface now composes the
+existing connection slices into the running app for the first time — engine
+spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
+and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
+(dated section below). The app-side probe controller now enforces
 favorite eligibility and lifecycle/settings policy through the engine port
-(dated section below). Persistence, lifecycle forwarding, list dots, and
-startup composition remain open. The host-key dialog's scrollable review content
+(dated section below). Persistence, lifecycle forwarding, list dots,
+startup composition, and probe/pin persistence remain open. The host-key
+dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
 mounted-harness candidate stays open). The prompt
@@ -719,6 +724,60 @@ and case-alias tests pin the existing normalization. All five client builds,
 SSH integration, and other CI gates passed on the first head. The PR
 description records the full triage; review continues on the test-only update.
 
+## M2 — debug-only demo surface: connect → SFTP → listDirectory (2026-09-09)
+
+07 §3.3's demo-surface bullet lands: the existing, tested connection slices
+compose into the running app for the first time. A debug-gated entry
+(`connect.demoListing`, the toolbar renders it from the registered-command
+list — D21; the M2 debug subset of 02 §8.1's command model, replaced with
+M3's registry) opens a throwaway listing view: connection facts entered as
+host/port/username/auth-method, an ephemeral `Bookmark` built through the
+pinned model (04 §2.1 — no second server model, D2/D3), the engine isolate
+spawned, `EngineClient` driving the pool's browse channel, `listDirectory`
+over the canonicalized home, entries plus the live `SshConnectionLog`
+transcript rendered, and failures keeping the transcript and the summarized
+one-liner visible. Prompts — host-key first-use trust, changed-key hard
+block, keyboard-interactive, credential — round-trip through the existing
+`PromptCoordinator` inside a demo-owned nested navigator (02 §10).
+`SftpDemoController` is the session's diagnostic owner: it subscribes to
+the live streams before connecting and replays to the panel that mounts a
+frame later (03 §5's subscribe-before-connecting rule; no engine change).
+
+Debug gating: `PoltergeistApp.debugDemoEnabled` (default `kDebugMode`) is
+ANDed with `kDebugMode` at composition, so release builds never render or
+register the entry; tests pin flag-off absence and flag-on presence. The
+form validates host/username/port at the entry point (1–65535 mirrors the
+pinned model's bounds). No pin/lock change, no production composition
+(startup wiring, pin persistence, probe dots stay with their owning
+slices), no milestone-close claim. All strings ARB-authored (D20); the
+localization contract gains the demo files' reviewed technical exceptions.
+
+Validation: 29 new tests — gating/registration, spawn-failure notice,
+double-tap session guard, host-key first-use through the real coordinator
+with the transcript live during connect, credential collection,
+keyboard-interactive round trip, declined changed-key hard block with
+persisted transcript + one-liner, failed listing one-liner, disconnect
+(widget state and status-replay clearing), entry-point validation,
+connect re-entrancy (guard, previous channel/server handoff, and the
+disconnect-during-connect late session), connect-failure guard
+unwedging, unexpected listing-failure reporting, status-stream fault
+reporting, transcript replay-buffer bounds, disconnect-after-dispose
+no-op, system-back prompt dismissal, narrow-window toolbar overflow,
+broken-transcript-seam unwedging, stale-cleanup dispose race,
+stale-cleanup guard window, stale-cleanup resurrect guard, per-session
+transcript reset, invalid-facts guard unwedging, stale-session-line
+rejection, and a real-isolate
+leg — all driving the production
+`EngineClient` seam over spawned isolate ports. App analyze clean, 273 app
+tests pass; core untouched (analyze clean, 333 tests, 15 fixture skips).
+Real-sshd legs were not extended to this surface: no Docker-enabled
+Flutter CI job exists (the integration leg runs pure-Dart core tests), and
+the engine/pool/opener paths the surface composes already carry real-sshd
+coverage; recorded rather than claimed. Screenshots are rootless
+widget-render captures (labeled as such), since this container has no
+native capture. QA limit: the demo offers password/agent auth; key-file
+auth needs the production identity-reader wiring (its own slice).
+
 ## M2 — app-side probe eligibility controller (2026-09-09)
 
 `ProbeController` consumes `EngineClient`'s new `ProbeBridge` facet and
@@ -949,7 +1008,15 @@ no milestone-close claim.
      host+port+username dedupe, reference-style IdentityFile mapping) and
      the ARB-complete preview dialog landed; composition, persistence,
      and command registration remain unwired as recorded there;
-   - the debug-only connect → SFTP → `listDirectory` demo surface;
+   - the debug-only connect → SFTP → `listDirectory` demo surface.
+     **Done 2026-09-09** (see the dated section): the kDebugMode-gated
+     `connect.demoListing` entry opens the throwaway listing view over the
+     spawned engine, the pool, the real prompt coordinator, and the live
+     transcript; M3 replaces it. The remaining M2 work is the
+     owner-gated item 6 decision, the recorded follow-up notes above,
+     and the milestone-close chores; the Docker-integration bullet
+     below records the engine/pool/opener real-sshd legs as already
+     landed.
    - Docker-integration pool coverage (growth, keepalive, reconnect against
      real sshd), interactive auth, TOFU flows, shared-bookmark decisions,
      and explicit trust review landed in the dated slices above; the

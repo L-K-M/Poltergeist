@@ -1,37 +1,70 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/application_error_reporter.dart';
+import '../services/registered_command.dart';
+import '../services/sftp_demo_controller.dart';
 import 'adaptive_shell.dart';
+import 'demo/sftp_demo_view.dart';
 
-/// Provides the M1 chrome and placeholder pane content.
-class WorkspaceShell extends StatelessWidget {
+/// Provides the M1 chrome and placeholder pane content. In debug builds
+/// (and only there — app.dart ANDs the flag with kDebugMode) it also
+/// registers and renders the M2 demo commands (07 §3.3's debug-only
+/// listing surface; throwaway, M3 replaces it).
+class WorkspaceShell extends StatefulWidget {
   const WorkspaceShell({
     super.key,
     this.initialPaneRatio = 0.5,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
+    this.debugDemoEnabled = kDebugMode,
+    this.sftpDemoEngineFactory,
   });
 
   final double initialPaneRatio;
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
+  final bool debugDemoEnabled;
+  final SftpDemoEngineFactory? sftpDemoEngineFactory;
+
+  @override
+  State<WorkspaceShell> createState() => _WorkspaceShellState();
+}
+
+class _WorkspaceShellState extends State<WorkspaceShell> {
+  bool _demoSessionActive = false;
 
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
 
+    // Every user action is a registered command (D21); the toolbar
+    // renders registered commands, it never hard-codes a button.
+    final commands = <RegisteredCommand>[
+      if (widget.debugDemoEnabled)
+        buildSftpDemoCommand(
+          spawnEngine: widget.sftpDemoEngineFactory ?? spawnSftpDemoEngine,
+          enabled: () => !_demoSessionActive,
+        ),
+    ];
+
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            _Toolbar(title: strings.appTitle),
+            _Toolbar(
+              title: strings.appTitle,
+              commands: commands,
+              onRun: _runCommand,
+            ),
             Divider(height: 1, color: colors.outlineVariant),
             Expanded(
               child: AdaptiveShell(
-                initialPaneRatio: initialPaneRatio,
-                onPaneRatioChanged: onPaneRatioChanged,
-                onPaneRatioSaveError: onPaneRatioSaveError,
+                initialPaneRatio: widget.initialPaneRatio,
+                onPaneRatioChanged: widget.onPaneRatioChanged,
+                onPaneRatioSaveError: widget.onPaneRatioSaveError,
                 resizeLabel: strings.resizePanes,
                 formatRatio: (ratio) =>
                     strings.paneRatioPercent((ratio * 100).round()),
@@ -52,15 +85,43 @@ class WorkspaceShell extends StatelessWidget {
       ),
     );
   }
+
+  /// Runs one registered command. Escaping failures are reported — the
+  /// toolbar's onPressed discards the returned future, so an unhandled
+  /// error here would surface only as a zone complaint.
+  Future<void> _runCommand(RegisteredCommand command) async {
+    // The command's own enabled() predicate is the authority: it flips
+    // synchronously, so a second tap in the same frame (before the
+    // disabled rebuild lands) is still refused, and a future command
+    // with its own lifecycle is never blocked by this one's session.
+    // Contract: run() stays pending for the command's whole session (the
+    // demo awaits its route's pop), so the flag tracks the session.
+    if (!command.enabled()) return;
+    setState(() => _demoSessionActive = true);
+    try {
+      await command.run(context);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    } finally {
+      if (mounted) setState(() => _demoSessionActive = false);
+    }
+  }
 }
 
 class _Toolbar extends StatelessWidget {
-  const _Toolbar({required this.title});
+  const _Toolbar({
+    required this.title,
+    required this.commands,
+    required this.onRun,
+  });
 
   final String title;
+  final List<RegisteredCommand> commands;
+  final Future<void> Function(RegisteredCommand command) onRun;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SizedBox(
       height: 44,
       child: Padding(
@@ -73,7 +134,27 @@ class _Toolbar extends StatelessWidget {
               color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(width: 8),
-            Text(title, style: Theme.of(context).textTheme.titleSmall),
+            Flexible(
+              child: Text(
+                title,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            const Spacer(),
+            for (final command in commands)
+              Flexible(
+                child: TextButton.icon(
+                  key: ValueKey('command.${command.id}'),
+                  onPressed: command.enabled() ? () => onRun(command) : null,
+                  icon: const Icon(Icons.bug_report_outlined, size: 18),
+                  label: Text(
+                    command.label(l10n),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
           ],
         ),
       ),

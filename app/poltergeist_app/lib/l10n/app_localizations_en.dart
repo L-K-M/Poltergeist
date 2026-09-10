@@ -264,4 +264,70 @@ class AppLocalizationsEn extends AppLocalizations {
   String sshImportRowSemantics(String alias) {
     return 'Import $alias';
   }
+
+  @override
+  String get sftpDemoCommandLabel => 'Demo: SFTP listing';
+
+  @override
+  String get sftpDemoTitle => 'SFTP listing demo';
+
+  @override
+  String get sftpDemoDebugNote =>
+      'Debug-only surface; the real panes replace it.';
+
+  @override
+  String get sftpDemoHostLabel => 'Host';
+
+  @override
+  String get sftpDemoPortLabel => 'Port';
+
+  @override
+  String get sftpDemoUsernameLabel => 'Username';
+
+  @override
+  String get sftpDemoAuthMethodLabel => 'Authentication';
+
+  @override
+  String get sftpDemoAuthAgent => 'SSH agent';
+
+  @override
+  String get sftpDemoAuthPassword => 'Password';
+
+  @override
+  String get sftpDemoHostRequired => 'Enter a host.';
+
+  @override
+  String get sftpDemoUsernameRequired => 'Enter a username.';
+
+  @override
+  String get sftpDemoPortInvalid => 'Enter a port between 1 and 65535.';
+
+  @override
+  String get sftpDemoConnect => 'Connect';
+
+  @override
+  String get sftpDemoDisconnect => 'Disconnect';
+
+  @override
+  String get sftpDemoListingLoading => 'Loading the directory listing';
+
+  @override
+  String get sftpDemoListingEmpty => 'The directory is empty.';
+
+  @override
+  String sftpDemoListingCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count entries',
+      one: '1 entry',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get sftpDemoEngineFailed => 'The connection engine could not start.';
+
+  @override
+  String get sftpDemoClose => 'Close';
 }
