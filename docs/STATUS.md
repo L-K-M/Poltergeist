@@ -4,7 +4,13 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-10. The M2 probe-wiring remainder landed:
+_Last updated: 2026-09-10. The engine-protocol incident/pin bridging
+landed: `removeBookmark` and the typed incident-store mirror events cross
+the engine port, the spawn config seeds pins and incidents together with
+the load-time drop of a record whose pin is gone (audit finding A closed),
+and the file store gained its load-error observer and abandoned-temp sweep
+(dated section below); the app-side composition that supplies both seeds
+remains open. The M2 probe-wiring remainder landed:
 persisted probe eligibility/settings through settings.json (global
 opt-out plus the per-server device-local map with retarget reset),
 lifecycle forwarding through a binding-seam observer, the tri-state
@@ -1153,6 +1159,10 @@ store path. `EngineHost` passes no store yet, so production sessions stay
 session-only until then. No production change, source port, pin change,
 UI change, release, or milestone-close claim.
 
+(The protocol half landed later the same day — see the engine incident/pin
+bridging section below. Sessions stay session-only until the app-side
+composition supplies the seeds.)
+
 (The Alpine `iproute2` fixture pin drift that reddened this PR's first
 CI run was repaired on main in the separate fixture PR #61 — the
 integration leg passed on this PR's head without further fixture
@@ -1412,6 +1422,109 @@ gated on open item 6), and any core/pin change. The import writes exactly
 the 04 §2.1 model through the pinned importer; key material is never read
 (D18). No source port, dependency change, release, or milestone close.
 
+## M2 — engine incident/pin bridging + store hardening (2026-09-10)
+
+Item 6's engine-protocol half lands, closing audit finding A and the three
+#60 store deferrals (`tasks/run3-audit-m2-report.md`). Core only: no app
+caller exists yet, so production engines still spawn an empty config.
+
+- **Seeding is coupled (audit A).** `EngineConfig.incidents` joins
+  `hostKeyPins`, and `EngineHost` seeds both from that one config: an
+  in-memory incident store behind a forwarding bridge, and the verifier's
+  pins. A seeded record whose `pinnedFingerprintSha256` no longer names a
+  pin at its endpoint is dropped at load and deleted from the store
+  (03 §3.2 rule 1 and §5, amended in this PR). With no pin, every connect
+  verifies `firstUse` — which a blocked pool refuses to prompt for — and
+  1a's restored-key match has nothing to match, so the restored block would
+  outlive both of D18's escapes and leave `removeBookmark` the only way out.
+  A pin that moved on drops the record as well: the block's detail would
+  name a fingerprint the pin store no longer holds, and 1a would lift it on
+  a key the record never named. Dropping costs no protection — the next
+  connect re-detects against the pin store, which is the trust authority.
+  No verdict, prompt, or crypto semantics changed (D18).
+- **The incident bridge (03 §5, protocol v6).** Every engine-side mutation
+  crosses as a typed `IncidentStoreEvent`: `IncidentRecordStoredEvent` (a
+  declined changed-key block installed or re-written) and
+  `IncidentRecordRemovedEvent` (endpoint-scoped for a lift or an approval,
+  so a re-pointed bookmark keeps its newer record; endpoint-null for the 3a
+  cascade). `EngineClient.incidentChanges` broadcasts them live and closes
+  on engine death. This is the incident half of the `hostKeyPins` bridge
+  with the same split — the engine decides, the app stores — and carries
+  only the existing plain-data types (`IncidentRecord`, `PoolKey`).
+- **`removeBookmark` crosses the port.** `RemoveBookmarkRequest` →
+  `EngineClient.removeBookmark` → `EngineHost` → the manager's 3a cascade.
+  The host forgets the id's config and watch in a `finally`, and the client
+  closes the id's state stream: a removed bookmark can never emit again.
+  Manager-side, `watchServer` now completes when its controller closes, and
+  the removal drops the id's `_events`/`_lastStatuses` entries.
+- **Cascade exception safety (audit F).** `removeBookmark` runs the owner
+  withdrawal and the record delete in a `finally` — the app has already
+  deleted the bookmark, so a thrown teardown must not strand records or
+  owner stakes for an id that can never be retried.
+- **1a lift's epoch guard.** The restored-key lift checks
+  `_isCurrentTrustEpoch`, not only `_isCurrentPool`, so a lift clears just
+  the block that existed when the attempt started — symmetric with the
+  prompter's and growth's staleness checks. No production interleaving
+  reaches it (first connects are serialized per pool; growth and recovery
+  refuse a blocked pool), so its regression stages the invariant directly:
+  one attempt that declines a changed key and then observes the pinned key.
+- **#60's deferred store hardening.** `FileIncidentStore.onLoadError`
+  observes load failures (an unreadable file, a quarantined corrupt one)
+  without changing the fail-safe result — local diagnostics, never telemetry
+  (D19) — and an observer that throws cannot break the load; write failures
+  still propagate and are not load errors. The startup sweep deletes this
+  file's orphaned `.tmp-*` litter, but only past a one-hour abandonment
+  bound: an ungated sweep deletes a concurrent writer's temp and fails its
+  write (observed — a second instance loading while the first persisted lost
+  every record of that round-trip).
+
+File locking for concurrent store instances stays deferred, now on measured
+grounds rather than assumption. `dart:io`'s `RandomAccessFile.lock` needs no
+new dependency, but on POSIX it is per-process: a second descriptor in the
+same process locks a file the first already holds exclusively (verified),
+while a child process fails with EWOULDBLOCK. It therefore cannot address
+the only race the store's contract names — two *instances in one process*
+over one file — which the documented single-instance contract and that
+instance's serialized chain already govern. Cross-process locking would need
+a separate lock file (a rename replaces the locked inode, so locking the
+target cannot span a write), adding a second persisted artifact for a writer
+v1 does not have: one app process (D13), one store instance built at
+startup. The ported app-layer file stores lock nothing either, so locking
+here would diverge from the port convention (09 §4).
+
+Validation: nineteen new core tests, each observed failing before its fix
+(or, for the protocol seams, failing to compile before the types existed).
+The audit's scratch scenario is now a regression: a restored record with no
+pin comes up blocked with no prompt and no escape, and after the fix it is
+dropped, deleted, and reaches the first-use review; the pin-moved-on and
+no-pinned-half records re-detect through a changed-key review; a drop whose
+delete fails still loads unblocked and reports to the observer; the cascade
+now empties the store after a thrown teardown; a removed bookmark's watch
+now completes; a mid-attempt block is no longer lifted by that attempt's
+later trusted observation. Store side: the ungated sweep deleted a live temp
+where the gated one spares it and still clears the abandoned litter, and the
+absent sweep left the litter; the load-error observer reports corruption,
+invalid UTF-8, and unreadable files. Engine side: seeded pins plus incidents
+restore a block the pinned key lifts with no prompt, the decline, approval,
+and cascade mirror their events, and the client's `incidentChanges`
+broadcast, removal-closed watch, and shutdown closure round-trip through
+spawned isolates; protocol v6 round-trips the new request, both events, and
+`EngineConfig.incidents`.
+
+Core analysis clean; 375 core tests pass (15 Docker-fixture skips — Docker
+unavailable locally, so the real-sshd leg rides CI on the PR head). Import
+guard (92 + scan), protocol guard (51 + scan), pin audit (9), fixture tools
+(62), bench harness (79), license gate (34), and release-version (155 +
+check) tests pass. App analysis clean and 352 app tests pass, unchanged: no
+app file is touched (lane B owns the app-side connection-state composition).
+
+Deliberately out of scope: the app-side composition — supplying both seeds
+from the app's pin and incident stores, persisting the mirror events, and
+calling `removeBookmark` from bookmark deletion — which rides production
+wiring (item 3) and M5's bookmark store, since no app-side bookmark
+deletion exists before it. No source port, pin, dependency, UI, release, or
+milestone-close change.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1540,6 +1653,13 @@ the 04 §2.1 model through the pinned importer; key material is never read
      controller on its last unwatch, or add a `forgetServer(serverId)` on
      its last reference that runs the `removeBookmark` cascade plus
      controller/state teardown. Tracked for M3.
+     **Partly closed 2026-09-10** (dated section above) for the removal
+     path: `removeBookmark` now drops `EngineHost._servers` plus the id's
+     watch, `EngineClient._serverStates`, and the manager's
+     `_events`/`_lastStatuses`, and a removed bookmark's watch stream
+     completes. Still open: the disconnect path keeps its controllers (a
+     disconnected bookmark may reconnect, so that is correct) and
+     `EngineHost._channels`, which no request maps back to a serverId.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
@@ -1688,15 +1808,17 @@ the 04 §2.1 model through the pinned importer; key material is never read
    **Implemented 2026-09-10** in the trust-incident lifecycle slice
    (dated section above): restored-key unblock, incident persistence with
    a defined record schema/keying, and the bookmark-removal cascade.
-   Remaining: the engine-protocol bridging (incident seeding at spawn, an
-   incident-change event for app-side persistence, and the
-   `removeBookmark` request crossing) rides production wiring (item 3) —
-   no app-side bookmark deletion exists before M5's store, and the
-   manager-side seam and cascade are complete and tested. Pin seeding
-   (`EngineConfig.hostKeyPins` from the app pin store) MUST land in the
-   same slice as incident seeding: an incident restored without its pin
-   deadlocks the endpoint with no review path, `removeBookmark` being the
-   only escape (audit finding A, `tasks/run3-audit-m2-report.md`).
+   **The engine-protocol bridging landed 2026-09-10** (dated section
+   above): incident seeding at spawn coupled with pin seeding, the typed
+   incident-change mirror events, and the `removeBookmark` request
+   crossing — plus the load-time drop of a record whose pin is gone, the
+   coupling audit finding A required (`tasks/run3-audit-m2-report.md`),
+   which is closed. Remaining: the app-side composition (supplying both
+   seeds from the app's stores, persisting the mirror events, and calling
+   `removeBookmark` from bookmark deletion) rides production wiring
+   (item 3) — no app-side bookmark deletion exists before M5's store, so
+   production engines still spawn an empty config and sessions stay
+   session-only until then.
 7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
    consistent `pub get --enforce-lockfile` use across CI and commit-SHA
    pinning for third-party actions. The new integration job follows existing

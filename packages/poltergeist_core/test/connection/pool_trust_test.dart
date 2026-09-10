@@ -110,6 +110,48 @@ void main() {
     },
   );
 
+  test(
+    'a block installed mid-attempt is never lifted by that attempt',
+    () async {
+    final harness = await _harness([_originalKey]);
+    harness.onHostKey = (_) async => false;
+
+    // One attempt, three verifications: the pinned key (trusted, silent), a
+    // changed key the user declines — installing the block and bumping the
+    // pool's trust epoch — then the pinned key again. No production opener
+    // verifies twice in one attempt; the shape pins what 1a's epoch guard
+    // exists for: a lift applies only to the block that existed when the
+    // attempt started, never to one the same attempt just declined.
+    final verdicts = <HostKeyVerdict>[];
+    harness.opener.reverify = (call, tofu) async {
+      HostKey key(String fingerprint) => HostKey(
+        host: call.config.host,
+        port: call.config.port,
+        type: _hostKeyType,
+        fingerprintSha256: fingerprint,
+        pinnedAt: 0,
+      );
+
+      final declined = await tofu.check(key(_changedKey));
+      verdicts.add(declined.verdict);
+      await call.onHostKey(declined);
+      verdicts.add((await tofu.check(key(_originalKey))).verdict);
+    };
+
+    await expectLater(
+      harness.manager.openBrowseChannel(_primaryServerId, paneTabId: 'mid'),
+      throwsA(isA<RemoteFileException>()),
+    );
+
+    expect(verdicts, [HostKeyVerdict.changed, HostKeyVerdict.trusted]);
+    // The decline stands: still blocked, nothing pinned, no channel opened.
+    final status = await harness.manager.watchServer(_primaryServerId).first;
+    expect(status.state, ServerConnectionState.blocked);
+    expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
+    expect(harness.openChannels, isEmpty);
+    expect(await harness.manager.connectedServerIds(), isEmpty);
+  });
+
   test('the pool is blocked while a changed-key review is pending', () async {
     final harness = await _harness([_changedKey]);
     final entered = Completer<void>();

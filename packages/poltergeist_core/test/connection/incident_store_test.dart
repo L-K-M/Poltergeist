@@ -8,6 +8,11 @@ import 'package:test/test.dart';
 // device-local JSON, one record per bookmark id, atomic writes, owner-only
 // on POSIX, fail-safe loading.
 
+/// Must exceed the store's private abandonment bound (one hour) so the
+/// sweep treats the temp as a crash artifact; a bound raised past this
+/// fails the sweep test loudly instead of silently stopping it.
+const _agedTemp = Duration(hours: 3);
+
 IncidentRecord _record({
   String serverId = 'bm1',
   String host = 'example.com',
@@ -283,6 +288,129 @@ void main() {
       expect(quarantine, isEmpty);
     });
 
+    test(
+      'load failures reach the observer without changing the result',
+      () async {
+      final file = File(path);
+      await file.parent.create(recursive: true);
+
+      // Undecodable content: quarantine, empty load, and the error itself.
+      await file.writeAsString('not json at all');
+      final corrupt = <Object>[];
+      expect(
+        await FileIncidentStore(file, onLoadError: corrupt.add).load(),
+        isEmpty,
+      );
+      expect(corrupt, hasLength(1));
+      expect(corrupt.single, isA<FormatException>());
+
+      // A torn write's invalid UTF-8 reports the same way.
+      final quarantine = await dir
+          .list()
+          .where((entry) => entry.path.contains('.corrupt-'))
+          .toList();
+      await quarantine.single.delete();
+      await file.writeAsBytes([...utf8.encode('[]'), 0xFF]);
+      final torn = <Object>[];
+      expect(
+        await FileIncidentStore(file, onLoadError: torn.add).load(),
+        isEmpty,
+      );
+      expect(torn.single, isA<FormatException>());
+    });
+
+    test(
+      'an unreadable file reports a FileSystemException to the observer',
+      () async {
+      if (!Platform.isLinux && !Platform.isMacOS) {
+        markTestSkipped('mode-000 read denial applies on desktop POSIX only');
+        return;
+      }
+      if (await _runningAsRoot()) {
+        markTestSkipped('chmod 000 does not deny reads when running as root');
+        return;
+      }
+
+      final file = File(path);
+      await file.parent.create(recursive: true);
+      await file.writeAsString('[]');
+      await Process.run('chmod', ['--', '000', file.path]);
+      addTearDown(() => Process.run('chmod', ['--', '600', file.path]));
+
+      final observed = <Object>[];
+      expect(
+        await FileIncidentStore(file, onLoadError: observed.add).load(),
+        isEmpty,
+      );
+      expect(observed.single, isA<FileSystemException>());
+    });
+
+    test('a throwing observer cannot break the fail-safe load', () async {
+      final file = File(path);
+      await file.parent.create(recursive: true);
+      await file.writeAsString('not json at all');
+
+      expect(
+        await FileIncidentStore(file, onLoadError: (_) {
+          throw StateError('The observer is diagnostics, not control flow.');
+        }).load(),
+        isEmpty,
+      );
+    });
+
+    test('write failures are not load errors', () async {
+      if (!Platform.isLinux && !Platform.isMacOS) {
+        markTestSkipped('mode-500 write denial applies on desktop POSIX only');
+        return;
+      }
+      if (await _runningAsRoot()) {
+        markTestSkipped('chmod 500 does not deny writes when running as root');
+        return;
+      }
+
+      final file = File(path);
+      await file.parent.create(recursive: true);
+      await file.writeAsString('[]');
+      final observed = <Object>[];
+      final store = FileIncidentStore(file, onLoadError: observed.add);
+      expect(await store.load(), isEmpty);
+
+      // A read-only directory fails the temp create: the write propagates
+      // (persistence is not fail-safe) and the load hook stays silent.
+      await Process.run('chmod', ['--', '500', dir.path]);
+      addTearDown(() => Process.run('chmod', ['--', '700', dir.path]));
+      await expectLater(
+        store.put(_record()),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(observed, isEmpty);
+    });
+
+    test('load sweeps an abandoned temp and spares live ones', () async {
+      final file = File(path);
+      await file.parent.create(recursive: true);
+
+      // A crash mid-write: the litter this store's own startup sweep owns.
+      final abandoned = File('$path.tmp-abandoned');
+      await abandoned.writeAsString('partial');
+      await abandoned.setLastModified(DateTime.now().subtract(_agedTemp));
+
+      // A write in flight right now — a reader's sweep must not take it,
+      // or the writer's rename fails and the record is lost.
+      final live = File('$path.tmp-live');
+      await live.writeAsString('partial');
+
+      // Another store's temp is that store's sweep's business.
+      final sibling = File('${dir.path}/other.json.tmp-abandoned');
+      await sibling.writeAsString('partial');
+      await sibling.setLastModified(DateTime.now().subtract(_agedTemp));
+
+      expect(await FileIncidentStore(file).load(), isEmpty);
+      expect(await abandoned.exists(), isFalse);
+      expect(await live.exists(), isTrue);
+      expect(await sibling.exists(), isTrue);
+    });
+
     test('an atomic write leaves no partial file behind', () async {
       final store = FileIncidentStore(File(path));
       await store.put(_record(serverId: 'a'));
@@ -297,4 +425,9 @@ void main() {
       expect(leftovers, isEmpty);
     });
   });
+}
+
+Future<bool> _runningAsRoot() async {
+  final uid = await Process.run('id', ['-u']);
+  return (uid.stdout as String).trim() == '0';
 }

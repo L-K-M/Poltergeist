@@ -51,6 +51,7 @@ class EngineClient implements PromptBridge, ProbeBridge {
   final _prompts = StreamController<EnginePromptEvent>.broadcast();
   final _promptDismissals = StreamController<PromptDismissedEvent>.broadcast();
   final _hostKeyPins = StreamController<HostKeyPinnedEvent>.broadcast();
+  final _incidentChanges = StreamController<IncidentStoreEvent>.broadcast();
   final _progress = StreamController<TransferProgressBatchEvent>.broadcast();
   final _recoveryFailures = StreamController<RecoveryFailedEvent>.broadcast();
   final _connectLog = StreamController<ConnectionLogEvent>.broadcast();
@@ -126,6 +127,11 @@ class EngineClient implements PromptBridge, ProbeBridge {
 
   /// Host keys the engine pinned; the app persists them in its pin store.
   Stream<HostKeyPinnedEvent> get hostKeyPins => _hostKeyPins.stream;
+
+  /// Incident-store mutations the engine made; the app mirrors them into its
+  /// own persisted store (the engine holds the in-memory records it seeded
+  /// from [EngineConfig.incidents]). Live-only; closes on engine death.
+  Stream<IncidentStoreEvent> get incidentChanges => _incidentChanges.stream;
 
   /// Coalesced transfer progress (03 §5); consumed by the queue mirror (M4).
   Stream<TransferProgressBatchEvent> get progressBatches => _progress.stream;
@@ -216,6 +222,23 @@ class EngineClient implements PromptBridge, ProbeBridge {
     );
   }
 
+  /// Deletes the bookmark's connection state and trust-incident records
+  /// (owner decision 3a). The engine's incident store emits the mirroring
+  /// [IncidentStoreEvent]s for the app to persist.
+  ///
+  /// The id's [watchServer] stream closes — here and engine-side — because
+  /// the bookmark no longer exists. Both sides forget it even when the
+  /// request fails, mirroring the host's own cascade `finally`.
+  Future<void> removeBookmark(String serverId) async {
+    try {
+      await _call(
+        (id) => RemoveBookmarkRequest(requestId: id, serverId: serverId),
+      );
+    } finally {
+      unawaited(_serverStates.remove(serverId)?.close());
+    }
+  }
+
   /// Answers an open prompt. Fire-and-forget by contract (03 §5): replies
   /// the engine cannot apply are ignored — there is deliberately no
   /// feedback channel.
@@ -280,6 +303,8 @@ class EngineClient implements PromptBridge, ProbeBridge {
         _promptDismissals.add(event);
       case final HostKeyPinnedEvent event:
         _hostKeyPins.add(event);
+      case final IncidentStoreEvent event:
+        _incidentChanges.add(event);
       case final TransferProgressBatchEvent event:
         _progress.add(event);
       case final RecoveryFailedEvent event:
@@ -360,6 +385,7 @@ class EngineClient implements PromptBridge, ProbeBridge {
     _prompts.close();
     _promptDismissals.close();
     _hostKeyPins.close();
+    _incidentChanges.close();
     _progress.close();
     _recoveryFailures.close();
     _connectLog.close();

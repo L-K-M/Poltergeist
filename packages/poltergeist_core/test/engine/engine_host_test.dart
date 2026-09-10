@@ -55,6 +55,24 @@ const _pinnedKey = HostKey(
   pinnedAt: 0,
 );
 
+const _changedFingerprint = 'SHA256:changed';
+
+/// A declined changed-key record for [_config]'s endpoint, as the app's
+/// persisted store would restore it (owner decision 2a).
+const _incidentRecord = IncidentRecord(
+  serverId: 'srv-1',
+  host: 'example.com',
+  port: 2222,
+  username: 'user',
+  presentedFingerprintSha256: _changedFingerprint,
+  pinnedFingerprintSha256: 'SHA256:pinned',
+);
+
+const _credentials = CredentialPromptReply(
+  password: 'pw',
+  origin: CredentialOrigin.stored,
+);
+
 /// An in-process [EngineHost] over the socket-free pool fakes: requests go
 /// in through `handle`, responses and events come out of a real port.
 class HostHarness {
@@ -794,4 +812,181 @@ void main() {
       );
     },
   );
+
+  // ── The incident bridge (03 §5): the engine owns the live records, the
+  // app owns their persistence, and every mutation crosses as a typed
+  // event. Pins and incidents seed from the same app-owned config, so a
+  // restored block always keeps both of D18's escapes (audit finding A).
+
+  test('a declined changed key mirrors its record to the app', () async {
+    final h = HostHarness(
+      config: const EngineConfig(hostKeyPins: [_pinnedKey]),
+      opener: FakeTransportOpener(
+        presentedFingerprints: const [_changedFingerprint],
+      ),
+    );
+    addTearDown(h.dispose);
+
+    final opened = h.openBrowse();
+    await h.pumping();
+    h.reply(h.takePrompt(), _credentials);
+    await h.pumping();
+    h.reply(h.takePrompt(), const HostKeyPromptReply(accepted: false));
+    await expectError(opened);
+    await h.pumping();
+
+    final stored = h.events.whereType<IncidentRecordStoredEvent>().single;
+    expect(stored.record, _incidentRecord);
+    expect(h.events.whereType<IncidentRecordRemovedEvent>(), isEmpty);
+  });
+
+  test(
+    'a seeded incident and pin restore a block the pinned key lifts',
+    () async {
+    final h = HostHarness(
+      config: const EngineConfig(
+        hostKeyPins: [_pinnedKey],
+        incidents: [_incidentRecord],
+      ),
+      opener: FakeTransportOpener(
+        presentedFingerprints: const ['SHA256:pinned'],
+      ),
+    );
+    addTearDown(h.dispose);
+    h.watch('srv-1');
+    await h.pumping();
+
+    final opened = h.openBrowse();
+    await h.pumping();
+    h.reply(h.takePrompt(), _credentials);
+    expect(await opened, isA<BrowseChannelOpened>());
+    await h.pumping();
+
+    // Owner decision 1a across a restart: the pinned key needs no prompt,
+    // so nothing but the credential prompt was emitted.
+    expect(h.events.whereType<EnginePromptEvent>(), isEmpty);
+    expect(h.events.whereType<HostKeyPinnedEvent>(), isEmpty);
+    expect(
+      h.events.whereType<ServerStateEvent>().map((event) => event.state),
+      containsAllInOrder([
+        ServerConnectionState.blocked,
+        ServerConnectionState.connected,
+      ]),
+    );
+
+    // The lift deletes the restored record and mirrors the delete, scoped
+    // to the endpoint it blocked.
+    final removed = h.events.whereType<IncidentRecordRemovedEvent>().single;
+    expect(removed.serverId, 'srv-1');
+    expect(removed.endpoint, _incidentRecord.poolKey);
+    expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
+  });
+
+  test('an approved changed key mirrors the record deletion', () async {
+    final h = HostHarness(
+      config: const EngineConfig(
+        hostKeyPins: [_pinnedKey],
+        incidents: [_incidentRecord],
+      ),
+      opener: FakeTransportOpener(
+        presentedFingerprints: const [_changedFingerprint],
+      ),
+    );
+    addTearDown(h.dispose);
+
+    final opened = h.openBrowse();
+    await h.pumping();
+    h.reply(h.takePrompt(), _credentials);
+    await h.pumping();
+    final review = h.takePrompt();
+    expect(review.kind, EnginePromptKind.hostKeyChanged);
+    h.reply(review, const HostKeyPromptReply(accepted: true));
+    expect(await opened, isA<BrowseChannelOpened>());
+    await h.pumping();
+
+    // Explicit review: the re-pin crosses as a pin event and the record it
+    // supersedes crosses as an endpoint-scoped delete.
+    expect(
+      h.events.whereType<HostKeyPinnedEvent>().single.key.fingerprintSha256,
+      _changedFingerprint,
+    );
+    final removed = h.events.whereType<IncidentRecordRemovedEvent>().single;
+    expect(removed.serverId, 'srv-1');
+    expect(removed.endpoint, _incidentRecord.poolKey);
+  });
+
+  test('a seeded incident without its pin is dropped and mirrored', () async {
+    final h = HostHarness(
+      config: const EngineConfig(incidents: [_incidentRecord]),
+      opener: FakeTransportOpener(
+        presentedFingerprints: const [_changedFingerprint],
+      ),
+    );
+    addTearDown(h.dispose);
+    h.watch('srv-1');
+    await h.pumping();
+
+    final opened = h.openBrowse();
+    await h.pumping();
+    h.reply(h.takePrompt(), _credentials);
+    await h.pumping();
+
+    // Audit finding A: with the pin half gone the restored block could
+    // never be reviewed or lifted, so the load drops the record and the
+    // endpoint re-detects — here as a first use, which a blocked pool would
+    // have refused to prompt for.
+    final review = h.takePrompt();
+    expect(review.kind, EnginePromptKind.hostKeyFirstUse);
+    h.reply(review, const HostKeyPromptReply(accepted: true));
+    expect(await opened, isA<BrowseChannelOpened>());
+    await h.pumping();
+
+    expect(
+      h.events.whereType<ServerStateEvent>().map((event) => event.state),
+      isNot(contains(ServerConnectionState.blocked)),
+    );
+    final removed = h.events.whereType<IncidentRecordRemovedEvent>().single;
+    expect(removed.serverId, 'srv-1');
+    expect(removed.endpoint, _incidentRecord.poolKey);
+    expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
+  });
+
+  test('removeBookmark mirrors the cascade delete', () async {
+    final h = HostHarness(
+      config: const EngineConfig(
+        hostKeyPins: [_pinnedKey],
+        incidents: [_incidentRecord],
+      ),
+    );
+    addTearDown(h.dispose);
+    h.watch('srv-1');
+    await h.pumping();
+
+    // No connect: the bookmark is deleted while its restored block stands.
+    expect(
+      await h.call(
+        (id) => RemoveBookmarkRequest(requestId: id, serverId: 'srv-1'),
+      ),
+      isA<EngineAck>(),
+    );
+    await h.pumping();
+
+    // Owner decision 3a: every record for the bookmark goes, so the delete
+    // carries no endpoint. The host also forgets the id's config and watch
+    // (audit finding C); both are private state, so the ack and the mirror
+    // event are what a caller can observe.
+    final removed = h.events.whereType<IncidentRecordRemovedEvent>().single;
+    expect(removed.serverId, 'srv-1');
+    expect(removed.endpoint, isNull);
+    expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
+    expect(h.opener.calls, isEmpty);
+
+    // An id the engine never saw is a clean no-op ack.
+    expect(
+      await h.call(
+        (id) => RemoveBookmarkRequest(requestId: id, serverId: 'srv-9'),
+      ),
+      isA<EngineAck>(),
+    );
+  });
 }

@@ -2,6 +2,8 @@ import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart'
     show CredentialOrigin, ServerConnectionState;
+import '../connection/incident_store.dart';
+import '../connection/pool_key.dart';
 import '../connection/pool_policy.dart' show PoolPolicy;
 
 /// Increment when the cross-isolate message contract changes.
@@ -10,8 +12,10 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// [RecoveryFailedEvent] for terminal background failures. v4 adds live
 /// transcript batches ([ConnectionLogEvent]) and starts populating the
 /// previously reserved [ServerStateEvent.detail]. v5 adds probe targets,
-/// activity control, and tri-state reachability snapshots.
-const engineProtocolVersion = 5;
+/// activity control, and tri-state reachability snapshots. v6 adds
+/// [RemoveBookmarkRequest] and the incident-store bridge
+/// ([IncidentStoreEvent]).
+const engineProtocolVersion = 6;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -151,6 +155,34 @@ final class HostKeyPinnedEvent extends EngineEvent {
   final HostKey key;
 
   const HostKeyPinnedEvent({required this.key});
+}
+
+/// A trust-incident store mutation crossing the port (03 §5, owner decision
+/// 2a). The engine owns the live incident logic; the app owns the persisted
+/// store. The engine mirrors every put/remove here so a restart seeds it from
+/// exactly the records the app persisted — one writer, one store owner,
+/// exactly like [HostKeyPinnedEvent].
+sealed class IncidentStoreEvent extends EngineEvent {
+  const IncidentStoreEvent();
+}
+
+/// The engine stored (or updated) an incident record: a declined changed-key
+/// block was installed or re-written for [IncidentRecordStoredEvent.record]'s
+/// `serverId`.
+final class IncidentRecordStoredEvent extends IncidentStoreEvent {
+  final IncidentRecord record;
+
+  const IncidentRecordStoredEvent({required this.record});
+}
+
+/// The engine deleted incident records: [endpoint] scopes the delete to one
+/// endpoint (a lifted block), null deletes every record for [serverId] (the
+/// bookmark-removal cascade, owner decision 3a).
+final class IncidentRecordRemovedEvent extends IncidentStoreEvent {
+  final String serverId;
+  final PoolKey? endpoint;
+
+  const IncidentRecordRemovedEvent({required this.serverId, this.endpoint});
 }
 
 // ── Prompt model ────────────────────────────────────────────────────────
@@ -388,6 +420,19 @@ final class DisconnectServerRequest extends EngineRequest {
   });
 }
 
+/// Deletes the bookmark's connection state and its trust-incident records
+/// (owner decision 2026-09-09, option 3a). Like [DisconnectServerRequest] for
+/// the pool, plus the incident cascade; the engine also forgets the id's
+/// config and watch.
+final class RemoveBookmarkRequest extends EngineRequest {
+  final String serverId;
+
+  const RemoveBookmarkRequest({
+    required super.requestId,
+    required this.serverId,
+  });
+}
+
 /// Answers an open [EnginePromptEvent]. Deliberately un-acked: a reply
 /// whose promptId is closed, unknown, kind-mismatched, or already answered
 /// is ignored at debug level — promptId and kind only, never the payload,
@@ -488,8 +533,16 @@ final class EngineConfig {
   /// verifier from these (pin storage itself stays app-side).
   final List<HostKey> hostKeyPins;
 
+  /// Trust-incident records restored from the app-owned store; the engine
+  /// seeds its in-memory incident store from these. A record whose
+  /// `pinnedFingerprintSha256` has no matching entry in [hostKeyPins] is
+  /// dropped at load (audit A): its block cannot be reviewed or lifted, so
+  /// re-detection covers the endpoint on the next connect.
+  final List<IncidentRecord> incidents;
+
   const EngineConfig({
     this.policy = const PoolPolicy(),
     this.hostKeyPins = const [],
+    this.incidents = const [],
   });
 }
