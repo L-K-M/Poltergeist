@@ -1103,6 +1103,24 @@ showed the snapshot fix had landed only in the gated-store test —
 `_harness`'s teardown now snapshots `harness.servers.keys` too (see the
 round-4 record).
 
+Review round 4 (applied; first polish-only round — both majors are
+re-litigations): `_harness`'s teardown snapshots `harness.servers.keys`
+(the round-3 refutation had overstated the earlier fix's reach); the
+re-pointed test's poll check guards `.single` with a length check; the
+M2 heading gained its missing blank line; a file-store test covers
+`removeFor`'s endpoint guard and its early-return-before-flush.
+Declined with recorded reasons: the fire-and-forget ordering re-raise
+(third packaging — the store contract documents the issue-order
+invariant both shipped stores provide, the reviewer's own alternative);
+the `chmod` PATH re-raise (03 §2.2 prescribes PATH-based `Process.run`
+chmod for core; a same-user PATH influence yields at worst
+process-default modes — content authority stays in-process); the
+first-record-wins payload divergence (payloads affect only the block
+detail; the schema carries no ordering data by design); the
+last-verdict re-raise (one verification per attempt at this pin); the
+quarantine-stamp overwrite (microsecond-precision stamp, best-effort
+evidence preservation — parity with the ported helper).
+
 Review round 5 (applied; the invalid-UTF-8 regression failed before its
 repair): a torn write's invalid UTF-8 is treated as corruption
 (quarantine + recovered writes) instead of wedging every later write;
@@ -1364,6 +1382,10 @@ the teardown re-raise (round 4 fixed it).
      changed — this was a coverage gap, never an observed VFS failure.
 
 6. **2026-09-05 — escalation: trust-incident recovery (D18).**
+   Escalated because unresolved incidents survive disconnect but not
+   process restart, a returning trusted key stays blocked without a
+   changed-key verdict for the current review callback, and the manager
+   has no bookmark-removal signal.
    **Owner decision 2026-09-09T19:52Z** (the owner chose recommendations
    1a/2a/3a; the question is closed):
    - **1a)** a presented host key that returns to the originally pinned
