@@ -1111,11 +1111,46 @@ void main() {
         // resumed connect instead of notifying a disposed notifier.
         await second;
 
-        // One disconnect from the blocked stale cleanup, one from the
-        // dispose teardown racing the same gate.
+        // One disconnect from the blocked stale cleanup, one already
+        // counted from the dispose teardown racing the same gate (its
+        // completion lands later, after teardown resumes).
         expect(engine.disconnectCalls, 2);
       },
     );
+
+    test('the connect guard holds during the stale-cleanup await', () async {
+      final engine = successfulEngine(
+        channel: FakeDemoBrowseChannel(
+          homePath: '/home/deploy',
+          entries: _scriptedEntries,
+        ),
+      )..disconnectGate = Completer<void>();
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+      );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      await controller.connect(facts);
+
+      // The second connect suspends on the gated stale cleanup. The
+      // guard is established before that suspension, so a third call in
+      // the same window is refused instead of double-opening.
+      final second = controller.connect(facts);
+      await Future<void>.delayed(Duration.zero);
+      final third = controller.connect(facts);
+      engine.disconnectGate!.complete();
+      await Future.wait([second, third]);
+
+      expect(engine.openCalls, hasLength(2));
+    });
 
     test('disconnect clears the recorded status and replays none', () async {
       final engine = successfulEngine();

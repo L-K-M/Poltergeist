@@ -160,6 +160,15 @@ class SftpDemoController extends ChangeNotifier {
     // Dispose closes _logReplay; a racing event must not throw into the
     // zone through the closed controller.
     if (_disposed) return;
+
+    // A zero-line event carries nothing to replay and would never count
+    // toward the line cap, growing the buffer unboundedly — forward it
+    // live and skip the buffer.
+    if (event.lines.isEmpty) {
+      _logReplay.add(event);
+      return;
+    }
+
     // Mirror the source log's 400-line bound (and the panel's cap),
     // drop-oldest. The newest event always stays — an event that alone
     // exceeds the cap must not evict itself and empty the replay buffer.
@@ -197,6 +206,12 @@ class SftpDemoController extends ChangeNotifier {
   Future<void> connect(SftpDemoConnectFacts facts) async {
     if (_disposed || _connecting) return;
 
+    // Establish the re-entrancy guard and the attempt generation BEFORE
+    // any suspension, or a second connect during the stale-cleanup await
+    // below would slip past the guard and double-open.
+    _connecting = true;
+    final attempt = ++_attempt;
+
     // The previous session (a completed connect, or a failed one that
     // minted a serverId) must not linger: every connect mints a fresh
     // bookmark id (03 §3.5), so the old reference is closed, never
@@ -213,7 +228,6 @@ class SftpDemoController extends ChangeNotifier {
       if (_disposed) return;
     }
 
-    final attempt = ++_attempt;
     _lastFacts = facts;
     final now = DateTime.now().toUtc();
     final bookmark = _ephemeralBookmark(facts, now);
@@ -222,7 +236,6 @@ class SftpDemoController extends ChangeNotifier {
     _entries = const [];
     _failureDetail = null;
     _listing = false;
-    _connecting = true;
     notifyListeners();
 
     unawaited(_states?.cancel());
