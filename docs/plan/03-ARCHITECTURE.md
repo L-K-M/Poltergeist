@@ -327,6 +327,13 @@ abstract interface class ConnectionManager {
   Stream<ServerStatus> watchServer(String serverId);
   Future<Set<String>> connectedServerIds();  // also served across §5's port
   Future<void> disconnectServer(String serverId);
+
+  /// Deletes the bookmark's connection state: drops its pool reference
+  /// like [disconnectServer], then cascades deletion of its trust-incident
+  /// records (owner decision 3a). The endpoint's block ends when its last
+  /// owning bookmark's records are gone; a later connect re-detects
+  /// whatever key the server presents (D18 unchanged).
+  Future<void> removeBookmark(String serverId);
 }
 
 abstract interface class PaneChannel {
@@ -431,11 +438,18 @@ boundary when it wraps resolvers — one mechanism, both sides.
    `watchServer` fans `blocked` out to all of them, or one bookmark
    would show blocked while a sibling at the same endpoint kept
    operating (never auto-repin — D18) — and aborts growth. `blocked`
-   clears only through explicit user action, never automatically: the
-   next connect attempt after the user reviews and accepts the changed
-   key at the TOFU prompt re-pins it and re-runs the first connect, or
-   the user removes the bookmark; a `blocked` pool with no user action
-   stays blocked indefinitely.
+   clears in exactly three ways. Explicit review: the next connect
+   attempt after the user reviews and accepts the changed key at the
+   TOFU prompt re-pins it, deletes the incident's records, and re-runs
+   the first connect. Restored key: a
+   connect presenting the originally pinned key — presented equals
+   pinned — verifies `trusted` and lifts the block with no prompt and no
+   pin write, then deletes the incident's records because the block is
+   over (owner decision 1a; a `firstUse` or deleted pin never lifts it).
+   Bookmark removal: the 3a cascade deletes that bookmark's incident
+   records, and the block ends when its last owning bookmark's records
+   are gone. A `blocked` pool with no user action and no restored-key
+   presentation stays blocked indefinitely.
 2. **Interactive auth caps the pool at one transport.** Record how the first
    connect authenticated. If keyboard-interactive ran or a password was
    prompted interactively, `maxTransports` is effectively 1 — additional
@@ -1688,7 +1702,7 @@ screen renders them; this table owns storage):
 | Home | Settings |
 |---|---|
 | Global (`settings.json`) | density, the conflict matrix (02 §5.2), bandwidth limits, probe opt-out, "new tabs open", reconnect-restored-tabs, recents (capped at 100; persisted **debounced** — trailing ~1–2 s, with a quit-time flush that goes through the same serialized writer above — never a second, parallel write path, which could otherwise race an in-flight debounced flush and serialize a stale pre-recents-update snapshot over a newer one at exactly the highest-risk moment — awaited via a quit-deferring lifecycle hook (`AppLifecycleListener.onExitRequested` / window-close interception) so the trailing window is never dropped by quitting before the flush lands — so a burst of navigation does not rewrite the whole settings file per open, keeping the most-frequently-changing data off the immediate-persist path) |
-| Per-server device-local map inside `settings.json`, keyed by serverId (§3.5) | remote-trash opt-in (D15), per-location view prefs (500-entry LRU, 02 §2.4) |
+| Per-server device-local map inside `settings.json`, keyed by serverId (§3.5) | remote-trash opt-in (D15), per-location view prefs (500-entry LRU, 02 §2.4), probe exposure/connected facts (§3.4: `seen` + successful local connection, host/port-bound and reset on retarget; probe *results* are never persisted, D19) |
 | Synced `Bookmark` fields | everything in 04 §2.1's synced list (04 §2.3 fixes the synced/device-local split) |
 
 Two idioms from Séance are **required patterns** in every controller, and
