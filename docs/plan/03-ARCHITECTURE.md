@@ -438,18 +438,17 @@ boundary when it wraps resolvers — one mechanism, both sides.
    `watchServer` fans `blocked` out to all of them, or one bookmark
    would show blocked while a sibling at the same endpoint kept
    operating (never auto-repin — D18) — and aborts growth. `blocked`
-   clears through explicit user action: the next connect attempt after
-   the user reviews and accepts the changed key at the TOFU prompt
-   re-pins it and re-runs the first connect. It also clears
-   automatically, and never as a re-pin, when a connect presents the
-   originally pinned key — presented equals pinned, the verifier
-   returns `trusted`, and the block lifts with no prompt and no pin write
-   (owner decision 1a; a `firstUse` or deleted pin never lifts it). The
-   third exit is bookmark removal: the 3a cascade deletes that
-   bookmark's incident records, the block ends when its last owning
-   bookmark's records are gone, and a later connect re-detects whatever
-   key the server presents. A `blocked` pool with no user action and no
-   restored-key presentation stays blocked indefinitely.
+   clears in exactly three ways. Explicit review: the next connect
+   attempt after the user reviews and accepts the changed key at the
+   TOFU prompt re-pins it and re-runs the first connect. Restored key: a
+   connect presenting the originally pinned key — presented equals
+   pinned — verifies `trusted` and lifts the block with no prompt and no
+   pin write, then deletes the incident's records because the block is
+   over (owner decision 1a; a `firstUse` or deleted pin never lifts it).
+   Bookmark removal: the 3a cascade deletes that bookmark's incident
+   records, and the block ends when its last owning bookmark's records
+   are gone. A `blocked` pool with no user action and no restored-key
+   presentation stays blocked indefinitely.
 2. **Interactive auth caps the pool at one transport.** Record how the first
    connect authenticated. If keyboard-interactive ran or a password was
    prompted interactively, `maxTransports` is effectively 1 — additional
