@@ -21,6 +21,7 @@ class RegisteredCommand {
     required this.id,
     required this.scope,
     required this.label,
+    this.icon,
     this.enabled = _alwaysEnabled,
     required this.run,
     this.activators,
@@ -33,6 +34,11 @@ class RegisteredCommand {
 
   /// The ARB-sourced label (D20); commands carry no hard-coded copy.
   final String Function(AppLocalizations) label;
+
+  /// The Material icon the toolbar renders for this command. Null keeps
+  /// the M2 debug surface's bug icon; M3's registry replaces these
+  /// per-command renderings.
+  final IconData? icon;
 
   final bool Function() enabled;
 

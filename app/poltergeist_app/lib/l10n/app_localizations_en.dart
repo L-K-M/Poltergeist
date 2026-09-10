@@ -266,6 +266,28 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get sshImportCommandLabel => 'Import from ssh config…';
+
+  @override
+  String sshImportImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Imported $count favorites',
+      one: 'Imported 1 favorite',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get sshImportFavoritesLoadFailed =>
+      'Could not read the favorites file.';
+
+  @override
+  String get sshImportFavoritesSaveFailed =>
+      'Could not save the imported favorites.';
+
+  @override
   String get sftpDemoCommandLabel => 'Demo: SFTP listing';
 
   @override

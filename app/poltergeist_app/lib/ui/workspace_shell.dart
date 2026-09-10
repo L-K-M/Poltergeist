@@ -6,13 +6,16 @@ import '../services/application_error_reporter.dart';
 import '../services/probe_settings_store.dart';
 import '../services/registered_command.dart';
 import '../services/sftp_demo_controller.dart';
+import '../services/ssh_config_import_setup.dart';
 import 'adaptive_shell.dart';
 import 'demo/sftp_demo_view.dart';
+import 'import/ssh_config_import_command.dart';
 
-/// Provides the M1 chrome and placeholder pane content. In debug builds
-/// (and only there — app.dart ANDs the flag with kDebugMode) it also
-/// registers and renders the M2 demo commands (07 §3.3's debug-only
-/// listing surface; throwaway, M3 replaces it).
+/// Provides the M1 chrome and placeholder pane content. Renders every
+/// registered command (D21): the D22 ssh_config import entry when wired,
+/// plus — in debug builds only (app.dart ANDs the flag with kDebugMode) —
+/// the M2 demo command (07 §3.3's debug-only listing surface; throwaway,
+/// M3 replaces it).
 class WorkspaceShell extends StatefulWidget {
   const WorkspaceShell({
     super.key,
@@ -22,6 +25,7 @@ class WorkspaceShell extends StatefulWidget {
     this.debugDemoEnabled = kDebugMode,
     this.sftpDemoEngineFactory,
     this.probeSettings,
+    this.sshConfigImport,
   });
 
   final double initialPaneRatio;
@@ -31,12 +35,16 @@ class WorkspaceShell extends StatefulWidget {
   final SftpDemoEngineFactory? sftpDemoEngineFactory;
   final ProbeSettings? probeSettings;
 
+  /// The D22 ssh_config import wiring; null leaves the command
+  /// unregistered (tests and alternate boot paths stay opted out).
+  final SshConfigImportSetup? sshConfigImport;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
 
 class _WorkspaceShellState extends State<WorkspaceShell> {
-  bool _demoSessionActive = false;
+  bool _commandSessionActive = false;
 
   @override
   Widget build(BuildContext context) {
@@ -51,12 +59,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // crashing on a misconfigured shell.
     final probeSettings = widget.probeSettings;
     assert(!widget.debugDemoEnabled || probeSettings != null);
+    final sshConfigImport = widget.sshConfigImport;
     final commands = <RegisteredCommand>[
+      if (sshConfigImport != null)
+        buildSshConfigImportCommand(
+          setup: sshConfigImport,
+          enabled: () => !_commandSessionActive,
+        ),
       if (widget.debugDemoEnabled && probeSettings != null)
         buildSftpDemoCommand(
           spawnEngine: widget.sftpDemoEngineFactory ?? spawnSftpDemoEngine,
           probeSettings: probeSettings,
-          enabled: () => !_demoSessionActive,
+          enabled: () => !_commandSessionActive,
         ),
     ];
 
@@ -107,13 +121,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // Contract: run() stays pending for the command's whole session (the
     // demo awaits its route's pop), so the flag tracks the session.
     if (!command.enabled()) return;
-    setState(() => _demoSessionActive = true);
+    setState(() => _commandSessionActive = true);
     try {
       await command.run(context);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
     } finally {
-      if (mounted) setState(() => _demoSessionActive = false);
+      if (mounted) setState(() => _commandSessionActive = false);
     }
   }
 }
@@ -157,7 +171,10 @@ class _Toolbar extends StatelessWidget {
                 child: TextButton.icon(
                   key: ValueKey('command.${command.id}'),
                   onPressed: command.enabled() ? () => onRun(command) : null,
-                  icon: const Icon(Icons.bug_report_outlined, size: 18),
+                  icon: Icon(
+                    command.icon ?? Icons.bug_report_outlined,
+                    size: 18,
+                  ),
                   label: Text(
                     command.label(l10n),
                     maxLines: 1,

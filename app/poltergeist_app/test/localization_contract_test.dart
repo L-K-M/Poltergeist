@@ -18,6 +18,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/main.dart': {
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
   },
+  // The import wiring's on-disk bookmarks path and the POSIX-shaped
+  // ssh_config path (core import normalizes on `/`).
+  'lib/services/ssh_config_import_setup.dart': {
+    r"'$supportPath${Platform.pathSeparator}bookmarks.json'",
+    r"'$home/.ssh/config'",
+    "'~'",
+  },
   'lib/services/app_preferences.dart': {
     "'layout.paneRatio'",
     "'window.left'",
@@ -142,6 +149,25 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'port'",
     "'exposure'",
     "'connected'",
+  },
+  // The on-disk bookmarks.json shape (keys and quarantine stamp), the
+  // pinned model's envelope-id prefix, and the registered command id —
+  // persisted format and widget plumbing, not UI copy.
+  'lib/services/bookmark_store.dart': {
+    "'version'",
+    "'bookmarks'",
+    "'id'",
+    "'bookmark store root'",
+    "'bookmark store version \$version'",
+    "'bookmark:\$id'",
+    r"'$path.corrupt-${_quarantineStamp(now)}'",
+    "'-'",
+    "':'",
+    "'.'",
+    "''",
+  },
+  'lib/ui/import/ssh_config_import_command.dart': {
+    "'favorite.importSshConfig'",
   },
   'lib/ui/demo/sftp_demo_view.dart': {
     "'connect.demoListing'",

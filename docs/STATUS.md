@@ -47,9 +47,10 @@ Séance #80/#81. Probe lifecycle
 repair is in the pin; app-side `ProbeService` consumers remain open (item 3).
 The ssh_config
 import preview/dedupe slice
-(D22) landed as a bounded, unwired component (dated section below,
-including its post-merge host-alias whitespace-parity correction), and
-keyswap cleanup now retries after partial swap/restoration failures
+(D22) landed as a bounded component (dated section below, including its
+post-merge host-alias whitespace-parity correction), and its composition,
+bookmark persistence, and command registration landed 2026-09-10 (dated
+section below). Keyswap cleanup now retries after partial swap/restoration failures
 (closed in open item 7). Before that: the real-sshd auth-failure-summary coverage
 (rejected key, method-not-accepted user, root prohibit-password) landed
 (validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
@@ -1294,6 +1295,123 @@ records no disposition for either suggestion. The scorecard records no
 correctness, security, or contract finding in rounds 4-6 and declares
 steady state.
 
+## M2 — ssh_config import composition (2026-09-10)
+
+D22's import flow is wired end to end in the app shell (#45 landed the
+preview/dedupe component; this slice supplies composition, persistence,
+and command registration).
+
+`FileBookmarkStore` (`poltergeist_app`) persists the pinned `Bookmark`
+model (D2/D3 — no second server model) to `<app-support>/bookmarks.json`
+through the repo's atomic-write plumbing: a `version`/`bookmarks` JSON
+root, a serialized write tail, swap-after-write so a failed write leaves
+memory intact, quarantine of a corrupt file with a UTC stamp (a quarantine
+that cannot move the file fails the load rather than starting empty over
+bytes it could not read), read failures propagating to the caller (never
+silently overwritten), a newer on-disk `version` failing in place (no
+quarantine, no overwrite), and per-record skip-and-preserve so a record
+from a newer Poltergeist survives a local re-save (04 §2.1). Only
+04 §2.1's synced fields are written — 04 §2.3's device-local data never
+enters the file. `BookmarkRepository` is the seam the UI depends on, so
+widgets never touch `dart:io`; M5's app-wide `BookmarkStore` (grouping,
+reordering, the sync-coordinator seam, the sidebar) builds on this file.
+
+The registered `favorite.importSshConfig` command (`RegisteredCommand`
+grows an optional icon; the toolbar renders it, D21) loads the persisted
+bookmarks for dedupe, opens the existing ARB-complete preview, and
+`upsertAll`s the rows the user kept, with a transient ARB-authored
+confirmation. Dedupe runs against the store, so persisted rows are flagged
+and start skipped (D22's recorded semantics); an explicit re-selection
+still imports as a second bookmark. `main.dart` builds the setup over
+`~/.ssh/config` through the testable `buildSshConfigImportSetup` factory
+(the ported `expandHomePath`, macOS-sandbox home recovery included),
+registering the command only when a home directory resolves and never on
+Windows — the core import service normalizes POSIX paths, so a
+drive-letter config cannot be read there and the command stays
+unregistered instead of always failing. The shell adds no bookmark UI (M5).
+Four new ARB strings carry the command label, the confirmation, and the two
+store-failure notices.
+
+Validation: regressions observed failing first (both suites did not
+compile before the seams existed). New tests: twelve `bookmark_store_test`
+cases (disk round-trip, id update, corrupt quarantine with byte
+preservation, failed-quarantine fail-closed, skip-and-preserve for an
+unknown kind and for a wrong-typed field, newer- and unrecognized-version
+fail-in-place, read-failure propagation, a load waiting for a queued
+write, concurrent-write serialization, and the service-built import
+persisted to disk); seven `ssh_config_import_command_test` cases (wiring
+gate, preview→persist with reference-style IdentityFile, existing endpoint
+flagged+skipped, no-match store, a missing config's retry surface, and the
+load- and save-failure notices); and four `ssh_config_import_setup_test`
+cases (POSIX wiring, no home, Windows gate, macOS sandbox home). The
+shared `FakeSshConfigSource` lives in `test/support/`. 352 app tests pass
+(329 + 23); app analysis clean; import guard, protocol guard, and the
+repository scan pass. Core untouched (356 tests, 15 fixture skips).
+Rootless widget captures (before / after / dialog, labeled as such) under
+`tasks/m2-ssh-import-captures`, since the shell's toolbar layout changes.
+
+Review round 1 (applied; the parked-write regression the reviewer described
+was real — deleting the serialized tail makes the new test fail with a lost
+bookmark, verified): the concurrent-write test now parks the first write
+before enqueuing the second; a wrong-typed record joins the
+skip-and-preserve cases; an unreadable-but-present file's rethrow and a
+newer store version's fail-in-place are pinned, with `_load` resetting its
+state per attempt. Refuted with the pinned model source: `Bookmark.fromJson`
+wraps every non-`FormatException` failure (`_guardFormat`), so `_decode`'s
+`FormatException` catch is complete — widening to `on Object` would only
+swallow model bugs. The hardcoded `/` in the config path stands: the core
+import service normalizes on `/` (its include base is `.ssh/`), so
+`Platform.pathSeparator` would not make Windows work; the Windows import
+gate now lives in `buildSshConfigImportSetup`.
+
+Review round 2 (applied; one re-raise): a quarantine that cannot move the
+file aside now fails the load instead of starting empty (a later save
+could overwrite unreadable bytes — regression with the quarantine path
+blocked by a directory); the two rethrowing `_load` paths no longer
+`_report` (the calling service reports once), while quarantine-return paths
+keep reporting; the quarantine test pins the corrupt bytes verbatim; the
+read-denial setup asserts `chmod` succeeded; the load- and save-failure
+notices have widget coverage; `main.dart`'s wiring moved to the testable
+`buildSshConfigImportSetup` factory (with the Windows gate); and the test
+fake source is shared. Refuted (re-raise, no new evidence): widening
+`_decode`'s catch — round 1's pinned-source proof stands and the
+wrong-typed-field case already passes through skip-and-preserve. 349 app
+tests, analyze, and the guards pass on the reviewed head.
+
+Review round 3 (applied; polish only, one re-raise): the version guard now
+fails closed on any unrecognized encoding (a non-int version included);
+`load()` awaits the write tail so a read racing a queued write cannot
+return pre-write state (regression: gated writer, verified to fail without
+the await); the quarantine name is a shared `bookmarkQuarantinePath`
+helper rather than duplicated in the test; a missing `~/.ssh/config` is
+pinned to the dialog's retry surface; the toolbar icon wraps; the fake
+source's doc says listings are absent, not empty. Refuted again (third
+raise, no new evidence): widening `_decode`'s catch to `on Object` —
+`_guardFormat` in the pinned model normalizes every failure to
+`FormatException`, and the wrong-typed-field regression passes through
+skip-and-preserve.
+
+Review round 4 (applied; polish, one re-raise): the version gate now
+rejects any non-null value other than this store's integer (an older or
+non-integer encoding included — a v0 test joins the v2 case), the two
+skip-and-preserve tests assert deep record equality instead of spot
+fields (verified: the store preserves the whole nested record, wrong-typed
+field included), and the widget suite's `setup()` helper takes a store
+override, collapsing three hand-rolled wirings. Refuted with evidence: a
+composition-level re-selection test — the #45 dialog suite already pins
+re-selection (`toggling rows updates the count and the imported set`
+selects the flagged row and imports it), and this suite pins that the
+returned rows persist, so the union covers the claim. Declined (fourth
+raise, no new evidence): widening `_decode`'s catch. No correctness,
+security, or contract finding survives triage; the only repeat is a
+re-litigated decline. Steady state per the owner's bar.
+
+Deliberately out of scope: M5's `BookmarkStore` UI (grouping, reorder,
+sidebar), the connect flow that consumes an imported IdentityFile (still
+gated on open item 6), and any core/pin change. The import writes exactly
+the 04 §2.1 model through the pinned importer; key material is never read
+(D18). No source port, dependency change, release, or milestone close.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1391,8 +1509,12 @@ steady state.
      (see the dated section): the core import service (pinned-importer
      consumption, top-level include resolution, D22 limitation badges,
      host+port+username dedupe, reference-style IdentityFile mapping) and
-     the ARB-complete preview dialog landed; composition, persistence,
-     and command registration remain unwired as recorded there;
+     the ARB-complete preview dialog landed. **Composition, persistence,
+     and command registration landed 2026-09-10** (dated section above):
+     the `favorite.importSshConfig` command, the `FileBookmarkStore`
+     (M5 builds its app-wide `BookmarkStore` on it), and the shell wiring.
+     The connect flow that consumes an imported IdentityFile still rides
+     open item 6; M5 owns the sidebar/bookmark-management UI;
    - the debug-only connect → SFTP → `listDirectory` demo surface.
      **Done 2026-09-09** (see the dated section): the kDebugMode-gated
      `connect.demoListing` entry opens the throwaway listing view over the

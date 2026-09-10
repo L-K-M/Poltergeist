@@ -7,6 +7,7 @@ import 'l10n/app_localizations.dart';
 import 'services/content_size_reporter.dart';
 import 'services/probe_settings_store.dart';
 import 'services/sftp_demo_controller.dart';
+import 'services/ssh_config_import_setup.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
 import 'ui/workspace_shell.dart';
@@ -23,6 +24,7 @@ class PoltergeistApp extends StatelessWidget {
     this.debugDemoEnabled = false,
     this.sftpDemoEngineFactory,
     this.probeSettings,
+    this.sshConfigImport,
   });
 
   final double initialPaneRatio;
@@ -43,6 +45,11 @@ class PoltergeistApp extends StatelessWidget {
 
   /// Persisted probe settings behind the demo surface's probe wiring.
   final ProbeSettings? probeSettings;
+
+  /// The D22 ssh_config import wiring (service, bookmark store, config
+  /// path). Null leaves the import command unregistered; `main.dart`
+  /// supplies it from the app-support directory.
+  final SshConfigImportSetup? sshConfigImport;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator.
@@ -95,6 +102,7 @@ class PoltergeistApp extends StatelessWidget {
       // release/profile builds never see a spawnable engine factory.
       sftpDemoEngineFactory: demoEnabled ? sftpDemoEngineFactory : null,
       probeSettings: demoEnabled ? probeSettings : null,
+      sshConfigImport: sshConfigImport,
     );
     final callback = onContentSizeChanged;
     if (callback == null) return workspace;

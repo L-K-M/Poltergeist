@@ -10,6 +10,7 @@ import 'services/application_error_reporter.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/probe_settings_store.dart';
 import 'services/settings_store.dart';
+import 'services/ssh_config_import_setup.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +43,13 @@ Future<void> main() async {
       // site; tests and alternate paths stay opted out by default.
       debugDemoEnabled: kDebugMode,
       probeSettings: probeSettings,
+      sshConfigImport: buildSshConfigImportSetup(
+        environment: Platform.environment,
+        isMacOS: Platform.isMacOS,
+        isWindows: Platform.isWindows,
+        supportPath: supportDirectory.path,
+        onError: errorReporter.report,
+      ),
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
       onContentSizeChanged: (size) {
