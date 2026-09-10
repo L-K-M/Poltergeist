@@ -140,9 +140,11 @@ final class ProbeSettingsStore implements ProbeSettings {
     await _store.set(_probeServersKey, servers);
   });
 
-  /// Returns the stored facts when the record's shape is valid and its
-  /// endpoint binding matches; null for absent, malformed, or retargeted
-  /// records. The host binding ignores case, like probe endpoints (03 §3.4).
+  /// Returns the stored facts when the record's shape and endpoint binding
+  /// are valid; null for absent, mis-shaped, or retargeted records. An
+  /// unrecognized exposure or connection value coerces to unseen rather
+  /// than failing the record (the host binding ignores case, like probe
+  /// endpoints, 03 §3.4).
   ProbeServerFacts? _readFacts(Object? stored, String host, int port) {
     if (stored is! Map) return null;
     if (stored[_hostKey] is! String ||

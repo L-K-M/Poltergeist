@@ -244,7 +244,9 @@ void main() {
     coordinator.showServer(_server());
     await pump();
 
-    // Both the write and the fallback reads fail: two reports.
+    // The fallback reads fail twice: the first read in the try block and
+    // the retry in _configureFromReads. markSeen itself succeeds here
+    // (failWrites stays false).
     expect(errors, hasLength(2));
     expect(bridge.targets, isEmpty);
     expect(bridge.calls, isNot(contains('running')));
@@ -421,7 +423,9 @@ void main() {
     // B's markSeen is pending when the lifecycle change arrives; the
     // lifecycle update must not overtake B's configuration and re-send A.
     coordinator.showServer(_server(id: 'bookmark-b', host: 'other.example'));
-    await first.future;
+    // Fail fast instead of hanging the suite if B's operation is ever
+    // superseded before the hook runs.
+    await first.future.timeout(const Duration(seconds: 5));
     coordinator.forwardLifecycle(AppLifecycleState.hidden);
     gate.complete();
     await pump();
@@ -447,6 +451,8 @@ void main() {
     expect(errors, isNotEmpty);
     expect(bridge.targets, isEmpty);
     expect(bridge.calls, isNot(contains('running')));
+    // The engine is explicitly cleared, not merely left at its defaults.
+    expect(bridge.calls.last, 'targets:');
   });
 
   test('a failed removal still clears targets and reports', () async {
