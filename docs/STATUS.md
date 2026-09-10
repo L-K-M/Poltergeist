@@ -1074,6 +1074,32 @@ by construction); the interface-breakage premise (no other
 Deferred: a `FileIncidentStore.onLoadError` hook (no consumer exists
 until the wiring slice owns store construction).
 
+Review round 3 (applied; the stale-payload regression failed before its
+repair): `IncidentStore.removeFor(serverId, endpoint)` replaces the
+payload-equality delete — a lift matches the stored record's endpoint
+identity, so a stale payload of the same endpoint (a failed re-write) is
+still removed while a re-pointed bookmark's newer-endpoint record
+survives (both regressions pin the pair); the strict decode rejects
+empty fingerprint strings and negative ports; the unreadable-file test
+skips when running as root (chmod 000 does not deny root); item 6's
+cross-reference now points upward to the dated section. Declined with
+recorded reasons: per-serverId write chaining in the manager (re-litigated
+round-2 ordering — the store contract documents the issue-order
+invariant both shipped stores provide, the reviewer's own alternative);
+the bookmark-registry reconciliation re-raise (round-2 decline stands);
+the last-write-wins verdict re-raise (the pinned opener verifies exactly
+one host key per attempt; jump chains are D10); delegating hypothetical
+future `TofuVerifier` members (the production wrapped verifier is the
+concrete base class); a crash-orphaned `.tmp` sweep (parity with the
+ported atomic-file helper, 0600 temp, no security exposure — a startup
+sweep rides the wiring slice); the fixture pin-coupling note (CI on the
+head rebuilt the image and ran the 15 real-sshd tests — the pin resolved;
+pin rot is the fixture's pre-existing maintenance property). Refuted:
+the unhandled-async-error premise (every call site catches —
+`catchError` before `unawaited` or an awaited try/catch — no future can
+complete unhandled) and the teardown-misses-s3 premise (round 1 already
+switched teardown to a snapshot of `harness.servers.keys`).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1320,7 +1346,7 @@ until the wiring slice owns store construction).
      (device-local only, D19 unchanged);
    - **3a)** deleting a bookmark cascades deletion of its incident.
    **Implemented 2026-09-10** in the trust-incident lifecycle slice
-   (dated section below): restored-key unblock, incident persistence with
+   (dated section above): restored-key unblock, incident persistence with
    a defined record schema/keying, and the bookmark-removal cascade.
    Remaining: the engine-protocol bridging (incident seeding at spawn, an
    incident-change event for app-side persistence, and the

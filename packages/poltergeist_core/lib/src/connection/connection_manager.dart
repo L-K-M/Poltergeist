@@ -1282,10 +1282,11 @@ class PooledConnectionManager implements ConnectionManager {
     final owners = _incidentOwners.remove(pool.key);
     if (owners == null || incident == null) return;
     for (final serverId in owners) {
-      // Scoped to the record this incident produced: a bookmark re-pointed
-      // to a new endpoint (whose record now holds the new endpoint's
-      // block) must not lose it when this old endpoint's block lifts.
-      unawaited(_deleteStoredRecord(incident.recordFor(serverId)));
+      // Scoped to the endpoint this incident belongs to: a bookmark
+      // re-pointed to a new endpoint (whose record now holds the new
+      // endpoint's block) keeps it, while a stale payload of this same
+      // endpoint is still removed.
+      unawaited(_deleteStoredRecord(serverId, pool.key));
     }
   }
 
@@ -1302,11 +1303,11 @@ class PooledConnectionManager implements ConnectionManager {
     );
   }
 
-  Future<void> _deleteStoredRecord(IncidentRecord record) async {
+  Future<void> _deleteStoredRecord(String serverId, PoolKey endpoint) async {
     final store = _incidentStore;
     if (store == null) return;
     try {
-      await store.remove(record);
+      await store.removeFor(serverId, endpoint);
     } on Object catch (error) {
       // Best-effort: a failed delete must not affect the live pool; a
       // stale record only re-blocks after the next restart.

@@ -76,12 +76,15 @@ void main() {
         valid()..['host'] = 22,
         valid()..['host'] = '   ',
         valid()..['port'] = '22',
+        valid()..['port'] = -1,
         valid()..['port'] = 0,
         valid()..['port'] = 65536,
         valid()..['username'] = null,
         valid()..['jumpHostId'] = 42,
         valid()..['presentedFingerprintSha256'] = 3,
+        valid()..['presentedFingerprintSha256'] = '',
         valid()..['pinnedFingerprintSha256'] = 3,
+        valid()..['pinnedFingerprintSha256'] = '',
       ];
       for (final json in bad) {
         expect(
@@ -112,17 +115,18 @@ void main() {
         isNull,
       );
 
-      await store.remove(
-        (await store.load()).singleWhere((r) => r.serverId == 'a'),
+      await store.removeFor(
+        'a',
+        (await store.load()).singleWhere((r) => r.serverId == 'a').poolKey,
       );
       expect((await store.load()).map((r) => r.serverId), ['b']);
-      await store.remove(_record(serverId: 'missing'));
+      await store.removeFor('missing', _record(serverId: 'missing').poolKey);
 
       // The scoped delete leaves a newer record under the same id alone:
       // a bookmark re-pointed to a new endpoint must not lose the new
       // endpoint's block when an old endpoint's block lifts.
       await store.put(_record(serverId: 'c', host: 'other.example'));
-      await store.remove(_record(serverId: 'c'));
+      await store.removeFor('c', _record(serverId: 'c').poolKey);
       expect(
         (await store.load()).singleWhere((r) => r.serverId == 'c').host,
         'other.example',
@@ -165,8 +169,9 @@ void main() {
         unorderedEquals(['a', 'b']),
       );
 
-      await reloaded.remove(
-        (await reloaded.load()).singleWhere((r) => r.serverId == 'a'),
+      await reloaded.removeFor(
+        'a',
+        (await reloaded.load()).singleWhere((r) => r.serverId == 'a').poolKey,
       );
       final afterRemoval = FileIncidentStore(File(path));
       expect((await afterRemoval.load()).map((r) => r.serverId), ['b']);
@@ -180,7 +185,8 @@ void main() {
       expect((await store.load()), hasLength(10));
 
       await Future.wait([
-        for (var i = 0; i < 5; i++) store.remove(_record(serverId: 'bm$i')),
+        for (var i = 0; i < 5; i++)
+          store.removeFor('bm$i', _record(serverId: 'bm$i').poolKey),
       ]);
       expect((await store.load()), hasLength(5));
     });
@@ -219,6 +225,11 @@ void main() {
     test('an unreadable file loads empty and stays in place', () async {
       if (!Platform.isLinux && !Platform.isMacOS) {
         markTestSkipped('mode-000 read denial applies on desktop POSIX only');
+        return;
+      }
+      final uid = await Process.run('id', ['-u']);
+      if ((uid.stdout as String).trim() == '0') {
+        markTestSkipped('chmod 000 does not deny reads when running as root');
         return;
       }
 

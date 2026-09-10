@@ -125,8 +125,9 @@ final class _GatedIncidentStore implements IncidentStore {
   }
 
   @override
-  Future<void> remove(IncidentRecord record) async {
-    if (records[record.serverId] == record) records.remove(record.serverId);
+  Future<void> removeFor(String serverId, PoolKey endpoint) async {
+    final stored = records[serverId];
+    if (stored != null && stored.poolKey == endpoint) records.remove(serverId);
   }
 
   @override
@@ -146,7 +147,7 @@ final class _ThrowingIncidentStore implements IncidentStore {
   }
 
   @override
-  Future<void> remove(IncidentRecord record) async {
+  Future<void> removeFor(String serverId, PoolKey endpoint) async {
     throw const FileSystemException('Simulated incident delete failure.');
   }
 
@@ -457,4 +458,38 @@ void main() {
       );
     },
   );
+
+  test('a lift removes a stale same-endpoint record', () async {
+    final store = InMemoryIncidentStore();
+    final harness = await _harness([
+      _originalKey,
+      _changedKey,
+      _originalKey,
+    ], store: store);
+    await _declineViaGrowth(harness);
+    await _eventually(() => store.load(), (records) => records.length == 2);
+
+    // Simulate a failed re-write: the store holds an older payload of the
+    // same endpoint. The lift must still delete it — matching by payload
+    // equality would miss it and re-block after a restart.
+    for (final record in await store.load()) {
+      await store.put(
+        IncidentRecord(
+          serverId: record.serverId,
+          host: record.host,
+          port: record.port,
+          username: record.username,
+          presentedFingerprintSha256: 'SHA256:stale',
+          pinnedFingerprintSha256: record.pinnedFingerprintSha256,
+        ),
+      );
+    }
+
+    final pane = await harness.manager.openBrowseChannel(
+      's1',
+      paneTabId: 'back',
+    );
+    await pane.close();
+    await _eventually(() => store.load(), (records) => records.isEmpty);
+  });
 }

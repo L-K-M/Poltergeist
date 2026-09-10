@@ -74,7 +74,8 @@ final class IncidentRecord {
         username is! String ||
         (jumpHostId != null && jumpHostId is! String) ||
         presented is! String ||
-        (pinned != null && pinned is! String)) {
+        presented.isEmpty ||
+        (pinned != null && (pinned is! String || pinned.isEmpty))) {
       throw const FormatException('Malformed incident record.');
     }
     return IncidentRecord(
@@ -142,10 +143,11 @@ abstract interface class IncidentStore {
   /// Upserts by [IncidentRecord.serverId].
   Future<void> put(IncidentRecord record);
 
-  /// Deletes the stored record only when it still equals [record]: a
-  /// bookmark re-pointed to a new endpoint must not lose the new
-  /// endpoint's block when an old endpoint's block lifts.
-  Future<void> remove(IncidentRecord record);
+  /// Deletes the stored record under [serverId] only when it belongs to
+  /// [endpoint]: a bookmark re-pointed to a new endpoint keeps its new
+  /// endpoint's record when an old endpoint's block lifts, while a stale
+  /// payload of the same endpoint (a failed re-write) is still removed.
+  Future<void> removeFor(String serverId, PoolKey endpoint);
 
   /// Deletes every record owned by [serverId] — the bookmark-deletion
   /// cascade (3a), where the whole bookmark is gone.
@@ -165,9 +167,10 @@ class InMemoryIncidentStore implements IncidentStore {
   }
 
   @override
-  Future<void> remove(IncidentRecord record) async {
-    if (_records[record.serverId] != record) return;
-    _records.remove(record.serverId);
+  Future<void> removeFor(String serverId, PoolKey endpoint) async {
+    final stored = _records[serverId];
+    if (stored == null || stored.poolKey != endpoint) return;
+    _records.remove(serverId);
   }
 
   @override
@@ -250,12 +253,14 @@ class FileIncidentStore implements IncidentStore {
   });
 
   @override
-  Future<void> remove(IncidentRecord record) => _serialized(() async {
-    await _loadInner();
-    if (_records[record.serverId] != record) return;
-    _records.remove(record.serverId);
-    await _flush();
-  });
+  Future<void> removeFor(String serverId, PoolKey endpoint) =>
+      _serialized(() async {
+        await _loadInner();
+        final stored = _records[serverId];
+        if (stored == null || stored.poolKey != endpoint) return;
+        _records.remove(serverId);
+        await _flush();
+      });
 
   @override
   Future<void> removeAllFor(String serverId) => _serialized(() async {
