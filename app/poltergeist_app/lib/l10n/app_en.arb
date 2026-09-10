@@ -356,6 +356,25 @@
       "alias": {"type": "String"}
     }
   },
+  "sshImportCommandLabel": "Import from ssh config…",
+  "@sshImportCommandLabel": {
+    "description": "Toolbar entry that opens the ssh_config import preview (D22)."
+  },
+  "sshImportImported": "{count, plural, =1{Imported 1 favorite} other{Imported {count} favorites}}",
+  "@sshImportImported": {
+    "description": "Confirmation after the imported rows were persisted.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "sshImportFavoritesLoadFailed": "Could not read the favorites file.",
+  "@sshImportFavoritesLoadFailed": {
+    "description": "Notice when the bookmark store cannot be read for dedupe."
+  },
+  "sshImportFavoritesSaveFailed": "Could not save the imported favorites.",
+  "@sshImportFavoritesSaveFailed": {
+    "description": "Notice when persisting the imported bookmarks fails."
+  },
   "sftpDemoCommandLabel": "Demo: SFTP listing",
   "@sftpDemoCommandLabel": {
     "description": "Toolbar entry for the debug-only SFTP demo surface."

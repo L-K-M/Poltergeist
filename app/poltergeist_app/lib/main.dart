@@ -3,13 +3,18 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
+import 'services/bookmark_store.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/probe_settings_store.dart';
 import 'services/settings_store.dart';
+import 'services/ssh_config_file_source.dart';
+import 'services/ssh_config_import_setup.dart';
+import 'services/uuid.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +47,10 @@ Future<void> main() async {
       // site; tests and alternate paths stay opted out by default.
       debugDemoEnabled: kDebugMode,
       probeSettings: probeSettings,
+      sshConfigImport: _sshConfigImport(
+        supportDirectory.path,
+        errorReporter.report,
+      ),
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
       onContentSizeChanged: (size) {
@@ -50,4 +59,36 @@ Future<void> main() async {
     ),
   );
   await errorReporter.guard(windowLifecycle.show);
+}
+
+/// The D22 import wiring: `~/.ssh/config` read read-only, imported rows
+/// persisted to `bookmarks.json` beside settings. Returns null when no
+/// home directory can be determined — the command stays unregistered
+/// rather than reading a bogus path.
+SshConfigImportSetup? _sshConfigImport(
+  String supportPath,
+  void Function(Object, StackTrace) onError,
+) {
+  // Recover the real home when a macOS sandbox points HOME at the app
+  // container (the ported `expandHomePath` rule): `~/.ssh` means the
+  // user's keys, never the container's.
+  final home = expandHomePath(
+    '~',
+    environment: Platform.environment,
+    isMacOS: Platform.isMacOS,
+  );
+  if (home == '~') return null;
+
+  return SshConfigImportSetup(
+    service: SshConfigImportService(
+      homeDirectory: home,
+      source: const LocalSshConfigFileSource(),
+      mintId: uuidV4,
+    ),
+    bookmarks: FileBookmarkStore(
+      path: '$supportPath${Platform.pathSeparator}bookmarks.json',
+      onError: onError,
+    ),
+    configPath: '$home/.ssh/config',
+  );
 }

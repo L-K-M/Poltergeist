@@ -17,6 +17,9 @@ const _generatedDartSuffixes = {'.freezed.dart', '.g.dart', '.mocks.dart'};
 const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/main.dart': {
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
+    r"'$supportPath${Platform.pathSeparator}bookmarks.json'",
+    r"'$home/.ssh/config'",
+    "'~'",
   },
   'lib/services/app_preferences.dart': {
     "'layout.paneRatio'",
@@ -142,6 +145,24 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'port'",
     "'exposure'",
     "'connected'",
+  },
+  // The on-disk bookmarks.json shape (keys and quarantine stamp), the
+  // pinned model's envelope-id prefix, and the registered command id —
+  // persisted format and widget plumbing, not UI copy.
+  'lib/services/bookmark_store.dart': {
+    "'version'",
+    "'bookmarks'",
+    "'id'",
+    "'bookmark store root'",
+    "'bookmark:\$id'",
+    r"'${_file.path}.corrupt-${_stamp()}'",
+    "'-'",
+    "':'",
+    "'.'",
+    "''",
+  },
+  'lib/ui/import/ssh_config_import_command.dart': {
+    "'favorite.importSshConfig'",
   },
   'lib/ui/demo/sftp_demo_view.dart': {
     "'connect.demoListing'",

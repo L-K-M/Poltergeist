@@ -1,0 +1,212 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+import 'atomic_file.dart';
+
+/// The persistence seam the import flow dedupes against and writes to
+/// (03 §6's `BookmarkStore`): the UI depends on this, never on `dart:io`.
+/// [FileBookmarkStore] is the on-disk implementation; tests and M5's
+/// app-wide notifier substitute their own.
+abstract interface class BookmarkRepository {
+  /// Every stored bookmark; the order is the store's own (M5 sorts by
+  /// `sortKey`).
+  Future<List<Bookmark>> load();
+
+  /// Inserts or replaces [bookmarks] by id and persists the result.
+  Future<void> upsertAll(Iterable<Bookmark> bookmarks);
+}
+
+/// JSON-file persistence for the pinned [Bookmark] model (D2/D3: one
+/// server model, never a second).
+///
+/// Storage half of 03 §6's app-wide `BookmarkStore`: M2's ssh_config
+/// import needs somewhere durable to put imported favorites and a store
+/// to dedupe against (07 §3.3's exit criterion). M5 adds grouping,
+/// reordering, the sync-coordinator seam, and the sidebar on top; the
+/// on-disk payload is already 04 §2.1's synced `Bookmark.toJson` shape, so
+/// M6 can consume it without a migration. Only synced fields are written —
+/// 04 §2.3's device-local data (endpoint pins, scoped-access blobs, view
+/// state) must never enter this file.
+///
+/// Failure posture: an unreadable file rethrows (the store must not
+/// overwrite data it could not read — the caller shows a notice), a
+/// corrupt file is quarantined like the ported file stores, and a single
+/// record that cannot decode is preserved verbatim so a newer
+/// Poltergeist's bookmark survives a local re-save (04 §2.1's
+/// skip-and-preserve).
+final class FileBookmarkStore implements BookmarkRepository {
+  FileBookmarkStore({
+    required String path,
+    Future<void> Function(File target, String contents)? atomicWriter,
+    DateTime Function()? now,
+    void Function(Object, StackTrace)? onError,
+  }) : // Keep the filesystem path immutable and private.
+       // ignore: prefer_initializing_formals
+       _file = File(path),
+       _atomicWriter = atomicWriter ?? writeStringAtomically,
+       _now = now ?? DateTime.now,
+       // Keep the callback private while allowing test-only injection.
+       // ignore: prefer_initializing_formals
+       _onError = onError;
+
+  static const _versionKey = 'version';
+  static const _bookmarksKey = 'bookmarks';
+  static const _storeVersion = 1;
+
+  final File _file;
+  final Future<void> Function(File target, String contents) _atomicWriter;
+  final DateTime Function() _now;
+  final void Function(Object, StackTrace)? _onError;
+
+  final _bookmarks = <String, Bookmark>{};
+
+  /// Records that failed to decode, kept in their original JSON shape so
+  /// a re-save cannot drop a bookmark written by a newer Poltergeist.
+  final _preserved = <Object?>[];
+
+  Future<void>? _loadFuture;
+  Future<void> _writeTail = Future.value();
+
+  @override
+  Future<List<Bookmark>> load() async {
+    await _ensureLoaded();
+    return List.unmodifiable(_bookmarks.values);
+  }
+
+  /// Inserts or replaces [bookmarks] by id and persists the whole store.
+  @override
+  Future<void> upsertAll(Iterable<Bookmark> bookmarks) async {
+    final incoming = bookmarks.toList(growable: false);
+    if (incoming.isEmpty) return;
+    await _ensureLoaded();
+
+    final operation = _writeTail.then((_) async {
+      // Build the next map first and swap it in only after the write
+      // lands, so a failed write leaves the in-memory state intact.
+      final next = Map<String, Bookmark>.of(_bookmarks);
+      for (final bookmark in incoming) {
+        next[bookmark.id] = bookmark;
+      }
+      await _write(next);
+      _bookmarks
+        ..clear()
+        ..addAll(next);
+    });
+    // The calling service owns write-error reporting; this only heals the
+    // queue so one failure cannot wedge every later write.
+    _writeTail = operation.then<void>((_) {}, onError: (_, _) {});
+    await operation;
+  }
+
+  Future<void> _ensureLoaded() {
+    final activeLoad = _loadFuture;
+    if (activeLoad != null) return activeLoad;
+
+    final load = _load();
+    _loadFuture = load;
+    unawaited(
+      load.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {
+          // A transient filesystem failure must not poison later reads.
+          if (identical(_loadFuture, load)) _loadFuture = null;
+        },
+      ),
+    );
+    return load;
+  }
+
+  Future<void> _load() async {
+    late final String? contents;
+    try {
+      await _file.parent.create(recursive: true);
+      contents = await _file.exists() ? await _file.readAsString() : null;
+    } catch (error, stack) {
+      _report(error, stack);
+      rethrow;
+    }
+
+    if (contents == null) return;
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(contents);
+    } catch (error, stack) {
+      await _quarantine();
+      _report(error, stack);
+      return;
+    }
+
+    if (decoded is! Map || decoded[_bookmarksKey] is! List) {
+      await _quarantine();
+      _report(
+        const FormatException('bookmark store root'),
+        StackTrace.current,
+      );
+      return;
+    }
+
+    for (final record in decoded[_bookmarksKey] as List) {
+      final bookmark = _decode(record);
+      if (bookmark == null) {
+        _preserved.add(record);
+      } else {
+        _bookmarks[bookmark.id] = bookmark;
+      }
+    }
+  }
+
+  /// Decodes one stored record; null when it cannot be trusted (04 §2.1's
+  /// skip-and-preserve — never throw away a record this version does not
+  /// understand).
+  Bookmark? _decode(Object? record) {
+    if (record is! Map) return null;
+    final json = record.cast<String, dynamic>();
+    final id = json['id'];
+    if (id is! String) return null;
+    try {
+      return Bookmark.fromJson(json, recordId: 'bookmark:$id');
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<void> _write(Map<String, Bookmark> bookmarks) => _atomicWriter(
+    _file,
+    jsonEncode({
+      _versionKey: _storeVersion,
+      _bookmarksKey: [
+        for (final bookmark in bookmarks.values) bookmark.toJson(),
+        ..._preserved,
+      ],
+    }),
+  );
+
+  Future<void> _quarantine() async {
+    try {
+      await _file.rename('${_file.path}.corrupt-${_stamp()}');
+    } on Object catch (error, stack) {
+      // Best effort: if it cannot be moved aside, the caller still starts
+      // empty and reports the decode failure.
+      _report(error, stack);
+    }
+  }
+
+  String _stamp() => _now()
+      .toUtc()
+      .toIso8601String()
+      .replaceAll('-', '')
+      .replaceAll(':', '')
+      .replaceAll('.', '');
+
+  void _report(Object error, StackTrace stack) {
+    try {
+      _onError?.call(error, stack);
+    } catch (_) {
+      // Error reporting must never create a second unhandled async error.
+    }
+  }
+}

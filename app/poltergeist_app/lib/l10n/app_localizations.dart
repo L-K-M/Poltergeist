@@ -532,6 +532,30 @@ abstract class AppLocalizations {
   /// **'Import {alias}'**
   String sshImportRowSemantics(String alias);
 
+  /// Toolbar entry that opens the ssh_config import preview (D22).
+  ///
+  /// In en, this message translates to:
+  /// **'Import from ssh config…'**
+  String get sshImportCommandLabel;
+
+  /// Confirmation after the imported rows were persisted.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Imported 1 favorite} other{Imported {count} favorites}}'**
+  String sshImportImported(int count);
+
+  /// Notice when the bookmark store cannot be read for dedupe.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not read the favorites file.'**
+  String get sshImportFavoritesLoadFailed;
+
+  /// Notice when persisting the imported bookmarks fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the imported favorites.'**
+  String get sshImportFavoritesSaveFailed;
+
   /// Toolbar entry for the debug-only SFTP demo surface.
   ///
   /// In en, this message translates to:

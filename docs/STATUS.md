@@ -47,9 +47,10 @@ Séance #80/#81. Probe lifecycle
 repair is in the pin; app-side `ProbeService` consumers remain open (item 3).
 The ssh_config
 import preview/dedupe slice
-(D22) landed as a bounded, unwired component (dated section below,
-including its post-merge host-alias whitespace-parity correction), and
-keyswap cleanup now retries after partial swap/restoration failures
+(D22) landed as a bounded component (dated section below, including its
+post-merge host-alias whitespace-parity correction), and its composition,
+bookmark persistence, and command registration landed 2026-09-10 (dated
+section below). Keyswap cleanup now retries after partial swap/restoration failures
 (closed in open item 7). Before that: the real-sshd auth-failure-summary coverage
 (rejected key, method-not-accepted user, root prohibit-password) landed
 (validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
@@ -1294,6 +1295,54 @@ records no disposition for either suggestion. The scorecard records no
 correctness, security, or contract finding in rounds 4-6 and declares
 steady state.
 
+## M2 — ssh_config import composition (2026-09-10)
+
+D22's import flow is wired end to end in the app shell (#45 landed the
+preview/dedupe component; this slice supplies composition, persistence,
+and command registration).
+
+`FileBookmarkStore` (`poltergeist_app`) persists the pinned `Bookmark`
+model (D2/D3 — no second server model) to `<app-support>/bookmarks.json`
+through the repo's atomic-write plumbing: a `version`/`bookmarks` JSON
+root, a serialized write tail, swap-after-write so a failed write leaves
+memory intact, corrupt-file quarantine with a UTC stamp, read failures
+rethrown (never silently overwritten), and per-record skip-and-preserve so
+a record from a newer Poltergeist survives a local re-save (04 §2.1).
+Only 04 §2.1's synced fields are written — 04 §2.3's device-local data
+never enters the file. `BookmarkRepository` is the seam the UI depends on,
+so widgets never touch `dart:io`; M5's app-wide `BookmarkStore` (grouping,
+reordering, the sync-coordinator seam, the sidebar) builds on this file.
+
+The registered `favorite.importSshConfig` command (`RegisteredCommand`
+grows an optional icon; the toolbar renders it, D21) loads the persisted
+bookmarks for dedupe, opens the existing ARB-complete preview, and
+`upsertAll`s the rows the user kept, with a transient ARB-authored
+confirmation. Dedupe runs against the store, so persisted rows are flagged
+and start skipped (D22's recorded semantics); an explicit re-selection
+still imports as a second bookmark. `main.dart` builds the setup over
+`~/.ssh/config` (the ported `expandHomePath`, macOS-sandbox home recovery
+included) and registers it only when a home directory resolves; the shell
+adds no bookmark UI (M5). Four new ARB strings carry the command label,
+the confirmation, and the two store-failure notices.
+
+Validation: regressions observed failing first (both suites did not
+compile before the seams existed). New tests: six `bookmark_store_test`
+cases (disk round-trip, id update, corrupt quarantine, skip-and-preserve,
+concurrent-write serialization, and the service-built import persisted to
+disk) and four `ssh_config_import_command_test` cases (wiring gate,
+preview→persist with reference-style IdentityFile, existing endpoint
+flagged+skipped, no-match store). 339 app tests pass (329 + 10); app
+analysis clean; import guard, protocol guard, and the repository scan pass.
+Core untouched (356 tests, 15 fixture skips). Rootless widget captures
+(before / after / dialog, labeled as such) under
+`tasks/m2-ssh-import-captures`, since the shell's toolbar layout changes.
+
+Deliberately out of scope: M5's `BookmarkStore` UI (grouping, reorder,
+sidebar), the connect flow that consumes an imported IdentityFile (still
+gated on open item 6), and any core/pin change. The import writes exactly
+the 04 §2.1 model through the pinned importer; key material is never read
+(D18). No source port, dependency change, release, or milestone close.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1391,8 +1440,12 @@ steady state.
      (see the dated section): the core import service (pinned-importer
      consumption, top-level include resolution, D22 limitation badges,
      host+port+username dedupe, reference-style IdentityFile mapping) and
-     the ARB-complete preview dialog landed; composition, persistence,
-     and command registration remain unwired as recorded there;
+     the ARB-complete preview dialog landed. **Composition, persistence,
+     and command registration landed 2026-09-10** (dated section above):
+     the `favorite.importSshConfig` command, the `FileBookmarkStore`
+     (M5 builds its app-wide `BookmarkStore` on it), and the shell wiring.
+     The connect flow that consumes an imported IdentityFile still rides
+     open item 6; M5 owns the sidebar/bookmark-management UI;
    - the debug-only connect → SFTP → `listDirectory` demo surface.
      **Done 2026-09-09** (see the dated section): the kDebugMode-gated
      `connect.demoListing` entry opens the throwaway listing view over the
