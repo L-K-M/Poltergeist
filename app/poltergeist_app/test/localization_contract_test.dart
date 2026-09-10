@@ -17,6 +17,10 @@ const _generatedDartSuffixes = {'.freezed.dart', '.g.dart', '.mocks.dart'};
 const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/main.dart': {
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
+  },
+  // The import wiring's on-disk bookmarks path and the POSIX-shaped
+  // ssh_config path (core import normalizes on `/`).
+  'lib/services/ssh_config_import_setup.dart': {
     r"'$supportPath${Platform.pathSeparator}bookmarks.json'",
     r"'$home/.ssh/config'",
     "'~'",

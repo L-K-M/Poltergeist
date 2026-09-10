@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
@@ -5,6 +7,8 @@ import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/ui/import/ssh_config_import_command.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
+
+import '../../support/fake_ssh_config_source.dart';
 
 const _home = '/home/tester';
 const _configPath = '$_home/.ssh/config';
@@ -22,18 +26,6 @@ Host other
   HostName other.example.com
   User root
 ''';
-
-class _FakeSource implements SshConfigFileSource {
-  _FakeSource(this.files);
-
-  final Map<String, String> files;
-
-  @override
-  Future<String?> readText(String path) async => files[path];
-
-  @override
-  Future<List<String>?> listLexical(String directory) async => null;
-}
 
 /// In-memory [BookmarkRepository]; the widget tree must not touch
 /// `dart:io` (the on-disk behavior is covered in bookmark_store_test).
@@ -57,6 +49,28 @@ class _FakeBookmarkStore implements BookmarkRepository {
   }
 }
 
+/// A store whose read fails; the command must surface the ARB notice and
+/// never render the preview.
+class _LoadFailingBookmarkStore implements BookmarkRepository {
+  @override
+  Future<List<Bookmark>> load() async =>
+      throw const FileSystemException('unreadable');
+
+  @override
+  Future<void> upsertAll(Iterable<Bookmark> bookmarks) async {}
+}
+
+/// A store whose write fails; the command must surface the ARB notice and
+/// never report a successful import.
+class _SaveFailingBookmarkStore implements BookmarkRepository {
+  @override
+  Future<List<Bookmark>> load() async => const [];
+
+  @override
+  Future<void> upsertAll(Iterable<Bookmark> bookmarks) async =>
+      throw const FileSystemException('read-only');
+}
+
 Bookmark _existing(String label, String host, int port, String user) {
   return Bookmark(
     id: 'existing-$label',
@@ -77,7 +91,7 @@ Bookmark _existing(String label, String host, int port, String user) {
   );
 }
 
-SshConfigImportService _service(_FakeSource source) {
+SshConfigImportService _service(FakeSshConfigSource source) {
   var next = 0;
   return SshConfigImportService(
     homeDirectory: _home,
@@ -95,7 +109,7 @@ void main() {
 
   SshConfigImportSetup setup({Map<String, String>? files}) {
     return SshConfigImportSetup(
-      service: _service(_FakeSource(files ?? {_configPath: _sampleConfig})),
+      service: _service(FakeSshConfigSource(files ?? {_configPath: _sampleConfig})),
       bookmarks: store,
       configPath: _configPath,
     );
@@ -191,5 +205,56 @@ void main() {
 
     expect(find.textContaining('Duplicate of bookmark'), findsNothing);
     expect(find.text('Import 2'), findsOneWidget);
+  });
+
+  testWidgets('a store load failure shows the notice, not the preview', (
+    tester,
+  ) async {
+    await pumpApp(
+      tester,
+      wiring: SshConfigImportSetup(
+        service: _service(
+          FakeSshConfigSource({_configPath: _sampleConfig}),
+        ),
+        bookmarks: _LoadFailingBookmarkStore(),
+        configPath: _configPath,
+      ),
+    );
+
+    await tester.tap(commandButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not read the favorites file.'), findsOneWidget);
+    expect(find.text('Import servers from ssh config'), findsNothing);
+    // The failure is also reported to the app's default error sink;
+    // consume it here so the framework does not treat it as unhandled.
+    expect(tester.takeException(), isA<FileSystemException>());
+  });
+
+  testWidgets('a store save failure shows the notice, not a success', (
+    tester,
+  ) async {
+    await pumpApp(
+      tester,
+      wiring: SshConfigImportSetup(
+        service: _service(
+          FakeSshConfigSource({_configPath: _sampleConfig}),
+        ),
+        bookmarks: _SaveFailingBookmarkStore(),
+        configPath: _configPath,
+      ),
+    );
+
+    await tester.tap(commandButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Import 2'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Could not save the imported favorites.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Imported'), findsNothing);
+    expect(tester.takeException(), isA<FileSystemException>());
   });
 }

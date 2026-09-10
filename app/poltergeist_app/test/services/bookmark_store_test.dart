@@ -7,19 +7,9 @@ import 'package:poltergeist_app/services/atomic_file.dart';
 import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../support/fake_ssh_config_source.dart';
+
 final _fixedNow = DateTime.utc(2026, 9, 8, 12);
-
-class _FakeSource implements SshConfigFileSource {
-  _FakeSource(this.files);
-
-  final Map<String, String> files;
-
-  @override
-  Future<String?> readText(String path) async => files[path];
-
-  @override
-  Future<List<String>?> listLexical(String directory) async => null;
-}
 
 Bookmark _bookmark(String id, {String? label}) {
   return Bookmark(
@@ -98,6 +88,41 @@ void main() {
         .listSync()
         .where((entity) => entity.path.contains('.corrupt-'));
     expect(quarantined, hasLength(1));
+    expect(
+      File(quarantined.single.path).readAsStringSync(),
+      '{not valid json',
+      reason: 'quarantine must preserve the corrupt bytes verbatim',
+    );
+  });
+
+  test('a failed quarantine fails the load instead of starting empty', () async {
+    final path = pathIn('bookmarks.json');
+    const contents = '{not valid json';
+    File(path).writeAsStringSync(contents);
+
+    // Park a directory where the quarantine rename would land, so the
+    // rename fails. The store must then fail closed rather than load
+    // empty and let the next save overwrite the unreadable bytes.
+    final stamp = DateTime.utc(2026, 9, 8, 12)
+        .toIso8601String()
+        .replaceAll('-', '')
+        .replaceAll(':', '')
+        .replaceAll('.', '');
+    Directory('$path.corrupt-$stamp').createSync();
+    final store = FileBookmarkStore(
+      path: path,
+      now: () => DateTime.utc(2026, 9, 8, 12),
+    );
+
+    await expectLater(store.load(), throwsA(isA<FileSystemException>()));
+    expect(File(path).readAsStringSync(), contents);
+
+    // A later save must fail too, never replacing the bytes.
+    await expectLater(
+      store.upsertAll([_bookmark('a')]),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(File(path).readAsStringSync(), contents);
   });
 
   test('preserves undecodable records verbatim on the next write', () async {
@@ -208,7 +233,12 @@ void main() {
 
     final path = pathIn('bookmarks.json');
     File(path).writeAsStringSync('{"version":1,"bookmarks":[]}');
-    await Process.run('chmod', ['--', '000', path]);
+    final denied = await Process.run('chmod', ['--', '000', path]);
+    expect(
+      denied.exitCode,
+      0,
+      reason: 'chmod 000 must succeed to deny reads',
+    );
     addTearDown(() => Process.run('chmod', ['--', '600', path]));
 
     // An unreadable-but-present file must fail the load, never read as
@@ -266,7 +296,7 @@ Host web
     var next = 0;
     final service = SshConfigImportService(
       homeDirectory: home,
-      source: _FakeSource({configPath: config}),
+      source: FakeSshConfigSource({configPath: config}),
       mintId: () => 'row-${next++}',
     );
 

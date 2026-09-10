@@ -33,10 +33,11 @@ abstract interface class BookmarkRepository {
 ///
 /// Failure posture: an unreadable file rethrows (the store must not
 /// overwrite data it could not read — the caller shows a notice), a
-/// corrupt file is quarantined like the ported file stores, and a single
-/// record that cannot decode is preserved verbatim so a newer
-/// Poltergeist's bookmark survives a local re-save (04 §2.1's
-/// skip-and-preserve).
+/// corrupt file is quarantined like the ported file stores (a quarantine
+/// that cannot move the file fails the load rather than starting empty),
+/// a newer on-disk `version` fails in place, and a single record that
+/// cannot decode is preserved verbatim so a newer Poltergeist's bookmark
+/// survives a local re-save (04 §2.1's skip-and-preserve).
 final class FileBookmarkStore implements BookmarkRepository {
   FileBookmarkStore({
     required String path,
@@ -126,14 +127,11 @@ final class FileBookmarkStore implements BookmarkRepository {
     _bookmarks.clear();
     _preserved.clear();
 
+    // Read failures propagate to the caller, which reports and shows the
+    // notice; the store must not overwrite data it could not read.
     late final String? contents;
-    try {
-      await _file.parent.create(recursive: true);
-      contents = await _file.exists() ? await _file.readAsString() : null;
-    } catch (error, stack) {
-      _report(error, stack);
-      rethrow;
-    }
+    await _file.parent.create(recursive: true);
+    contents = await _file.exists() ? await _file.readAsString() : null;
 
     if (contents == null) return;
 
@@ -141,6 +139,8 @@ final class FileBookmarkStore implements BookmarkRepository {
     try {
       decoded = jsonDecode(contents);
     } catch (error, stack) {
+      // Quarantine throws when the bad file cannot be moved aside, so the
+      // load fails instead of starting empty over bytes it could not read.
       await _quarantine();
       _report(error, stack);
       return;
@@ -158,12 +158,11 @@ final class FileBookmarkStore implements BookmarkRepository {
     // A newer store format is data this version must not overwrite: fail
     // like an unreadable file (no quarantine, no empty start) so a local
     // re-save can never replace it with a v1 shape. M5/M6 own real
-    // migrations; until then this is the fail-closed posture.
+    // migrations; until then this is the fail-closed posture, and the
+    // calling service reports the thrown error.
     final version = decoded[_versionKey];
     if (version is int && version > _storeVersion) {
-      final error = FormatException('bookmark store version $version');
-      _report(error, StackTrace.current);
-      throw error;
+      throw FormatException('bookmark store version $version');
     }
 
     if (decoded[_bookmarksKey] is! List) {
@@ -211,15 +210,11 @@ final class FileBookmarkStore implements BookmarkRepository {
     }),
   );
 
-  Future<void> _quarantine() async {
-    try {
-      await _file.rename('${_file.path}.corrupt-${_stamp()}');
-    } on Object catch (error, stack) {
-      // Best effort: if it cannot be moved aside, the caller still starts
-      // empty and reports the decode failure.
-      _report(error, stack);
-    }
-  }
+  /// Moves a corrupt store aside so a bad file cannot wedge startup.
+  /// Throws when the file cannot be moved: starting empty over bytes this
+  /// version could not read would let the next save overwrite them.
+  Future<void> _quarantine() =>
+      _file.rename('${_file.path}.corrupt-${_stamp()}');
 
   String _stamp() => _now()
       .toUtc()

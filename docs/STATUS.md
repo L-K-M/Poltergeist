@@ -1305,14 +1305,15 @@ and command registration).
 model (D2/D3 — no second server model) to `<app-support>/bookmarks.json`
 through the repo's atomic-write plumbing: a `version`/`bookmarks` JSON
 root, a serialized write tail, swap-after-write so a failed write leaves
-memory intact, corrupt-file quarantine with a UTC stamp, read failures
-rethrown (never silently overwritten), a newer on-disk `version` failing
-the load in place (no quarantine, no overwrite — this version must not
-replace a store it cannot read), and per-record skip-and-preserve so a
-record from a newer Poltergeist survives a local re-save (04 §2.1).
-Only 04 §2.1's synced fields are written — 04 §2.3's device-local data
-never enters the file. `BookmarkRepository` is the seam the UI depends on,
-so widgets never touch `dart:io`; M5's app-wide `BookmarkStore` (grouping,
+memory intact, quarantine of a corrupt file with a UTC stamp (a quarantine
+that cannot move the file fails the load rather than starting empty over
+bytes it could not read), read failures propagating to the caller (never
+silently overwritten), a newer on-disk `version` failing in place (no
+quarantine, no overwrite), and per-record skip-and-preserve so a record
+from a newer Poltergeist survives a local re-save (04 §2.1). Only
+04 §2.1's synced fields are written — 04 §2.3's device-local data never
+enters the file. `BookmarkRepository` is the seam the UI depends on, so
+widgets never touch `dart:io`; M5's app-wide `BookmarkStore` (grouping,
 reordering, the sync-coordinator seam, the sidebar) builds on this file.
 
 The registered `favorite.importSshConfig` command (`RegisteredCommand`
@@ -1322,22 +1323,30 @@ bookmarks for dedupe, opens the existing ARB-complete preview, and
 confirmation. Dedupe runs against the store, so persisted rows are flagged
 and start skipped (D22's recorded semantics); an explicit re-selection
 still imports as a second bookmark. `main.dart` builds the setup over
-`~/.ssh/config` (the ported `expandHomePath`, macOS-sandbox home recovery
-included) and registers it only when a home directory resolves; the shell
-adds no bookmark UI (M5). Four new ARB strings carry the command label,
-the confirmation, and the two store-failure notices.
+`~/.ssh/config` through the testable `buildSshConfigImportSetup` factory
+(the ported `expandHomePath`, macOS-sandbox home recovery included),
+registering the command only when a home directory resolves and never on
+Windows — the core import service normalizes POSIX paths, so a
+drive-letter config cannot be read there and the command stays
+unregistered instead of always failing. The shell adds no bookmark UI (M5).
+Four new ARB strings carry the command label, the confirmation, and the two
+store-failure notices.
 
 Validation: regressions observed failing first (both suites did not
-compile before the seams existed). New tests: nine `bookmark_store_test`
-cases (disk round-trip, id update, corrupt quarantine, skip-and-preserve
-for an unknown kind and for a wrong-typed field, newer-version fail-in-place,
-read-failure rethrow, concurrent-write serialization, and the service-built
-import persisted to disk) and four `ssh_config_import_command_test` cases
-(wiring gate, preview→persist with reference-style IdentityFile, existing
-endpoint flagged+skipped, no-match store). 342 app tests pass (329 + 13);
-app analysis clean; import guard, protocol guard, and the repository scan
-pass. Core untouched (356 tests, 15 fixture skips). Rootless widget
-captures (before / after / dialog, labeled as such) under
+compile before the seams existed). New tests: ten `bookmark_store_test`
+cases (disk round-trip, id update, corrupt quarantine with byte
+preservation, failed-quarantine fail-closed, skip-and-preserve for an
+unknown kind and for a wrong-typed field, newer-version fail-in-place,
+read-failure propagation, concurrent-write serialization, and the
+service-built import persisted to disk); six `ssh_config_import_command_test`
+cases (wiring gate, preview→persist with reference-style IdentityFile,
+existing endpoint flagged+skipped, no-match store, and the load- and
+save-failure notices); and four `ssh_config_import_setup_test` cases
+(POSIX wiring, no home, Windows gate, macOS sandbox home). The shared
+`FakeSshConfigSource` lives in `test/support/`. 349 app tests pass
+(329 + 20); app analysis clean; import guard, protocol guard, and the
+repository scan pass. Core untouched (356 tests, 15 fixture skips).
+Rootless widget captures (before / after / dialog, labeled as such) under
 `tasks/m2-ssh-import-captures`, since the shell's toolbar layout changes.
 
 Review round 1 (applied; the parked-write regression the reviewer described
@@ -1351,8 +1360,22 @@ wraps every non-`FormatException` failure (`_guardFormat`), so `_decode`'s
 `FormatException` catch is complete — widening to `on Object` would only
 swallow model bugs. The hardcoded `/` in the config path stands: the core
 import service normalizes on `/` (its include base is `.ssh/`), so
-`Platform.pathSeparator` would not make Windows work; Windows import awaits
-that path handling (open item 1's portability gate).
+`Platform.pathSeparator` would not make Windows work; the Windows import
+gate now lives in `buildSshConfigImportSetup`.
+
+Review round 2 (applied; one re-raise): a quarantine that cannot move the
+file aside now fails the load instead of starting empty (a later save
+could overwrite unreadable bytes — regression with the quarantine path
+blocked by a directory); the two rethrowing `_load` paths no longer
+`_report` (the calling service reports once), while quarantine-return paths
+keep reporting; the quarantine test pins the corrupt bytes verbatim; the
+read-denial setup asserts `chmod` succeeded; the load- and save-failure
+notices have widget coverage; `main.dart`'s wiring moved to the testable
+`buildSshConfigImportSetup` factory (with the Windows gate); and the test
+fake source is shared. Refuted (re-raise, no new evidence): widening
+`_decode`'s catch — round 1's pinned-source proof stands and the
+wrong-typed-field case already passes through skip-and-preserve. 349 app
+tests, analyze, and the guards pass on the reviewed head.
 
 Deliberately out of scope: M5's `BookmarkStore` UI (grouping, reorder,
 sidebar), the connect flow that consumes an imported IdentityFile (still
