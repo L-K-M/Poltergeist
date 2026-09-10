@@ -434,5 +434,17 @@
   "sftpDemoClose": "Close",
   "@sftpDemoClose": {
     "description": "Accessibility label of the demo page's close action."
+  },
+  "probeStatusUnknown": "Reachability unknown",
+  "@probeStatusUnknown": {
+    "description": "Tooltip and semantics label of the grey status dot: the server has not been probed yet or probing is disabled."
+  },
+  "probeStatusOnline": "Reachable",
+  "@probeStatusOnline": {
+    "description": "Tooltip and semantics label of the green status dot: the server answered the reachability probe."
+  },
+  "probeStatusOffline": "Unreachable",
+  "@probeStatusOffline": {
+    "description": "Tooltip and semantics label of the red status dot: the server did not answer the reachability probe."
   }
 }

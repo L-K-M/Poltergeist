@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/application_error_reporter.dart';
+import '../services/probe_settings_store.dart';
 import '../services/registered_command.dart';
 import '../services/sftp_demo_controller.dart';
 import 'adaptive_shell.dart';
@@ -20,6 +21,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPaneRatioSaveError,
     this.debugDemoEnabled = kDebugMode,
     this.sftpDemoEngineFactory,
+    this.probeSettings,
   });
 
   final double initialPaneRatio;
@@ -27,6 +29,7 @@ class WorkspaceShell extends StatefulWidget {
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
   final bool debugDemoEnabled;
   final SftpDemoEngineFactory? sftpDemoEngineFactory;
+  final ProbeSettings? probeSettings;
 
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
@@ -42,10 +45,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     // Every user action is a registered command (D21); the toolbar
     // renders registered commands, it never hard-codes a button.
+    // The probe wiring must persist: the composition root supplies the
+    // store-backed settings whenever the demo surface is enabled. The
+    // assert trips in debug; release builds gate the command instead of
+    // crashing on a misconfigured shell.
+    final probeSettings = widget.probeSettings;
+    assert(!widget.debugDemoEnabled || probeSettings != null);
     final commands = <RegisteredCommand>[
-      if (widget.debugDemoEnabled)
+      if (widget.debugDemoEnabled && probeSettings != null)
         buildSftpDemoCommand(
           spawnEngine: widget.sftpDemoEngineFactory ?? spawnSftpDemoEngine,
+          probeSettings: probeSettings,
           enabled: () => !_demoSessionActive,
         ),
     ];

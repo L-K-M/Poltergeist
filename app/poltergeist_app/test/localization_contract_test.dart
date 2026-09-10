@@ -126,10 +126,22 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The demo view's form keys and the prefilled default SSH port —
   // widget plumbing, not authored copy. The app.dart entry is the debug
-  // assert tripping on a dropped engine factory.
+  // assert tripping on a dropped engine factory or settings seam.
   'lib/app.dart': {
     "'sftpDemoEngineFactory was provided but debugDemoEnabled is off; '",
     "'the factory will be silently ignored.'",
+    "'debugDemoEnabled requires probeSettings: the demo session\\'s '",
+    "'probe wiring must persist.'",
+  },
+  // The persisted probe settings keys and record field names: the on-disk
+  // settings.json shape, not UI copy (03 §6's per-server device-local map).
+  'lib/services/probe_settings_store.dart': {
+    "'probe.enabled'",
+    "'probe.servers'",
+    "'host'",
+    "'port'",
+    "'exposure'",
+    "'connected'",
   },
   'lib/ui/demo/sftp_demo_view.dart': {
     "'connect.demoListing'",

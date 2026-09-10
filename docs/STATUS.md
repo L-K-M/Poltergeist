@@ -4,7 +4,13 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-10. The Alpine iproute2 apk pin in the sshd
+_Last updated: 2026-09-10. The M2 probe-wiring remainder landed:
+persisted probe eligibility/settings through settings.json (global
+opt-out plus the per-server device-local map with retarget reset),
+lifecycle forwarding through a binding-seam observer, the tri-state
+interim status dot with pinned contrast, and the subscribing app caller
+(dated section below) — live connection-state composition and startup
+remain open. The Alpine iproute2 apk pin in the sshd
 fixture is bumped to `7.2.0-r0` after upstream rotation broke main's
 SSH-integration leg, with a fixture-tool pin regression (dated section
 below). The debug-only demo surface now composes the
@@ -13,8 +19,10 @@ spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
 and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
 (dated section below). The app-side probe controller now enforces
 favorite eligibility and lifecycle/settings policy through the engine port
-(dated section below). Persistence, lifecycle forwarding, list dots,
-startup composition, and probe/pin persistence remain open. The host-key
+(dated section below). Startup composition, live connection-state
+composition, and the deferred per-favorite probe opt-out (M5's bookmark
+store) remain open (the probe-wiring remainder landed 2026-09-10; dated
+section below). The host-key
 dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
@@ -23,8 +31,10 @@ dialogs' current-route action
 guards are ported back to Séance ([Séance #82](https://github.com/L-K-M/Seance/pull/82),
 dated section below) and the four dialog PORTS entries are corrected
 against a fresh upstream re-diff; engine-side probe control and status
-events are implemented (dated section below); interim list dots and app
-composition remain open. The Séance pin is bumped to upstream main
+events are implemented (dated section below); the app-side remainder
+(persistence, lifecycle forwarding, interim list dots, composition)
+landed 2026-09-10 (dated section below); live connection-state
+composition and startup remain open. The Séance pin is bumped to upstream main
 `2e6d1f1` (Séance #81's merge — containing #79's probe-lifecycle repair
 and #80/#81's audit work) in both declarations and all three locks; the
 pool's live transcript bridge now forwards upstream-redacted records
@@ -921,6 +931,135 @@ owner gates are unchanged). No pin change (#83 is app-layer only — the
 pinned `seance_core`/`seance_protocol` trees are untouched), no release,
 no milestone-close claim.
 
+## M2 — probe wiring: persistence, lifecycle, interim dots (2026-09-10)
+
+App-side remainder of item 3's probe bullet (engine control/status #55 and the
+eligibility controller #58 already landed).
+
+Persistence (`ProbeSettingsStore` over the existing `SettingsStore`): the
+global reachability opt-out (`probe.enabled`, only a persisted `false`
+disables — 02 §4's default-on) plus the per-server device-local map inside
+settings.json keyed by serverId (03 §6): exposure (`seen`), successful
+local connection, and the host/port binding. The host binding ignores case
+like probe endpoints; a retargeted bookmark resets exposure and connection
+history at the store and the reset is persisted (03 §3.4). Malformed or
+hand-edited records read as unseen and are repaired in place. Probe
+*results* are never persisted (D19) — the record shape carries eligibility
+only, pinned by a test. Per-favorite opt-out lands with M5's bookmark
+store: the interim surface's ephemeral bookmark ids cannot carry one.
+
+Lifecycle forwarding (`AppLifecycleForwarder`, a binding-seam
+`WidgetsBindingObserver`): attach reports the current state and forwards
+changes; detach stops forwarding; the demo route — the only M2 surface
+whose session can probe — owns the forwarder, so backgrounding pauses the
+engine's probes and returning resumes them (02 §4; only `resumed` runs).
+
+Interim dots (`ProbeStatusDot`, ARB tooltips + semantics): tri-state
+unknown/online/offline; online is Material green 600, offline the scheme's
+error, unknown the scheme's outline. Contrast is pinned ≥ 3:1 on both
+seeded theme surfaces (02 §4's SEA-019 fix) and a render-level test pins
+the exact painted pixels per state. The demo page renders the dot beside
+the app bar title for the listed server (the sidebar reuses the dot in M5).
+
+Composition (`ProbeCoordinator`): the owning-store role from 03 §3.4 —
+constructs the `ProbeController` over the engine's `ProbeBridge`
+(subscribing before anything sends, the #55 ordering rule), supplies
+store-loaded facts, persists seen/connected, removes the ephemeral
+bookmark's record when it leaves the list, and fails closed (no targets,
+no activity) when the settings store is unreadable. The demo session is
+the first app caller that initiates probes: it constructs the coordinator
+with the store-backed settings plumbed from `main.dart` through
+`PoltergeistApp`/`WorkspaceShell`, marks the server seen on connect, and
+marks the connection fact after a successful listing. Lifecycle,
+opt-out, disconnect-clearing, and dispose-before-engine ordering ride the
+same path.
+
+Validation: regressions observed failing before implementation where
+behavior is new (the four suites reference the not-yet-written services;
+subscribe-before-send ordering, pause/resume forwarding, retarget reset,
+and file round-trips all pass after). 329 app tests (43 new: store
+round-trips/defaults/retarget/malformed-repair/concurrent-writes,
+forwarder attach/detach/duplicate-attach, coordinator policy incl.
+fail-closed store reads, stale-hide refusal, and replaced-record removal,
+dot rendering/contrast/pixel pinning, demo-level
+ordering/lifecycle/opt-out/disconnect/persistence) and analyze pass; core
+untouched (analyze clean, 333 tests, 15 fixture skips). Review round 1
+repaired the retarget-preserving-markSeen bug (a connection fact could
+survive an endpoint rebind; regression failed before the fix), serialized
+lifecycle forwarding through the coordinator's queue (a hidden change
+could re-send a replaced favorite's targets; regression failed before),
+skipped store writes for superseded configs (regression failed before),
+and hardened the queued-hide path against a disposed controller; the
+dot's tooltip excludes semantics so the label announces once; the demo
+command gates release-safely on the settings seam. Review round 2
+(steady state per the owner's bar — re-raised declines and test
+hardening) added replaced-record removal on showServer (the demo's
+stale-connect path could orphan an old record; regression failed
+before), serialized the store's own read-modify-write operations
+(concurrent mutations could clobber; regression failed before),
+corrected the green shade name, made the coordinator fake honor endpoint
+binding, pinned the exact post-dispose bridge calls and the
+pause-before-targets ordering, exercised an unsolicited mid-session
+snapshot in the live-status test, and unified the dot harness on the
+production theme. Refuted: hideServer
+runs in disconnect(), never against a disposed coordinator from
+_teardown (the reviewer's attribution was wrong; the same-frame
+hide-then-dispose path is the guarded case); the app bar's
+background is scheme.surface, not surfaceContainer (pixel-sampled in
+the theme builder), so the surface contrast pin is the rendered chrome;
+the queued lifecycle update cannot carry a stale favorite (round 1
+moved it into the queue after the pending configure; the serialization
+regression pins it). Declined: value-equality in _isCurrent — the
+identical() recheck is the required post-await idiom (09 §3.1) and the
+constructor contract keeps the config instance; refreshPolicy — no
+settings-change notification or UI exists in M2, and an API without a
+caller is speculative (M5's settings surface wires the update path);
+clearServers — a startup sweep of the shared map would be a data-loss
+footgun once M5 keys durable bookmark records there, and the residual
+risk is one record per crashed debug session on a surface M3 deletes.
+Review round 3 (polish-only per the owner's bar) applied: non-Map
+malformed records repair in place; the dot's tooltip hit area grows to
+24 px; the coordinator fake's host comparison matches the store's
+case-insensitive binding; dark-brightness render loops for the dot; an
+explicit dispose-idempotency pin; the app-bar background assumption is
+pinned at the widget level; the pixel pin documents its deliberate
+exactness; STATUS lists the deferred per-favorite opt-out. Refuted:
+the third re-raise of the hideServer-in-_teardown misattribution
+(hideServer is only called from disconnect(); quoted the methods); the
+pumpDemoView engine-close claim (the helper already registers it); the
+SettingsStore cross-facade race (setAll mutates the shared in-memory
+map inside the store's own serialized write tail). Review round 4
+(polish + re-litigations) applied: the fail-closed path narrows to
+read failures (an unwritable but readable store keeps probing with the
+loaded facts; only unreadable stores disable — matching the documented
+intent, with both paths pinned); the subscribe-ordering and hide
+assertions pin real commands instead of vacuous passes; the port-retarget
+reset persistence and the explicit-opt-in round-trip are pinned; the
+demo fake honors endpoint binding; the semantics handle releases on
+failure; the scrolled-under surface tint joins the contrast pin; the
+null-attach lifecycle contract is pinned; main.dart documents the shared
+store's internal write serialization. Refuted with evidence: the
+"critical" null-safety compile claim (Dart 3 boolean-variable promotion
+makes the code valid — analyze clean and all 329 tests pass on the exact
+head the reviewer called broken, and CI's Flutter job is green) and the
+fourth re-raise of the hideServer-in-_teardown misattribution
+(hideServer is only called from disconnect()). Declined (re-raised a
+fourth time, recorded): _isCurrent value-equality. Declined (re-raised):
+clearServers/orphan sweep — the round-3 footgun rationale stands.
+Rounds 5–6 re-raised the same items again (the hideServer-in-_teardown
+misattribution, _isCurrent value-equality, the failed-connect leak, the
+stale-favorite window, the compile claim CI already disproved) plus
+comment nits; the applied items were the opt-out clear pin, the bounded
+gate wait, and two doc/comment corrections. Steady state per the
+owner's bar: no correctness, security, or contract finding survived
+triage in any of rounds 2–6.
+Widget-render
+captures before/after the dot in `tasks/probe-wiring-captures` (rootless
+container, labeled). No core changes, no pin/dependency change, no source
+port, no milestone-close claim: live connection-state composition (the
+Connections-section surface) and startup composition remain open (item 6
+still gates production wiring).
+
 ## Fixture repair — Alpine iproute2 pin (2026-09-10)
 
 Main's post-merge CI leg
@@ -1230,6 +1369,15 @@ steady state.
      applies lifecycle/settings policy to supplied device-local facts.
      Persistence, lifecycle forwarding, interim list dots, and composition
      remain open; no current app caller initiates probes.
+     **2026-09-10: persistence, lifecycle forwarding, interim list dots,
+     and composition are implemented** (dated section above): the
+     settings.json-backed store (global opt-out + the per-server
+     device-local map with retarget reset), the binding-seam lifecycle
+     forwarder, the tri-state ARB/semantics dot with pinned contrast, and
+     the owning-store `ProbeCoordinator` now drive the demo session as the
+     first subscribing app caller. Live connection-state composition (the
+     Connections-section surface) and startup composition remain open;
+     per-favorite opt-out persists with M5's bookmark store.
      **2026-09-09 review follow-up (#55):** the app consumer must subscribe
      to live probe snapshots before sending targets/activity. Evaluate
      replay only if its eventual ownership cannot guarantee that ordering;

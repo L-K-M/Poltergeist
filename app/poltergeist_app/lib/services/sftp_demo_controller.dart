@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'application_error_reporter.dart';
+import 'probe_coordinator.dart';
+import 'probe_settings_store.dart';
 import 'prompt_coordinator.dart';
 import 'uuid.dart';
 
@@ -19,7 +21,7 @@ const kSftpDemoTranscriptLineCap = 400;
 /// public API the slice needs (EngineClient implements it). Widget tests
 /// substitute a scripted fake, so the debug surface is drivable without
 /// spawning an isolate.
-abstract interface class SftpDemoEngine implements PromptBridge {
+abstract interface class SftpDemoEngine implements PromptBridge, ProbeBridge {
   Stream<ServerStatus> watchServer(String serverId);
   Stream<ConnectionLogEvent> get connectionLog;
   Future<SftpDemoBrowseChannel> openBrowseChannel({
@@ -85,6 +87,7 @@ class SftpDemoController extends ChangeNotifier {
   SftpDemoController({
     required this.engine,
     required this.navigatorKey,
+    required this.probeSettings,
     ApplicationErrorReporter? errorReporter,
   }) : _errorReporter = errorReporter ?? ApplicationErrorReporter() {
     _prompts = PromptCoordinator(
@@ -92,9 +95,21 @@ class SftpDemoController extends ChangeNotifier {
       navigatorKey: navigatorKey,
       errorReporter: _errorReporter,
     );
+    // Constructed before any connect: the probe controller subscribes to
+    // snapshot truth first, and only a later connect sends targets or
+    // activity (the #55 ordering rule).
+    _probes = ProbeCoordinator(
+      bridge: engine,
+      settings: probeSettings,
+      errors: _errorReporter,
+    )..addListener(_onProbeStatuses);
   }
 
   final SftpDemoEngine engine;
+
+  /// Persisted probe eligibility/settings (03 §3.4); supplied by the
+  /// composition root, never constructed here.
+  final ProbeSettings probeSettings;
 
   /// The demo page's own navigator: prompts render inside the demo route,
   /// so teardown can never pop an unrelated app page (02 §10).
@@ -102,6 +117,7 @@ class SftpDemoController extends ChangeNotifier {
 
   final ApplicationErrorReporter _errorReporter;
   late final PromptCoordinator _prompts;
+  late final ProbeCoordinator _probes;
   StreamSubscription<ServerStatus>? _states;
   StreamSubscription<ConnectionLogEvent>? _logSubscription;
 
@@ -129,6 +145,7 @@ class SftpDemoController extends ChangeNotifier {
       );
   SftpDemoBrowseChannel? _channel;
   SftpDemoConnectFacts? _lastFacts;
+  ServerConfig? _probeConfig;
   String? _serverId;
   ServerStatus? _status;
   List<RemoteFileEntry> _entries = const [];
@@ -208,6 +225,20 @@ class SftpDemoController extends ChangeNotifier {
   /// The live transcript stream; the panel filters by serverId.
   Stream<ConnectionLogEvent> get connectLog => _logReplay.stream;
 
+  /// Live probe status for [serverId] (02 §4's interim dot); null while
+  /// the server is not shown.
+  ProbeStatus? probeStatus(String serverId) => _probes.statuses[serverId];
+
+  /// Forwards the app lifecycle to the probe wiring: probes pause outside
+  /// the foreground (02 §4).
+  void forwardLifecycle(AppLifecycleState? state) =>
+      _probes.forwardLifecycle(state);
+
+  void _onProbeStatuses() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
   /// Connects with [facts] and lists the home directory. Re-entrancy
   /// guarded: one attempt at a time; a stale attempt's completions drop
   /// themselves on the attempt generation (09 §3.1/§3.2). A previous
@@ -277,6 +308,12 @@ class SftpDemoController extends ChangeNotifier {
         createdAt: now.millisecondsSinceEpoch,
         updatedAt: now.millisecondsSinceEpoch,
       );
+
+      // The session server is now visible in the interim list: persist its
+      // exposure and supply the target to the probe controller (which has
+      // been subscribed since construction).
+      _probeConfig = config;
+      _probes.showServer(config);
 
       // Prompt answering and transcript buffering must be live before any
       // open; the route normally ran start() already, and it is
@@ -372,6 +409,11 @@ class SftpDemoController extends ChangeNotifier {
     // The teardown below uses the captured id; clearing the getter stops
     // a later connect/dispose from double-disconnecting the same session.
     _serverId = null;
+    _probeConfig = null;
+
+    // The server left the interim list: clear probe targets and drop its
+    // device-local record (the ephemeral id can never recur).
+    if (serverId != null) _probes.hideServer(serverId);
 
     // Notify only once the session refs are cleared: listeners observe
     // the fully idle state, never a torn one.
@@ -391,6 +433,9 @@ class SftpDemoController extends ChangeNotifier {
     unawaited(_statusReplay.close());
     unawaited(_logReplay.close());
     _prompts.dispose();
+    // The probe controller pauses the engine and drops its targets before
+    // the engine itself shuts down (03 §3.4's ordering).
+    _probes.dispose();
     unawaited(_teardown());
     super.dispose();
   }
@@ -407,6 +452,11 @@ class SftpDemoController extends ChangeNotifier {
       if (_disposed || attempt != _attempt) return;
       _entries = List.unmodifiable(entries);
       _failureDetail = null;
+
+      // A successful listing is a connection from this device: persist
+      // the fact (02 §4's sync-provenance rule).
+      final config = _probeConfig;
+      if (config != null) _probes.markConnected(config);
     } on RemoteFileException catch (error) {
       if (_disposed || attempt != _attempt) return;
       _failureDetail = error.message;
@@ -500,6 +550,17 @@ class _EngineClientAdapter implements SftpDemoEngine {
 
   @override
   Stream<ConnectionLogEvent> get connectionLog => _client.connectionLog;
+
+  @override
+  Stream<ProbeStatusesEvent> get probeStatuses => _client.probeStatuses;
+
+  @override
+  Future<void> setProbeTargets(List<ServerConfig> targets) =>
+      _client.setProbeTargets(targets);
+
+  @override
+  Future<void> setProbeActivity(ProbeActivity activity) =>
+      _client.setProbeActivity(activity);
 
   @override
   Future<SftpDemoBrowseChannel> openBrowseChannel({
