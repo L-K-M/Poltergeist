@@ -80,19 +80,33 @@ void main() {
   });
 
   test(
-    'a trusted key reappearing cannot silently clear a hard block',
+    'a presented key returning to the pinned key lifts the declined block',
     () async {
       final harness = await _harness([_originalKey, _changedKey, _originalKey]);
       await _blockViaGrowth(harness);
+      var prompts = 0;
+      harness.onHostKey = (_) async {
+        prompts++;
+        return true;
+      };
 
-      await expectLater(
-        harness.manager.openBrowseChannel(_primaryServerId, paneTabId: 'retry'),
-        throwsA(isA<RemoteFileException>()),
+      // Owner decision 1a: the key the server presents again matches the
+      // pinned one, so the declined block lifts — no new verdict, no prompt.
+      final pane = await harness.manager.openBrowseChannel(
+        _primaryServerId,
+        paneTabId: 'retry',
       );
+      expect(prompts, 0);
+      expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
       final status = await harness.manager.watchServer(_primaryServerId).first;
-      expect(status.state, ServerConnectionState.blocked);
-      expect(await harness.manager.connectedServerIds(), isEmpty);
-      expect(harness.openChannels, isEmpty);
+      expect(status.state, ServerConnectionState.connected);
+      // Both bookmarks still reference the shared pool, so the live
+      // transport serves both once the block lifts.
+      expect(await harness.manager.connectedServerIds(), {
+        _primaryServerId,
+        _siblingServerId,
+      });
+      await pane.close();
     },
   );
 
@@ -155,11 +169,41 @@ void main() {
   });
 
   test(
-    'a trust incident survives pool retirement when the original key returns',
+    'the pinned key returning after pool retirement reconnects normally',
     () async {
       final harness = await _harness([_originalKey, _changedKey, _originalKey]);
       await _blockViaGrowth(harness);
       await _disconnectAll(harness);
+      var prompts = 0;
+      harness.onHostKey = (_) async {
+        prompts++;
+        return true;
+      };
+
+      // The inherited block ends when the trusted key reappears (1a) —
+      // even in a replacement session, without a review prompt.
+      final pane = await harness.manager.openBrowseChannel(
+        _primaryServerId,
+        paneTabId: 'returned',
+      );
+      expect(prompts, 0);
+      expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
+      expect(await harness.manager.connectedServerIds(), {_primaryServerId});
+      await pane.close();
+    },
+  );
+
+  test(
+    'the changed key still blocks a replacement session after retirement',
+    () async {
+      final harness = await _harness([_originalKey, _changedKey]);
+      await _blockViaGrowth(harness);
+      await _disconnectAll(harness);
+      var prompts = 0;
+      harness.onHostKey = (_) async {
+        prompts++;
+        return false;
+      };
 
       await expectLater(
         harness.manager.openBrowseChannel(
@@ -168,6 +212,7 @@ void main() {
         ),
         throwsA(isA<RemoteFileException>()),
       );
+      expect(prompts, 1);
       final status = await harness.manager.watchServer(_primaryServerId).first;
       expect(status.state, ServerConnectionState.blocked);
       expect(harness.store.pins.values.single.fingerprintSha256, _originalKey);
