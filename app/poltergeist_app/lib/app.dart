@@ -1,3 +1,5 @@
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -106,7 +108,10 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
 
   /// Engine lifetime follows the app's: `detached` is the last state a
   /// desktop process sees (the window is gone), so the session shuts the
-  /// engine down there — best-effort orderly teardown before process exit.
+  /// engine down there — best-effort orderly teardown before process
+  /// exit. `onExitRequested` covers the window-close path where `detached`
+  /// may never be delivered to Dart before the process is torn down; both
+  /// routes land on the same idempotent shutdown.
   void _attachSessionLifecycle() {
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
@@ -114,6 +119,15 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     if (session == null) return;
     _lifecycleListener = AppLifecycleListener(
       onStateChange: session.forwardLifecycle,
+      // The framework awaits this future before exiting — the only exit
+      // hook with a wait semantic. The session's shutdown itself stays
+      // unawaited: its future must not gate process exit on teardown
+      // paths the fake-async test zone cannot drain (see EngineSession
+      // shutdown's doc).
+      onExitRequested: () async {
+        session.forwardLifecycle(AppLifecycleState.detached);
+        return AppExitResponse.exit;
+      },
     );
   }
 
@@ -158,6 +172,11 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       !demoEnabled || widget.probeSettings != null,
       'debugDemoEnabled requires probeSettings: the demo session\'s '
       'probe wiring must persist.',
+    );
+    assert(
+      widget.connectionEngine == null || widget.engineSession == null,
+      'connectionEngine is a test seam; engineSession supplies its own '
+      'lanes. Provide one, not both.',
     );
     final workspace = WorkspaceShell(
       initialPaneRatio: widget.initialPaneRatio,

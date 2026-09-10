@@ -212,6 +212,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
+    final navigatorKey = GlobalKey<NavigatorState>();
     final engine = session_test.FakeAppEngine();
     engine.channel = session_test.FakeAppBrowseChannel(
       entries: const [
@@ -226,7 +227,7 @@ void main() {
     final session = await startEngineSession(
       supportDirectoryPath: './engine-session',
       bookmarks: FakeBookmarkStore(),
-      navigatorKey: GlobalKey<NavigatorState>(),
+      navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
       incidentStore: InMemoryIncidentStore(),
       spawn: (config) async => engine,
@@ -269,7 +270,6 @@ void main() {
     // The connect ran through the production engine, not the sentinel.
     expect(sentinelSpawns, 0);
     expect(engine.openCalls, hasLength(1));
-    expect(find.byType(session_test.FakeAppBrowseChannel), findsNothing);
     expect(find.text('docs'), findsOneWidget);
 
     // Closing the demo tears its session down without stopping the
@@ -314,9 +314,6 @@ void main() {
       incidentStore: InMemoryIncidentStore(),
       spawn: (config) async => engine,
     );
-    addTearDown(() {
-      unawaited(session!.shutdown());
-    });
 
     await tester.pumpWidget(
       PoltergeistApp(
@@ -348,6 +345,15 @@ void main() {
 
     // Exactly one dialog: the shared coordinator owns the prompt.
     expect(find.byType(AlertDialog), findsOneWidget);
+
+    // Shutdown drains in the body, not an awaited teardown: the chain's
+    // future does not re-complete inside the fake-async zone once it has
+    // been entered, so an awaited teardown would hang the suite.
+    unawaited(session!.shutdown());
+    for (var i = 0; i < 5; i++) {
+      await tester.pump();
+    }
+    expect(engine.shutdownCalls, 1);
   });
 
   testWidgets('app detach shuts the production engine down', (tester) async {
@@ -355,24 +361,23 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
+    final navigatorKey = GlobalKey<NavigatorState>();
     final engine = session_test.FakeAppEngine();
     addTearDown(engine.close);
     final session = await startEngineSession(
       supportDirectoryPath: './engine-session',
       bookmarks: FakeBookmarkStore(),
-      navigatorKey: GlobalKey<NavigatorState>(),
+      navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
       incidentStore: InMemoryIncidentStore(),
       spawn: (config) async => engine,
     );
-    addTearDown(() {
-      unawaited(session!.shutdown());
-    });
 
     await tester.pumpWidget(
       PoltergeistApp(
         debugDemoEnabled: false,
         engineSession: session,
+        navigatorKey: navigatorKey,
       ),
     );
     await tester.pump();

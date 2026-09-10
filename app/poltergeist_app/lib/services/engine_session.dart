@@ -224,6 +224,13 @@ final class EngineSession {
   /// must not lose one to a read-modify-write race.
   Future<void> _pinTail = Future<void>.value();
 
+  /// Incident-mirror writes join a tail of their own: store events do
+  /// not await their handlers, and mirror mutations — like the engine's
+  /// own unawaited writes — must observe issue order against the
+  /// store's serialized chain (a removal issued after a newer store must
+  /// never overtake it).
+  Future<void> _incidentTail = Future<void>.value();
+
   bool _reviewInFlight = false;
   Future<void>? _shutdownFuture;
 
@@ -259,20 +266,20 @@ final class EngineSession {
     // Removals apply idempotently (both shipped stores treat an absent
     // record as a no-op), including for a record the app just seeded that
     // the engine dropped because its pin was gone.
-    final Future<void> operation = switch (event) {
-      IncidentRecordStoredEvent(:final record) => _incidentStore.put(record),
-      IncidentRecordRemovedEvent(:final serverId, :final endpoint) =>
-        endpoint == null
-            ? _incidentStore.removeAllFor(serverId)
-            : _incidentStore.removeFor(serverId, endpoint),
-    };
-    // FileIncidentStore serializes internally; the catch only keeps a
-    // failing write from escaping as an unhandled async error.
-    unawaited(
-      operation.catchError((Object error) {
-        _errors.report(error, StackTrace.current);
-      }),
-    );
+    _incidentTail = _incidentTail.then((_) {
+      final Future<void> operation = switch (event) {
+        IncidentRecordStoredEvent(:final record) => _incidentStore.put(record),
+        IncidentRecordRemovedEvent(:final serverId, :final endpoint) =>
+          endpoint == null
+              ? _incidentStore.removeAllFor(serverId)
+              : _incidentStore.removeFor(serverId, endpoint),
+      };
+      return operation;
+    }).then<void>((_) {}, onError: (Object error, StackTrace stackTrace) {
+      // A failed write is reported, never thrown into the stream, and
+      // must not break the chain for later mutations.
+      _errors.report(error, stackTrace);
+    });
   }
 
   /// Forwards the app lifecycle. Only [AppLifecycleState.detached] — the
@@ -372,6 +379,18 @@ final class EngineSession {
   /// the engine stops (03 §5: orderly, then kill). The mirror
   /// cancellations are fire-and-forget — they only stop store writes, so
   /// nothing downstream depends on their completion.
+  ///
+  /// The write tails ([_pinTail], [_incidentTail]) are deliberately NOT
+  /// awaited here: an awaited instance-field future as this closure's
+  /// first suspension deadlocks flutter_test's teardown zone (reproduced
+  /// in isolation — the identical test passes without the await and
+  /// hangs with it, even with an already-completed `Future.value` tail),
+  /// and no production exit path awaits this future anyway (the
+  /// lifecycle forward is unawaited; `onExitRequested` returns without
+  /// gating on it). Queued mirror writes are app-side file operations
+  /// that complete independently of the engine isolate and drain while
+  /// the process lives — the same durability window every persisted
+  /// store here has.
   Future<void> shutdown() {
     final pending = _shutdownFuture;
     if (pending != null) return pending;
@@ -428,9 +447,19 @@ Future<EngineSession?> startEngineSession({
   // Both seeds are read before the spawn so they cross as one message:
   // an incident never reaches the engine without the pin list it names
   // (audit finding A). Each store read is fail-safe by its own contract —
-  // unreadable storage seeds empty, never blocks startup.
-  final pins = await pinsStore.all();
-  final incidents = await incidentsStore.load();
+  // unreadable storage seeds empty, never blocks startup — and any
+  // contract violation (an unexpected fault type out of a store read, a
+  // failing spawn) reports and returns null: the app boots engine-less
+  // rather than dying before its first frame.
+  final List<HostKey> pins;
+  final List<IncidentRecord> incidents;
+  try {
+    pins = await pinsStore.all();
+    incidents = await incidentsStore.load();
+  } on Object catch (error, stackTrace) {
+    errors.report(error, stackTrace);
+    return null;
+  }
 
   final AppEngine engine;
   try {

@@ -104,9 +104,17 @@ class SftpDemoController extends ChangeNotifier {
     PromptCoordinator? sharedPrompts,
     ApplicationErrorReporter? errorReporter,
   }) : _errorReporter = errorReporter ?? ApplicationErrorReporter() {
-    // A shared engine means shared prompts: exactly one prompt coordinator
-    // may consume an engine's prompt stream (a second would render every
-    // prompt twice), so the session's coordinator is reused, never owned.
+    // The ownership pairing is a contract, not a convention: a shared
+    // engine without the session's coordinator would render every prompt
+    // twice, and an owned engine paired with foreign prompts would
+    // dispose a coordinator that outlives the demo.
+    assert(
+      (sharedPrompts == null) ==
+          (engineOwnership == SftpDemoEngineOwnership.sessionOwned),
+      'sharedPrompts and engineOwnership must agree: a shared engine '
+      'reuses the session prompt coordinator, an owned engine owns its '
+      'own.',
+    );
     _ownsPrompts = sharedPrompts == null;
     _prompts =
         sharedPrompts ??

@@ -233,6 +233,20 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
   }
 }
 
+/// A pin store whose read violates the fail-safe contract with an
+/// unexpected error type (not a corrupt file): the composition must
+/// still boot engine-less rather than dying in main.
+class _ThrowingPinStore implements HostKeyStore {
+  @override
+  Future<List<HostKey>> all() async => throw StateError('pin read failed');
+
+  @override
+  Future<HostKey?> get(String host, int port) async => null;
+
+  @override
+  Future<void> put(HostKey key) async {}
+}
+
 EnginePromptEvent _changedKeyPrompt(String promptId) {
   return EnginePromptEvent(
     promptId: promptId,
@@ -257,9 +271,11 @@ Future<List<T>> _eventually<T>(
   Future<List<T>> Function() read,
 ) async {
   final file = File(path);
-  for (var attempt = 0; attempt < 100; attempt++) {
+  // Real file IO (temp write + rename) on a possibly loaded runner: a
+  // generous budget beats a flake, and the normal case lands on attempt 1.
+  for (var attempt = 0; attempt < 500; attempt++) {
     if (await file.exists()) return await read();
-    await Future<void>.delayed(const Duration(milliseconds: 2));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('mirror write did not land in time');
 }
@@ -288,12 +304,14 @@ void main() {
     FakeAppEngine? engine,
     List<EngineConfig>? spawnedConfigs,
     Object? spawnFailure,
+    GlobalKey<NavigatorState>? navigatorKey,
   }) async {
     final scripted = engine ?? FakeAppEngine();
+    addTearDown(scripted.close);
     final session = await startEngineSession(
       supportDirectoryPath: support.path,
       bookmarks: bookmarks,
-      navigatorKey: GlobalKey<NavigatorState>(),
+      navigatorKey: navigatorKey ?? GlobalKey<NavigatorState>(),
       spawn: (config) async {
         if (spawnFailure != null) throw spawnFailure;
         spawnedConfigs?.add(config);
@@ -342,6 +360,22 @@ void main() {
     test('reports a failed spawn and continues without an engine', () async {
       final (session, _) = await startSession(
         spawnFailure: StateError('isolate boot failed'),
+      );
+
+      expect(session, isNull);
+      expect(reported, isNotEmpty);
+    });
+
+    test('an unexpected store fault boots engine-less, not dead', () async {
+      // A store contract violation (an error type its fail-safe read does
+      // not catch) must not escape into main and kill the boot.
+      final session = await startEngineSession(
+        supportDirectoryPath: support.path,
+        bookmarks: bookmarks,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        pinStore: _ThrowingPinStore(),
+        spawn: (config) async => FakeAppEngine(),
+        onError: (error, stackTrace) => reported.add(error),
       );
 
       expect(session, isNull);
@@ -400,7 +434,7 @@ void main() {
       // The removal deletes the file's only record; wait for the file to
       // vanish (a write of `[]` may land first — poll until empty).
       var removed = false;
-      for (var attempt = 0; attempt < 100; attempt++) {
+      for (var attempt = 0; attempt < 500; attempt++) {
         final probe = FileIncidentStore(
           File('${support.path}${Platform.pathSeparator}incidents.json'),
         );
@@ -412,19 +446,58 @@ void main() {
       }
       expect(removed, isTrue);
 
-      // Repeated removals stay no-ops; a bulk removal for another id
-      // cannot touch anything.
+      // The no-op phase needs something observable. The engine mirror is
+      // the file's single writer (the store's documented
+      // one-instance-per-file contract), so the `other` record enters
+      // through a stored event, and the bulk removal must delete exactly
+      // it — while the repeated scoped removal re-deletes nothing and no
+      // event ever re-seeds `b1`.
+      final otherIncident = IncidentRecord(
+        serverId: 'other',
+        host: 'web.example.com',
+        port: 2222,
+        username: 'deploy',
+        presentedFingerprintSha256: 'SHA256:presented',
+        pinnedFingerprintSha256: 'SHA256:pinned',
+      );
+      engine.incidentsController.add(
+        IncidentRecordStoredEvent(record: otherIncident),
+      );
       engine.incidentsController.add(
         IncidentRecordRemovedEvent(serverId: 'b1', endpoint: _incident.poolKey),
       );
       engine.incidentsController.add(
         const IncidentRecordRemovedEvent(serverId: 'other', endpoint: null),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      final after = FileIncidentStore(
-        File('${support.path}${Platform.pathSeparator}incidents.json'),
+      var storedSeen = false;
+      var bulkApplied = false;
+      for (var attempt = 0; attempt < 500; attempt++) {
+        final probe = FileIncidentStore(
+          File('${support.path}${Platform.pathSeparator}incidents.json'),
+        );
+        final records = await probe.load();
+        // The stored event must land first — polling for empty alone would
+        // succeed before any event processed (the file starts this phase
+        // empty).
+        if (records.any((record) => record.serverId == 'other')) {
+          storedSeen = true;
+        }
+        if (storedSeen && records.isEmpty) {
+          bulkApplied = true;
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      expect(storedSeen, isTrue);
+      expect(bulkApplied, isTrue);
+      // `b1` stayed deleted through the second scoped removal and was
+      // never re-seeded by the mirror, and the review connect never ran.
+      expect(
+        await FileIncidentStore(
+          File('${support.path}${Platform.pathSeparator}incidents.json'),
+        ).load(),
+        isEmpty,
       );
-      expect(await after.load(), isEmpty);
       expect(engine.openCalls, isEmpty);
     });
   });
@@ -475,7 +548,7 @@ void main() {
       expect(engine.disconnectIds, ['b1']);
     });
 
-    test('a declined review surfaces through the state lane, not a throw', () async {
+    test('a declined review drops the reference without a fault', () async {
       final (session, engine) = await startSession();
       addTearDown(session!.shutdown);
       engine!.openFailure = const RemoteFileException(

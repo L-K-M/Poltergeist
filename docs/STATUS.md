@@ -10,7 +10,8 @@ _Last updated: 2026-09-10. The startup engine-spawn composition landed
 together, its prompt coordinator, trust mirrors, the Connections
 surface's lanes, and the blocked-key review all compose over that one
 engine, the debug demo reuses it (one engine per process), and app
-exit shuts it down. The engine-protocol incident/pin bridging
+exit shuts it down (best-effort at process teardown, idempotent). The
+engine-protocol incident/pin bridging
 landed: `removeBookmark` and the typed incident-store mirror events cross
 the engine port, the spawn config seeds pins and incidents together with
 the load-time drop of a record whose pin is gone (audit finding A closed),
@@ -1903,10 +1904,14 @@ persistence seeded, and every composed surface consumes that one engine.
   session.
 - **Lifecycle.** `PoltergeistApp` (now stateful) attaches an
   `AppLifecycleListener` forwarding to the session; `detached` — the
-  last state a desktop process sees — triggers the idempotent orderly
-  shutdown (coordinator disposed, mirrors cancelled fire-and-forget,
-  engine stopped). The session forwards nothing else: it owns no probe
-  activity (the demo session remains the only probe initiator, 03 §3.4;
+  final lifecycle event on desktop, delivered best-effort at exit —
+  triggers the idempotent orderly shutdown (coordinator disposed,
+  mirrors cancelled fire-and-forget, engine stopped), and
+  `onExitRequested` covers the window-close path where `detached` may
+  never reach Dart before the process is torn down. A missed event is
+  safe (the process dies with its sockets) and a repeated one is a
+  no-op. The session forwards nothing else: it owns no probe activity
+  (the demo session remains the only probe initiator, 03 §3.4;
   durable-favorite targets await M3/M5's connect flow).
 - **Demo reuse (one engine per process).** The debug demo reuses the
   production engine: `SftpDemoController` gains an explicit
@@ -1940,7 +1945,12 @@ rendering through the shared coordinator, and app-detach shutdown).
 Fake-async quirks were test-side, not production: real-IO store
 construction inside `testWidgets` hangs (widget tests inject the
 in-memory stores), and a store instance caches its first load, so
-persistence assertions poll the file before reading it back. App
+persistence assertions poll the file before reading it back. A
+review-suggested awaited tail-flush inside `EngineSession.shutdown`
+was declined on reproduced evidence: an awaited instance-field
+future as the closure's first suspension deadlocks flutter_test's
+teardown zone (the identical test passes without the await and hangs
+with it), and no production exit path awaits that future anyway. App
 analysis clean, 419 tests pass (18 new); core untouched (analyze clean,
 380 tests, 15 Docker-fixture skips — the real-sshd legs ride CI on the
 PR head); the import guard passes. No layout change (the review button

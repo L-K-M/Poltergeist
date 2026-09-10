@@ -115,6 +115,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   ConnectionStatusController? _buildConnections() {
     final bookmarks = widget.bookmarks;
     if (bookmarks == null) return null;
+    assert(
+      widget.engineSession == null || widget.connectionEngine == null,
+      'connectionEngine is ignored when engineSession is provided',
+    );
 
     return ConnectionStatusController(
       bookmarks: bookmarks,
@@ -167,13 +171,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ),
       if (widget.debugDemoEnabled && probeSettings != null)
         buildSftpDemoCommand(
-          // One engine per process: the session's engine overrides any
-          // factory while it lives; without a session the demo owns its
-          // spawn (the pre-session posture, still used by tests).
+          // One engine per process: while a session lives, its engine is
+          // the only option — the fallback spawn applies only to
+          // demo-owned sessions (the pre-session posture, still used by
+          // tests).
           spawnEngine:
-              session?.demoEngineFactory ??
-              widget.sftpDemoEngineFactory ??
-              spawnSftpDemoEngine,
+              session != null
+                  ? session.demoEngineFactory
+                  : widget.sftpDemoEngineFactory ?? spawnSftpDemoEngine,
           engineOwnership: session == null
               ? SftpDemoEngineOwnership.sessionOwned
               : SftpDemoEngineOwnership.shared,
