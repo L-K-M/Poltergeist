@@ -1150,7 +1150,8 @@ overwritten the round-4 record, so the round-4 record is restored in
 full and item 6 keeps its original escalation description alongside the
 owner decision. The round also suggested broadening `load()`'s
 fail-safe catch and asserting the test-setup `chmod` succeeded; the
-head applies only the doc restoration. The scorecard records no
+response commit (f0efd1b) applies only the doc restoration, and PR #60
+records no disposition for either suggestion. The scorecard records no
 correctness, security, or contract finding in rounds 4-6 and declares
 steady state.
 
