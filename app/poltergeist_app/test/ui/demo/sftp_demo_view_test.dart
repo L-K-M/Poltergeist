@@ -204,6 +204,10 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
       gate.future.ignore();
       gate.completeError(StateError('engine closed while the open was gated'));
     }
+    final disconnectGate = this.disconnectGate;
+    if (disconnectGate != null && !disconnectGate.isCompleted) {
+      disconnectGate.complete();
+    }
     await promptsController.close();
     await dismissalsController.close();
     await statesController.close();
@@ -1118,6 +1122,51 @@ void main() {
       },
     );
 
+    test(
+      'a disconnect during the stale-cleanup await cannot resurrect',
+      () async {
+        final engine = successfulEngine(
+          channel: FakeDemoBrowseChannel(
+            homePath: '/home/deploy',
+            entries: _scriptedEntries,
+          ),
+        )..disconnectGate = Completer<void>();
+        final controller = SftpDemoController(
+          engine: engine,
+          navigatorKey: GlobalKey<NavigatorState>(),
+        );
+        addTearDown(engine.close);
+        addTearDown(controller.dispose);
+
+        const facts = SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        );
+        await controller.connect(facts);
+
+        // The second connect suspends on the gated stale cleanup; the
+        // disconnect supersedes it. The resumed connect must drop itself
+        // instead of resurrecting the cleared session (a zombie connect
+        // would re-set the serverId, leave the guard stuck, and waste an
+        // engine open).
+        final second = controller.connect(facts);
+        await Future<void>.delayed(Duration.zero);
+
+        // disconnect() also suspends on the gated disconnectServer, so
+        // the gate must complete before either future is awaited.
+        final disconnect = controller.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        engine.disconnectGate!.complete();
+        await Future.wait([second, disconnect]);
+
+        expect(controller.serverId, isNull);
+        expect(controller.isConnecting, isFalse);
+        expect(engine.openCalls, hasLength(1));
+      },
+    );
+
     test('the connect guard holds during the stale-cleanup await', () async {
       final engine = successfulEngine(
         channel: FakeDemoBrowseChannel(
@@ -1213,6 +1262,38 @@ void main() {
       expect(reported, contains(isA<StateError>()));
       expect(controller.isConnecting, isFalse);
       expect(controller.failureDetail, contains('dead log seam'));
+    });
+
+    test('the transcript replay buffer serves one session at a time', () async {
+      final engine = successfulEngine()..openLogLines = ['first session'];
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+      );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
+      controller.start();
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      await controller.connect(facts);
+
+      // The next session resets the buffer: a fresh listener replays only
+      // the new session's transcript lines.
+      engine.openLogLines = ['second session'];
+      await controller.connect(facts);
+      final replayed = <ConnectionLogEvent>[];
+      final subscription = controller.connectLog.listen(replayed.add);
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+
+      expect(replayed.map((event) => event.lines).toList(), [
+        ['second session'],
+      ]);
     });
 
     test('an oversized transcript event stays in the replay buffer', () async {

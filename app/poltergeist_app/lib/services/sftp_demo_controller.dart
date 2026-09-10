@@ -222,15 +222,22 @@ class SftpDemoController extends ChangeNotifier {
     _channel = null;
     if (staleChannel != null || staleServerId != null) {
       await _closeChannelAndServer(staleChannel, staleServerId);
-      // The await above is the first suspension: dispose may have run
-      // during it, and a resumed connect must not notify a disposed
-      // notifier (09 §3.1).
-      if (_disposed) return;
+      // The await above is the first suspension: dispose or a disconnect
+      // may have superseded this connect while it was suspended, and a
+      // resumed connect must neither notify a disposed notifier nor
+      // resurrect session state a disconnect just cleared (09 §3.1).
+      if (_disposed || attempt != _attempt) return;
     }
 
     _lastFacts = facts;
     final now = DateTime.now().toUtc();
     final bookmark = _ephemeralBookmark(facts, now);
+
+    // A new session starts honest: the replay buffer serves the current
+    // connect's transcript only, never a previous session's lines.
+    _transcript.clear();
+    _bufferedLines = 0;
+
     _serverId = bookmark.id;
     _status = null;
     _entries = const [];
