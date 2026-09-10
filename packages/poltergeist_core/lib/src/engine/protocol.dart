@@ -2,8 +2,8 @@ import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart'
     show CredentialOrigin, ServerConnectionState;
-import '../connection/incident_store.dart';
-import '../connection/pool_key.dart';
+import '../connection/incident_store.dart' show IncidentRecord;
+import '../connection/pool_key.dart' show PoolKey;
 import '../connection/pool_policy.dart' show PoolPolicy;
 
 /// Increment when the cross-isolate message contract changes.
@@ -536,8 +536,8 @@ final class EngineConfig {
   /// Trust-incident records restored from the app-owned store; the engine
   /// seeds its in-memory incident store from these. A record whose
   /// `pinnedFingerprintSha256` has no matching entry in [hostKeyPins] is
-  /// dropped at load (audit A): its block cannot be reviewed or lifted, so
-  /// re-detection covers the endpoint on the next connect.
+  /// dropped at load (audit finding A): its block cannot be reviewed or
+  /// lifted, so re-detection covers the endpoint on the next connect.
   final List<IncidentRecord> incidents;
 
   const EngineConfig({
