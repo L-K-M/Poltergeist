@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 
@@ -6,6 +8,7 @@ import '../services/application_error_reporter.dart';
 import '../services/bookmark_store.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
+import '../services/engine_session.dart';
 import '../services/probe_settings_store.dart';
 import '../services/registered_command.dart';
 import '../services/sftp_demo_controller.dart';
@@ -32,6 +35,7 @@ class WorkspaceShell extends StatefulWidget {
     this.sshConfigImport,
     this.bookmarks,
     this.connectionEngine,
+    this.engineSession,
   });
 
   final double initialPaneRatio;
@@ -59,6 +63,14 @@ class WorkspaceShell extends StatefulWidget {
   /// Same identity-stability contract as [bookmarks].
   final ConnectionStateBridge? connectionEngine;
 
+  /// The app's long-lived production engine session (startup
+  /// composition): its lanes feed the Connections surface, its coordinator
+  /// answers prompts from any production surface, its review seam leads a
+  /// blocked row to the changed-key dialog, and the debug demo reuses its
+  /// engine — never a second spawn. Null leaves those unwired (tests and
+  /// alternate boot paths).
+  final EngineSession? engineSession;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -85,7 +97,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // engine exists); a replacement of either must not leave the surface
     // listing the previous store's bookmarks or a dead engine seam.
     if (identical(oldWidget.bookmarks, widget.bookmarks) &&
-        identical(oldWidget.connectionEngine, widget.connectionEngine)) {
+        identical(oldWidget.connectionEngine, widget.connectionEngine) &&
+        identical(oldWidget.engineSession, widget.engineSession)) {
       return;
     }
 
@@ -105,7 +118,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     return ConnectionStatusController(
       bookmarks: bookmarks,
-      bridge: widget.connectionEngine,
+      // A session's lanes are the production engine's own; an injected
+      // seam (tests) stands in only where no session exists.
+      bridge: widget.engineSession?.connectionLanes ?? widget.connectionEngine,
     );
   }
 
@@ -130,11 +145,20 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     assert(!widget.debugDemoEnabled || probeSettings != null);
     final sshConfigImport = widget.sshConfigImport;
     final connections = _connections;
+    final session = widget.engineSession;
     final commands = <RegisteredCommand>[
       if (connections != null)
         buildConnectionsCommand(
           controller: connections,
           enabled: () => !_commandSessionActive,
+          // The blocked-review affordance exists only where a composition
+          // can start a connect: the session's engine raises the pool's
+          // changed-key review at the attempt (D18).
+          onReviewBlocked: session == null
+              ? null
+              : (server) => unawaited(
+                  session.reviewBlockedHostKey(server.serverId),
+                ),
         ),
       if (sshConfigImport != null)
         buildSshConfigImportCommand(
@@ -143,7 +167,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ),
       if (widget.debugDemoEnabled && probeSettings != null)
         buildSftpDemoCommand(
-          spawnEngine: widget.sftpDemoEngineFactory ?? spawnSftpDemoEngine,
+          // One engine per process: the session's engine overrides any
+          // factory while it lives; without a session the demo owns its
+          // spawn (the pre-session posture, still used by tests).
+          spawnEngine:
+              session?.demoEngineFactory ??
+              widget.sftpDemoEngineFactory ??
+              spawnSftpDemoEngine,
+          engineOwnership: session == null
+              ? SftpDemoEngineOwnership.sessionOwned
+              : SftpDemoEngineOwnership.shared,
+          sharedPrompts: session?.prompts,
           probeSettings: probeSettings,
           enabled: () => !_commandSessionActive,
         ),

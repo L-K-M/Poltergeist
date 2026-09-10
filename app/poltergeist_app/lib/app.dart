@@ -7,6 +7,7 @@ import 'l10n/app_localizations.dart';
 import 'services/bookmark_store.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
+import 'services/engine_session.dart';
 import 'services/probe_settings_store.dart';
 import 'services/sftp_demo_controller.dart';
 import 'services/ssh_config_import_setup.dart';
@@ -14,7 +15,7 @@ import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
 import 'ui/workspace_shell.dart';
 
-class PoltergeistApp extends StatelessWidget {
+class PoltergeistApp extends StatefulWidget {
   const PoltergeistApp({
     super.key,
     this.initialPaneRatio = 0.5,
@@ -29,6 +30,7 @@ class PoltergeistApp extends StatelessWidget {
     this.sshConfigImport,
     this.bookmarks,
     this.connectionEngine,
+    this.engineSession,
   });
 
   final double initialPaneRatio;
@@ -44,7 +46,9 @@ class PoltergeistApp extends StatelessWidget {
   final bool debugDemoEnabled;
 
   /// Engine factory behind the demo surface; tests inject a scripted
-  /// fake, production spawns the real engine isolate.
+  /// fake, production spawns the real engine isolate. Ignored whenever an
+  /// [engineSession] exists — the demo then reuses that engine, so a
+  /// second one never spawns in one process.
   final SftpDemoEngineFactory? sftpDemoEngineFactory;
 
   /// Persisted probe settings behind the demo surface's probe wiring.
@@ -59,25 +63,73 @@ class PoltergeistApp extends StatelessWidget {
   /// `BookmarkStore` seam). Null leaves that command unregistered.
   final BookmarkRepository? bookmarks;
 
-  /// The engine's connection-state lanes for the Connections surface. Null
-  /// while no production engine exists: the startup-wiring slice owns the
-  /// spawn, which must seed host-key pins and trust incidents together
-  /// (STATUS item 6, audit finding A).
+  /// The engine's connection-state lanes for the Connections surface. A
+  /// test seam only: an [engineSession] supplies its own lanes, and no
+  /// production path passes both.
   final ConnectionStateBridge? connectionEngine;
 
+  /// The app's long-lived production engine (startup composition, not
+  /// debug-gated): its lanes feed the Connections surface, its prompt
+  /// coordinator answers dialogs from any production surface, and its
+  /// shutdown rides app exit. Null leaves the app running engine-less —
+  /// every surface reads "no engine" instead of failing to boot.
+  final EngineSession? engineSession;
+
   /// The prompt coordinator and other dialog owners show through this key;
-  /// null keeps the default navigator.
+  /// null keeps the default navigator. The session's coordinator and the
+  /// [MaterialApp] must share one key: dialogs render on this navigator.
   final GlobalKey<NavigatorState>? navigatorKey;
 
   /// Root snack-bar surface for transient notices (vault-save failures).
   final GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey;
 
   @override
+  State<PoltergeistApp> createState() => _PoltergeistAppState();
+}
+
+class _PoltergeistAppState extends State<PoltergeistApp> {
+  AppLifecycleListener? _lifecycleListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _attachSessionLifecycle();
+  }
+
+  @override
+  void didUpdateWidget(PoltergeistApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.engineSession, widget.engineSession)) {
+      _attachSessionLifecycle();
+    }
+  }
+
+  /// Engine lifetime follows the app's: `detached` is the last state a
+  /// desktop process sees (the window is gone), so the session shuts the
+  /// engine down there — best-effort orderly teardown before process exit.
+  void _attachSessionLifecycle() {
+    _lifecycleListener?.dispose();
+    _lifecycleListener = null;
+    final session = widget.engineSession;
+    if (session == null) return;
+    _lifecycleListener = AppLifecycleListener(
+      onStateChange: session.forwardLifecycle,
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener?.dispose();
+    _lifecycleListener = null;
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      scaffoldMessengerKey: scaffoldMessengerKey,
+      navigatorKey: widget.navigatorKey,
+      scaffoldMessengerKey: widget.scaffoldMessengerKey,
       onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       theme: buildPoltergeistTheme(Brightness.light),
       darkTheme: buildPoltergeistTheme(Brightness.dark),
@@ -96,31 +148,32 @@ class PoltergeistApp extends StatelessWidget {
   Widget _buildWorkspace() {
     // Runtime-gated only: the demo code stays linked into release
     // binaries until M3 deletes this surface wholesale.
-    final bool demoEnabled = debugDemoEnabled && kDebugMode;
+    final bool demoEnabled = widget.debugDemoEnabled && kDebugMode;
     assert(
-      demoEnabled || sftpDemoEngineFactory == null,
+      demoEnabled || widget.sftpDemoEngineFactory == null,
       'sftpDemoEngineFactory was provided but debugDemoEnabled is off; '
       'the factory will be silently ignored.',
     );
     assert(
-      !demoEnabled || probeSettings != null,
+      !demoEnabled || widget.probeSettings != null,
       'debugDemoEnabled requires probeSettings: the demo session\'s '
       'probe wiring must persist.',
     );
     final workspace = WorkspaceShell(
-      initialPaneRatio: initialPaneRatio,
-      onPaneRatioChanged: onPaneRatioChanged,
-      onPaneRatioSaveError: onPaneRatioSaveError,
+      initialPaneRatio: widget.initialPaneRatio,
+      onPaneRatioChanged: widget.onPaneRatioChanged,
+      onPaneRatioSaveError: widget.onPaneRatioSaveError,
       debugDemoEnabled: demoEnabled,
       // Forward the seam only where the gated surface can consume it;
       // release/profile builds never see a spawnable engine factory.
-      sftpDemoEngineFactory: demoEnabled ? sftpDemoEngineFactory : null,
-      probeSettings: demoEnabled ? probeSettings : null,
-      sshConfigImport: sshConfigImport,
-      bookmarks: bookmarks,
-      connectionEngine: connectionEngine,
+      sftpDemoEngineFactory: demoEnabled ? widget.sftpDemoEngineFactory : null,
+      probeSettings: demoEnabled ? widget.probeSettings : null,
+      sshConfigImport: widget.sshConfigImport,
+      bookmarks: widget.bookmarks,
+      connectionEngine: widget.connectionEngine,
+      engineSession: widget.engineSession,
     );
-    final callback = onContentSizeChanged;
+    final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;
 
     // The desktop minimum includes native chrome around this content box.

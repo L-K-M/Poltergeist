@@ -19,6 +19,20 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
     r"'${supportDirectory.path}${Platform.pathSeparator}bookmarks.json'",
   },
+  // The production engine session's store file names and wiring literals
+  // (paths inside the app-support directory, the review pane-tab id, and
+  // the shared-engine refusal message).
+  'lib/services/engine_session.dart': {
+    "'host_keys.json'",
+    "'incidents.json'",
+    "'identity_reads.jsonl'",
+    "'review'",
+    r"'$supportDirectoryPath$separator$_pinStoreFileName'",
+    r"'$supportDirectoryPath$separator$_incidentStoreFileName'",
+    r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
+    "'The demo session shares the production engine; only the session '",
+    "'owns its shutdown.'",
+  },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:
   // one instance serves the import command and the Connections surface.

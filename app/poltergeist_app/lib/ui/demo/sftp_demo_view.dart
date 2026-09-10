@@ -7,6 +7,7 @@ import '../../l10n/app_localizations.dart';
 import '../../services/app_lifecycle_forwarder.dart';
 import '../../services/application_error_reporter.dart';
 import '../../services/probe_settings_store.dart';
+import '../../services/prompt_coordinator.dart';
 import '../../services/registered_command.dart';
 import '../../services/sftp_demo_controller.dart';
 import '../connection_status_panel.dart';
@@ -27,13 +28,21 @@ RegisteredCommand buildSftpDemoCommand({
   required SftpDemoEngineFactory spawnEngine,
   required ProbeSettings probeSettings,
   required bool Function() enabled,
+  SftpDemoEngineOwnership engineOwnership = SftpDemoEngineOwnership.sessionOwned,
+  PromptCoordinator? sharedPrompts,
 }) {
   return RegisteredCommand(
     id: kSftpDemoCommandId,
     scope: CommandScope.app,
     label: (l10n) => l10n.sftpDemoCommandLabel,
     enabled: enabled,
-    run: (context) => _runSftpDemoSession(context, spawnEngine, probeSettings),
+    run: (context) => _runSftpDemoSession(
+      context,
+      spawnEngine,
+      probeSettings,
+      engineOwnership,
+      sharedPrompts,
+    ),
   );
 }
 
@@ -41,6 +50,8 @@ Future<void> _runSftpDemoSession(
   BuildContext context,
   SftpDemoEngineFactory spawnEngine,
   ProbeSettings probeSettings,
+  SftpDemoEngineOwnership engineOwnership,
+  PromptCoordinator? sharedPrompts,
 ) async {
   final SftpDemoEngine engine;
   try {
@@ -67,6 +78,8 @@ Future<void> _runSftpDemoSession(
     engine: engine,
     navigatorKey: navigatorKey,
     probeSettings: probeSettings,
+    engineOwnership: engineOwnership,
+    sharedPrompts: sharedPrompts,
   );
   try {
     // Inside the try so a failing start() (synchronous throws only — the
@@ -79,7 +92,8 @@ Future<void> _runSftpDemoSession(
     ).push(MaterialPageRoute<void>(builder: (_) => SftpDemoView(controller)));
   } finally {
     // Popping the route ends the session: prompts close, the browse
-    // channel closes, and the spawned engine shuts down.
+    // channel closes, and — when the session owns the engine — the
+    // spawned engine shuts down. A shared engine outlives the route.
     controller.dispose();
   }
 }
