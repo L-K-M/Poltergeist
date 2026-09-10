@@ -1103,23 +1103,29 @@ showed the snapshot fix had landed only in the gated-store test —
 `_harness`'s teardown now snapshots `harness.servers.keys` too (see the
 round-4 record).
 
-Review round 4 (applied; first polish-only round — both majors are
-re-litigations): `_harness`'s teardown snapshots `harness.servers.keys`
-(the round-3 refutation had overstated the earlier fix's reach); the
-re-pointed test's poll check guards `.single` with a length check; the
-M2 heading gained its missing blank line; a file-store test covers
-`removeFor`'s endpoint guard and its early-return-before-flush.
-Declined with recorded reasons: the fire-and-forget ordering re-raise
-(third packaging — the store contract documents the issue-order
-invariant both shipped stores provide, the reviewer's own alternative);
-the `chmod` PATH re-raise (03 §2.2 prescribes PATH-based `Process.run`
-chmod for core; a same-user PATH influence yields at worst
-process-default modes — content authority stays in-process); the
-first-record-wins payload divergence (payloads affect only the block
-detail; the schema carries no ordering data by design); the
-last-verdict re-raise (one verification per attempt at this pin); the
-quarantine-stamp overwrite (microsecond-precision stamp, best-effort
-evidence preservation — parity with the ported helper).
+Review round 5 (applied; the invalid-UTF-8 regression failed before its
+repair): a torn write's invalid UTF-8 is treated as corruption
+(quarantine + recovered writes) instead of wedging every later write;
+`_forgetIncident` dropped its vestigial null-incident guard (the delete
+is endpoint-scoped, not payload-dependent); the strict decode rejects
+blank usernames. Declined with recorded reasons: the store-delete-first
+ordering for `removeBookmark` (fourth packaging of the orphan-record
+family — the claimed permanent block is self-healing through the
+endpoint's next review; either crash window leaves only a stale block,
+never a trust grant); the cached-failed-load retry (matches the
+fail-safe contract and the ported store convention; re-detection covers
+it); one-bad-record skip (whole-file quarantine is the ported
+convention, and atomic writes make partial corruption the rare case);
+the stack-trace observer shape (parity with `onRecoveryFailure`); the
+chmod re-raise (round-4 decline stands); the pin-observation and
+verifier-delegation re-raises; the fsync-durability and
+blank-username-block re-raises (best-effort persistence; username
+blankness is now rejected anyway). Refuted: the epoch-guard premise
+(no concurrent block source exists while a serialized first connect
+holds the attempt), the late-load resurrection premise (reference
+resolution awaits the load; no pool exists before it), the
+observation-never-cleared premise (a fresh per-attempt instance), and
+the teardown re-raise (round 4 fixed it).
 
 ## Open items
 

@@ -80,6 +80,7 @@ void main() {
         valid()..['port'] = 0,
         valid()..['port'] = 65536,
         valid()..['username'] = null,
+        valid()..['username'] = '   ',
         valid()..['jumpHostId'] = 42,
         valid()..['presentedFingerprintSha256'] = 3,
         valid()..['presentedFingerprintSha256'] = '',
@@ -186,10 +187,7 @@ void main() {
       await store.removeFor('a', _record(serverId: 'a').poolKey);
 
       final reloaded = FileIncidentStore(File(path));
-      expect(
-        (await reloaded.load()).single.host,
-        'other.example',
-      );
+      expect((await reloaded.load()).single.host, 'other.example');
       await store.removeFor('a', _record(host: 'other.example').poolKey);
       expect(await FileIncidentStore(File(path)).load(), isEmpty);
     });
@@ -226,6 +224,25 @@ void main() {
         'not json at all',
       );
     });
+
+    test(
+      'an invalid-UTF-8 file quarantines and later writes recover',
+      () async {
+        final file = File(path);
+        await file.parent.create(recursive: true);
+        // A torn write's artifact: valid JSON prefix, then a half character.
+        await file.writeAsBytes([...utf8.encode('[{"serverId":"a"}]'), 0xFF]);
+
+        expect(await FileIncidentStore(file).load(), isEmpty);
+        expect(await file.exists(), isFalse);
+
+        // The store must not stay wedged: a fresh write lands cleanly.
+        await FileIncidentStore(file).put(_record(serverId: 'b'));
+        expect((await FileIncidentStore(file).load()).map((r) => r.serverId), [
+          'b',
+        ]);
+      },
+    );
 
     test('writes land owner-only on POSIX', () async {
       if (!Platform.isLinux && !Platform.isMacOS) {

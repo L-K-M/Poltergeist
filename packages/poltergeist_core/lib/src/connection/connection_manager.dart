@@ -1276,11 +1276,10 @@ class PooledConnectionManager implements ConnectionManager {
   /// re-emits connecting/disconnected, the trusted-key path emits connected
   /// next, the cascade emits disconnected).
   void _forgetIncident(_EndpointPool pool) {
-    final incident = pool._incident;
     _incidents.remove(pool.key);
     pool._incident = null;
     final owners = _incidentOwners.remove(pool.key);
-    if (owners == null || incident == null) return;
+    if (owners == null) return;
     for (final serverId in owners) {
       // Scoped to the endpoint this incident belongs to: a bookmark
       // re-pointed to a new endpoint (whose record now holds the new

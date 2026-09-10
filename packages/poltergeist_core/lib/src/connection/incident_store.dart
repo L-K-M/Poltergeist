@@ -72,6 +72,7 @@ final class IncidentRecord {
         port < 1 ||
         port > 65535 ||
         username is! String ||
+        username.trim().isEmpty ||
         (jumpHostId != null && jumpHostId is! String) ||
         presented is! String ||
         presented.isEmpty ||
@@ -203,9 +204,20 @@ class FileIncidentStore implements IncidentStore {
     if (await file.exists()) {
       // Unreadable ≠ corrupt: a transient read failure (permissions, a
       // backup lock, EIO) rethrows and leaves the valid file in place so
-      // a later session still loads it — only a decode failure
+      // a later session still loads it — only undecodable content
       // quarantines. Callers that must stay fail-safe (load) catch it.
-      final contents = await file.readAsString();
+      final bytes = await file.readAsBytes();
+      final String contents;
+      try {
+        contents = utf8.decode(bytes);
+      } on FormatException {
+        // Invalid UTF-8 is a torn write's artifact (a crash mid-character),
+        // not a readable file: quarantine like any other corruption.
+        _records.clear();
+        await _quarantineCorruptFile(file);
+        _loaded = true;
+        return;
+      }
       try {
         final list = jsonDecode(contents) as List;
         for (final entry in list) {
