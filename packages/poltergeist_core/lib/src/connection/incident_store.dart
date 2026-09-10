@@ -203,6 +203,10 @@ class InMemoryIncidentStore implements IncidentStore {
 /// `dart:io`'s locks are per-process on POSIX, so two instances in one
 /// process still race (STATUS records the measurement and the deferral).
 class FileIncidentStore implements IncidentStore {
+  /// Absolute at construction, so the temp names a write creates and the
+  /// prefix the startup sweep matches stay the same paths even if
+  /// `Directory.current` moves later (a relative store would otherwise read,
+  /// write, and sweep three different files).
   final File file;
 
   /// Observes load failures (an unreadable file, a quarantined corrupt one)
@@ -216,7 +220,7 @@ class FileIncidentStore implements IncidentStore {
   Future<void> _pending = Future<void>.value();
   bool _loaded = false;
 
-  FileIncidentStore(this.file, {this.onLoadError});
+  FileIncidentStore(File file, {this.onLoadError}) : file = file.absolute;
 
   Future<void> _loadInner() async {
     if (_loaded) return;

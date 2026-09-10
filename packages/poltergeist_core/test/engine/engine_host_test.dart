@@ -912,11 +912,15 @@ void main() {
     await h.pumping();
 
     // Explicit review: the re-pin crosses as a pin event and the record it
-    // supersedes crosses as an endpoint-scoped delete.
+    // supersedes crosses as an endpoint-scoped delete. The review attempt
+    // re-detects the change first, so the mirror also sees the re-write that
+    // the approval then deletes — one stored event, one removal.
     expect(
       h.events.whereType<HostKeyPinnedEvent>().single.key.fingerprintSha256,
       _changedFingerprint,
     );
+    final stored = h.events.whereType<IncidentRecordStoredEvent>().single;
+    expect(stored.record.presentedFingerprintSha256, _changedFingerprint);
     final removed = h.events.whereType<IncidentRecordRemovedEvent>().single;
     expect(removed.serverId, 'srv-1');
     expect(removed.endpoint, _incidentRecord.poolKey);
@@ -983,6 +987,7 @@ void main() {
     expect(removed.serverId, 'srv-1');
     expect(removed.endpoint, _incidentRecord.poolKey);
     expect(h.events.whereType<IncidentRecordStoredEvent>(), isEmpty);
+    expect(h.events.whereType<HostKeyPinnedEvent>(), isEmpty);
     expect(h.events.whereType<EnginePromptEvent>(), isEmpty);
   });
 

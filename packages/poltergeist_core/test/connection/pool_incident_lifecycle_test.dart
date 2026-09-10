@@ -423,9 +423,10 @@ void main() {
     };
 
     // The endpoint is pinned, just to another key, so the record is stale
-    // and its delete is attempted. A worker never prompts, so a lease that
-    // connects at all proves the block was not restored; the failed delete
-    // reaches only the observer.
+    // and its delete is attempted. A worker never reviews an inherited
+    // block, so a lease that connects at all proves the block was not
+    // restored; the prompt counted here is the fresh changed-key review, and
+    // the failed delete reaches only the observer.
     final lease = await harness.manager.leaseTransferChannel('s1');
     expect(prompts, 1);
     expect(harness.incidentStoreErrors, isNotEmpty);

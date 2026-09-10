@@ -1692,6 +1692,41 @@ re-watch of a deleted id allocates a controller nothing will close, and a
 tombstone is the same never-shrinking per-id state M3's lifecycle design
 owns.
 
+Review round 5 (steady state; three small applications, the rest refuted or
+declined): the file store absolutizes its path at construction, so a relative
+store cannot read, write, and sweep three different files if
+`Directory.current` moves; a contradictory test comment is corrected (a
+worker lease does prompt for a fresh changed key — what it never does is
+review an inherited block); and two engine assertions are added (a trusted
+connect emits no re-pin, and the accepted-change flow mirrors exactly one
+re-write before the approval's delete).
+Refuted with evidence: the "stale-record deletion may bypass the mirror"
+major — the wired store *is* the emitting decorator (`_IncidentBridge`, in
+this diff), so `_deleteStaleRecord`'s `removeFor` is what emits, pinned by "a
+contradicted seeded incident is deleted and mirrored"; the suggested
+`isEmpty` assertion on the accepted-change flow is wrong for the same reason
+(the review attempt re-detects and re-writes before the approval deletes, now
+pinned at exactly one stored event); a repeated removal, or one for an id the
+engine never saw, already acks, so no retry wrapper can draw a spurious
+failure; `SendPort.send` returns false rather than throwing for a dead port,
+so the bridge cannot desynchronize its local state from its report; and the
+second record in the pin-moved-on test is dropped for its own null pinned
+half against a pin that exists, not for sharing the first record's endpoint.
+Declined with recorded reasons: the third raise of the removal/open
+interleaving (rounds 2-4 stand, and the fix needs never-shrinking per-id
+state); an `isBulkErase` getter on the removal event (a new public member on
+a protocol type against a hypothetical mirror bug, with the semantics already
+stated in the event class, at the producer, and in 03 §5 — and no mirror
+exists yet); the `Directory.current` test-hygiene note (saved and restored in
+`addTearDown`, `dart test` runs each file in its own isolate, and the file's
+other tests use absolute temp paths); spawning the real engine in the
+stream-closure test (it matches its sibling and exercises the production
+spawn path); the fixture error message (matches the sibling fixture's
+convention); and the fifth raise of the fixture-password "critical".
+After five rounds no correctness, security, or contract finding is open, and
+the last two rounds produced only polish and re-litigation: steady state per
+the owner's bar.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
