@@ -1346,6 +1346,44 @@ void main() {
       ]);
     });
 
+    test('a stale session line cannot enter the next session buffer', () async {
+      final engine = successfulEngine()..openLogLines = ['first session'];
+      final controller = SftpDemoController(
+        engine: engine,
+        navigatorKey: GlobalKey<NavigatorState>(),
+      );
+      addTearDown(engine.close);
+      addTearDown(controller.dispose);
+      controller.start();
+
+      const facts = SftpDemoConnectFacts(
+        host: 'example.com',
+        port: 22,
+        username: 'deploy',
+        authMethod: AuthMethod.agent,
+      );
+      await controller.connect(facts);
+      final firstServerId = controller.serverId!;
+
+      engine.openLogLines = ['second session'];
+      await controller.connect(facts);
+
+      // A line from the torn-down session, still in flight after the
+      // per-session clear, must not consume the new session's buffer.
+      engine.logController.add(
+        ConnectionLogEvent(serverId: firstServerId, lines: ['stale line']),
+      );
+
+      final replayed = <ConnectionLogEvent>[];
+      final subscription = controller.connectLog.listen(replayed.add);
+      await Future<void>.delayed(Duration.zero);
+      await subscription.cancel();
+
+      expect(replayed.map((event) => event.lines).toList(), [
+        ['second session'],
+      ]);
+    });
+
     test('an oversized transcript event stays in the replay buffer', () async {
       final engine = successfulEngine();
       final controller = SftpDemoController(
@@ -1356,10 +1394,22 @@ void main() {
       addTearDown(controller.dispose);
       controller.start();
 
+      // The buffer accepts only the current session's lines (see the
+      // stale-line test), so the flood must carry the connected id.
+      await controller.connect(
+        const SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        ),
+      );
+      final serverId = controller.serverId!;
+
       // One event carrying more lines than the cap: drop-oldest must
       // never evict the newest event — and the replay buffer it feeds.
       final flood = ConnectionLogEvent(
-        serverId: 's1',
+        serverId: serverId,
         lines: List.filled(kSftpDemoTranscriptLineCap + 1, 'x'),
       );
       engine.logController.add(flood);
@@ -1373,7 +1423,7 @@ void main() {
 
       // A follow-up event then evicts the flood, keeping the newest.
       engine.logController.add(
-        ConnectionLogEvent(serverId: 's1', lines: ['tail']),
+        ConnectionLogEvent(serverId: serverId, lines: ['tail']),
       );
       await Future<void>.delayed(Duration.zero);
       final second = <ConnectionLogEvent>[];

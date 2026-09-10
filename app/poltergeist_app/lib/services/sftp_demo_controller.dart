@@ -161,6 +161,12 @@ class SftpDemoController extends ChangeNotifier {
     // zone through the closed controller.
     if (_disposed) return;
 
+    // The replay buffer serves the current session only: an in-flight
+    // line from a just-torn-down session (the engine's stream is global)
+    // must not consume the new session's cap or reach unfiltered
+    // listeners. The panel already filters by serverId downstream.
+    if (event.serverId != _serverId) return;
+
     // A zero-line event carries nothing to replay and would never count
     // toward the line cap, growing the buffer unboundedly — forward it
     // live and skip the buffer.

@@ -752,7 +752,7 @@ pinned model's bounds). No pin/lock change, no production composition
 slices), no milestone-close claim. All strings ARB-authored (D20); the
 localization contract gains the demo files' reviewed technical exceptions.
 
-Validation: 28 new tests — gating/registration, spawn-failure notice,
+Validation: 29 new tests — gating/registration, spawn-failure notice,
 double-tap session guard, host-key first-use through the real coordinator
 with the transcript live during connect, credential collection,
 keyboard-interactive round trip, declined changed-key hard block with
@@ -765,9 +765,10 @@ reporting, transcript replay-buffer bounds, disconnect-after-dispose
 no-op, system-back prompt dismissal, narrow-window toolbar overflow,
 broken-transcript-seam unwedging, stale-cleanup dispose race,
 stale-cleanup guard window, stale-cleanup resurrect guard, per-session
-transcript reset, invalid-facts guard unwedging, and a real-isolate
+transcript reset, invalid-facts guard unwedging, stale-session-line
+rejection, and a real-isolate
 leg — all driving the production
-`EngineClient` seam over spawned isolate ports. App analyze clean, 272 app
+`EngineClient` seam over spawned isolate ports. App analyze clean, 273 app
 tests pass; core untouched (analyze clean, 333 tests, 15 fixture skips).
 Real-sshd legs were not extended to this surface: no Docker-enabled
 Flutter CI job exists (the integration leg runs pure-Dart core tests), and
@@ -1014,7 +1015,8 @@ no milestone-close claim.
      transcript; M3 replaces it. The remaining M2 work is the
      owner-gated item 6 decision, the recorded follow-up notes above,
      and the milestone-close chores; the Docker-integration bullet
-     below records those legs as already landed.
+     below records the engine/pool/opener real-sshd legs as already
+     landed.
    - Docker-integration pool coverage (growth, keepalive, reconnect against
      real sshd), interactive auth, TOFU flows, shared-bookmark decisions,
      and explicit trust review landed in the dated slices above; the
