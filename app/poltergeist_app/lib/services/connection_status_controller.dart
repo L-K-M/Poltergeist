@@ -194,7 +194,22 @@ final class ConnectionStatusController extends ChangeNotifier {
     }
     if (_disposed || generation != _generation) return;
 
-    _servers = List.unmodifiable(_serversOf(bookmarks));
+    // Carry live truth across the reload, matched by serverId: the watch
+    // lane replays current state, but the recovery lane is replay-free
+    // (03 §3.5), so dropping the rows would erase the only record of an
+    // unresolved pane failure — and blank live status until every replay
+    // lands. A server the store no longer lists keeps nothing (its id is
+    // absent), and a stopped engine carries only cleared truth.
+    final previous = {
+      for (final server in _servers) server.serverId: server,
+    };
+    _servers = List.unmodifiable([
+      for (final server in _serversOf(bookmarks))
+        if (previous[server.serverId] case final old?)
+          server._withStatus(old.status)._withPaneFailure(old.paneFailure)
+        else
+          server,
+    ]);
     _load = ConnectionListLoad.ready;
     _restartWatches();
     notifyListeners();
@@ -284,7 +299,9 @@ final class ConnectionStatusController extends ChangeNotifier {
 
   /// Applies [update] to one listed server. An id the list does not hold is
   /// ignored: an ad-hoc session id belongs to the surface that minted it, and
-  /// this list is the store's.
+  /// this list is the store's. A byte-identical update is dropped — the
+  /// watch lane replays current state on every re-subscribe, and an
+  /// unchanged replay must not rebuild the list.
   void _replace(
     String serverId,
     ConnectionServer Function(ConnectionServer server) update,
@@ -292,8 +309,11 @@ final class ConnectionStatusController extends ChangeNotifier {
     final index = _servers.indexWhere((server) => server.serverId == serverId);
     if (index < 0) return;
 
+    final updated = update(_servers[index]);
+    if (updated == _servers[index]) return;
+
     final next = List<ConnectionServer>.of(_servers);
-    next[index] = update(next[index]);
+    next[index] = updated;
     _servers = List.unmodifiable(next);
     notifyListeners();
   }

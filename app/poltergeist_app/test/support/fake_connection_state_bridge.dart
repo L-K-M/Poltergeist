@@ -46,11 +46,24 @@ final class FakeConnectionStateBridge implements ConnectionStateBridge {
 
   bool get recoveryHasListener => _recovery.hasListener;
 
-  void emitStatus(String serverId, ServerStatus status) =>
-      _controller(serverId).add(status);
+  void emitStatus(String serverId, ServerStatus status) {
+    _failFastIfStopped();
+    _controller(serverId).add(status);
+  }
 
-  void failStatusLane(String serverId, Object error) =>
-      _controller(serverId).addError(error);
+  void failStatusLane(String serverId, Object error) {
+    _failFastIfStopped();
+    _controller(serverId).addError(error);
+  }
+
+  /// A dead engine accepts no emissions for any id — watched or not — so a
+  /// post-termination emission cannot land in a silently fresh controller
+  /// and pass vacuously.
+  void _failFastIfStopped() {
+    if (_controllersClosed) {
+      throw StateError('The engine has terminated.');
+    }
+  }
 
   void emitRecovery(
     String serverId, {

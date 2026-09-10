@@ -1675,8 +1675,12 @@ void main() {
       await submitDemoForm(tester);
       await tester.pumpAndSettle();
 
-      expect(find.byType(ProbeStatusDot), findsOneWidget);
-      expect(find.byTooltip(l10n.probeStatusUnknown), findsOneWidget);
+      // Connected truth outranks the unknown probe result (02 §4), so the
+      // composed glyph answers. The snapshot left the probe unknown — a
+      // wrongly-online default would render the probe dot instead.
+      expect(find.byType(ProbeStatusDot), findsNothing);
+      expect(find.byTooltip(l10n.probeStatusOnline), findsNothing);
+      expect(find.byTooltip(l10n.connectionStateConnected), findsOneWidget);
     });
 
     testWidgets('a global opt-out keeps probes paused and the dot unknown', (
@@ -1697,11 +1701,14 @@ void main() {
 
       // The opt-out contract: the wiring still configures the engine
       // (the controller owns the pause), but never with targets or
-      // running activity.
+      // running activity. The dot itself: connected truth outranks the
+      // unknown probe result (02 §4), so the glyph answers — the pause
+      // contract above is what keeps probes from ever flipping it online.
       expect(engine.probeCalls, contains('paused'));
       expect(engine.probeCalls, isNot(contains('running')));
       expect(engine.probeCalls.last, 'targets:');
-      expect(find.byTooltip(l10n.probeStatusUnknown), findsOneWidget);
+      expect(find.byTooltip(l10n.probeStatusOnline), findsNothing);
+      expect(find.byTooltip(l10n.connectionStateConnected), findsOneWidget);
     });
 
     testWidgets('hiding the app pauses probes; returning resumes them', (

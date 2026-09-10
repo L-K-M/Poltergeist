@@ -6,7 +6,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 /// The setup must forward the caller's store, never build its own: the
 /// Connections surface lists the same bookmarks, and a second instance over
 /// one file would race the first one's write tail.
-class _RecordingStore implements BookmarkRepository {
+class _ForwardedStore implements BookmarkRepository {
   @override
   Future<List<Bookmark>> load() async => const [];
 
@@ -18,7 +18,7 @@ void main() {
   late BookmarkRepository bookmarks;
 
   setUp(() {
-    bookmarks = _RecordingStore();
+    bookmarks = _ForwardedStore();
   });
 
   SshConfigImportSetup? build({

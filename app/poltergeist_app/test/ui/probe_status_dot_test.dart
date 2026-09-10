@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +6,7 @@ import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/probe_status_dot.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
-const _minimumDotContrast = 3.0;
+import 'contrast_math.dart';
 
 /// The shared localization harness: a production-theme MaterialApp with
 /// [child] centered in the scaffold body.
@@ -34,23 +32,6 @@ Container _dot(WidgetTester tester) => tester.widget<Container>(
   ),
 );
 
-double _relativeLuminance(Color color) {
-  double channel(double value) => value <= 0.03928
-      ? value / 12.92
-      : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
-
-  return 0.2126 * channel(color.r) +
-      0.7152 * channel(color.g) +
-      0.0722 * channel(color.b);
-}
-
-double _contrast(Color a, Color b) {
-  final la = _relativeLuminance(a);
-  final lb = _relativeLuminance(b);
-  final lighter = la > lb ? la : lb;
-  final darker = la > lb ? lb : la;
-  return (lighter + 0.05) / (darker + 0.05);
-}
 
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
@@ -107,18 +88,18 @@ void main() {
         ('scrolled-under', scrolled),
       ]) {
         expect(
-          _contrast(ProbeStatusDot.onlineColor, background.$2),
-          greaterThanOrEqualTo(_minimumDotContrast),
+          contrast(ProbeStatusDot.onlineColor, background.$2),
+          greaterThanOrEqualTo(minimumNonTextContrast),
           reason: 'online on ${background.$1} (${brightness.name})',
         );
         expect(
-          _contrast(scheme.error, background.$2),
-          greaterThanOrEqualTo(_minimumDotContrast),
+          contrast(scheme.error, background.$2),
+          greaterThanOrEqualTo(minimumNonTextContrast),
           reason: 'offline on ${background.$1} (${brightness.name})',
         );
         expect(
-          _contrast(scheme.outline, background.$2),
-          greaterThanOrEqualTo(_minimumDotContrast),
+          contrast(scheme.outline, background.$2),
+          greaterThanOrEqualTo(minimumNonTextContrast),
           reason: 'unknown on ${background.$1} (${brightness.name})',
         );
       }

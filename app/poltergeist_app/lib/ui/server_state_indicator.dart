@@ -67,13 +67,13 @@ ServerIndicatorAppearance serverIndicatorOf(
 
 /// The glyphs that contradict a probe result and therefore replace it:
 /// adverse truth (a block, a failure the state explains) always, and
-/// authenticated transports over an offline result — the reverse of the
-/// audit finding's contradiction, since connected transports prove
-/// reachability.
+/// authenticated transports over any non-online result — the reverse of
+/// the audit finding's contradiction, since connected transports prove
+/// reachability (an "unknown" claim beside them is just as wrong).
 bool _outranksProbe(ServerIndicatorGlyph glyph, ProbeStatus? probe) =>
     switch (glyph) {
       ServerIndicatorGlyph.blocked || ServerIndicatorGlyph.failed => true,
-      ServerIndicatorGlyph.connected => probe == ProbeStatus.offline,
+      ServerIndicatorGlyph.connected => probe != ProbeStatus.online,
       _ => false,
     };
 

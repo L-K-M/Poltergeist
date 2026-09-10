@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -8,8 +6,7 @@ import 'package:poltergeist_app/ui/probe_status_dot.dart';
 import 'package:poltergeist_app/ui/server_state_indicator.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
-/// 02 §4's non-text contrast floor, the one the probe dot is pinned to.
-const _minimumContrast = 3.0;
+import 'contrast_math.dart';
 
 final _l10n = lookupAppLocalizations(const Locale('en'));
 
@@ -34,23 +31,6 @@ Future<void> _pump(WidgetTester tester, Widget child) async {
   );
 }
 
-double _relativeLuminance(Color color) {
-  double channel(double value) => value <= 0.03928
-      ? value / 12.92
-      : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
-
-  return 0.2126 * channel(color.r) +
-      0.7152 * channel(color.g) +
-      0.0722 * channel(color.b);
-}
-
-double _contrast(Color a, Color b) {
-  final la = _relativeLuminance(a);
-  final lb = _relativeLuminance(b);
-  final lighter = la > lb ? la : lb;
-  final darker = la > lb ? lb : la;
-  return (lighter + 0.05) / (darker + 0.05);
-}
 
 void main() {
   group('the composed indicator mapping', () {
@@ -138,6 +118,19 @@ void main() {
         glyphOf(
           status: const ServerStatus(ServerConnectionState.connected),
           probe: ProbeStatus.offline,
+        ),
+        ServerIndicatorGlyph.connected,
+      );
+    });
+
+    test('a connected server outranks an unknown probe', () {
+      // "Unknown" reachability beside an authenticated transport is the
+      // same contradiction: the transport proves reachability, so the
+      // glyph answers instead of the grey dot.
+      expect(
+        glyphOf(
+          status: const ServerStatus(ServerConnectionState.connected),
+          probe: ProbeStatus.unknown,
         ),
         ServerIndicatorGlyph.connected,
       );
@@ -286,8 +279,8 @@ void main() {
         ('pending', scheme.primary),
       ]) {
         expect(
-          _contrast(color, scheme.surface),
-          greaterThanOrEqualTo(_minimumContrast),
+          contrast(color, scheme.surface),
+          greaterThanOrEqualTo(minimumNonTextContrast),
           reason: '$name on surface (${brightness.name})',
         );
       }

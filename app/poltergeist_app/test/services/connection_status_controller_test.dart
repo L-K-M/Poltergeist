@@ -258,6 +258,84 @@ void main() {
       expect(row.status?.state, ServerConnectionState.connected);
     });
 
+    test('a reload keeps unresolved pane attribution and live truth', () async {
+      // The recovery lane is replay-free (03 §3.5): a reload that drops
+      // rows to fresh values erases the only record of an unresolved pane
+      // failure, and blanks live status until each watch replays.
+      store.bookmarks = [_server('a')];
+      final connections = controller();
+      await connections.loadServers();
+      bridge.emitStatus(
+        'a',
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      bridge.emitRecovery('a', paneTabId: 'left');
+
+      await connections.loadServers();
+
+      final row = connections.servers.single;
+      expect(row.status?.state, ServerConnectionState.connected);
+      expect(row.paneFailure?.paneTabId, 'left');
+    });
+
+    test('a bookmark removed from the store loses its truth', () async {
+      store.bookmarks = [_server('a'), _server('b')];
+      final connections = controller();
+      await connections.loadServers();
+      bridge.emitStatus(
+        'a',
+        const ServerStatus(ServerConnectionState.connected),
+      );
+
+      store.bookmarks = [_server('b')];
+      await connections.loadServers();
+
+      expect(connections.servers, hasLength(1));
+      expect(connections.servers.single.serverId, 'b');
+      expect(connections.servers.single.status, isNull);
+    });
+
+    test('a reload with a stopped engine keeps truth cleared', () async {
+      store.bookmarks = [_server('a')];
+      final connections = controller();
+      await connections.loadServers();
+      bridge.emitStatus(
+        'a',
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await bridge.stopEngine();
+
+      await connections.loadServers();
+
+      expect(connections.servers.single.status, isNull);
+      expect(connections.servers.single.paneFailure, isNull);
+    });
+
+    test('an identical status does not re-notify', () async {
+      store.bookmarks = [_server('a')];
+      final connections = controller();
+      await connections.loadServers();
+
+      var notifications = 0;
+      connections.addListener(() => notifications++);
+
+      bridge.emitStatus(
+        'a',
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      final first = notifications;
+
+      // The watch lane replays current state on every re-subscribe; a
+      // byte-identical replay must not rebuild the list.
+      bridge.emitStatus(
+        'a',
+        const ServerStatus(ServerConnectionState.connected),
+      );
+
+      expect(first, 1);
+      expect(notifications, 1);
+    });
+
     test(
       'a pool-level recovery failure rides the status detail alone',
       () async {
@@ -393,8 +471,15 @@ void main() {
     expect(row.status?.state, ServerConnectionState.disconnected);
     expect(row.status?.detail, isNull);
 
+    // The lane-close half of the comment, asserted rather than promised:
+    // a direct subscription observes done when the engine shuts down.
+    final laneDone = Completer<void>();
+    final lane = client.watchServer('a');
+    final subscription = lane.listen(null, onDone: laneDone.complete);
+
     connections.dispose();
     await client.shutdown();
-    await client.terminated.timeout(const Duration(seconds: 30));
+    await laneDone.future.timeout(const Duration(seconds: 30));
+    await subscription.cancel();
   });
 }
