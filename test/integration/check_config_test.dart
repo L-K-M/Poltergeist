@@ -57,6 +57,7 @@ const _modernAlpineImage =
     'alpine:20260805@sha256:'
     '020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000';
 const _modernOpenSshVersion = '10.5_p1-r1';
+const _modernIproute2Version = '7.2.0-r0';
 const _modernOpenSshPackages = [
   'openssh-client-common',
   'openssh-server-pam',
@@ -136,6 +137,14 @@ void main() {
     for (final package in _modernOpenSshPackages) {
       expect(dockerfile, contains('$package=$_modernOpenSshVersion'));
     }
+  });
+
+  test('pins the current modern iproute2 package', () {
+    final dockerfile = File(
+      'test/integration/sshd-modern/Dockerfile',
+    ).readAsStringSync();
+
+    expect(dockerfile, contains('iproute2=$_modernIproute2Version'));
   });
 
   test('pins matching legacy OpenSSH client and server packages', () {

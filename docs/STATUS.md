@@ -4,7 +4,10 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-09. The debug-only demo surface now composes the
+_Last updated: 2026-09-10. The Alpine iproute2 apk pin in the sshd
+fixture is bumped to `7.2.0-r0` after upstream rotation broke main's
+SSH-integration leg, with a fixture-tool pin regression (dated section
+below). The debug-only demo surface now composes the
 existing connection slices into the running app for the first time — engine
 spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
 and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
@@ -917,6 +920,31 @@ candidate stays open; the keyboard/identity/Enter/echo candidates and
 owner gates are unchanged). No pin change (#83 is app-layer only — the
 pinned `seance_core`/`seance_protocol` trees are untouched), no release,
 no milestone-close claim.
+
+## Fixture repair — Alpine iproute2 pin (2026-09-10)
+
+Main's post-merge CI leg
+([run 34438055897](https://github.com/L-K-M/Poltergeist/actions/runs/34438055897),
+head `22eefd1`) failed building the sshd fixture: apk rejected
+`iproute2=7.1.0-r0` in `test/integration/sshd-modern/Dockerfile` —
+Alpine rotated the package to `7.2.0-r0` and only that version remains
+(`iproute2-7.2.0-r0: breaks: world[iproute2=7.1.0-r0]`). The other
+three apk pins in the same file (the `10.5_p1-r1` OpenSSH set) still
+resolve and are unchanged; the legacy Debian fixture and every other
+fixture file pin nothing else on this image. Bumped the pin to
+`iproute2=7.2.0-r0`, matching the fixture's established exact-pin
+convention (no new pinning scheme), and added the fixture-tool
+regression `pins the current modern iproute2 package` beside the
+existing OpenSSH pin test — it failed against the old Dockerfile and
+passes after the bump. `docs/M0-DARTSSH2-REPORT.md`'s fixture row keeps
+`7.1.0-r0`: it records the fixture as measured for M0 evidence, which
+does not change retroactively.
+
+Validation: fixture-tool analyze clean, 62 tests pass; core analyze
+clean, 333 tests pass (15 Docker-fixture skips — Docker unavailable
+locally, as before). The real build + all 15 SSH tests ride the CI
+integration leg on the PR head. No PORTS, pin, dependency, or
+milestone-close change.
 
 ## Open items
 
