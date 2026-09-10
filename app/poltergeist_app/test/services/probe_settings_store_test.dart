@@ -54,6 +54,10 @@ void main() {
     await seed({'probe.enabled': false});
     expect(await reopened().loadGlobalPreference(), ProbePreference.disabled);
 
+    // An explicit opt-in round-trips too, not just the default.
+    await seed({'probe.enabled': true});
+    expect(await reopened().loadGlobalPreference(), ProbePreference.enabled);
+
     // Anything that is not an explicit opt-out reads as the 02 §4 default.
     await seed({'probe.enabled': 'no'});
     expect(await reopened().loadGlobalPreference(), ProbePreference.enabled);
@@ -229,6 +233,14 @@ void main() {
       )).exposure,
       FavoriteExposure.unseen,
     );
+    // The reset persists the rebound record, exactly like the host case.
+    final servers = (await readFile())['probe.servers'] as Map;
+    expect(servers['bookmark-a'], {
+      'host': 'sftp.example',
+      'port': 2222,
+      'exposure': 'unseen',
+      'connected': false,
+    });
   });
 
   test('the host binding ignores case', () async {

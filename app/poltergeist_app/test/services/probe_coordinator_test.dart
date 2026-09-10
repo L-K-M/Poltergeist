@@ -117,7 +117,9 @@ final class _Settings implements ProbeSettings {
     }
     final existing = servers[serverId];
     final sameEndpoint =
-        existing != null && existing.host == host && existing.port == port;
+        existing != null &&
+        existing.host.toLowerCase() == host.toLowerCase() &&
+        existing.port == port;
     _write(
       serverId,
       host,
@@ -186,6 +188,9 @@ void main() {
     await pump();
 
     expect(bridge.subscribedBeforeCommands, isTrue);
+    // A command must actually have been sent for the ordering guard to
+    // mean anything.
+    expect(bridge.calls, contains('targets:bookmark-a'));
   });
 
   test('showServer persists exposure and configures the engine', () async {
@@ -239,9 +244,29 @@ void main() {
     coordinator.showServer(_server());
     await pump();
 
-    expect(errors, hasLength(1));
+    // Both the write and the fallback reads fail: two reports.
+    expect(errors, hasLength(2));
     expect(bridge.targets, isEmpty);
     expect(bridge.calls, isNot(contains('running')));
+  });
+
+  test('a write failure alone does not disable a readable store', () async {
+    // The exposed record pre-exists, so the favorite can stay eligible:
+    // only unreadable stores must fail closed (the documented intent).
+    settings.servers['bookmark-a'] = (
+      host: 'sftp.example',
+      port: 22,
+      connected: false,
+    );
+    settings.failWrites = true;
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+
+    coordinator.showServer(_server());
+    await pump();
+
+    expect(errors, isNotEmpty);
+    expect(bridge.targets.single.id, 'bookmark-a');
+    expect(bridge.calls, contains('running'));
   });
 
   test('markConnected re-applies policy with the stored connection', () async {

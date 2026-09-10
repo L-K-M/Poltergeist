@@ -292,7 +292,12 @@ final class _FakeProbeSettings implements ProbeSettings {
     required int port,
   }) async {
     final facts = servers[serverId];
-    if (facts == null) return ProbeServerFacts.unseen;
+    // Mirrors the real store: case-insensitive host binding, exact port.
+    if (facts == null ||
+        facts.host.toLowerCase() != host.toLowerCase() ||
+        facts.port != port) {
+      return ProbeServerFacts.unseen;
+    }
     return ProbeServerFacts(
       exposure: FavoriteExposure.seen,
       connected: facts.connected
@@ -1710,6 +1715,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(engine.probeCalls.last, 'running');
 
+      // Clear the pre-hide history so the pause assertion pins the hide
+      // transition itself, not an earlier setup-time pause.
+      engine.probeCalls.clear();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       await tester.pump();

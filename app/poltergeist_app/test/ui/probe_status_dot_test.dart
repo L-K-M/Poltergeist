@@ -78,34 +78,50 @@ void main() {
       expect(find.byTooltip(entry.$2), findsOneWidget);
 
       final semantics = tester.ensureSemantics();
-      expect(find.bySemanticsLabel(entry.$2), findsOneWidget);
-      semantics.dispose();
+      try {
+        expect(find.bySemanticsLabel(entry.$2), findsOneWidget);
+      } finally {
+        // Release the handle even on failure: a leaked semantics mode
+        // would poison every later test in this file.
+        semantics.dispose();
+      }
     });
   }
 
   test('dot colors stay above 3:1 on both theme surfaces', () {
     // 02 §4: status colors are theme-aware and contrast-checked (SEA-019).
     // Uses the production theme builder: the demo app bar paints
-    // scheme.surface (verified by pixel sampling; M3's default AppBar
-    // background), so the surface contrast is the rendered chrome.
+    // scheme.surface (pinned at the widget level above; M3's default
+    // AppBar background). The demo body scrolls under the bar, so the
+    // scrolled-under tint (scrolledUnderElevation 3) is pinned too.
     for (final brightness in Brightness.values) {
       final scheme = buildPoltergeistTheme(brightness).colorScheme;
+      final scrolled = ElevationOverlay.applySurfaceTint(
+        scheme.surface,
+        scheme.surfaceTint,
+        3,
+      );
 
-      expect(
-        _contrast(ProbeStatusDot.onlineColor, scheme.surface),
-        greaterThanOrEqualTo(_minimumDotContrast),
-        reason: 'online on ${brightness.name}',
-      );
-      expect(
-        _contrast(scheme.error, scheme.surface),
-        greaterThanOrEqualTo(_minimumDotContrast),
-        reason: 'offline on ${brightness.name}',
-      );
-      expect(
-        _contrast(scheme.outline, scheme.surface),
-        greaterThanOrEqualTo(_minimumDotContrast),
-        reason: 'unknown on ${brightness.name}',
-      );
+      for (final background in <(String, Color)>[
+        ('resting', scheme.surface),
+        ('scrolled-under', scrolled),
+      ]) {
+        expect(
+          _contrast(ProbeStatusDot.onlineColor, background.$2),
+          greaterThanOrEqualTo(_minimumDotContrast),
+          reason: 'online on ${background.$1} (${brightness.name})',
+        );
+        expect(
+          _contrast(scheme.error, background.$2),
+          greaterThanOrEqualTo(_minimumDotContrast),
+          reason: 'offline on ${background.$1} (${brightness.name})',
+        );
+        expect(
+          _contrast(scheme.outline, background.$2),
+          greaterThanOrEqualTo(_minimumDotContrast),
+          reason: 'unknown on ${background.$1} (${brightness.name})',
+        );
+      }
     }
   });
 

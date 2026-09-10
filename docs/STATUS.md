@@ -977,7 +977,7 @@ same path.
 Validation: regressions observed failing before implementation where
 behavior is new (the four suites reference the not-yet-written services;
 subscribe-before-send ordering, pause/resume forwarding, retarget reset,
-and file round-trips all pass after). 327 app tests (41 new: store
+and file round-trips all pass after). 329 app tests (43 new: store
 round-trips/defaults/retarget/malformed-repair/concurrent-writes,
 forwarder attach/detach/duplicate-attach, coordinator policy incl.
 fail-closed store reads, stale-hide refusal, and replaced-record removal,
@@ -1028,7 +1028,25 @@ the third re-raise of the hideServer-in-_teardown misattribution
 (hideServer is only called from disconnect(); quoted the methods); the
 pumpDemoView engine-close claim (the helper already registers it); the
 SettingsStore cross-facade race (setAll mutates the shared in-memory
-map inside the store's own serialized write tail). Widget-render
+map inside the store's own serialized write tail). Review round 4
+(polish + re-litigations) applied: the fail-closed path narrows to
+read failures (an unwritable but readable store keeps probing with the
+loaded facts; only unreadable stores disable — matching the documented
+intent, with both paths pinned); the subscribe-ordering and hide
+assertions pin real commands instead of vacuous passes; the port-retarget
+reset persistence and the explicit-opt-in round-trip are pinned; the
+demo fake honors endpoint binding; the semantics handle releases on
+failure; the scrolled-under surface tint joins the contrast pin; the
+null-attach lifecycle contract is pinned; main.dart documents the shared
+store's internal write serialization. Refuted with evidence: the
+"critical" null-safety compile claim (Dart 3 boolean-variable promotion
+makes the code valid — analyze clean and all 329 tests pass on the exact
+head the reviewer called broken, and CI's Flutter job is green) and the
+fourth re-raise of the hideServer-in-_teardown misattribution
+(hideServer is only called from disconnect()). Declined (re-raised a
+fourth time, recorded): _isCurrent value-equality. Declined (re-raised):
+clearServers/orphan sweep — the round-3 footgun rationale stands.
+Widget-render
 captures before/after the dot in `tasks/probe-wiring-captures` (rootless
 container, labeled). No core changes, no pin/dependency change, no source
 port, no milestone-close claim: live connection-state composition (the

@@ -136,13 +136,10 @@ final class ProbeCoordinator extends ChangeNotifier {
       );
       await _configure(config, global, facts);
     } catch (error, stackTrace) {
-      // An unreadable store must never enable probing: fail closed.
+      // A failed write must not disable probing by itself: the store may
+      // still be readable, so re-read and configure from live facts.
       _errors.report(error, stackTrace);
-      await _configure(
-        config,
-        ProbePreference.disabled,
-        ProbeServerFacts.unseen,
-      );
+      await _configureFromReads(config);
     }
   }
 
@@ -163,12 +160,26 @@ final class ProbeCoordinator extends ChangeNotifier {
       await _configure(config, global, facts);
     } catch (error, stackTrace) {
       _errors.report(error, stackTrace);
-      await _configure(
-        config,
-        ProbePreference.disabled,
-        ProbeServerFacts.unseen,
-      );
+      await _configureFromReads(config);
     }
+  }
+
+  /// Fails closed only when the reads themselves fail: an unreadable
+  /// store must never enable probing; an unwritable one may still read.
+  Future<void> _configureFromReads(ServerConfig config) async {
+    var global = ProbePreference.disabled;
+    var facts = ProbeServerFacts.unseen;
+    try {
+      global = await _settings.loadGlobalPreference();
+      facts = await _settings.loadServerFacts(
+        serverId: config.id,
+        host: config.host,
+        port: config.port,
+      );
+    } catch (error, stackTrace) {
+      _errors.report(error, stackTrace);
+    }
+    await _configure(config, global, facts);
   }
 
   Future<void> _configure(

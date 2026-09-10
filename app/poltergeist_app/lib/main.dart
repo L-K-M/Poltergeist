@@ -23,6 +23,10 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
   final preferences = AppPreferences(store: settingsStore);
+  // Both facades write settings.json through this one instance;
+  // SettingsStore serializes every write internally (its write tail) and
+  // persists the full in-memory snapshot atomically, so probe-servers
+  // writes can never interleave with pane-ratio saves.
   final probeSettings = ProbeSettingsStore(store: settingsStore);
   final paneRatio = await preferences.loadPaneRatio();
   final windowLifecycle = DesktopWindowLifecycle(

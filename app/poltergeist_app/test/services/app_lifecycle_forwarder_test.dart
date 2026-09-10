@@ -17,6 +17,16 @@ final class _FakeSource implements AppLifecycleSource {
 }
 
 void main() {
+  test('attach with a null current state forwards null to the listener', () {
+    // The platform has not delivered a lifecycle event yet; the wiring
+    // must hear the null and fail closed rather than assume foreground.
+    final source = _FakeSource();
+    final seen = <AppLifecycleState?>[];
+    AppLifecycleForwarder(source: source, onState: seen.add).attach();
+
+    expect(seen, [isNull]);
+  });
+
   test('attach registers the observer and reports the current state', () {
     final source = _FakeSource()..state = AppLifecycleState.resumed;
     final seen = <AppLifecycleState?>[];
