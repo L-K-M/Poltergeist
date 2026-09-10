@@ -269,6 +269,7 @@ void main() {
           'exposure': 'seen',
           'connected': true,
         },
+        'bookmark-b': 'not even a map',
       },
     });
 
@@ -283,6 +284,23 @@ void main() {
     final servers = (await readFile())['probe.servers'] as Map;
     expect(servers['bookmark-a'], {
       'host': 'sftp.example',
+      'port': 22,
+      'exposure': 'unseen',
+      'connected': false,
+    });
+
+    // A non-Map record is repaired too, not left to accumulate.
+    expect(
+      (await reopened().loadServerFacts(
+        serverId: 'bookmark-b',
+        host: 'other.example',
+        port: 22,
+      )).exposure,
+      FavoriteExposure.unseen,
+    );
+    final repairedServers = (await readFile())['probe.servers'] as Map;
+    expect(repairedServers['bookmark-b'], {
+      'host': 'other.example',
       'port': 22,
       'exposure': 'unseen',
       'connected': false,

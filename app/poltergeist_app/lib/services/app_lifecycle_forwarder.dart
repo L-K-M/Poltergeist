@@ -24,7 +24,9 @@ final class _WidgetsBindingSource implements AppLifecycleSource {
 
 /// Forwards app lifecycle state to the probe wiring: probes run only while
 /// the app is foregrounded (02 §4), so backgrounding must pause the engine
-/// and returning must resume it.
+/// and returning must resume it. A null initial state (no lifecycle event
+/// delivered yet) fails closed: probing stays paused until the OS reports
+/// the first state.
 final class AppLifecycleForwarder with WidgetsBindingObserver {
   AppLifecycleForwarder({required this.onState, AppLifecycleSource? source})
     : _source = source ?? const _WidgetsBindingSource();

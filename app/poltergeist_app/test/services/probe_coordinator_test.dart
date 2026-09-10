@@ -83,7 +83,12 @@ final class _Settings implements ProbeSettings {
     reads.add('facts:$serverId');
     if (failReads) throw StateError('settings unreadable');
     final facts = servers[serverId];
-    if (facts == null) return ProbeServerFacts.unseen;
+    // Mirrors the real store: case-insensitive host, exact port.
+    if (facts == null ||
+        facts.host.toLowerCase() != host.toLowerCase() ||
+        facts.port != port) {
+      return ProbeServerFacts.unseen;
+    }
     return ProbeServerFacts(
       exposure: FavoriteExposure.seen,
       connected: facts.connected
@@ -430,6 +435,20 @@ void main() {
 
     expect(errors, isNotEmpty);
     expect(bridge.targets, isEmpty);
+  });
+
+  test('dispose is idempotent and emits its stop exactly once', () async {
+    coordinator.forwardLifecycle(AppLifecycleState.resumed);
+    coordinator.showServer(_server());
+    await pump();
+    final callsBefore = bridge.calls.length;
+
+    coordinator.dispose();
+    coordinator.dispose();
+    await pump();
+
+    expect(bridge.events.hasListener, isFalse);
+    expect(bridge.calls.sublist(callsBefore), ['paused', 'targets:']);
   });
 
   test('dispose removes the record and unsubscribes', () async {

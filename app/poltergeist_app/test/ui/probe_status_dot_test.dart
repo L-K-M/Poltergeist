@@ -12,10 +12,14 @@ const _minimumDotContrast = 3.0;
 
 /// The shared localization harness: a production-theme MaterialApp with
 /// [child] centered in the scaffold body.
-Future<void> _pump(WidgetTester tester, Widget child) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget child, {
+  Brightness brightness = Brightness.light,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
-      theme: buildPoltergeistTheme(Brightness.light),
+      theme: buildPoltergeistTheme(brightness),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(body: Center(child: child)),
@@ -105,51 +109,105 @@ void main() {
     }
   });
 
-  testWidgets('each state paints its exact color on screen', (tester) async {
-    // Pins the rendered pixels, not just the decoration: a golden-capture
-    // color-space artifact must never hide a real paint regression.
-    for (final status in ProbeStatus.values) {
-      await _pump(
-        tester,
-        RepaintBoundary(
-          key: const ValueKey('dot-boundary'),
-          child: SizedBox(width: 40, height: 40, child: ProbeStatusDot(status)),
+  testWidgets('the demo app bar paints scheme.surface in both themes', (
+    tester,
+  ) async {
+    // The contrast pin's chrome assumption, pinned at the widget level:
+    // a Flutter upgrade that repaints the M3 AppBar (e.g. to
+    // surfaceContainer) must fail here loudly.
+    for (final brightness in Brightness.values) {
+      final theme = buildPoltergeistTheme(brightness);
+      final scheme = theme.colorScheme;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            appBar: AppBar(title: const Text('x')),
+            body: const SizedBox.expand(),
+          ),
         ),
       );
 
-      // The tight 40x40 parent stretches the dot's container to a 40 px
-      // circle, so the box center is the dot center. toImage needs a real
-      // event loop; runAsync provides one inside the test zone.
-      final boundary = tester.renderObject<RenderRepaintBoundary>(
-        find.byKey(const ValueKey('dot-boundary')),
+      // The AppBar paints its resolved background through an interior
+      // Material; read the resolved color instead of sampling pixels.
+      final material = tester.widget<Material>(
+        find
+            .descendant(
+              of: find.byType(AppBar),
+              matching: find.byType(Material),
+            )
+            .first,
       );
-      final pixel = (await tester.runAsync(() async {
-        final image = await boundary.toImage(pixelRatio: 3);
-        try {
-          final data = await image.toByteData();
-          final width = image.width;
-          final center = (width ~/ 2) * width + width ~/ 2;
-          // Honor the view's offset: a view-backed ByteData must sample
-          // from its own start, never the underlying buffer's zero.
-          return data!.buffer.asUint8List(data.offsetInBytes + center * 4, 4);
-        } finally {
-          image.dispose();
-        }
-      }))!;
-      final expected = switch (status) {
-        ProbeStatus.online => ProbeStatusDot.onlineColor,
-        ProbeStatus.offline => Theme.of(
-          tester.element(find.byType(ProbeStatusDot)),
-        ).colorScheme.error,
-        ProbeStatus.unknown => Theme.of(
-          tester.element(find.byType(ProbeStatusDot)),
-        ).colorScheme.outline,
-      };
+      expect(
+        material.color,
+        scheme.surface,
+        reason: 'app bar background on ${brightness.name}',
+      );
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
 
-      expect(pixel[0], (expected.r * 255).round(), reason: 'red of $status');
-      expect(pixel[1], (expected.g * 255).round(), reason: 'green of $status');
-      expect(pixel[2], (expected.b * 255).round(), reason: 'blue of $status');
-      expect(pixel[3], 255, reason: 'alpha of $status');
+  testWidgets('each state paints its exact color on screen', (tester) async {
+    // Pins the rendered pixels, not just the decoration: a golden-capture
+    // color-space artifact must never hide a real paint regression.
+    // Deliberately exact (no ±1 tolerance): an SDK color-pipeline change
+    // SHOULD fail this pin and be triaged as such, not absorbed silently.
+    for (final status in ProbeStatus.values) {
+      for (final brightness in Brightness.values) {
+        await _pump(
+          tester,
+          RepaintBoundary(
+            key: const ValueKey('dot-boundary'),
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: ProbeStatusDot(status),
+            ),
+          ),
+          brightness: brightness,
+        );
+
+        // The tight 40x40 parent stretches the dot's container to a 40 px
+        // circle, so the box center is the dot center. toImage needs a real
+        // event loop; runAsync provides one inside the test zone.
+        final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const ValueKey('dot-boundary')),
+        );
+        final pixel = (await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 3);
+          try {
+            final data = await image.toByteData();
+            final width = image.width;
+            final center = (width ~/ 2) * width + width ~/ 2;
+            // Honor the view's offset: a view-backed ByteData must sample
+            // from its own start, never the underlying buffer's zero.
+            return data!.buffer.asUint8List(data.offsetInBytes + center * 4, 4);
+          } finally {
+            image.dispose();
+          }
+        }))!;
+        final expected = switch (status) {
+          ProbeStatus.online => ProbeStatusDot.onlineColor,
+          ProbeStatus.offline => Theme.of(
+            tester.element(find.byType(ProbeStatusDot)),
+          ).colorScheme.error,
+          ProbeStatus.unknown => Theme.of(
+            tester.element(find.byType(ProbeStatusDot)),
+          ).colorScheme.outline,
+        };
+
+        expect(pixel[0], (expected.r * 255).round(), reason: 'red of $status');
+        expect(
+          pixel[1],
+          (expected.g * 255).round(),
+          reason: 'green of $status',
+        );
+        expect(pixel[2], (expected.b * 255).round(), reason: 'blue of $status');
+        expect(pixel[3], 255, reason: 'alpha of $status');
+        // Same retained-layer caveat as the app bar pin: a fresh tree per
+        // iteration keeps the captured picture current.
+        await tester.pumpWidget(const SizedBox());
+      }
     }
   });
 }

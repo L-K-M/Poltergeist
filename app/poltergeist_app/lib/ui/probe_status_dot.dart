@@ -37,13 +37,21 @@ class ProbeStatusDot extends StatelessWidget {
       // tooltip stays visual-only (long-press/hover) so the label is not
       // announced twice.
       excludeFromSemantics: true,
+      // The padded hit area keeps the hover/long-press tooltip reachable:
+      // a 10 px painted dot alone is not a practical touch target.
       child: Semantics(
         label: label,
         container: true,
-        child: Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: Center(
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+          ),
         ),
       ),
     );

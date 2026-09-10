@@ -98,9 +98,10 @@ final class ProbeSettingsStore implements ProbeSettings {
     final facts = _readFacts(stored, host, port);
     if (facts != null) return facts;
 
-    // Absent records stay absent; a malformed or retargeted record is
-    // repaired in place so the reset (03 §3.4) is durable.
-    if (stored is Map) {
+    // Absent records stay absent; any present-but-malformed record (not
+    // just a Map with bad fields) is repaired in place so the reset
+    // (03 §3.4) is durable and junk never accumulates.
+    if (stored != null) {
       await _writeServer(serverId, host, port, seen: false, connected: false);
     }
     return ProbeServerFacts.unseen;

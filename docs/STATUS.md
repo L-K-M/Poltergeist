@@ -19,9 +19,10 @@ spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
 and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
 (dated section below). The app-side probe controller now enforces
 favorite eligibility and lifecycle/settings policy through the engine port
-(dated section below). Startup composition and live connection-state
-composition remain open (the probe-wiring remainder landed 2026-09-10;
-dated section below). The host-key
+(dated section below). Startup composition, live connection-state
+composition, and the deferred per-favorite probe opt-out (M5's bookmark
+store) remain open (the probe-wiring remainder landed 2026-09-10; dated
+section below). The host-key
 dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
@@ -976,7 +977,7 @@ same path.
 Validation: regressions observed failing before implementation where
 behavior is new (the four suites reference the not-yet-written services;
 subscribe-before-send ordering, pause/resume forwarding, retarget reset,
-and file round-trips all pass after). 325 app tests (39 new: store
+and file round-trips all pass after). 327 app tests (41 new: store
 round-trips/defaults/retarget/malformed-repair/concurrent-writes,
 forwarder attach/detach/duplicate-attach, coordinator policy incl.
 fail-closed store reads, stale-hide refusal, and replaced-record removal,
@@ -1012,8 +1013,22 @@ regression pins it). Declined: value-equality in _isCurrent — the
 identical() recheck is the required post-await idiom (09 §3.1) and the
 constructor contract keeps the config instance; refreshPolicy — no
 settings-change notification or UI exists in M2, and an API without a
-caller is speculative (M5's settings surface wires the update path).
-Widget-render
+caller is speculative (M5's settings surface wires the update path);
+clearServers — a startup sweep of the shared map would be a data-loss
+footgun once M5 keys durable bookmark records there, and the residual
+risk is one record per crashed debug session on a surface M3 deletes.
+Review round 3 (polish-only per the owner's bar) applied: non-Map
+malformed records repair in place; the dot's tooltip hit area grows to
+24 px; the coordinator fake's host comparison matches the store's
+case-insensitive binding; dark-brightness render loops for the dot; an
+explicit dispose-idempotency pin; the app-bar background assumption is
+pinned at the widget level; the pixel pin documents its deliberate
+exactness; STATUS lists the deferred per-favorite opt-out. Refuted:
+the third re-raise of the hideServer-in-_teardown misattribution
+(hideServer is only called from disconnect(); quoted the methods); the
+pumpDemoView engine-close claim (the helper already registers it); the
+SettingsStore cross-facade race (setAll mutates the shared in-memory
+map inside the store's own serialized write tail). Widget-render
 captures before/after the dot in `tasks/probe-wiring-captures` (rootless
 container, labeled). No core changes, no pin/dependency change, no source
 port, no milestone-close claim: live connection-state composition (the
