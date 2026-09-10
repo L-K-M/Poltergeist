@@ -171,7 +171,10 @@ class _Toolbar extends StatelessWidget {
                 child: TextButton.icon(
                   key: ValueKey('command.${command.id}'),
                   onPressed: command.enabled() ? () => onRun(command) : null,
-                  icon: Icon(command.icon ?? Icons.bug_report_outlined, size: 18),
+                  icon: Icon(
+                    command.icon ?? Icons.bug_report_outlined,
+                    size: 18,
+                  ),
                   label: Text(
                     command.label(l10n),
                     maxLines: 1,

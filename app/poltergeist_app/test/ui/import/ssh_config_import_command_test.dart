@@ -207,6 +207,28 @@ void main() {
     expect(find.text('Import 2'), findsOneWidget);
   });
 
+  testWidgets('a missing config file shows the retry surface, not a crash', (
+    tester,
+  ) async {
+    await pumpApp(
+      tester,
+      wiring: SshConfigImportSetup(
+        service: _service(FakeSshConfigSource(const {})),
+        bookmarks: store,
+        configPath: _configPath,
+      ),
+    );
+
+    await tester.tap(commandButton);
+    await tester.pumpAndSettle();
+
+    // The import command is registered whenever a home resolves; a
+    // missing ~/.ssh/config must land on the dialog's retry surface and
+    // persist nothing.
+    expect(find.text('Could not read $_configPath.'), findsOneWidget);
+    expect(await store.load(), isEmpty);
+  });
+
   testWidgets('a store load failure shows the notice, not the preview', (
     tester,
   ) async {

@@ -160,7 +160,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'bookmark store root'",
     "'bookmark store version \$version'",
     "'bookmark:\$id'",
-    r"'${_file.path}.corrupt-${_stamp()}'",
+    r"'$path.corrupt-${_quarantineStamp(now)}'",
     "'-'",
     "':'",
     "'.'",

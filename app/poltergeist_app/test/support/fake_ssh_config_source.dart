@@ -1,7 +1,7 @@
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 /// An in-memory [SshConfigFileSource] for import tests: [files] maps
-/// absolute paths to text, and every directory listing is empty (tests
+/// absolute paths to text, and directory listings report as absent (tests
 /// that need includes stub the listing themselves).
 class FakeSshConfigSource implements SshConfigFileSource {
   FakeSshConfigSource(this.files);

@@ -1333,18 +1333,19 @@ Four new ARB strings carry the command label, the confirmation, and the two
 store-failure notices.
 
 Validation: regressions observed failing first (both suites did not
-compile before the seams existed). New tests: ten `bookmark_store_test`
+compile before the seams existed). New tests: twelve `bookmark_store_test`
 cases (disk round-trip, id update, corrupt quarantine with byte
 preservation, failed-quarantine fail-closed, skip-and-preserve for an
-unknown kind and for a wrong-typed field, newer-version fail-in-place,
-read-failure propagation, concurrent-write serialization, and the
-service-built import persisted to disk); six `ssh_config_import_command_test`
-cases (wiring gate, preview→persist with reference-style IdentityFile,
-existing endpoint flagged+skipped, no-match store, and the load- and
-save-failure notices); and four `ssh_config_import_setup_test` cases
-(POSIX wiring, no home, Windows gate, macOS sandbox home). The shared
-`FakeSshConfigSource` lives in `test/support/`. 349 app tests pass
-(329 + 20); app analysis clean; import guard, protocol guard, and the
+unknown kind and for a wrong-typed field, newer- and unrecognized-version
+fail-in-place, read-failure propagation, a load waiting for a queued
+write, concurrent-write serialization, and the service-built import
+persisted to disk); seven `ssh_config_import_command_test` cases (wiring
+gate, preview→persist with reference-style IdentityFile, existing endpoint
+flagged+skipped, no-match store, a missing config's retry surface, and the
+load- and save-failure notices); and four `ssh_config_import_setup_test`
+cases (POSIX wiring, no home, Windows gate, macOS sandbox home). The
+shared `FakeSshConfigSource` lives in `test/support/`. 352 app tests pass
+(329 + 23); app analysis clean; import guard, protocol guard, and the
 repository scan pass. Core untouched (356 tests, 15 fixture skips).
 Rootless widget captures (before / after / dialog, labeled as such) under
 `tasks/m2-ssh-import-captures`, since the shell's toolbar layout changes.
@@ -1376,6 +1377,20 @@ fake source is shared. Refuted (re-raise, no new evidence): widening
 `_decode`'s catch — round 1's pinned-source proof stands and the
 wrong-typed-field case already passes through skip-and-preserve. 349 app
 tests, analyze, and the guards pass on the reviewed head.
+
+Review round 3 (applied; polish only, one re-raise): the version guard now
+fails closed on any unrecognized encoding (a non-int version included);
+`load()` awaits the write tail so a read racing a queued write cannot
+return pre-write state (regression: gated writer, verified to fail without
+the await); the quarantine name is a shared `bookmarkQuarantinePath`
+helper rather than duplicated in the test; a missing `~/.ssh/config` is
+pinned to the dialog's retry surface; the toolbar icon wraps; the fake
+source's doc says listings are absent, not empty. Refuted again (third
+raise, no new evidence): widening `_decode`'s catch to `on Object` —
+`_guardFormat` in the pinned model normalizes every failure to
+`FormatException`, and the wrong-typed-field regression passes through
+skip-and-preserve. No correctness, security, or contract finding
+survives triage; the remaining raise is a re-litigated decline.
 
 Deliberately out of scope: M5's `BookmarkStore` UI (grouping, reorder,
 sidebar), the connect flow that consumes an imported IdentityFile (still

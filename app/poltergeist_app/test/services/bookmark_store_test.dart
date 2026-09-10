@@ -103,12 +103,9 @@ void main() {
     // Park a directory where the quarantine rename would land, so the
     // rename fails. The store must then fail closed rather than load
     // empty and let the next save overwrite the unreadable bytes.
-    final stamp = DateTime.utc(2026, 9, 8, 12)
-        .toIso8601String()
-        .replaceAll('-', '')
-        .replaceAll(':', '')
-        .replaceAll('.', '');
-    Directory('$path.corrupt-$stamp').createSync();
+    Directory(
+      bookmarkQuarantinePath(path, DateTime.utc(2026, 9, 8, 12)),
+    ).createSync();
     final store = FileBookmarkStore(
       path: path,
       now: () => DateTime.utc(2026, 9, 8, 12),
@@ -251,6 +248,55 @@ void main() {
       dir.listSync().where((entity) => entity.path.contains('.corrupt-')),
       isEmpty,
     );
+  });
+
+  test('an unrecognized store version encoding fails closed', () async {
+    final path = pathIn('bookmarks.json');
+    // A non-integer version is a format this version cannot read, so it
+    // must fail like a newer integer version rather than load as v1.
+    File(path).writeAsStringSync('{"version":"2","bookmarks":[]}');
+    final store = FileBookmarkStore(path: path);
+    await expectLater(store.load(), throwsA(isA<FormatException>()));
+    expect(File(path).readAsStringSync(), '{"version":"2","bookmarks":[]}');
+
+    // An absent version and the current version both load normally.
+    File(path).writeAsStringSync('{"bookmarks":[]}');
+    expect(await FileBookmarkStore(path: path).load(), isEmpty);
+    File(path).writeAsStringSync('{"version":1,"bookmarks":[]}');
+    expect(await FileBookmarkStore(path: path).load(), isEmpty);
+  });
+
+  test('a load waits for a queued write', () async {
+    final path = pathIn('bookmarks.json');
+    final gate = Completer<void>();
+    final writerStarted = Completer<void>();
+    final store = FileBookmarkStore(
+      path: path,
+      atomicWriter: (file, contents) async {
+        writerStarted.complete();
+        await gate.future;
+        await writeStringAtomically(file, contents);
+      },
+    );
+
+    final write = store.upsertAll([_bookmark('a')]);
+    await writerStarted.future;
+
+    var readSettled = false;
+    final read = store.load().then((bookmarks) {
+      readSettled = true;
+      return bookmarks;
+    });
+    // The write is parked, so the read must not resolve with the pre-write
+    // (empty) state.
+    await Future<void>.delayed(Duration.zero);
+    expect(readSettled, isFalse);
+
+    gate.complete();
+    await write;
+
+    final bookmarks = await read;
+    expect(bookmarks.map((bookmark) => bookmark.id), ['a']);
   });
 
   test('serializes concurrent writes so neither bookmark is lost', () async {

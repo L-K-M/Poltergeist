@@ -6,6 +6,20 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'atomic_file.dart';
 
+/// The quarantine name for a corrupt store at [path]: UTC ISO-8601 with
+/// `-`, `:`, and `.` stripped, matching the ported file stores. Exposed so
+/// a test can park a blocking entry where the quarantine rename will land
+/// without duplicating the format.
+String bookmarkQuarantinePath(String path, DateTime now) =>
+    '$path.corrupt-${_quarantineStamp(now)}';
+
+String _quarantineStamp(DateTime now) => now
+    .toUtc()
+    .toIso8601String()
+    .replaceAll('-', '')
+    .replaceAll(':', '')
+    .replaceAll('.', '');
+
 /// The persistence seam the import flow dedupes against and writes to
 /// (03 §6's `BookmarkStore`): the UI depends on this, never on `dart:io`.
 /// [FileBookmarkStore] is the on-disk implementation; tests and M5's
@@ -74,6 +88,9 @@ final class FileBookmarkStore implements BookmarkRepository {
   @override
   Future<List<Bookmark>> load() async {
     await _ensureLoaded();
+    // Read-your-writes: a load racing a queued write waits for the tail
+    // (already error-healed) instead of returning pre-write state.
+    await _writeTail;
     return List.unmodifiable(_bookmarks.values);
   }
 
@@ -159,9 +176,10 @@ final class FileBookmarkStore implements BookmarkRepository {
     // like an unreadable file (no quarantine, no empty start) so a local
     // re-save can never replace it with a v1 shape. M5/M6 own real
     // migrations; until then this is the fail-closed posture, and the
-    // calling service reports the thrown error.
+    // calling service reports the thrown error. Any non-null version that
+    // is not the v1 integer is unrecognized and fails closed too.
     final version = decoded[_versionKey];
-    if (version is int && version > _storeVersion) {
+    if (version != null && (version is! int || version > _storeVersion)) {
       throw FormatException('bookmark store version $version');
     }
 
@@ -214,14 +232,7 @@ final class FileBookmarkStore implements BookmarkRepository {
   /// Throws when the file cannot be moved: starting empty over bytes this
   /// version could not read would let the next save overwrite them.
   Future<void> _quarantine() =>
-      _file.rename('${_file.path}.corrupt-${_stamp()}');
-
-  String _stamp() => _now()
-      .toUtc()
-      .toIso8601String()
-      .replaceAll('-', '')
-      .replaceAll(':', '')
-      .replaceAll('.', '');
+      _file.rename(bookmarkQuarantinePath(_file.path, _now()));
 
   void _report(Object error, StackTrace stack) {
     try {
