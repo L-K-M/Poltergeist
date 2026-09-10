@@ -57,6 +57,7 @@ const _modernAlpineImage =
     'alpine:20260805@sha256:'
     '020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000';
 const _modernOpenSshVersion = '10.5_p1-r1';
+// Keep in sync with the sshd-modern Dockerfile; bump both on rotation.
 const _modernIproute2Version = '7.2.0-r0';
 const _modernOpenSshPackages = [
   'openssh-client-common',
