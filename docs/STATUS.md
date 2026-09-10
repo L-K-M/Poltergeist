@@ -955,7 +955,7 @@ whose session can probe — owns the forwarder, so backgrounding pauses the
 engine's probes and returning resumes them (02 §4; only `resumed` runs).
 
 Interim dots (`ProbeStatusDot`, ARB tooltips + semantics): tri-state
-unknown/online/offline; online is Material green 600, offline the scheme's
+unknown/online/offline; online is Material green 800, offline the scheme's
 error, unknown the scheme's outline. Contrast is pinned ≥ 3:1 on both
 seeded theme surfaces (02 §4's SEA-019 fix) and a render-level test pins
 the exact painted pixels per state. The demo page renders the dot beside
@@ -1407,6 +1407,14 @@ steady state.
      and explicit trust review landed in the dated slices above; the
      auth-failure summaries land in their own 2026-09-08 slice, and M4's
      mid-transfer queue recovery retains its gate.
+   - **2026-09-10 — unbounded per-serverId state (audit finding C).**
+     `_events`, `EngineClient._serverStates`, `EngineHost._servers`, and
+     `_incidentOwners` each gain an entry per serverId with no removal.
+     Bounded by the demo session's lifetime today; unbounded once M3's
+     Quick Connect mints an `adhoc:<uuid>` id per connect against a
+     long-lived engine. Fix direction: drop a serverId's controller on its
+     last unwatch, or add a `forgetServer(serverId)` on its last reference.
+     Tracked for M3.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
@@ -1559,7 +1567,11 @@ steady state.
    incident-change event for app-side persistence, and the
    `removeBookmark` request crossing) rides production wiring (item 3) —
    no app-side bookmark deletion exists before M5's store, and the
-   manager-side seam and cascade are complete and tested.
+   manager-side seam and cascade are complete and tested. Pin seeding
+   (`EngineConfig.hostKeyPins` from the app pin store) MUST land in the
+   same slice as incident seeding: an incident restored without its pin
+   deadlocks the endpoint with no review path, `removeBookmark` being the
+   only escape (audit finding A, `tasks/run3-audit-m2-report.md`).
 7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
    consistent `pub get --enforce-lockfile` use across CI and commit-SHA
    pinning for third-party actions. The new integration job follows existing
