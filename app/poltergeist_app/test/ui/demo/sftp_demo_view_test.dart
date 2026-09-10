@@ -86,6 +86,10 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   final disconnectIds = <String>[];
   int shutdownCalls = 0;
 
+  /// Blocks every disconnectServer until completed (the stale-cleanup
+  /// ordering tests).
+  Completer<void>? disconnectGate;
+
   @override
   Stream<EnginePromptEvent> get prompts => promptsController.stream;
 
@@ -170,6 +174,8 @@ class FakeSftpDemoEngine implements SftpDemoEngine {
   Future<void> disconnectServer(String serverId) async {
     disconnectCalls++;
     disconnectIds.add(serverId);
+    final gate = disconnectGate;
+    if (gate != null) await gate.future;
   }
 
   @override
@@ -1067,6 +1073,47 @@ void main() {
 
         expect(engine.disconnectCalls, 2);
         expect(engine.disconnectIds.toSet(), hasLength(1));
+      },
+    );
+
+    test(
+      'dispose during the stale-cleanup await cannot resume connect',
+      () async {
+        final engine = successfulEngine(
+          channel: FakeDemoBrowseChannel(
+            homePath: '/home/deploy',
+            entries: _scriptedEntries,
+          ),
+        )..disconnectGate = Completer<void>();
+        final controller = SftpDemoController(
+          engine: engine,
+          navigatorKey: GlobalKey<NavigatorState>(),
+        );
+        addTearDown(engine.close);
+        addTearDown(controller.dispose);
+
+        const facts = SftpDemoConnectFacts(
+          host: 'example.com',
+          port: 22,
+          username: 'deploy',
+          authMethod: AuthMethod.agent,
+        );
+        await controller.connect(facts);
+
+        // The second connect's stale cleanup blocks on the fake's
+        // disconnectServer; dispose lands while it is suspended.
+        final second = controller.connect(facts);
+        await Future<void>.delayed(Duration.zero);
+        controller.dispose();
+        engine.disconnectGate!.complete();
+
+        // Completes silently: the post-await disposed guard drops the
+        // resumed connect instead of notifying a disposed notifier.
+        await second;
+
+        // One disconnect from the blocked stale cleanup, one from the
+        // dispose teardown racing the same gate.
+        expect(engine.disconnectCalls, 2);
       },
     );
 

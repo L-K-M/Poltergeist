@@ -207,6 +207,10 @@ class SftpDemoController extends ChangeNotifier {
     _channel = null;
     if (staleChannel != null || staleServerId != null) {
       await _closeChannelAndServer(staleChannel, staleServerId);
+      // The await above is the first suspension: dispose may have run
+      // during it, and a resumed connect must not notify a disposed
+      // notifier (09 §3.1).
+      if (_disposed) return;
     }
 
     final attempt = ++_attempt;
