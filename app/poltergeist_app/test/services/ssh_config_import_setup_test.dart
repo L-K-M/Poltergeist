@@ -1,24 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
-import 'package:poltergeist_core/poltergeist_core.dart';
 
-/// The setup must forward the caller's store, never build its own: the
-/// Connections surface lists the same bookmarks, and a second instance over
-/// one file would race the first one's write tail.
-class _ForwardedStore implements BookmarkRepository {
-  @override
-  Future<List<Bookmark>> load() async => const [];
-
-  @override
-  Future<void> upsertAll(Iterable<Bookmark> bookmarks) async {}
-}
+import '../support/fake_bookmark_store.dart';
 
 void main() {
   late BookmarkRepository bookmarks;
 
   setUp(() {
-    bookmarks = _ForwardedStore();
+    // The setup must forward the caller's store, never build its own: the
+    // Connections surface lists the same bookmarks, and a second instance
+    // over one file would race the first one's write tail.
+    bookmarks = FakeBookmarkStore();
   });
 
   SshConfigImportSetup? build({

@@ -48,11 +48,13 @@ final class FakeConnectionStateBridge implements ConnectionStateBridge {
 
   void emitStatus(String serverId, ServerStatus status) {
     _failFastIfStopped();
+    _assertWatched(serverId);
     _controller(serverId).add(status);
   }
 
   void failStatusLane(String serverId, Object error) {
     _failFastIfStopped();
+    _assertWatched(serverId);
     _controller(serverId).addError(error);
   }
 
@@ -63,6 +65,18 @@ final class FakeConnectionStateBridge implements ConnectionStateBridge {
     if (_controllersClosed) {
       throw StateError('The engine has terminated.');
     }
+  }
+
+  /// A status emission for an id nothing watches is dropped by the
+  /// broadcast lane — a vacuous pass in the making. The shared recovery
+  /// lane delivers to any id; it is the seam for unlisted-event tests.
+  void _assertWatched(String serverId) {
+    assert(
+      watched.contains(serverId),
+      'emitStatus($serverId)/failStatusLane($serverId) before '
+      'watchServer($serverId): a broadcast lane with no listener drops '
+      'the event.',
+    );
   }
 
   void emitRecovery(

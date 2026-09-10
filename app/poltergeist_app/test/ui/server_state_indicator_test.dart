@@ -31,7 +31,6 @@ Future<void> _pump(WidgetTester tester, Widget child) async {
   );
 }
 
-
 void main() {
   group('the composed indicator mapping', () {
     ServerIndicatorGlyph glyphOf({ServerStatus? status, ProbeStatus? probe}) {

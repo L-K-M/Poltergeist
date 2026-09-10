@@ -32,7 +32,6 @@ Container _dot(WidgetTester tester) => tester.widget<Container>(
   ),
 );
 
-
 void main() {
   final l10n = lookupAppLocalizations(const Locale('en'));
 

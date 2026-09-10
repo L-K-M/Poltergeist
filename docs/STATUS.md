@@ -1588,7 +1588,7 @@ test-support consistency); no behavior changed.
      the owning-store `ProbeCoordinator` now drive the demo session as the
      first subscribing app caller. **2026-09-10: live connection-state
      composition (the Connections-section surface) landed** (dated
-     section below): the `ConnectionStatusController`, the Connections
+     section above): the `ConnectionStatusController`, the Connections
      surface and its registered command, and the composed indicator.
      Startup composition (the production engine spawn, which must seed
      pins and incidents together) remains open;

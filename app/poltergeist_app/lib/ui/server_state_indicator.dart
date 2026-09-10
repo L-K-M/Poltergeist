@@ -70,6 +70,10 @@ ServerIndicatorAppearance serverIndicatorOf(
 /// authenticated transports over any non-online result — the reverse of
 /// the audit finding's contradiction, since connected transports prove
 /// reachability (an "unknown" claim beside them is just as wrong).
+/// Pending and idle never replace a probe: an in-flight attempt does not
+/// contradict the last reachability result (if the host is truly down the
+/// attempt fails into a failure glyph), and a server with no transport
+/// keeps the probe's answer.
 bool _outranksProbe(ServerIndicatorGlyph glyph, ProbeStatus? probe) =>
     switch (glyph) {
       ServerIndicatorGlyph.blocked || ServerIndicatorGlyph.failed => true,
@@ -202,9 +206,9 @@ class ServerStateGlyph extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
 
     // Probe truth has no paint here: it must render through
-    // ProbeStatusDot (via ServerStateIndicator), so a caller resolving
-    // both truths and reaching for this glyph gets a loud failure instead
-    // of an invisible indicator.
+    // ProbeStatusDot (via ServerStateIndicator). Reaching for this glyph
+    // with probe truth trips the assert in debug builds; release builds
+    // strip asserts and paint nothing, so misuse there is silent.
     assert(
       glyph != ServerIndicatorGlyph.probe,
       'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '

@@ -357,10 +357,9 @@ void main() {
       final connections = controller();
       await connections.loadServers();
 
-      bridge.emitStatus(
-        'adhoc',
-        const ServerStatus(ServerConnectionState.connected),
-      );
+      // Through the shared recovery lane, which delivers to any id: the
+      // controller must drop events for ids the store does not list (a
+      // per-server status lane for an unwatched id cannot even exist).
       bridge.emitRecovery('adhoc', paneTabId: 'left');
 
       expect(connections.servers, hasLength(1));
@@ -449,7 +448,10 @@ void main() {
     });
   });
 
-  test('the production bridge consumes the real engine lanes', () async {
+  test(
+    'the production bridge consumes the real engine lanes',
+    timeout: const Timeout(Duration(minutes: 2)),
+    () async {
     // The seam against the real EngineClient, not a fake: watchServer must
     // deliver the engine's current state first (03 §3.2) through the
     // adapter, and shutdown must close the lane.
@@ -479,7 +481,10 @@ void main() {
 
     connections.dispose();
     await client.shutdown();
-    await laneDone.future.timeout(const Duration(seconds: 30));
-    await subscription.cancel();
+    try {
+      await laneDone.future.timeout(const Duration(seconds: 30));
+    } finally {
+      await subscription.cancel();
+    }
   });
 }
