@@ -440,7 +440,8 @@ boundary when it wraps resolvers — one mechanism, both sides.
    operating (never auto-repin — D18) — and aborts growth. `blocked`
    clears in exactly three ways. Explicit review: the next connect
    attempt after the user reviews and accepts the changed key at the
-   TOFU prompt re-pins it and re-runs the first connect. Restored key: a
+   TOFU prompt re-pins it, deletes the incident's records, and re-runs
+   the first connect. Restored key: a
    connect presenting the originally pinned key — presented equals
    pinned — verifies `trusted` and lifts the block with no prompt and no
    pin write, then deletes the incident's records because the block is

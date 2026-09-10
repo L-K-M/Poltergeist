@@ -1408,13 +1408,16 @@ steady state.
      auth-failure summaries land in their own 2026-09-08 slice, and M4's
      mid-transfer queue recovery retains its gate.
    - **2026-09-10 — unbounded per-serverId state (audit finding C).**
-     `_events`, `EngineClient._serverStates`, `EngineHost._servers`, and
-     `_incidentOwners` each gain an entry per serverId with no removal.
-     Bounded by the demo session's lifetime today; unbounded once M3's
-     Quick Connect mints an `adhoc:<uuid>` id per connect against a
-     long-lived engine. Fix direction: drop a serverId's controller on its
-     last unwatch, or add a `forgetServer(serverId)` on its last reference.
-     Tracked for M3.
+     `_events`, `EngineClient._serverStates`, and `EngineHost._servers`
+     each gain an entry per serverId with no removal. `_incidentOwners`
+     is drained only by `removeBookmark`/`_forgetIncident`, which the
+     demo and `EngineHost._shutdown` never call for an ephemeral id, so
+     it leaks the same way. Bounded by the demo session's lifetime today;
+     unbounded once M3's Quick Connect mints an `adhoc:<uuid>` id per
+     connect against a long-lived engine. Fix direction: drop a serverId's
+     controller on its last unwatch, or add a `forgetServer(serverId)` on
+     its last reference that runs the `removeBookmark` cascade plus
+     controller/state teardown. Tracked for M3.
 
    The bookmark model and vault/store plumbing slice is done (see the Done
    table): the model is consumed through the pin (no copy — PR-S1 is in the
