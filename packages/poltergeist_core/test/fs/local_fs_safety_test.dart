@@ -18,6 +18,15 @@ import 'package:test/test.dart';
 // sites (LocalFileSystem.upload today; the transfer queue's download
 // executor, the checkout store, and the sync executor as they land).
 
+const int permissionsMask = 0xFFF;
+
+/// True when this process cannot be refused by mode bits (root on any
+/// POSIX host — the suite itself is POSIX-only via the `@OnPlatform`
+/// Windows skip on this library).
+final bool runningAsRoot =
+    !Platform.isWindows &&
+    int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) == 0;
+
 void main() {
   late Directory root;
 
@@ -123,7 +132,10 @@ void main() {
     });
 
     test('refuses to traverse through a symlink component', () async {
-      final real = await putFile('realfile');
+      // The link targets a directory on purpose: an implementation
+      // typing with followLinks: true would see a directory and
+      // descend — only the no-follow type check refuses here.
+      final real = await Directory(pathOf('realdir')).create();
       final link = Link(pathOf('lnk'));
       await link.create(real.path);
       await expectLater(
@@ -282,16 +294,22 @@ void main() {
     );
 
     test('counts a lone surrogate as three backup-name bytes', () async {
-      // A lone surrogate has no valid UTF-8 form, but Dart's encoder
-      // emits it as a 3-byte (WTF-8-style) sequence; the guard must
-      // fail before any rename rather than under-count.
+      // A lone surrogate has no valid UTF-8 form — Dart's encoder
+      // substitutes U+FFFD, itself a 3-byte sequence — so the guard
+      // must fail before any rename rather than under-count.
       final name = 'm' * 227 + '\uDC00';
       final target = File(pathOf(name));
       await target.writeAsString('original');
       final part = await putFile('part', 'new');
       await expectLater(
         replaceLocalFile(part, target),
-        throwsA(isA<FileSystemException>()),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('file-name limit'),
+          ),
+        ),
       );
       expect(target.readAsStringSync(), 'original');
       expect(siblingLitter(), isEmpty);
@@ -355,9 +373,46 @@ void main() {
       );
     });
 
+    test('a rename failure parks its orphan and sweeps the rest', () async {
+      // A read-only directory (as non-root) makes every restore fail
+      // with EACCES after the listing succeeded: the sweep must
+      // complete without throwing and leave the orphan parked for a
+      // later sweep, not abort the crash-recovery pass.
+      final orphan = await putFile(
+        'data.poltergeist-0123abcd.backup',
+        'stranded',
+      );
+      // FileStat.mode carries the type bits too; chmod wants the
+      // permission bits alone, or the restore itself fails.
+      final modeBits =
+          FileStat.statSync(root.path).mode & permissionsMask;
+      void restoreMode() {
+        final result = Process.runSync('chmod', [
+          modeBits.toRadixString(8),
+          root.path,
+        ]);
+        if (result.exitCode != 0) {
+          fail('fixture chmod restore failed: ${result.stderr}');
+        }
+      }
+
+      Process.runSync('chmod', ['555', root.path]);
+      addTearDown(restoreMode);
+      if (runningAsRoot) {
+        // Root bypasses mode bits; the refusal premise does not hold.
+        restoreMode();
+        return;
+      }
+      await restoreOrphanedLocalBackups(root);
+      expect(orphan.readAsStringSync(), 'stranded');
+      expect(File(pathOf('data')).existsSync(), isFalse);
+    });
+
     test('with several orphans for one target, the newest wins', () async {
-      final older = await putFile('a.poltergeist-11111111.backup', 'older');
-      final newer = await putFile('a.poltergeist-22222222.backup', 'newer');
+      // Hex suffixes deliberately oppose mtime order: only mtime can
+      // pick the winner, so name-based selection fails this test.
+      final older = await putFile('a.poltergeist-22222222.backup', 'older');
+      final newer = await putFile('a.poltergeist-11111111.backup', 'newer');
       await older.setLastModified(DateTime(2020, 1, 1));
       await newer.setLastModified(DateTime(2021, 1, 1));
       await restoreOrphanedLocalBackups(root);

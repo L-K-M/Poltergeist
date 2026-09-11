@@ -2143,12 +2143,35 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 52 dedicated tests; full core suite 526 green (+15
+Validation: 53 dedicated tests; full core suite 527 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
 app change, no engine protocol change, no pin change, no new
 dependency, no milestone-close claim.
+
+Review round 1 (all applied or refuted with evidence): applied the
+sweep's per-orphan resilience — one locked/permission-denied/vanished
+orphan stays parked for the next pass instead of aborting the
+remaining restores (regression: a read-only directory makes every
+rename fail EACCES after the listing; observed failing with the
+abort, passing after; the reviewer's suggested ENAMETOOLONG fixture
+is unconstructible on a NAME_MAX-255 volume — the orphan's own name
+embeds the target's, so it cannot exist long enough to fail its
+rename) — plus async `FileStat.stat`, `on Object` narrowed to
+`on FileSystemException` at the three best-effort guards (programming
+errors surface again), the two validator regexes hoisted to top-level
+finals, the reserved-shape convention documented on the sweep, and
+the lone-surrogate encoding comments corrected in both files (Dart's
+encoder substitutes U+FFFD — `ef bf bd`, verified by run — not
+WTF-8; three bytes either way, so the guard's arithmetic stands).
+Test hardening applied: the symlink-traversal fixture now targets a
+directory (a file target cannot distinguish the no-follow check from
+the non-directory refusal), the newest-wins fixture opposes hex order
+to mtime so name-based selection fails, and the surrogate overflow
+test pins the guard's message. Refuted: the "second finally cleans
+`partial`" claim — the committed head already reads `again` at that
+line (the suggestion anchored on the first branch's line-390 text).
 
 ## Open items
 

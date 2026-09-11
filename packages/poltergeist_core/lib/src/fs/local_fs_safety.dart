@@ -42,6 +42,14 @@ final RegExp _backupNamePattern = RegExp(
 
 final Random _random = Random.secure();
 
+/// Séance's forbidden class for local destination names, minus the
+/// backslash (owned by [validatePathComponent] for every destination).
+final RegExp _forbiddenLocalChars = RegExp(r'[:*?"<>|\x00-\x1f\x7f]');
+
+/// Win32 strips trailing dots and spaces from the base segment before
+/// its reserved-name match ('aux .txt' is as reserved as 'aux.txt').
+final RegExp _trailingDotOrSpace = RegExp(r'[ .]+$');
+
 /// The lexical half of the local path safety rules (03 §2.3, 09 §3.5).
 ///
 /// No empty component, no `.`/`..`, no separators. `\` is rejected
@@ -72,9 +80,7 @@ void validatePathComponent(String component) {
 /// host whose filesystem cares (09 §3.5).
 void validateLocalName(String name) {
   validatePathComponent(name);
-  // Séance's forbidden class, minus the backslash (owned by
-  // validatePathComponent for every destination).
-  if (RegExp(r'[:*?"<>|\x00-\x1f\x7f]').hasMatch(name) ||
+  if (_forbiddenLocalChars.hasMatch(name) ||
       name.endsWith('.') ||
       name.endsWith(' ')) {
     throw FormatException('"$name" is not a safe local file name.');
@@ -82,7 +88,7 @@ void validateLocalName(String name) {
   // Win32 matches device names ignoring trailing dots and spaces in
   // the base segment, so strip them before the reserved match
   // ('aux .txt' is as reserved as 'aux.txt').
-  final base = name.split('.').first.replaceAll(RegExp(r'[ .]+$'), '');
+  final base = name.split('.').first.replaceAll(_trailingDotOrSpace, '');
   if (_windowsReservedName.hasMatch(base)) {
     throw FormatException('"$name" is not a safe local file name.');
   }
@@ -163,7 +169,7 @@ Future<void> ensureSafeLocalDirectory(String path) async {
 Future<void> replaceLocalFile(File part, File target) async {
   try {
     await restoreOrphanedLocalBackups(Directory(p.dirname(target.path)));
-  } on Object {
+  } on FileSystemException {
     // Best effort only — the replace itself must not fail on a
     // stranded sibling it could not repair.
   }
@@ -201,7 +207,7 @@ Future<void> replaceLocalFile(File part, File target) async {
   await target.rename(backup.path);
   try {
     await part.rename(target.path);
-  } on Object {
+  } on FileSystemException {
     // Restore the original unless something else already took the
     // target name; the nested guard keeps a failed restore from
     // masking the original failure (the backup retains the content
@@ -210,7 +216,7 @@ Future<void> replaceLocalFile(File part, File target) async {
       if (!await target.exists() && await backup.exists()) {
         await backup.rename(target.path);
       }
-    } on Object {
+    } on FileSystemException {
       // Best effort only — the rethrow below carries the real failure.
     }
     rethrow;
@@ -233,19 +239,22 @@ Future<void> replaceLocalFile(File part, File target) async {
 ///
 /// Backups whose target still exists are left alone (stale, not
 /// orphaned), as are names outside the pattern and non-file entries.
-/// When several orphans share one absent target the newest (by mtime)
-/// is restored; the others stay parked — never deleted.
+/// The `<name>.poltergeist-<8 hex>.backup` shape is reserved for this
+/// dance by convention — application code must not write other files
+/// matching it. When several orphans share one absent target the newest
+/// (by mtime) is restored; the others stay parked — never deleted.
+/// An orphan whose rename fails (locked, permission-denied, vanished)
+/// stays parked for a later sweep and never aborts the remaining
+/// restores — aborting would strand exactly the interrupted replaces
+/// this function exists to repair.
 Future<void> restoreOrphanedLocalBackups(Directory directory) async {
   final orphans = <(File, DateTime, String)>[];
   await for (final entity in directory.list(followLinks: false)) {
     if (entity is! File) continue;
     final match = _backupNamePattern.firstMatch(p.basename(entity.path));
     if (match == null) continue;
-    orphans.add((
-      entity,
-      FileStat.statSync(entity.path).modified,
-      match.group(1)!,
-    ));
+    final stat = await FileStat.stat(entity.path);
+    orphans.add((entity, stat.modified, match.group(1)!));
   }
   orphans.sort((a, b) => b.$2.compareTo(a.$2));
   for (final (orphan, _, targetName) in orphans) {
@@ -254,7 +263,12 @@ Future<void> restoreOrphanedLocalBackups(Directory directory) async {
         FileSystemEntityType.notFound) {
       continue;
     }
-    await orphan.rename(targetPath);
+    try {
+      await orphan.rename(targetPath);
+    } on FileSystemException {
+      // Locked, permission-denied, or vanished mid-sweep: park it for
+      // the next pass and keep repairing the rest.
+    }
   }
 }
 
@@ -265,8 +279,8 @@ String _randomHexString() => List.generate(
 
 /// UTF-8 byte count without transcoding: 1 per ASCII unit, 2/3 per BMP
 /// unit, 4 across a surrogate pair. A lone surrogate counts 3 — the
-/// 3-byte (WTF-8-style) sequence Dart's encoder still emits for it —
-/// so the NAME_MAX guard never under-counts.
+/// encoder substitutes U+FFFD, itself a 3-byte sequence — so the
+/// NAME_MAX guard never under-counts.
 int _utf8ByteLength(String value) {
   var total = 0;
   final units = value.codeUnits;
