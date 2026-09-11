@@ -161,9 +161,11 @@ void main() {
       ),
     ];
     engine.channel = session_test.FakeAppBrowseChannel();
+    // One store shared by the session and the app, as main.dart wires it.
+    final bookmarks = FakeBookmarkStore([_blockedBookmark()]);
     final session = await startEngineSession(
       supportDirectoryPath: './engine-session',
-      bookmarks: FakeBookmarkStore([_blockedBookmark()]),
+      bookmarks: bookmarks,
       navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
       incidentStore: InMemoryIncidentStore(),
@@ -175,7 +177,7 @@ void main() {
     await tester.pumpWidget(
       PoltergeistApp(
         debugDemoEnabled: false,
-        bookmarks: FakeBookmarkStore([_blockedBookmark()]),
+        bookmarks: bookmarks,
         engineSession: session,
         navigatorKey: navigatorKey,
       ),
@@ -350,7 +352,7 @@ void main() {
     // future does not re-complete inside the fake-async zone once it has
     // been entered, so an awaited teardown would hang the suite.
     unawaited(session!.shutdown());
-    for (var i = 0; i < 5; i++) {
+    for (var i = 0; i < 50 && engine.shutdownCalls == 0; i++) {
       await tester.pump();
     }
     expect(engine.shutdownCalls, 1);
@@ -383,10 +385,9 @@ void main() {
     await tester.pump();
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
-    // The shutdown chain crosses several awaits (coordinator dispose,
-    // mirror cancels, engine shutdown); each generation needs a pump in
-    // the test zone's fake async.
-    for (var i = 0; i < 5; i++) {
+    // The shutdown chain crosses several awaits; pump until it lands
+    // rather than coupling the test to the chain's depth.
+    for (var i = 0; i < 50 && engine.shutdownCalls == 0; i++) {
       await tester.pump();
     }
 

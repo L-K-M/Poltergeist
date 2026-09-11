@@ -247,6 +247,27 @@ class _ThrowingPinStore implements HostKeyStore {
   Future<void> put(HostKey key) async {}
 }
 
+/// A pin store whose writes block on a gate: the flush hook's test
+/// vehicle (writes pend, then land).
+class _GatedPinStore implements HostKeyStore {
+  _GatedPinStore(this.gate);
+
+  final Completer<void> gate;
+  final List<HostKey> _written = [];
+
+  @override
+  Future<List<HostKey>> all() async => List.of(_written);
+
+  @override
+  Future<HostKey?> get(String host, int port) async => null;
+
+  @override
+  Future<void> put(HostKey key) async {
+    await gate.future;
+    _written.add(key);
+  }
+}
+
 EnginePromptEvent _changedKeyPrompt(String promptId) {
   return EnginePromptEvent(
     promptId: promptId,
@@ -446,12 +467,11 @@ void main() {
       }
       expect(removed, isTrue);
 
-      // The no-op phase needs something observable. The engine mirror is
-      // the file's single writer (the store's documented
-      // one-instance-per-file contract), so the `other` record enters
-      // through a stored event, and the bulk removal must delete exactly
-      // it — while the repeated scoped removal re-deletes nothing and no
-      // event ever re-seeds `b1`.
+      // The no-op phase needs something observable, and the observation
+      // must be deterministic: the store event lands first (poll until it
+      // is on disk), THEN the removals — never a race with a transient
+      // intermediate file state. The engine mirror is the file's single
+      // writer (the store's documented one-instance-per-file contract).
       final otherIncident = IncidentRecord(
         serverId: 'other',
         host: 'web.example.com',
@@ -463,32 +483,36 @@ void main() {
       engine.incidentsController.add(
         IncidentRecordStoredEvent(record: otherIncident),
       );
+      var storedSeen = false;
+      for (var attempt = 0; attempt < 500 && !storedSeen; attempt++) {
+        final probe = FileIncidentStore(
+          File('${support.path}${Platform.pathSeparator}incidents.json'),
+        );
+        storedSeen = (await probe.load()).any(
+          (record) => record.serverId == 'other',
+        );
+        if (!storedSeen) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }
+      expect(storedSeen, isTrue);
+
       engine.incidentsController.add(
         IncidentRecordRemovedEvent(serverId: 'b1', endpoint: _incident.poolKey),
       );
       engine.incidentsController.add(
         const IncidentRecordRemovedEvent(serverId: 'other', endpoint: null),
       );
-      var storedSeen = false;
       var bulkApplied = false;
-      for (var attempt = 0; attempt < 500; attempt++) {
+      for (var attempt = 0; attempt < 500 && !bulkApplied; attempt++) {
         final probe = FileIncidentStore(
           File('${support.path}${Platform.pathSeparator}incidents.json'),
         );
-        final records = await probe.load();
-        // The stored event must land first — polling for empty alone would
-        // succeed before any event processed (the file starts this phase
-        // empty).
-        if (records.any((record) => record.serverId == 'other')) {
-          storedSeen = true;
+        bulkApplied = (await probe.load()).isEmpty;
+        if (!bulkApplied) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
         }
-        if (storedSeen && records.isEmpty) {
-          bulkApplied = true;
-          break;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 2));
       }
-      expect(storedSeen, isTrue);
       expect(bulkApplied, isTrue);
       // `b1` stayed deleted through the second scoped removal and was
       // never re-seeded by the mirror, and the review connect never ran.
@@ -503,6 +527,38 @@ void main() {
   });
 
   group('lifecycle', () {
+    test('flushWrites waits for pending mirror writes', () async {
+      // The exit path's durability hook: a pin approved immediately
+      // before quitting is on disk before the framework may exit.
+      final gate = Completer<void>();
+      final pins = _GatedPinStore(gate);
+      final engine = FakeAppEngine();
+      addTearDown(engine.close);
+      final session = await startEngineSession(
+        supportDirectoryPath: support.path,
+        bookmarks: bookmarks,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        pinStore: pins,
+        spawn: (config) async => engine,
+        onError: (error, stackTrace) => reported.add(error),
+      );
+      addTearDown(session!.shutdown);
+
+      engine.pinsController.add(const HostKeyPinnedEvent(key: _pin));
+      await pumpEventQueue();
+
+      final flushed = Completer<void>();
+      unawaited(
+        session.flushWrites().then((_) => flushed.complete(), onError: (_) {}),
+      );
+      await pumpEventQueue();
+      expect(flushed.isCompleted, isFalse);
+
+      gate.complete();
+      await flushed.future;
+      expect(await pins.all(), [_pin]);
+    });
+
     test('shuts the engine down when the app detaches', () async {
       final (session, engine) = await startSession();
       addTearDown(session!.shutdown);
@@ -576,16 +632,11 @@ void main() {
 
     test('routes the raised prompt through the session coordinator', () async {
       final navigatorKey = GlobalKey<NavigatorState>();
-      final engine = FakeAppEngine();
-      final session = await startEngineSession(
-        supportDirectoryPath: support.path,
-        bookmarks: bookmarks,
+      final (session, engine) = await startSession(
         navigatorKey: navigatorKey,
-        spawn: (config) async => engine,
-        onError: (error, stackTrace) => reported.add(error),
       );
       addTearDown(session!.shutdown);
-      engine.promptScript = [_changedKeyPrompt('p1')];
+      engine!.promptScript = [_changedKeyPrompt('p1')];
       engine.channel = FakeAppBrowseChannel();
 
       // The coordinator's reply answer arrives asynchronously; the review

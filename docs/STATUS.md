@@ -21,8 +21,9 @@ and the file store gained its load-error observer and abandoned-temp sweep
 `ConnectionStatus` notifier over the engine's existing state lanes, the
 production-shell Connections surface composed with the bookmark store,
 and the composed indicator in which a blocked or failed connection
-outranks a green probe dot (the audit note's fix). The M2 probe-wiring remainder landed:
-persisted probe eligibility/settings through settings.json (global
+outranks a green probe dot (the audit note's fix). The M2 probe-wiring
+remainder landed: persisted probe eligibility/settings through
+settings.json (global
 opt-out plus the per-server device-local map with retarget reset),
 lifecycle forwarding through a binding-seam observer, the tri-state
 interim status dot with pinned contrast, and the subscribing app caller
@@ -1961,8 +1962,15 @@ coordinator runs vault-less; credential prompts always render the
 dialog), production probe targets (no favorite-connect flow exists to
 mark bookmarks seen; M3/M5 own it), `removeBookmark` from bookmark
 deletion (no deletion UI before M5), M5's sidebar, M4's transfers, and
-any milestone-close claim. No core change, no pin/dependency change, no
-source port, no release.
+any milestone-close claim. Two review-declined seams are recorded for
+their future owners: the demo session's probe teardown leaves the
+shared engine's probe activity paused with no targets (inert today —
+nothing else drives probes; the production probe owner must own the
+activity state when it lands), and the review's teardown drops the
+bookmark id's engine reference via `disconnectServer` (correct today —
+the review is the only reference holder; M3's pane references share
+the serverId and must own that decision). No core change, no
+pin/dependency change, no source port, no release.
 
 ## Open items
 

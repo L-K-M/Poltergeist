@@ -534,7 +534,9 @@ class SftpDemoController extends ChangeNotifier {
     final serverId = _serverId;
     _channel = null;
     await _closeChannelAndServer(channel, serverId);
-    if (engineOwnership != SftpDemoEngineOwnership.sessionOwned) return;
+    // A shared engine outlives this session: only the session-owned
+    // engine is shut down here.
+    if (engineOwnership == SftpDemoEngineOwnership.shared) return;
     try {
       await engine.shutdown();
     } on Object catch (error, stackTrace) {

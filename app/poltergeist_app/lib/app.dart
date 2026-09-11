@@ -102,6 +102,9 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
   void didUpdateWidget(PoltergeistApp oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.engineSession, widget.engineSession)) {
+      // The outgoing session's engine must not outlive its replacement
+      // unnoticed: forward the exit state before re-attaching.
+      oldWidget.engineSession?.forwardLifecycle(AppLifecycleState.detached);
       _attachSessionLifecycle();
     }
   }
@@ -120,12 +123,13 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     _lifecycleListener = AppLifecycleListener(
       onStateChange: session.forwardLifecycle,
       // The framework awaits this future before exiting — the only exit
-      // hook with a wait semantic. The session's shutdown itself stays
-      // unawaited: its future must not gate process exit on teardown
-      // paths the fake-async test zone cannot drain (see EngineSession
-      // shutdown's doc).
+      // hook with a wait semantic, so the pending mirror writes flush
+      // before the process is allowed to die. The session's shutdown
+      // itself is triggered fire-and-forget (idempotent), keeping the
+      // exit decision independent of teardown-path futures.
       onExitRequested: () async {
         session.forwardLifecycle(AppLifecycleState.detached);
+        await session.flushWrites();
         return AppExitResponse.exit;
       },
     );

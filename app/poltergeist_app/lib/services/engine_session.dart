@@ -375,6 +375,14 @@ final class EngineSession {
     );
   }
 
+  /// Awaits the pending mirror writes (pin and incident tails). Called
+  /// by the app's exit hook — the one framework-awaited path — so the
+  /// last trust decision is durable before the process exits. Kept
+  /// separate from [shutdown]: awaiting the tails inside the shutdown
+  /// closure deadlocks flutter_test's teardown zone (see its doc), while
+  /// this plain await of the tails completes everywhere.
+  Future<void> flushWrites() => Future.wait([_pinTail, _incidentTail]);
+
   /// Orderly engine shutdown, idempotent: prompts close, mirrors cancel,
   /// the engine stops (03 §5: orderly, then kill). The mirror
   /// cancellations are fire-and-forget — they only stop store writes, so
@@ -471,20 +479,33 @@ Future<EngineSession?> startEngineSession({
     return null;
   }
 
-  return EngineSession._(
-    engine: engine,
-    pinStore: pinsStore,
-    incidentStore: incidentsStore,
-    bookmarks: bookmarks,
-    errors: errors,
-    navigatorKey: navigatorKey,
-    scaffoldMessengerKey: scaffoldMessengerKey,
-    identityReader: IdentityFileReader(
-      IdentityAuditLog(
-        File('$supportDirectoryPath$separator$_identityAuditLogFileName'),
+  // The session object itself is guarded too: a throwing coordinator
+  // construction must not leak the freshly spawned isolate behind an
+  // escaped exception — the caller sees null, the engine dies.
+  try {
+    return EngineSession._(
+      engine: engine,
+      pinStore: pinsStore,
+      incidentStore: incidentsStore,
+      bookmarks: bookmarks,
+      errors: errors,
+      navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
+      identityReader: IdentityFileReader(
+        IdentityAuditLog(
+          File('$supportDirectoryPath$separator$_identityAuditLogFileName'),
+        ),
       ),
-    ),
-  );
+    );
+  } on Object catch (error, stackTrace) {
+    errors.report(error, stackTrace);
+    try {
+      await engine.shutdown();
+    } on Object {
+      // Best effort: the isolate dies with the process regardless.
+    }
+    return null;
+  }
 }
 
 /// The Connections surface's two state lanes over [AppEngine].
