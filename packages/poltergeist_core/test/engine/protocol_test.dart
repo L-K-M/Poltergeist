@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 6;
+const _expectedProtocolVersion = 7;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,
@@ -290,6 +290,11 @@ void main() {
       await _roundTrip(
         incoming,
         engine,
+        const OpenLocalBrowseChannelRequest(requestId: 20, rootPath: '/home'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
         const CloseBrowseChannelRequest(requestId: 2, channelId: 5),
       );
       await _roundTrip(
@@ -512,6 +517,12 @@ Future<void> _roundTrip(
       expect(got.config.secretRef, sent.config.secretRef);
       expect(got.config.identityFilePath, sent.config.identityFilePath);
     case (
+      final OpenLocalBrowseChannelRequest sent,
+      final OpenLocalBrowseChannelRequest got,
+    ):
+      expect(got.requestId, sent.requestId);
+      expect(got.rootPath, sent.rootPath);
+    case (
       final CloseBrowseChannelRequest sent,
       final CloseBrowseChannelRequest got,
     ):
@@ -533,10 +544,7 @@ Future<void> _roundTrip(
     ):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);
-    case (
-      final RemoveBookmarkRequest sent,
-      final RemoveBookmarkRequest got,
-    ):
+    case (final RemoveBookmarkRequest sent, final RemoveBookmarkRequest got):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);
     case (

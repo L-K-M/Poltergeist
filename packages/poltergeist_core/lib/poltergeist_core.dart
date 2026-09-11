@@ -144,6 +144,7 @@ export 'src/engine/protocol.dart'
         KeyboardInteractivePromptReply,
         ListDirectoryRequest,
         OpenBrowseChannelRequest,
+        OpenLocalBrowseChannelRequest,
         PromptDismissedEvent,
         PromptReply,
         PromptReplyRequest,

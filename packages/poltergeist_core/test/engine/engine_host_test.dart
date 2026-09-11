@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -9,6 +10,28 @@ import 'package:test/test.dart';
 import '../connection/pool_fakes.dart';
 
 const _connectionLogPollTimeout = Duration(seconds: 1);
+
+/// Mode-bit refusals (and symlink fixtures) need a POSIX host this process
+/// cannot override as root — the fs suite's guard, applied to the local
+/// channel fixtures that depend on it.
+final bool _posixNonRoot =
+    !Platform.isWindows &&
+    int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) != 0;
+
+/// A temp-dir fixture for local-pane channels: two files, a subdirectory,
+/// and a symlink to one file. Deletion registers as teardown.
+Directory _localFixture(String name) {
+  final root = Directory.systemTemp.createTempSync(name);
+  addTearDown(() => root.deleteSync(recursive: true));
+  File('${root.path}/a.txt').writeAsStringSync('alpha');
+  File('${root.path}/b.txt').writeAsStringSync('beta');
+  Directory('${root.path}/sub').createSync();
+  return root;
+}
+
+/// The engine-side canonical form of [path], computed test-side for parity
+/// (03 §2.2: realpath semantics, never an error for a missing path).
+Future<String> _canonical(String path) => LocalFileSystem().canonicalize(path);
 
 /// Filesystem for the engine suite's channels: home resolution plus a
 /// scripted listing. Anything else fails loudly.
@@ -143,6 +166,16 @@ class HostHarness {
     (id) =>
         ListDirectoryRequest(requestId: id, channelId: channelId, path: path),
   );
+
+  /// Opens a local channel (03 §5's engine-side seam) and fails loudly on
+  /// a wire error instead of returning a bare result.
+  Future<BrowseChannelOpened> openLocal(String rootPath) async {
+    final result = await call(
+      (id) => OpenLocalBrowseChannelRequest(requestId: id, rootPath: rootPath),
+    );
+    if (result is BrowseChannelOpened) return result;
+    fail('openLocal failed: ${(result as EngineError).message}');
+  }
 
   void watch(String serverId) =>
       call((id) => WatchServerRequest(requestId: id, serverId: serverId));
@@ -1038,5 +1071,182 @@ void main() {
       ),
       [('srv-1', null), ('srv-9', null)],
     );
+  });
+
+  group('local browse channels', () {
+    test('open canonicalizes the root and serves its listing', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-pane');
+
+      final opened = await h.openLocal(root.path);
+      expect(opened.homePath, await _canonical(root.path));
+
+      final listed = await h.list(opened.channelId, opened.homePath);
+      final byName = {
+        for (final entry in (listed as DirectoryListed).entries)
+          entry.name: entry,
+      };
+      expect(byName.keys, {'a.txt', 'b.txt', 'sub'});
+      expect(byName['a.txt']!.type, RemoteFileType.file);
+      expect(byName['a.txt']!.size, 5);
+      expect(byName['b.txt']!.size, 4);
+      expect(byName['sub']!.type, RemoteFileType.directory);
+    });
+
+    test('symlinks report as links without target metadata', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-pane-link');
+      Link('${root.path}/to-a').createSync('${root.path}/a.txt');
+
+      final opened = await h.openLocal(root.path);
+      final listed = await h.list(opened.channelId, opened.homePath);
+      final link = (listed as DirectoryListed).entries.singleWhere(
+        (entry) => entry.name == 'to-a',
+      );
+
+      expect(link.type, RemoteFileType.symbolicLink);
+      expect(link.size, isNull);
+      expect(link.modifiedAt, isNull);
+    }, skip: Platform.isWindows ? 'fixture needs POSIX symlinks' : false);
+
+    test(
+      'a missing root opens but its first listing answers notFound',
+      () async {
+        final h = HostHarness();
+        addTearDown(h.dispose);
+        final missing = '${Directory.systemTemp.path}/pg-no-such-root';
+
+        // 03 §2.2: canonicalize never fails for a missing path, so the open
+        // succeeds and the navigation surfaces the typed notFound taxonomy.
+        final opened = await h.openLocal(missing);
+        expect(opened.homePath, await _canonical(missing));
+
+        final error = await expectError(
+          h.list(opened.channelId, opened.homePath),
+        );
+        expect(error.kind, RemoteFileErrorKind.notFound);
+        expect(error.operation, 'list');
+        expect(error.path, opened.homePath);
+        expect(error.message, contains('Could not list'));
+      },
+    );
+
+    test(
+      'an unreadable directory answers permissionDenied',
+      () async {
+        final h = HostHarness();
+        addTearDown(h.dispose);
+        final root = _localFixture('pg-local-pane-denied');
+        Directory('${root.path}/vault').createSync();
+        // Restore before the fixture teardown deletes the tree (teardowns
+        // run LIFO, so this registered-later chmod runs first).
+        addTearDown(() {
+          final restore = Process.runSync('chmod', [
+            '755',
+            '${root.path}/vault',
+          ]);
+          expect(restore.exitCode, 0, reason: 'fixture chmod restore failed');
+        });
+        final chmod = Process.runSync('chmod', ['000', '${root.path}/vault']);
+        expect(chmod.exitCode, 0, reason: 'fixture chmod failed');
+
+        final opened = await h.openLocal(root.path);
+        final error = await expectError(
+          h.list(opened.channelId, '${opened.homePath}/vault'),
+        );
+        expect(error.kind, RemoteFileErrorKind.permissionDenied);
+        expect(error.operation, 'list');
+      },
+      skip: _posixNonRoot
+          ? false
+          : 'mode-bit refusal needs a POSIX host with a non-root user',
+    );
+
+    test(
+      'close is idempotent and later listings answer disconnected',
+      () async {
+        final h = HostHarness();
+        addTearDown(h.dispose);
+        final root = _localFixture('pg-local-pane-close');
+
+        final opened = await h.openLocal(root.path);
+        expect(
+          await h.call(
+            (id) => CloseBrowseChannelRequest(
+              requestId: id,
+              channelId: opened.channelId,
+            ),
+          ),
+          isA<EngineAck>(),
+        );
+        // Idempotent: the second close of a retired channel still acks.
+        expect(
+          await h.call(
+            (id) => CloseBrowseChannelRequest(
+              requestId: id,
+              channelId: opened.channelId,
+            ),
+          ),
+          isA<EngineAck>(),
+        );
+
+        final error = await expectError(h.list(opened.channelId, root.path));
+        expect(error.kind, RemoteFileErrorKind.disconnected);
+        expect(error.message, 'The browse channel is closed.');
+      },
+    );
+
+    test('local and pool channels share one id space', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      h.fs.listing = const [
+        RemoteFileEntry(
+          path: '/home/test/remote.txt',
+          name: 'remote.txt',
+          type: RemoteFileType.file,
+        ),
+      ];
+      final root = _localFixture('pg-local-pane-mixed');
+
+      final poolChannel = await h.openWithDefaults();
+      final localChannel = await h.openLocal(root.path);
+      expect(localChannel.channelId, isNot(poolChannel.channelId));
+
+      final remoteListed = await h.list(poolChannel.channelId, '/home/test');
+      expect(
+        (remoteListed as DirectoryListed).entries.single.name,
+        'remote.txt',
+      );
+
+      // Closing the local channel leaves the pool binding untouched.
+      await h.call(
+        (id) => CloseBrowseChannelRequest(
+          requestId: id,
+          channelId: localChannel.channelId,
+        ),
+      );
+      final retiredError = await expectError(
+        h.list(localChannel.channelId, root.path),
+      );
+      expect(retiredError.kind, RemoteFileErrorKind.disconnected);
+      expect(
+        await h.list(poolChannel.channelId, '/home/test'),
+        isA<DirectoryListed>(),
+      );
+    });
+
+    test('shutdown retires local channels', () async {
+      final h = HostHarness();
+      final root = _localFixture('pg-local-pane-shutdown');
+
+      final opened = await h.openLocal(root.path);
+      await h.call((id) => ShutdownRequest(requestId: id));
+
+      final error = await expectError(h.list(opened.channelId, root.path));
+      expect(error.kind, RemoteFileErrorKind.disconnected);
+      expect(error.message, 'The browse channel is closed.');
+    });
   });
 }
