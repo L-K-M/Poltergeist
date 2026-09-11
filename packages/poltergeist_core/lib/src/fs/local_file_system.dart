@@ -77,6 +77,7 @@ class LocalFileSystem implements RemoteFileSystem {
   static const int _winPathNotFound = 3;
   static const int _winAccessDenied = 5;
   static const int _winSharingViolation = 32;
+  static const int _winFileExists = 80;
   static const int _winPrivilegeNotHeld = 1314;
   static const int _winAlreadyExists = 183;
   static const int _winDirNotEmpty = 145;
@@ -803,7 +804,14 @@ class LocalFileSystem implements RemoteFileSystem {
         return tempPath;
       } on FileSystemException catch (error) {
         final code = error.osError?.errorCode;
-        if (code != _eexist && code != _winAlreadyExists) rethrow;
+        // dart:io surfaces the collision as EEXIST on POSIX and either
+        // ERROR_ALREADY_EXISTS or ERROR_FILE_EXISTS on Windows
+        // (exclusive creates report the latter).
+        if (code != _eexist &&
+            code != _winAlreadyExists &&
+            code != _winFileExists) {
+          rethrow;
+        }
       }
     }
     throw RemoteFileException(
@@ -1169,7 +1177,13 @@ void _validateLocalName(String name) {
       name.endsWith(' ')) {
     throw FormatException('"$name" is not a safe local file name.');
   }
-  final base = name.split('.').first;
+  // Win32 matches device names ignoring trailing dots and spaces in
+  // the base segment, so strip them before the reserved match
+  // ('aux .txt' is as reserved as 'aux.txt').
+  final base = name
+      .split('.')
+      .first
+      .replaceAll(RegExp(r'[ .]+$'), '');
   // 09 §3.5's full Windows reserved list: the DOS names plus CLOCK$
   // and the superscript COM/LPT spellings (¹²³ are real Win32
   // alternates), matched on the base segment, case-insensitively.

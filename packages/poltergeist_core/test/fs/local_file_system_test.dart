@@ -148,9 +148,11 @@ void main() {
 
   /// Any `.poltergeist-*` temp/backup siblings left anywhere under the
   /// fixture — must be empty after every operation, success or failure.
+  /// followLinks: false keeps the scan inside the fixture even when a
+  /// test leaves a symlink behind.
   List<String> siblingLitter() => root
-      .listSync(recursive: true)
-      .map((entity) => entity.path.split(Platform.pathSeparator).last)
+      .listSync(recursive: true, followLinks: false)
+      .map((entity) => basenameOf(entity.path))
       .where((name) => name.contains('poltergeist-'))
       .toList();
 
@@ -175,7 +177,7 @@ void main() {
   void installFake(Directory bin, String name, String body) {
     final script = File('${bin.path}/$name');
     script.writeAsStringSync('#!/bin/sh\n$body\n');
-    Process.runSync('chmod', ['755', script.path]);
+    chmodSync('755', script.path);
   }
 
   group('canonicalize', () {
@@ -1127,6 +1129,7 @@ void main() {
         ('NUL.txt', 'reserved name with extension'),
         ('Com1.tar.gz', 'reserved COM name by base segment'),
         ('aux.', 'reserved name with trailing dot'),
+        ('aux .txt', 'reserved name with trailing space in the base'),
         ('name.', 'trailing dot'),
         ('name ', 'trailing space'),
         ('a<b', 'forbidden character'),
