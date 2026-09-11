@@ -1953,7 +1953,10 @@ the attached SHA256SUMS. No retry was attempted: the failure is a
 workflow bug, not transient. Recovery per D23 ("a failed run leaves
 only an invisible draft: delete it, re-run"): fix the publish step
 (open item 8), delete the hidden draft, re-run via `workflow_dispatch`
-with tag `v0.2.0` (the created-once guard otherwise refuses). M2 stays
+with tag `v0.2.0` dispatched from a ref that carries the fix — the tag
+itself still holds the buggy workflow file, so dispatching the tag ref
+would reproduce the failure (the created-once guard otherwise refuses).
+M2 stays
 unclosed until a v0.2.0 release publishes; install-tested-asset QA
 (07 §3.13 / v1.0 bar) and the 07 §4 APK in-place-upgrade rehearsal
 remain open regardless.
@@ -2322,8 +2325,10 @@ remain open regardless.
    `gh release edit "$RELEASE_TAG" --draft=false` (with coverage — a
    grep/lint or dry-run guard; the bug is one command name). Then D23's
    recovery: delete the hidden draft and re-run the release for tag
-   `v0.2.0` via `workflow_dispatch` (the created-once guard refuses
-   while the draft exists). Only a published v0.2.0 closes M2.
+   `v0.2.0` via `workflow_dispatch` from a ref that carries the fix
+   (dispatching the tag ref re-runs the tag's buggy workflow file; the
+   created-once guard refuses while the draft exists). Only a published
+   v0.2.0 closes M2.
 
 ## Independent audit
 
