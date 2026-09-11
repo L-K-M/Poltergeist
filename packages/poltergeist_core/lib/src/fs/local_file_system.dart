@@ -414,7 +414,7 @@ class LocalFileSystem implements RemoteFileSystem {
               'A local item named "${p.basename(newPath)}" already exists.',
         );
       }
-      await _renameInPlace(sourceType, sibling, newPath, overwrite: false);
+      await _renameInPlace(sourceType, sibling, newPath, overwrite: overwrite);
     } on Object {
       // Restore the original name rather than stranding the entry under
       // a hidden temp name; if even that fails, the temp keeps the data.
@@ -447,15 +447,16 @@ class LocalFileSystem implements RemoteFileSystem {
       // the user with neither file when the second step fails.
       // Directories and links rethrow: the dance is a regular-file
       // protocol and would coerce them through File. So does a failure
-      // with no existing destination — that is an unrelated error
-      // (vanished source, missing parent), not a replace failure.
+      // with no regular-file destination — a vanished path is an
+      // unrelated error, and an existing directory/link destination
+      // mirrors POSIX rename(file → dir)'s own EISDIR failure.
       if (!overwrite ||
           !Platform.isWindows ||
           sourceType != FileSystemEntityType.file) {
         rethrow;
       }
-      if (await FileSystemEntity.type(newPath, followLinks: false) ==
-          FileSystemEntityType.notFound) {
+      if (await FileSystemEntity.type(newPath, followLinks: false) !=
+          FileSystemEntityType.file) {
         rethrow;
       }
       await _replaceLocalFile(File(oldPath), File(newPath), 'rename');

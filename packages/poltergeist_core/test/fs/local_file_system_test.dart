@@ -113,6 +113,10 @@ void main() {
 
   String pathOf(String name) => '${root.path}/$name';
 
+  /// Separator-robust basename (listSync joins with the host separator,
+  /// but fixtures here always build with `/`).
+  String basenameOf(String path) => path.split(RegExp(r'[\\/]')).last;
+
   /// A chmod that fails loudly — a silently failed fixture chmod would
   /// surface later as misleading assertion failures.
   void chmodSync(String mode, String path) {
@@ -504,12 +508,14 @@ void main() {
   });
 
   group('setOwner', () {
-    test('chown to the current owner is a permitted no-op', () async {
+    test('chown to the current owner succeeds and leaves the file intact', () async {
       final file = await putFile('f');
       final uid = int.parse(
         Process.runSync('id', ['-u']).stdout.toString().trim(),
       );
       await fs.setOwner(file.path, uid: uid);
+      expect(file.existsSync(), isTrue);
+      expect(modeOf(file.path), oct('644'));
     });
 
     test('requires at least one id (ArgumentError) and range-checks both', () {
@@ -723,7 +729,7 @@ void main() {
       expect(
         Directory(root.path)
             .listSync()
-            .map((e) => e.path.split(Platform.pathSeparator).last),
+            .map((entity) => basenameOf(entity.path)),
         ['A.TXT'],
       );
     });
