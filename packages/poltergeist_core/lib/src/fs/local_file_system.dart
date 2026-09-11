@@ -55,13 +55,16 @@ class LocalFileSystem implements RemoteFileSystem {
   static const int _maxTempAttempts = 5;
   static const int _maxUint32 = 0xFFFFFFFF;
 
-  // POSIX errnos (OSError.errorCode on every non-Windows host).
+  // Errnos as dart:io reports them on POSIX hosts. All are portable
+  // across Linux/macOS EXCEPT ENOTEMPTY: 39 on Linux, 66 on Darwin —
+  // both are accepted wherever the not-empty classification reads it.
   static const int _enoent = 2;
   static const int _eperm = 1;
   static const int _eacces = 13;
   static const int _eexist = 17;
   static const int _enotdir = 20;
-  static const int _enotempty = 39;
+  static const int _enotemptyLinux = 39;
+  static const int _enotemptyDarwin = 66;
 
   // Windows GetLastError values (OSError.errorCode carries these there,
   // never POSIX errnos).
@@ -342,7 +345,7 @@ class LocalFileSystem implements RemoteFileSystem {
       // differs only by case): a direct rename would collide with
       // itself on a case-insensitive volume, so go through a unique
       // sibling (D26's two-step).
-      await _renameCaseOnly(sourceType, oldPath, newPath);
+      await _renameCaseOnly(sourceType, oldPath, newPath, overwrite: overwrite);
       return;
     }
     final destinationType = await FileSystemEntity.type(
@@ -391,16 +394,18 @@ class LocalFileSystem implements RemoteFileSystem {
   Future<void> _renameCaseOnly(
     FileSystemEntityType sourceType,
     String oldPath,
-    String newPath,
-  ) async {
+    String newPath, {
+    required bool overwrite,
+  }) async {
     final sibling = await _uniqueSiblingPath(oldPath);
     await _renameInPlace(sourceType, oldPath, sibling, overwrite: false);
     try {
       // Same preflight as the main path: an entry that took the target
       // name between the two steps must conflict, not be silently
       // replaced — POSIX rename(2) would clobber it.
-      if (await FileSystemEntity.type(newPath, followLinks: false) !=
-          FileSystemEntityType.notFound) {
+      if (!overwrite &&
+          await FileSystemEntity.type(newPath, followLinks: false) !=
+              FileSystemEntityType.notFound) {
         throw RemoteFileException(
           kind: RemoteFileErrorKind.conflict,
           operation: 'rename',
@@ -469,7 +474,8 @@ class LocalFileSystem implements RemoteFileSystem {
         }
       } on FileSystemException catch (error) {
         final code = error.osError?.errorCode;
-        final nonEmpty = code == _enotempty ||
+        final nonEmpty = code == _enotemptyLinux ||
+            code == _enotemptyDarwin ||
             code == _eexist ||
             code == _winDirNotEmpty ||
             code == _winAlreadyExists;
@@ -810,9 +816,10 @@ class LocalFileSystem implements RemoteFileSystem {
   }
 
   /// A collision-proof sibling for the case-only rename two-step.
-  /// Check-then-use by design: a creator racing into the name surfaces
-  /// as the rename's own typed failure (the window is the same advisory
-  /// preflight gap 03 §2.2 documents for rename).
+  /// Check-then-use by design, with the same advisory gap 03 §2.2
+  /// documents for rename itself: a creator racing into the checked
+  /// name is silently replaced on POSIX (rename(2) clobbers) and only
+  /// surfaces as a typed failure on Windows.
   Future<String> _uniqueSiblingPath(String path) async {
     for (var attempt = 0; attempt < _maxTempAttempts; attempt++) {
       final sibling = _siblingPath(path, _tempSuffix);

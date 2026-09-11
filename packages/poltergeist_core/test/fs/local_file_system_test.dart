@@ -239,7 +239,7 @@ void main() {
       }
     });
 
-    test('filters . and .. entries; an empty directory lists empty', () async {
+    test('an empty directory lists empty', () async {
       expect(await fs.listDirectory(root.path), isEmpty);
     });
 
@@ -463,11 +463,13 @@ void main() {
 
     test('refuses symlinks — the target keeps its times', () async {
       final file = await putFile('target');
+      final before = (await fs.stat(file.path)).modifiedAt;
       final link = await putLink('alias', file.path);
       final error = remoteFailure(
         await failureOf(fs.setTimes(link.path, modifiedAt: DateTime.utc(2024))),
       );
       expect(error.kind, RemoteFileErrorKind.unsupported);
+      expect((await fs.stat(file.path)).modifiedAt, before);
     });
 
     test('missing path fails notFound', () async {
@@ -535,6 +537,31 @@ void main() {
         await failureOf(fakeFs.setOwner(pathOf('f'), uid: 0)),
       );
       expect(error.kind, RemoteFileErrorKind.permissionDenied);
+    });
+
+    test('the utility argv is option-guarded before any operand', () async {
+      // Pins the `--` end-of-options guard centrally inserted by
+      // _runUtility: a dash-prefixed path operand can never parse as
+      // an option, absolute or relative.
+      final file = await putFile('f');
+      final bin = Directory.systemTemp.createTempSync('pg-argvbin');
+      addTearDown(() => bin.deleteSync(recursive: true));
+      final record = File('${bin.path}/argv');
+      final script = File('${bin.path}/chmod');
+      script.writeAsStringSync(
+        '#!/bin/sh\necho "\$@" | tr " " "\\n" >> "\$RECORD"\nexit 0\n',
+      );
+      Process.runSync('chmod', ['755', script.path]);
+      final fakeFs = LocalFileSystem(
+        environment: {
+          'PATH': '${bin.path}:${Platform.environment['PATH'] ?? ''}',
+          'RECORD': record.path,
+        },
+      );
+      await fakeFs.setMode(file.path, oct('600'));
+      final argv = record.readAsStringSync().split('\n').where((l) => l.isNotEmpty);
+      expect(argv.first, '--');
+      expect(argv, containsAll(['--', '600', file.path]));
     });
   });
 
@@ -836,7 +863,7 @@ void main() {
 
   group('upload', () {
     test('writes the content and returns the digested entry', () async {
-      final entry = await fs.upload(pathOf('out'), Stream.value('payload'.codeUnits));
+      final entry = await fs.upload(pathOf('out'), Stream.value(utf8.encode('payload')));
       expect(File(pathOf('out')).readAsStringSync(), 'payload');
       expect(entry.contentSha256, sha256Of('payload'));
       expect(entry.size, 7);
@@ -852,14 +879,14 @@ void main() {
     test('carries the existing mode over an overwrite by default', () async {
       final file = await putFile('existing');
       await fs.setMode(file.path, oct('640'));
-      await fs.upload(file.path, Stream.value('new'.codeUnits), overwrite: true);
+      await fs.upload(file.path, Stream.value(utf8.encode('new')), overwrite: true);
       expect(modeOf(file.path), oct('640'));
     });
 
     test('an existing target conflicts without overwrite, content intact', () async {
       final file = await putFile('existing', 'old');
       final error = remoteFailure(
-        await failureOf(fs.upload(file.path, Stream.value('new'.codeUnits))),
+        await failureOf(fs.upload(file.path, Stream.value(utf8.encode('new')))),
       );
       expect(error.kind, RemoteFileErrorKind.conflict);
       expect(file.readAsStringSync(), 'old');
@@ -868,7 +895,7 @@ void main() {
 
     test('overwrite replaces the target with no leftover backup', () async {
       final file = await putFile('existing', 'old-content');
-      await fs.upload(file.path, Stream.value('new'.codeUnits), overwrite: true);
+      await fs.upload(file.path, Stream.value(utf8.encode('new')), overwrite: true);
       expect(file.readAsStringSync(), 'new');
       expect(siblingLitter(), isEmpty);
     });
@@ -876,7 +903,7 @@ void main() {
     test('a declared length mismatch fails other and cleans the temp', () async {
       final error = remoteFailure(
         await failureOf(
-          fs.upload(pathOf('out'), Stream.value('12345'.codeUnits), length: 10),
+          fs.upload(pathOf('out'), Stream.value(utf8.encode('12345')), length: 10),
         ),
       );
       expect(error.kind, RemoteFileErrorKind.other);
@@ -890,7 +917,7 @@ void main() {
       final expected = await fs.stat(file.path, followLinks: false);
       await fs.upload(
         file.path,
-        Stream.value('v2'.codeUnits),
+        Stream.value(utf8.encode('v2')),
         overwrite: true,
         expectedTarget: expected,
       );
@@ -913,7 +940,7 @@ void main() {
         await failureOf(
           fs.upload(
             file.path,
-            Stream.value('x'.codeUnits),
+            Stream.value(utf8.encode('x')),
             overwrite: true,
             expectedTarget: poisoned,
           ),
@@ -1005,7 +1032,7 @@ void main() {
       final dir = await putDir('occupied');
       final error = remoteFailure(
         await failureOf(
-          fs.upload(dir.path, Stream.value('x'.codeUnits), overwrite: true),
+          fs.upload(dir.path, Stream.value(utf8.encode('x')), overwrite: true),
         ),
       );
       expect(error.kind, RemoteFileErrorKind.other);
@@ -1019,7 +1046,7 @@ void main() {
       final link = await putLink('lnk', target.path);
       final error = remoteFailure(
         await failureOf(
-          fs.upload(link.path, Stream.value('x'.codeUnits), overwrite: true),
+          fs.upload(link.path, Stream.value(utf8.encode('x')), overwrite: true),
         ),
       );
       expect(error.kind, RemoteFileErrorKind.other);
@@ -1034,7 +1061,7 @@ void main() {
       final file = await putFile(longName, 'original');
       final error = remoteFailure(
         await failureOf(
-          fs.upload(file.path, Stream.value('x'.codeUnits), overwrite: true),
+          fs.upload(file.path, Stream.value(utf8.encode('x')), overwrite: true),
         ),
       );
       expect(error.kind, RemoteFileErrorKind.other);
@@ -1051,7 +1078,7 @@ void main() {
       await file.writeAsString('original');
       final error = remoteFailure(
         await failureOf(
-          fs.upload(file.path, Stream.value('x'.codeUnits), overwrite: true),
+          fs.upload(file.path, Stream.value(utf8.encode('x')), overwrite: true),
         ),
       );
       expect(error.kind, RemoteFileErrorKind.other);
@@ -1073,9 +1100,12 @@ void main() {
         ('name ', 'trailing space'),
         ('a<b', 'forbidden character'),
       ]) {
-        test('rejects "${case_.$1}" (${case_.$2}) before touching the disk', () {
+        test('rejects "${case_.$1}" (${case_.$2}) before touching the disk', () async {
           final target = '${root.path}/${case_.$1}';
-          expect(() => fs.upload(target, Stream.value([1])), throwsFormatException);
+          await expectLater(
+            () => fs.upload(target, Stream.value([1])),
+            throwsFormatException,
+          );
           expect(siblingLitter(), isEmpty);
         });
       }

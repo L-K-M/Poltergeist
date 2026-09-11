@@ -144,8 +144,10 @@ an owned temp directory, call `File(dir).setLastModified(...)`, observe
 `FileSystemException` errno 21; it does not bottom
 out in a path-based `utimensat`) and Windows surfaces as
 `ERROR_ACCESS_DENIED`,
-which the funnel above would otherwise translate to `permissionDenied`,
-not the promised `unsupported`, so `setTimes` pre-checks the entry type
+which the funnel above would translate to `permissionDenied` on
+Windows — or, on POSIX, leave as a bare `other`, since `EISDIR` is not
+in the funnel's errno map — neither of which is the promised
+`unsupported`, so `setTimes` pre-checks the entry type
 (`FileSystemEntity.type(path, followLinks: false)`) and throws the typed
 `unsupported` itself for a directory target on every platform, never relying on
 the OS error translation to get there — which costs the sync engine

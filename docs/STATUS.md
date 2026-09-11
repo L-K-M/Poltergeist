@@ -2522,6 +2522,15 @@ milestone-close claim.
    private copies. Owner of the remaining call sites: the transfer
    queue's download executor, the checkout store, and the sync executor
    as those land (M4/M7/M8).
+10. **2026-09-11 — M3: upstream `pathTypeChanged` into the pin.**
+    `LocalPathTypeChangedException` (kind `other`) exists because the
+    pinned `RemoteFileErrorKind` carries no `pathTypeChanged` member
+    (03 §2.2's same-PR precision edit records the representation).
+    At the next Séance upstream window, add the enum member upstream
+    (one additive kind, PR-S3's pattern), re-map the subclass onto it
+    at the pin bump, and deprecate the local subtype so generic
+    `RemoteFileSystem` callers can dispatch on `kind` alone instead
+    of catching an implementation-specific class.
 
 ## Independent audit
 
