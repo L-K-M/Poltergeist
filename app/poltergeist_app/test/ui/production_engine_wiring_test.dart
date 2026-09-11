@@ -85,9 +85,11 @@ void main() {
     final navigatorKey = GlobalKey<NavigatorState>();
     final engine = session_test.FakeAppEngine();
     addTearDown(engine.close);
+    // One store shared by the session and the app, as main.dart wires it.
+    final bookmarks = FakeBookmarkStore([_blockedBookmark()]);
     final session = await startEngineSession(
       supportDirectoryPath: './engine-session',
-      bookmarks: FakeBookmarkStore([_blockedBookmark()]),
+      bookmarks: bookmarks,
       navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
       incidentStore: InMemoryIncidentStore(),
@@ -107,7 +109,7 @@ void main() {
         // The production engine is not debug-gated: the surface stays
         // live with the demo disabled.
         debugDemoEnabled: false,
-        bookmarks: FakeBookmarkStore([_blockedBookmark()]),
+        bookmarks: bookmarks,
         engineSession: session,
         navigatorKey: navigatorKey,
       ),
@@ -351,7 +353,11 @@ void main() {
 
     // Shutdown drains in the body, not an awaited teardown: the chain's
     // future does not re-complete inside the fake-async zone once it has
-    // been entered, so an awaited teardown would hang the suite.
+    // been entered, so an awaited teardown would hang the suite. The
+    // teardown net is idempotent insurance.
+    addTearDown(() {
+      unawaited(session!.shutdown());
+    });
     unawaited(session!.shutdown());
     for (var i = 0; i < 50 && engine.shutdownCalls == 0; i++) {
       await tester.pump();

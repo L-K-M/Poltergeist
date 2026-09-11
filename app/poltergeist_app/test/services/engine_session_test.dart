@@ -623,6 +623,31 @@ void main() {
       expect(reported, isEmpty);
     });
 
+    test('a bookmark-store fault is reported, never rethrown', () async {
+      final failing = FakeBookmarkStore()
+        ..failure = StateError('store unreadable');
+      final engine = FakeAppEngine();
+      addTearDown(engine.close);
+      final session = await startEngineSession(
+        supportDirectoryPath: support.path,
+        bookmarks: failing,
+        navigatorKey: GlobalKey<NavigatorState>(),
+        pinStore: InMemoryHostKeyStore(),
+        incidentStore: InMemoryIncidentStore(),
+        spawn: (config) async => engine,
+        onError: (error, stackTrace) => reported.add(error),
+      );
+      addTearDown(session!.shutdown);
+
+      // The review is fired unawaited from a widget handler in
+      // production; the store fault must land in the error sink, not
+      // escape as an unhandled async error.
+      await session.reviewBlockedHostKey('b1');
+
+      expect(reported, isNotEmpty);
+      expect(engine.openCalls, isEmpty);
+    });
+
     test('an unknown id opens nothing', () async {
       final (session, engine) = await startSession();
       addTearDown(session!.shutdown);

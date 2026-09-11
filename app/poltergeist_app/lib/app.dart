@@ -130,8 +130,15 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onExitRequested: () async {
         // Flush what is already queued before stopping the engine: the
         // tails snapshot at call time, so writes racing the shutdown
-        // trigger still land first.
-        await session.flushWrites();
+        // trigger still land first. Best-effort — the framework awaits
+        // this future, so a failed flush must never block the exit.
+        try {
+          await session.flushWrites();
+        } on Object catch (error, stackTrace) {
+          FlutterError.reportError(
+            FlutterErrorDetails(exception: error, stack: stackTrace),
+          );
+        }
         session.forwardLifecycle(AppLifecycleState.detached);
         return AppExitResponse.exit;
       },
@@ -142,6 +149,10 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
   void dispose() {
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
+    // Deliberately no shutdown here: the tree never unmounts in
+    // production (engine lifetime rides app exit), and driving async
+    // shutdown from widget dispose deadlocks the test binding's
+    // teardown zone — tests own their session teardown explicitly.
     super.dispose();
   }
 

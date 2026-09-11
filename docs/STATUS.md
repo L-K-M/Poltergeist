@@ -1908,10 +1908,11 @@ persistence seeded, and every composed surface consumes that one engine.
   final lifecycle event on desktop, delivered best-effort at exit —
   triggers the idempotent orderly shutdown (coordinator disposed,
   mirrors cancelled fire-and-forget, engine stopped), and
-  `onExitRequested` covers the window-close path where `detached` may
-  never reach Dart before the process is torn down. A missed event is
-  safe (the process dies with its sockets) and a repeated one is a
-  no-op. The session forwards nothing else: it owns no probe activity
+  `onExitRequested` is wired for the window-close path — where platform
+  delivery of `detached` is not guaranteed — flushing the pending
+  mirror writes best-effort first: a failed flush is reported and never
+  blocks the exit. A missed event is safe (the process dies with its
+  sockets) and a repeated one is a no-op. The session forwards nothing else: it owns no probe activity
   (the demo session remains the only probe initiator, 03 §3.4;
   durable-favorite targets await M3/M5's connect flow).
 - **Demo reuse (one engine per process).** The debug demo reuses the

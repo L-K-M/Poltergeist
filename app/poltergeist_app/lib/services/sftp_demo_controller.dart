@@ -151,7 +151,7 @@ class SftpDemoController extends ChangeNotifier {
 
   final ApplicationErrorReporter _errorReporter;
   late final PromptCoordinator _prompts;
-  late bool _ownsPrompts;
+  late final bool _ownsPrompts;
   late final ProbeCoordinator _probes;
   StreamSubscription<ServerStatus>? _states;
   StreamSubscription<ConnectionLogEvent>? _logSubscription;

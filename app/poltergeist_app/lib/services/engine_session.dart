@@ -346,6 +346,11 @@ final class EngineSession {
           _errors.report(error, stackTrace);
         }
       }
+    } on Object catch (error, stackTrace) {
+      // A fault before the review connect (the bookmark store read) is
+      // reported like every other unexpected fault — never rethrown to a
+      // fire-and-forget caller.
+      _errors.report(error, stackTrace);
     } finally {
       _reviewInFlight = false;
     }
