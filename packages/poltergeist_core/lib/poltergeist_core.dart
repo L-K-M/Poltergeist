@@ -84,6 +84,8 @@ export 'src/connection/incident_store.dart'
         IncidentStore,
         InMemoryIncidentStore;
 export 'src/connection/pool_key.dart' show PoolKey;
+export 'src/fs/local_file_system.dart'
+    show LocalFileSystem, LocalPathTypeChangedException;
 export 'src/connection/pool_policy.dart' show PoolPolicy;
 export 'src/connection/ssh_transport.dart'
     show

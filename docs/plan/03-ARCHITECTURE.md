@@ -137,14 +137,15 @@ notes flag the prefix as the one thing to parameterize).
 `setMode`/`setOwner`, since `setLastModified` dereferences and would
 write a synced tree's mtime through a link to its target — maps to
 `File.setLastModified` (and `setLastAccessed`) for
-**files**; a directory target succeeds on POSIX (`File.setLastModified`
-bottoms out in `utimensat`, a path-based syscall with no regular-file
-restriction) and fails on Windows, whose implementation opens the path and
-cannot open a directory that way — surfacing as `ERROR_ACCESS_DENIED`,
+**files**; a directory target cannot be set at all — dart:io's
+`File.setLastModified` opens the path for writing, which POSIX refuses
+with `EISDIR` (verified against Dart 3.13 on Linux; it does not bottom
+out in a path-based `utimensat`) and Windows surfaces as
+`ERROR_ACCESS_DENIED`,
 which the funnel above would otherwise translate to `permissionDenied`,
 not the promised `unsupported`, so `setTimes` pre-checks the entry type
 (`FileSystemEntity.type(path, followLinks: false)`) and throws the typed
-`unsupported` itself for a directory target on Windows, never relying on
+`unsupported` itself for a directory target on every platform, never relying on
 the OS error translation to get there — which costs the sync engine
 nothing either way: it compares directories by existence only and never sets their
 times (05 §4). `setOwner`
@@ -164,9 +165,13 @@ engine's local half never waits on the upstream PR (§2.4). Like the
 atomic: a path swapped to a symlink between the check and the
 `chmod`/`chown`/`setLastModified` exec is dereferenced. The decision:
 re-stat (lstat-style, `followLinks: false`) after the operation and fail
-the write — mapped to a distinct `pathTypeChanged` error (carrying the
+the write — mapped to a distinct `pathTypeChanged` failure (carrying the
 dereferenced target path the write actually landed on, so the user can
-inspect it), never `conflict`: by the time this re-stat fires, the
+inspect it) — at the current pin `RemoteFileErrorKind` carries no such
+member (PR-S3 added only `setTimes`/`setOwner`/`computeHash`), so the
+distinctness rides a dedicated `LocalPathTypeChangedException` subclass
+of `RemoteFileException` (kind `other`, distinguishable by type wherever
+a `kind` switch would have carried `pathTypeChanged`) — never `conflict`: by the time this re-stat fires, the
 chmod/chown/setLastModified has already been applied through the
 swapped-in symlink to *its* target, potentially outside the synced tree
 entirely — a safety violation, not "both sides changed" the way §4.2's

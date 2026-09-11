@@ -4,7 +4,8 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-11. **M2 is closed** — v0.2.0 published as a
+_Last updated: 2026-09-11. **M2 is closed; M3 is open** (first M3
+slice below) — v0.2.0 published as a
 pre-release 2026-09-11
 ([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
 D23-recovery dispatch run
@@ -2008,6 +2009,91 @@ unauthenticated, hashes to
 `0403867aabc479ab9b0fedc2a4ad47df2cc71ca7ed84d1fc02e03a9b7e0c3771`,
 matching SHA256SUMS.
 
+## M3 — LocalFileSystem, the one VFS's local half (2026-09-11)
+
+M3's first slice (07 §3.4 scope bullet 1): `LocalFileSystem implements
+RemoteFileSystem` in `poltergeist_core/lib/src/fs/local_file_system.dart`
+— a second implementation of the pinned interface (D3; never a wrapper,
+never a second abstraction). The pin (`2e6d1f1`) already contains
+PR-S3, so `setTimes`, `setOwner`, and `computeHash` are plain interface
+overrides from day one — no `// TODO(pin)` markers, no concrete-method
+bridge. The full contract: `canonicalize` (`resolveSymbolicLinks`,
+falling back to the normalized absolute path for missing paths — never
+an error; `~` expands through the pinned `expandHomePath` with a
+constructor-injected environment), `listDirectory`
+(`followLinks: false`, links reported as links with null metadata,
+never statted), `stat` (both link modes), `setMode`/`setOwner`
+(`Process.run` chmod/chown with `--`, `LC_ALL=C` over the injected
+environment, trailing-stderr-segment exit mapping — `Operation not
+permitted`/`Permission denied` → permissionDenied, `No such file or
+directory` → notFound — never a substring match), `setTimes`
+(`setLastModified`/`setLastAccessed`), `readSymbolicLink`,
+`createSymbolicLink`, `createDirectory`, `rename` (destination-lstat
+preflight, D26 case-only two-step via a unique sibling,
+type-dispatched renames — dart:io's File/Directory/Link renames refuse
+the wrong type), `delete` (one entry, no recursion, Séance's non-empty
+directory wording), and the `download`/`upload` integrity protocols
+mirroring the pinned adapter (double-stat snapshots ⇒ conflict, short
+reads ⇒ conflict, exclusive `.poltergeist-<8 hex>.tmp` sibling with
+regenerate-on-collision, sticky cancellation raced against every
+pull, declared-length verification, `expectedTarget` CAS including the
+digest re-read, commit via the backup-rename dance — never
+delete-then-rename — and temp cleanup on every failure path). One
+funnel maps every dart:io failure to the pinned typed taxonomy
+(ENOENT/EEXIST/EACCES/EPERM and the Win32 code set incl.
+ERROR_SHARING_VIOLATION → "file is in use by another process"), with
+the adapter's `Could not <op> "<path>": <detail>` message shape and
+precondition failures (RangeError/ArgumentError/FormatException)
+throwing raw, like the adapter's own early checks.
+
+Safety rails beyond the table rows, all test-pinned: attribute writes
+refuse symlinks first (lstat-style) and re-stat after the write — a
+path swapped to a symlink mid-write fails as
+`LocalPathTypeChangedException` carrying the dereferenced landing
+path, never `conflict` (the pinned enum has no `pathTypeChanged`
+member; the subclass carries the distinctness — recorded in a same-PR
+03 §2.2 precision edit); upload validates the destination leaf name
+(empty/`.`/`..`/`/`/`\`/NUL plus the Windows hazards: reserved device
+names by base segment incl. CONIN$/CONOUT$, forbidden characters,
+trailing dot/space) before touching the disk; the commit dance refuses
+to replace links/non-regular targets and fails when the backup name
+would exceed NAME_MAX. Two same-PR 03 §2.2 precision edits record
+verified code reality: dart:io cannot set a directory's timestamps on
+any platform (EISDIR on POSIX, not utimensat — Dart 3.13), so
+`setTimes` throws the typed `unsupported` for directories everywhere;
+and the `pathTypeChanged` representation above.
+
+The §2.3 public helpers (`replaceLocalFile`, `ensureSafeLocalDirectory`,
+`validateLocalName`, `validatePathComponent` in `local_fs_safety.dart`,
+with Séance's tests and PORTS entries) are **not** in this slice — this
+PR is original code only, so PORTS.md is unchanged. Upload's commit
+dance and leaf-name validation are private in-class implementations
+following §2.3's spec; the port replaces them (open item 9).
+
+Validation: 88 dedicated tests over a temp-dir fixture — every method,
+the error taxonomy (kind + message shape per operation), symlink
+cases (list/stat/report/refuse/no-follow-down/download/link-rename),
+path-traversal rejection at the upload boundary, chmod/chown exit
+mapping through PATH-injected fake binaries (including the
+trailing-segment rule pinned against a file legally named `Operation
+not permitted`), the mid-write swap → `LocalPathTypeChangedException`,
+mid-download/mid-upload conflict and CAS cases via deterministic
+mutation seams, cancellation before/mid-stream with temp cleanup,
+case-only rename vs. same-lowercase distinct entries, and the
+NAME_MAX backup guard. Regression-first: the download-missing taxonomy
+bug (a missing path read `unsupported` before `notFound`) was observed
+failing as `unsupported` in the suite and fixed to `notFound` — pinned
+adapter parity. Full core suite 468 green (+15 Docker-fixture skips,
+Docker unavailable locally); core analyze clean; import guard (92 +
+repo scan) and protocol guard (51) green; app untouched but re-verified
+(analyze clean, 422 tests) since the barrel and core deps changed —
+`crypto` and `path` are new direct core dependencies (03 §1's
+sanctioned set; both already resolved at identical shas in every lock,
+no resolution drift). CI green on the PR head. No UI (screenshots ride
+the slice that first renders panes), no engine wiring (the seam to
+mount a local pane rides the PaneController slice), no bookmarks, no
+milestone-close claim.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -2421,6 +2507,21 @@ matching SHA256SUMS.
    every leg green, publish re-probe clean). The publish verification
    (public pre-release, 8 assets, checksum spot-check) is in the dated
    close section above; v0.2.0 is public and M2 is closed.
+9. **2026-09-11 — M3: port 03 §2.3's local-safety helpers.**
+   `LocalFileSystem` (first M3 slice) implements upload's commit dance
+   and leaf-name validation as private in-class originals following
+   §2.3's spec. The plan's own instruction for the four helpers is a
+   *port* of Séance's `RemoteFilesController` statics with their Séance
+   tests and a PORTS.md entry each — deliberately not in the
+   LocalFileSystem PR (original code only). When the port lands in
+   `poltergeist_core/lib/src/fs/local_fs_safety.dart` (public, with
+   `ensureSafeLocalDirectory` + `validateLocalName`/
+   `validatePathComponent` and the crash-recovery sweep semantics for
+   orphaned `*.poltergeist-*.backup` siblings), switch
+   `LocalFileSystem`'s commit/validation paths to it and delete the
+   private copies. Owner of the remaining call sites: the transfer
+   queue's download executor, the checkout store, and the sync executor
+   as those land (M4/M7/M8).
 
 ## Independent audit
 
