@@ -2195,7 +2195,7 @@ M2 is closed. Still open regardless: install-tested-asset QA
    had nothing to queue (single run for the tag), the created-once
    guard was not stressed by a second run, and the fail-loud probes
    fired — the run failed red on the publish step's nonexistent
-   `gh release ready` subcommand (open item 8) instead of silently
+   `gh release ready` subcommand (item 8, now closed) instead of silently
    stranding the draft. The authorization question itself stays OPEN —
    owner decision.
    **2026-09-11 — v0.2.0 publish-run watch result:** the recovery run
@@ -2414,7 +2414,7 @@ M2 is closed. Still open regardless: install-tested-asset QA
    unknown-command failure), green after; `dart analyze
    tool/release_version` clean. Recovery (delete the draft only, then
    dispatch v0.2.0 from the fixed ref) and publish verification follow
-   the merge; the item stays open until a v0.2.0 release is public.
+   the merge; the item stayed open until the v0.2.0 release was public.
    **Closed 2026-09-11.** The fix merged in
    [PR #72](https://github.com/L-K-M/Poltergeist/pull/72) (merge
    `c96681d`); the D23 recovery deleted the hidden draft (release
