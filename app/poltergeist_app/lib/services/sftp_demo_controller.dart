@@ -47,6 +47,18 @@ abstract interface class SftpDemoBrowseChannel {
 
 typedef SftpDemoEngineFactory = Future<SftpDemoEngine> Function();
 
+/// Whether the demo session's teardown owns the engine's lifetime.
+enum SftpDemoEngineOwnership {
+  /// The demo spawned the engine: teardown shuts it down.
+  sessionOwned,
+
+  /// The engine is the app's long-lived production engine (the startup
+  /// composition's session): teardown closes only the session's own
+  /// channel and server reference — one engine per process, so the demo
+  /// must never spawn or stop a second one.
+  shared,
+}
+
 /// Spawns the real engine isolate and hands it out as the demo seam.
 Future<SftpDemoEngine> spawnSftpDemoEngine() async =>
     _EngineClientAdapter(await EngineClient.spawn(const EngineConfig()));
@@ -88,13 +100,29 @@ class SftpDemoController extends ChangeNotifier {
     required this.engine,
     required this.navigatorKey,
     required this.probeSettings,
+    this.engineOwnership = SftpDemoEngineOwnership.sessionOwned,
+    PromptCoordinator? sharedPrompts,
     ApplicationErrorReporter? errorReporter,
   }) : _errorReporter = errorReporter ?? ApplicationErrorReporter() {
-    _prompts = PromptCoordinator(
-      engine: engine,
-      navigatorKey: navigatorKey,
-      errorReporter: _errorReporter,
+    // The ownership pairing is a contract, not a convention: a shared
+    // engine without the session's coordinator would render every prompt
+    // twice, and an owned engine paired with foreign prompts would
+    // dispose a coordinator that outlives the demo.
+    assert(
+      (sharedPrompts == null) ==
+          (engineOwnership == SftpDemoEngineOwnership.sessionOwned),
+      'sharedPrompts and engineOwnership must agree: a shared engine '
+      'reuses the session prompt coordinator, an owned engine owns its '
+      'own.',
     );
+    _ownsPrompts = sharedPrompts == null;
+    _prompts =
+        sharedPrompts ??
+        PromptCoordinator(
+          engine: engine,
+          navigatorKey: navigatorKey,
+          errorReporter: _errorReporter,
+        );
     // Constructed before any connect: the probe controller subscribes to
     // snapshot truth first, and only a later connect sends targets or
     // activity (the #55 ordering rule).
@@ -111,12 +139,19 @@ class SftpDemoController extends ChangeNotifier {
   /// composition root, never constructed here.
   final ProbeSettings probeSettings;
 
+  /// Whether teardown may shut the engine down (one engine per process
+  /// once the production session exists).
+  final SftpDemoEngineOwnership engineOwnership;
+
   /// The demo page's own navigator: prompts render inside the demo route,
-  /// so teardown can never pop an unrelated app page (02 §10).
+  /// so teardown can never pop an unrelated app page (02 §10). Under a
+  /// shared engine the session's coordinator renders on the root
+  /// navigator instead; this key then serves the page's own back handling.
   final GlobalKey<NavigatorState> navigatorKey;
 
   final ApplicationErrorReporter _errorReporter;
   late final PromptCoordinator _prompts;
+  late final bool _ownsPrompts;
   late final ProbeCoordinator _probes;
   StreamSubscription<ServerStatus>? _states;
   StreamSubscription<ConnectionLogEvent>? _logSubscription;
@@ -161,7 +196,9 @@ class SftpDemoController extends ChangeNotifier {
   /// because the live log stream keeps no replay (03 §5: subscribe first).
   void start() {
     if (_disposed) return;
-    _prompts.start();
+    // A shared coordinator is the session's; it started before the demo
+    // existed and outlives it — only an owned one is started here.
+    if (_ownsPrompts) _prompts.start();
     _logSubscription ??= engine.connectionLog.listen(
       _onLogLine,
       // Transcript fan-out is diagnostic; a fault must not kill the demo,
@@ -432,7 +469,7 @@ class SftpDemoController extends ChangeNotifier {
     unawaited(_logSubscription?.cancel());
     unawaited(_statusReplay.close());
     unawaited(_logReplay.close());
-    _prompts.dispose();
+    if (_ownsPrompts) _prompts.dispose();
     // The probe controller pauses the engine and drops its targets before
     // the engine itself shuts down (03 §3.4's ordering).
     _probes.dispose();
@@ -489,13 +526,17 @@ class SftpDemoController extends ChangeNotifier {
     }
   }
 
-  /// Closes the browse channel and shuts the engine down; dispose cannot
-  /// block, so teardown is fire-and-forget (idempotent both sides).
+  /// Closes the browse channel and, when the session owns the engine,
+  /// shuts it down; dispose cannot block, so teardown is fire-and-forget
+  /// (idempotent both sides).
   Future<void> _teardown() async {
     final channel = _channel;
     final serverId = _serverId;
     _channel = null;
     await _closeChannelAndServer(channel, serverId);
+    // A shared engine outlives this session: only the session-owned
+    // engine is shut down here.
+    if (engineOwnership == SftpDemoEngineOwnership.shared) return;
     try {
       await engine.shutdown();
     } on Object catch (error, stackTrace) {

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/material.dart' show GlobalKey, ScaffoldMessengerState;
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -9,6 +10,7 @@ import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_store.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/engine_session.dart';
 import 'services/probe_settings_store.dart';
 import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
@@ -44,6 +46,21 @@ Future<void> main() async {
   );
   await errorReporter.guard(windowLifecycle.prepare);
 
+  // The production engine spawns once at startup, not debug-gated: the
+  // app-owned pin and incident stores seed it together (audit finding A),
+  // its prompts answer on the root navigator, and its lifetime ends with
+  // the app. One navigator key for the app and the session's coordinator,
+  // so dialogs render above whatever surface raised them.
+  final navigatorKey = GlobalKey<NavigatorState>();
+  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  final engineSession = await startEngineSession(
+    supportDirectoryPath: supportDirectory.path,
+    bookmarks: bookmarks,
+    navigatorKey: navigatorKey,
+    scaffoldMessengerKey: scaffoldMessengerKey,
+    onError: errorReporter.report,
+  );
+
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
@@ -52,6 +69,9 @@ Future<void> main() async {
       debugDemoEnabled: kDebugMode,
       probeSettings: probeSettings,
       bookmarks: bookmarks,
+      engineSession: engineSession,
+      navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       sshConfigImport: buildSshConfigImportSetup(
         environment: Platform.environment,
         isMacOS: Platform.isMacOS,

@@ -19,6 +19,20 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
     r"'${supportDirectory.path}${Platform.pathSeparator}bookmarks.json'",
   },
+  // The production engine session's store file names and wiring literals
+  // (paths inside the app-support directory, the review pane-tab id, and
+  // the shared-engine refusal message).
+  'lib/services/engine_session.dart': {
+    "'host_keys.json'",
+    "'incidents.json'",
+    "'identity_reads.jsonl'",
+    "'review'",
+    r"'$supportDirectoryPath$separator$_pinStoreFileName'",
+    r"'$supportDirectoryPath$separator$_incidentStoreFileName'",
+    r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
+    "'The demo session shares the production engine; only the session '",
+    "'owns its shutdown.'",
+  },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:
   // one instance serves the import command and the Connections surface.
@@ -123,14 +137,20 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // Registered commands render from the registry keyed by id — widget
   // plumbing, not authored copy.
-  'lib/ui/workspace_shell.dart': {"'command.\${command.id}'"},
+  'lib/ui/workspace_shell.dart': {
+    "'command.\${command.id}'",
+    "'connectionEngine is ignored when engineSession is provided'",
+  },
   // The demo controller's machine data: the pane-tab key the channel
   // registers under, the ephemeral bookmark's label/path (never UI
-  // copy), and a dev-facing assert message.
+  // copy), and dev-facing assert messages.
   'lib/services/sftp_demo_controller.dart': {
     "'demo'",
     r"'${facts.username}@${facts.host}'",
     "'/'",
+    "'sharedPrompts and engineOwnership must agree: a shared engine '",
+    "'reuses the session prompt coordinator, an owned engine owns its '",
+    "'own.'",
   },
   // The demo view's form keys and the prefilled default SSH port —
   // widget plumbing, not authored copy. The app.dart entry is the debug
@@ -140,6 +160,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'the factory will be silently ignored.'",
     "'debugDemoEnabled requires probeSettings: the demo session\\'s '",
     "'probe wiring must persist.'",
+    "'connectionEngine is a test seam; engineSession supplies its own '",
+    "'lanes. Provide one, not both.'",
   },
   // The persisted probe settings keys and record field names: the on-disk
   // settings.json shape, not UI copy (03 §6's per-server device-local map).

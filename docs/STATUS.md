@@ -4,20 +4,26 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-10. The engine-protocol incident/pin bridging
+_Last updated: 2026-09-10. The startup engine-spawn composition landed
+(dated section below): the production engine spawns once at app startup
+— not debug-gated — seeded from the app-owned pin and incident stores
+together. Its prompt coordinator, trust mirrors, the Connections
+surface's lanes, and the blocked-key review all compose over that one
+engine; the debug demo reuses it (one engine per process), and app
+exit shuts it down (best-effort at process teardown, idempotent). The
+engine-protocol incident/pin bridging
 landed: `removeBookmark` and the typed incident-store mirror events cross
 the engine port, the spawn config seeds pins and incidents together with
 the load-time drop of a record whose pin is gone (audit finding A closed),
 and the file store gained its load-error observer and abandoned-temp sweep
-(dated section below); the app-side composition that supplies both seeds
-remains open. Live connection-state composition landed
+(dated section below). Live connection-state composition landed
 (the Connections-section surface, dated section below): the app-wide
 `ConnectionStatus` notifier over the engine's existing state lanes, the
 production-shell Connections surface composed with the bookmark store,
 and the composed indicator in which a blocked or failed connection
-outranks a green probe dot (the audit note's fix). Startup composition
-remains open. The M2 probe-wiring remainder landed:
-persisted probe eligibility/settings through settings.json (global
+outranks a green probe dot (the audit note's fix). The M2 probe-wiring
+remainder landed: persisted probe eligibility/settings through
+settings.json (global
 opt-out plus the per-server device-local map with retarget reset),
 lifecycle forwarding through a binding-seam observer, the tri-state
 interim status dot with pinned contrast, and the subscribing app caller
@@ -31,10 +37,9 @@ spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
 and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
 (dated section below). The app-side probe controller now enforces
 favorite eligibility and lifecycle/settings policy through the engine port
-(dated section below). Startup composition, live connection-state
-composition, and the deferred per-favorite probe opt-out (M5's bookmark
-store) remain open (the probe-wiring remainder landed 2026-09-10; dated
-section below). The host-key
+(dated section below). Live connection-state composition and startup
+composition landed (dated sections); the deferred per-favorite probe
+opt-out (M5's bookmark store) remains open. The host-key
 dialog's scrollable review content
 is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
 dated section below), closing the two scrollable host_key candidates (the
@@ -74,7 +79,8 @@ terminal-recovery diagnostics are implemented. Recovery ignores stale home
 failures from dead transports. Bounded engine progress coalescing, pooled
 reconnect recovery, pool keepalive wiring, and the engine isolate +
 `EngineClient` connection/prompt protocol are implemented; upstream keepalive
-controls are pinned. Production wiring (app composition) remains open.
+controls are pinned. Production wiring (app composition) landed 2026-09-10
+(startup engine-spawn composition, dated section below).
 M0 is complete; M1 is closed: the
 scaffold, deterministic release versions, the D23 direct-publish release
 pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
@@ -1859,6 +1865,114 @@ files lack the 09 §4 attribution header — `identity_file_reader.dart`,
 both prompt-dialog test files, and `identity_file_reader_test.dart`.
 No milestone-close claim, no production change, no pin/lock change.
 
+## M2 — startup engine-spawn composition (2026-09-10)
+
+Item 3's final production-wiring slice and item 6's app-side half: the
+engine spawns once at app startup — not debug-gated — with the app-owned
+persistence seeded, and every composed surface consumes that one engine.
+
+- **`EngineSession` (app/services/engine_session.dart)** owns the
+  long-lived engine: `startEngineSession` reads the app-owned pin store
+  (`<support>/host_keys.json`) and incident store
+  (`<support>/incidents.json`) and spawns through `EngineConfig` with
+  both seeds in one message (audit finding A's coupling — an incident
+  never crosses without the pin list it names; each store read is
+  fail-safe by its own contract, so unreadable storage seeds empty and
+  never blocks boot). Spawn failure reports and returns null: the app
+  still runs with every surface reading "no engine" rather than failing
+  to boot. The `AppEngine` facet keeps production code off the concrete
+  client; the mirrors subscribe at construction (subscribe-before-send,
+  03 §5): every `HostKeyPinnedEvent` persists to the pin store (writes
+  serialized through one tail — the ported file store does not
+  serialize internally) and every `IncidentStoreEvent` persists through
+  the incident store's own chain — stored records upsert, scoped
+  removals apply `removeFor`, bulk removals `removeAllFor`, all
+  idempotent, and no mirror ever sends back to the engine (the engine
+  decides, the app stores — a mirrored event can never re-seed).
+- **Prompts and the review affordance.** The session starts the one
+  `PromptCoordinator` for the engine (a second subscriber would render
+  every prompt twice) on the app's root navigator — `main.dart` shares
+  one `GlobalKey` between `MaterialApp` and the coordinator — with the
+  audited `IdentityFileReader` wired so an imported IdentityFile
+  bookmark's credential prompt can read its key (the vault/master-key
+  flow stays unwired and open, below). The Connections surface's
+  blocked-review affordance is now live: `reviewBlockedHostKey` resolves
+  the bookmark through the store, opens a review connect under the
+  `review` pane-tab id, and lets the pool raise the changed-key prompt
+  (prompting enabled, D18); approval persists through the mirrors,
+  decline stays visible on the row's state lane (not reported as a
+  fault), and the reference is always dropped — a review is not a
+  session.
+- **Lifecycle.** `PoltergeistApp` (now stateful) attaches an
+  `AppLifecycleListener` forwarding to the session; `detached` — the
+  final lifecycle event on desktop, delivered best-effort at exit —
+  triggers the idempotent orderly shutdown (coordinator disposed,
+  mirrors cancelled fire-and-forget, engine stopped), and
+  `onExitRequested` is wired for the window-close path — where platform
+  delivery of `detached` is not guaranteed — flushing the pending
+  mirror writes best-effort first: a failed flush is reported and never
+  blocks the exit. A missed event is safe (the process dies with its
+  sockets) and a repeated one is a no-op. The session forwards nothing else: it owns no probe activity
+  (the demo session remains the only probe initiator, 03 §3.4;
+  durable-favorite targets await M3/M5's connect flow).
+- **Demo reuse (one engine per process).** The debug demo reuses the
+  production engine: `SftpDemoController` gains an explicit
+  `SftpDemoEngineOwnership` mode — `sessionOwned` (the old posture:
+  teardown shuts the engine down; tests and a spawn-failed boot keep it)
+  or `shared` (teardown closes only the session's own channel and server
+  reference; the shared adapter's `shutdown` throws `UnsupportedError`
+  as an unreachable-by-contract guard). The demo also consumes the
+  session's coordinator instead of constructing its own (one coordinator
+  per engine), so its prompts render on the root navigator above the
+  demo route; the shell prefers `session.demoEngineFactory` over any
+  injected factory while a session lives. The alternative — a separate
+  demo engine — was rejected because the production spawn is
+  unconditional, so it would double engines per process.
+- No new per-server maps anywhere (audit finding C): the session holds
+  streams and single-slot state only.
+
+Validation: both new suites were observed failing to compile before the
+seams existed
+(`tasks/run3-task9-logs/regressions-fail-first.txt`);
+13 `engine_session_test` cases (seeding together, spawn-fail null,
+subscribe-before-return, pin/incident persistence and idempotent
+removals over real files, detach shutdown and idempotency, review
+open/close/disconnect/decline/unknown-id/coordinator routing, and
+demo-facet routing to the same engine) and 5
+`production_engine_wiring_test` cases (Connections live against the
+production engine with the demo disabled, the review dialog rendering
+from the production surface, the demo reusing the session engine with a
+sentinel factory never called and no shutdown on close, demo prompts
+rendering through the shared coordinator, and app-detach shutdown).
+Fake-async quirks were test-side, not production: real-IO store
+construction inside `testWidgets` hangs (widget tests inject the
+in-memory stores), and a store instance caches its first load, so
+persistence assertions poll the file before reading it back. A
+review-suggested awaited tail-flush inside `EngineSession.shutdown`
+was declined on reproduced evidence: an awaited instance-field
+future as the closure's first suspension deadlocks flutter_test's
+teardown zone (the identical test passes without the await and hangs
+with it), and no production exit path awaits that future anyway. App
+analysis clean, 419 tests pass (18 new); core untouched (analyze clean,
+380 tests, 15 Docker-fixture skips — the real-sshd legs ride CI on the
+PR head); the import guard passes. No layout change (the review button
+already shipped inside the Connections surface), so no captures.
+
+Deliberately out of scope: the vault/master-key startup flow (the
+coordinator runs vault-less; credential prompts always render the
+dialog), production probe targets (no favorite-connect flow exists to
+mark bookmarks seen; M3/M5 own it), `removeBookmark` from bookmark
+deletion (no deletion UI before M5), M5's sidebar, M4's transfers, and
+any milestone-close claim. Two review-declined seams are recorded for
+their future owners: the demo session's probe teardown leaves the
+shared engine's probe activity paused with no targets (inert today —
+nothing else drives probes; the production probe owner must own the
+activity state when it lands), and the review's teardown drops the
+bookmark id's engine reference via `disconnectServer` (correct today —
+the review is the only reference holder; M3's pane references share
+the serverId and must own that decision). No core change, no
+pin/dependency change, no source port, no release.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -1944,9 +2058,10 @@ No milestone-close claim, no production change, no pin/lock change.
      composition (the Connections-section surface) landed** (dated
      section above): the `ConnectionStatusController`, the Connections
      surface and its registered command, and the composed indicator.
-     Startup composition (the production engine spawn, which must seed
-     pins and incidents together) remains open;
-     per-favorite opt-out persists with M5's bookmark store.
+     **2026-09-10: startup engine-spawn composition landed** (dated
+     section above): the production engine spawns at app startup seeded
+     with pins and incidents together, and the demo session reuses it.
+     Per-favorite opt-out persists with M5's bookmark store.
      **2026-09-09 review follow-up (#55):** the app consumer must subscribe
      to live probe snapshots before sending targets/activity. Evaluate
      replay only if its eventual ownership cannot guarantee that ordering;
@@ -2158,15 +2273,14 @@ No milestone-close claim, no production change, no pin/lock change.
    incident-change mirror events, and the `removeBookmark` request
    crossing — plus the load-time rule that refuses to restore a record
    whose pin is gone or moved on, the coupling audit finding A required
-   (`tasks/run3-audit-m2-report.md`), which is closed. Remaining: the
-   app-side composition (supplying both
-   seeds from the app's stores, persisting the mirror events, and calling
-   `removeBookmark` from bookmark deletion) rides production wiring
-   (item 3) — no app-side bookmark deletion exists before M5's store, so
-   production engines still spawn an empty config and sessions stay
-   session-only until then. The mirror must apply removals idempotently,
-   including for a record it just seeded that the engine dropped because
-   its pin was gone, and must never re-seed the engine in response.
+   (`tasks/run3-audit-m2-report.md`), which is closed.
+   **The app-side composition landed 2026-09-10** (startup
+   engine-spawn composition, dated section above): production engines
+   spawn seeded from both stores and the mirror events persist
+   idempotently. Remaining: `removeBookmark` from bookmark deletion —
+   no app-side bookmark deletion exists before M5's store.
+   The mirror's idempotent-removal and never-re-seed contract is
+   implemented and pinned by the session suite.
 7. **2026-09-08 — CI/fixture hardening suggestions (#41 review).** Evaluate
    consistent `pub get --enforce-lockfile` use across CI and commit-SHA
    pinning for third-party actions. The new integration job follows existing
