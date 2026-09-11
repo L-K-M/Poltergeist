@@ -443,8 +443,16 @@ void main() {
     expect(publishRun, isNot(contains(r'${{')));
     // The post-publish probe re-reads the draft flag after the edit, so
     // a publish call that silently no-ops still fails the run instead of
-    // reporting green over a hidden draft.
+    // reporting green over a hidden draft. Count pins two probes; the
+    // positional check pins one of them after the publish edit.
     expect('--json isDraft'.allMatches(publishRun).length, greaterThan(1));
+    final publishAt = publishRun.indexOf('--draft=false');
+    expect(publishAt, greaterThan(-1));
+    expect(
+      publishRun.lastIndexOf('--json isDraft'),
+      greaterThan(publishAt),
+      reason: 'isDraft must be re-read after the publish edit',
+    );
     // The "never a public partial release" guarantee relies on Actions'
     // default skip-on-failure, so Publish must not opt out of it.
     final publishIf = '${publish['if']}';
@@ -501,9 +509,20 @@ void main() {
     // Dispatch provenance (STATUS item 8): with no ref pin, a dispatch
     // from a branch would build that branch's tree while labeling assets
     // with the tag. Every checkout pins the resolved ref, and the
-    // resolve step must run before the checkout it feeds.
-    for (final job in const ['test', 'client']) {
-      final steps = _jobSteps('.github/workflows/release.yml', job);
+    // resolve step must run before the checkout it feeds. The job list
+    // is derived from the workflow so a future job adding a checkout
+    // cannot silently escape the pin.
+    final jobs = _workflow('.github/workflows/release.yml')['jobs'] as YamlMap;
+    final checkoutJobs = jobs.keys.where((job) {
+      final steps = (jobs[job] as YamlMap)['steps'];
+      if (steps is! YamlList) return false;
+      return steps.whereType<YamlMap>().any(
+        (step) => '${step['uses']}'.startsWith('$_checkoutAction@'),
+      );
+    }).toList();
+    expect(checkoutJobs, containsAll(<String>['test', 'client']));
+    for (final job in checkoutJobs) {
+      final steps = _jobSteps('.github/workflows/release.yml', '$job');
       final resolve = _step(steps, 'Resolve the checkout ref');
       final run = '${resolve['run']}';
 
@@ -512,13 +531,25 @@ void main() {
       expect(run, contains('GITHUB_OUTPUT'), reason: '$job resolve run');
       expect(run, isNot(contains(r'${{')), reason: '$job resolve run');
 
-      final checkout = steps.whereType<YamlMap>().singleWhere(
-        (step) => '${step['uses']}'.startsWith('$_checkoutAction@'),
-      );
+      final checkouts = steps
+          .whereType<YamlMap>()
+          .where((step) => '${step['uses']}'.startsWith('$_checkoutAction@'))
+          .toList();
+      expect(checkouts, hasLength(1), reason: '$job pinned checkouts');
+      final checkout = checkouts.single;
+      final checkoutRef = '${(checkout['with'] as YamlMap)['ref']}';
       expect(
-        '${(checkout['with'] as YamlMap)['ref']}',
+        checkoutRef,
         r'${{ steps.checkout-ref.outputs.ref }}',
         reason: '$job checkout ref',
+      );
+      // The pinned ref must consume the resolve step's output by its
+      // actual id — a renamed id would otherwise leave the expression
+      // empty and checkout would silently fall back to the default ref.
+      expect(
+        checkoutRef,
+        contains('steps.${resolve['id']}.outputs.ref'),
+        reason: '$job checkout must consume the resolve step output',
       );
       final resolveIndex = steps.indexWhere(
         (step) => identical(step, resolve),
@@ -1183,6 +1214,11 @@ printf '%s' "${FAKE_HTTP_CODE:?}"
   final output = File(p.join(sandbox.path, 'github-output'));
   final steps = _jobSteps('.github/workflows/release.yml', 'test');
   final script = '${_step(steps, 'Resolve the checkout ref')['run']}';
+  // The client job embeds its own copy of the resolve step; the dry-run
+  // verdict only covers both if the copies cannot drift apart.
+  final clientScript =
+      '${_step(_jobSteps('.github/workflows/release.yml', 'client'), 'Resolve the checkout ref')['run']}';
+  expect(clientScript, script);
 
   return Process.run(
     'bash',
