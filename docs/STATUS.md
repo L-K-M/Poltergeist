@@ -2204,9 +2204,9 @@ M2 is closed. Still open regardless: install-tested-asset QA
    from the fixed ref) completed the direct-publish path end to end —
    the same leg-race shape (four transient duplicate drafts
    auto-removed by action-gh-release, one surviving release 386841889),
-   the draft stayed hidden until the sums job published it, the
+   the draft stayed hidden until the checksums job published it, the
    prerelease flag was correct, and the publish re-probe verified the
-   flip. The authorization question itself stays OPEN — owner decision.
+   flip.
 5. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
    - **Prompt cancellation (review follow-up; manager half closed
      2026-09-06):** credential resolutions now receive a
