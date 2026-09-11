@@ -4,11 +4,13 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-11. **M2 implementation is complete** on main
-(`43396c5`, #69); **M2 is not closed** — the v0.2.0 release rehearsal
-(the §3.12 tag chore) ran 2026-09-11 and failed at the final publish
-step (a workflow bug — open item 8), leaving a hidden draft; M2 closes
-when a v0.2.0 release publishes. Every
+_Last updated: 2026-09-11. **M2 is closed** — v0.2.0 published as a
+pre-release 2026-09-11
+([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
+D23-recovery dispatch run
+[34572521676](https://github.com/L-K-M/Poltergeist/actions/runs/34572521676))
+after the publish-step fix (#72) repaired the rehearsal's hidden-draft
+failure (item 8, closed). Every
 connection-layer slice is on main, each recorded in a dated section
 below: the pool (growth rules, keepalive, idle teardown, reconnect
 recovery, trust lifecycle with owner decision 1a/2a/3a), the engine
@@ -17,17 +19,19 @@ connection/prompt bridging, incident/pin bridging), the prompt UI with
 live transcript and failure one-liners, probe wiring end to end,
 ssh_config import + composition, the debug demo surface, live
 connection-state composition, and the production startup engine-spawn
-composition. **2026-09-11 — the v0.2.0 tag was cut and pushed** (version
-commit `5f8ed9a`); the release rehearsal failed at the publish step
-(dated section below, open item 8), so the close remains pending. The
+composition. The v0.2.0 tag was cut 2026-09-11 (version commit
+`5f8ed9a`); the first release run failed at the publish step (dated
+sections below), and the fix plus the D23 draft recovery published the
+pre-release the same day. The
 run-3 dated sections are consolidated into the Done
 table's M2 row; the Séance pin stays upstream main `2e6d1f1` (open item
 2 owns the next-tag re-pin). **Open item 4 (the M1/M2 overlap
-authorization) remains an OPEN owner decision** — this sweep neither
-closes nor settles it. M0 is complete and M1 is closed (v0.1.0
+authorization) remains an OPEN owner decision** — the M2 close neither
+settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
 pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
+Next milestone: M3 (panes v1, 07 §3.4).
 
 ## Done
 
@@ -51,7 +55,7 @@ items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 | M2 — bookmark model + vault/store plumbing | The pinned `seance_protocol` bookmark model (PR-S1 is in the pin's ancestry, so 07 §3.3's temporary-copy clause never applies) and the vault plumbing surfaces — `SecretVault`, `VaultStore`, `HostKeyStore`, in-memory stores, `VaultCrypto`/`VaultKeys`/`Argon2Params`, `secureRandomBytes`, `Secret`, and the `ServerColor`/`ServerIcon` enums — now flow through the `poltergeist_core` barrel, with a barrel test pinning the 04 §2.1 decode contract (record-id binding, port-range refusal, unknown-kind refusal, verbatim rules retention) at the pin. App layer: ported `MasterKeyManager` (`poltergeist.vault.masterKey.v1`, legacy macOS login keychain), `FileVaultStore`/`FileHostKeyStore` (atomic writes, store-owned UTC-stamped quarantine), and `LockedSecretVault`, each with its PORTS.md entry and ported tests (`keystore_resilience_test`, new `file_stores_test`); `flutter_secure_storage` pinned 10.3.1 — the exact revision Séance's lock resolves, sha-identical. Ported exception messages are frozen port text allowlisted in the localization contract; D20 applies at the UI render site when prompt UI lands. No startup wiring yet — composition joins the engine/prompt slices that consume the vault. |
 | M2 — extra-transport idle teardown | Extra transports close after the configured `idleExtraTransportTimeout` (60 s default in `PoolPolicy`) without channels or pending channel opens/closes. Returned transfer channels serve waiters first and, when no waiter takes them, close immediately on an extra transport so caches cannot prevent retirement (03 §3.3); only the first transport caches returned channels. A channel whose close is in flight still occupies the server's MaxSessions budget (`_pendingCloses` is reserved against channel budgets, so no phantom-capacity opens). The first transport keeps its cache, its role is assigned at creation and never reassigned, and follows pane/lease lifetime. Settle-time waiter pumps never await the pump they may be running inside: closes settling within a pump's own call chain trigger a follow-up pass instead, so a failed waiter's cleanup cannot deadlock the pool (regression: pane close and disconnect stranding forever). Idle retirement itself re-drives queued demand — the pump grows a replacement transport (or fails the waiters) instead of leaving a queued lease waiting forever on a pool whose spare capacity just retired (regression: demand queued behind an SFTP-refusing extra). Twenty-seven fake-clock tests cover deadlines, renewed demand, shared bookmarks, queued handoff, delayed cleanup, teardown races, waiting acquisitions, capacity reservation during closes, idle retirement/state/role after primary failure, the pump-reentrancy and retirement-stranding regressions, and growth landing after pool abandonment ([PR #21](https://github.com/L-K-M/Poltergeist/pull/21)). |
 | M2 — pool keepalive wiring | One periodic clock per pool pings idle transports every `keepAliveInterval` (30 s) — the single keepalive mechanism: the production opener passes `keepAliveInterval: null`, so the opener's built-in timer never runs (03 §3.3; no second timer, no VFS wrapper, D3). Idle means no in-flight operation: the transport's aggregated concrete-adapter `hasActiveOperations` plus the pool's pending channel opens/closes; held leases and bound browse channels do not count. At most one outstanding ping per transport. A ping unanswered past `SshTransport.pingOperationTimeout` (30 s, matching the VFS adapter's operation timeout) closes its transport so the done-watcher runs the ordinary death path — recovery, pane rebind, and clock re-arm included; non-timeout ping failures leave closure to the done watcher. The clock arms when a transport joins (recovery re-arms after reconnect) and disarms eagerly at teardown, host-key block, last-reference disconnect, and the death of the pool's last live transport, with a tick self-cancel backstop; a nonpositive `keepAliveInterval` is rejected at construction like the backoff cap. Eight socket-free fake-clock tests cover cadence (never immediate), activity and pending-open skips, both-transports ticks, timeout → close → reconnect → rebind, non-timeout error tolerance, teardown cancellation, and the construction guard. Production socket-level behavior (real `client.ping()` round trips) rides the open 08 §5 real-sshd legs. |
-| M2 — connection layer (implementation complete 2026-09-10; close pending a published v0.2.0 release) | Every 07 §3.3 scope bullet and exit criterion is on main (through #69, merge `43396c5`), each validated in its dated section below: the endpoint-keyed pool with D9's frozen `PoolPolicy` (serialized first connect + single TOFU prompt, interactive-auth cap, LRU browse sharing, refcounted teardown), keepalive, idle teardown, reconnect recovery; the engine isolate, `EngineClient`, and the typed port protocol (bounded progress coalescing, connection/prompt bridging, incident/pin bridging with the pin-coupled seed); the prompt UI (host-key first-use/changed-key, keyboard-interactive, vault-first credential), live transcript, and state-associated failure one-liners; probe wiring end to end (engine control/status, app eligibility, persisted settings + retarget reset, lifecycle forwarding, tri-state dots, coordinator composition); ssh_config import (preview, dedupe, command registration, `FileBookmarkStore`); the debug demo surface; the trust-incident lifecycle (restored-key unblock, persistence, bookmark-removal cascade); live connection-state composition; and the production startup engine-spawn composition (one engine per process, seeded pins + incidents, idempotent mirrors persisting both). Exit criteria ticked: the real-sshd matrix covers key, password, and keyboard-interactive auth, TOFU first-use and changed-key flows, the mid-session sshd kill with backoff reconnect + home re-canonicalization, and the interactive-auth single-transport cap; the import preview shows, dedupes, and imports, and IdentityFile entries resolve through the production prompt path's audited `IdentityFileReader`; `docs/PORTS.md` carries an entry per copied file; the pin bump to `2e6d1f1` is recorded with `dart test packages/poltergeist_core` green; PR-S2 merged upstream (Séance #61), so no branch-rev bridge item applies. 07 §3.12 chores at this sweep (2026-09-11, close-prep PR): STATUS consolidated (header, this row, items 3/4), the PORTS addendum re-verified no drift from #66/#69 and closed the four-file attribution-header follow-up, the `TODO(pin)` grep found no markers, the pin cannot bump (no Séance tag contains #79 — open item 2), and the M1–M2 mobile invariant is re-verified (`poltergeist_core` carries no Flutter import or dependency and the import guard passes; the engine protocol's messages stay plain data, protocol guard green). The v0.2.0 tag was then cut and pushed 2026-09-11 (`5f8ed9a`); the release rehearsal failed at the publish step (dated section below, open item 8), so M2's close remains contingent on a published v0.2.0 release. |
+| M2 — connection layer (closed 2026-09-11: v0.2.0 pre-release published) | Every 07 §3.3 scope bullet and exit criterion is on main (through #69, merge `43396c5`), each validated in its dated section below: the endpoint-keyed pool with D9's frozen `PoolPolicy` (serialized first connect + single TOFU prompt, interactive-auth cap, LRU browse sharing, refcounted teardown), keepalive, idle teardown, reconnect recovery; the engine isolate, `EngineClient`, and the typed port protocol (bounded progress coalescing, connection/prompt bridging, incident/pin bridging with the pin-coupled seed); the prompt UI (host-key first-use/changed-key, keyboard-interactive, vault-first credential), live transcript, and state-associated failure one-liners; probe wiring end to end (engine control/status, app eligibility, persisted settings + retarget reset, lifecycle forwarding, tri-state dots, coordinator composition); ssh_config import (preview, dedupe, command registration, `FileBookmarkStore`); the debug demo surface; the trust-incident lifecycle (restored-key unblock, persistence, bookmark-removal cascade); live connection-state composition; and the production startup engine-spawn composition (one engine per process, seeded pins + incidents, idempotent mirrors persisting both). Exit criteria ticked: the real-sshd matrix covers key, password, and keyboard-interactive auth, TOFU first-use and changed-key flows, the mid-session sshd kill with backoff reconnect + home re-canonicalization, and the interactive-auth single-transport cap; the import preview shows, dedupes, and imports, and IdentityFile entries resolve through the production prompt path's audited `IdentityFileReader`; `docs/PORTS.md` carries an entry per copied file; the pin bump to `2e6d1f1` is recorded with `dart test packages/poltergeist_core` green; PR-S2 merged upstream (Séance #61), so no branch-rev bridge item applies. 07 §3.12 chores at this sweep (2026-09-11, close-prep PR): STATUS consolidated (header, this row, items 3/4), the PORTS addendum re-verified no drift from #66/#69 and closed the four-file attribution-header follow-up, the `TODO(pin)` grep found no markers, the pin cannot bump (no Séance tag contains #79 — open item 2), and the M1–M2 mobile invariant is re-verified (`poltergeist_core` carries no Flutter import or dependency and the import guard passes; the engine protocol's messages stay plain data, protocol guard green). The v0.2.0 tag was then cut and pushed 2026-09-11 (`5f8ed9a`); the first release run failed at the publish step (a workflow bug — item 8), and the fix (#72) plus the D23 draft-recovery dispatch published the pre-release the same day (dated close section below), closing the milestone. |
 
 ## M2 — engine progress coalescing (2026-09-07)
 
@@ -1957,10 +1961,55 @@ with tag `v0.2.0` dispatched from a ref that carries the fix — the tag
 itself still holds the buggy workflow file, so dispatching the tag ref
 would reproduce the failure, and the draft must be deleted first — the
 created-once guard refuses while a draft for the tag exists.
-M2 stays
-unclosed until a v0.2.0 release publishes; install-tested-asset QA
+M2 closed
+with the publish (dated close section below); install-tested-asset QA
 (07 §3.13 / v1.0 bar) and the 07 §4 APK in-place-upgrade rehearsal
 remain open regardless.
+
+## M2 — closed: v0.2.0 published (2026-09-11)
+
+The rehearsal's publish-step bug (open item 8) was fixed in
+[PR #72](https://github.com/L-K-M/Poltergeist/pull/72) (merge
+`c96681d`): the publish step now calls
+`gh release edit "$RELEASE_TAG" --draft=false` — the gh manual's
+documented publish-a-draft mechanism — with a post-publish `isDraft`
+re-probe that fails loud on a silent no-op, and both `actions/checkout`
+steps pin the resolved ref (an existing tag checks out itself; a
+dispatch-created tag falls back to the dispatched commit), so a
+dispatch from the fixed ref builds the tag's own commit. The guard
+suite in `tool/release_version/test/release_workflow_test.dart` was
+updated regression-first: three tests went red against the unfixed
+workflow — including a dry-run reproduction of the rehearsal's
+`unknown command "ready"` failure — and pass after the fix. Two
+review rounds applied seven test/hardening items and declined or refuted
+the rest (triage in the PR description); a third round found nothing
+(steady state).
+
+Recovery per D23: the hidden draft was deleted (release object only —
+tag v0.2.0 untouched at `5f8ed9a`, no `--cleanup-tag`), then
+release.yml was dispatched from `main` at the fix merge with tag input
+v0.2.0: run
+[34572521676](https://github.com/L-K-M/Poltergeist/actions/runs/34572521676)
+— the test gate (checkout-ref resolution found the existing tag, so
+the built commit equals the tag commit and the version gate passed on
+the exact tag tree), all five client legs, and the checksums job
+including the fixed publish step all green. Leg-race watch (open item
+4's clause): the same shape as the rehearsal — four transient duplicate
+drafts auto-removed by action-gh-release, one surviving release
+(386841889); no new anomaly.
+
+Publish verification: the release is public as a pre-release
+(unauthenticated release page returns 200, `isDraft` false,
+`isPrerelease` true), the asset set is complete (8 assets: APK, .deb,
+AppImage, Linux tarball, macOS zip, Windows zip, unsigned IPA,
+SHA256SUMS), and the spot-check recomputes —
+`poltergeist-linux-x64.tar.gz` (10,594,801 bytes), downloaded
+unauthenticated, hashes to
+`0403867aabc479ab9b0fedc2a4ad47df2cc71ca7ed84d1fc02e03a9b7e0c3771`,
+matching SHA256SUMS.
+
+M2 is closed. Still open regardless: install-tested-asset QA
+(07 §3.13 / v1.0 bar) and the 07 §4 APK in-place-upgrade rehearsal.
 
 ## Open items
 
@@ -2149,6 +2198,15 @@ remain open regardless.
    `gh release ready` subcommand (open item 8) instead of silently
    stranding the draft. The authorization question itself stays OPEN —
    owner decision.
+   **2026-09-11 — v0.2.0 publish-run watch result:** the recovery run
+   after the item-8 fix (dispatch
+   [34572521676](https://github.com/L-K-M/Poltergeist/actions/runs/34572521676)
+   from the fixed ref) completed the direct-publish path end to end —
+   the same leg-race shape (four transient duplicate drafts
+   auto-removed by action-gh-release, one surviving release 386841889),
+   the draft stayed hidden until the sums job published it, the
+   prerelease flag was correct, and the publish re-probe verified the
+   flip. The authorization question itself stays OPEN — owner decision.
 5. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
    - **Prompt cancellation (review follow-up; manager half closed
      2026-09-06):** credential resolutions now receive a
@@ -2357,6 +2415,15 @@ remain open regardless.
    tool/release_version` clean. Recovery (delete the draft only, then
    dispatch v0.2.0 from the fixed ref) and publish verification follow
    the merge; the item stays open until a v0.2.0 release is public.
+   **Closed 2026-09-11.** The fix merged in
+   [PR #72](https://github.com/L-K-M/Poltergeist/pull/72) (merge
+   `c96681d`); the D23 recovery deleted the hidden draft (release
+   object only — tag v0.2.0 untouched at `5f8ed9a`) and re-dispatched
+   release.yml from `main` at the fix merge with tag input v0.2.0 (run
+   [34572521676](https://github.com/L-K-M/Poltergeist/actions/runs/34572521676),
+   every leg green, publish re-probe clean). The publish verification
+   (public pre-release, 8 assets, checksum spot-check) is in the dated
+   close section above; v0.2.0 is public and M2 is closed.
 
 ## Independent audit
 
