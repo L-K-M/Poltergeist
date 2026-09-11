@@ -215,6 +215,16 @@ Future<void> replaceLocalFile(File part, File target) async {
       target.path,
     );
   }
+  // The symmetric refusal on the part side: a staged part swapped for
+  // a symlink would have the dance install the *link* as the user's
+  // file — rename moves the link itself, it does not follow it.
+  final partType = await FileSystemEntity.type(part.path, followLinks: false);
+  if (partType != FileSystemEntityType.file) {
+    throw FileSystemException(
+      'Refusing to replace with a non-regular local file',
+      part.path,
+    );
+  }
   if (targetType == FileSystemEntityType.notFound) {
     await part.rename(target.path);
     return;
@@ -285,7 +295,10 @@ Future<void> replaceLocalFile(File part, File target) async {
 /// An orphan whose rename fails (locked, permission-denied, vanished)
 /// stays parked for a later sweep and never aborts the remaining
 /// restores — aborting would strand exactly the interrupted replaces
-/// this function exists to repair.
+/// this function exists to repair. The absent-target check and the
+/// rename are advisory against races (dart:io has no no-clobber
+/// rename): a target created in the window between them is replaced —
+/// the same accepted posture as 03 §2.2's rename preflight.
 Future<void> restoreOrphanedLocalBackups(
   Directory directory, {
   String? targetBasename,

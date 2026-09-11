@@ -294,6 +294,29 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
+    test('refuses a symlink part — the link is never installed', () async {
+      // rename moves the link itself without following it: a swapped
+      // part would install the link as the user's file.
+      final staged = await putFile('staged', 'payload');
+      final link = Link(pathOf('lnk-part'));
+      await link.create(staged.path);
+      final target = await putFile('data', 'old');
+      await expectLater(
+        replaceLocalFile(File(link.path), target),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('non-regular local file'),
+          ),
+        ),
+      );
+      expect(target.readAsStringSync(), 'old');
+      expect(await link.target(), staged.path);
+      expect(staged.readAsStringSync(), 'payload');
+      expect(siblingLitter(), isEmpty);
+    });
+
     test('restores the original when the second rename fails', () async {
       final target = await putFile('data', 'old');
       // The part is staged inside a read-only sibling directory (as

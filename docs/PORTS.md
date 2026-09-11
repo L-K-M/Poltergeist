@@ -366,10 +366,12 @@ port candidates.
   replace's own target (a directory-wide repair could consume a
   concurrent dance's live backup and fail its transfer on Windows;
   Séance has no sweep at all), the backup pattern is derived from
-  the same constants that build backup names, and the validators
+  the same constants that build backup names, the validators
   reject components over NAME_MAX bytes (255 UTF-8 bytes; Séance
   relies on the OS's ENAMETOOLONG mid-transfer instead of the clean
-  boundary error 09 §3.5 specifies).
+  boundary error 09 §3.5 specifies), and the dance refuses a
+  non-regular part symmetrically with its target refusal (rename
+  moves a swapped-in symlink without following it).
 - Port-back candidates: the raw-string reserved-name fix, the NAME_MAX
   guard (and its validator-side twin), the orphaned-backup sweep, backslash
   rejection in the component validator, the extended reserved list

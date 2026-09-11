@@ -2143,7 +2143,7 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 57 dedicated tests; full core suite 531 green (+15
+Validation: 58 dedicated tests; full core suite 532 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
@@ -2226,6 +2226,33 @@ file", matching the scoped repair the round-2 precision note records.
 Test hygiene: both fixture chmods check their exit code. PORTS.md's
 backup-shape divergence line now spells the `.backup` suffix on both
 sides.
+
+Review round 4 (steady state — no confirmed correctness, security, or
+contract finding; one worthwhile hardening applied): the dance now
+refuses a non-regular *part* symmetrically with its target refusal —
+rename moves a swapped-in symlink without following it, so the dance
+would have installed the link as the user's file (regression verified
+red with the check disabled, green restored; no current call site can
+stage a non-regular part — upload's exclusive create — so this is
+prophylactic at a public boundary). The sweep doc records its
+check-then-rename advisory posture (dart:io has no no-clobber
+rename), and 03 §2.3's sentence ends "before that replace's dance
+begins" — removing the circular "any new replace" reading. Refuted:
+the NAME_MAX-overhead claim (the 228–255-byte range is exactly what
+the backup-name guard exists for — it fails the replace before any
+rename, pinned by the overflow and surrogate tests; rejecting those
+names in `validateLocalName` would break the plan's own documented
+behavior) and the "predictable PRNG" claim (`Random.secure()` is
+right there). Declined: no-clobber rename (no dart:io primitive; the
+same accepted race as 03 §2.2's rename preflight, now documented on
+the sweep), running the validator groups on Windows (the suite-wide
+skip matches the sibling LocalFileSystem suite and CI's Ubuntu-only
+core job — open item 1 owns the OS matrix), dropping the walk's
+backslash shape check (09 §3.5 rejects `\` for every destination by
+rule; the split-dead Windows half is harmless), chmod-absent-host
+probes (the suite's POSIX-toolchain premise is the sibling
+convention), and the legitimately-shaped-filename collision (the
+reserved-shape convention from round 2 records the residual).
 
 ## Open items
 

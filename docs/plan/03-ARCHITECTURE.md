@@ -216,8 +216,9 @@ with their Séance tests carried over:
   `*.poltergeist-<8 hex>.backup`
   whose target (its own name with that suffix stripped) is absent means
   an interrupted replace, and the next
-  replace of that same file (or a startup sweep) restores it before any
-  new replace runs, rather than leaving the user's file looking deleted.
+  replace of that same file (or a startup sweep) restores it before
+  that replace's dance begins, rather than leaving the user's file
+  looking deleted.
   (Precision added with the port: the repair a *replace* triggers is
   scoped to that replace's own target — a live backup parked by a
   concurrent dance on another name has its target absent precisely
