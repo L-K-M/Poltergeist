@@ -325,6 +325,63 @@ port candidates.
   pending state, and stream/server replacement lifecycle.
 - Port-back candidates: none.
 
+## packages/poltergeist_core/lib/src/fs/local_fs_safety.dart
+
+- Source: app/seance_app/lib/services/remote_files_controller.dart (the
+  four private statics `_validatePathComponent`, `_validateLocalName`,
+  `_ensureSafeLocalDirectory`, `_replaceLocalFile`)
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (rev pin, no
+  tag — open item 2's bridge)
+- Ported: 2026-09-11
+- Divergences: public top-level functions split out of the controller
+  (03 §2.3); they throw raw `FormatException`/`FileSystemException` and
+  each caller funnels them through its own guard instead of the
+  controller's transfer-failure path. `ensureSafeLocalDirectory` takes
+  one absolute path (the plan's signature) instead of Séance's
+  `(Directory root, String relativePath)` pair: the walk shape-checks
+  every component (lexical `.`/`..`/separators refused), validates only
+  the components it creates, and collapses Séance's two root messages
+  ('Download destination is not a directory' plus the traversal
+  refusal) into the one 'Refusing to follow a non-directory or symbolic
+  link' refusal. Backup siblings rename `.seance-<uuid4>` →
+  `.poltergeist-<8 hex>` (08 §2's sanctioned prefix rename; the 8-hex
+  shape is 03 §2.3's documented pattern, matching the pinned adapter's
+  temp suffixes). The NAME_MAX-255 backup-name guard (fail the replace
+  rather than truncate into a collision), the crash-recovery sweep
+  (`restoreOrphanedLocalBackups`, run by `replaceLocalFile` before its
+  dance and callable as a startup sweep — Séance strands crashed
+  replaces with no repair), `validatePathComponent`'s backslash
+  rejection (09 §3.5: `\` is the Win32 separator; a `..\..\x`
+  component must not become traversal once joined on Windows), and the
+  extended reserved-name set (CLOCK$, CONIN$/CONOUT$, superscript
+  COM¹–³/LPT¹–³, base-segment trailing dot/space stripping — 09 §3.5's
+  full list) are plan-mandated additions Séance lacks. Fixed the
+  pre-port original's dead regex branches: `\$` in the non-raw pattern
+  string decoded to a bare `$` anchor, so `CLOCK$`/`CONIN$`/
+  `CONOUT$` were never rejected; the raw-string pattern now matches
+  them (regressions failed before, pass after).
+- Port-back candidates: the raw-string reserved-name fix, the NAME_MAX
+  guard, the orphaned-backup sweep, backslash rejection in the
+  component validator, and the extended reserved list (09 §3.5) — all
+  applicable to Séance's own statics.
+
+## packages/poltergeist_core/test/fs/local_fs_safety_test.dart
+
+- Source: app/seance_app/test/remote_files_controller_test.dart (the
+  download half of 'recursively uploads and downloads directories with
+  aggregate transfer' — the only upstream coverage of the statics:
+  Séance has no dedicated unit tests for them)
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (rev pin, no
+  tag — open item 2's bridge)
+- Ported: 2026-09-11
+- Divergences: re-homed per 08 §2 to the public helpers that now own
+  the behavior (the controller-level aggregate-transfer bookkeeping
+  rides M4's transfer queue); the remaining suites are new local
+  coverage (validators, containment walk, dance refusals/restore,
+  NAME_MAX, and the sweep — Séance tests none of these directly).
+- Port-back candidates: the validator and sweep suites, once Séance
+  exposes the statics for testing.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

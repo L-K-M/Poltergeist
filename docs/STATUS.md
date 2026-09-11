@@ -2096,6 +2096,60 @@ the slice that first renders panes), no engine wiring (the seam to
 mount a local pane rides the PaneController slice), no bookmarks, no
 milestone-close claim.
 
+## M3 — local-safety helpers ported public (2026-09-11)
+
+STATUS item 9 closed: 03 §2.3's port landed. The four statics left
+Séance's `RemoteFilesController` at the pin (`2e6d1f1`) and became
+public top-level functions in
+`poltergeist_core/lib/src/fs/local_fs_safety.dart`, exported from the
+barrel — `validatePathComponent`, `validateLocalName`,
+`ensureSafeLocalDirectory`, `replaceLocalFile` — plus the
+plan-mandated crash-recovery sweep `restoreOrphanedLocalBackups`
+(restores an orphaned `<name>.poltergeist-<8 hex>.backup` whose target
+is absent; run by `replaceLocalFile` before its dance and callable as
+a startup sweep; several orphans for one absent target resolve
+newest-mtime-first, losers stay parked, never deleted).
+`LocalFileSystem`'s commit/validation paths now call the public port
+and the private in-class originals are deleted (one implementation,
+four eventual call sites — the transfer queue's download executor, the
+checkout store, and the sync executor still own theirs as they land,
+M4/M7/M8). The helpers stay below the VFS taxonomy by design: raw
+`FormatException` preconditions and `FileSystemException` refusals,
+funneled by each caller — `upload`/`rename` failures now arrive as the
+standard `Could not <op> "<path>"` shape instead of the private
+copies' bespoke `Could not replace` messages (kind `other` unchanged,
+pinned by the existing suite).
+
+Regression-first finds: the pre-port original's Windows reserved-name
+regex carried dead branches — `\$` in the non-raw pattern string
+decodes to a bare `$`, an anchor inside the alternation, so `CLOCK$`,
+`CONIN$`, and `CONOUT$` were never rejected although 03 §2.3 and
+09 §3.5 name them. Three new tests failed before the raw-string
+repair and pass after. The port also replaces the original's raw
+control bytes (a literal NUL/0x1F/0x7F inside the forbidden-char
+regex — the bytes that made grep read the file as binary) with proper
+escapes.
+
+Séance-test parity per 08 §2: the only upstream coverage of the
+statics is the download half of `remote_files_controller_test.dart`'s
+'recursively uploads and downloads directories with aggregate
+transfer' — ported re-homed to the public helpers (the controller-level
+bookkeeping rides M4's queue), with the upstream source cited in the
+test. Séance has no dedicated statics suites; the remaining coverage
+(validators, containment walk, dance refusals/restore, NAME_MAX,
+sweep) is new and local. PORTS.md carries an entry per ported file
+including the full divergence list (public split, one-path
+`ensureSafeLocalDirectory` signature, `.poltergeist-<8 hex>` backup
+shape, NAME_MAX guard, backslash rejection, the extended reserved
+list, the sweep) and the port-back candidates.
+
+Validation: 52 dedicated tests; full core suite 526 green (+15
+Docker-fixture skips, Docker unavailable locally); core analyze clean;
+import guard (92 + repo scan), protocol guard (51), license gate (34),
+release-version guard (156), and the Séance pin audit (9) green. No
+app change, no engine protocol change, no pin change, no new
+dependency, no milestone-close claim.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -2524,6 +2578,11 @@ milestone-close claim.
    private copies. Owner of the remaining call sites: the transfer
    queue's download executor, the checkout store, and the sync executor
    as those land (M4/M7/M8).
+   **Closed 2026-09-11.** The port, the switch, the deletion, the
+   sweep, Séance parity (the one upstream test that exercises the
+   shared contract, re-homed per 08 §2), and both PORTS.md entries
+   landed — see the dated section above. The M4/M7/M8 call sites stay
+   owned by their slices as originally scoped.
 10. **2026-09-11 — M3: upstream `pathTypeChanged` into the pin.**
     `LocalPathTypeChangedException` (kind `other`) exists because the
     pinned `RemoteFileErrorKind` carries no `pathTypeChanged` member
