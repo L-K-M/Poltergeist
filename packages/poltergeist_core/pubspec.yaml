@@ -2,7 +2,7 @@ name: poltergeist_core
 description: >-
   Platform-agnostic core for Poltergeist: connections, transfers, the sync
   engine, and the bookmark model per docs/plan/.
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 resolution: workspace
 
