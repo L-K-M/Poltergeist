@@ -1,3 +1,5 @@
+// Ported from Séance app/seance_app/test/identity_file_exception_test.dart @ ffac90f
+// (exception cases); see docs/PORTS.md.
 import 'dart:async';
 import 'dart:io';
 

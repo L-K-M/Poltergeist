@@ -1,3 +1,4 @@
+// Ported from Séance app/seance_app/test/keyboard_interactive_dialog_test.dart @ fd01515; see docs/PORTS.md.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';

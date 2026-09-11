@@ -1,3 +1,4 @@
+// Ported from Séance app/seance_app/test/host_key_dialog_test.dart @ 27552b2; see docs/PORTS.md.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
