@@ -149,7 +149,10 @@ Windows — or, on POSIX, drop to a bare `other`, since `EISDIR` is not
 in the funnel's errno map — neither of which is the promised
 `unsupported`, so `setTimes` pre-checks the entry type
 (`FileSystemEntity.type(path, followLinks: false)`) and throws the typed
-`unsupported` itself for a directory target on every platform, never relying on
+`unsupported` itself for any non-regular target on every platform —
+directories (the EISDIR case above) and FIFOs, sockets, and device
+nodes, where the same open-for-writing would block forever (a FIFO
+waiting for a reader) or touch the device — never relying on
 the OS error translation to get there — which costs the sync engine
 nothing either way: it compares directories by existence only and never sets their
 times (05 §4). `setOwner`

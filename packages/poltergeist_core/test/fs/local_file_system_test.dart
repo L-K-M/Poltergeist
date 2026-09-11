@@ -445,7 +445,7 @@ void main() {
       script.writeAsStringSync(
         '#!/bin/sh\nrm -f "\$3"\nln -s "\$SWAP_TARGET" "\$3"\nexit 0\n',
       );
-      Process.runSync('chmod', ['755', script.path]);
+      chmodSync('755', script.path);
       final swapFs = LocalFileSystem(
         environment: {
           'PATH': '${bin.path}:${Platform.environment['PATH'] ?? ''}',
@@ -500,7 +500,7 @@ void main() {
       expect(() => fs.setTimes(pathOf('f')), throwsArgumentError);
     });
 
-    test('directories fail unsupported (dart:io cannot set them)', () async {
+    test('directories and FIFOs fail unsupported (dart:io cannot set them)', () async {
       final dir = await putDir('d');
       final error = remoteFailure(
         await failureOf(
@@ -508,6 +508,19 @@ void main() {
         ),
       );
       expect(error.kind, RemoteFileErrorKind.unsupported);
+      if (Platform.isLinux) {
+        // A FIFO would block dart:io's open-for-writing forever — the
+        // pre-check must refuse it before any open.
+        final fifo = Directory.systemTemp.createTempSync('pg-fifo');
+        addTearDown(() => fifo.deleteSync(recursive: true));
+        await Process.run('mkfifo', ['${fifo.path}/pipe']);
+        final fifoError = remoteFailure(
+          await failureOf(
+            fs.setTimes('${fifo.path}/pipe', modifiedAt: DateTime.utc(2024)),
+          ),
+        );
+        expect(fifoError.kind, RemoteFileErrorKind.unsupported);
+      }
     });
 
     test('refuses symlinks — the target keeps its times', () async {
@@ -558,7 +571,7 @@ void main() {
       script.writeAsStringSync(
         '#!/bin/sh\necho "chown: \$*" >> "\$RECORD"\nexit 0\n',
       );
-      Process.runSync('chmod', ['755', script.path]);
+      chmodSync('755', script.path);
       final fakeFs = LocalFileSystem(
         environment: {
           'PATH': '${bin.path}:${Platform.environment['PATH'] ?? ''}',
@@ -594,15 +607,15 @@ void main() {
       // Pins the `--` end-of-options guard centrally inserted by
       // _runUtility: a dash-prefixed path operand can never parse as
       // an option, absolute or relative.
-      final file = await putFile('f');
+      final file = await putFile('-R');
       final bin = Directory.systemTemp.createTempSync('pg-argvbin');
       addTearDown(() => bin.deleteSync(recursive: true));
       final record = File('${bin.path}/argv');
       final script = File('${bin.path}/chmod');
       script.writeAsStringSync(
-        '#!/bin/sh\necho "\$@" | tr " " "\\n" >> "\$RECORD"\nexit 0\n',
+        '#!/bin/sh\nfor a in "\$@"; do echo "\$a" >> "\$RECORD"; done\nexit 0\n',
       );
-      Process.runSync('chmod', ['755', script.path]);
+      chmodSync('755', script.path);
       final fakeFs = LocalFileSystem(
         environment: {
           'PATH': '${bin.path}:${Platform.environment['PATH'] ?? ''}',
@@ -610,7 +623,11 @@ void main() {
         },
       );
       await fakeFs.setMode(file.path, oct('600'));
-      final argv = record.readAsStringSync().split('\n').where((l) => l.isNotEmpty).toList();
+      final argv = record
+          .readAsStringSync()
+          .split('\n')
+          .where((l) => l.isNotEmpty)
+          .toList();
       expect(argv, ['--', '600', file.path]);
     });
   });
@@ -1126,7 +1143,8 @@ void main() {
     });
 
     test('a lone surrogate in the target name hits the byte guard, not the OS', () async {
-      // A lone low surrogate encodes as U+FFFD (3 bytes); the guard
+      // A lone surrogate has no valid UTF-8 form, but Dart's encoder
+      // still emits it as a 3-byte (WTF-8-style) sequence; the guard
       // must count those bytes and fail before any rename runs.
       final name = 'm' * 227 + '\uDC00';
       final file = File(pathOf(name));
@@ -1163,6 +1181,9 @@ void main() {
             throwsFormatException,
           );
           expect(siblingLitter(), isEmpty);
+          if (case_.$1 != '.' && case_.$1 != '..') {
+            expect(File(target).existsSync(), isFalse);
+          }
         });
       }
     });

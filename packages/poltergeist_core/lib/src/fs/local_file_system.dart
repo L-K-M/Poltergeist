@@ -204,19 +204,19 @@ class LocalFileSystem implements RemoteFileSystem {
     }
     return _guard('change timestamps for', path, () async {
       final before = await _lstatNonLink(path, 'timestamps');
-      // dart:io cannot set a directory's timestamps at all (its
-      // implementation opens the path for writing, which POSIX refuses
-      // with EISDIR and Windows with ERROR_ACCESS_DENIED); the sync
-      // engine never needs it (05 §4 compares directories by existence
-      // only).
-      if (before == FileSystemEntityType.directory) {
+      // dart:io cannot set a directory's timestamps (its implementation
+      // opens the path for writing — EISDIR), and any other non-regular
+      // target is worse: a FIFO would block that open forever, and
+      // device nodes have open side effects. The sync engine never
+      // needs these (05 §4 compares directories by existence only).
+      if (before != FileSystemEntityType.file) {
         throw RemoteFileException(
           kind: RemoteFileErrorKind.unsupported,
           operation: 'change timestamps for',
           path: path,
           message:
               'Could not change timestamps for "$path": '
-              'directory timestamps are not supported',
+              'only regular files support timestamp changes',
         );
       }
       if (modifiedAt != null) {
