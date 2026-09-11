@@ -93,6 +93,8 @@ export 'src/connection/ssh_transport.dart'
         SshTransport,
         SshTransportOpener,
         openDartSshTransport;
+export 'src/fs/local_file_system.dart'
+    show LocalFileSystem, LocalPathTypeChangedException;
 export 'src/import/ssh_config_import.dart'
     show
         SshConfigFileSource,

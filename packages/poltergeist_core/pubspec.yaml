@@ -23,6 +23,10 @@ dependencies:
   # Pinned exactly like seance_core pins it, and confined to
   # lib/src/connection/ by the CI import check (03 §1).
   dartssh2: 3.0.2
+  # LocalFileSystem's streamed SHA-256 and cross-platform path
+  # normalization (03 §1's sanctioned core dependencies).
+  crypto: ^3.0.0
+  path: ^1.9.0
   meta: ^1.15.0
 
 dev_dependencies:
