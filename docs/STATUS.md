@@ -1955,7 +1955,8 @@ only an invisible draft: delete it, re-run"): fix the publish step
 (open item 8), delete the hidden draft, re-run via `workflow_dispatch`
 with tag `v0.2.0` dispatched from a ref that carries the fix — the tag
 itself still holds the buggy workflow file, so dispatching the tag ref
-would reproduce the failure (the created-once guard otherwise refuses).
+would reproduce the failure, and the draft must be deleted first — the
+created-once guard refuses while a draft for the tag exists.
 M2 stays
 unclosed until a v0.2.0 release publishes; install-tested-asset QA
 (07 §3.13 / v1.0 bar) and the 07 §4 APK in-place-upgrade rehearsal
