@@ -184,7 +184,7 @@ void main() {
       });
     }
 
-    test('rejects the component hazards too (checked first)', () {
+    test('rejects the component hazards too', () {
       expect(() => validateLocalName('..'), throwsFormatException);
       expect(() => validateLocalName('a/b'), throwsFormatException);
     });
@@ -303,6 +303,7 @@ void main() {
       final part = await putFile('part', 'new');
       await replaceLocalFile(part, target);
       expect(target.readAsStringSync(), 'new');
+      expect(part.existsSync(), isFalse);
       expect(siblingLitter(), isEmpty);
     });
 

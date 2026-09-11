@@ -211,6 +211,20 @@ Future<void> ensureSafeLocalDirectory(String path) async {
 /// guaranteed here.
 Future<void> replaceLocalFile(File part, File target) async {
   validateLocalName(p.basename(target.path));
+  // The backup suffix is fixed-width ASCII, so the backup's byte
+  // length is deterministic — fail fast, before any repair or probe
+  // I/O, for a basename that cannot carry it (the effective replace
+  // budget is NAME_MAX minus the suffix width).
+  if (_utf8ByteLength(p.basename(target.path)) +
+          _transferPrefix.length +
+          _randomSuffixLength +
+          _backupSuffix.length >
+      _maxFileNameBytes) {
+    throw FileSystemException(
+      'The backup name would exceed the filesystem file-name limit',
+      target.path,
+    );
+  }
   try {
     await restoreOrphanedLocalBackups(
       Directory(p.dirname(target.path)),
@@ -244,6 +258,10 @@ Future<void> replaceLocalFile(File part, File target) async {
     );
   }
   if (targetType == FileSystemEntityType.notFound) {
+    // If an external writer materializes the target between the type
+    // probe above and this rename, rename(2) replaces it with no
+    // backup — dart:io has no rename-without-replace, and this window
+    // is 03 §2.2's documented, accepted rename race.
     await part.rename(target.path);
     return;
   }
@@ -252,20 +270,24 @@ Future<void> replaceLocalFile(File part, File target) async {
   // crash-recovery sweep can strip the suffix and find what to restore
   // — never a fixed `.backup`, which the temp-prefix policy forbids
   // and which would clobber a pre-existing user `<target>.backup`.
+  // Built via basename/dirname (not raw concatenation) so a
+  // trailing-separator target path can never park the backup inside
+  // the directory the sweep scans beside.
   // rename(2) silently replaces an existing destination, so a draw
   // colliding with a parked backup would destroy it — keep drawing.
   // The check-then-rename gap is the walk's accepted advisory posture.
-  var backupPath =
-      target.path + _transferPrefix + _randomHexString() + _backupSuffix;
+  var backupPath = p.join(
+    p.dirname(target.path),
+    p.basename(target.path) + _transferPrefix + _randomHexString() + _backupSuffix,
+  );
   while (await FileSystemEntity.type(backupPath, followLinks: false) !=
       FileSystemEntityType.notFound) {
-    backupPath =
-        target.path + _transferPrefix + _randomHexString() + _backupSuffix;
-  }
-  if (_utf8ByteLength(p.basename(backupPath)) > _maxFileNameBytes) {
-    throw FileSystemException(
-      'The backup name would exceed the filesystem file-name limit',
-      target.path,
+    backupPath = p.join(
+      p.dirname(target.path),
+      p.basename(target.path) +
+          _transferPrefix +
+          _randomHexString() +
+          _backupSuffix,
     );
   }
   final backup = File(backupPath);
@@ -358,12 +380,18 @@ Future<void> restoreOrphanedLocalBackups(
     // sweep is best-effort by contract — aborting here would fail an
     // app's startup pass over a since-deleted destination root.
   }
-  orphans.sort((a, b) => b.$2.compareTo(a.$2));
-  // Equal mtimes (coarse filesystem granularity) are ordered
-  // arbitrarily: List.sort is not stable and no portable
-  // rename-recency signal exists — a tie may restore an older
-  // generation and strand the other parked until the target
-  // disappears again. Documented rather than papered over.
+  // Newest first; equal mtimes (coarse filesystem granularity) break
+  // ties deterministically by name — recency is still unknowable (no
+  // portable rename-recency signal exists; a tie may restore an older
+  // generation and strand the other parked until the target disappears
+  // again), but the choice no longer varies run-to-run under Dart's
+  // unstable List.sort.
+  orphans.sort((a, b) {
+    final byTime = b.$2.compareTo(a.$2);
+    return byTime != 0
+        ? byTime
+        : p.basename(a.$1.path).compareTo(p.basename(b.$1.path));
+  });
   // A target whose newest orphan could not be renamed keeps its older
   // orphans parked too: restoring an older generation would strand the
   // newest data forever (the target would then exist, so no later sweep

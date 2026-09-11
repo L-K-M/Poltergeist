@@ -2323,6 +2323,26 @@ helper's definition) and the NAME_MAX ≥ 250 host-probe re-raise
 (round 4 recorded the documented premise; CI and dev hosts are
 ext4/APFS/tmpfs).
 
+Review round 8 (refuted major; polish and consistency applied): the
+claimed root/Windows failure of the EACCES tests is already guarded
+— `restrictModeBitsForTest` calls `markTestSkipped` before its chmod
+when running as root, and the whole library skips Windows via
+`@OnPlatform`. Applied: the backup NAME_MAX check is hoisted to fail
+fast before any repair/probe I/O (the fixed-width ASCII suffix makes
+it draw-independent; same message, outcomes unchanged), the backup
+path is derived via basename/dirname instead of raw concatenation (a
+trailing-separator target can never park the backup inside the
+directory the sweep scans), equal-mtime orphans break ties
+deterministically by name (recency stays unknowable; the choice no
+longer varies run-to-run under unstable `List.sort`), the fast-path
+rename's external-creator window is documented as 03 §2.2's accepted
+rename race, the primary replace test asserts the part was consumed
+(a copy-based regression would now fail), and one test title no
+longer claims an ordering it does not verify. Declined: the sweep
+returning a repair count — no caller exists yet, and the M4
+startup-sweep integration owns the reporting shape it needs then
+(additive if wanted).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
