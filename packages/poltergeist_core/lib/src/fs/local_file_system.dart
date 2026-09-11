@@ -146,6 +146,7 @@ class LocalFileSystem implements RemoteFileSystem {
         if (!followLinks) {
           final type = await FileSystemEntity.type(path, followLinks: false);
           if (type == FileSystemEntityType.notFound) {
+            await _throwIfNotActuallyMissing(path);
             throw _notFound('inspect', path);
           }
           if (type == FileSystemEntityType.link) {
@@ -161,6 +162,7 @@ class LocalFileSystem implements RemoteFileSystem {
         // non-link path.
         final stat = await FileStat.stat(path);
         if (stat.type == FileSystemEntityType.notFound) {
+          await _throwIfNotActuallyMissing(path);
           throw _notFound('inspect', path);
         }
         return _entryFromStat(path, p.basename(path), stat);
@@ -340,6 +342,7 @@ class LocalFileSystem implements RemoteFileSystem {
     // follows a link.
     final sourceType = await FileSystemEntity.type(oldPath, followLinks: false);
     if (sourceType == FileSystemEntityType.notFound) {
+      await _throwIfNotActuallyMissing(oldPath);
       throw _notFound('rename', oldPath);
     }
     if (_isCaseOnlyVariant(oldPath, newPath) &&
@@ -512,6 +515,7 @@ class LocalFileSystem implements RemoteFileSystem {
       cancellation?.throwIfCancelled();
       final pathType = await FileSystemEntity.type(path, followLinks: false);
       if (pathType == FileSystemEntityType.notFound) {
+        await _throwIfNotActuallyMissing(path);
         throw _notFound('download', path);
       }
       if (pathType != FileSystemEntityType.file) {
@@ -695,6 +699,24 @@ class LocalFileSystem implements RemoteFileSystem {
     );
   }
 
+  /// dart:io's stat/type fold every probe failure — including EACCES
+  /// under an unreadable ancestor — into `notFound`. Re-probe with a
+  /// throwing call so a permission failure reaches the funnel as
+  /// permissionDenied instead of masquerading as a missing path; only
+  /// genuinely missing codes fall through to the caller's notFound.
+  Future<void> _throwIfNotActuallyMissing(String path) async {
+    try {
+      await Directory(path).resolveSymbolicLinks();
+    } on FileSystemException catch (error) {
+      final code = error.osError?.errorCode;
+      final missing = code == _enoent ||
+          code == _enotdir ||
+          code == _winFileNotFound ||
+          code == _winPathNotFound;
+      if (!missing) rethrow;
+    }
+  }
+
   /// The refuse-symlinks-first check shared by every attribute write:
   /// chmod/chown/setLastModified all dereference, so a write aimed at a
   /// synced tree must never land on a link's target instead.
@@ -704,6 +726,7 @@ class LocalFileSystem implements RemoteFileSystem {
   ) async {
     final type = await FileSystemEntity.type(path, followLinks: false);
     if (type == FileSystemEntityType.notFound) {
+      await _throwIfNotActuallyMissing(path);
       throw _notFound('change $subject for', path);
     }
     if (type == FileSystemEntityType.link) {
@@ -908,8 +931,16 @@ class LocalFileSystem implements RemoteFileSystem {
     try {
       await part.rename(target.path);
     } on Object {
-      if (!await target.exists() && await backup.exists()) {
-        await backup.rename(target.path);
+      // Restore the original unless something else already took the
+      // target name; the nested guard keeps a failed restore from
+      // masking the original failure (the backup retains the content
+      // under its suffixed name either way).
+      try {
+        if (!await target.exists() && await backup.exists()) {
+          await backup.rename(target.path);
+        }
+      } on Object {
+        // Best effort only — the rethrow below carries the real failure.
       }
       rethrow;
     }

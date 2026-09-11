@@ -291,6 +291,28 @@ void main() {
         chmodSync('755', dir.path);
       }
     });
+
+    test('a path under an unreadable directory stats permissionDenied, not notFound', () async {
+      // dart:io's stat folds EACCES into notFound; the re-probe must
+      // surface the real errno (same for download and the attribute
+      // writes) — the SFTP adapter answers permission-denied here.
+      if (runningAsRoot) return;
+      final dir = await putDir('locked');
+      await putFile('locked/inside');
+      chmodSync('000', dir.path);
+      try {
+        final statError = remoteFailure(
+          await failureOf(fs.stat(pathOf('locked/inside'))),
+        );
+        expect(statError.kind, RemoteFileErrorKind.permissionDenied);
+        final downloadError = remoteFailure(
+          await failureOf(fs.download(pathOf('locked/inside'), _CollectingSink())),
+        );
+        expect(downloadError.kind, RemoteFileErrorKind.permissionDenied);
+      } finally {
+        chmodSync('755', dir.path);
+      }
+    });
   });
 
   group('stat', () {
