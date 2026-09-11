@@ -32,7 +32,9 @@ settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
 pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
-Next milestone: M3 (panes v1, 07 §3.4).
+Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice is
+blocked on open item 11 (the engine-side local browse seam) until a
+core PR lands it.
 
 ## Done
 
@@ -2835,6 +2837,28 @@ STATUS validation parenthetical tracks round 10.
     removing its barrel export, so generic
     `RemoteFileSystem` callers can dispatch on `kind` alone instead
     of catching an implementation-specific class.
+11. **2026-09-11 — M3: engine-side local browse seam missing (blocks the
+    panes-v1 foundation slice).** 07 §3.4's pane slice requires local
+    panes to browse through the one VFS engine-side — 03 §5's ownership
+    table assigns "LocalFileSystem instances used by panes" to the
+    engine isolate, and D8 forbids direct dart:io from widgets. The M2
+    engine protocol serves only SSH pool-backed channels:
+    `OpenBrowseChannelRequest` requires a `ServerConfig`, and
+    `EngineHost._listDirectory` executes only a pool `PaneChannel`'s
+    `fs`. No request mounts a `LocalFileSystem` — the first M3 slice's
+    own record scoped this ("the seam to mount a local pane rides the
+    PaneController slice") and it does not exist yet. What it blocks:
+    the two-pane shell, per-pane location binding, and local
+    listDirectory/navigation/error-taxonomy surfaces; the app-side
+    pane slice stopped without app changes rather than widen its
+    boundary (core stays closed to it, per the task's own rule).
+    Least-blocking path: a dedicated core PR adds the seam — engine
+    protocol (a local channel-open request; no `ServerConfig`, no
+    pool/server-state surface), host-side `LocalFileSystem`-backed
+    channels serving the existing listDirectory plumbing, the
+    `EngineClient` facade, and tests — after which the pane slice
+    resumes against it. Directory watching (03 §7.5), per-location
+    view prefs, and the rest of 07 §3.4 stay with their own slices.
 
 ## Independent audit
 
