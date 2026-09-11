@@ -64,6 +64,7 @@ RemoteFileException remoteFailure(Object error) =>
 /// deterministic mid-download mutation seam).
 class _CollectingSink implements StreamSink<List<int>> {
   final bytes = <int>[];
+  final errors = <Object>[];
   bool _hooked = false;
   final void Function(List<int> chunk)? onFirstChunk;
 
@@ -84,7 +85,7 @@ class _CollectingSink implements StreamSink<List<int>> {
   void add(List<int> data) => bytes.addAll(data);
 
   @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
+  void addError(Object error, [StackTrace? stackTrace]) => errors.add(error);
 
   final _done = Completer<void>();
 
@@ -188,7 +189,10 @@ void main() {
       });
       final realRoot = await Directory(root.path).resolveSymbolicLinks();
       expect(await homeFs.canonicalize('~'), realRoot);
-      expect(await homeFs.canonicalize('~/gone/../y'), '$realRoot/y');
+      // Missing paths normalize lexically (the plan's rule): the home
+      // prefix stays as given — resolved only where the host itself has
+      // no symlink on the way (macOS /var → /private/var differs).
+      expect(await homeFs.canonicalize('~/gone/../y'), '${root.path}/y');
     });
 
     test('anchors a relative path to the working directory', () async {
@@ -425,14 +429,14 @@ void main() {
   group('setTimes', () {
     test('sets the modification time', () async {
       final file = await putFile('f');
-      final when = DateTime.utc(2024, 1, 2, 3, 4, 5, 678);
+      final when = DateTime.utc(2024, 1, 2, 3, 4, 5);
       await fs.setTimes(file.path, modifiedAt: when);
       expect((await fs.stat(file.path)).modifiedAt, when);
     });
 
     test('sets the access time', () async {
       final file = await putFile('f');
-      final when = DateTime.utc(2023, 6, 1, 12, 0, 0, 1);
+      final when = DateTime.utc(2023, 6, 1, 12, 0, 0);
       await fs.setTimes(file.path, accessedAt: when);
       expect((await fs.stat(file.path)).accessedAt, when);
     });
@@ -679,20 +683,25 @@ void main() {
       expect(siblingLitter(), isEmpty, reason: 'no backup litter after replace');
     });
 
-    test('a missing source fails notFound', () async {
+    test('a missing source fails notFound and the destination is untouched', () async {
+      final untouched = await putFile('dest', 'D');
       final error = remoteFailure(
-        await failureOf(fs.rename(pathOf('gone'), pathOf('x'))),
+        await failureOf(fs.rename(pathOf('gone'), untouched.path)),
       );
       expect(error.kind, RemoteFileErrorKind.notFound);
+      expect(untouched.readAsStringSync(), 'D');
     });
 
     test('case-only rename succeeds via the two-step and leaves no siblings', () async {
-      // On a case-insensitive volume this is the same entry under a new
-      // case; the two-step exists exactly for that host.
-      if (!caseSensitiveFs) return;
+      // Runs on every host — the two-step exists exactly for the
+      // case-insensitive ones; only the vanished-old-spelling assert
+      // needs a case-sensitive volume (a case-insensitive stat still
+      // finds the renamed entry).
       final file = await putFile('a.txt', 'data');
       await fs.rename(file.path, pathOf('A.TXT'));
-      expect(File(pathOf('a.txt')).existsSync(), isFalse);
+      if (caseSensitiveFs) {
+        expect(File(pathOf('a.txt')).existsSync(), isFalse);
+      }
       expect(File(pathOf('A.TXT')).readAsStringSync(), 'data');
       expect(
         Directory(root.path)

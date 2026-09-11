@@ -145,7 +145,7 @@ an owned temp directory, call `File(dir).setLastModified(...)`, observe
 out in a path-based `utimensat`) and Windows surfaces as
 `ERROR_ACCESS_DENIED`,
 which the funnel above would translate to `permissionDenied` on
-Windows — or, on POSIX, leave as a bare `other`, since `EISDIR` is not
+Windows — or, on POSIX, drop to a bare `other`, since `EISDIR` is not
 in the funnel's errno map — neither of which is the promised
 `unsupported`, so `setTimes` pre-checks the entry type
 (`FileSystemEntity.type(path, followLinks: false)`) and throws the typed

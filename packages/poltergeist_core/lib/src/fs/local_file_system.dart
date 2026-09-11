@@ -1156,8 +1156,11 @@ void _validateLocalName(String name) {
     throw FormatException('"$name" is not a safe local file name.');
   }
   final base = name.split('.').first;
+  // 09 §3.5's full Windows reserved list: the DOS names plus CLOCK$
+  // and the superscript COM/LPT spellings (¹²³ are real Win32
+  // alternates), matched on the base segment, case-insensitively.
   final RegExp reserved = RegExp(
-    r'^(con|prn|aux|nul|com[1-9]|lpt[1-9]|conin\$|conout\$)$',
+    '^(con|prn|aux|nul|clock\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]|conin\$|conout\$)\$',
     caseSensitive: false,
   );
   if (reserved.hasMatch(base)) {
