@@ -1927,7 +1927,7 @@ Per-leg outcomes:
 - Client legs, all five success: linux (→ 04:10:43Z), macos (→
   04:11:49Z), windows (→ 04:12:52Z), ios (→ 04:12:56Z), android (→
   04:13:41Z).
-- Leg-race watch (open item 4): the linux leg created release 386780359
+- Leg-race watch (open item 4's watch clause): the linux leg created release 386780359
   at 04:10:37Z; macos, ios, windows, and android each briefly created a
   duplicate draft, which action-gh-release v2 detected and removed
   ("Using release 386780359 … instead of duplicate draft …", "Removing
@@ -2322,8 +2322,17 @@ remain open regardless.
    never executed before: v0.1.0 published manually under D23's
    one-time carve-out, so the merged direct-publish path was never
    exercised end to end until this rehearsal. Fix:
-   `gh release edit "$RELEASE_TAG" --draft=false` (with coverage — a
-   grep/lint or dry-run guard; the bug is one command name). Then D23's
+   `gh release edit "$RELEASE_TAG" --draft=false`, followed by a
+   post-publish probe that fails loud if the release is still a draft
+   (the green-over-unpublished failure mode the step's own comment
+   names), with coverage — a grep/lint or dry-run guard; the bug is one
+   command name. Dispatch provenance hazard, verified 2026-09-11: the
+   client job's `actions/checkout` carries no `ref:` pin, so a dispatch
+   from a branch builds that branch's tree while labeling assets with
+   the tag — the fix PR must pin checkout to the tag input (or the
+   recovery must otherwise guarantee the built commit equals the tag's
+   commit), and the draft deletion must remove the release only, never
+   the tag (no `--cleanup-tag`). Then D23's
    recovery: delete the hidden draft and re-run the release for tag
    `v0.2.0` via `workflow_dispatch` from a ref that carries the fix
    (dispatching the tag ref re-runs the tag's buggy workflow file; the
