@@ -233,7 +233,10 @@ with their Séance tests carried over:
   rule that every locally materialized name is validated.)
 - `ensureSafeLocalDirectory(String path)` — create parents while refusing to
   traverse through symlinks or non-directories (`followLinks: false` at every
-  component).
+  component). Callers must resolve the already-existing portion of the path
+  first (`resolveSymbolicLinksSync`): the walk refuses a symlinked ancestor
+  outright — macOS `Directory.systemTemp` is one — so the trust decision
+  stays with the caller, not the walk.
 - `validateLocalName(String name)` — Windows reserved names (`CON`, `PRN`,
   `AUX`, `NUL`, `COM1`–`9`, `LPT1`–`9`, plus `CONIN$`/`CONOUT$`) matched
   by **base name** — the segment before the first dot — not exact match,

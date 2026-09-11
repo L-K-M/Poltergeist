@@ -2354,6 +2354,26 @@ dedup, two hardening-only asserts, the counts-placement reading —
 clarified — and subdirectory-nested orphan coverage, re-anchored to
 round 2's non-recursive-by-design record). No code change.
 
+Review round 10 (one confirmed major — streak reset): the pre-dance
+repair now runs only when the target is absent. With the target
+present, the scoped sweep is provably a functional no-op (its
+restore loop skips existing targets) whose only effect was an
+O(entries) directory listing per replace — O(n²) across an n-file
+sync commit on the shared M4/M7/M8 path; after a successful repair
+the type is re-probed so a restored orphan flows into the normal
+dance instead of the plain-rename branch. The full suite passes
+unchanged (no test depended on a sweep under an existing target);
+the residual per-replace listing for bulk first-time creates is
+recorded as an M8 measurement note. 03 §2.3's
+`ensureSafeLocalDirectory` bullet now carries the caller-side
+resolve-first obligation (the round-5/6 trust decision, in the
+canonical text). Declined: the recursive-sweep test re-raise
+(non-recursive by design, rounds 2/5/9; the startup sweep's
+traversal shape is M4's), the validator/sweep hex-parity pins (both
+sides consult the same `_backupNamePattern` object — parity is by
+construction, not coincidence), and the `id`-less-root re-raise
+(rounds 4/7 records; the suite's POSIX-toolchain premise).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when

@@ -225,20 +225,33 @@ Future<void> replaceLocalFile(File part, File target) async {
       target.path,
     );
   }
-  try {
-    await restoreOrphanedLocalBackups(
-      Directory(p.dirname(target.path)),
-      targetBasename: p.basename(target.path),
-    );
-  } on FileSystemException {
-    // Best effort only — the replace itself must not fail on a
-    // stranded sibling it could not repair.
-  }
-
-  final targetType = await FileSystemEntity.type(
+  var targetType = await FileSystemEntity.type(
     target.path,
     followLinks: false,
   );
+  if (targetType == FileSystemEntityType.notFound) {
+    // Repair a stranded same-target orphan first (best effort), but
+    // only when the target is absent: with the target present any
+    // parked backup is stale by definition, so the sweep would be a
+    // functional no-op that still pays an O(entries) directory
+    // listing per replace — O(n²) across an n-file sync commit.
+    try {
+      await restoreOrphanedLocalBackups(
+        Directory(p.dirname(target.path)),
+        targetBasename: p.basename(target.path),
+      );
+      // A restored orphan flows into the normal dance below (backed
+      // up, replaced, backup deleted) instead of being clobbered by
+      // the plain-rename notFound branch.
+      targetType = await FileSystemEntity.type(
+        target.path,
+        followLinks: false,
+      );
+    } on FileSystemException {
+      // Best effort only — the replace itself must not fail on a
+      // stranded sibling it could not repair.
+    }
+  }
   if (targetType == FileSystemEntityType.link ||
       (targetType != FileSystemEntityType.file &&
           targetType != FileSystemEntityType.notFound)) {
