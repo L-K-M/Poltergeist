@@ -1941,7 +1941,7 @@ Per-leg outcomes:
   and the notes (D23 labels + sums) attached — then the publish step
   **failed**: `gh release ready` is not a gh subcommand ("unknown
   command \"ready\" for \"gh release\""; the real command is
-  `gh release edit --draft=false`). The fail-loud probe behaved as
+  `gh release edit "$RELEASE_TAG" --draft=false`). The fail-loud probe behaved as
   designed: the run went red instead of silently leaving an unpublished
   draft.
 
