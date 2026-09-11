@@ -4,6 +4,9 @@ A cross-platform two-pane file transfer client — SFTP first — for desktop an
 mobile, patterned after the great macOS file-transfer apps (Transmit, ForkLift)
 and built as a sibling of [Séance](https://github.com/L-K-M/Seance).
 
+> [!IMPORTANT]
+> LLM disclosure: This codebase was written with substantial help from large language models: AI coding agents working from the [`AGENTS.md`](AGENTS.md) brief in this repo.
+
 *The ghost that moves your files.*
 
 **Current version:** v<!-- version -->0.2.0<!-- /version --> · [v0.1.0 pre-release published](https://github.com/L-K-M/Poltergeist/releases) — M0 and M1 are complete; M2 (connection layer) is in progress.
