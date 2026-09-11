@@ -2143,7 +2143,7 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 55 dedicated tests; full core suite 529 green (+15
+Validation: 57 dedicated tests; full core suite 531 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
@@ -2200,6 +2200,32 @@ continuation fixture — the sweep is non-recursive, so it cannot
 observe iteration-past-failure in a writable directory (any name
 creatable as an orphan is creatable as its target); the no-throw
 contract is pinned and the limitation documented in the test.
+
+Review round 3 (all applied — the round's one major was a genuine
+coverage gap): the rollback fixture now stages its part inside a
+read-only sibling directory so the commit rename fails with EACCES
+deterministically *after* the backup exists — the merely-missing-part
+fixture could be satisfied by a future part pre-flight without ever
+reaching the rollback branch (verified: the test fails with the
+rollback disabled and passes restored; root hosts skip — mode bits
+cannot deny there). The validators now reject components over NAME_MAX
+bytes (255 UTF-8 bytes, observed failing first — ASCII and two-byte
+boundaries both pinned; 03 §2.3's validator bullet records the rule)
+so an over-long server-reported name fails at the boundary instead of
+mid-transfer as an opaque ENAMETOOLONG. The sweep keeps a failed
+target's older orphans parked too — restoring an older generation
+after the newest failed to rename would strand the newest data
+forever (the target would then exist, so no later sweep repairs it);
+the failure-path fixture is unconstructible on POSIX (same class as
+round 2's declined item) and the invariant is documented. The lexical
+`.`/`..`/separator rejection in the walk now reports 'Refusing to
+traverse an unsafe path component' — a static shape rejection, not a
+symlink observation. The stale lead sentence in 03 §2.3 ("the next
+touch of that directory") now reads "the next replace of that same
+file", matching the scoped repair the round-2 precision note records.
+Test hygiene: both fixture chmods check their exit code. PORTS.md's
+backup-shape divergence line now spells the `.backup` suffix on both
+sides.
 
 ## Open items
 

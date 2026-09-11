@@ -90,6 +90,17 @@ void main() {
       expect(() => validateLocalName('a.b.c'), returnsNormally);
     });
 
+    test('rejects a name over the file-name byte limit', () {
+      // 09 §3.5's doctrine: an over-long component fails at the
+      // boundary with a clean FormatException, not mid-transfer as an
+      // opaque ENAMETOOLONG. UTF-8 bytes, not code units.
+      expect(() => validateLocalName('a' * 255), returnsNormally);
+      expect(() => validateLocalName('a' * 256), throwsFormatException);
+      // Two-byte characters count two each: 128 × 'é' = 256 bytes.
+      expect(() => validateLocalName('é' * 128), throwsFormatException);
+      expect(() => validateLocalName('é' * 127), returnsNormally);
+    });
+
     for (final (name, why) in <(String, String)>[
       ('CON', 'reserved device name'),
       ('con', 'reserved, case-insensitive'),
@@ -213,7 +224,20 @@ void main() {
     test('rejects a lexical parent component', () async {
       await expectLater(
         ensureSafeLocalDirectory(pathOf('a/../b')),
-        throwsA(isA<FileSystemException>()),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('unsafe path component'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects an over-long created component at its mkdir', () async {
+      await expectLater(
+        ensureSafeLocalDirectory(pathOf('d/${'x' * 256}')),
+        throwsFormatException,
       );
     });
   });
@@ -272,14 +296,40 @@ void main() {
 
     test('restores the original when the second rename fails', () async {
       final target = await putFile('data', 'old');
-      // A part that vanished before its rename — the deterministic
-      // mid-dance failure.
-      final ghost = File(pathOf('missing-part'));
+      // The part is staged inside a read-only sibling directory (as
+      // non-root): its rename fails with EACCES deterministically
+      // AFTER the backup exists, so the rollback branch itself runs —
+      // a merely-missing part could be rejected by a future
+      // pre-flight and never reach it.
+      final stage = await Directory(pathOf('stage')).create();
+      final ghost = File(p.join(stage.path, 'part'));
+      await ghost.writeAsString('new');
+      final stageBits = FileStat.statSync(stage.path).mode & permissionsMask;
+      void restoreStage() {
+        final result = Process.runSync('chmod', [
+          stageBits.toRadixString(8),
+          stage.path,
+        ]);
+        if (result.exitCode != 0) {
+          fail('fixture chmod restore failed: ${result.stderr}');
+        }
+      }
+
+      if (runningAsRoot) {
+        markTestSkipped('running as root — mode bits cannot deny access');
+      }
+      final restrict = Process.runSync('chmod', ['555', stage.path]);
+      if (restrict.exitCode != 0) {
+        fail('fixture chmod 555 failed: ${restrict.stderr}');
+      }
+      addTearDown(restoreStage);
+
       await expectLater(
         replaceLocalFile(ghost, target),
         throwsA(isA<FileSystemException>()),
       );
       expect(target.readAsStringSync(), 'old');
+      expect(ghost.readAsStringSync(), 'new');
       expect(siblingLitter(), isEmpty);
     });
 
@@ -454,7 +504,10 @@ void main() {
       if (runningAsRoot) {
         markTestSkipped('running as root — mode bits cannot deny access');
       }
-      Process.runSync('chmod', ['555', root.path]);
+      final restrict = Process.runSync('chmod', ['555', root.path]);
+      if (restrict.exitCode != 0) {
+        fail('fixture chmod 555 failed: ${restrict.stderr}');
+      }
       addTearDown(restoreMode);
       await restoreOrphanedLocalBackups(root);
       expect(orphan.readAsStringSync(), 'stranded');

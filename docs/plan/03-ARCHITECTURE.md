@@ -216,7 +216,7 @@ with their Séance tests carried over:
   `*.poltergeist-<8 hex>.backup`
   whose target (its own name with that suffix stripped) is absent means
   an interrupted replace, and the next
-  touch of that directory (or a startup sweep) restores it before any
+  replace of that same file (or a startup sweep) restores it before any
   new replace runs, rather than leaving the user's file looking deleted.
   (Precision added with the port: the repair a *replace* triggers is
   scoped to that replace's own target — a live backup parked by a
@@ -236,7 +236,10 @@ with their Séance tests carried over:
   by **base name** — the segment before the first dot — not exact match,
   since Windows reserves the name regardless of extension: `NUL.txt` and
   `Com1.tar.gz` are just as invalid as the bare names, forbidden
-  characters, trailing dot/space.
+  characters, trailing dot/space — and, per 09 §3.5's boundary rule,
+  any component over NAME_MAX (255 UTF-8 bytes — the same constant the
+  dance's backup-name guard uses) fails here with a clean
+  `FormatException` instead of mid-transfer as an opaque ENAMETOOLONG.
 - `validatePathComponent(String c)` — no empty, `.`, `..`, `/`, `\`,
   NUL. Backslash is rejected everywhere on purpose: it is a legal
   filename character on POSIX remotes but the path separator on a

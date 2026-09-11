@@ -343,8 +343,8 @@ port candidates.
   the components it creates, and collapses Séance's two root messages
   ('Download destination is not a directory' plus the traversal
   refusal) into the one 'Refusing to follow a non-directory or symbolic
-  link' refusal. Backup siblings rename `.seance-<uuid4>` →
-  `.poltergeist-<8 hex>` (08 §2's sanctioned prefix rename; the 8-hex
+  link' refusal. Backup siblings rename `.seance-<uuid4>.backup` →
+  `.poltergeist-<8 hex>.backup` (08 §2's sanctioned prefix rename; the 8-hex
   shape is 03 §2.3's documented pattern, matching the pinned adapter's
   temp suffixes). The NAME_MAX-255 backup-name guard (fail the replace
   rather than truncate into a collision), the crash-recovery sweep
@@ -365,13 +365,16 @@ port candidates.
   the controller's scan), the pre-dance repair is scoped to the
   replace's own target (a directory-wide repair could consume a
   concurrent dance's live backup and fail its transfer on Windows;
-  Séance has no sweep at all), and the backup pattern is derived from
-  the same constants that build backup names.
+  Séance has no sweep at all), the backup pattern is derived from
+  the same constants that build backup names, and the validators
+  reject components over NAME_MAX bytes (255 UTF-8 bytes; Séance
+  relies on the OS's ENAMETOOLONG mid-transfer instead of the clean
+  boundary error 09 §3.5 specifies).
 - Port-back candidates: the raw-string reserved-name fix, the NAME_MAX
-  guard, the orphaned-backup sweep, backslash rejection in the
-  component validator, the extended reserved list (09 §3.5), and the
-  commit-point leaf validation — all applicable to Séance's own
-  statics.
+  guard (and its validator-side twin), the orphaned-backup sweep, backslash
+  rejection in the component validator, the extended reserved list
+  (09 §3.5), and the commit-point leaf validation — all applicable to
+  Séance's own statics.
 
 ## packages/poltergeist_core/test/fs/local_fs_safety_test.dart
 

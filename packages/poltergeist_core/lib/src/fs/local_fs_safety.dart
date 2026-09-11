@@ -85,6 +85,14 @@ void validatePathComponent(String component) {
 /// host whose filesystem cares (09 §3.5).
 void validateLocalName(String name) {
   validatePathComponent(name);
+  // 09 §3.5's boundary rule: an over-long component fails here with a
+  // clean FormatException instead of mid-transfer as an opaque
+  // ENAMETOOLONG. POSIX NAME_MAX counts UTF-8 bytes.
+  if (_utf8ByteLength(name) > _maxFileNameBytes) {
+    throw FormatException(
+      '"$name" exceeds the $_maxFileNameBytes-byte file-name limit.',
+    );
+  }
   if (_forbiddenLocalChars.hasMatch(name) ||
       name.endsWith('.') ||
       name.endsWith(' ')) {
@@ -141,8 +149,11 @@ Future<void> ensureSafeLocalDirectory(String path) async {
         component.contains('/') ||
         component.contains(r'\') ||
         component.contains('\x00')) {
+      // A static path-shape rejection, not a type observation — the
+      // distinct message keeps a lexical `..` from sending anyone
+      // hunting for symlinks that do not exist.
       throw FileSystemException(
-        'Refusing to follow a non-directory or symbolic link',
+        'Refusing to traverse an unsafe path component',
         p.context.join(current, component),
       );
     }
@@ -268,7 +279,9 @@ Future<void> replaceLocalFile(File part, File target) async {
 /// The `<name>.poltergeist-<8 hex>.backup` shape is reserved for this
 /// dance by convention — application code must not write other files
 /// matching it. When several orphans share one absent target the newest
-/// (by mtime) is restored; the others stay parked — never deleted.
+/// (by mtime) is restored; the others stay parked — never deleted, and
+/// if the newest cannot be renamed, the older ones stay parked too
+/// (restoring an older generation would strand the newest forever).
 /// An orphan whose rename fails (locked, permission-denied, vanished)
 /// stays parked for a later sweep and never aborts the remaining
 /// restores — aborting would strand exactly the interrupted replaces
@@ -289,7 +302,13 @@ Future<void> restoreOrphanedLocalBackups(
     orphans.add((entity, stat.modified, match.group(1)!));
   }
   orphans.sort((a, b) => b.$2.compareTo(a.$2));
+  // A target whose newest orphan could not be renamed keeps its older
+  // orphans parked too: restoring an older generation would strand the
+  // newest data forever (the target would then exist, so no later sweep
+  // repairs it).
+  final unrestorable = <String>{};
   for (final (orphan, _, targetName) in orphans) {
+    if (unrestorable.contains(targetName)) continue;
     final targetPath = p.join(p.dirname(orphan.path), targetName);
     if (await FileSystemEntity.type(targetPath, followLinks: false) !=
         FileSystemEntityType.notFound) {
@@ -298,8 +317,10 @@ Future<void> restoreOrphanedLocalBackups(
     try {
       await orphan.rename(targetPath);
     } on FileSystemException {
-      // Locked, permission-denied, or vanished mid-sweep: park it for
-      // the next pass and keep repairing the rest.
+      // Locked, permission-denied, or vanished mid-sweep: park it and
+      // its same-target siblings for the next pass, but keep repairing
+      // unrelated targets.
+      unrestorable.add(targetName);
     }
   }
 }
