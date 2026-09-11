@@ -433,8 +433,18 @@ void main() {
       if (steps is YamlList) auditFailLoudly(jobName, steps);
     }
     final publishRun = '${publish['run']}';
-    expect(publishRun, contains('gh release ready'));
+    // The publish mechanism is `gh release edit --draft=false`: the
+    // v0.2.0 rehearsal died on the nonexistent `gh release ready`
+    // subcommand (STATUS open item 8) — pin the real command so the
+    // invented one cannot come back.
+    expect(publishRun, contains('gh release edit'));
+    expect(publishRun, contains('--draft=false'));
+    expect(publishRun, isNot(contains('gh release ready')));
     expect(publishRun, isNot(contains(r'${{')));
+    // The post-publish probe re-reads the draft flag after the edit, so
+    // a publish call that silently no-ops still fails the run instead of
+    // reporting green over a hidden draft.
+    expect('--json isDraft'.allMatches(publishRun).length, greaterThan(1));
     // The "never a public partial release" guarantee relies on Actions'
     // default skip-on-failure, so Publish must not opt out of it.
     final publishIf = '${publish['if']}';
@@ -485,6 +495,66 @@ void main() {
     expect(present.exitCode, isNot(0));
     expect(present.stderr, contains('already exists'));
     expect(present.stderr, contains('delete it first'));
+  }, skip: _posixOnly);
+
+  test('checkouts build the tag commit whenever the tag exists', () async {
+    // Dispatch provenance (STATUS item 8): with no ref pin, a dispatch
+    // from a branch would build that branch's tree while labeling assets
+    // with the tag. Every checkout pins the resolved ref, and the
+    // resolve step must run before the checkout it feeds.
+    for (final job in const ['test', 'client']) {
+      final steps = _jobSteps('.github/workflows/release.yml', job);
+      final resolve = _step(steps, 'Resolve the checkout ref');
+      final run = '${resolve['run']}';
+
+      expect('${resolve['shell']}', 'bash', reason: '$job resolve shell');
+      expect(run, contains('/git/ref/tags/'), reason: '$job resolve run');
+      expect(run, contains('GITHUB_OUTPUT'), reason: '$job resolve run');
+      expect(run, isNot(contains(r'${{')), reason: '$job resolve run');
+
+      final checkout = steps.whereType<YamlMap>().singleWhere(
+        (step) => '${step['uses']}'.startsWith('$_checkoutAction@'),
+      );
+      expect(
+        '${(checkout['with'] as YamlMap)['ref']}',
+        r'${{ steps.checkout-ref.outputs.ref }}',
+        reason: '$job checkout ref',
+      );
+      final resolveIndex = steps.indexWhere(
+        (step) => identical(step, resolve),
+      );
+      final checkoutIndex = steps.indexWhere(
+        (step) => identical(step, checkout),
+      );
+      expect(
+        resolveIndex,
+        lessThan(checkoutIndex),
+        reason: '$job step order',
+      );
+    }
+
+    // Dry-run the resolution itself: an existing tag resolves to the tag,
+    // a tag the dispatch will create falls back to the dispatched commit,
+    // and any other lookup failure fails loud instead of silently
+    // building the wrong tree.
+    final existing = await _runCheckoutRefResolution('200');
+    expect(
+      existing.result.exitCode,
+      0,
+      reason: existing.result.stderr as String?,
+    );
+    expect(existing.output.readAsStringSync(), contains('ref=v0.1.0'));
+
+    final missing = await _runCheckoutRefResolution('404');
+    expect(missing.result.exitCode, 0, reason: missing.result.stderr as String?);
+    expect(
+      missing.output.readAsStringSync(),
+      contains('ref=${'f' * 40}'),
+    );
+
+    final broken = await _runCheckoutRefResolution('500');
+    expect(broken.result.exitCode, isNot(0));
+    expect(broken.result.stderr, contains('tag ref lookup failed'));
   }, skip: _posixOnly);
 
   test('checksums enforce the rehearsal floor and cover every asset', () async {
@@ -539,15 +609,19 @@ void main() {
     () async {
       final draft = await _runPublishStep(isDraft: true);
       expect(draft.result.exitCode, 0, reason: draft.result.stderr as String?);
-      final readyCalls = draft.ghLog.existsSync()
+      final publishCalls = draft.ghLog.existsSync()
           ? draft.ghLog
                 .readAsStringSync()
                 .trim()
                 .split('\n')
-                .where((line) => line.startsWith('ready'))
+                .where((line) => line.startsWith('edit --draft=false'))
                 .length
           : 0;
-      expect(readyCalls, 1, reason: 'Publish must call gh release ready once');
+      expect(
+        publishCalls,
+        1,
+        reason: 'Publish must flip the draft flag exactly once',
+      );
 
       final published = await _runPublishStep(isDraft: false);
       expect(published.result.exitCode, 0);
@@ -566,6 +640,14 @@ void main() {
       expect(misFlagged.result.exitCode, isNot(0));
       expect(misFlagged.result.stderr, contains('prerelease flag'));
       expect(misFlagged.ghLog.existsSync(), isFalse);
+
+      // A publish call that returns success without flipping the flag
+      // (a silent no-op) must still fail the run: the post-publish probe
+      // re-reads isDraft and refuses green-over-hidden-draft.
+      final noFlip = await _runPublishStep(isDraft: true, editNoFlip: true);
+      expect(noFlip.result.exitCode, isNot(0));
+      expect(noFlip.result.stderr, contains('still a draft'));
+      expect(noFlip.ghLog.readAsStringSync(), contains('edit --draft=false'));
     },
     skip: _posixOnly,
   );
@@ -944,7 +1026,12 @@ enum _ExistingRelease { draft, none }
 /// A gh stand-in: the `api` subcommand reports one release for the tag when
 /// [existing] is set; `release download` materializes the fake assets (file
 /// content = asset name, so the test can predict each sum); `upload`/`edit`
-/// append to a log, and `edit` also copies the notes file for inspection.
+/// append to a log, and `edit --notes-file` also copies the notes file for
+/// inspection. `edit --draft=false` is the publish path: it flips the draft
+/// state file that `view --json isDraft` reports (seeded from FAKE_IS_DRAFT),
+/// unless FAKE_EDIT_NO_FLIP=1 simulates a silent no-op publish. There is
+/// deliberately no `ready` case: the v0.2.0 rehearsal died on that
+/// nonexistent subcommand, so a regression to it fails here loudly.
 File _writeFakeGh(
   Directory sandbox, {
   _DraftAssets assets = _DraftAssets.complete,
@@ -956,6 +1043,7 @@ File _writeFakeGh(
 set -euo pipefail
 
 log="${FAKE_GH_LOG:?}"
+state="$log.state"
 [[ "${GH_TOKEN:-}" == fake-token ]] || { echo "fake gh: GH_TOKEN missing" >&2; exit 64; }
 
 case "$1" in
@@ -971,28 +1059,31 @@ case "$1" in
     details="$*"
     [[ "$tag" == "${FAKE_RELEASE_TAG:?}" ]] \
       || { echo "fake gh: wrong tag: $tag" >&2; exit 64; }
-    dir=""; notes=""; jsonField=""
+    dir=""; notes=""; jsonField=""; draftFalse=0
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --dir)        dir="$2";   shift 2 ;;
-        --notes-file) notes="$2"; shift 2 ;;
-        --json)       jsonField="$2"; shift 2 ;;
+        --dir)         dir="$2";       shift 2 ;;
+        --notes-file)  notes="$2";     shift 2 ;;
+        --json)        jsonField="$2"; shift 2 ;;
+        --draft=false) draftFalse=1;    shift ;;
         *) shift ;;
       esac
     done
     case "$cmd" in
-      ready)
-        printf 'ready %s\n' "$details" >> "$log"
-        ;;
       view)
         # The isDraft/isPrerelease probes (mutation/publish idempotency,
-        # flag assert) — dispatch on the requested --json field.
+        # flag assert, post-publish re-probe) — dispatch on the requested
+        # --json field; isDraft tracks edit --draft=false via the state file.
         if [[ "${FAKE_VIEW_FAIL:-0}" == 1 ]]; then
           echo "fake gh: view probe failure" >&2
           exit 70
         fi
         case "$jsonField" in
-          isDraft) printf '%s\n' "${FAKE_IS_DRAFT:-true}" ;;
+          isDraft)
+            [[ -f "$state" ]] || printf '%s' "${FAKE_IS_DRAFT:-true}" > "$state"
+            is_draft="$(cat "$state")"
+            printf '%s\n' "$is_draft"
+            ;;
           isPrerelease) printf '%s\n' "${FAKE_IS_PRERELEASE:-true}" ;;
           *) echo "fake gh: unexpected view field: $jsonField" >&2; exit 64 ;;
         esac
@@ -1003,9 +1094,17 @@ case "$1" in
         ;;
       upload) printf 'upload %s\n' "$details" >> "$log" ;;
       edit)
-        [[ -n "$notes" ]] || { echo "fake gh: no --notes-file" >&2; exit 64; }
-        cp "$notes" "${FAKE_NOTES_COPY:?}"
-        printf 'edit %s\n' "$details" >> "$log"
+        if [[ "$draftFalse" == 1 ]]; then
+          # Publish: flips the draft state (no notes file involved).
+          printf 'edit --draft=false\n' >> "$log"
+          if [[ "${FAKE_EDIT_NO_FLIP:-0}" != 1 ]]; then
+            printf 'false' > "$state"
+          fi
+        else
+          [[ -n "$notes" ]] || { echo "fake gh: no --notes-file" >&2; exit 64; }
+          cp "$notes" "${FAKE_NOTES_COPY:?}"
+          printf 'edit %s\n' "$details" >> "$log"
+        fi
         ;;
       *) echo "fake gh: unexpected release command: $cmd" >&2; exit 64 ;;
     esac
@@ -1063,6 +1162,54 @@ Future<ProcessResult> _runReleaseGuardStep(_ExistingRelease existing) {
   );
 }
 
+Future<_CheckoutRefOutcome> _runCheckoutRefResolution(String httpCode) {
+  final sandbox = Directory.systemTemp.createTempSync(
+    'poltergeist-release-checkout-ref-test-',
+  );
+  addTearDown(() {
+    if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+  });
+  final bin = Directory(p.join(sandbox.path, 'bin'))..createSync();
+  // The resolve step reads only the -w '%{http_code}' stdout of its curl
+  // call, so the fake prints the scenario's status and nothing else.
+  final fakeCurl = File(p.join(bin.path, 'curl'))
+    ..writeAsStringSync(r'''
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s' "${FAKE_HTTP_CODE:?}"
+''');
+  Process.runSync('chmod', ['+x', fakeCurl.path]);
+
+  final output = File(p.join(sandbox.path, 'github-output'));
+  final steps = _jobSteps('.github/workflows/release.yml', 'test');
+  final script = '${_step(steps, 'Resolve the checkout ref')['run']}';
+
+  return Process.run(
+    'bash',
+    ['-euo', 'pipefail', '-c', script],
+    environment: {
+      ...Platform.environment,
+      'FAKE_HTTP_CODE': httpCode,
+      'GH_TOKEN': 'fake-token',
+      'GITHUB_OUTPUT': output.path,
+      'GITHUB_SHA': 'f' * 40,
+      'PATH': _prependExecutablePath(bin.path),
+      'RELEASE_TAG': 'v0.1.0',
+      'REPO': 'owner/repo',
+    },
+    workingDirectory: sandbox.path,
+  ).then(
+    (result) => _CheckoutRefOutcome(result: result, output: output),
+  );
+}
+
+class _CheckoutRefOutcome {
+  const _CheckoutRefOutcome({required this.result, required this.output});
+
+  final ProcessResult result;
+  final File output;
+}
+
 Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
   final sandbox = Directory.systemTemp.createTempSync(
     'poltergeist-release-sums-test-',
@@ -1104,12 +1251,15 @@ Future<_ChecksumOutcome> _runChecksumStep(_DraftAssets assets) async {
 /// Executes the sums job's Publish step against the fake gh.
 ///
 /// The step's whole contract in one place: a draft is published exactly
-/// once, an already-public release is left untouched, and a failed
-/// isDraft probe fails the step instead of reading as "published".
+/// once, an already-public release is left untouched, a failed isDraft
+/// probe fails the step instead of reading as "published", and a publish
+/// that leaves the release a draft fails loud ([editNoFlip] simulates the
+/// silent no-op).
 Future<_PublishOutcome> _runPublishStep({
   bool isDraft = true,
   bool isPrerelease = true,
   bool viewFails = false,
+  bool editNoFlip = false,
 }) async {
   final sandbox = Directory.systemTemp.createTempSync(
     'poltergeist-release-publish-test-',
@@ -1137,6 +1287,7 @@ Future<_PublishOutcome> _runPublishStep({
         'FAKE_IS_DRAFT': '$isDraft',
         'FAKE_IS_PRERELEASE': '$isPrerelease',
         if (viewFails) 'FAKE_VIEW_FAIL': '1',
+        if (editNoFlip) 'FAKE_EDIT_NO_FLIP': '1',
       },
     ),
     workingDirectory: sandbox.path,
