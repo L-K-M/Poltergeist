@@ -18,8 +18,9 @@ final bool _posixNonRoot =
     !Platform.isWindows &&
     int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) != 0;
 
-/// A temp-dir fixture for local-pane channels: two files, a subdirectory,
-/// and a symlink to one file. Deletion registers as teardown.
+/// A temp-dir fixture for local-pane channels: two files and a
+/// subdirectory. Symlink tests create their own link. Deletion registers
+/// as teardown.
 Directory _localFixture(String name) {
   final root = Directory.systemTemp.createTempSync(name);
   addTearDown(() => root.deleteSync(recursive: true));
