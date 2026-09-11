@@ -359,7 +359,8 @@ port candidates.
   pre-port original's dead regex branches: `\$` in the non-raw pattern
   string decoded to a bare `$` anchor, so `CLOCK$`/`CONIN$`/
   `CONOUT$` were never rejected; the raw-string pattern now matches
-  them (regressions failed before, pass after). Review round 2 added:
+  them (regressions failed before, pass after). Review rounds 2–7
+  added (per-round records in STATUS and the PR description):
   the commit point validates the target's basename (`validateLocalName`,
   09 §3.5's every-materialized-name rule — Séance validates only in
   the controller's scan), the pre-dance repair is scoped to the

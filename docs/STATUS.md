@@ -2143,7 +2143,8 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation (current through review round 9): 63 dedicated tests;
+Validation (current through review round 10; round 10 changed no
+counts): 63 dedicated tests;
 full core suite 536 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
@@ -2372,7 +2373,22 @@ canonical text). Declined: the recursive-sweep test re-raise
 traversal shape is M4's), the validator/sweep hex-parity pins (both
 sides consult the same `_backupNamePattern` object — parity is by
 construction, not coincidence), and the `id`-less-root re-raise
-(rounds 4/7 records; the suite's POSIX-toolchain premise).
+(rounds 4/7 records; the suite's POSIX-toolchain premise). 
+
+Review round 11 (steady state per 09 §7(b) — re-raises without new
+evidence, plus ledger nits): the major re-raises enforcing the
+sweep's documented no-dance precondition at runtime (round 4
+declined the no-clobber primitive — dart:io has none — and round 6
+recorded the precondition on every caller and in 03 §2.3); the
+minors re-raise the Windows library skip (rounds 4/8/9), the root
+assumptions (rounds 8/9/10), the stale-backup reclaim (round 5),
+and the empty-prefix parity (round 10's same-RegExp construction).
+New-but-declined: rolling back a partially created tree on a
+mid-walk validation failure (Séance parity — the port source leaves
+created prefixes; callers own cleanup), control-character escaping
+in messages, and a Windows MAX_PATH cap (no v1 surface). Applied:
+the PORTS divergence heading now names the rounds it spans and the
+STATUS validation parenthetical tracks round 10.
 
 ## Open items
 
