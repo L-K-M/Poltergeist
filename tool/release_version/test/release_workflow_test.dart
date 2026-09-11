@@ -528,6 +528,9 @@ void main() {
 
       expect('${resolve['shell']}', 'bash', reason: '$job resolve shell');
       expect(run, contains('/git/ref/tags/'), reason: '$job resolve run');
+      // The dry-run fake curl's whole contract: the step reads the
+      // status from curl's -w stdout. Dropping the flag must fail here.
+      expect(run, contains('%{http_code}'), reason: '$job resolve run');
       expect(run, contains('GITHUB_OUTPUT'), reason: '$job resolve run');
       expect(run, isNot(contains(r'${{')), reason: '$job resolve run');
 
