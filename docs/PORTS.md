@@ -359,11 +359,19 @@ port candidates.
   pre-port original's dead regex branches: `\$` in the non-raw pattern
   string decoded to a bare `$` anchor, so `CLOCK$`/`CONIN$`/
   `CONOUT$` were never rejected; the raw-string pattern now matches
-  them (regressions failed before, pass after).
+  them (regressions failed before, pass after). Review round 2 added:
+  the commit point validates the target's basename (`validateLocalName`,
+  09 §3.5's every-materialized-name rule — Séance validates only in
+  the controller's scan), the pre-dance repair is scoped to the
+  replace's own target (a directory-wide repair could consume a
+  concurrent dance's live backup and fail its transfer on Windows;
+  Séance has no sweep at all), and the backup pattern is derived from
+  the same constants that build backup names.
 - Port-back candidates: the raw-string reserved-name fix, the NAME_MAX
   guard, the orphaned-backup sweep, backslash rejection in the
-  component validator, and the extended reserved list (09 §3.5) — all
-  applicable to Séance's own statics.
+  component validator, the extended reserved list (09 §3.5), and the
+  commit-point leaf validation — all applicable to Séance's own
+  statics.
 
 ## packages/poltergeist_core/test/fs/local_fs_safety_test.dart
 

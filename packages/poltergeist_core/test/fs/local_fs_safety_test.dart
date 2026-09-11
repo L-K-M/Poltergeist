@@ -22,10 +22,21 @@ const int permissionsMask = 0xFFF;
 
 /// True when this process cannot be refused by mode bits (root on any
 /// POSIX host — the suite itself is POSIX-only via the `@OnPlatform`
-/// Windows skip on this library).
-final bool runningAsRoot =
-    !Platform.isWindows &&
-    int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) == 0;
+/// Windows skip on this library). A host without an `id` binary reads
+/// as non-root — the conservative default, since mode bits are the
+/// test's refusal mechanism.
+final bool runningAsRoot = !Platform.isWindows && _uidIsRoot();
+
+bool _uidIsRoot() {
+  try {
+    return int.tryParse(
+          Process.runSync('id', ['-u']).stdout.toString().trim(),
+        ) ==
+        0;
+  } on ProcessException {
+    return false;
+  }
+}
 
 void main() {
   late Directory root;
@@ -275,6 +286,8 @@ void main() {
     test(
       'fails before any rename when the backup name would overflow',
       () async {
+        // Requires 250 <= NAME_MAX < 278 (255 on ext4/APFS/tmpfs —
+        // every supported platform's floor; 03 §2.3's guard constant).
         final longName = 'n' * 250;
         final target = await putFile(longName, 'original');
         final part = await putFile('part', 'new');
@@ -297,6 +310,7 @@ void main() {
       // A lone surrogate has no valid UTF-8 form — Dart's encoder
       // substitutes U+FFFD, itself a 3-byte sequence — so the guard
       // must fail before any rename rather than under-count.
+      // Same NAME_MAX premise as the overflow test above.
       final name = 'm' * 227 + '\uDC00';
       final target = File(pathOf(name));
       await target.writeAsString('original');
@@ -313,6 +327,43 @@ void main() {
       );
       expect(target.readAsStringSync(), 'original');
       expect(siblingLitter(), isEmpty);
+    });
+
+    test('rejects a Windows-hazardous target name on every platform',
+        () async {
+      // The commit point materializes the final file name: the same
+      // destination-aware doctrine as the directory walk applies here.
+      for (final name in ['aux', 'NUL.txt', 'x.txt ']) {
+        final target = File(pathOf(name));
+        final part = await putFile('part', 'new');
+        await expectLater(
+          replaceLocalFile(part, target),
+          throwsFormatException,
+        );
+        expect(target.existsSync(), isFalse);
+        expect(part.existsSync(), isTrue);
+      }
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test("a concurrent dance's parked backup for another target is left alone",
+        () async {
+      // Two replaces share a directory; one is between its two renames
+      // (target 'b' parked under its live backup). The other replace's
+      // pre-dance repair must not consume that backup — on Windows the
+      // interrupted-looking restore would occupy 'b' and fail its
+      // part.rename.
+      final parked = await putFile(
+        'b.poltergeist-0123abcd.backup',
+        'mid-dance',
+      );
+      final target = await putFile('a', 'old');
+      final part = await putFile('part', 'new');
+      await replaceLocalFile(part, target);
+
+      expect(target.readAsStringSync(), 'new');
+      expect(parked.readAsStringSync(), 'mid-dance');
+      expect(File(pathOf('b')).existsSync(), isFalse);
     });
 
     test('restores a crashed replace before running a new one', () async {
@@ -373,19 +424,23 @@ void main() {
       );
     });
 
-    test('a rename failure parks its orphan and sweeps the rest', () async {
+    test('a failing restore parks its orphan without aborting the sweep',
+        () async {
       // A read-only directory (as non-root) makes every restore fail
       // with EACCES after the listing succeeded: the sweep must
       // complete without throwing and leave the orphan parked for a
-      // later sweep, not abort the crash-recovery pass.
+      // later sweep. Continuation past the first failure is inherent
+      // to the loop's catch-and-continue shape; a selective
+      // single-orphan failure in a writable directory is not
+      // constructible on POSIX (any name creatable as an orphan is
+      // creatable as its target), so this pins the no-throw contract.
       final orphan = await putFile(
         'data.poltergeist-0123abcd.backup',
         'stranded',
       );
       // FileStat.mode carries the type bits too; chmod wants the
       // permission bits alone, or the restore itself fails.
-      final modeBits =
-          FileStat.statSync(root.path).mode & permissionsMask;
+      final modeBits = FileStat.statSync(root.path).mode & permissionsMask;
       void restoreMode() {
         final result = Process.runSync('chmod', [
           modeBits.toRadixString(8),
@@ -396,13 +451,11 @@ void main() {
         }
       }
 
+      if (runningAsRoot) {
+        markTestSkipped('running as root — mode bits cannot deny access');
+      }
       Process.runSync('chmod', ['555', root.path]);
       addTearDown(restoreMode);
-      if (runningAsRoot) {
-        // Root bypasses mode bits; the refusal premise does not hold.
-        restoreMode();
-        return;
-      }
       await restoreOrphanedLocalBackups(root);
       expect(orphan.readAsStringSync(), 'stranded');
       expect(File(pathOf('data')).existsSync(), isFalse);

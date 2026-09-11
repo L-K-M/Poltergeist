@@ -2143,7 +2143,7 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 53 dedicated tests; full core suite 527 green (+15
+Validation: 55 dedicated tests; full core suite 529 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
@@ -2158,7 +2158,10 @@ rename fail EACCES after the listing; observed failing with the
 abort, passing after; the reviewer's suggested ENAMETOOLONG fixture
 is unconstructible on a NAME_MAX-255 volume — the orphan's own name
 embeds the target's, so it cannot exist long enough to fail its
-rename) — plus async `FileStat.stat`, `on Object` narrowed to
+rename) — plus the sweep's stat moved off the synchronous static
+(round 2 finished this: `await entity.stat()`, the async instance
+future — round 1 had merely put an await in front of the sync
+`FileStat.stat`), `on Object` narrowed to
 `on FileSystemException` at the three best-effort guards (programming
 errors surface again), the two validator regexes hoisted to top-level
 finals, the reserved-shape convention documented on the sweep, and
@@ -2172,6 +2175,31 @@ to mtime so name-based selection fails, and the surrogate overflow
 test pins the guard's message. Refuted: the "second finally cleans
 `partial`" claim — the committed head already reads `again` at that
 line (the suggestion anchored on the first branch's line-390 text).
+
+Review round 2 (both majors applied — genuine correctness findings):
+`replaceLocalFile` now validates the target's basename like every
+locally materialized name (09 §3.5; the commit point is the
+leaf-level twin of the walk's per-component check — regression:
+'aux'/'NUL.txt'/'x.txt ' targets reject before any IO, observed
+failing first), and the pre-dance repair is scoped to the replace's
+own target — a directory-wide repair inside a replace could consume a
+concurrent dance's live backup (its target is absent precisely between
+the two renames) and, on Windows, fail that transfer under M4's
+parallel queue (regression: another target's parked backup survives a
+replace untouched, observed failing first; same-target repair and the
+unfiltered startup sweep unchanged). A same-PR 03 §2.3 precision edit
+records both rules. Also applied: `await entity.stat()` (the round-1
+fix had left the *synchronous* `FileStat.stat` behind an await —
+round 1's STATUS note overstated it), the backup pattern derived from
+the constants that build backup names, the read-only-dir test's
+root bail moved before the chmod as a `markTestSkipped`, the
+NAME_MAX=255 premise documented on both overflow tests, `id`-less
+hosts read as non-root, and the symlinked-ancestor refusal (macOS
+`/tmp`) documented on the walk. Declined: the subdirectory
+continuation fixture — the sweep is non-recursive, so it cannot
+observe iteration-past-failure in a writable directory (any name
+creatable as an orphan is creatable as its target); the no-throw
+contract is pinned and the limitation documented in the test.
 
 ## Open items
 

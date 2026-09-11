@@ -218,6 +218,16 @@ with their Séance tests carried over:
   an interrupted replace, and the next
   touch of that directory (or a startup sweep) restores it before any
   new replace runs, rather than leaving the user's file looking deleted.
+  (Precision added with the port: the repair a *replace* triggers is
+  scoped to that replace's own target — a live backup parked by a
+  concurrent dance on another name has its target absent precisely
+  between the two renames, so a directory-wide repair inside a replace
+  could consume it and, on Windows, fail that transfer; the
+  directory-wide repair is the startup sweep's role, run at a moment
+  no dance is known to be in flight. The commit point also validates
+  the target's basename with `validateLocalName` — the leaf-level twin
+  of `ensureSafeLocalDirectory`'s per-component check, per 09 §3.5's
+  rule that every locally materialized name is validated.)
 - `ensureSafeLocalDirectory(String path)` — create parents while refusing to
   traverse through symlinks or non-directories (`followLinks: false` at every
   component).

@@ -33,11 +33,16 @@ const int _randomSuffixLength = 8;
 // collision (03 §2.3).
 const int _maxFileNameBytes = 255;
 
-/// `<name>.poltergeist-<8 hex>.backup` — the crash-recovery pattern.
+/// `<name>.poltergeist-<8 hex>.backup` — the crash-recovery pattern,
+/// derived from the same constants the dance builds backup names from
+/// (the hex class matches `_randomHexString`'s lowercase output) so a
+/// future prefix/length/suffix change cannot silently strand crashed
+/// replaces behind a pattern the sweep no longer matches.
 /// `(.+)` (not `(.*)`) so a basename starting with the suffix can never
 /// restore to an empty name.
 final RegExp _backupNamePattern = RegExp(
-  r'^(.+)\.poltergeist-[0-9a-f]{8}\.backup$',
+  '^(.+)${RegExp.escape(_transferPrefix)}'
+  '[0-9a-f]{$_randomSuffixLength}${RegExp.escape(_backupSuffix)}\$',
 );
 
 final Random _random = Random.secure();
@@ -118,6 +123,10 @@ final RegExp _windowsReservedName = RegExp(
 /// a legal POSIX name that Windows would refuse stays traversable. A
 /// lexical `.`/`..` component is rejected wherever it sits. The checks
 /// are advisory against races, exactly like 03 §2.2's rename preflight.
+/// Pre-existing symlinked *ancestors* are refused too — the strict
+/// containment posture — so a root like macOS `/tmp` (a symlink to
+/// `/private/tmp`) is rejected: pass resolved paths or
+/// `Directory.systemTemp`-based roots.
 Future<void> ensureSafeLocalDirectory(String path) async {
   final parts = p.context
       .split(Directory(path).absolute.path)
@@ -162,13 +171,22 @@ Future<void> ensureSafeLocalDirectory(String path) async {
 /// Non-regular targets (links included) are refused first, and the
 /// check itself does not follow links — a symlink to a regular file
 /// would pass a stat-based "is regular" test and the replace would
-/// silently swap the user's link for a plain file. Before the dance
-/// runs, an interrupted earlier replace is repaired: any orphaned
-/// backup beside the target is restored by [restoreOrphanedLocalBackups]
-/// (best effort — the dance is correct either way).
+/// silently swap the user's link for a plain file. The target's
+/// basename is validated like every locally materialized name (09
+/// §3.5) — this is the file-commit point, the leaf-level twin of
+/// [ensureSafeLocalDirectory]'s per-component check. Before the dance
+/// runs, an interrupted earlier replace of the *same* target is
+/// repaired by [restoreOrphanedLocalBackups] (best effort — the dance
+/// is correct either way), scoped to this target so a concurrent
+/// dance's live backup for another name in the directory is never
+/// consumed.
 Future<void> replaceLocalFile(File part, File target) async {
+  validateLocalName(p.basename(target.path));
   try {
-    await restoreOrphanedLocalBackups(Directory(p.dirname(target.path)));
+    await restoreOrphanedLocalBackups(
+      Directory(p.dirname(target.path)),
+      targetBasename: p.basename(target.path),
+    );
   } on FileSystemException {
     // Best effort only — the replace itself must not fail on a
     // stranded sibling it could not repair.
@@ -233,9 +251,17 @@ Future<void> replaceLocalFile(File part, File target) async {
 /// `<name>.poltergeist-<8 hex>.backup` whose `<name>` is absent is an
 /// interrupted [replaceLocalFile] — a crash or power loss between the
 /// two renames strands the data in the hidden backup with the target
-/// missing (03 §2.3). The startup sweep (and the sweep inside every
-/// replace) renames such a backup back to its target before anything
-/// leaves the user's file looking deleted.
+/// missing (03 §2.3). The startup sweep (and the target-scoped sweep
+/// inside every replace) renames such a backup back to its target
+/// before anything leaves the user's file looking deleted.
+///
+/// [targetBasename] narrows the repair to one target's orphans —
+/// [replaceLocalFile] passes its own target's name, because a
+/// directory-wide restore there could consume a *concurrent* dance's
+/// live backup (its target is absent precisely between the two
+/// renames) and, on Windows, fail that transfer. A null
+/// [targetBasename] (the startup sweep) repairs every orphan in the
+/// directory — at a moment no dance is known to be in flight.
 ///
 /// Backups whose target still exists are left alone (stale, not
 /// orphaned), as are names outside the pattern and non-file entries.
@@ -247,13 +273,19 @@ Future<void> replaceLocalFile(File part, File target) async {
 /// stays parked for a later sweep and never aborts the remaining
 /// restores — aborting would strand exactly the interrupted replaces
 /// this function exists to repair.
-Future<void> restoreOrphanedLocalBackups(Directory directory) async {
+Future<void> restoreOrphanedLocalBackups(
+  Directory directory, {
+  String? targetBasename,
+}) async {
   final orphans = <(File, DateTime, String)>[];
   await for (final entity in directory.list(followLinks: false)) {
     if (entity is! File) continue;
     final match = _backupNamePattern.firstMatch(p.basename(entity.path));
     if (match == null) continue;
-    final stat = await FileStat.stat(entity.path);
+    if (targetBasename != null && match.group(1)! != targetBasename) {
+      continue;
+    }
+    final stat = await entity.stat();
     orphans.add((entity, stat.modified, match.group(1)!));
   }
   orphans.sort((a, b) => b.$2.compareTo(a.$2));
