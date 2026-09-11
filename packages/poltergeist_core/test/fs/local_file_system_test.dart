@@ -113,11 +113,20 @@ void main() {
 
   String pathOf(String name) => '${root.path}/$name';
 
+  /// A chmod that fails loudly — a silently failed fixture chmod would
+  /// surface later as misleading assertion failures.
+  void chmodSync(String mode, String path) {
+    final result = Process.runSync('chmod', [mode, path]);
+    if (result.exitCode != 0) {
+      fail('fixture chmod $mode $path failed: ${result.stderr}');
+    }
+  }
+
   Future<File> putFile(String name, [String content = 'content']) async {
     final file = File(pathOf(name));
     await file.writeAsString(content);
     // Pin the mode so the 644 assertions below are umask-independent.
-    Process.runSync('chmod', ['644', file.path]);
+    chmodSync('644', file.path);
     return file;
   }
 
@@ -133,10 +142,10 @@ void main() {
     return link;
   }
 
-  /// Any `.poltergeist-*` temp/backup siblings left in the fixture —
-  /// must be empty after every operation, success or failure.
-  List<String> siblingLitter() => Directory(root.path)
-      .listSync()
+  /// Any `.poltergeist-*` temp/backup siblings left anywhere under the
+  /// fixture — must be empty after every operation, success or failure.
+  List<String> siblingLitter() => root
+      .listSync(recursive: true)
       .map((entity) => entity.path.split(Platform.pathSeparator).last)
       .where((name) => name.contains('poltergeist-'))
       .toList();
@@ -266,14 +275,14 @@ void main() {
       if (runningAsRoot) return;
       final dir = await putDir('locked');
       await putFile('locked/inside');
-      Process.runSync('chmod', ['000', dir.path]);
+      chmodSync('000', dir.path);
       try {
         final error = remoteFailure(await failureOf(fs.listDirectory(dir.path)));
         expect(error.kind, RemoteFileErrorKind.permissionDenied);
       } finally {
         // Restore before teardowns run: the fixture teardown must be
         // able to recurse through this directory.
-        Process.runSync('chmod', ['755', dir.path]);
+        chmodSync('755', dir.path);
       }
     });
   });
@@ -356,6 +365,7 @@ void main() {
     });
 
     test('maps a chmod ENOENT stderr line to notFound', () async {
+      await putFile('f');
       final (fakeFs, bin) = fakeBinFs();
       installFake(
         bin,
@@ -363,7 +373,7 @@ void main() {
         "echo \"chmod: cannot access 'x': No such file or directory\" >&2; exit 1",
       );
       final error = remoteFailure(
-        await failureOf(fakeFs.setMode(pathOf('any'), oct('600'))),
+        await failureOf(fakeFs.setMode(pathOf('f'), oct('600'))),
       );
       expect(error.kind, RemoteFileErrorKind.notFound);
     });
@@ -380,6 +390,7 @@ void main() {
     });
 
     test('classifies by the trailing stderr segment, never a substring match', () async {
+      await putFile('f');
       // The path legally embeds "Operation not permitted"; the real
       // failure is ENOENT. A substring scan would misclassify.
       final (fakeFs, bin) = fakeBinFs();
@@ -389,7 +400,7 @@ void main() {
         "echo \"chmod: cannot access '/tmp/x/Operation not permitted': No such file or directory\" >&2; exit 1",
       );
       final error = remoteFailure(
-        await failureOf(fakeFs.setMode(pathOf('any'), oct('600'))),
+        await failureOf(fakeFs.setMode(pathOf('f'), oct('600'))),
       );
       expect(error.kind, RemoteFileErrorKind.notFound);
     });
@@ -427,18 +438,24 @@ void main() {
   });
 
   group('setTimes', () {
-    test('sets the modification time', () async {
+    test('sets the modification time and preserves the access time', () async {
       final file = await putFile('f');
+      final accessBefore = (await fs.stat(file.path)).accessedAt;
       final when = DateTime.utc(2024, 1, 2, 3, 4, 5);
       await fs.setTimes(file.path, modifiedAt: when);
-      expect((await fs.stat(file.path)).modifiedAt, when);
+      final entry = await fs.stat(file.path);
+      expect(entry.modifiedAt, when);
+      expect(entry.accessedAt, accessBefore, reason: 'the omitted half keeps its current value');
     });
 
-    test('sets the access time', () async {
+    test('sets the access time and preserves the modification time', () async {
       final file = await putFile('f');
+      final modifyBefore = (await fs.stat(file.path)).modifiedAt;
       final when = DateTime.utc(2023, 6, 1, 12, 0, 0);
       await fs.setTimes(file.path, accessedAt: when);
-      expect((await fs.stat(file.path)).accessedAt, when);
+      final entry = await fs.stat(file.path);
+      expect(entry.accessedAt, when);
+      expect(entry.modifiedAt, modifyBefore, reason: 'the omitted half keeps its current value');
     });
 
     test('sets both halves independently of each other', () async {

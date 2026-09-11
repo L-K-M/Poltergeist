@@ -446,10 +446,16 @@ class LocalFileSystem implements RemoteFileSystem {
       // backup-rename dance — never delete-then-rename, which strands
       // the user with neither file when the second step fails.
       // Directories and links rethrow: the dance is a regular-file
-      // protocol and would coerce them through File.
+      // protocol and would coerce them through File. So does a failure
+      // with no existing destination — that is an unrelated error
+      // (vanished source, missing parent), not a replace failure.
       if (!overwrite ||
           !Platform.isWindows ||
           sourceType != FileSystemEntityType.file) {
+        rethrow;
+      }
+      if (await FileSystemEntity.type(newPath, followLinks: false) ==
+          FileSystemEntityType.notFound) {
         rethrow;
       }
       await _replaceLocalFile(File(oldPath), File(newPath), 'rename');
@@ -618,6 +624,10 @@ class LocalFileSystem implements RemoteFileSystem {
               if (chunk.isEmpty) continue;
               hashInput?.add(chunk);
               sink.add(chunk);
+              // Await each chunk's drain: IOSink.add alone never
+              // applies backpressure, and a fast source onto a slow
+              // disk would buffer the whole transfer in memory.
+              await sink.flush();
               transferred += chunk.length;
               onProgress?.call(transferred, length);
             }
