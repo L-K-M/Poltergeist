@@ -2339,6 +2339,24 @@ remain open regardless.
    (dispatching the tag ref re-runs the tag's buggy workflow file; the
    created-once guard refuses while the draft exists). Only a published
    v0.2.0 closes M2.
+   **2026-09-11 — fix:** the publish step now calls
+   `gh release edit "$RELEASE_TAG" --draft=false` and re-reads `isDraft`
+   afterward (a silent no-op publish fails loud instead of going green
+   over a hidden draft), and both `actions/checkout` steps pin the
+   resolved ref — an existing tag checks out itself, a not-yet-created
+   dispatch tag falls back to the dispatched commit — so a dispatch from
+   the fixed ref builds the tag's own commit (target_commitish is
+   ignored for existing tags). Coverage in
+   `tool/release_version/test/release_workflow_test.dart`: the shape
+   assertions pin the new command and the re-probe, the fake gh drops
+   its `ready` case (a regression now fails loudly), a new still-draft
+   dry-run fails the publish, and the checkout-ref resolution has shape
+   and fake-curl dry-run tests — all three red against the unfixed
+   workflow (including a dry-run reproduction of the rehearsal's
+   unknown-command failure), green after; `dart analyze
+   tool/release_version` clean. Recovery (delete the draft only, then
+   dispatch v0.2.0 from the fixed ref) and publish verification follow
+   the merge; the item stays open until a v0.2.0 release is public.
 
 ## Independent audit
 

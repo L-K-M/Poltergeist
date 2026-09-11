@@ -69,20 +69,51 @@ jobs:
     # receive listings for draft releases") — a read-scoped token would
     # be blind to leftover drafts and let a re-dispatch update them.
     steps:
+      # Dispatch provenance: an unpinned checkout on workflow_dispatch
+      # builds the dispatch ref's tip while the release labels its assets
+      # with the tag. Resolve the checkout ref first: an existing tag
+      # checks out itself, so a workflow-only fix recovers by dispatching
+      # from the fixed ref without moving the tag; a dispatch whose tag
+      # does not exist yet falls back to the dispatched commit, where the
+      # first gh-release step then creates it. Lookup failures fail loud —
+      # never silently build the wrong tree.
+      - name: Resolve the checkout ref
+        id: checkout-ref
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --retry 3 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/git/ref/tags/$RELEASE_TAG")
+          case "$code" in
+            200) echo "ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT" ;;
+            404) echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "tag ref lookup failed for $RELEASE_TAG (HTTP $code)" >&2
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
         with:
+          ref: ${{ steps.checkout-ref.outputs.ref }}
           fetch-depth: 0
       # Releases are created once and never updated: action-gh-release's
       # default when a release for the tag exists is to update it
       # (overwriting same-named assets), so fail first — for drafts as well
       # as published releases. Check-then-act is safe because the
       # workflow-level concurrency group serializes every run for the tag.
-      # Recovery from a failed run: delete the release and the tag —
-      # a draft only gets its tag at publish, so a dispatch-path
-      # failure before publishing leaves no tag to delete. A surviving
-      # tag pins the recovery run's release to the broken commit
-      # (target_commitish is ignored when the tag already exists) —
-      # then fix on main and dispatch on the fixed commit.
+      # Recovery from a failed run: delete the release, never the tag (no
+      # --cleanup-tag — the tag is pushed history). A surviving tag is
+      # fine: the checkout-ref pin above builds the tag's own commit, so a
+      # workflow-only fix recovers by deleting the draft and dispatching
+      # from the fixed ref. Delete the tag as well only when the tag's
+      # tree itself is broken — the dispatch then recreates it at the
+      # fixed commit (target_commitish is ignored while the tag exists).
       - name: Refuse to overwrite an existing release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -237,7 +268,33 @@ jobs:
             build: windows --release
             files: poltergeist-windows-x64.zip
     steps:
+      # Same dispatch-provenance pin as the test job: build the tag's own
+      # commit whenever the tag already exists (see the resolve step
+      # there for the full rationale).
+      - name: Resolve the checkout ref
+        id: checkout-ref
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --retry 3 -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/git/ref/tags/$RELEASE_TAG")
+          case "$code" in
+            200) echo "ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT" ;;
+            404) echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "tag ref lookup failed for $RELEASE_TAG (HTTP $code)" >&2
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
+        with:
+          ref: ${{ steps.checkout-ref.outputs.ref }}
       # Pin the JDK so the Gradle build is deterministic rather than tracking
       # the runner's default; keep in step with the app's compileOptions.
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4 (SHA-pinned)
@@ -487,7 +544,16 @@ jobs:
               echo "prerelease flag is '$got', expected '$want' for $RELEASE_TAG" >&2
               exit 1
             }
-            gh release ready "$RELEASE_TAG" --repo "$REPO"
+            gh release edit "$RELEASE_TAG" --repo "$REPO" --draft=false
+            # Post-publish probe: the edit returning 0 proves nothing —
+            # re-read the flag so a silently no-op publish can never
+            # report green over a release that is still a hidden draft.
+            still=$(gh release view "$RELEASE_TAG" --repo "$REPO" \
+              --json isDraft --jq .isDraft) || exit 1
+            [ "$still" = false ] || {
+              echo "publish call succeeded but $RELEASE_TAG is still a draft" >&2
+              exit 1
+            }
           else
             echo "release already published; nothing to do" >&2
           fi
