@@ -29,10 +29,9 @@ final bool runningAsRoot = !Platform.isWindows && _uidIsRoot();
 
 bool _uidIsRoot() {
   try {
-    return int.tryParse(
-          Process.runSync('id', ['-u']).stdout.toString().trim(),
-        ) ==
-        0;
+    final result = Process.runSync('id', ['-u']);
+    return result.exitCode == 0 &&
+        int.tryParse(result.stdout.toString().trim()) == 0;
   } on ProcessException {
     return false;
   }
@@ -110,6 +109,11 @@ void main() {
         expect(() => validatePathComponent(name), throwsFormatException);
       });
     }
+
+    test('rejects a component over the file-name byte limit', () {
+      expect(() => validatePathComponent('a' * 255), returnsNormally);
+      expect(() => validatePathComponent('a' * 256), throwsFormatException);
+    });
   });
 
   group('validateLocalName', () {
@@ -128,6 +132,28 @@ void main() {
       // Two-byte characters count two each: 128 × 'é' = 256 bytes.
       expect(() => validateLocalName('é' * 128), throwsFormatException);
       expect(() => validateLocalName('é' * 127), returnsNormally);
+    });
+
+    test('rejects the reserved crash-recovery backup shape', () {
+      // The sweep's namespace must stay private to the dance: a
+      // materialized name shaped like a parked backup would be
+      // hijacked (target absent) or stranded (target present) by a
+      // later directory-wide sweep.
+      expect(
+        () => validateLocalName('report.poltergeist-deadbeef.backup'),
+        throwsFormatException,
+      );
+      // Benign look-alikes pass: ordinary .backup names, suffixes
+      // outside the lowercase-hex class, and the empty-prefix form.
+      expect(() => validateLocalName('notes.backup'), returnsNormally);
+      expect(
+        () => validateLocalName('a.poltergeist-zzzzzzzz.backup'),
+        returnsNormally,
+      );
+      expect(
+        () => validateLocalName('.poltergeist-deadbeef.backup'),
+        returnsNormally,
+      );
     });
 
     for (final (name, why) in <(String, String)>[
@@ -432,6 +458,19 @@ void main() {
         expect(part.existsSync(), isTrue);
       }
       expect(siblingLitter(), isEmpty);
+    });
+
+    test('refuses a target name in the reserved backup shape', () async {
+      // The commit point cannot install what the sweep would later
+      // mistake for its own parked backup.
+      final target = File(pathOf('report.poltergeist-deadbeef.backup'));
+      final part = await putFile('part', 'new');
+      await expectLater(
+        replaceLocalFile(part, target),
+        throwsFormatException,
+      );
+      expect(target.existsSync(), isFalse);
+      expect(part.existsSync(), isTrue);
     });
 
     test("a concurrent dance's parked backup for another target is left alone",

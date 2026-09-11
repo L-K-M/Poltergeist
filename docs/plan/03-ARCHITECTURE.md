@@ -240,9 +240,14 @@ with their Séance tests carried over:
   since Windows reserves the name regardless of extension: `NUL.txt` and
   `Com1.tar.gz` are just as invalid as the bare names, forbidden
   characters, trailing dot/space — and, per 09 §3.5's boundary rule,
-  any component over NAME_MAX (255 UTF-8 bytes — the same constant the
+  any name over NAME_MAX (255 UTF-8 bytes — the same constant the
   dance's backup-name guard uses) fails here with a clean
-  `FormatException` instead of mid-transfer as an opaque ENAMETOOLONG.
+  `FormatException` instead of mid-transfer as an opaque ENAMETOOLONG
+  — and `validatePathComponent` enforces the same 255-byte cap on
+  every component it checks. `validateLocalName` also refuses names
+  matching the dance's reserved `<name>.poltergeist-<8 hex>.backup`
+  shape, so no materialized name can masquerade as a parked backup
+  for the crash-recovery sweep.
 - `validatePathComponent(String c)` — no empty, `.`, `..`, `/`, `\`,
   NUL. Backslash is rejected everywhere on purpose: it is a legal
   filename character on POSIX remotes but the path separator on a

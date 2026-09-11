@@ -72,6 +72,15 @@ void validatePathComponent(String component) {
       component.contains('\x00')) {
     throw FormatException('"$component" is not a safe path component.');
   }
+  // 09 §3.5's boundary rule: an over-long component fails here with a
+  // clean FormatException instead of mid-transfer as an opaque
+  // ENAMETOOLONG — enforced at the component level so every caller of
+  // this half inherits it. POSIX NAME_MAX counts UTF-8 bytes.
+  if (_utf8ByteLength(component) > _maxFileNameBytes) {
+    throw FormatException(
+      '"$component" exceeds the $_maxFileNameBytes-byte file-name limit.',
+    );
+  }
 }
 
 /// [validatePathComponent] plus the Windows destination hazards:
@@ -85,12 +94,14 @@ void validatePathComponent(String component) {
 /// host whose filesystem cares (09 §3.5).
 void validateLocalName(String name) {
   validatePathComponent(name);
-  // 09 §3.5's boundary rule: an over-long component fails here with a
-  // clean FormatException instead of mid-transfer as an opaque
-  // ENAMETOOLONG. POSIX NAME_MAX counts UTF-8 bytes.
-  if (_utf8ByteLength(name) > _maxFileNameBytes) {
+  // The `<name>.poltergeist-<8 hex>.backup` shape belongs to the
+  // crash-recovery dance alone — refuse it here so no materialized
+  // name can masquerade as a parked backup for the sweep to consume
+  // (the round-4 "reserved by convention" note, now enforced at the
+  // boundary instead of merely documented).
+  if (_backupNamePattern.hasMatch(name)) {
     throw FormatException(
-      '"$name" exceeds the $_maxFileNameBytes-byte file-name limit.',
+      '"$name" collides with the reserved crash-recovery backup pattern.',
     );
   }
   if (_forbiddenLocalChars.hasMatch(name) ||
@@ -246,7 +257,8 @@ Future<void> replaceLocalFile(File part, File target) async {
   // The check-then-rename gap is the walk's accepted advisory posture.
   var backupPath =
       target.path + _transferPrefix + _randomHexString() + _backupSuffix;
-  while (await File(backupPath).exists()) {
+  while (await FileSystemEntity.type(backupPath, followLinks: false) !=
+      FileSystemEntityType.notFound) {
     backupPath =
         target.path + _transferPrefix + _randomHexString() + _backupSuffix;
   }

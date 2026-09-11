@@ -369,9 +369,12 @@ port candidates.
   the same constants that build backup names, the validators
   reject components over NAME_MAX bytes (255 UTF-8 bytes; Séance
   relies on the OS's ENAMETOOLONG mid-transfer instead of the clean
-  boundary error 09 §3.5 specifies), and the dance refuses a
-  non-regular part symmetrically with its target refusal (rename
-  moves a swapped-in symlink without following it).
+  boundary error 09 §3.5 specifies), the dance refuses a non-regular
+  part symmetrically with its target refusal (rename moves a
+  swapped-in symlink without following it), and `validateLocalName`
+  refuses names matching the reserved
+  `<name>.poltergeist-<8 hex>.backup` shape (Séance has no sweep to
+  collide with, so no reservation exists there).
 - Port-back candidates: the raw-string reserved-name fix, the NAME_MAX
   guard (and its validator-side twin), the orphaned-backup sweep, backslash
   rejection in the component validator, the extended reserved list

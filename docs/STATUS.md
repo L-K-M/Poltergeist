@@ -2143,7 +2143,7 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 60 dedicated tests; full core suite 533 green (+15
+Validation: 63 dedicated tests; full core suite 536 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
@@ -2300,6 +2300,28 @@ winning orphan was consumed. Declined: the auto-resolving
 resolves exactly the component a planted symlink occupies, silently
 defeating the containment walk; the trust decision stays with the
 caller (doc guidance from round 5).
+
+Review round 7 (the major closes the reserved-namespace residual at
+its root): `validateLocalName` now refuses names matching the dance's
+reserved `<name>.poltergeist-<8 hex>.backup` shape — rounds 4–5 had
+left the collision "reserved by convention" only, so a
+server-reported name of exactly that shape could land on disk and be
+hijacked (target absent) or stranded (target present) by a
+directory-wide sweep; the rejection is enforced where untrusted names
+enter, and the commit point inherits it (`replaceLocalFile` refuses
+such targets; regressions observed failing first, benign look-alikes
+— plain `.backup` names, non-hex suffixes, the empty-prefix form —
+pinned as passing). The NAME_MAX cap moved to `validatePathComponent`
+so both validators genuinely enforce it (03 §2.3 and PORTS wording
+now match the code), the backup-collision redraw probe uses the
+no-follow `FileSystemEntity.type` (consistent with every other probe;
+no deterministic fixture — same generator-seam limitation as round
+6), and `_uidIsRoot` checks `id`'s exit code. Declined: the
+parked-backup litter assertion (the test's direct survival check is
+strictly stronger — the parked backup is legitimate litter by the
+helper's definition) and the NAME_MAX ≥ 250 host-probe re-raise
+(round 4 recorded the documented premise; CI and dev hosts are
+ext4/APFS/tmpfs).
 
 ## Open items
 
