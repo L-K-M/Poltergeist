@@ -68,6 +68,31 @@ void main() {
       .where((name) => name.contains('poltergeist-'))
       .toList();
 
+  /// Restricts [path] to mode 555 for the rest of the test and restores
+  /// the original permission bits in a tear-down. Skips the test when
+  /// mode bits cannot deny access (root). The skip must precede the
+  /// chmod, and the tear-down registers after it, so LIFO teardown
+  /// restores the mode before the setUp root deletion.
+  void restrictModeBitsForTest(String path) {
+    if (runningAsRoot) {
+      markTestSkipped('running as root — mode bits cannot deny access');
+    }
+    final original = FileStat.statSync(path).mode & permissionsMask;
+    final restrict = Process.runSync('chmod', ['555', path]);
+    if (restrict.exitCode != 0) {
+      fail('fixture chmod 555 failed: ${restrict.stderr}');
+    }
+    addTearDown(() {
+      final result = Process.runSync('chmod', [
+        original.toRadixString(8),
+        path,
+      ]);
+      if (result.exitCode != 0) {
+        fail('fixture chmod restore failed: ${result.stderr}');
+      }
+    });
+  }
+
   group('validatePathComponent', () {
     test('accepts a plain component and returns silently', () {
       expect(() => validatePathComponent('notes v2.txt'), returnsNormally);
@@ -331,25 +356,7 @@ void main() {
       final stage = await Directory(pathOf('stage')).create();
       final ghost = File(p.join(stage.path, 'part'));
       await ghost.writeAsString('new');
-      final stageBits = FileStat.statSync(stage.path).mode & permissionsMask;
-      void restoreStage() {
-        final result = Process.runSync('chmod', [
-          stageBits.toRadixString(8),
-          stage.path,
-        ]);
-        if (result.exitCode != 0) {
-          fail('fixture chmod restore failed: ${result.stderr}');
-        }
-      }
-
-      if (runningAsRoot) {
-        markTestSkipped('running as root — mode bits cannot deny access');
-      }
-      final restrict = Process.runSync('chmod', ['555', stage.path]);
-      if (restrict.exitCode != 0) {
-        fail('fixture chmod 555 failed: ${restrict.stderr}');
-      }
-      addTearDown(restoreStage);
+      restrictModeBitsForTest(stage.path);
 
       await expectLater(
         replaceLocalFile(ghost, target),
@@ -527,27 +534,7 @@ void main() {
         'data.poltergeist-0123abcd.backup',
         'stranded',
       );
-      // FileStat.mode carries the type bits too; chmod wants the
-      // permission bits alone, or the restore itself fails.
-      final modeBits = FileStat.statSync(root.path).mode & permissionsMask;
-      void restoreMode() {
-        final result = Process.runSync('chmod', [
-          modeBits.toRadixString(8),
-          root.path,
-        ]);
-        if (result.exitCode != 0) {
-          fail('fixture chmod restore failed: ${result.stderr}');
-        }
-      }
-
-      if (runningAsRoot) {
-        markTestSkipped('running as root — mode bits cannot deny access');
-      }
-      final restrict = Process.runSync('chmod', ['555', root.path]);
-      if (restrict.exitCode != 0) {
-        fail('fixture chmod 555 failed: ${restrict.stderr}');
-      }
-      addTearDown(restoreMode);
+      restrictModeBitsForTest(root.path);
       await restoreOrphanedLocalBackups(root);
       expect(orphan.readAsStringSync(), 'stranded');
       expect(File(pathOf('data')).existsSync(), isFalse);
@@ -562,6 +549,7 @@ void main() {
       await newer.setLastModified(DateTime(2021, 1, 1));
       await restoreOrphanedLocalBackups(root);
       expect(File(pathOf('a')).readAsStringSync(), 'newer');
+      expect(newer.existsSync(), isFalse);
       // The loser stays parked under its own suffixed name — never
       // deleted; a later sweep skips it because the target now exists.
       expect(older.readAsStringSync(), 'older');

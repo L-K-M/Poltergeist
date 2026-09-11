@@ -225,7 +225,9 @@ with their Séance tests carried over:
   between the two renames, so a directory-wide repair inside a replace
   could consume it and, on Windows, fail that transfer; the
   directory-wide repair is the startup sweep's role, run at a moment
-  no dance is known to be in flight. The commit point also validates
+  no dance is in flight — a precondition that binds every caller of
+  the exported `restoreOrphanedLocalBackups`, not just startup. The
+  commit point also validates
   the target's basename with `validateLocalName` — the leaf-level twin
   of `ensureSafeLocalDirectory`'s per-component check, per 09 §3.5's
   rule that every locally materialized name is validated.)

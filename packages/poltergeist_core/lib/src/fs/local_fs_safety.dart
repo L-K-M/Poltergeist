@@ -192,7 +192,12 @@ Future<void> ensureSafeLocalDirectory(String path) async {
 /// repaired by [restoreOrphanedLocalBackups] (best effort — the dance
 /// is correct either way), scoped to this target so a concurrent
 /// dance's live backup for another name in the directory is never
-/// consumed.
+/// consumed. Concurrent replaces of the *same* target are the
+/// caller's to serialize (per-destination ordering in the transfer
+/// queue); the dance itself makes no same-target concurrency
+/// guarantee. Durability covers process crashes — power-loss ordering
+/// depends on the filesystem's rename journaling and is not otherwise
+/// guaranteed here.
 Future<void> replaceLocalFile(File part, File target) async {
   validateLocalName(p.basename(target.path));
   try {
@@ -236,8 +241,15 @@ Future<void> replaceLocalFile(File part, File target) async {
   // crash-recovery sweep can strip the suffix and find what to restore
   // — never a fixed `.backup`, which the temp-prefix policy forbids
   // and which would clobber a pre-existing user `<target>.backup`.
-  final backupPath =
+  // rename(2) silently replaces an existing destination, so a draw
+  // colliding with a parked backup would destroy it — keep drawing.
+  // The check-then-rename gap is the walk's accepted advisory posture.
+  var backupPath =
       target.path + _transferPrefix + _randomHexString() + _backupSuffix;
+  while (await File(backupPath).exists()) {
+    backupPath =
+        target.path + _transferPrefix + _randomHexString() + _backupSuffix;
+  }
   if (_utf8ByteLength(p.basename(backupPath)) > _maxFileNameBytes) {
     throw FileSystemException(
       'The backup name would exceed the filesystem file-name limit',
@@ -283,8 +295,10 @@ Future<void> replaceLocalFile(File part, File target) async {
 /// directory-wide restore there could consume a *concurrent* dance's
 /// live backup (its target is absent precisely between the two
 /// renames) and, on Windows, fail that transfer. A null
-/// [targetBasename] (the startup sweep) repairs every orphan in the
-/// directory — at a moment no dance is known to be in flight.
+/// [targetBasename] repairs every orphan in the directory, and binds
+/// the caller to the same precondition: it must not run concurrently
+/// with any [replaceLocalFile] dance in that directory (the startup
+/// call site satisfies it trivially — no dance is in flight).
 ///
 /// Backups whose target still exists are left alone (stale, not
 /// orphaned), as are names outside the pattern and non-file entries.

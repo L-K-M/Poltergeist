@@ -2282,6 +2282,25 @@ create-once refusal message for 228–255-byte names (the refusal is
 03 §2.3's documented behavior and the message already names the
 limit).
 
+Review round 6 (minor/info only — no correctness, security, or
+contract finding): the dance now redraws a colliding backup name
+instead of letting rename(2) clobber a parked backup (~2⁻³² per
+operation, but permanent loss of a crash-recovery copy; the redraw
+has no deterministic fixture — the generator is `Random.secure()`
+behind no seam — and is verified by inspection plus the unchanged
+suite). The no-concurrent-dance precondition is now stated as a
+contract on every caller of the exported sweep (03 §2.3 and the
+function doc), same-target concurrency is documented as the
+caller's to serialize, and durability is scoped to process crashes
+(power-loss ordering rides the filesystem's rename journaling).
+Test tidy: the chmod restriction fixture is deduplicated into
+`restrictModeBitsForTest`, and the newest-wins test asserts the
+winning orphan was consumed. Declined: the auto-resolving
+`resolvedRoot` helper — resolving the longest existing ancestor
+resolves exactly the component a planted symlink occupies, silently
+defeating the containment walk; the trust decision stays with the
+caller (doc guidance from round 5).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
