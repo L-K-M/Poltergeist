@@ -2143,7 +2143,8 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 63 dedicated tests; full core suite 536 green (+15
+Validation (current through review round 9): 63 dedicated tests;
+full core suite 536 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
@@ -2342,6 +2343,16 @@ longer claims an ordering it does not verify. Declined: the sweep
 returning a repair count — no caller exists yet, and the M4
 startup-sweep integration owns the reporting shape it needs then
 (additive if wanted).
+
+Review round 9 (steady state declared — no correctness, security, or
+contract finding; two consecutive such rounds): three re-raises of
+round-8 refutations (root/Windows behavior of the EACCES and
+symlink fixtures — `markTestSkipped` reports the skip; the library
+skips Windows wholesale) and six polish items declined with reasons
+in the PR description (part-vanished message wording, draw-site
+dedup, two hardening-only asserts, the counts-placement reading —
+clarified — and subdirectory-nested orphan coverage, re-anchored to
+round 2's non-recursive-by-design record). No code change.
 
 ## Open items
 
