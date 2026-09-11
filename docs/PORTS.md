@@ -15,10 +15,13 @@ forwarding, the interim list dots, and the coordinator composition in
 [PR #62](https://github.com/L-K-M/Poltergeist/pull/62), then the live
 connection-state composition (the Connections surface and the composed
 indicator) in [PR #67](https://github.com/L-K-M/Poltergeist/pull/67).
-Startup composition remains open in STATUS item 3 — it rides item 6's
-engine spawn, whose incident/pin bridging landed in
+The startup composition rode item 6's engine spawn: its incident/pin
+bridging landed in
 [PR #66](https://github.com/L-K-M/Poltergeist/pull/66) (task 6, merge
-`d853aa8`).
+`d853aa8`), and the composition itself landed in
+[PR #69](https://github.com/L-K-M/Poltergeist/pull/69) (merge `43396c5`,
+2026-09-10): the production engine spawns at app startup seeded from both
+stores.
 
 The app-side eligibility controller (2026-09-09) consumes the engine's
 `ProbeBridge`; scheduling and sockets remain in the pinned service. Its
@@ -379,6 +382,24 @@ re-verified with `tool/seance_pin_audit` (verify mode matches). This is
 close-prep, not the 07 §3.12 milestone-close chore: that sweep runs
 after startup wiring lands (task 6's engine bridging merged as PR #66
 while this sweep was in review).
+
+The 2026-09-11 addendum (run 3 task 10) re-verifies the entries the sweep
+marked task-6/9-adjacent against current main (`43396c5`): PR #66's merge
+stat touched only `poltergeist_core` and docs — no ported app source and
+no PORTS entry — and PR #69's merge diff over all sixteen ported files is
+empty, so no entry drifted from either PR and no pin or lock moved (no
+pubspec/lock change in either range; `tool/seance_pin_audit` verify mode
+re-run on 2026-09-11 still matches the recorded block). The probe
+prerequisite's stale tail
+(startup composition open) is corrected above with its citing PR (#69).
+The sweep's recorded follow-up is closed: the four ported files it named
+(`identity_file_reader.dart`, `identity_file_reader_test.dart`, and both
+prompt-dialog test files) now carry the 09 §4 attribution header. The
+`TODO(pin)` grep finds no remaining markers in code or docs — only the
+plan's and STATUS's own references to the rule — so nothing is obsoleted
+at the unchanged `2e6d1f1` pin (no Séance tag contains #79; STATUS item 2
+owns the next-tag re-pin). This addendum is close-prep too: the milestone
+closes only with the v0.2.0 tag and release rehearsal.
 
 The consumer fix riding the same pin bump: the pool's transcript bridge
 forwarded the raw `add()` argument past upstream's new redaction to the live

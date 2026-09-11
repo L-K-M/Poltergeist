@@ -4,93 +4,25 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-10. The startup engine-spawn composition landed
-(dated section below): the production engine spawns once at app startup
-— not debug-gated — seeded from the app-owned pin and incident stores
-together. Its prompt coordinator, trust mirrors, the Connections
-surface's lanes, and the blocked-key review all compose over that one
-engine; the debug demo reuses it (one engine per process), and app
-exit shuts it down (best-effort at process teardown, idempotent). The
-engine-protocol incident/pin bridging
-landed: `removeBookmark` and the typed incident-store mirror events cross
-the engine port, the spawn config seeds pins and incidents together with
-the load-time drop of a record whose pin is gone (audit finding A closed),
-and the file store gained its load-error observer and abandoned-temp sweep
-(dated section below). Live connection-state composition landed
-(the Connections-section surface, dated section below): the app-wide
-`ConnectionStatus` notifier over the engine's existing state lanes, the
-production-shell Connections surface composed with the bookmark store,
-and the composed indicator in which a blocked or failed connection
-outranks a green probe dot (the audit note's fix). The M2 probe-wiring
-remainder landed: persisted probe eligibility/settings through
-settings.json (global
-opt-out plus the per-server device-local map with retarget reset),
-lifecycle forwarding through a binding-seam observer, the tri-state
-interim status dot with pinned contrast, and the subscribing app caller
-(dated section below). The Alpine
-iproute2 apk pin in the sshd fixture is bumped to `7.2.0-r0` after
-upstream rotation broke main's SSH-integration leg, with a fixture-tool
-pin regression (dated section
-below). The debug-only demo surface now composes the
-existing connection slices into the running app for the first time — engine
-spawn, EngineClient, the pool, the three prompt dialogs, the live transcript,
-and a connect → SFTP → listDirectory flow behind a kDebugMode-gated entry
-(dated section below). The app-side probe controller now enforces
-favorite eligibility and lifecycle/settings policy through the engine port
-(dated section below). Live connection-state composition and startup
-composition landed (dated sections); the deferred per-favorite probe
-opt-out (M5's bookmark store) remains open. The host-key
-dialog's scrollable review content
-is ported back to Séance ([Séance #83](https://github.com/L-K-M/Seance/pull/83),
-dated section below), closing the two scrollable host_key candidates (the
-mounted-harness candidate stays open). The prompt
-dialogs' current-route action
-guards are ported back to Séance ([Séance #82](https://github.com/L-K-M/Seance/pull/82),
-dated section below) and the four dialog PORTS entries are corrected
-against a fresh upstream re-diff; engine-side probe control and status
-events are implemented (dated section below); the app-side remainder
-(persistence, lifecycle forwarding, interim list dots, composition)
-landed 2026-09-10 (dated section below); live connection-state
-composition and startup remain open. The Séance pin is bumped to upstream main
-`2e6d1f1` (Séance #81's merge — containing #79's probe-lifecycle repair
-and #80/#81's audit work) in both declarations and all three locks; the
-pool's live transcript bridge now forwards upstream-redacted records
-instead of the raw argument (dated section below), and the PORTS/pin-audit
-record is refreshed at the new pin. Séance's identity-audit read-side
-repair gate is mirrored locally with its durable procfs regressions
-([PR #52](https://github.com/L-K-M/Poltergeist/pull/52); open item 5's
-gate-mirror candidate closed). The port-backs themselves merged as
-Séance #80/#81. Probe lifecycle
-repair is in the pin; app-side `ProbeService` consumers remain open (item 3).
-The ssh_config
-import preview/dedupe slice
-(D22) landed as a bounded component (dated section below, including its
-post-merge host-alias whitespace-parity correction), and its composition,
-bookmark persistence, and command registration landed 2026-09-10 (dated
-section below). Keyswap cleanup now retries after partial swap/restoration failures
-(closed in open item 7). Before that: the real-sshd auth-failure-summary coverage
-(rejected key, method-not-accepted user, root prohibit-password) landed
-(validation below). PR #42 added real-sshd interactive-auth/TOFU coverage,
-and shared-decision/explicit-review TOFU tests landed below; merged PR #41
-added real-sshd pool integration coverage and its ordinary CI job. M2's
-prompt dialogs,
-coordinator, live connect transcript, state-associated failure details, and independent
-terminal-recovery diagnostics are implemented. Recovery ignores stale home
-failures from dead transports. Bounded engine progress coalescing, pooled
-reconnect recovery, pool keepalive wiring, and the engine isolate +
-`EngineClient` connection/prompt protocol are implemented; upstream keepalive
-controls are pinned. Production wiring (app composition) landed 2026-09-10
-(startup engine-spawn composition, dated section below).
-M0 is complete; M1 is closed: the
-scaffold, deterministic release versions, the D23 direct-publish release
-pipeline (#15), and the v0.1.0 pre-release publish are done, and 05's two
-dated precision items (D6 exporter note, D15 rail-5 alignment) are closed;
-the Séance pin is upstream main (`a9add15`, keepalive controls, post PR-S3).
-M2 is the active milestone: the initial pooled `ConnectionManager`,
-dependency-contract upgrade guards, extra-transport idle teardown, and
-resolver-prompt dismissal are in; the bookmark-model + vault/store-plumbing
-slice is in (see the Done table); open items 3–6 track remaining
-slices, audit gaps, and decisions._
+_Last updated: 2026-09-11. **M2 implementation is complete** on main
+(`43396c5`, #69); **M2 is not closed** — the close is contingent only on
+the v0.2.0 release rehearsal, which runs the §3.12 tag chore. Every
+connection-layer slice is on main, each recorded in a dated section
+below: the pool (growth rules, keepalive, idle teardown, reconnect
+recovery, trust lifecycle with owner decision 1a/2a/3a), the engine
+isolate + `EngineClient` + typed port protocol (progress coalescing,
+connection/prompt bridging, incident/pin bridging), the prompt UI with
+live transcript and failure one-liners, probe wiring end to end,
+ssh_config import + composition, the debug demo surface, live
+connection-state composition, and the production startup engine-spawn
+composition. The run-3 dated sections are consolidated into the Done
+table's M2 row; the Séance pin stays upstream main `2e6d1f1` (open item
+2 owns the next-tag re-pin). **Open item 4 (the M1/M2 overlap
+authorization) remains an OPEN owner decision** — this sweep neither
+closes nor settles it. M0 is complete and M1 is closed (v0.1.0
+pre-release publish, deterministic release versions, the D23
+direct-publish pipeline #15, and 05's two dated precision items); open
+items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 
 ## Done
 
@@ -114,6 +46,7 @@ slices, audit gaps, and decisions._
 | M2 — bookmark model + vault/store plumbing | The pinned `seance_protocol` bookmark model (PR-S1 is in the pin's ancestry, so 07 §3.3's temporary-copy clause never applies) and the vault plumbing surfaces — `SecretVault`, `VaultStore`, `HostKeyStore`, in-memory stores, `VaultCrypto`/`VaultKeys`/`Argon2Params`, `secureRandomBytes`, `Secret`, and the `ServerColor`/`ServerIcon` enums — now flow through the `poltergeist_core` barrel, with a barrel test pinning the 04 §2.1 decode contract (record-id binding, port-range refusal, unknown-kind refusal, verbatim rules retention) at the pin. App layer: ported `MasterKeyManager` (`poltergeist.vault.masterKey.v1`, legacy macOS login keychain), `FileVaultStore`/`FileHostKeyStore` (atomic writes, store-owned UTC-stamped quarantine), and `LockedSecretVault`, each with its PORTS.md entry and ported tests (`keystore_resilience_test`, new `file_stores_test`); `flutter_secure_storage` pinned 10.3.1 — the exact revision Séance's lock resolves, sha-identical. Ported exception messages are frozen port text allowlisted in the localization contract; D20 applies at the UI render site when prompt UI lands. No startup wiring yet — composition joins the engine/prompt slices that consume the vault. |
 | M2 — extra-transport idle teardown | Extra transports close after the configured `idleExtraTransportTimeout` (60 s default in `PoolPolicy`) without channels or pending channel opens/closes. Returned transfer channels serve waiters first and, when no waiter takes them, close immediately on an extra transport so caches cannot prevent retirement (03 §3.3); only the first transport caches returned channels. A channel whose close is in flight still occupies the server's MaxSessions budget (`_pendingCloses` is reserved against channel budgets, so no phantom-capacity opens). The first transport keeps its cache, its role is assigned at creation and never reassigned, and follows pane/lease lifetime. Settle-time waiter pumps never await the pump they may be running inside: closes settling within a pump's own call chain trigger a follow-up pass instead, so a failed waiter's cleanup cannot deadlock the pool (regression: pane close and disconnect stranding forever). Idle retirement itself re-drives queued demand — the pump grows a replacement transport (or fails the waiters) instead of leaving a queued lease waiting forever on a pool whose spare capacity just retired (regression: demand queued behind an SFTP-refusing extra). Twenty-seven fake-clock tests cover deadlines, renewed demand, shared bookmarks, queued handoff, delayed cleanup, teardown races, waiting acquisitions, capacity reservation during closes, idle retirement/state/role after primary failure, the pump-reentrancy and retirement-stranding regressions, and growth landing after pool abandonment ([PR #21](https://github.com/L-K-M/Poltergeist/pull/21)). |
 | M2 — pool keepalive wiring | One periodic clock per pool pings idle transports every `keepAliveInterval` (30 s) — the single keepalive mechanism: the production opener passes `keepAliveInterval: null`, so the opener's built-in timer never runs (03 §3.3; no second timer, no VFS wrapper, D3). Idle means no in-flight operation: the transport's aggregated concrete-adapter `hasActiveOperations` plus the pool's pending channel opens/closes; held leases and bound browse channels do not count. At most one outstanding ping per transport. A ping unanswered past `SshTransport.pingOperationTimeout` (30 s, matching the VFS adapter's operation timeout) closes its transport so the done-watcher runs the ordinary death path — recovery, pane rebind, and clock re-arm included; non-timeout ping failures leave closure to the done watcher. The clock arms when a transport joins (recovery re-arms after reconnect) and disarms eagerly at teardown, host-key block, last-reference disconnect, and the death of the pool's last live transport, with a tick self-cancel backstop; a nonpositive `keepAliveInterval` is rejected at construction like the backoff cap. Eight socket-free fake-clock tests cover cadence (never immediate), activity and pending-open skips, both-transports ticks, timeout → close → reconnect → rebind, non-timeout error tolerance, teardown cancellation, and the construction guard. Production socket-level behavior (real `client.ping()` round trips) rides the open 08 §5 real-sshd legs. |
+| M2 — connection layer (implementation complete 2026-09-10; close pending the v0.2.0 rehearsal) | Every 07 §3.3 scope bullet and exit criterion is on main (through #69, merge `43396c5`), each validated in its dated section below: the endpoint-keyed pool with D9's frozen `PoolPolicy` (serialized first connect + single TOFU prompt, interactive-auth cap, LRU browse sharing, refcounted teardown), keepalive, idle teardown, reconnect recovery; the engine isolate, `EngineClient`, and the typed port protocol (bounded progress coalescing, connection/prompt bridging, incident/pin bridging with the pin-coupled seed); the prompt UI (host-key first-use/changed-key, keyboard-interactive, vault-first credential), live transcript, and state-associated failure one-liners; probe wiring end to end (engine control/status, app eligibility, persisted settings + retarget reset, lifecycle forwarding, tri-state dots, coordinator composition); ssh_config import (preview, dedupe, command registration, `FileBookmarkStore`); the debug demo surface; the trust-incident lifecycle (restored-key unblock, persistence, bookmark-removal cascade); live connection-state composition; and the production startup engine-spawn composition (one engine per process, seeded pins + incidents, idempotent mirrors persisting both). Exit criteria ticked: the real-sshd matrix covers key, password, and keyboard-interactive auth, TOFU first-use and changed-key flows, the mid-session sshd kill with backoff reconnect + home re-canonicalization, and the interactive-auth single-transport cap; the import preview shows, dedupes, and imports, and IdentityFile entries resolve through the production prompt path's audited `IdentityFileReader`; `docs/PORTS.md` carries an entry per copied file; the pin bump to `2e6d1f1` is recorded with `dart test packages/poltergeist_core` green; PR-S2 merged upstream (Séance #61), so no branch-rev bridge item applies. 07 §3.12 chores at this sweep (2026-09-11, close-prep PR): STATUS consolidated (header, this row, items 3/4), the PORTS addendum re-verified no drift from #66/#69 and closed the four-file attribution-header follow-up, the `TODO(pin)` grep found no markers, the pin cannot bump (no Séance tag contains #79 — open item 2), and the M1–M2 mobile invariant is re-verified (`poltergeist_core` carries no Flutter import or dependency and the import guard passes; the engine protocol's messages stay plain data, protocol guard green). Not done here by design: the v0.2.0 tag + release rehearsal, which alone closes M2. |
 
 ## M2 — engine progress coalescing (2026-09-07)
 
@@ -1998,9 +1931,17 @@ pin/dependency change, no source port, no release.
    next release (the same S1 release the M6 Design A gate needs), re-pin
    both declarations to that tag (D2's steady state) and drop the rev pins.
    Tag S1 before M6 Design A.
-3. **2026-09-04 — M2 remaining slices.** The initial pool, TOFU gate, and
-   channel budgets are in. Still open, in
-   roughly this order, subject to open item 4:
+3. **2026-09-04 — M2 remaining slices** (implementation complete
+   2026-09-10; consolidated 2026-09-11). Every implementation slice below
+   landed — each bullet carries its dated Done record, and the Done
+   table's M2 row consolidates them. What remains open in this item is
+   only the recorded follow-ups owned by later milestones: the
+   per-favorite probe opt-out (M5's bookmark store), `removeBookmark`
+   from bookmark deletion (no deletion UI before M5), audit finding C's
+   residual per-serverId state (M3's Quick Connect lifecycle), and the
+   review follow-up notes inline below. M2's close is contingent only on
+   the v0.2.0 release rehearsal; item 4's ordering escalation is
+   unaffected and stays open. The slice history, in the original order:
    - close the pool-behavior gaps in item 5 and settle item 6 before wiring
      production callers; the coverage items retain their stated gates;
    - keepalive pings (03 §3.3). **Done 2026-09-07** (see the Done table):
@@ -2138,6 +2079,9 @@ pin/dependency change, no source port, no release.
    fail-loud probes); the merged direct-publish path's first
    end-to-end exercise is the v0.2.0 rehearsal — watch leg-race
    behavior there.
+   **2026-09-11 — reconfirmed OPEN at M2-close prep:** the overlap still
+   has no recorded authorization. The M2-close chores and this sweep do
+   not close, settle, or supersede this owner decision.
 5. **2026-09-04 — M2 audit follow-ups.** Not milestone completion claims:
    - **Prompt cancellation (review follow-up; manager half closed
      2026-09-06):** credential resolutions now receive a

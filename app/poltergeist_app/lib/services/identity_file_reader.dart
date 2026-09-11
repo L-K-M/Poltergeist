@@ -1,3 +1,5 @@
+// Ported from Séance app/seance_app/lib/services/app_services.dart @ 99a3585
+// (_readIdentityFile/_auditIdentityRead, IdentityFileException); see docs/PORTS.md.
 import 'dart:io';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
