@@ -2143,7 +2143,7 @@ including the full divergence list (public split, one-path
 shape, NAME_MAX guard, backslash rejection, the extended reserved
 list, the sweep) and the port-back candidates.
 
-Validation: 58 dedicated tests; full core suite 532 green (+15
+Validation: 60 dedicated tests; full core suite 533 green (+15
 Docker-fixture skips, Docker unavailable locally); core analyze clean;
 import guard (92 + repo scan), protocol guard (51), license gate (34),
 release-version guard (156), and the Séance pin audit (9) green. No
@@ -2253,6 +2253,34 @@ rule; the split-dead Windows half is harmless), chmod-absent-host
 probes (the suite's POSIX-toolchain premise is the sibling
 convention), and the legitimately-shaped-filename collision (the
 reserved-shape convention from round 2 records the residual).
+
+Review round 5 (three majors applied — including a macOS defect the
+round-3 info suggestion had introduced): the walk's root guidance
+now tells callers to resolve the existing portion first
+(`resolveSymbolicLinksSync`) — `Directory.systemTemp` itself starts
+at a symlinked component on macOS (`/tmp` or `/var/folders/...`) and
+the strict walk rejects it unresolved; the round-3 wording had
+recommended exactly what the walk refuses (the test fixtures now
+resolve their temp root, so the suite runs on macOS too). The sweep's
+listing and stat are guarded like its renames — a missing/unreadable/
+mid-sweep-deleted directory repairs what was collected and never
+throws the startup pass (regression: sweeping a never-created
+directory is a quiet no-op), and a vanished entry's notFound stat
+(with its epoch mtime) is skipped instead of polluting the ordering.
+The surrogate overflow fixture is sized to discriminate: 226 code
+units (254 with the 28-byte suffix — passes a wrong code-unit guard)
+but 228 UTF-8 bytes (256 — trips the byte guard); verified red
+against a code-unit-counting implementation and green against the
+real one. The sweep's equal-mtime tie behavior (arbitrary under
+non-stable sort; no portable rename-recency signal) is documented.
+Declined: having the sweep delete backups whose target exists (the
+reclaim suggestion escalates the recorded false-positive collision
+from relocation to data loss, and the sweep never deletes by design
+— D15's posture; accumulation is one invisible leftover per crash
+under the `*.poltergeist-*` ignore rules) and the friendlier
+create-once refusal message for 228–255-byte names (the refusal is
+03 §2.3's documented behavior and the message already names the
+limit).
 
 ## Open items
 

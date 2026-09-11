@@ -42,9 +42,13 @@ void main() {
   late Directory root;
 
   setUp(() {
-    root = Directory.systemTemp.createTempSync('pg-lfssafety');
+    // Resolve the fixture root: on macOS, systemTemp itself starts at
+    // a symlinked component (/tmp or /var/folders/...), and the walk's
+    // strict containment refuses unresolved symlinked ancestors.
+    final temp = Directory.systemTemp.createTempSync('pg-lfssafety');
+    root = Directory(temp.resolveSymbolicLinksSync());
     addTearDown(() {
-      if (root.existsSync()) root.deleteSync(recursive: true);
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
     });
   });
 
@@ -383,8 +387,12 @@ void main() {
       // A lone surrogate has no valid UTF-8 form — Dart's encoder
       // substitutes U+FFFD, itself a 3-byte sequence — so the guard
       // must fail before any rename rather than under-count.
-      // Same NAME_MAX premise as the overflow test above.
-      final name = 'm' * 227 + '\uDC00';
+      // Same NAME_MAX premise as the overflow test above. Sized to
+      // discriminate: 226 code units (254 with the 28-byte suffix —
+      // under the limit for a wrong code-unit guard) but 228 UTF-8
+      // bytes (256 with suffix — over it), so only a byte-based guard
+      // throws here.
+      final name = 'm' * 225 + '\uDC00';
       final target = File(pathOf(name));
       await target.writeAsString('original');
       final part = await putFile('part', 'new');
@@ -457,6 +465,14 @@ void main() {
   });
 
   group('restoreOrphanedLocalBackups', () {
+    test('a missing directory is a quiet no-op', () async {
+      // The startup sweep iterates destination roots it was handed;
+      // one deleted since must not throw the pass.
+      await restoreOrphanedLocalBackups(
+        Directory(pathOf('never-created')),
+      );
+    });
+
     test('restores an orphan whose target is absent', () async {
       final orphan = await putFile(
         'data.poltergeist-0123abcd.backup',

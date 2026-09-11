@@ -133,8 +133,10 @@ final RegExp _windowsReservedName = RegExp(
 /// are advisory against races, exactly like 03 §2.2's rename preflight.
 /// Pre-existing symlinked *ancestors* are refused too — the strict
 /// containment posture — so a root like macOS `/tmp` (a symlink to
-/// `/private/tmp`) is rejected: pass resolved paths or
-/// `Directory.systemTemp`-based roots.
+/// `/private/tmp`) is rejected: pass roots whose existing portion has
+/// been resolved (`Directory.resolveSymbolicLinksSync`) first —
+/// `Directory.systemTemp` itself begins at a symlinked component on
+/// macOS (`/tmp` or `/var/folders/...`) and is rejected unresolved.
 Future<void> ensureSafeLocalDirectory(String path) async {
   final parts = p.context
       .split(Directory(path).absolute.path)
@@ -304,17 +306,38 @@ Future<void> restoreOrphanedLocalBackups(
   String? targetBasename,
 }) async {
   final orphans = <(File, DateTime, String)>[];
-  await for (final entity in directory.list(followLinks: false)) {
-    if (entity is! File) continue;
-    final match = _backupNamePattern.firstMatch(p.basename(entity.path));
-    if (match == null) continue;
-    if (targetBasename != null && match.group(1)! != targetBasename) {
-      continue;
+  try {
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is! File) continue;
+      final match = _backupNamePattern.firstMatch(p.basename(entity.path));
+      if (match == null) continue;
+      if (targetBasename != null && match.group(1)! != targetBasename) {
+        continue;
+      }
+      final FileStat stat;
+      try {
+        stat = await entity.stat();
+      } on FileSystemException {
+        // Vanished between listing and stat: nothing to restore here.
+        continue;
+      }
+      // A vanished entry stats as notFound with an epoch mtime —
+      // enqueueing it would only pollute the ordering.
+      if (stat.type == FileSystemEntityType.notFound) continue;
+      orphans.add((entity, stat.modified, match.group(1)!));
     }
-    final stat = await entity.stat();
-    orphans.add((entity, stat.modified, match.group(1)!));
+  } on FileSystemException {
+    // Directory missing, unreadable, or deleted mid-sweep: repair what
+    // was already collected; the next sweep retries the rest. The
+    // sweep is best-effort by contract — aborting here would fail an
+    // app's startup pass over a since-deleted destination root.
   }
   orphans.sort((a, b) => b.$2.compareTo(a.$2));
+  // Equal mtimes (coarse filesystem granularity) are ordered
+  // arbitrarily: List.sort is not stable and no portable
+  // rename-recency signal exists — a tie may restore an older
+  // generation and strand the other parked until the target
+  // disappears again. Documented rather than papered over.
   // A target whose newest orphan could not be renamed keeps its older
   // orphans parked too: restoring an older generation would strand the
   // newest data forever (the target would then exist, so no later sweep
