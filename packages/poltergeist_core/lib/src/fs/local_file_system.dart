@@ -6,6 +6,8 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
+import 'local_fs_safety.dart';
+
 /// The local half of the one VFS (D3): a second *implementation* of
 /// `seance_core`'s pinned `RemoteFileSystem` contract over `dart:io` —
 /// never a wrapper, never a second interface. Panes, the transfer queue,
@@ -45,18 +47,15 @@ class LocalFileSystem implements RemoteFileSystem {
   final bool _isMacOS;
   final Random _random = Random.secure();
 
-  // Temp/backup siblings: `.poltergeist-` everywhere Séance uses
+  // Temp siblings: `.poltergeist-` everywhere Séance uses
   // `.seance-` — the one deliberate rename 03 §2.2 ships for this
   // adapter (Séance-side sweeps matching `.seance-` never see these;
   // Poltergeist's own ignore rules exclude `.poltergeist*` per D15).
-  // NAME_MAX 255 is the floor across the supported platform matrix;
-  // overshooting it fails the operation rather than truncating into a
-  // collision.
+  // Backup siblings and their crash-recovery sweep live in
+  // local_fs_safety.dart — one shape, one owner.
   static const String _transferPrefix = '.poltergeist-';
   static const String _tempSuffix = '.tmp';
-  static const String _backupSuffix = '.backup';
   static const int _randomSuffixLength = 8;
-  static const int _maxFileNameBytes = 255;
   static const int _maxTempAttempts = 5;
   static const int _maxUint32 = 0xFFFFFFFF;
 
@@ -458,7 +457,7 @@ class LocalFileSystem implements RemoteFileSystem {
           FileSystemEntityType.file) {
         rethrow;
       }
-      await _replaceLocalFile(File(oldPath), File(newPath), 'rename');
+      await replaceLocalFile(File(oldPath), File(newPath));
     }
   }
 
@@ -587,7 +586,7 @@ class LocalFileSystem implements RemoteFileSystem {
     // from the other pane's listing); validate it before it touches the
     // disk — the lexical half of the traversal defense, thrown raw like
     // every other precondition failure.
-    _validateLocalName(p.basename(path));
+    validateLocalName(p.basename(path));
     return _guard(
       'upload',
       path,
@@ -679,7 +678,7 @@ class LocalFileSystem implements RemoteFileSystem {
                   'was running.',
             );
           }
-          await _replaceLocalFile(temp, File(path), 'upload');
+          await replaceLocalFile(temp, File(path));
 
           final uploaded = await stat(path, followLinks: false);
           return digestSink == null
@@ -877,81 +876,6 @@ class LocalFileSystem implements RemoteFileSystem {
     _randomSuffixLength,
     (_) => _random.nextInt(16).toRadixString(16),
   ).join();
-
-  /// The backup-rename dance: refuse links/non-regular targets (the
-  /// check itself must not follow links — a symlink to a regular file
-  /// would pass a stat-based test and silently swap the user's link for
-  /// a plain file), park the target under a suffixed backup whose name
-  /// still embeds the target's own, move the part in, restore on
-  /// failure, and delete the backup only after success. Never
-  /// delete-then-rename. (03 §2.3's spec; the public port with Séance's
-  /// tests rides its own PR — this in-class implementation is what the
-  /// port will replace.)
-  Future<void> _replaceLocalFile(
-    File part,
-    File target,
-    String operation,
-  ) async {
-    final targetType = await FileSystemEntity.type(
-      target.path,
-      followLinks: false,
-    );
-    if (targetType == FileSystemEntityType.link ||
-        (targetType != FileSystemEntityType.file &&
-            targetType != FileSystemEntityType.notFound)) {
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: operation,
-        path: target.path,
-        message:
-            'Could not replace "${target.path}": refusing to replace a '
-            'non-regular local file',
-      );
-    }
-    if (targetType == FileSystemEntityType.notFound) {
-      await part.rename(target.path);
-      return;
-    }
-    final backupPath = p.join(
-      p.dirname(target.path),
-      p.basename(target.path) + _transferPrefix + _randomHexString() + _backupSuffix,
-    );
-    if (_utf8ByteLength(p.basename(backupPath)) > _maxFileNameBytes) {
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: operation,
-        path: target.path,
-        message:
-            'Could not replace "${target.path}": the backup name would '
-            'exceed the filesystem file-name limit',
-      );
-    }
-    final backup = File(backupPath);
-    await target.rename(backup.path);
-    try {
-      await part.rename(target.path);
-    } on Object {
-      // Restore the original unless something else already took the
-      // target name; the nested guard keeps a failed restore from
-      // masking the original failure (the backup retains the content
-      // under its suffixed name either way).
-      try {
-        if (!await target.exists() && await backup.exists()) {
-          await backup.rename(target.path);
-        }
-      } on Object {
-        // Best effort only — the rethrow below carries the real failure.
-      }
-      rethrow;
-    }
-    try {
-      await backup.delete();
-    } on FileSystemException {
-      // Replacement succeeded; a stale backup is safer than deleting
-      // the new destination or claiming the transfer failed after
-      // commit.
-    }
-  }
 
   Future<RemoteFileEntry?> _statOrNull(String path) async {
     try {
@@ -1173,86 +1097,6 @@ class LocalPathTypeChangedException extends RemoteFileException {
              'Could not $operation "$path": the item changed type while '
              'being changed, and the write landed on "$targetPath"',
        );
-}
-
-final RegExp _windowsForbiddenChars = RegExp(r'[:*?"<>| -]');
-
-/// 09 §3.5's full Windows reserved list: the DOS names plus CLOCK$ and
-/// the superscript COM/LPT spellings (¹²³ are real Win32 alternates),
-/// matched on the base segment, case-insensitively.
-final RegExp _windowsReservedName = RegExp(
-  '^(con|prn|aux|nul|clock\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]|conin\$|conout\$)\$',
-  caseSensitive: false,
-);/// The lexical half of the local path safety rules (03 §2.3's spec; the
-/// public port with Séance's tests rides its own PR). No empty
-/// component, no `.`/`..`, no separators — `\` is rejected everywhere
-/// on purpose: it is legal POSIX filename data, but a component carrying
-/// one is overwhelmingly an escaping bug, and it is the path separator
-/// on a Windows destination.
-void _validatePathComponent(String component) {
-  if (component.isEmpty ||
-      component == '.' ||
-      component == '..' ||
-      component.contains('/') ||
-      component.contains(r'\') ||
-      component.contains('\x00')) {
-    throw FormatException('"$component" is not a safe path component.');
-  }
-}
-
-/// [_validatePathComponent] plus the Windows destination hazards:
-/// forbidden characters, a trailing dot or space (Win32 silently strips
-/// them into a name the next listing won't match), and reserved device
-/// names matched by base name — the segment before the first dot — so
-/// `NUL.txt` and `Com1.tar.gz` are as invalid as the bare names. The
-/// checks are destination-aware and apply on every platform: a clean
-/// boundary error beats a confusing mid-transfer failure on the host
-/// whose filesystem cares (09 §3.5).
-void _validateLocalName(String name) {
-  _validatePathComponent(name);
-  if (_windowsForbiddenChars.hasMatch(name) ||
-      name.endsWith('.') ||
-      name.endsWith(' ')) {
-    throw FormatException('"$name" is not a safe local file name.');
-  }
-  // Win32 matches device names ignoring trailing dots and spaces in
-  // the base segment, so strip them before the reserved match
-  // ('aux .txt' is as reserved as 'aux.txt').
-  final base = name
-      .split('.')
-      .first
-      .replaceAll(RegExp(r'[ .]+$'), '');
-  if (_windowsReservedName.hasMatch(base)) {
-    throw FormatException('"$name" is not a safe local file name.');
-  }
-}
-
-/// UTF-8 byte count without transcoding: 1 per ASCII unit, 2/3 per BMP
-/// unit, 4 across a surrogate pair. A lone surrogate counts 3 — the
-/// 3-byte (WTF-8-style) sequence Dart's encoder still emits for it —
-/// so the NAME_MAX guard
-/// never under-counts.
-int _utf8ByteLength(String value) {
-  var total = 0;
-  final units = value.codeUnits;
-  for (var i = 0; i < units.length; i++) {
-    final unit = units[i];
-    if (unit < 0x80) {
-      total += 1;
-    } else if (unit < 0x800) {
-      total += 2;
-    } else if (unit >= 0xD800 &&
-        unit <= 0xDBFF &&
-        i + 1 < units.length &&
-        units[i + 1] >= 0xDC00 &&
-        units[i + 1] <= 0xDFFF) {
-      total += 4;
-      i++;
-    } else {
-      total += 3;
-    }
-  }
-  return total;
 }
 
 /// Racer with the same semantics as the pinned adapter's: check before

@@ -2096,6 +2096,300 @@ the slice that first renders panes), no engine wiring (the seam to
 mount a local pane rides the PaneController slice), no bookmarks, no
 milestone-close claim.
 
+## M3 — local-safety helpers ported public (2026-09-11)
+
+STATUS item 9 closed: 03 §2.3's port landed. The four statics left
+Séance's `RemoteFilesController` at the pin (`2e6d1f1`) and became
+public top-level functions in
+`poltergeist_core/lib/src/fs/local_fs_safety.dart`, exported from the
+barrel — `validatePathComponent`, `validateLocalName`,
+`ensureSafeLocalDirectory`, `replaceLocalFile` — plus the
+plan-mandated crash-recovery sweep `restoreOrphanedLocalBackups`
+(restores an orphaned `<name>.poltergeist-<8 hex>.backup` whose target
+is absent; run by `replaceLocalFile` before its dance and callable as
+a startup sweep; several orphans for one absent target resolve
+newest-mtime-first, losers stay parked, never deleted).
+`LocalFileSystem`'s commit/validation paths now call the public port
+and the private in-class originals are deleted (one implementation,
+four eventual call sites — the transfer queue's download executor, the
+checkout store, and the sync executor still own theirs as they land,
+M4/M7/M8). The helpers stay below the VFS taxonomy by design: raw
+`FormatException` preconditions and `FileSystemException` refusals,
+funneled by each caller — `upload`/`rename` failures now arrive as the
+standard `Could not <op> "<path>"` shape instead of the private
+copies' bespoke `Could not replace` messages (kind `other` unchanged,
+pinned by the existing suite).
+
+Regression-first finds: the pre-port original's Windows reserved-name
+regex carried dead branches — `\$` in the non-raw pattern string
+decodes to a bare `$`, an anchor inside the alternation, so `CLOCK$`,
+`CONIN$`, and `CONOUT$` were never rejected although 03 §2.3 and
+09 §3.5 name them. Three new tests failed before the raw-string
+repair and pass after. The port also replaces the original's raw
+control bytes (a literal NUL/0x1F/0x7F inside the forbidden-char
+regex — the bytes that made grep read the file as binary) with proper
+escapes.
+
+Séance-test parity per 08 §2: the only upstream coverage of the
+statics is the download half of `remote_files_controller_test.dart`'s
+'recursively uploads and downloads directories with aggregate
+transfer' — ported re-homed to the public helpers (the controller-level
+bookkeeping rides M4's queue), with the upstream source cited in the
+test. Séance has no dedicated statics suites; the remaining coverage
+(validators, containment walk, dance refusals/restore, NAME_MAX,
+sweep) is new and local. PORTS.md carries an entry per ported file
+including the full divergence list (public split, one-path
+`ensureSafeLocalDirectory` signature, `.poltergeist-<8 hex>` backup
+shape, NAME_MAX guard, backslash rejection, the extended reserved
+list, the sweep) and the port-back candidates.
+
+Validation (current through review round 10; round 10 changed no
+counts): 63 dedicated tests;
+full core suite 536 green (+15
+Docker-fixture skips, Docker unavailable locally); core analyze clean;
+import guard (92 + repo scan), protocol guard (51), license gate (34),
+release-version guard (156), and the Séance pin audit (9) green. No
+app change, no engine protocol change, no pin change, no new
+dependency, no milestone-close claim.
+
+Review round 1 (all applied or refuted with evidence): applied the
+sweep's per-orphan resilience — one locked/permission-denied/vanished
+orphan stays parked for the next pass instead of aborting the
+remaining restores (regression: a read-only directory makes every
+rename fail EACCES after the listing; observed failing with the
+abort, passing after; the reviewer's suggested ENAMETOOLONG fixture
+is unconstructible on a NAME_MAX-255 volume — the orphan's own name
+embeds the target's, so it cannot exist long enough to fail its
+rename) — plus the sweep's stat moved off the synchronous static
+(round 2 finished this: `await entity.stat()`, the async instance
+future — round 1 had merely put an await in front of the sync
+`FileStat.stat`), `on Object` narrowed to
+`on FileSystemException` at the three best-effort guards (programming
+errors surface again), the two validator regexes hoisted to top-level
+finals, the reserved-shape convention documented on the sweep, and
+the lone-surrogate encoding comments corrected in both files (Dart's
+encoder substitutes U+FFFD — `ef bf bd`, verified by run — not
+WTF-8; three bytes either way, so the guard's arithmetic stands).
+Test hardening applied: the symlink-traversal fixture now targets a
+directory (a file target cannot distinguish the no-follow check from
+the non-directory refusal), the newest-wins fixture opposes hex order
+to mtime so name-based selection fails, and the surrogate overflow
+test pins the guard's message. Refuted: the "second finally cleans
+`partial`" claim — the committed head already reads `again` at that
+line (the suggestion anchored on the first branch's line-390 text).
+
+Review round 2 (both majors applied — genuine correctness findings):
+`replaceLocalFile` now validates the target's basename like every
+locally materialized name (09 §3.5; the commit point is the
+leaf-level twin of the walk's per-component check — regression:
+'aux'/'NUL.txt'/'x.txt ' targets reject before any IO, observed
+failing first), and the pre-dance repair is scoped to the replace's
+own target — a directory-wide repair inside a replace could consume a
+concurrent dance's live backup (its target is absent precisely between
+the two renames) and, on Windows, fail that transfer under M4's
+parallel queue (regression: another target's parked backup survives a
+replace untouched, observed failing first; same-target repair and the
+unfiltered startup sweep unchanged). A same-PR 03 §2.3 precision edit
+records both rules. Also applied: `await entity.stat()` (the round-1
+fix had left the *synchronous* `FileStat.stat` behind an await —
+round 1's STATUS note overstated it), the backup pattern derived from
+the constants that build backup names, the read-only-dir test's
+root bail moved before the chmod as a `markTestSkipped`, the
+NAME_MAX=255 premise documented on both overflow tests, `id`-less
+hosts read as non-root, and the symlinked-ancestor refusal (macOS
+`/tmp`) documented on the walk. Declined: the subdirectory
+continuation fixture — the sweep is non-recursive, so it cannot
+observe iteration-past-failure in a writable directory (any name
+creatable as an orphan is creatable as its target); the no-throw
+contract is pinned and the limitation documented in the test.
+
+Review round 3 (all applied — the round's one major was a genuine
+coverage gap): the rollback fixture now stages its part inside a
+read-only sibling directory so the commit rename fails with EACCES
+deterministically *after* the backup exists — the merely-missing-part
+fixture could be satisfied by a future part pre-flight without ever
+reaching the rollback branch (verified: the test fails with the
+rollback disabled and passes restored; root hosts skip — mode bits
+cannot deny there). The validators now reject components over NAME_MAX
+bytes (255 UTF-8 bytes, observed failing first — ASCII and two-byte
+boundaries both pinned; 03 §2.3's validator bullet records the rule)
+so an over-long server-reported name fails at the boundary instead of
+mid-transfer as an opaque ENAMETOOLONG. The sweep keeps a failed
+target's older orphans parked too — restoring an older generation
+after the newest failed to rename would strand the newest data
+forever (the target would then exist, so no later sweep repairs it);
+the failure-path fixture is unconstructible on POSIX (same class as
+round 2's declined item) and the invariant is documented. The lexical
+`.`/`..`/separator rejection in the walk now reports 'Refusing to
+traverse an unsafe path component' — a static shape rejection, not a
+symlink observation. The stale lead sentence in 03 §2.3 ("the next
+touch of that directory") now reads "the next replace of that same
+file", matching the scoped repair the round-2 precision note records.
+Test hygiene: both fixture chmods check their exit code. PORTS.md's
+backup-shape divergence line now spells the `.backup` suffix on both
+sides.
+
+Review round 4 (steady state — no confirmed correctness, security, or
+contract finding; one worthwhile hardening applied): the dance now
+refuses a non-regular *part* symmetrically with its target refusal —
+rename moves a swapped-in symlink without following it, so the dance
+would have installed the link as the user's file (regression verified
+red with the check disabled, green restored; no current call site can
+stage a non-regular part — upload's exclusive create — so this is
+prophylactic at a public boundary). The sweep doc records its
+check-then-rename advisory posture (dart:io has no no-clobber
+rename), and 03 §2.3's sentence ends "before that replace's dance
+begins" — removing the circular "any new replace" reading. Refuted:
+the NAME_MAX-overhead claim (the 228–255-byte range is exactly what
+the backup-name guard exists for — it fails the replace before any
+rename, pinned by the overflow and surrogate tests; rejecting those
+names in `validateLocalName` would break the plan's own documented
+behavior) and the "predictable PRNG" claim (`Random.secure()` is
+right there). Declined: no-clobber rename (no dart:io primitive; the
+same accepted race as 03 §2.2's rename preflight, now documented on
+the sweep), running the validator groups on Windows (the suite-wide
+skip matches the sibling LocalFileSystem suite and CI's Ubuntu-only
+core job — open item 1 owns the OS matrix), dropping the walk's
+backslash shape check (09 §3.5 rejects `\` for every destination by
+rule; the split-dead Windows half is harmless), chmod-absent-host
+probes (the suite's POSIX-toolchain premise is the sibling
+convention), and the legitimately-shaped-filename collision (the
+reserved-shape convention from round 2 records the residual).
+
+Review round 5 (three majors applied — including a macOS defect the
+round-3 info suggestion had introduced): the walk's root guidance
+now tells callers to resolve the existing portion first
+(`resolveSymbolicLinksSync`) — `Directory.systemTemp` itself starts
+at a symlinked component on macOS (`/tmp` or `/var/folders/...`) and
+the strict walk rejects it unresolved; the round-3 wording had
+recommended exactly what the walk refuses (the test fixtures now
+resolve their temp root, so the suite runs on macOS too). The sweep's
+listing and stat are guarded like its renames — a missing/unreadable/
+mid-sweep-deleted directory repairs what was collected and never
+throws the startup pass (regression: sweeping a never-created
+directory is a quiet no-op), and a vanished entry's notFound stat
+(with its epoch mtime) is skipped instead of polluting the ordering.
+The surrogate overflow fixture is sized to discriminate: 226 code
+units (254 with the 28-byte suffix — passes a wrong code-unit guard)
+but 228 UTF-8 bytes (256 — trips the byte guard); verified red
+against a code-unit-counting implementation and green against the
+real one. The sweep's equal-mtime tie behavior (arbitrary under
+non-stable sort; no portable rename-recency signal) is documented.
+Declined: having the sweep delete backups whose target exists (the
+reclaim suggestion escalates the recorded false-positive collision
+from relocation to data loss, and the sweep never deletes by design
+— D15's posture; accumulation is one invisible leftover per crash
+under the `*.poltergeist-*` ignore rules) and the friendlier
+create-once refusal message for 228–255-byte names (the refusal is
+03 §2.3's documented behavior and the message already names the
+limit).
+
+Review round 6 (minor/info only — no correctness, security, or
+contract finding): the dance now redraws a colliding backup name
+instead of letting rename(2) clobber a parked backup (~2⁻³² per
+operation, but permanent loss of a crash-recovery copy; the redraw
+has no deterministic fixture — the generator is `Random.secure()`
+behind no seam — and is verified by inspection plus the unchanged
+suite). The no-concurrent-dance precondition is now stated as a
+contract on every caller of the exported sweep (03 §2.3 and the
+function doc), same-target concurrency is documented as the
+caller's to serialize, and durability is scoped to process crashes
+(power-loss ordering rides the filesystem's rename journaling).
+Test tidy: the chmod restriction fixture is deduplicated into
+`restrictModeBitsForTest`, and the newest-wins test asserts the
+winning orphan was consumed. Declined: the auto-resolving
+`resolvedRoot` helper — resolving the longest existing ancestor
+resolves exactly the component a planted symlink occupies, silently
+defeating the containment walk; the trust decision stays with the
+caller (doc guidance from round 5).
+
+Review round 7 (the major closes the reserved-namespace residual at
+its root): `validateLocalName` now refuses names matching the dance's
+reserved `<name>.poltergeist-<8 hex>.backup` shape — rounds 4–5 had
+left the collision "reserved by convention" only, so a
+server-reported name of exactly that shape could land on disk and be
+hijacked (target absent) or stranded (target present) by a
+directory-wide sweep; the rejection is enforced where untrusted names
+enter, and the commit point inherits it (`replaceLocalFile` refuses
+such targets; regressions observed failing first, benign look-alikes
+— plain `.backup` names, non-hex suffixes, the empty-prefix form —
+pinned as passing). The NAME_MAX cap moved to `validatePathComponent`
+so both validators genuinely enforce it (03 §2.3 and PORTS wording
+now match the code), the backup-collision redraw probe uses the
+no-follow `FileSystemEntity.type` (consistent with every other probe;
+no deterministic fixture — same generator-seam limitation as round
+6), and `_uidIsRoot` checks `id`'s exit code. Declined: the
+parked-backup litter assertion (the test's direct survival check is
+strictly stronger — the parked backup is legitimate litter by the
+helper's definition) and the NAME_MAX ≥ 250 host-probe re-raise
+(round 4 recorded the documented premise; CI and dev hosts are
+ext4/APFS/tmpfs).
+
+Review round 8 (refuted major; polish and consistency applied): the
+claimed root/Windows failure of the EACCES tests is already guarded
+— `restrictModeBitsForTest` calls `markTestSkipped` before its chmod
+when running as root, and the whole library skips Windows via
+`@OnPlatform`. Applied: the backup NAME_MAX check is hoisted to fail
+fast before any repair/probe I/O (the fixed-width ASCII suffix makes
+it draw-independent; same message, outcomes unchanged), the backup
+path is derived via basename/dirname instead of raw concatenation (a
+trailing-separator target can never park the backup inside the
+directory the sweep scans), equal-mtime orphans break ties
+deterministically by name (recency stays unknowable; the choice no
+longer varies run-to-run under unstable `List.sort`), the fast-path
+rename's external-creator window is documented as 03 §2.2's accepted
+rename race, the primary replace test asserts the part was consumed
+(a copy-based regression would now fail), and one test title no
+longer claims an ordering it does not verify. Declined: the sweep
+returning a repair count — no caller exists yet, and the M4
+startup-sweep integration owns the reporting shape it needs then
+(additive if wanted).
+
+Review round 9 (steady state declared — no correctness, security, or
+contract finding; two consecutive such rounds): three re-raises of
+round-8 refutations (root/Windows behavior of the EACCES and
+symlink fixtures — `markTestSkipped` reports the skip; the library
+skips Windows wholesale) and six polish items declined with reasons
+in the PR description (part-vanished message wording, draw-site
+dedup, two hardening-only asserts, the counts-placement reading —
+clarified — and subdirectory-nested orphan coverage, re-anchored to
+round 2's non-recursive-by-design record). No code change.
+
+Review round 10 (one confirmed major — streak reset): the pre-dance
+repair now runs only when the target is absent. With the target
+present, the scoped sweep is provably a functional no-op (its
+restore loop skips existing targets) whose only effect was an
+O(entries) directory listing per replace — O(n²) across an n-file
+sync commit on the shared M4/M7/M8 path; after a successful repair
+the type is re-probed so a restored orphan flows into the normal
+dance instead of the plain-rename branch. The full suite passes
+unchanged (no test depended on a sweep under an existing target);
+the residual per-replace listing for bulk first-time creates is
+recorded as an M8 measurement note. 03 §2.3's
+`ensureSafeLocalDirectory` bullet now carries the caller-side
+resolve-first obligation (the round-5/6 trust decision, in the
+canonical text). Declined: the recursive-sweep test re-raise
+(non-recursive by design, rounds 2/5/9; the startup sweep's
+traversal shape is M4's), the validator/sweep hex-parity pins (both
+sides consult the same `_backupNamePattern` object — parity is by
+construction, not coincidence), and the `id`-less-root re-raise
+(rounds 4/7 records; the suite's POSIX-toolchain premise). 
+
+Review round 11 (steady state per 09 §7(b) — re-raises without new
+evidence, plus ledger nits): the major re-raises enforcing the
+sweep's documented no-dance precondition at runtime (round 4
+declined the no-clobber primitive — dart:io has none — and round 6
+recorded the precondition on every caller and in 03 §2.3); the
+minors re-raise the Windows library skip (rounds 4/8/9), the root
+assumptions (rounds 8/9/10), the stale-backup reclaim (round 5),
+and the empty-prefix parity (round 10's same-RegExp construction).
+New-but-declined: rolling back a partially created tree on a
+mid-walk validation failure (Séance parity — the port source leaves
+created prefixes; callers own cleanup), control-character escaping
+in messages, and a Windows MAX_PATH cap (no v1 surface). Applied:
+the PORTS divergence heading now names the rounds it spans and the
+STATUS validation parenthetical tracks round 10.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -2524,6 +2818,11 @@ milestone-close claim.
    private copies. Owner of the remaining call sites: the transfer
    queue's download executor, the checkout store, and the sync executor
    as those land (M4/M7/M8).
+   **Closed 2026-09-11.** The port, the switch, the deletion, the
+   sweep, Séance parity (the one upstream test that exercises the
+   shared contract, re-homed per 08 §2), and both PORTS.md entries
+   landed — see the dated section above. The M4/M7/M8 call sites stay
+   owned by their slices as originally scoped.
 10. **2026-09-11 — M3: upstream `pathTypeChanged` into the pin.**
     `LocalPathTypeChangedException` (kind `other`) exists because the
     pinned `RemoteFileErrorKind` carries no `pathTypeChanged` member

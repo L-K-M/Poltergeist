@@ -1,0 +1,637 @@
+@OnPlatform({
+  'windows': Skip(
+    'local_fs_safety tests need POSIX symlink creation and NAME_MAX',
+  ),
+})
+library;
+
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:test/test.dart';
+
+// The public local-safety helpers (03 §2.3): the port of Séance's
+// RemoteFilesController statics, plus the crash-recovery sweep for
+// orphaned *.poltergeist-<8 hex>.backup siblings. Callers reach these
+// through the poltergeist_core barrel — one implementation, four call
+// sites (LocalFileSystem.upload today; the transfer queue's download
+// executor, the checkout store, and the sync executor as they land).
+
+const int permissionsMask = 0xFFF;
+
+/// True when this process cannot be refused by mode bits (root on any
+/// POSIX host — the suite itself is POSIX-only via the `@OnPlatform`
+/// Windows skip on this library). A host without an `id` binary reads
+/// as non-root — the conservative default, since mode bits are the
+/// test's refusal mechanism.
+final bool runningAsRoot = !Platform.isWindows && _uidIsRoot();
+
+bool _uidIsRoot() {
+  try {
+    final result = Process.runSync('id', ['-u']);
+    return result.exitCode == 0 &&
+        int.tryParse(result.stdout.toString().trim()) == 0;
+  } on ProcessException {
+    return false;
+  }
+}
+
+void main() {
+  late Directory root;
+
+  setUp(() {
+    // Resolve the fixture root: on macOS, systemTemp itself starts at
+    // a symlinked component (/tmp or /var/folders/...), and the walk's
+    // strict containment refuses unresolved symlinked ancestors.
+    final temp = Directory.systemTemp.createTempSync('pg-lfssafety');
+    root = Directory(temp.resolveSymbolicLinksSync());
+    addTearDown(() {
+      if (temp.existsSync()) temp.deleteSync(recursive: true);
+    });
+  });
+
+  String pathOf(String name) => p.join(root.path, name);
+
+  Future<File> putFile(String name, [String content = 'content']) async {
+    final file = File(pathOf(name));
+    await file.writeAsString(content);
+    return file;
+  }
+
+  /// Any `.poltergeist-` temp/backup siblings left anywhere under the
+  /// fixture — empty after every operation, success or failure.
+  List<String> siblingLitter() => root
+      .listSync(recursive: true, followLinks: false)
+      .map((entity) => p.basename(entity.path))
+      .where((name) => name.contains('poltergeist-'))
+      .toList();
+
+  /// Restricts [path] to mode 555 for the rest of the test and restores
+  /// the original permission bits in a tear-down. Skips the test when
+  /// mode bits cannot deny access (root). The skip must precede the
+  /// chmod, and the tear-down registers after it, so LIFO teardown
+  /// restores the mode before the setUp root deletion.
+  void restrictModeBitsForTest(String path) {
+    if (runningAsRoot) {
+      markTestSkipped('running as root — mode bits cannot deny access');
+    }
+    final original = FileStat.statSync(path).mode & permissionsMask;
+    final restrict = Process.runSync('chmod', ['555', path]);
+    if (restrict.exitCode != 0) {
+      fail('fixture chmod 555 failed: ${restrict.stderr}');
+    }
+    addTearDown(() {
+      final result = Process.runSync('chmod', [
+        original.toRadixString(8),
+        path,
+      ]);
+      if (result.exitCode != 0) {
+        fail('fixture chmod restore failed: ${result.stderr}');
+      }
+    });
+  }
+
+  group('validatePathComponent', () {
+    test('accepts a plain component and returns silently', () {
+      expect(() => validatePathComponent('notes v2.txt'), returnsNormally);
+    });
+
+    for (final (name, why) in <(String, String)>[
+      ('', 'empty'),
+      ('.', 'current directory'),
+      ('..', 'parent escape'),
+      ('a/b', 'forward separator'),
+      (r'a\b', 'backslash separator — rejected everywhere by design'),
+      ('a\u0000b', 'NUL byte'),
+    ]) {
+      test('rejects "$name" ($why)', () {
+        expect(() => validatePathComponent(name), throwsFormatException);
+      });
+    }
+
+    test('rejects a component over the file-name byte limit', () {
+      expect(() => validatePathComponent('a' * 255), returnsNormally);
+      expect(() => validatePathComponent('a' * 256), throwsFormatException);
+    });
+  });
+
+  group('validateLocalName', () {
+    test('accepts plain names, including embedded spaces and hyphens', () {
+      expect(() => validateLocalName('my file v2.txt'), returnsNormally);
+      expect(() => validateLocalName('my-file.txt'), returnsNormally);
+      expect(() => validateLocalName('a.b.c'), returnsNormally);
+    });
+
+    test('rejects a name over the file-name byte limit', () {
+      // 09 §3.5's doctrine: an over-long component fails at the
+      // boundary with a clean FormatException, not mid-transfer as an
+      // opaque ENAMETOOLONG. UTF-8 bytes, not code units.
+      expect(() => validateLocalName('a' * 255), returnsNormally);
+      expect(() => validateLocalName('a' * 256), throwsFormatException);
+      // Two-byte characters count two each: 128 × 'é' = 256 bytes.
+      expect(() => validateLocalName('é' * 128), throwsFormatException);
+      expect(() => validateLocalName('é' * 127), returnsNormally);
+    });
+
+    test('rejects the reserved crash-recovery backup shape', () {
+      // The sweep's namespace must stay private to the dance: a
+      // materialized name shaped like a parked backup would be
+      // hijacked (target absent) or stranded (target present) by a
+      // later directory-wide sweep.
+      expect(
+        () => validateLocalName('report.poltergeist-deadbeef.backup'),
+        throwsFormatException,
+      );
+      // Benign look-alikes pass: ordinary .backup names, suffixes
+      // outside the lowercase-hex class, and the empty-prefix form.
+      expect(() => validateLocalName('notes.backup'), returnsNormally);
+      expect(
+        () => validateLocalName('a.poltergeist-zzzzzzzz.backup'),
+        returnsNormally,
+      );
+      expect(
+        () => validateLocalName('.poltergeist-deadbeef.backup'),
+        returnsNormally,
+      );
+    });
+
+    for (final (name, why) in <(String, String)>[
+      ('CON', 'reserved device name'),
+      ('con', 'reserved, case-insensitive'),
+      ('NUL.txt', 'reserved name with extension'),
+      ('Com1.tar.gz', 'reserved COM name by base segment'),
+      ('lpt9', 'reserved LPT name'),
+      (r'CLOCK$', 'reserved clock name'),
+      (r'CONIN$', 'reserved console-input name'),
+      (r'CONOUT$', 'reserved console-output name'),
+      ('com\u00b9', 'superscript COM alternate'),
+      ('aux.', 'reserved name with trailing dot'),
+      ('aux .txt', 'reserved name with trailing space in the base'),
+      ('name.', 'trailing dot'),
+      ('name ', 'trailing space'),
+      ('a<b', 'forbidden character'),
+      ('a:b', 'NTFS alternate-data-stream separator'),
+      ('a*b', 'glob character'),
+      ('a?b', 'wildcard character'),
+      ('a|b', 'pipe character'),
+      ('a\u0000b', 'NUL byte'),
+      ('a\u0001b', 'C0 control'),
+      ('a\u007fb', 'DEL'),
+    ]) {
+      test('rejects "$name" ($why)', () {
+        expect(() => validateLocalName(name), throwsFormatException);
+      });
+    }
+
+    test('rejects the component hazards too', () {
+      expect(() => validateLocalName('..'), throwsFormatException);
+      expect(() => validateLocalName('a/b'), throwsFormatException);
+    });
+  });
+
+  group('ensureSafeLocalDirectory', () {
+    test('creates the directory and every missing parent', () async {
+      await ensureSafeLocalDirectory(pathOf('a/b/c'));
+      expect(
+        FileSystemEntity.typeSync(pathOf('a/b/c')),
+        FileSystemEntityType.directory,
+      );
+    });
+
+    test('is idempotent on an existing directory', () async {
+      await Directory(pathOf('there')).create();
+      await ensureSafeLocalDirectory(pathOf('there'));
+      expect(
+        FileSystemEntity.typeSync(pathOf('there')),
+        FileSystemEntityType.directory,
+      );
+    });
+
+    test('refuses to traverse through a symlink component', () async {
+      // The link targets a directory on purpose: an implementation
+      // typing with followLinks: true would see a directory and
+      // descend — only the no-follow type check refuses here.
+      final real = await Directory(pathOf('realdir')).create();
+      final link = Link(pathOf('lnk'));
+      await link.create(real.path);
+      await expectLater(
+        ensureSafeLocalDirectory(pathOf('lnk/sub')),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('Refusing to follow'),
+          ),
+        ),
+      );
+      // The link itself survives untouched.
+      expect(await link.target(), real.path);
+    });
+
+    test('refuses when an existing component is a regular file', () async {
+      await putFile('blocker');
+      await expectLater(
+        ensureSafeLocalDirectory(pathOf('blocker/child')),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('Refusing to follow'),
+          ),
+        ),
+      );
+    });
+
+    test('refuses when the path itself is an existing file', () async {
+      final file = await putFile('occupied');
+      await expectLater(
+        ensureSafeLocalDirectory(file.path),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
+
+    test('rejects an unsafe created component name at its mkdir', () async {
+      // 09 §3.5: every locally created name is validated — intermediate
+      // directories included; pkg/CON/x.txt fails at the CON mkdir.
+      await expectLater(
+        ensureSafeLocalDirectory(pathOf('pkg/CON')),
+        throwsFormatException,
+      );
+      expect(
+        FileSystemEntity.typeSync(pathOf('pkg/CON')),
+        FileSystemEntityType.notFound,
+      );
+    });
+
+    test('leaves an existing oddly named ancestor usable', () async {
+      // Existing components are type-checked, not re-validated: a legal
+      // POSIX name that Windows would refuse stays traversable.
+      final odd = Directory(pathOf('trailing.'));
+      await odd.create();
+      await ensureSafeLocalDirectory(pathOf('trailing./child'));
+      expect(
+        FileSystemEntity.typeSync(pathOf('trailing./child')),
+        FileSystemEntityType.directory,
+      );
+    });
+
+    test('rejects a lexical parent component', () async {
+      await expectLater(
+        ensureSafeLocalDirectory(pathOf('a/../b')),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('unsafe path component'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects an over-long created component at its mkdir', () async {
+      await expectLater(
+        ensureSafeLocalDirectory(pathOf('d/${'x' * 256}')),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('replaceLocalFile', () {
+    test('replaces the target and leaves no backup behind', () async {
+      final target = await putFile('data', 'old');
+      final part = await putFile('part', 'new');
+      await replaceLocalFile(part, target);
+      expect(target.readAsStringSync(), 'new');
+      expect(part.existsSync(), isFalse);
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test('a missing target is a plain rename, not a dance', () async {
+      final part = await putFile('part', 'new');
+      final target = File(pathOf('fresh'));
+      await replaceLocalFile(part, target);
+      expect(target.readAsStringSync(), 'new');
+      expect(part.existsSync(), isFalse);
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test(
+      'refuses to replace a symlink, leaving it and its target intact',
+      () async {
+        final realTarget = await putFile('real', 'safe');
+        final link = Link(pathOf('lnk'));
+        await link.create(realTarget.path);
+        final part = await putFile('part', 'new');
+        await expectLater(
+          replaceLocalFile(part, File(link.path)),
+          throwsA(
+            isA<FileSystemException>().having(
+              (error) => error.message,
+              'message',
+              contains('Refusing to replace'),
+            ),
+          ),
+        );
+        expect(await link.target(), realTarget.path);
+        expect(realTarget.readAsStringSync(), 'safe');
+        expect(siblingLitter(), isEmpty);
+      },
+    );
+
+    test('refuses to replace a directory', () async {
+      final dir = await Directory(pathOf('dir')).create();
+      final part = await putFile('part', 'new');
+      await expectLater(
+        replaceLocalFile(part, File(dir.path)),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(dir.existsSync(), isTrue);
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test('refuses a symlink part — the link is never installed', () async {
+      // rename moves the link itself without following it: a swapped
+      // part would install the link as the user's file.
+      final staged = await putFile('staged', 'payload');
+      final link = Link(pathOf('lnk-part'));
+      await link.create(staged.path);
+      final target = await putFile('data', 'old');
+      await expectLater(
+        replaceLocalFile(File(link.path), target),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('non-regular local file'),
+          ),
+        ),
+      );
+      expect(target.readAsStringSync(), 'old');
+      expect(await link.target(), staged.path);
+      expect(staged.readAsStringSync(), 'payload');
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test('restores the original when the second rename fails', () async {
+      final target = await putFile('data', 'old');
+      // The part is staged inside a read-only sibling directory (as
+      // non-root): its rename fails with EACCES deterministically
+      // AFTER the backup exists, so the rollback branch itself runs —
+      // a merely-missing part could be rejected by a future
+      // pre-flight and never reach it.
+      final stage = await Directory(pathOf('stage')).create();
+      final ghost = File(p.join(stage.path, 'part'));
+      await ghost.writeAsString('new');
+      restrictModeBitsForTest(stage.path);
+
+      await expectLater(
+        replaceLocalFile(ghost, target),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(target.readAsStringSync(), 'old');
+      expect(ghost.readAsStringSync(), 'new');
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test(
+      'fails before any rename when the backup name would overflow',
+      () async {
+        // Requires 250 <= NAME_MAX < 278 (255 on ext4/APFS/tmpfs —
+        // every supported platform's floor; 03 §2.3's guard constant).
+        final longName = 'n' * 250;
+        final target = await putFile(longName, 'original');
+        final part = await putFile('part', 'new');
+        await expectLater(
+          replaceLocalFile(part, target),
+          throwsA(
+            isA<FileSystemException>().having(
+              (error) => error.message,
+              'message',
+              contains('file-name limit'),
+            ),
+          ),
+        );
+        expect(target.readAsStringSync(), 'original');
+        expect(siblingLitter(), isEmpty);
+      },
+    );
+
+    test('counts a lone surrogate as three backup-name bytes', () async {
+      // A lone surrogate has no valid UTF-8 form — Dart's encoder
+      // substitutes U+FFFD, itself a 3-byte sequence — so the guard
+      // must fail before any rename rather than under-count.
+      // Same NAME_MAX premise as the overflow test above. Sized to
+      // discriminate: 226 code units (254 with the 28-byte suffix —
+      // under the limit for a wrong code-unit guard) but 228 UTF-8
+      // bytes (256 with suffix — over it), so only a byte-based guard
+      // throws here.
+      final name = 'm' * 225 + '\uDC00';
+      final target = File(pathOf(name));
+      await target.writeAsString('original');
+      final part = await putFile('part', 'new');
+      await expectLater(
+        replaceLocalFile(part, target),
+        throwsA(
+          isA<FileSystemException>().having(
+            (error) => error.message,
+            'message',
+            contains('file-name limit'),
+          ),
+        ),
+      );
+      expect(target.readAsStringSync(), 'original');
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test('rejects a Windows-hazardous target name on every platform',
+        () async {
+      // The commit point materializes the final file name: the same
+      // destination-aware doctrine as the directory walk applies here.
+      for (final name in ['aux', 'NUL.txt', 'x.txt ']) {
+        final target = File(pathOf(name));
+        final part = await putFile('part', 'new');
+        await expectLater(
+          replaceLocalFile(part, target),
+          throwsFormatException,
+        );
+        expect(target.existsSync(), isFalse);
+        expect(part.existsSync(), isTrue);
+      }
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test('refuses a target name in the reserved backup shape', () async {
+      // The commit point cannot install what the sweep would later
+      // mistake for its own parked backup.
+      final target = File(pathOf('report.poltergeist-deadbeef.backup'));
+      final part = await putFile('part', 'new');
+      await expectLater(
+        replaceLocalFile(part, target),
+        throwsFormatException,
+      );
+      expect(target.existsSync(), isFalse);
+      expect(part.existsSync(), isTrue);
+    });
+
+    test("a concurrent dance's parked backup for another target is left alone",
+        () async {
+      // Two replaces share a directory; one is between its two renames
+      // (target 'b' parked under its live backup). The other replace's
+      // pre-dance repair must not consume that backup — on Windows the
+      // interrupted-looking restore would occupy 'b' and fail its
+      // part.rename.
+      final parked = await putFile(
+        'b.poltergeist-0123abcd.backup',
+        'mid-dance',
+      );
+      final target = await putFile('a', 'old');
+      final part = await putFile('part', 'new');
+      await replaceLocalFile(part, target);
+
+      expect(target.readAsStringSync(), 'new');
+      expect(parked.readAsStringSync(), 'mid-dance');
+      expect(File(pathOf('b')).existsSync(), isFalse);
+    });
+
+    test('restores a crashed replace before running a new one', () async {
+      // Simulate the crash window: the target was already parked under
+      // its backup sibling when the process died.
+      final crashed = await putFile('data', 'stranded');
+      final backupPath = pathOf('data.poltergeist-0123abcd.backup');
+      await crashed.rename(backupPath);
+
+      final part = await putFile('part', 'new');
+      await replaceLocalFile(part, File(pathOf('data')));
+
+      expect(File(pathOf('data')).readAsStringSync(), 'new');
+      // Without the pre-replace sweep, the stranded old content would
+      // survive as a hidden orphan beside the fresh target.
+      expect(siblingLitter(), isEmpty);
+    });
+  });
+
+  group('restoreOrphanedLocalBackups', () {
+    test('a missing directory is a quiet no-op', () async {
+      // The startup sweep iterates destination roots it was handed;
+      // one deleted since must not throw the pass.
+      await restoreOrphanedLocalBackups(
+        Directory(pathOf('never-created')),
+      );
+    });
+
+    test('restores an orphan whose target is absent', () async {
+      final orphan = await putFile(
+        'data.poltergeist-0123abcd.backup',
+        'stranded',
+      );
+      await restoreOrphanedLocalBackups(root);
+      final restored = File(pathOf('data'));
+      expect(restored.readAsStringSync(), 'stranded');
+      expect(orphan.existsSync(), isFalse);
+    });
+
+    test('leaves a backup whose target still exists', () async {
+      final stale = await putFile('data.poltergeist-0123abcd.backup', 'stale');
+      final target = await putFile('data', 'current');
+      await restoreOrphanedLocalBackups(root);
+      expect(target.readAsStringSync(), 'current');
+      expect(stale.readAsStringSync(), 'stale');
+    });
+
+    test('ignores names outside the backup pattern', () async {
+      final notHex = await putFile('x.poltergeist-nothexx.backup', 'a');
+      final noPrefix = await putFile('y.backup', 'b');
+      final temp = await putFile('z.poltergeist-0123abcd.backup.tmp', 'c');
+      final plain = await putFile('plain', 'd');
+      await restoreOrphanedLocalBackups(root);
+      expect(notHex.readAsStringSync(), 'a');
+      expect(noPrefix.readAsStringSync(), 'b');
+      expect(temp.readAsStringSync(), 'c');
+      expect(plain.readAsStringSync(), 'd');
+    });
+
+    test('ignores a non-file entry shaped like a backup', () async {
+      await Directory(pathOf('d.poltergeist-0123abcd.backup')).create();
+      await restoreOrphanedLocalBackups(root);
+      expect(
+        FileSystemEntity.typeSync(pathOf('d.poltergeist-0123abcd.backup')),
+        FileSystemEntityType.directory,
+      );
+    });
+
+    test('a failing restore parks its orphan without aborting the sweep',
+        () async {
+      // A read-only directory (as non-root) makes every restore fail
+      // with EACCES after the listing succeeded: the sweep must
+      // complete without throwing and leave the orphan parked for a
+      // later sweep. Continuation past the first failure is inherent
+      // to the loop's catch-and-continue shape; a selective
+      // single-orphan failure in a writable directory is not
+      // constructible on POSIX (any name creatable as an orphan is
+      // creatable as its target), so this pins the no-throw contract.
+      final orphan = await putFile(
+        'data.poltergeist-0123abcd.backup',
+        'stranded',
+      );
+      restrictModeBitsForTest(root.path);
+      await restoreOrphanedLocalBackups(root);
+      expect(orphan.readAsStringSync(), 'stranded');
+      expect(File(pathOf('data')).existsSync(), isFalse);
+    });
+
+    test('with several orphans for one target, the newest wins', () async {
+      // Hex suffixes deliberately oppose mtime order: only mtime can
+      // pick the winner, so name-based selection fails this test.
+      final older = await putFile('a.poltergeist-22222222.backup', 'older');
+      final newer = await putFile('a.poltergeist-11111111.backup', 'newer');
+      await older.setLastModified(DateTime(2020, 1, 1));
+      await newer.setLastModified(DateTime(2021, 1, 1));
+      await restoreOrphanedLocalBackups(root);
+      expect(File(pathOf('a')).readAsStringSync(), 'newer');
+      expect(newer.existsSync(), isFalse);
+      // The loser stays parked under its own suffixed name — never
+      // deleted; a later sweep skips it because the target now exists.
+      expect(older.readAsStringSync(), 'older');
+    });
+  });
+
+  group('Séance parity — the recursive-download commit shape', () {
+    // Ported (adapted) from Séance
+    // app/seance_app/test/remote_files_controller_test.dart @ 2e6d1f1,
+    // test 'recursively uploads and downloads directories with aggregate
+    // transfer' — the download half: nested destination creation, the
+    // .part staging, and the backup-rename commit. Re-homed per 08 §2 to
+    // the public helpers that now own the behavior; the controller-level
+    // aggregate-transfer bookkeeping rides M4's transfer queue.
+    test('commits a downloaded tree through the helpers', () async {
+      final destination = pathOf('downloads');
+      // The remote plan: folder/child.txt (Séance's fixture bytes).
+      await ensureSafeLocalDirectory(p.join(destination, 'folder'));
+      final local = File(p.join(destination, 'folder', 'child.txt'));
+      final partial = File('${local.path}.poltergeist-0123abcd.part');
+      await partial.create(exclusive: true);
+      await partial.writeAsBytes([1, 2, 3]);
+      try {
+        await replaceLocalFile(partial, local);
+      } finally {
+        if (await partial.exists()) await partial.delete();
+      }
+      expect(await local.readAsBytes(), [1, 2, 3]);
+      expect(siblingLitter(), isEmpty);
+
+      // Séance's overwrite branch: an existing local file with
+      // overwriteExisting set goes through the same dance.
+      final again = File('${local.path}.poltergeist-4567efab.part');
+      await again.create(exclusive: true);
+      await again.writeAsBytes([4, 5]);
+      try {
+        await replaceLocalFile(again, local);
+      } finally {
+        if (await again.exists()) await again.delete();
+      }
+      expect(await local.readAsBytes(), [4, 5]);
+      expect(siblingLitter(), isEmpty);
+    });
+  });
+}
