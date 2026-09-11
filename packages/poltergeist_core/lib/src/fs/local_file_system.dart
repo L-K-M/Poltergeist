@@ -40,10 +40,13 @@ class LocalFileSystem implements RemoteFileSystem {
   final bool _isMacOS;
   final Random _random = Random.secure();
 
-  // Temp/backup siblings: the one prefix everywhere Séance uses
-  // `.seance-` (03 §2.2). NAME_MAX 255 is the floor across the supported
-  // platform matrix; overshooting it fails the operation rather than
-  // truncating into a collision.
+  // Temp/backup siblings: `.poltergeist-` everywhere Séance uses
+  // `.seance-` — the one deliberate rename 03 §2.2 ships for this
+  // adapter (Séance-side sweeps matching `.seance-` never see these;
+  // Poltergeist's own ignore rules exclude `.poltergeist*` per D15).
+  // NAME_MAX 255 is the floor across the supported platform matrix;
+  // overshooting it fails the operation rather than truncating into a
+  // collision.
   static const String _transferPrefix = '.poltergeist-';
   static const String _tempSuffix = '.tmp';
   static const String _backupSuffix = '.backup';
@@ -83,9 +86,16 @@ class LocalFileSystem implements RemoteFileSystem {
     } on FileSystemException catch (error) {
       // A missing path is not an error here (matches the realpath use
       // for home resolution): ENOENT/ENOTDIR fall back to the lexical
-      // form.
+      // form. On Windows the codes are Win32: ERROR_FILE_NOT_FOUND (2,
+      // numerically ENOENT) and ERROR_PATH_NOT_FOUND (3) — both must
+      // take the same fallback.
       final code = error.osError?.errorCode;
-      if (code == _enoent || code == _enotdir) return absolute;
+      if (code == _enoent ||
+          code == _enotdir ||
+          code == _winFileNotFound ||
+          code == _winPathNotFound) {
+        return absolute;
+      }
       rethrow;
     }
   });
@@ -292,11 +302,23 @@ class LocalFileSystem implements RemoteFileSystem {
       // dart:io's create() is a silent no-op on an existing directory;
       // the contract (and the funnel's EEXIST→conflict rule) calls that
       // a conflict instead.
+      // dart:io's create() is a silent no-op when a *directory* takes
+      // the path mid-race (undetectable without O_EXCL semantics); a
+      // racing *file* throws the plain EEXIST form, which becomes the
+      // typed conflict here instead of the funnel's generic shape.
       if (await FileSystemEntity.type(path, followLinks: false) !=
           FileSystemEntityType.notFound) {
         throw _conflictExists('create directory', path);
       }
-      await Directory(path).create(recursive: false);
+      try {
+        await Directory(path).create(recursive: false);
+      } on FileSystemException catch (error) {
+        final code = error.osError?.errorCode;
+        if (code == _eexist || code == _winAlreadyExists) {
+          throw _conflictExists('create directory', path);
+        }
+        rethrow;
+      }
     },
   );
 
@@ -374,6 +396,19 @@ class LocalFileSystem implements RemoteFileSystem {
     final sibling = await _uniqueSiblingPath(oldPath);
     await _renameInPlace(sourceType, oldPath, sibling, overwrite: false);
     try {
+      // Same preflight as the main path: an entry that took the target
+      // name between the two steps must conflict, not be silently
+      // replaced — POSIX rename(2) would clobber it.
+      if (await FileSystemEntity.type(newPath, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw RemoteFileException(
+          kind: RemoteFileErrorKind.conflict,
+          operation: 'rename',
+          path: newPath,
+          message:
+              'A local item named "${p.basename(newPath)}" already exists.',
+        );
+      }
       await _renameInPlace(sourceType, sibling, newPath, overwrite: false);
     } on Object {
       // Restore the original name rather than stranding the entry under
@@ -402,10 +437,16 @@ class LocalFileSystem implements RemoteFileSystem {
       await entity.rename(newPath);
     } on FileSystemException {
       // POSIX rename replaces an existing target atomically; Windows
-      // cannot, so an overwrite falls back to the backup-rename dance —
-      // never delete-then-rename, which strands the user with neither
-      // file when the second step fails.
-      if (!overwrite || !Platform.isWindows) rethrow;
+      // cannot, so an overwrite of a regular file falls back to the
+      // backup-rename dance — never delete-then-rename, which strands
+      // the user with neither file when the second step fails.
+      // Directories and links rethrow: the dance is a regular-file
+      // protocol and would coerce them through File.
+      if (!overwrite ||
+          !Platform.isWindows ||
+          sourceType != FileSystemEntityType.file) {
+        rethrow;
+      }
       await _replaceLocalFile(File(oldPath), File(newPath), 'rename');
     }
   }
@@ -712,7 +753,13 @@ class LocalFileSystem implements RemoteFileSystem {
   ) {
     if (result.exitCode == 0) return;
     final stderrText = result.stderr is String ? result.stderr as String : '';
-    final lines = stderrText.split('\n').where((line) => line.isNotEmpty);
+    // trimRight strips a CRLF line ending (Windows-hosted coreutils)
+    // before the trailing-segment match below.
+    final lines = stderrText
+        .split('\n')
+        .map((line) => line.trimRight())
+        .where((line) => line.isNotEmpty)
+        .toList();
     final lastLine = lines.isEmpty ? '' : lines.last;
     final separator = lastLine.lastIndexOf(': ');
     final detail = separator < 0
@@ -763,6 +810,9 @@ class LocalFileSystem implements RemoteFileSystem {
   }
 
   /// A collision-proof sibling for the case-only rename two-step.
+  /// Check-then-use by design: a creator racing into the name surfaces
+  /// as the rename's own typed failure (the window is the same advisory
+  /// preflight gap 03 §2.2 documents for rename).
   Future<String> _uniqueSiblingPath(String path) async {
     for (var attempt = 0; attempt < _maxTempAttempts; attempt++) {
       final sibling = _siblingPath(path, _tempSuffix);
@@ -1109,19 +1159,31 @@ void _validateLocalName(String name) {
 }
 
 /// UTF-8 byte count without transcoding: 1 per ASCII unit, 2/3 per BMP
-/// unit, 4 across a surrogate pair (counted on the lead unit only).
-int _utf8ByteLength(String value) => value.codeUnits.fold<int>(
-  0,
-  (total, unit) => unit < 0x80
-      ? total + 1
-      : unit < 0x800
-      ? total + 2
-      : unit >= 0xD800 && unit <= 0xDBFF
-      ? total + 4
-      : unit >= 0xDC00 && unit <= 0xDFFF
-      ? total
-      : total + 3,
-);
+/// unit, 4 across a surrogate pair. A lone surrogate counts 3 — what
+/// Dart's UTF-8 encoder emits (U+FFFD) for it — so the NAME_MAX guard
+/// never under-counts.
+int _utf8ByteLength(String value) {
+  var total = 0;
+  final units = value.codeUnits;
+  for (var i = 0; i < units.length; i++) {
+    final unit = units[i];
+    if (unit < 0x80) {
+      total += 1;
+    } else if (unit < 0x800) {
+      total += 2;
+    } else if (unit >= 0xD800 &&
+        unit <= 0xDBFF &&
+        i + 1 < units.length &&
+        units[i + 1] >= 0xDC00 &&
+        units[i + 1] <= 0xDFFF) {
+      total += 4;
+      i++;
+    } else {
+      total += 3;
+    }
+  }
+  return total;
+}
 
 /// Racer with the same semantics as the pinned adapter's: check before
 /// every pull, race the pull against cancellation, and never let

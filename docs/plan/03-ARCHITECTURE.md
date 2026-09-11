@@ -139,7 +139,9 @@ write a synced tree's mtime through a link to its target — maps to
 `File.setLastModified` (and `setLastAccessed`) for
 **files**; a directory target cannot be set at all — dart:io's
 `File.setLastModified` opens the path for writing, which POSIX refuses
-with `EISDIR` (verified against Dart 3.13 on Linux; it does not bottom
+with `EISDIR` (verified against Dart SDK 3.13.3 on Linux — repro: create
+an owned temp directory, call `File(dir).setLastModified(...)`, observe
+`FileSystemException` errno 21; it does not bottom
 out in a path-based `utimensat`) and Windows surfaces as
 `ERROR_ACCESS_DENIED`,
 which the funnel above would otherwise translate to `permissionDenied`,
@@ -171,7 +173,8 @@ inspect it) — at the current pin `RemoteFileErrorKind` carries no such
 member (PR-S3 added only `setTimes`/`setOwner`/`computeHash`), so the
 distinctness rides a dedicated `LocalPathTypeChangedException` subclass
 of `RemoteFileException` (kind `other`, distinguishable by type wherever
-a `kind` switch would have carried `pathTypeChanged`) — never `conflict`: by the time this re-stat fires, the
+a `kind` switch would have carried `pathTypeChanged`) — never `conflict`:
+by the time this re-stat fires, the
 chmod/chown/setLastModified has already been applied through the
 swapped-in symlink to *its* target, potentially outside the synced tree
 entirely — a safety violation, not "both sides changed" the way §4.2's

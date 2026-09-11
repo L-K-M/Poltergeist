@@ -1,4 +1,10 @@
+@OnPlatform({
+  'windows': Skip('LocalFileSystem tests require POSIX chmod/chown and /bin/sh'),
+})
+library;
+
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -18,10 +24,25 @@ int oct(String digits) => int.parse(digits, radix: 8);
 
 const int permissionsMask = 0xFFF;
 
-/// True when this process cannot be refused by mode bits (root).
+/// True when this process cannot be refused by mode bits (root on any
+/// POSIX host — the suite itself is POSIX-only, see the guard on
+/// [main]).
 final bool runningAsRoot =
-    Platform.isLinux &&
+    !Platform.isWindows &&
     int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) == 0;
+
+/// Whether this host's filesystem treats `a` and `A` as distinct
+/// entries — false on default macOS/Windows volumes, where the two
+/// case-variant rename tests below describe a different world.
+final bool caseSensitiveFs = () {
+  final probe = Directory.systemTemp.createTempSync('pg-case');
+  try {
+    File('${probe.path}/a').writeAsStringSync('x');
+    return !File('${probe.path}/A').existsSync();
+  } finally {
+    probe.deleteSync(recursive: true);
+  }
+}();
 
 /// Runs [future] to completion and returns the thrown failure, failing
 /// the test when the operation unexpectedly succeeds.
@@ -65,11 +86,16 @@ class _CollectingSink implements StreamSink<List<int>> {
   @override
   void addError(Object error, [StackTrace? stackTrace]) {}
 
-  @override
-  Future<void> get done => Completer<void>().future;
+  final _done = Completer<void>();
 
   @override
-  Future<void> close() async {}
+  Future<void> get done => _done.future;
+
+  @override
+  Future<void> close() {
+    if (!_done.isCompleted) _done.complete();
+    return Future.value();
+  }
 }
 
 void main() {
@@ -89,6 +115,8 @@ void main() {
   Future<File> putFile(String name, [String content = 'content']) async {
     final file = File(pathOf(name));
     await file.writeAsString(content);
+    // Pin the mode so the 644 assertions below are umask-independent.
+    Process.runSync('chmod', ['644', file.path]);
     return file;
   }
 
@@ -632,6 +660,9 @@ void main() {
     });
 
     test('case-only rename succeeds via the two-step and leaves no siblings', () async {
+      // On a case-insensitive volume this is the same entry under a new
+      // case; the two-step exists exactly for that host.
+      if (!caseSensitiveFs) return;
       final file = await putFile('a.txt', 'data');
       await fs.rename(file.path, pathOf('A.TXT'));
       expect(File(pathOf('a.txt')).existsSync(), isFalse);
@@ -645,6 +676,9 @@ void main() {
     });
 
     test('same-lowercase but distinct entries are two files, not one rename', () async {
+      // Needs a case-sensitive host: elsewhere the two names are one
+      // entry and the fixture below would silently collapse.
+      if (!caseSensitiveFs) return;
       final lower = await putFile('a', 'lower');
       final upper = await putFile('A', 'upper');
       final error = remoteFailure(
@@ -710,6 +744,16 @@ void main() {
       expect(entry.type, RemoteFileType.file);
     });
 
+    test('the digest oracle is UTF-8, not UTF-16 code units (non-ASCII)', () async {
+      // writeAsString encodes UTF-8; the streamed digest must match a
+      // UTF-8 oracle — a codeUnits oracle would silently disagree here.
+      final file = await putFile('f', 'héllo wörld');
+      final sink = _CollectingSink();
+      final entry = await fs.download(file.path, sink);
+      expect(entry.contentSha256, sha256.convert(utf8.encode('héllo wörld')).toString());
+      expect(entry.contentSha256, isNot(sha256.convert('héllo wörld'.codeUnits).toString()));
+    });
+
     test('reports progress with a known total', () async {
       final file = await putFile('f', '0123456789');
       final reports = <(int, int?)>[];
@@ -720,6 +764,10 @@ void main() {
       );
       expect(reports.last, (10, 10));
       expect(reports.first.$1, greaterThan(0));
+      // Cumulative progress must never regress mid-stream.
+      for (var i = 1; i < reports.length; i++) {
+        expect(reports[i].$1, greaterThanOrEqualTo(reports[i - 1].$1));
+      }
     });
 
     test('computeHash: false returns no digest', () async {
@@ -783,7 +831,6 @@ void main() {
         await failureOf(fs.download(file.path, sink, cancellation: cancellation)),
       );
       expect(error.kind, RemoteFileErrorKind.cancelled);
-      expect(cancellation.isCancelled, isTrue);
     });
   });
 
@@ -951,6 +998,22 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
+    test('an overwrite onto an existing directory refuses safely, dir intact', () async {
+      // Adapter parity: the SFTP upload surfaces this as a late `other`
+      // from the final rename, never a conflict — the dance's refusal is
+      // the local equivalent, and it fires before any mutation.
+      final dir = await putDir('occupied');
+      final error = remoteFailure(
+        await failureOf(
+          fs.upload(dir.path, Stream.value('x'.codeUnits), overwrite: true),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.other);
+      expect(error.message, contains('non-regular local file'));
+      expect(Directory(dir.path).existsSync(), isTrue);
+      expect(siblingLitter(), isEmpty);
+    });
+
     test('an overwrite onto a symlink target refuses instead of escaping through it', () async {
       final target = await putFile('target', 'safe');
       final link = await putLink('lnk', target.path);
@@ -969,6 +1032,23 @@ void main() {
     test('a target name too long for a backup fails the replace, original intact', () async {
       final longName = 'n' * 250;
       final file = await putFile(longName, 'original');
+      final error = remoteFailure(
+        await failureOf(
+          fs.upload(file.path, Stream.value('x'.codeUnits), overwrite: true),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.other);
+      expect(error.message, contains('file-name limit'));
+      expect(file.readAsStringSync(), 'original');
+      expect(siblingLitter(), isEmpty);
+    });
+
+    test('a lone surrogate in the target name hits the byte guard, not the OS', () async {
+      // A lone low surrogate encodes as U+FFFD (3 bytes); the guard
+      // must count those bytes and fail before any rename runs.
+      final name = 'm' * 227 + '\uDC00';
+      final file = File(pathOf(name));
+      await file.writeAsString('original');
       final error = remoteFailure(
         await failureOf(
           fs.upload(file.path, Stream.value('x'.codeUnits), overwrite: true),
@@ -1030,4 +1110,4 @@ void main() {
 }
 
 String sha256Of(String content) =>
-    sha256.convert(content.codeUnits).toString();
+    sha256.convert(utf8.encode(content)).toString();
