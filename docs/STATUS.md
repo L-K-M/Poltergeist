@@ -1968,7 +1968,7 @@ remain open regardless.
 
 ## M2 — closed: v0.2.0 published (2026-09-11)
 
-The rehearsal's publish-step bug (open item 8) was fixed in
+The rehearsal's publish-step bug (item 8, now closed) was fixed in
 [PR #72](https://github.com/L-K-M/Poltergeist/pull/72) (merge
 `c96681d`): the publish step now calls
 `gh release edit "$RELEASE_TAG" --draft=false` — the gh manual's
