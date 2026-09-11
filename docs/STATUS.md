@@ -2008,9 +2008,6 @@ unauthenticated, hashes to
 `0403867aabc479ab9b0fedc2a4ad47df2cc71ca7ed84d1fc02e03a9b7e0c3771`,
 matching SHA256SUMS.
 
-M2 is closed. Still open regardless: install-tested-asset QA
-(07 §3.13 / v1.0 bar) and the 07 §4 APK in-place-upgrade rehearsal.
-
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -2413,7 +2410,7 @@ M2 is closed. Still open regardless: install-tested-asset QA
    workflow (including a dry-run reproduction of the rehearsal's
    unknown-command failure), green after; `dart analyze
    tool/release_version` clean. Recovery (delete the draft only, then
-   dispatch v0.2.0 from the fixed ref) and publish verification follow
+   dispatch v0.2.0 from the fixed ref) and publish verification followed
    the merge; the item stayed open until the v0.2.0 release was public.
    **Closed 2026-09-11.** The fix merged in
    [PR #72](https://github.com/L-K-M/Poltergeist/pull/72) (merge
