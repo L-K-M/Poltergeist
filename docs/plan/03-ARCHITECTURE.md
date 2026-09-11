@@ -142,11 +142,11 @@ write a synced tree's mtime through a link to its target — maps to
 with `EISDIR` (verified against Dart SDK 3.13.3 on Linux — repro: create
 an owned temp directory, call `File(dir).setLastModified(...)`, observe
 `FileSystemException` errno 21; it does not bottom
-out in a path-based `utimensat`) and Windows surfaces as
-`ERROR_ACCESS_DENIED`,
-which the funnel above would translate to `permissionDenied` on
-Windows — or, on POSIX, drop to a bare `other`, since `EISDIR` is not
-in the funnel's errno map — neither of which is the promised
+out in a path-based `utimensat`), and where the funnel's errno map has
+no EISDIR entry, so the raw failure would drop to a bare `other`;
+Windows surfaces the same open as
+`ERROR_ACCESS_DENIED`, which the funnel would translate to
+`permissionDenied`; neither outcome is the promised
 `unsupported`, so `setTimes` pre-checks the entry type
 (`FileSystemEntity.type(path, followLinks: false)`) and throws the typed
 `unsupported` itself for any non-regular target on every platform —

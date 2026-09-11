@@ -1228,8 +1228,9 @@ void _validateLocalName(String name) {
 }
 
 /// UTF-8 byte count without transcoding: 1 per ASCII unit, 2/3 per BMP
-/// unit, 4 across a surrogate pair. A lone surrogate counts 3 — what
-/// Dart's UTF-8 encoder emits (U+FFFD) for it — so the NAME_MAX guard
+/// unit, 4 across a surrogate pair. A lone surrogate counts 3 — the
+/// 3-byte (WTF-8-style) sequence Dart's encoder still emits for it —
+/// so the NAME_MAX guard
 /// never under-counts.
 int _utf8ByteLength(String value) {
   var total = 0;

@@ -25,8 +25,8 @@ int oct(String digits) => int.parse(digits, radix: 8);
 const int permissionsMask = 0xFFF;
 
 /// True when this process cannot be refused by mode bits (root on any
-/// POSIX host — the suite itself is POSIX-only, see the guard on
-/// [main]).
+/// POSIX host — the suite itself is POSIX-only via the `@OnPlatform`
+/// Windows skip on this library).
 final bool runningAsRoot =
     !Platform.isWindows &&
     int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) == 0;
