@@ -513,7 +513,10 @@ void main() {
         // pre-check must refuse it before any open.
         final fifo = Directory.systemTemp.createTempSync('pg-fifo');
         addTearDown(() => fifo.deleteSync(recursive: true));
-        await Process.run('mkfifo', ['${fifo.path}/pipe']);
+        final mkfifo = await Process.run('mkfifo', ['${fifo.path}/pipe']);
+        if (mkfifo.exitCode != 0) {
+          fail('mkfifo fixture failed: ${mkfifo.stderr}');
+        }
         final fifoError = remoteFailure(
           await failureOf(
             fs.setTimes('${fifo.path}/pipe', modifiedAt: DateTime.utc(2024)),

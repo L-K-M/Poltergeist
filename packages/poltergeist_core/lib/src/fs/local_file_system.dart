@@ -1175,7 +1175,15 @@ class LocalPathTypeChangedException extends RemoteFileException {
        );
 }
 
-/// The lexical half of the local path safety rules (03 §2.3's spec; the
+final RegExp _windowsForbiddenChars = RegExp(r'[:*?"<>| -]');
+
+/// 09 §3.5's full Windows reserved list: the DOS names plus CLOCK$ and
+/// the superscript COM/LPT spellings (¹²³ are real Win32 alternates),
+/// matched on the base segment, case-insensitively.
+final RegExp _windowsReservedName = RegExp(
+  '^(con|prn|aux|nul|clock\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]|conin\$|conout\$)\$',
+  caseSensitive: false,
+);/// The lexical half of the local path safety rules (03 §2.3's spec; the
 /// public port with Séance's tests rides its own PR). No empty
 /// component, no `.`/`..`, no separators — `\` is rejected everywhere
 /// on purpose: it is legal POSIX filename data, but a component carrying
@@ -1202,8 +1210,7 @@ void _validatePathComponent(String component) {
 /// whose filesystem cares (09 §3.5).
 void _validateLocalName(String name) {
   _validatePathComponent(name);
-  final RegExp windowsForbidden = RegExp(r'[:*?"<>|\x00-\x1f\x7f]');
-  if (windowsForbidden.hasMatch(name) ||
+  if (_windowsForbiddenChars.hasMatch(name) ||
       name.endsWith('.') ||
       name.endsWith(' ')) {
     throw FormatException('"$name" is not a safe local file name.');
@@ -1215,14 +1222,7 @@ void _validateLocalName(String name) {
       .split('.')
       .first
       .replaceAll(RegExp(r'[ .]+$'), '');
-  // 09 §3.5's full Windows reserved list: the DOS names plus CLOCK$
-  // and the superscript COM/LPT spellings (¹²³ are real Win32
-  // alternates), matched on the base segment, case-insensitively.
-  final RegExp reserved = RegExp(
-    '^(con|prn|aux|nul|clock\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]|conin\$|conout\$)\$',
-    caseSensitive: false,
-  );
-  if (reserved.hasMatch(base)) {
+  if (_windowsReservedName.hasMatch(base)) {
     throw FormatException('"$name" is not a safe local file name.');
   }
 }

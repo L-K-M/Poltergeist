@@ -2060,8 +2060,10 @@ to replace links/non-regular targets and fails when the backup name
 would exceed NAME_MAX. Two same-PR 03 §2.2 precision edits record
 verified code reality: dart:io cannot set a directory's timestamps on
 any platform (EISDIR on POSIX, not utimensat — Dart 3.13), so
-`setTimes` throws the typed `unsupported` for directories everywhere;
-and the `pathTypeChanged` representation above.
+`setTimes` throws the typed `unsupported` for every non-regular
+target (directories, FIFOs, sockets, device nodes — dart:io's
+open-for-writing would block forever on a FIFO); and the
+`pathTypeChanged` representation above.
 
 The §2.3 public helpers (`replaceLocalFile`, `ensureSafeLocalDirectory`,
 `validateLocalName`, `validatePathComponent` in `local_fs_safety.dart`,
