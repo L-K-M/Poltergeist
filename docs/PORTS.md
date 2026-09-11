@@ -15,9 +15,10 @@ forwarding, the interim list dots, and the coordinator composition in
 [PR #62](https://github.com/L-K-M/Poltergeist/pull/62), then the live
 connection-state composition (the Connections surface and the composed
 indicator) in [PR #67](https://github.com/L-K-M/Poltergeist/pull/67).
-The incident/pin bridging it rode landed in
+The startup composition rode item 6's engine spawn: its incident/pin
+bridging landed in
 [PR #66](https://github.com/L-K-M/Poltergeist/pull/66) (task 6, merge
-`d853aa8`), and the startup composition itself landed in
+`d853aa8`), and the composition itself landed in
 [PR #69](https://github.com/L-K-M/Poltergeist/pull/69) (merge `43396c5`,
 2026-09-10): the production engine spawns at app startup seeded from both
 stores.
