@@ -586,9 +586,8 @@ void main() {
         },
       );
       await fakeFs.setMode(file.path, oct('600'));
-      final argv = record.readAsStringSync().split('\n').where((l) => l.isNotEmpty);
-      expect(argv.first, '--');
-      expect(argv, containsAll(['--', '600', file.path]));
+      final argv = record.readAsStringSync().split('\n').where((l) => l.isNotEmpty).toList();
+      expect(argv, ['--', '600', file.path]);
     });
   });
 

@@ -15,7 +15,7 @@ import 'package:seance_core/seance_core.dart';
 /// protocols mirror the pinned dartssh2 adapter so callers cannot tell
 /// which implementation they are talking to except by latency: every
 /// failure surfaces as a typed `RemoteFileException` shaped
-/// `Could not <op> "<path>": <detail>` (03 §2.2's funnel). Like the
+/// /// `Could not <op> "<path>": <detail>` (03 §2.2's funnel). Like the
 /// adapter, precondition failures (a bad permissions range, a missing
 /// name argument, an unsafe destination name) throw raw
 /// `RangeError`/`ArgumentError`/`FormatException` synchronously instead.
@@ -23,6 +23,11 @@ import 'package:seance_core/seance_core.dart';
 /// Deletion here is the raw VFS primitive — one entry, no recursion, a
 /// non-empty directory fails with Séance's wording. The trash/confirm
 /// decision (D15) belongs to the caller, above this seam.
+///
+/// One documented parity exception: `setTimes` cannot set a
+/// directory's timestamps on any platform (dart:io limitation — 03
+/// §2.2's precision edit records why; 05 §4 never needs it), where the
+/// SFTP adapter's setStat can.
 class LocalFileSystem implements RemoteFileSystem {
   /// Creates a local filesystem.
   ///
@@ -164,14 +169,13 @@ class LocalFileSystem implements RemoteFileSystem {
   Future<void> setMode(String path, int permissions) {
     RangeError.checkValueInInterval(permissions, 0, 0xFFF, 'permissions');
     if (Platform.isWindows) {
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.unsupported,
-        operation: 'change permissions for',
-        path: path,
-        message:
-            'Could not change permissions for "$path": '
-            'not supported on Windows',
-      );
+      // Thrown inside the guarded action (async), so every caller's
+      // `await … catch` path sees it — never a synchronous escape from
+      // a Future-returning method. Only raw precondition failures
+      // (RangeError above) throw synchronously, like the adapter's.
+      return _guard('change permissions for', path, () async {
+        throw _unsupportedOnWindows('change permissions for', path);
+      });
     }
     return _guard('change permissions for', path, () async {
       final before = await _lstatNonLink(path, 'permissions');
@@ -234,12 +238,10 @@ class LocalFileSystem implements RemoteFileSystem {
       RangeError.checkValueInInterval(gid, 0, _maxUint32, 'gid');
     }
     if (Platform.isWindows) {
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.unsupported,
-        operation: 'change owner for',
-        path: path,
-        message: 'Could not change owner for "$path": not supported on Windows',
-      );
+      // Async for the same reason as setMode's Windows branch.
+      return _guard('change owner for', path, () async {
+        throw _unsupportedOnWindows('change owner for', path);
+      });
     }
     return _guard('change owner for', path, () async {
       // A bare chown dereferences a symlink and changes the target's
@@ -353,13 +355,7 @@ class LocalFileSystem implements RemoteFileSystem {
       followLinks: false,
     );
     if (destinationType != FileSystemEntityType.notFound && !overwrite) {
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.conflict,
-        operation: 'rename',
-        path: newPath,
-        message:
-            'A local item named "${p.basename(newPath)}" already exists.',
-      );
+      throw _conflictExists('rename', newPath);
     }
     await _renameInPlace(sourceType, oldPath, newPath, overwrite: overwrite);
   });
@@ -406,20 +402,19 @@ class LocalFileSystem implements RemoteFileSystem {
       if (!overwrite &&
           await FileSystemEntity.type(newPath, followLinks: false) !=
               FileSystemEntityType.notFound) {
-        throw RemoteFileException(
-          kind: RemoteFileErrorKind.conflict,
-          operation: 'rename',
-          path: newPath,
-          message:
-              'A local item named "${p.basename(newPath)}" already exists.',
-        );
+        throw _conflictExists('rename', newPath);
       }
       await _renameInPlace(sourceType, sibling, newPath, overwrite: overwrite);
     } on Object {
       // Restore the original name rather than stranding the entry under
-      // a hidden temp name; if even that fails, the temp keeps the data.
+      // a hidden temp name — but only if nothing else took the old name
+      // meanwhile (POSIX rename would silently clobber a taker); if even
+      // the restore fails, the temp keeps the data.
       try {
-        await _renameInPlace(sourceType, sibling, oldPath, overwrite: false);
+        if (await FileSystemEntity.type(oldPath, followLinks: false) ==
+            FileSystemEntityType.notFound) {
+          await _renameInPlace(sourceType, sibling, oldPath, overwrite: false);
+        }
       } on Object {
         // Best effort only — the rethrow below carries the real failure.
       }
@@ -1002,6 +997,14 @@ class LocalFileSystem implements RemoteFileSystem {
         : context.join(Directory.current.path, path);
     return context.normalize(absolute);
   }
+
+  static RemoteFileException _unsupportedOnWindows(String operation, String path) =>
+      RemoteFileException(
+        kind: RemoteFileErrorKind.unsupported,
+        operation: operation,
+        path: path,
+        message: _message(operation, path, 'not supported on Windows'),
+      );
 
   static RemoteFileException _notFound(String operation, String path) =>
       RemoteFileException(

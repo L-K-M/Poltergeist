@@ -2530,7 +2530,8 @@ milestone-close claim.
     (an additive kind in PR-S3's pattern — note it breaks downstream
     exhaustive switches over the enum, so it needs the usual upstream
     migration care), re-map the subclass onto it
-    at the pin bump, and deprecate the local subtype so generic
+    at the pin bump, and deprecate the local subtype — including
+    removing its barrel export, so generic
     `RemoteFileSystem` callers can dispatch on `kind` alone instead
     of catching an implementation-specific class.
 
