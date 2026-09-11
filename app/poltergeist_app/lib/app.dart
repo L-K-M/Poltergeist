@@ -128,8 +128,11 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       // itself is triggered fire-and-forget (idempotent), keeping the
       // exit decision independent of teardown-path futures.
       onExitRequested: () async {
-        session.forwardLifecycle(AppLifecycleState.detached);
+        // Flush what is already queued before stopping the engine: the
+        // tails snapshot at call time, so writes racing the shutdown
+        // trigger still land first.
         await session.flushWrites();
+        session.forwardLifecycle(AppLifecycleState.detached);
         return AppExitResponse.exit;
       },
     );

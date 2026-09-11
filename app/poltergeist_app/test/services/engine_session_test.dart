@@ -101,12 +101,8 @@ class FakeAppEngine implements AppEngine {
       incidentsController.stream;
 
   @override
-  Stream<ServerStatus> watchServer(String serverId) => statesControllers
-      .putIfAbsent(
-        serverId,
-        () => StreamController<ServerStatus>.broadcast(sync: true),
-      )
-      .stream;
+  Stream<ServerStatus> watchServer(String serverId) =>
+      _stateOf(serverId).stream;
 
   @override
   Stream<RecoveryFailedEvent> get recoveryFailures =>
@@ -200,7 +196,14 @@ class FakeAppEngine implements AppEngine {
   /// Closes every controller without awaiting: a controller whose
   /// subscription was cancelled completes its close future only in real
   /// async, which never arrives inside a widget test's fake-async zone.
+  /// A prompt still awaiting its reply fails loudly instead of hanging.
   void close() {
+    for (final completer in _pendingReplies.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('FakeAppEngine closed'));
+      }
+    }
+    _pendingReplies.clear();
     unawaited(promptsController.close());
     unawaited(dismissalsController.close());
     unawaited(pinsController.close());
@@ -326,6 +329,8 @@ void main() {
     List<EngineConfig>? spawnedConfigs,
     Object? spawnFailure,
     GlobalKey<NavigatorState>? navigatorKey,
+    HostKeyStore? pinStore,
+    IncidentStore? incidentStore,
   }) async {
     final scripted = engine ?? FakeAppEngine();
     addTearDown(scripted.close);
@@ -333,6 +338,8 @@ void main() {
       supportDirectoryPath: support.path,
       bookmarks: bookmarks,
       navigatorKey: navigatorKey ?? GlobalKey<NavigatorState>(),
+      pinStore: pinStore,
+      incidentStore: incidentStore,
       spawn: (config) async {
         if (spawnFailure != null) throw spawnFailure;
         spawnedConfigs?.add(config);
@@ -390,14 +397,7 @@ void main() {
     test('an unexpected store fault boots engine-less, not dead', () async {
       // A store contract violation (an error type its fail-safe read does
       // not catch) must not escape into main and kill the boot.
-      final session = await startEngineSession(
-        supportDirectoryPath: support.path,
-        bookmarks: bookmarks,
-        navigatorKey: GlobalKey<NavigatorState>(),
-        pinStore: _ThrowingPinStore(),
-        spawn: (config) async => FakeAppEngine(),
-        onError: (error, stackTrace) => reported.add(error),
-      );
+      final (session, _) = await startSession(pinStore: _ThrowingPinStore());
 
       expect(session, isNull);
       expect(reported, isNotEmpty);
@@ -463,7 +463,7 @@ void main() {
           removed = true;
           break;
         }
-        await Future<void>.delayed(const Duration(milliseconds: 2));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       expect(removed, isTrue);
 
@@ -549,7 +549,10 @@ void main() {
 
       final flushed = Completer<void>();
       unawaited(
-        session.flushWrites().then((_) => flushed.complete(), onError: (_) {}),
+        session.flushWrites().then(
+          (_) => flushed.complete(),
+          onError: flushed.completeError,
+        ),
       );
       await pumpEventQueue();
       expect(flushed.isCompleted, isFalse);
@@ -638,6 +641,14 @@ void main() {
       addTearDown(session!.shutdown);
       engine!.promptScript = [_changedKeyPrompt('p1')];
       engine.channel = FakeAppBrowseChannel();
+      // A declined changed key aborts the connect in the real engine —
+      // script the blocked failure so the review walks the decline path,
+      // not an impossible decline-then-connect.
+      engine.openFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'connect',
+        message: 'The new host key was declined.',
+      );
 
       // The coordinator's reply answer arrives asynchronously; the review
       // await covers the whole connect.

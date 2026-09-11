@@ -7,9 +7,9 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 _Last updated: 2026-09-10. The startup engine-spawn composition landed
 (dated section below): the production engine spawns once at app startup
 — not debug-gated — seeded from the app-owned pin and incident stores
-together, its prompt coordinator, trust mirrors, the Connections
+together. Its prompt coordinator, trust mirrors, the Connections
 surface's lanes, and the blocked-key review all compose over that one
-engine, the debug demo reuses it (one engine per process), and app
+engine; the debug demo reuses it (one engine per process), and app
 exit shuts it down (best-effort at process teardown, idempotent). The
 engine-protocol incident/pin bridging
 landed: `removeBookmark` and the typed incident-store mirror events cross

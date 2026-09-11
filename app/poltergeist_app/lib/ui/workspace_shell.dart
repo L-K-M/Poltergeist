@@ -113,12 +113,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// `FlutterError.reportError` — the same default sink main.dart's
   /// app-wide reporter uses — so failures surface without a wired sink.
   ConnectionStatusController? _buildConnections() {
-    final bookmarks = widget.bookmarks;
-    if (bookmarks == null) return null;
     assert(
       widget.engineSession == null || widget.connectionEngine == null,
       'connectionEngine is ignored when engineSession is provided',
     );
+    final bookmarks = widget.bookmarks;
+    if (bookmarks == null) return null;
 
     return ConnectionStatusController(
       bookmarks: bookmarks,

@@ -242,6 +242,7 @@ void main() {
         debugDemoEnabled: true,
         probeSettings: _NoopProbeSettings(),
         engineSession: session,
+        navigatorKey: navigatorKey,
         // A session must override any factory: only one engine per process.
         sftpDemoEngineFactory: () async {
           sentinelSpawns++;
@@ -374,6 +375,11 @@ void main() {
       incidentStore: InMemoryIncidentStore(),
       spawn: (config) async => engine,
     );
+    // Safety net: if the detach path ever stops triggering shutdown, the
+    // session must still not leak past this test (idempotent either way).
+    addTearDown(() {
+      unawaited(session!.shutdown());
+    });
 
     await tester.pumpWidget(
       PoltergeistApp(

@@ -403,7 +403,13 @@ final class EngineSession {
     final pending = _shutdownFuture;
     if (pending != null) return pending;
     return _shutdownFuture = () async {
-      _prompts.dispose();
+      try {
+        _prompts.dispose();
+      } on Object catch (error, stackTrace) {
+        // A throwing coordinator teardown must not skip the engine's
+        // own shutdown.
+        _errors.report(error, stackTrace);
+      }
       unawaited(_pinMirror?.cancel());
       unawaited(_incidentMirror?.cancel());
       _pinMirror = null;
