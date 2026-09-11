@@ -89,6 +89,10 @@ class PoltergeistApp extends StatefulWidget {
   State<PoltergeistApp> createState() => _PoltergeistAppState();
 }
 
+/// The exit hook's flush budget: long enough for a real disk write,
+/// short enough that a wedged one cannot stall the exit decision.
+const _exitFlushTimeout = Duration(seconds: 2);
+
 class _PoltergeistAppState extends State<PoltergeistApp> {
   AppLifecycleListener? _lifecycleListener;
 
@@ -130,10 +134,13 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onExitRequested: () async {
         // Flush what is already queued before stopping the engine: the
         // tails snapshot at call time, so writes racing the shutdown
-        // trigger still land first. Best-effort — the framework awaits
-        // this future, so a failed flush must never block the exit.
+        // trigger still land first. Best-effort and bounded — the
+        // framework awaits this future, so neither a failed nor a wedged
+        // flush may block the exit.
         try {
-          await session.flushWrites();
+          await session
+              .flushWrites()
+              .timeout(_exitFlushTimeout);
         } on Object catch (error, stackTrace) {
           FlutterError.reportError(
             FlutterErrorDetails(exception: error, stack: stackTrace),

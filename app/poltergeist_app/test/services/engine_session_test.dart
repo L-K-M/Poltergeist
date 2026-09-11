@@ -218,7 +218,10 @@ class FakeAppEngine implements AppEngine {
 }
 
 class FakeAppBrowseChannel implements AppBrowseChannel {
-  FakeAppBrowseChannel({this.homePath = '/home/deploy', this.entries = const []});
+  FakeAppBrowseChannel({
+    this.homePath = '/home/deploy',
+    this.entries = const [],
+  });
 
   @override
   final String homePath;
@@ -532,19 +535,10 @@ void main() {
       // before quitting is on disk before the framework may exit.
       final gate = Completer<void>();
       final pins = _GatedPinStore(gate);
-      final engine = FakeAppEngine();
-      addTearDown(engine.close);
-      final session = await startEngineSession(
-        supportDirectoryPath: support.path,
-        bookmarks: bookmarks,
-        navigatorKey: GlobalKey<NavigatorState>(),
-        pinStore: pins,
-        spawn: (config) async => engine,
-        onError: (error, stackTrace) => reported.add(error),
-      );
+      final (session, engine) = await startSession(pinStore: pins);
       addTearDown(session!.shutdown);
 
-      engine.pinsController.add(const HostKeyPinnedEvent(key: _pin));
+      engine!.pinsController.add(const HostKeyPinnedEvent(key: _pin));
       await pumpEventQueue();
 
       final flushed = Completer<void>();

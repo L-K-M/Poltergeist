@@ -319,6 +319,10 @@ void main() {
       incidentStore: InMemoryIncidentStore(),
       spawn: (config) async => engine,
     );
+    // Idempotent insurance, registered before anything risky runs.
+    addTearDown(() {
+      unawaited(session!.shutdown());
+    });
 
     await tester.pumpWidget(
       PoltergeistApp(
@@ -353,11 +357,7 @@ void main() {
 
     // Shutdown drains in the body, not an awaited teardown: the chain's
     // future does not re-complete inside the fake-async zone once it has
-    // been entered, so an awaited teardown would hang the suite. The
-    // teardown net is idempotent insurance.
-    addTearDown(() {
-      unawaited(session!.shutdown());
-    });
+    // been entered, so an awaited teardown would hang the suite.
     unawaited(session!.shutdown());
     for (var i = 0; i < 50 && engine.shutdownCalls == 0; i++) {
       await tester.pump();
