@@ -103,17 +103,16 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [
           // The 02 §8.3 spec chord; note Ctrl+Alt+arrows is OS-reserved on
           // some desktops (Intel display rotation on Windows, virtual-
-          // desktop switching on KDE/X11) — delivery needs verification on
-          // target desktops and the settings slice must allow rebinding.
-          // TODO(rebinding): until the settings slice lands, users on
-          // affected desktops have no working focus chord — verify
-          // delivery on release targets or add a non-reserved secondary
-          // default activator before shipping.
+          // desktop switching on KDE/X11) — the secondary Ctrl+PageUp
+          // below is never reserved, so focus works on stock installs;
+          // delivery still needs verification and the settings slice
+          // must allow rebinding.
           SingleActivator(
             LogicalKeyboardKey.arrowLeft,
             control: true,
             alt: true,
           ),
+          SingleActivator(LogicalKeyboardKey.pageUp, control: true),
         ],
       ),
       run: (_) async {
@@ -130,12 +129,14 @@ List<RegisteredCommand> buildPaneCommands({
           SingleActivator(LogicalKeyboardKey.arrowRight, meta: true, alt: true),
         ],
         other: const [
-          // Same OS-reservation note as pane.focusLeft above.
+          // Same OS-reservation note as pane.focusLeft above; the
+          // Ctrl+PageDown secondary mirrors it.
           SingleActivator(
             LogicalKeyboardKey.arrowRight,
             control: true,
             alt: true,
           ),
+          SingleActivator(LogicalKeyboardKey.pageDown, control: true),
         ],
       ),
       run: (_) async {

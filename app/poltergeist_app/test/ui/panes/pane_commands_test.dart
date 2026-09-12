@@ -26,6 +26,7 @@ void main() {
 
   testWidgets('a disabled command still consumes its chord', (tester) async {
     var outerSawKey = false;
+    var ran = false;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -41,7 +42,12 @@ void main() {
           bindings: {activator: () => outerSawKey = true},
           child: CommandChordScope(
             commands: [
-              command('x', activators: (_) => [activator], enabled: false),
+              command(
+                'x',
+                activators: (_) => [activator],
+                enabled: false,
+                onRun: () => ran = true,
+              ),
             ],
             child: const Scaffold(
               body: Focus(autofocus: true, child: SizedBox.expand()),
@@ -58,8 +64,9 @@ void main() {
     await tester.pump();
 
     // The command layer owns the chord even when the command is
-    // disabled: outer scopes never see it (02 §8.2's ownership rule).
+    // disabled: outer scopes never see it, and the command never runs.
     expect(outerSawKey, isFalse);
+    expect(ran, isFalse);
   });
 
   testWidgets('an enabled command\'s chord runs it', (tester) async {

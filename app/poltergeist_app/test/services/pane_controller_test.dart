@@ -687,7 +687,7 @@ void main() {
 
     // The shell-level cancel path detaches the pane without dropping
     // the shared server reference the sibling still browses on.
-    left.detachRemote();
+    unawaited(left.detachRemote());
     expect(a.closeCalls, 1);
     expect(lanes.disconnects, isEmpty);
     expect(left.phase, PanePhase.unbound);

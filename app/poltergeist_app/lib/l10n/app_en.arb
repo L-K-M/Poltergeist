@@ -505,14 +505,14 @@
   },
   "paneDateToday": "Today at {time}",
   "@paneDateToday": {
-    "description": "Relative modified date for today (02 §2.3).",
+    "description": "Relative modified date for today (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.",
     "placeholders": {
       "time": {"type": "String"}
     }
   },
   "paneDateYesterday": "Yesterday at {time}",
   "@paneDateYesterday": {
-    "description": "Relative modified date for yesterday (02 §2.3).",
+    "description": "Relative modified date for yesterday (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.",
     "placeholders": {
       "time": {"type": "String"}
     }

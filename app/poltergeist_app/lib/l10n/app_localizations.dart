@@ -724,13 +724,13 @@ abstract class AppLocalizations {
   /// **'Cancel'**
   String get paneConnectionLostCancel;
 
-  /// Relative modified date for today (02 §2.3).
+  /// Relative modified date for today (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.
   ///
   /// In en, this message translates to:
   /// **'Today at {time}'**
   String paneDateToday(String time);
 
-  /// Relative modified date for yesterday (02 §2.3).
+  /// Relative modified date for yesterday (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.
   ///
   /// In en, this message translates to:
   /// **'Yesterday at {time}'**

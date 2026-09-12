@@ -99,6 +99,16 @@ String paneParentPath(String path) {
   while (trimmed.length > 1 && trimmed.endsWith(separator)) {
     trimmed = trimmed.substring(0, trimmed.length - 1);
   }
+  // A bare UNC server ('\\server') has no listable share: it is its
+  // own parent — '\' would be the CURRENT DRIVE's root, jumping
+  // drives. (Checked BEFORE lastSlash: '\\server' has its second
+  // backslash at index 1, so lastSlash is never 0 for it.)
+  if (separator == '\\' &&
+      trimmed.startsWith('\\\\') &&
+      trimmed.length > 2 &&
+      !trimmed.substring(2).contains(separator)) {
+    return trimmed;
+  }
   final lastSlash = trimmed.lastIndexOf(separator);
   if (lastSlash < 0) {
     // No separator at all: a bare drive ('C:') — its root keeps the
@@ -109,16 +119,7 @@ String paneParentPath(String path) {
     return trimmed;
   }
   // POSIX '/x' → '/', the root its own parent.
-  // POSIX '/x' → '/', the root its own parent — except a bare UNC
-  // server ('\\\\server'), whose '\' would be the CURRENT DRIVE's
-  // root: climbing from it must not jump drives.
   if (lastSlash == 0) {
-    if (separator == '\\' &&
-        trimmed.startsWith('\\\\') &&
-        trimmed.length > 2 &&
-        !trimmed.substring(2).contains('\\')) {
-      return trimmed;
-    }
     return separator;
   }
   final parent0 = trimmed.substring(0, lastSlash);

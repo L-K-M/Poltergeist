@@ -240,10 +240,12 @@ class _ConnectionRow extends StatelessWidget {
               key: ValueKey('connection.open.${server.serverId}'),
               tooltip: l10n.connectionsOpenInPane,
               onPressed: () {
-                onOpenInPane?.call(server);
-                // Reveal the pane the bookmark opened in: the full-screen
-                // route would otherwise swallow the effect.
+                // Reveal the workspace before the open runs: a
+                // synchronous push (e.g. the changed-key review) would
+                // otherwise become maybePop's target instead of this
+                // route, and the session guard releases with the pop.
                 Navigator.of(context, rootNavigator: true).maybePop();
+                onOpenInPane?.call(server);
               },
               icon: const Icon(Icons.open_in_new_outlined, size: 18),
             ),

@@ -170,11 +170,12 @@ class _PaneViewState extends State<PaneView> {
     final platform = Theme.of(context).platform;
     final key = event.logicalKey;
 
-    // 02 §2.8: once the grace passes, the dimmed listing is inert —
-    // only Esc (cancel) and Tab (swap panes) stay live while the
-    // navigation is in flight. Keys must not act on stale entries
-    // through the pane's primary input modality either.
-    if (controller.loading &&
+    // 02 §2.8: once the grace passes, every busy surface is inert for
+    // keys — only Esc (cancel) and Tab (swap panes) stay live. Keys
+    // must not act on stale entries through the pane's primary input
+    // modality either (mid-bind phases count: the spinner is up and
+    // the listing beneath is stale).
+    if (_graceBusy() &&
         _pastGrace &&
         key != LogicalKeyboardKey.escape &&
         key != LogicalKeyboardKey.tab) {
@@ -206,8 +207,9 @@ class _PaneViewState extends State<PaneView> {
         // Enter opens on Windows/Linux; on macOS Enter is the rename key
         // (§8.3), and rename lands with the row-interactions slice.
         // Key repeats never re-open — holding Enter must not drill
-        // through nested folders.
-        if (event is KeyRepeatEvent) return KeyEventResult.ignored;
+        // through nested folders (and the owned key must not leak its
+        // repeats to other handlers).
+        if (event is KeyRepeatEvent) return KeyEventResult.handled;
         if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
           _openCursor();
@@ -231,11 +233,13 @@ class _PaneViewState extends State<PaneView> {
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.tab:
-        // Only plain Tab swaps (02 §8.2); Shift+Tab keeps the standard
-        // reverse traversal, and repeats never swap — holding Tab must
-        // not oscillate focus between the panes.
-        if (event is KeyRepeatEvent ||
-            HardwareKeyboard.instance.isShiftPressed) {
+        // Only plain Tab swaps (02 §8.2). Shift+Tab keeps the standard
+        // reverse traversal (ignored → traversal); repeats of the owned
+        // key are consumed so holding Tab cannot oscillate focus.
+        if (event is KeyRepeatEvent) {
+          return KeyEventResult.handled;
+        }
+        if (HardwareKeyboard.instance.isShiftPressed) {
           return KeyEventResult.ignored;
         }
         widget.onSwapFocus();
@@ -477,7 +481,7 @@ class _PaneSurface extends StatelessWidget {
 /// The path bar (02 §2.1, foundation subset): one clickable segment per
 /// ancestor, focused-pane accent, the 2 px progress line, and the cancel
 /// affordance while a navigation is outstanding.
-class _PathBar extends StatelessWidget {
+class _PathBar extends StatefulWidget {
   const _PathBar({
     required this.controller,
     required this.active,
@@ -491,7 +495,37 @@ class _PathBar extends StatelessWidget {
   final VoidCallback onCancel;
 
   @override
+  State<_PathBar> createState() => _PathBarState();
+}
+
+class _PathBarState extends State<_PathBar> {
+  final _segmentScroll = ScrollController();
+  String? _revealedPath;
+
+  @override
+  void dispose() {
+    _segmentScroll.dispose();
+    super.dispose();
+  }
+
+  // Deep paths overflow the bar: the deepest segment — where the user
+  // IS — must be the visible one, so reveal the tail on every location
+  // change (02 §2.1's "where am I" is the bar's whole job).
+  @override
+  void didUpdateWidget(_PathBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final path = widget.controller.location?.path;
+    if (path == _revealedPath) return;
+    _revealedPath = path;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_segmentScroll.hasClients) return;
+      _segmentScroll.jumpTo(_segmentScroll.position.maxScrollExtent);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     final colors = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context);
     final location = controller.location;
@@ -501,7 +535,7 @@ class _PathBar extends StatelessWidget {
 
     // 02 §2.1: the focused pane's segments render in the accent color so
     // the transfer-deciding side is always visible.
-    final segmentColor = active ? colors.primary : colors.onSurfaceVariant;
+    final segmentColor = widget.active ? colors.primary : colors.onSurfaceVariant;
 
     return Column(
       children: [
@@ -522,6 +556,7 @@ class _PathBar extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: ListView(
+                  controller: _segmentScroll,
                   scrollDirection: Axis.horizontal,
                   children: [
                     for (final (label, path) in segments)
@@ -549,11 +584,11 @@ class _PathBar extends StatelessWidget {
                   ],
                 ),
               ),
-              if (controller.loading && loadingVisible)
+              if (controller.loading && widget.loadingVisible)
                 IconButton(
                   key: ValueKey('${controller.paneTabId}.cancel'),
                   tooltip: l10n.paneCancelLoading,
-                  onPressed: onCancel,
+                  onPressed: widget.onCancel,
                   icon: const Icon(Icons.close, size: 16),
                 ),
             ],
@@ -561,7 +596,7 @@ class _PathBar extends StatelessWidget {
         ),
         // 02 §2.8: a 2 px indeterminate progress line under the path bar
         // once the anti-flash grace has passed.
-        if (controller.loading && loadingVisible)
+        if (controller.loading && widget.loadingVisible)
           SizedBox(
             key: ValueKey('${controller.paneTabId}.progress'),
             height: 2,
@@ -637,6 +672,9 @@ class _PaneRow extends StatelessWidget {
 
     return Semantics(
       label: l10n.paneRowSemantics(entry.name, size, modified),
+      // The composed label replaces the child text's own semantics —
+      // without this, screen readers announce the name twice.
+      excludeSemantics: true,
       // The cursor row's highlight gets its accessibility equivalent.
       selected: highlighted,
       child: Material(
@@ -751,18 +789,22 @@ class _ErrorOverlay extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 420),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: colors.outlineVariant),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: SingleChildScrollView(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: colors.outlineVariant),
+          ),
+          child: Semantics(
+            // The overlay replaces the listing — announce its arrival.
+            liveRegion: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
             Row(
               children: [
                 Icon(Icons.error_outline, size: 18, color: colors.error),
@@ -808,7 +850,9 @@ class _ErrorOverlay extends StatelessWidget {
                 label: Text(l10n.connectionRetry),
               ),
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
