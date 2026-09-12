@@ -1503,6 +1503,13 @@ class OpenBrowseChannelRequest extends EngineRequest { final String serverId; }
 class ListDirectoryRequest extends EngineRequest {
   final int channelId; final String path;
 }
+// Browse cancellation requires an upstream VFS addition: the current
+// Séance interface's listDirectory(path) accepts no cancellation token.
+// Before PaneController issues listings, add that token upstream and pin
+// it here, then bridge a request-id-scoped cancellation message to an
+// engine-owned token. Racing and abandoning the existing future does not
+// stop readdir and cannot satisfy 09 §3.3. Cancelling one listing must not
+// close a shared browse channel or its transport.
 /// TransferTaskSpec is the enqueue-time subset of TransferTask (§4.1):
 /// source/destination/rootPaths/destinationDir/policy — no runtime state.
 class EnqueueTransferRequest extends EngineRequest { final TransferTaskSpec spec; }
