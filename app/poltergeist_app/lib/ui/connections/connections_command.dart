@@ -27,8 +27,8 @@ RegisteredCommand buildConnectionsCommand({
     run: (context) => _openConnections(
       context,
       controller,
-      onReviewBlocked,
-      onOpenInPane,
+      onReviewBlocked: onReviewBlocked,
+      onOpenInPane: onOpenInPane,
     ),
   );
 }
@@ -37,10 +37,10 @@ RegisteredCommand buildConnectionsCommand({
 /// one-command-session guard covers this route like every other.
 Future<void> _openConnections(
   BuildContext context,
-  ConnectionStatusController controller,
+  ConnectionStatusController controller, {
   void Function(ConnectionServer server)? onReviewBlocked,
   void Function(ConnectionServer server)? onOpenInPane,
-) async {
+}) async {
   await Navigator.of(context, rootNavigator: true).push<void>(
     MaterialPageRoute<void>(
       builder: (_) => ConnectionsView(

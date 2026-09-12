@@ -60,12 +60,16 @@ List<RegisteredCommand> buildPaneCommands({
         return pane != null &&
             pane.verbsEnabled &&
             cursor != null &&
+            cursor >= 0 &&
             cursor < pane.entries.length;
       },
       run: (_) async {
         final pane = activePane();
         final cursor = pane?.cursorIndex;
-        if (pane == null || cursor == null || cursor >= pane.entries.length) {
+        if (pane == null ||
+            cursor == null ||
+            cursor < 0 ||
+            cursor >= pane.entries.length) {
           return;
         }
         pane.openEntry(pane.entries[cursor]);
@@ -101,6 +105,10 @@ List<RegisteredCommand> buildPaneCommands({
           // some desktops (Intel display rotation on Windows, virtual-
           // desktop switching on KDE/X11) — delivery needs verification on
           // target desktops and the settings slice must allow rebinding.
+          // TODO(rebinding): until the settings slice lands, users on
+          // affected desktops have no working focus chord — verify
+          // delivery on release targets or add a non-reserved secondary
+          // default activator before shipping.
           SingleActivator(
             LogicalKeyboardKey.arrowLeft,
             control: true,
@@ -185,12 +193,6 @@ class CommandChordScope extends StatelessWidget {
       final activators = command.activators?.call(platform);
       if (activators == null) continue;
       for (final activator in activators) {
-        if (activator is SingleActivator &&
-            !activator.control &&
-            !activator.meta &&
-            !activator.alt) {
-          continue;
-        }
         // Two commands claiming one chord is a registration bug; debug
         // builds fail it immediately (release keeps later-command-wins,
         // the documented fallback).
@@ -198,6 +200,17 @@ class CommandChordScope extends StatelessWidget {
           !bindings.containsKey(activator),
           'Duplicate shortcut activator $activator: later command wins',
         );
+        // Unmodified keys — any activator type — stay with the pane focus
+        // nodes (02 §8.2), not only SingleActivator spellings.
+        final bool unmodified = activator is SingleActivator
+            ? !activator.control && !activator.meta && !activator.alt
+            : activator is CharacterActivator &&
+                  !activator.control &&
+                  !activator.meta &&
+                  !activator.alt;
+        if (unmodified) {
+          continue;
+        }
         bindings[activator] = () {
           if (!command.enabled()) return;
           command.run(context);

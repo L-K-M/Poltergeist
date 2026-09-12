@@ -301,12 +301,15 @@ class PaneController extends ChangeNotifier {
   /// The engine keys pool references by serverId, so this severs every
   /// pane bound to the same server — the shell routes the banner's cancel
   /// through [detachRemote] when a sibling still browses the server.
+  /// Keyed on the pending binding, not the location: the post-first-cancel
+  /// state keeps a live remote channel with no location, and its unbind
+  /// must not dead-end.
   Future<void> cancelRecovery() async {
     final lanes = _lanes;
-    final current = _location;
-    if (_disposed || lanes == null || current is! RemotePaneLocation) return;
+    final serverId = _pendingRemote?.id;
+    if (_disposed || lanes == null || serverId == null) return;
     try {
-      await lanes.disconnectServer(current.serverId);
+      await lanes.disconnectServer(serverId);
     } on Object catch (error, stackTrace) {
       _report(error, stackTrace);
     }
@@ -316,9 +319,11 @@ class PaneController extends ChangeNotifier {
   /// the pane's channel closes (the pool refcounts pane bindings), the
   /// binding state resets, and the server reference stays for any
   /// sibling pane still browsing it. The banner's cancel path when the
-  /// server is shared (02 §2.7's cancel, made two-pane-safe).
+  /// server is shared (02 §2.7's cancel, made two-pane-safe). Keyed on
+  /// the pending binding — it is set for the whole remote-bind lifetime,
+  /// including the post-first-cancel state and an in-flight connect.
   Future<void> detachRemote() async {
-    if (_disposed || _location is! RemotePaneLocation) return;
+    if (_disposed || _pendingRemote == null) return;
     final attempt = ++_bindAttempt;
     _cancelListing();
     _phase = PanePhase.unbound;

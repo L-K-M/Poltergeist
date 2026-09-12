@@ -97,7 +97,7 @@ void main() {
                   workspace: workspace,
                   focusNode: leftNode,
                   onSwapFocus: () => rightNode.requestFocus(),
-                  onCancelRecovery: () => unawaited(right.cancelRecovery()),
+                  onCancelRecovery: () => unawaited(left.cancelRecovery()),
                   clock: clock,
                 ),
               ),
@@ -107,7 +107,7 @@ void main() {
                   workspace: workspace,
                   focusNode: rightNode,
                   onSwapFocus: () => leftNode.requestFocus(),
-                  onCancelRecovery: () => unawaited(left.cancelRecovery()),
+                  onCancelRecovery: () => unawaited(right.cancelRecovery()),
                   clock: clock,
                 ),
               ),
@@ -214,7 +214,7 @@ void main() {
     final channel = localChannelWithEntries();
     await left.openLocalHome();
     await pumpShell(tester);
-    expect(find.byKey(const ValueKey('pane.progress')), findsNothing);
+    expect(find.byKey(const ValueKey('pane.left.progress')), findsNothing);
 
     final hold = Completer<void>();
     channel.holdNext = hold;
@@ -224,18 +224,18 @@ void main() {
 
     // Sub-150 ms: no progress line, no dim, footer keeps its counts.
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(const ValueKey('pane.progress')), findsNothing);
+    expect(find.byKey(const ValueKey('pane.left.progress')), findsNothing);
     expect(find.textContaining('3 items'), findsOneWidget);
 
     // Past the grace: progress line, dim over the old listing, footer swaps.
     await tester.pump(const Duration(milliseconds: 200));
-    expect(find.byKey(const ValueKey('pane.progress')), findsOneWidget);
+    expect(find.byKey(const ValueKey('pane.left.progress')), findsOneWidget);
     expect(find.textContaining('Esc cancels'), findsOneWidget);
     expect(find.textContaining('3 items'), findsNothing);
 
     hold.complete();
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('pane.progress')), findsNothing);
+    expect(find.byKey(const ValueKey('pane.left.progress')), findsNothing);
     expect(find.textContaining('1 item'), findsOneWidget);
   });
 
@@ -494,6 +494,14 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('pane.banner.cancel')), findsOneWidget);
+
+    // Cancel drops the server reference: the watch reports the
+    // disconnect and the banner clears with the state.
+    await tester.tap(find.byKey(const ValueKey('pane.banner.cancel')));
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pane.banner')), findsNothing);
+    expect(lanes.disconnects, ['srv-1']);
 
     lanes.emitState(
       'srv-1',

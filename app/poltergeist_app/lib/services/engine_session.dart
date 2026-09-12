@@ -360,10 +360,11 @@ final class EngineSession {
       if (bookmark == null || identity == null) return;
 
       try {
+        final reviewConfig = serverConfigForBookmark(bookmark);
         final channel = await _engine.openBrowseChannel(
-          serverId: bookmark.id,
+          serverId: reviewConfig.id,
           paneTabId: kHostKeyReviewPaneTabId,
-          config: serverConfigForBookmark(bookmark),
+          config: reviewConfig,
         );
         // Approved or the pinned key returned: close the channel and let
         // the finally below drop the reference.

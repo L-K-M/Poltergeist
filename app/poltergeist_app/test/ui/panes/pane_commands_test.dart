@@ -34,10 +34,11 @@ void main() {
         // The observer sits OUTSIDE the command layer: a disabled
         // command's chord must not fall through to farther scopes
         // (nearer scopes win by Flutter's focus precedence regardless).
-        home: Shortcuts(
-          shortcuts: {
-            activator: VoidCallbackIntent(() => outerSawKey = true),
-          },
+        // CallbackShortcuts pairs the intent with its own action, so the
+        // detector actually fires if the chord escapes the command layer
+        // — a bare Shortcuts mapping could never invoke it.
+        home: CallbackShortcuts(
+          bindings: {activator: () => outerSawKey = true},
           child: CommandChordScope(
             commands: [
               command('x', activators: (_) => [activator], enabled: false),

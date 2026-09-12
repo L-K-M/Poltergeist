@@ -2495,10 +2495,12 @@ Connections surface stays (M5 owns removal) and gains each row's
 "Open in Pane" action — the M3–M4 window's remote entry point, binding
 the ACTIVE pane to the row's bookmark. Probe wiring survives as services
 but loses its only driver (the demo session): probes do not run again
-until the launcher/empty-states slice supplies the interim-list owner
-(07 §3.4's own bullet carries "its probe dots stay live for the M3–M4
-window") — release builds never had a driver, so nothing regressed
-against shipped behavior; recorded below with the slice's follow-ups.
+until the launcher/empty-states slice supplies the interim-list owner —
+a deliberate, temporary deviation from 07 §3.4's bullet ("its probe
+dots stay live for the M3–M4 window"): release builds never had a
+driver, so shipped behavior is unchanged, but debug builds lose the
+live dots until the launcher slice lands; recorded below with the
+slice's follow-ups.
 
 Follow-ups this slice deliberately leaves to their owning M3+ slices
 (each per 07 §3.4's own bullets): launcher/empty states incl. Quick

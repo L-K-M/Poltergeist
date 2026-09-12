@@ -9,7 +9,6 @@ import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
-import '../services/pane_location.dart';
 import '../services/registered_command.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/workspace_controller.dart';
@@ -89,6 +88,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   @override
   void initState() {
     super.initState();
+    // Focus nodes are session-independent: a session rebind replaces
+    // only the pane controllers, so focus (and its pane activation)
+    // survives the swap instead of dropping to the root scope and being
+    // re-claimed by the left pane.
+    _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
+    _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
     _connections = _buildConnections();
     _buildWorkspace();
   }
@@ -108,7 +113,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _connections = _buildConnections();
     }
     if (!identical(oldWidget.engineSession, widget.engineSession)) {
-      _disposeWorkspace();
+      _workspace?.dispose();
+      _workspace = null;
       _buildWorkspace();
     }
   }
@@ -117,6 +123,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void dispose() {
     _connections?.dispose();
     _disposeWorkspace();
+    _leftFocus?.dispose();
+    _leftFocus = null;
+    _rightFocus?.dispose();
+    _rightFocus = null;
     super.dispose();
   }
 
@@ -139,8 +149,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     _workspace = WorkspaceController(left: left, right: right);
-    _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
-    _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
 
     // The initial binding: both panes browse the local home through the
     // engine's local channel (03 §5's seam; one engine, no second spawn).
@@ -168,10 +176,6 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void _disposeWorkspace() {
     _workspace?.dispose();
     _workspace = null;
-    _leftFocus?.dispose();
-    _leftFocus = null;
-    _rightFocus?.dispose();
-    _rightFocus = null;
   }
 
   @override
@@ -288,15 +292,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     WorkspaceController workspace,
     PaneController pane,
   ) async {
-    final location = pane.location;
-    if (location is! RemotePaneLocation) return;
+    // Keyed on the pending binding: the post-first-cancel state holds a
+    // live remote channel with no location.
+    final serverId = pane.remoteBookmark?.id;
+    if (serverId == null) return;
     final sibling = identical(pane, workspace.left)
         ? workspace.right
         : workspace.left;
-    final siblingLocation = sibling.location;
-    final siblingShares =
-        siblingLocation is RemotePaneLocation &&
-        siblingLocation.serverId == location.serverId;
+    final siblingShares = sibling.remoteBookmark?.id == serverId;
     try {
       if (siblingShares) {
         await pane.detachRemote();

@@ -39,8 +39,11 @@ class ConnectionsView extends StatefulWidget {
   final void Function(ConnectionServer server)? onReviewBlocked;
 
   /// Opens the row's bookmark in the active pane (the M3 window's remote
-  /// entry point: the interim list stays until M5's sidebar). Null leaves
-  /// the rows without the affordance (no engine, tests).
+  /// entry point: the interim list stays until M5's sidebar). The open
+  /// goes through the pane's connect, which raises the pool's own
+  /// changed-key review on a blocked endpoint — the same D18 gate
+  /// [onReviewBlocked] leads to, never a bypass. Null leaves the rows
+  /// without the affordance (no engine, tests).
   final void Function(ConnectionServer server)? onOpenInPane;
 
   @override

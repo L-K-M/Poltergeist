@@ -21,7 +21,7 @@ const _antiFlashGrace = Duration(milliseconds: 150);
 const _comfortableRowExtent = 28.0;
 
 double scaledPaneRowExtent(BuildContext context) =>
-    _comfortableRowExtent * MediaQuery.textScalerOf(context).scale(1);
+    MediaQuery.textScalerOf(context).scale(_comfortableRowExtent);
 
 /// One pane's browsing surface (foundation slice): path bar with
 /// clickable ancestor segments, fixed-extent listing rows (name, kind,
@@ -255,6 +255,9 @@ class _PaneViewState extends State<PaneView> {
     }
     if (_pastGrace || _graceTimer != null) return;
     _graceTimer = Timer(_antiFlashGrace, () {
+      // Null the fired timer: a callback that early-returns must not
+      // leave a dead timer blocking the next load's grace re-arm.
+      _graceTimer = null;
       if (_disposed || !mounted || !widget.controller.loading) return;
       setState(() => _pastGrace = true);
     });
@@ -483,7 +486,7 @@ class _PathBar extends StatelessWidget {
       children: [
         Container(
           key: ValueKey('${controller.paneTabId}.path'),
-          height: 34 * MediaQuery.textScalerOf(context).scale(1),
+          height: MediaQuery.textScalerOf(context).scale(34),
           color: colors.surfaceContainerLow,
           padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
           child: Row(
@@ -527,7 +530,7 @@ class _PathBar extends StatelessWidget {
               ),
               if (controller.loading && loadingVisible)
                 IconButton(
-                  key: const ValueKey('pane.cancel'),
+                  key: ValueKey('${controller.paneTabId}.cancel'),
                   tooltip: l10n.paneCancelLoading,
                   onPressed: onCancel,
                   icon: const Icon(Icons.close, size: 16),
@@ -538,10 +541,10 @@ class _PathBar extends StatelessWidget {
         // 02 §2.8: a 2 px indeterminate progress line under the path bar
         // once the anti-flash grace has passed.
         if (controller.loading && loadingVisible)
-          const SizedBox(
-            key: ValueKey('pane.progress'),
+          SizedBox(
+            key: ValueKey('${controller.paneTabId}.progress'),
             height: 2,
-            child: LinearProgressIndicator(),
+            child: const LinearProgressIndicator(),
           ),
       ],
     );
@@ -647,7 +650,7 @@ class _PaneRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
-                  width: 64 * MediaQuery.textScalerOf(context).scale(1),
+                  width: MediaQuery.textScalerOf(context).scale(64),
                   child: Text(
                     size,
                     textAlign: TextAlign.end,
@@ -660,7 +663,7 @@ class _PaneRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
-                  width: 120 * MediaQuery.textScalerOf(context).scale(1),
+                  width: MediaQuery.textScalerOf(context).scale(120),
                   child: Text(
                     modified,
                     textAlign: TextAlign.end,
@@ -699,7 +702,7 @@ class _PaneFooter extends StatelessWidget {
 
     return Container(
       key: const ValueKey('pane.footer'),
-      height: 24 * MediaQuery.textScalerOf(context).scale(1),
+      height: MediaQuery.textScalerOf(context).scale(24),
       padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
       color: colors.surfaceContainerLow,
       child: Align(
@@ -834,6 +837,9 @@ class _LostConnectionBanner extends StatelessWidget {
               TextButton(
                 key: const ValueKey('pane.banner.cancel'),
                 onPressed: onCancel,
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.onErrorContainer,
+                ),
                 child: Text(l10n.paneConnectionLostCancel),
               ),
             ],
@@ -867,7 +873,7 @@ class _Centered extends StatelessWidget {
         child: Text(
           text,
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),

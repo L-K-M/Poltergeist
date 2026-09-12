@@ -111,7 +111,13 @@ String paneParentPath(String path) {
   }
   // POSIX '/x' → '/', the root its own parent.
   if (lastSlash == 0) return separator;
-  final parent = trimmed.substring(0, lastSlash);
+  final parent0 = trimmed.substring(0, lastSlash);
+  // Collapse doubled separators in the parent ('/a//b' → '/a', not
+  // '/a/') so one directory maps to one canonical parent path.
+  var parent = parent0;
+  while (parent.length > 1 && parent.endsWith(separator)) {
+    parent = parent.substring(0, parent.length - 1);
+  }
   // Windows: the parent of 'C:\x' is 'C:\', not 'C:'.
   if (parent.length == 2 && parent[1] == ':') return '$parent\\';
   // Windows UNC: '\\server\share' is itself a root — never climb to

@@ -721,7 +721,7 @@ void main() {
         config: ServerConfig(
           id: 'pane',
           label: 'pane',
-          host: 'demo.example.com',
+          host: 'pane.example.com',
           port: 22,
           username: 'deploy',
           authMethod: AuthMethod.agent,

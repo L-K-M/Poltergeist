@@ -71,6 +71,10 @@ class FakePaneLanes implements PaneEngineLanes {
   @override
   Future<void> disconnectServer(String serverId) async {
     disconnects.add(serverId);
+    // Mirrors the engine's teardown fan-out: the watch reports the drop.
+    _statesOf(serverId).add(
+      const ServerStatus(ServerConnectionState.disconnected),
+    );
   }
 
   void emitState(String serverId, ServerStatus status) {
@@ -746,6 +750,48 @@ void main() {
     expect(controller.phase, PanePhase.openingLocal);
     expect(controller.error, isNotNull);
     expect(controller.error!.kind, RemoteFileErrorKind.other);
+    controller.dispose();
+  });
+
+  test('the post-first-cancel remote state can still unbind', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('root.txt')];
+    lanes.nextRemoteChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+
+    // Esc during the first listing: live remote channel, no location.
+    controller.cancelNavigation();
+    expect(controller.location, isNull);
+    expect(controller.remoteBookmark, isNotNull);
+
+    // The banner-cancel paths must not dead-end on the null location.
+    await controller.cancelRecovery();
+    expect(lanes.disconnects, ['srv-1']);
+
+    // Detach in the same state closes the channel and resets the pane.
+    await controller.detachRemote();
+    expect(channel.closeCalls, 1);
+    expect(controller.phase, PanePhase.unbound);
+    expect(controller.remoteBookmark, isNull);
+    controller.dispose();
+  });
+
+  test('cancelRecovery on a local pane is a no-op', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = const [];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+    await settle();
+
+    await controller.cancelRecovery();
+    await controller.detachRemote();
+
+    expect(lanes.disconnects, isEmpty);
+    expect(controller.phase, PanePhase.browsing);
     controller.dispose();
   });
 
