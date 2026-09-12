@@ -393,6 +393,7 @@ void main() {
     });
 
     test('load sweeps an abandoned temp and spares live ones', () async {
+      // Keep forward-slash wiring: Windows listings use native separators.
       final file = File(path);
       await file.parent.create(recursive: true);
 

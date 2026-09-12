@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-11. **M2 is closed; M3 is open** (first M3
+_Last updated: 2026-09-12. **M2 is closed; M3 is open** (first M3
 slice below) — v0.2.0 published as a
 pre-release 2026-09-11
 ([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
@@ -35,7 +35,9 @@ items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
 landed 2026-09-12 (dated section below; open item 12 tracks the
 location type's move into core); the next M3 slices are recorded
-there
+there. The pure listing-state reducer and metadata-only listing sort
+from the sibling slices are implemented below and feed the pane
+controller's transitions.
 
 ## Done
 
@@ -2544,10 +2546,113 @@ analyze clean; core re-verified untouched (analyze clean, 548 tests,
 No core change, no pin/lock change, no port (PORTS.md unchanged), no
 milestone-close claim.
 
+## M3 — pane listing-state transitions (2026-09-12)
+
+`ListingState<Location>` implements 02 §2.8's pure transitions in the app
+service layer: optimistic navigation, immutable sorted row snapshots,
+current-generation success/error acceptance, stale-answer rejection, and
+Esc restoring the last quiescent location, rows, and error. Stacked requests
+retain one snapshot; cancelling advances both counters. A cancelled Retry
+restores its error and keeps stale-row actions disabled. Duplicate terminal
+answers and unsolicited future generations are ignored. The ready factory
+requires an accepted listing (or empty launcher); unlisted directories enter
+through navigation. No filesystem operation runs or is cancelled by this
+model.
+
+02 §2.8 clarifies that location is a type parameter; the future
+PaneController specializes it with `PaneLocation`. Canonicalization remains
+at the location-construction boundary. 03 §5 records the verified upstream
+listing-cancellation prerequisite (item 12), rather than treating an
+abandoned future as cancelled I/O.
+
+Validation: 11 transition tests pass after first failing to compile against
+the absent model. They cover defensive copies, lazy stale-payload rejection,
+monotonic generations, stacked cancellation, retry-error restoration, and
+terminal answer rejection. All 433 Flutter tests pass; Flutter analysis and
+the dependency guard are clean.
+[CI](https://github.com/L-K-M/Poltergeist/actions/runs/34692910410) also passes
+core checks and all five client builds. Review's constructor and validation
+claims were refuted: [Dart 3.12 supports private named initializing formals](https://dart.dev/language/constructors#private-named-parameters),
+and CI confirms 433 passing app tests on the reviewed revision.
+Round 2 clarified chain-scoped generations, immutable location values, and
+identity equality. The loading formula remains exactly 02 §2.8's contract.
+No widgets, D12 rendering surface, dependency/pin change, or source
+port; PORTS.md is unchanged. PaneController's D2 port, scoped local access,
+location construction, browsing widgets, and the rest of M3 remain open.
+
+## M3: deterministic listing sort (2026-09-12)
+
+`sortFileEntries` supplies 02 §2.3's pure core sorting: natural names,
+seven column keys with their initial directions, optional directory grouping,
+ascending secondary names, and immutable output retaining entry identity.
+It folds names once per row with pinned Unicode 17.0.0 simple mappings;
+numeric runs compare without integer conversion. Directory inode sizes never
+substitute for calculated totals. The function performs no I/O.
+
+02 §2.3 now specifies ASCII digit runs, leading-zero ties, missing metadata,
+Kind ordering, POSIX permission masking, numeric ownership, and supplied
+directory totals. Unicode data, source hash, offline generator, exhaustive
+mapping test, and license are committed; the package LICENSE includes the
+Unicode notice for Flutter's license collector. No dependency or Séance pin
+changed; original code, no D2 port, PORTS.md unchanged.
+
+Validation: 17 sorting tests and seven Unicode tests pass after the new
+surface tests first failed to compile. They cover all columns/directions,
+grouping, nulls, long numeric runs, Unicode, shuffled-order determinism,
+input preservation, and every Unicode scalar against the pinned source.
+Core analysis and 572 tests pass (15 existing SSH-fixture skips); Flutter
+analysis and 433 tests pass. The dependency guard passes. A local 100k-row
+model-sort smoke test measured a 272 ms median over five warm runs; this is
+not a D12 paint benchmark. The Linux Flutter asset bundle builds and its
+`NOTICES.Z` contains the Unicode notice. [PR #80's first CI run](
+https://github.com/L-K-M/Poltergeist/actions/runs/34710378767) passes all five
+client builds, core/app checks, and real-sshd integration.
+
+Review round 1 added a descending-name assertion, verified by removing
+direction handling and observing failure, plus license formatting and small
+contract/test clarifications. Missing-mapping, provenance, and license-year
+claims were refuted against the full source and fresh upstream downloads;
+the PR description records each disposition. No production defect found.
+
+This is an ungated M3 model slice. PaneController, widgets, and D12 rendering
+benchmarks remain with their slices. Listing cancellation remains item 12;
+the raw-name prerequisite discovered here is item 13. No milestone close.
+
 ## Open items
 
-1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
-   `LocalFileSystem` lands; this is not an M1 closure claim.
+1. **M3 — OS Dart client matrix: validated 2026-09-12.**
+   [PR #81](https://github.com/L-K-M/Poltergeist/pull/81) activates
+   Ubuntu, macOS, and Windows package analysis/tests with dynamic explicit
+   paths. Ubuntu tooling, SSH integration, M0 evidence gates, and all five
+   client builds remain intact. No release-workflow or milestone-close change.
+   [CI 34713912737](https://github.com/L-K-M/Poltergeist/actions/runs/34713912737)
+   at `a5588ed` passed all executed jobs. Native package logs (Dart 3.13.3):
+   Ubuntu job `103607494694`, 549 passed/16 skipped; macOS `103607494655`,
+   548/13; Windows `103607494699`, 524/37. All three analyzed cleanly.
+   M0 measurements/evidence jobs are dispatch-only and skipped on this PR;
+   committed M0 evidence validation passed in Ubuntu tooling.
+   **Skip audit:** Ubuntu: 15 unavailable SSH fixtures plus one Windows-only
+   contract. macOS: 11 unavailable SSH fixtures, one Windows-only contract,
+   and one distinct-case fixture on a case-insensitive volume. Windows:
+   11 unavailable SSH fixtures, 17 POSIX filesystem fixtures, four incident
+   store mode fixtures, two engine mode fixtures, the existing engine-link
+   fixture, one distinct-case fixture, and one backslash-as-leaf fixture.
+   Four additional SSH tests are Linux-only registrations. The local VFS
+   and safety link helpers ran on Windows without capability skips;
+   native timestamps, case-only rename, reserved names, containment,
+   backup recovery, and transfer contracts remain covered. SSH job
+   `103608923552` exercised the enabled fixture separately on Ubuntu.
+   Initial CI `34713212268` exposed macOS getcwd alias and Windows separator
+   expectations, Windows orphan-temp matching, and detached source cleanup.
+   Repairs preserve those tests; the held-cleanup regression failed before
+   the fix and passed afterward. Local core analysis/549 tests and the
+   import/protocol scans pass; filesystem/store tests: 176 passed.
+   Review runs `34713212233` and `34713912733` completed without confirmed
+   important findings. Two minor-only rounds end optional review changes;
+   #81 records every disposition and final-head gates. The proposed removal
+   of returns after `markTestSkipped` contradicts test_api's void contract.
+   Deferred: expanding the workflow comment's explicit-path rationale;
+   AGENTS already documents it. No UI or pin change.
    **2026-09-07 review follow-up (#34):** before running the protocol guard's
    symlink fixture on Windows, probe link-creation privileges and skip only
    when unavailable. Its current CI job runs on Ubuntu.
@@ -3025,6 +3130,32 @@ milestone-close claim.
     compares raw paths; every navigation path arrives canonical from
     the VFS's listings, so no same-volume spelling variants occur in
     practice.
+
+12. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
+    The pin (`2e6d1f1`) defines `RemoteFileSystem.listDirectory(String path)`
+    without a cancellation token; its SFTP implementation awaits
+    `SftpClient.listdir`. `EngineBrowseChannel.listDirectory` also has no
+    token or cancellation message. This blocks 09 §3.2–3.3's controller
+    wiring: dropping a stale result does not stop the old listing, and
+    closing a shared channel would cancel other consumers. Add listing
+    cancellation upstream with tests, then bump the pin and bridge a
+    request-id-scoped engine cancellation message to each listing's token.
+    Local listing cancellation must use the same VFS contract. Preserve
+    typed `cancelled` failures, observe late completions, release request
+    state on every terminal path, and keep sibling listings alive.
+    The ungated pure listing-state reducer landed first; it does not claim
+    to cancel I/O. No upstream PR has been opened for this follow-up.
+
+13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
+    The pinned `RemoteFileEntry` exposes decoded name/path only, with no
+    raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
+    escaped-name disambiguation, and disabled operations on flagged rows.
+    The pure sorter orders decoded names only; a path tiebreak cannot
+    distinguish two byte names decoded to the same string. Add metadata
+    upstream and bridge it through the engine before wiring those pane
+    behaviors; preserve the raw-byte tiebreak before the path fallback.
+    D25 still defers byte-preserving operations. No local VFS fork or
+    replacement interface is authorized by this item.
 
 ## Independent audit
 
