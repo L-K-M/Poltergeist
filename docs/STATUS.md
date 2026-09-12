@@ -2483,7 +2483,7 @@ No widgets, D12 rendering surface, dependency/pin change, or source
 port; PORTS.md is unchanged. PaneController's D2 port, scoped local access,
 location construction, browsing widgets, and the rest of M3 remain open.
 
-## M3 — deterministic listing sort (2026-09-12)
+## M3: deterministic listing sort (2026-09-12)
 
 `sortFileEntries` supplies 02 §2.3's pure core sorting: natural names,
 seven column keys with their initial directions, optional directory grouping,
@@ -2499,14 +2499,23 @@ mapping test, and license are committed; the package LICENSE includes the
 Unicode notice for Flutter's license collector. No dependency or Séance pin
 changed; original code, no D2 port, PORTS.md unchanged.
 
-Validation: 16 sorting tests and seven Unicode tests pass after the new
+Validation: 17 sorting tests and seven Unicode tests pass after the new
 surface tests first failed to compile. They cover all columns/directions,
 grouping, nulls, long numeric runs, Unicode, shuffled-order determinism,
 input preservation, and every Unicode scalar against the pinned source.
-Core analysis and 571 tests pass (15 existing SSH-fixture skips); Flutter
+Core analysis and 572 tests pass (15 existing SSH-fixture skips); Flutter
 analysis and 433 tests pass. The dependency guard passes. A local 100k-row
 model-sort smoke test measured a 272 ms median over five warm runs; this is
-not a D12 paint benchmark. CI and automated review follow on the PR.
+not a D12 paint benchmark. The Linux Flutter asset bundle builds and its
+`NOTICES.Z` contains the Unicode notice. [PR #80's first CI run](
+https://github.com/L-K-M/Poltergeist/actions/runs/34710378767) passes all five
+client builds, core/app checks, and real-sshd integration.
+
+Review round 1 added a descending-name assertion, verified by removing
+direction handling and observing failure, plus license formatting and small
+contract/test clarifications. Missing-mapping, provenance, and license-year
+claims were refuted against the full source and fresh upstream downloads;
+the PR description records each disposition. No production defect found.
 
 This is an ungated M3 model slice. PaneController, widgets, and D12 rendering
 benchmarks remain with their slices. Listing cancellation remains item 12;
@@ -2995,7 +3004,7 @@ the raw-name prerequisite discovered here is item 13. No milestone close.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
 
-13. **2026-09-12 — M3: raw-name metadata before pane browsing ships.**
+13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
     The pinned `RemoteFileEntry` exposes decoded name/path only, with no
     raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
     escaped-name disambiguation, and disabled operations on flagged rows.

@@ -35,6 +35,8 @@ const _asciiNine = 0x39;
 /// The pinned VFS exposes no symlink target kind, so links group with files.
 /// Raw-byte collision ordering (02 §13) needs richer VFS metadata; this function
 /// orders decoded names only (docs/STATUS.md, open item 13).
+/// Entries equal in every key have unspecified relative order; unique decoded
+/// paths guarantee deterministic ordering.
 List<RemoteFileEntry> sortFileEntries(
   Iterable<RemoteFileEntry> entries, {
   FileSortKey key = FileSortKey.name,

@@ -47,8 +47,12 @@ void main() {
     final package = await Isolate.resolvePackageUri(
       Uri.parse('package:poltergeist_core/poltergeist_core.dart'),
     );
+    if (package == null) {
+      fail('Could not resolve poltergeist_core; run tests from source.');
+    }
+
     final source = File.fromUri(
-      package!.resolve('../tool/unicode/CaseFolding-17.0.0.txt'),
+      package.resolve('../tool/unicode/CaseFolding-17.0.0.txt'),
     );
     final bytes = await source.readAsBytes();
     expect(sha256.convert(bytes).toString(), _sourceSha256);

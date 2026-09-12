@@ -1,2 +1,2 @@
 # Preserve the pinned upstream bytes on Windows checkouts too.
-CaseFolding-17.0.0.txt -text
+CaseFolding-*.txt -text

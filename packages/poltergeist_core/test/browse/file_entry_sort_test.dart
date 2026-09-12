@@ -45,6 +45,21 @@ void main() {
     );
   });
 
+  test('names descend naturally, including case and spelling ties', () {
+    expect(
+      _names(
+        sortFileEntries([
+          _file('file2'),
+          _file('File2'),
+          _file('file02'),
+          _file('file10'),
+          _file('z', type: RemoteFileType.directory),
+        ], direction: FileSortDirection.descending),
+      ),
+      ['z', 'file10', 'file2', 'file02', 'File2'],
+    );
+  });
+
   test('case folding precedes case-sensitive ties and preserves accents', () {
     expect(
       _names(
@@ -252,7 +267,7 @@ void main() {
   });
 
   test('permissions omit type bits and retain special permission bits', () {
-    // POSIX modes: regular 0644, directory 0644, regular 0600 and 04644.
+    // POSIX modes: regular 0644, directory 0644, regular 0600, setuid 0644.
     final entries = [
       _file('file10', mode: 0x81a4),
       _file('file2', type: RemoteFileType.directory, mode: 0x41a4),
