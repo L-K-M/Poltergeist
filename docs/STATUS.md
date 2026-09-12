@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-11. **M2 is closed; M3 is open** (first M3
+_Last updated: 2026-09-12. **M2 is closed; M3 is open** (first M3
 slice below) — v0.2.0 published as a
 pre-release 2026-09-11
 ([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
@@ -32,9 +32,10 @@ settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
 pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
-Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
-resumes against the engine-side local browse seam (open item 11, closed
-below: `EngineClient.openLocalChannel` and its host-side channel).
+Next milestone: M3 (panes v1, 07 §3.4). The pure listing-state reducer
+is implemented below. PaneController wiring needs cancellable listings
+through the pinned VFS and engine protocol (open item 12). The local
+browse-channel seam is available (item 11, closed).
 
 ## Done
 
@@ -2447,6 +2448,33 @@ No app change, no pin/lock change, no transfer/queue protocol work
 (M4), no port (original code — PORTS.md unchanged), no
 milestone-close claim.
 
+## M3 — pane listing-state transitions (2026-09-12)
+
+`ListingState<Location>` implements 02 §2.8's pure transitions in the app
+service layer: optimistic navigation, immutable sorted row snapshots,
+current-generation success/error acceptance, stale-answer rejection, and
+Esc restoring the last quiescent location, rows, and error. Stacked requests
+retain one snapshot; cancelling advances both counters. A cancelled Retry
+restores its error and keeps stale-row actions disabled. Duplicate terminal
+answers and unsolicited future generations are ignored. The ready factory
+requires an accepted listing (or empty launcher); unlisted directories enter
+through navigation. No filesystem operation runs or is cancelled by this
+model.
+
+02 §2.8 clarifies that location is a type parameter; the future
+PaneController specializes it with `PaneLocation`. Canonicalization remains
+at the location-construction boundary. 03 §5 records the verified upstream
+listing-cancellation prerequisite (item 12), rather than treating an
+abandoned future as cancelled I/O.
+
+Validation: 11 transition tests pass after first failing to compile against
+the absent model. They cover defensive copies, lazy stale-payload rejection,
+monotonic generations, stacked cancellation, retry-error restoration, and
+terminal answer rejection. All 433 Flutter tests pass; Flutter analysis and
+the dependency guard are clean. No widgets, D12 rendering surface, dependency/pin change, or source
+port; PORTS.md is unchanged. PaneController's D2 port, scoped local access,
+location construction, browsing widgets, and the rest of M3 remain open.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -2914,6 +2942,21 @@ milestone-close claim.
     `EngineClient` facade, and tests — after which the pane slice
     resumes against it. Directory watching (03 §7.5), per-location
     view prefs, and the rest of 07 §3.4 stay with their own slices.
+
+12. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
+    The pin (`2e6d1f1`) defines `RemoteFileSystem.listDirectory(String path)`
+    without a cancellation token; its SFTP implementation awaits
+    `SftpClient.listdir`. `EngineBrowseChannel.listDirectory` also has no
+    token or cancellation message. This blocks 09 §3.2–3.3's controller
+    wiring: dropping a stale result does not stop the old listing, and
+    closing a shared channel would cancel other consumers. Add listing
+    cancellation upstream with tests, then bump the pin and bridge a
+    request-id-scoped engine cancellation message to each listing's token.
+    Local listing cancellation must use the same VFS contract. Preserve
+    typed `cancelled` failures, observe late completions, release request
+    state on every terminal path, and keep sibling listings alive.
+    The ungated pure listing-state reducer landed first; it does not claim
+    to cancel I/O. No upstream PR has been opened for this follow-up.
 
 ## Independent audit
 
