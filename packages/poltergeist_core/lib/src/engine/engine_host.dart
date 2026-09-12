@@ -194,6 +194,9 @@ class EngineHost {
           // this subscription — no separate cancel bookkeeping.
           channel.signals.listen((signal) {
             if (_shuttingDown) return;
+            // Broadcast streams flush signals added just before close();
+            // drop ones racing a channel close/removal.
+            if (_channels[channelId] != channel) return;
             _events.send(
               DirectoryWatchEvent(
                 channelId: channelId,

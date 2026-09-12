@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_core/src/engine/local_directory_watcher.dart'
+    show LocalDirectoryWatcher;
 import 'package:test/test.dart';
 
 /// A port nothing listens on: connect attempts fail fast with ECONNREFUSED,
@@ -17,8 +19,9 @@ const _streamClosureTimeout = Duration(seconds: 5);
 /// engine boundary within this bound or the test fails rather than hangs.
 const _watchCrossingTimeout = Duration(seconds: 5);
 
-/// A window comfortably past the debounce in which nothing may arrive.
-const _watchQuietWindow = Duration(milliseconds: 900);
+/// A window comfortably past the debounce in which nothing may arrive —
+/// derived from the production constant, not a restated millisecond value.
+final _watchQuietWindow = LocalDirectoryWatcher.debounceInterval * 3;
 
 /// A declined changed-key record, as the engine's incident store mirrors it
 /// to the app for persistence (owner decision 2a).
@@ -400,13 +403,16 @@ void main() {
     Future<(EngineClient, EngineBrowseChannel, Directory)> localFixture(
       String name,
     ) async {
-      final client = await EngineClient.spawn(const EngineConfig());
-      addTearDown(client.shutdown);
+      // The tree cleanup registers BEFORE the engine shutdown so LIFO
+      // teardown releases the engine's watch handles first — deleting a
+      // watched tree out from under a live engine defers on Windows (the
+      // vanish test's own skip reason documents the trap).
       final root = Directory.systemTemp.createTempSync(name);
-      // The vanish test deletes its own root; tolerate an absent tree.
       addTearDown(() {
         if (root.existsSync()) root.deleteSync(recursive: true);
       });
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
       File('${root.path}/a.txt').writeAsStringSync('alpha');
       Directory('${root.path}/sub').createSync();
       final channel = await client.openLocalChannel(rootPath: root.path);
@@ -460,6 +466,15 @@ void main() {
       // Past the debounce window with nothing delivered.
       await Future<void>.delayed(_watchQuietWindow);
       expect(changes, isEmpty);
+
+      // Positive control: the watch is alive, so the silence above was
+      // real filtering and not a dead watch passing vacuously.
+      File('${root.path}/direct.txt').writeAsStringSync('direct');
+      final control = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(control.path, channel.homePath);
+      expect(control.signal, DirectoryWatchSignal.changed);
     });
 
     test('retarget switches the watched directory safely', () async {

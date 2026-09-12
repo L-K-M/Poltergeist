@@ -1354,7 +1354,9 @@ void main() {
         (id) => WatchLocalDirectoryRequest(
           requestId: id,
           channelId: opened.channelId,
-          path: opened.homePath,
+          // A non-canonical spelling: the backend must receive the
+          // canonicalized form, not the request's raw text.
+          path: '${opened.homePath}/.',
         ),
       );
       if (result is! EngineAck) {
@@ -1520,7 +1522,7 @@ void main() {
     });
 
     test('an empty path answers typed', () async {
-      final h = HostHarness();
+      final h = HostHarness(localWatch: _NeverWatchBackend());
       addTearDown(h.dispose);
       final root = _localFixture('pg-watch-empty');
 
