@@ -1257,6 +1257,7 @@ void main() {
 
     test('shutdown retires local channels', () async {
       final h = HostHarness();
+      addTearDown(h.dispose);
       final root = _localFixture('pg-local-pane-shutdown');
 
       final opened = await h.openLocal(root.path);
@@ -1266,5 +1267,40 @@ void main() {
       expect(error.kind, RemoteFileErrorKind.disconnected);
       expect(error.message, 'The browse channel is closed.');
     });
+
+    test(
+      'a root under an unreadable ancestor fails the open typed',
+      () async {
+        final h = HostHarness();
+        addTearDown(h.dispose);
+        final parent = Directory.systemTemp.createTempSync(
+          'pg-local-pane-blind',
+        );
+        addTearDown(() {
+          final restore = Process.runSync('chmod', ['755', parent.path]);
+          expect(restore.exitCode, 0, reason: 'fixture chmod restore failed');
+          parent.deleteSync(recursive: true);
+        });
+        final chmod = Process.runSync('chmod', ['000', parent.path]);
+        expect(chmod.exitCode, 0, reason: 'fixture chmod failed');
+
+        // realpath semantics: an unreadable ancestor cannot be traversed,
+        // so the open itself fails — typed through the funnel, unlike a
+        // missing root which opens and answers notFound at first listing.
+        final error = await expectError(
+          h.call(
+            (id) => OpenLocalBrowseChannelRequest(
+              requestId: id,
+              rootPath: '${parent.path}/child',
+            ),
+          ),
+        );
+        expect(error.kind, RemoteFileErrorKind.permissionDenied);
+        expect(error.operation, 'resolve');
+      },
+      skip: _posixNonRoot
+          ? false
+          : 'mode-bit refusal needs a POSIX host with a non-root user',
+    );
   });
 }

@@ -358,6 +358,10 @@ final class OpenBrowseChannelRequest extends EngineRequest {
 /// realpath semantics; `~` expands through the engine's environment) and
 /// answers [BrowseChannelOpened] on the same channel-id routing as pool
 /// channels, so listing and closing reuse the existing requests unchanged.
+/// Only a *missing* root is guaranteed to open (surfacing the typed
+/// `notFound` at first listing): a root under an unreadable ancestor
+/// cannot be traversed, so the open itself fails typed
+/// (`permissionDenied`, operation `resolve`) through the local funnel.
 final class OpenLocalBrowseChannelRequest extends EngineRequest {
   final String rootPath;
 

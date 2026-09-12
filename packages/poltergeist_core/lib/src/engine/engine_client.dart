@@ -215,7 +215,11 @@ class EngineClient implements PromptBridge, ProbeBridge {
   /// the initial home, not a sandbox — like pool channels, listings may
   /// navigate anywhere the user's OS permissions allow (confinement is
   /// 03 §7.2's app-side `ScopedPathAccess` seam, pass-through on v1
-  /// desktop). No server state exists to watch, so there is no stream to
+  /// desktop). [rootPath] should be absolute (or `~`-anchored) — a
+  /// relative root resolves against the engine's working directory.
+  /// Only a missing root is guaranteed to open (`notFound` surfaces at
+  /// first listing); a root under an unreadable ancestor fails the open
+  /// typed. No server state exists to watch, so there is no stream to
   /// subscribe first.
   Future<EngineBrowseChannel> openLocalChannel({
     required String rootPath,

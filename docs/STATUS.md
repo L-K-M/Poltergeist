@@ -2407,7 +2407,10 @@ the root is the channel's initial home, not a sandbox — like pool
 channels, listings may navigate to any absolute path, the user's OS
 permissions bound the reach, and confinement belongs to 03 §7.2's
 app-side `ScopedPathAccess` seam (v1 desktop grants pass-through),
-never to this request.
+never to this request. Round 3 added the open-failure contract: only a
+missing root is guaranteed to open (`notFound` at first listing); a
+root under an unreadable ancestor fails the open itself, typed
+`permissionDenied` operation `resolve` through the local funnel.
 `EngineHost` mounts a `_LocalPaneChannel implements PaneChannel` backed by
 a `LocalFileSystem` instance the engine owns (03 §5's ownership table;
 D8 — no app-side dart:io, no second engine): the pool's existing
@@ -2425,15 +2428,16 @@ resumes against this facade.
 
 Validation (failing-first: the new-surface tests failed to compile
 before the implementation landed): protocol round-trips through a
-spawned isolate for the new request plus the v7 bump; eight host tests
+spawned isolate for the new request plus the v7 bump; nine host tests
 over temp-dir fixtures (canonicalized home + listing with files,
 sizes, and directories; links reported as links with null metadata;
 missing root opens and its first listing answers the pinned `notFound`
-taxonomy with operation `list`; chmod-000 directory answers
-`permissionDenied`; `~` expansion through the engine environment;
-idempotent close with the disconnected closed-channel error; local and
-pool channels sharing one id space without interference; shutdown
-retiring local channels); three
+taxonomy with operation `list`; a root under an unreadable ancestor
+fails the open typed `permissionDenied`/`resolve`; chmod-000
+directory answers `permissionDenied`; `~` expansion through the
+engine environment; idempotent close with the disconnected
+closed-channel error; local and pool channels sharing one id space
+without interference; shutdown retiring local channels); three
 real-isolate client tests (browse + subdirectory navigation across a
 spawned engine, the typed taxonomy crossing as `RemoteFileException`,
 idempotent close retiring the channel). Full core suite 546 green
