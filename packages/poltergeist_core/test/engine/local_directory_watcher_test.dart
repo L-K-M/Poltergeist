@@ -9,13 +9,14 @@ import 'package:test/test.dart';
 
 /// A scriptable injected backend: one controller per watched path, plus a
 /// record of cancel events so release assertions can observe teardown.
-class FakeBackend {
+class FakeBackend implements LocalWatchBackend {
   final controllers = <String, StreamController<FileSystemEvent>>{};
   final cancelled = <String>[];
   final threw = <String>[];
   String? throwOn;
 
-  Stream<FileSystemEvent> call(String directory) {
+  @override
+  Stream<FileSystemEvent> watch(String directory) {
     if (directory == throwOn) {
       threw.add(directory);
       throw const FileSystemException('backend refused', 'watch');
@@ -68,7 +69,7 @@ void main() {
   test('an ordinary change signals changed after the 300 ms debounce', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
       backend.emit(_root, _create('$_root/a.txt'));
@@ -90,7 +91,7 @@ void main() {
   test('a burst of events collapses into one changed signal', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -114,7 +115,7 @@ void main() {
   test('grandchild events are filtered (non-recursive watch)', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -136,7 +137,7 @@ void main() {
   test('a move whose destination is a direct child qualifies', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -153,7 +154,7 @@ void main() {
   test('a move from outside into a direct child qualifies', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -172,7 +173,7 @@ void main() {
   test('an event on the watched directory itself is an ordinary change', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -191,7 +192,7 @@ void main() {
   test('a removed watched directory signals lost immediately', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -212,7 +213,7 @@ void main() {
   test('a renamed-away watched directory signals lost immediately', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -229,7 +230,7 @@ void main() {
   test('a backend error signals lost immediately with detail', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -249,7 +250,7 @@ void main() {
   test('a non-filesystem backend error keeps a fixed detail sentence', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -266,7 +267,7 @@ void main() {
   test('a backend close signals lost immediately', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -286,7 +287,7 @@ void main() {
     () {
       fakeAsync((async) {
         final backend = FakeBackend();
-        final watcher = LocalDirectoryWatcher(backend: backend.call);
+        final watcher = LocalDirectoryWatcher(backend: backend);
 
         final signals = collect(async, watcher, _root);
 
@@ -308,7 +309,7 @@ void main() {
   test('a lost watch cancels its pending debounce', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
 
@@ -329,7 +330,7 @@ void main() {
     fakeAsync((async) {
       final backend = FakeBackend()
         ..throwOn = _root;
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = <LocalWatchSignal>[];
       watcher.signals.listen(signals.add);
@@ -348,7 +349,7 @@ void main() {
   test('stop cancels the pending debounce and emits nothing', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
       backend.emit(_root, _create('$_root/a.txt'));
@@ -367,7 +368,7 @@ void main() {
   test('events after stop are dropped', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
       watcher.stop();
@@ -388,7 +389,7 @@ void main() {
   test('retarget releases the previous subscription and its timer', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
       backend.emit(_root, _create('$_root/a.txt'));
@@ -411,7 +412,7 @@ void main() {
   test('stale events from a replaced watch cannot signal the new binding', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
       watcher.retarget(_other);
@@ -438,7 +439,7 @@ void main() {
 
   test('dispose closes the signals stream and releases the watch', () async {
     final backend = FakeBackend();
-    final watcher = LocalDirectoryWatcher(backend: backend.call);
+    final watcher = LocalDirectoryWatcher(backend: backend);
 
     final done = Completer<void>();
     watcher.signals.listen(
@@ -457,7 +458,7 @@ void main() {
   test('a second watch after a lost watch still signals', () {
     fakeAsync((async) {
       final backend = FakeBackend();
-      final watcher = LocalDirectoryWatcher(backend: backend.call);
+      final watcher = LocalDirectoryWatcher(backend: backend);
 
       final signals = collect(async, watcher, _root);
       backend.emit(_root, _delete(_root));

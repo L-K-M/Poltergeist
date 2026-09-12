@@ -413,12 +413,20 @@ void main() {
       return (client, channel, root);
     }
 
+    /// macOS FSEvents may deliver changes made shortly before a watch
+    /// started — a documented dart:io limitation. Real-backend tests
+    /// drain that fixture-setup backlog past the debounce before staging
+    /// the events they actually assert on.
+    Future<void> drainSetupBacklog() =>
+        Future<void>.delayed(_watchQuietWindow);
+
     test(
       'a real local change crosses the engine boundary, debounced',
       () async {
         final (_, channel, root) = await localFixture('pg-watch-real');
 
         await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
         File('${root.path}/created.txt').writeAsStringSync('new');
 
         final event = await channel.directoryChanges.first.timeout(
@@ -436,6 +444,9 @@ void main() {
       final changes = <DirectoryWatchEvent>[];
       channel.directoryChanges.listen(changes.add);
       await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
+      changes.clear();
+
       // A grandchild edit and a sibling-of-root edit: neither is a direct
       // child of the watched directory on any of the three backends.
       File('${root.path}/sub/deep.txt').writeAsStringSync('deep');
@@ -462,6 +473,7 @@ void main() {
                 entries.singleWhere((e) => e.name == 'sub').path,
           );
       await channel.watchDirectory(subPath);
+      await drainSetupBacklog();
 
       // The old binding's change cannot invalidate the new one.
       File('${root.path}/stale.txt').writeAsStringSync('stale');
@@ -479,12 +491,15 @@ void main() {
       final (_, channel, root) = await localFixture('pg-watch-vanish');
 
       await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
       root.deleteSync(recursive: true);
 
-      final event = await channel.directoryChanges.first.timeout(
-        _watchCrossingTimeout,
-      );
-      expect(event.signal, DirectoryWatchSignal.lost);
+      // Windows delivers the children's removal events first, so a
+      // debounced changed may legitimately precede the loss; the contract
+      // is that the loss arrives and nothing was swallowed.
+      final event = await channel.directoryChanges
+          .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
       expect(event.path, channel.homePath);
       expect(event.detail, isNotNull);
     });
@@ -495,6 +510,8 @@ void main() {
       final changes = <DirectoryWatchEvent>[];
       channel.directoryChanges.listen(changes.add);
       await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
+      changes.clear();
       await channel.unwatchDirectory();
       File('${root.path}/after-unwatch.txt').writeAsStringSync('late');
 
@@ -514,6 +531,8 @@ void main() {
           onDone: done.complete,
         );
         await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        changes.clear();
         await channel.close();
 
         await done.future.timeout(_watchCrossingTimeout);

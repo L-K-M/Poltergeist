@@ -77,7 +77,7 @@ class EngineHost {
     LocalWatchBackend? localWatch,
   }) {
     final host = EngineHost._(events);
-    host._localWatch = localWatch ?? watchLocalDirectory;
+    host._localWatch = localWatch ?? const DartIoWatchBackend();
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
       resolveServer: host._resolveKnownServer,
@@ -188,22 +188,22 @@ class EngineHost {
           final homePath = await fs.canonicalize(request.rootPath);
           final channelId = _nextChannelId++;
           final watcher = LocalDirectoryWatcher(backend: _localWatch);
-          _channels[channelId] = _LocalPaneChannel(
-            fs,
-            homePath,
-            watcher,
-            (signal) {
-              if (_shuttingDown) return;
-              _events.send(
-                DirectoryWatchEvent(
-                  channelId: channelId,
-                  path: signal.path,
-                  signal: signal.kind,
-                  detail: signal.detail,
-                ),
-              );
-            },
-          );
+          final channel = _LocalPaneChannel(fs, homePath, watcher);
+          // The host owns the forwarding subscription; the channel owns
+          // the watcher. dispose() closes the signal stream, which ends
+          // this subscription — no separate cancel bookkeeping.
+          channel.signals.listen((signal) {
+            if (_shuttingDown) return;
+            _events.send(
+              DirectoryWatchEvent(
+                channelId: channelId,
+                path: signal.path,
+                signal: signal.kind,
+                detail: signal.detail,
+              ),
+            );
+          });
+          _channels[channelId] = channel;
           return BrowseChannelOpened(channelId: channelId, homePath: homePath);
         });
       case final WatchLocalDirectoryRequest request:
@@ -473,19 +473,20 @@ class EngineHost {
 /// produces. The channel also owns its directory watch (03 §7.5), one
 /// non-recursive watch per channel: [watch] starts or retargets it,
 /// [unwatch] and [close] release it, and its typed signals cross the port
-/// through the [onSignal] forwarder the host installs at construction.
+/// through the subscription the host installs on [signals].
 final class _LocalPaneChannel implements PaneChannel {
   final LocalFileSystem _fs;
   final LocalDirectoryWatcher _watcher;
-  final void Function(LocalWatchSignal signal) _onSignal;
-  StreamSubscription<LocalWatchSignal>? _signalSubscription;
 
   @override
   final String homePath;
 
-  _LocalPaneChannel(this._fs, this.homePath, this._watcher, this._onSignal) {
-    _signalSubscription = _watcher.signals.listen(_onSignal);
-  }
+  _LocalPaneChannel(this._fs, this.homePath, this._watcher);
+
+  /// The watch's typed signals (03 §7.5); closes when [close] disposes the
+  /// watcher. A getter — not a callback field — so the engine sources carry
+  /// no function-typed fields (08 §3.3's guard).
+  Stream<LocalWatchSignal> get signals => _watcher.signals;
 
   @override
   RemoteFileSystem get fs => _fs;
@@ -524,7 +525,6 @@ final class _LocalPaneChannel implements PaneChannel {
 
   @override
   Future<void> close() async {
-    await _signalSubscription?.cancel();
     await _watcher.dispose();
   }
 

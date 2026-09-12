@@ -38,11 +38,12 @@ Future<String> _canonical(String path) => LocalFileSystem().canonicalize(path);
 
 /// A scriptable watch backend for the watch seam tests: one broadcast
 /// controller per watched path, cancel recording for release assertions.
-class FakeWatchBackend {
+class FakeWatchBackend implements LocalWatchBackend {
   final controllers = <String, StreamController<FileSystemEvent>>{};
   final cancelled = <String>[];
 
-  Stream<FileSystemEvent> call(String directory) {
+  @override
+  Stream<FileSystemEvent> watch(String directory) {
     return (controllers[directory] ??=
             StreamController<FileSystemEvent>.broadcast(onCancel: () {
               cancelled.add(directory);
@@ -268,6 +269,15 @@ Future<EngineError> expectError(Future<EngineResult> future) async {
   final result = await future;
   expect(result, isA<EngineError>(), reason: 'expected a failure result');
   return result as EngineError;
+}
+
+/// A watch backend that fails the test the moment the engine starts a
+/// watch — for asserting validation happens before any backend is
+/// touched.
+class _NeverWatchBackend implements LocalWatchBackend {
+  @override
+  Stream<FileSystemEvent> watch(String directory) =>
+      fail('backend must not start');
 }
 
 void main() {
@@ -1334,7 +1344,7 @@ void main() {
       Directory root,
     ) async {
       final backend = FakeWatchBackend();
-      final h = HostHarness(localWatch: backend.call);
+      final h = HostHarness(localWatch: backend);
       final opened = await h.openLocal(root.path);
       final result = await h.call(
         (id) => WatchLocalDirectoryRequest(
@@ -1399,7 +1409,7 @@ void main() {
       final sub = Directory('${root.path}/sub')..createSync();
 
       final backend = FakeWatchBackend();
-      final h = HostHarness(localWatch: backend.call);
+      final h = HostHarness(localWatch: backend);
       addTearDown(h.dispose);
       final opened = await h.openLocal(root.path);
       final homePath = opened.homePath;
@@ -1463,7 +1473,7 @@ void main() {
     });
 
     test('a missing root answers the typed notFound, unwatched', () async {
-      final h = HostHarness(localWatch: (_) => fail('backend must not start'));
+      final h = HostHarness(localWatch: _NeverWatchBackend());
       addTearDown(h.dispose);
       final root = _localFixture('pg-watch-missing');
       final missing = '${root.path}/no-such-dir';
@@ -1484,7 +1494,7 @@ void main() {
 
     test('a file target answers typed, unwatched', () async {
       final backend = FakeWatchBackend();
-      final h = HostHarness(localWatch: backend.call);
+      final h = HostHarness(localWatch: backend);
       addTearDown(h.dispose);
       final root = _localFixture('pg-watch-file');
 

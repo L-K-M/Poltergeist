@@ -5,14 +5,26 @@ import 'package:path/path.dart' as p;
 
 import 'protocol.dart' show DirectoryWatchSignal;
 
-/// The injectable backend for one non-recursive directory watch (03 §7.5):
-/// returns the event stream for [directory]. The production default is
-/// dart:io's `Directory.watch`; tests inject deterministic fakes.
-typedef LocalWatchBackend = Stream<FileSystemEvent> Function(String directory);
+/// The injectable backend for one non-recursive directory watch (03
+/// §7.5). The production default wraps dart:io's `Directory.watch`; tests
+/// inject deterministic fakes. An interface, not a function type: the
+/// engine protocol guard forbids function-typed fields in engine sources
+/// (08 §3.3), and this seam stays engine-internal either way — nothing
+/// here crosses the isolate port.
+abstract interface class LocalWatchBackend {
+  /// Returns the event stream for [directory] — dart:io's contract: the
+  /// OS watch starts when the stream is listened to.
+  Stream<FileSystemEvent> watch(String directory);
+}
 
 /// The production backend: dart:io's non-recursive `Directory.watch`.
-Stream<FileSystemEvent> watchLocalDirectory(String directory) =>
-    Directory(directory).watch();
+final class DartIoWatchBackend implements LocalWatchBackend {
+  const DartIoWatchBackend();
+
+  @override
+  Stream<FileSystemEvent> watch(String directory) =>
+      Directory(directory).watch();
+}
 
 /// One typed signal off a [LocalDirectoryWatcher] (engine-internal; the
 /// host crosses it as a `DirectoryWatchEvent`).
@@ -50,10 +62,17 @@ final class LocalWatchSignal {
 /// Dart-side patch): Linux and macOS report a removed/renamed watched
 /// directory as a delete event naming the watched path itself, then close
 /// the stream; Windows surfaces `ReadDirectoryChangesW` buffer overflow
-/// and unexpected closure as stream errors; macOS FSEvents already
+/// and unexpected closure as stream errors — and on root deletion it
+/// delivers the children's removal events first, so a debounced `changed`
+/// may precede the `lost`; macOS FSEvents already
 /// depth-filters non-recursive watches to direct children in the C++
 /// layer, so the child filter below is defense in depth (it also covers a
-/// future backend that reports subtrees).
+/// future backend that reports subtrees). FSEvents' documented quirks —
+/// changes made shortly before the watch started may still appear, and
+/// short-window changes may arrive coalesced or out of order — are
+/// consumer-benign through this adapter: every shape collapses into the
+/// same debounced `changed` (an occasional spurious early refresh), and
+/// only the root-loss shape is immediate.
 ///
 /// Known gap (recorded as a dated STATUS.md item): Linux's inotify queue
 /// overflow (`IN_Q_OVERFLOW`) is invisible through dart:io — the overflow
@@ -74,7 +93,7 @@ final class LocalDirectoryWatcher {
       'unexpectedly.';
 
   LocalDirectoryWatcher({LocalWatchBackend? backend})
-    : _backend = backend ?? watchLocalDirectory;
+    : _backend = backend ?? const DartIoWatchBackend();
 
   final LocalWatchBackend _backend;
   final _signals = StreamController<LocalWatchSignal>.broadcast();
@@ -125,7 +144,7 @@ final class LocalDirectoryWatcher {
 
     late final StreamSubscription<FileSystemEvent> subscription;
     try {
-      subscription = _backend(path).listen(
+      subscription = _backend.watch(path).listen(
         (event) => _onEvent(epoch, event),
         onError: (Object error) => _lost(epoch, _failureDetail(error)),
         onDone: () => _lost(epoch, _backendClosedDetail),
