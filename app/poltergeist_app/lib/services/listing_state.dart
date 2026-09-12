@@ -2,12 +2,15 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 /// Immutable navigation transitions from 02 §2.8, independent of I/O.
 ///
-/// The pane controller supplies canonicalized location values and sorted
+/// The pane controller supplies immutable, canonicalized location values and
 /// listing policy. It must cancel superseded engine operations separately;
 /// discarding their answers here does not stop filesystem work.
+/// Equality is by identity; ignored answers return the same state.
 final class ListingState<Location extends Object> {
   /// Starts from an accepted listing, or an empty launcher. An unlisted
   /// directory must be reached through [navigateTo] so its verbs stay off.
+  /// Generations belong to this chain. Replacing a live pane's chain requires
+  /// invalidating its old replies before reusing generation numbers.
   factory ListingState.ready({
     required Location location,
     required Iterable<RemoteFileEntry> entries,
