@@ -31,7 +31,7 @@ void main() {
   });
 
   test('CI tests and verifies the release version tool', () {
-    final dartSteps = _jobSteps('.github/workflows/ci.yml', 'dart');
+    final dartSteps = _jobSteps('.github/workflows/ci.yml', 'dart_tools');
 
     expect(
       _stepRun(dartSteps, 'Analyze release version tool'),

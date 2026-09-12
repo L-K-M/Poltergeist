@@ -1,15 +1,13 @@
-@OnPlatform({
-  'windows': Skip('LocalFileSystem tests require POSIX chmod/chown and /bin/sh'),
-})
-library;
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
+
+import 'local_fs_test_support.dart';
 
 // LocalFileSystem — the one VFS's local half (D3, 03 §2.2) — against a
 // temp-directory fixture. Every interface method, the error taxonomy of
@@ -25,8 +23,7 @@ int oct(String digits) => int.parse(digits, radix: 8);
 const int permissionsMask = 0xFFF;
 
 /// True when this process cannot be refused by mode bits (root on any
-/// POSIX host — the suite itself is POSIX-only via the `@OnPlatform`
-/// Windows skip on this library).
+/// POSIX host). Only mode-denial cases depend on this capability.
 final bool runningAsRoot =
     !Platform.isWindows &&
     int.tryParse(Process.runSync('id', ['-u']).stdout.toString().trim()) == 0;
@@ -111,7 +108,7 @@ void main() {
     fs = LocalFileSystem(environment: Platform.environment);
   });
 
-  String pathOf(String name) => '${root.path}/$name';
+  String pathOf(String name) => p.join(root.path, name);
 
   /// Separator-robust basename (listSync joins with the host separator,
   /// but fixtures here always build with `/`).
@@ -130,7 +127,7 @@ void main() {
     final file = File(pathOf(name));
     await file.writeAsString(content);
     // Pin the mode so the 644 assertions below are umask-independent.
-    chmodSync('644', file.path);
+    if (!Platform.isWindows) chmodSync('644', file.path);
     return file;
   }
 
@@ -181,7 +178,7 @@ void main() {
   }
 
   group('canonicalize', () {
-    test('resolves an existing path through symlinks', () async {
+    testWithSymbolicLinks('resolves an existing path through symlinks', () async {
       final file = await putFile('real.txt');
       await putLink('alias', file.path);
       expect(
@@ -193,7 +190,7 @@ void main() {
     test('never throws for a missing path — normalized absolute form', () async {
       expect(
         await fs.canonicalize('${root.path}/gone/../child/x'),
-        '${root.path}/child/x',
+        p.join(root.path, 'child', 'x'),
       );
     });
 
@@ -207,14 +204,18 @@ void main() {
       // Missing paths normalize lexically (the plan's rule): the home
       // prefix stays as given — resolved only where the host itself has
       // no symlink on the way (macOS /var → /private/var differs).
-      expect(await homeFs.canonicalize('~/gone/../y'), '${root.path}/y');
+      expect(await homeFs.canonicalize('~/gone/../y'), pathOf('y'));
     });
 
     test('anchors a relative path to the working directory', () async {
       final previous = Directory.current;
       Directory.current = root;
       addTearDown(() => Directory.current = previous);
-      expect(await fs.canonicalize('sub/../rel'), '${root.path}/rel');
+      // getcwd resolves macOS's /var alias even for a missing child.
+      expect(
+        await fs.canonicalize('sub/../rel'),
+        p.join(Directory.current.path, 'rel'),
+      );
     });
   });
 
@@ -232,13 +233,15 @@ void main() {
       expect(file.type, RemoteFileType.file);
       expect(file.size, 5);
       expect(file.modifiedAt, isNotNull);
-      expect(file.mode! & permissionsMask, oct('644'));
+      // Windows synthesizes mode bits; compare to its native stat, not chmod.
+      expect(file.mode! & permissionsMask,
+          Platform.isWindows ? modeOf(pathOf('b.txt')) : oct('644'));
       final dir = entries.singleWhere((e) => e.name == 'a-dir');
       expect(dir.type, RemoteFileType.directory);
       expect(dir.isDirectory, isTrue);
     });
 
-    test('symlinks report as links with null metadata, targets not leaked', () async {
+    testWithSymbolicLinks('symlinks report as links with null metadata, targets not leaked', () async {
       final file = await putFile('target.txt', '1234567890');
       await putLink('alias', file.path);
       await putLink('broken', pathOf('nowhere'));
@@ -274,11 +277,19 @@ void main() {
       final file = await putFile('plain');
       final error = remoteFailure(await failureOf(fs.listDirectory(file.path)));
       expect(error.kind, RemoteFileErrorKind.other);
-      expect(error.message, contains('Not a directory'));
+      // OS diagnostics differ (ENOTDIR versus Windows ERROR_DIRECTORY).
+      expect(error.message, startsWith('Could not list "${file.path}": '));
+      expect(error.cause, isA<FileSystemException>());
+      if (!Platform.isWindows) {
+        expect(error.message, contains('Not a directory'));
+      }
     });
 
-    test('an unreadable directory fails permissionDenied', () async {
-      if (runningAsRoot) return;
+    testWithPosixTools('an unreadable directory fails permissionDenied', () async {
+      if (runningAsRoot) {
+        markTestSkipped('root bypasses mode-bit read denial');
+        return;
+      }
       final dir = await putDir('locked');
       await putFile('locked/inside');
       chmodSync('000', dir.path);
@@ -292,11 +303,14 @@ void main() {
       }
     });
 
-    test('a path under an unreadable directory stats permissionDenied, not notFound', () async {
+    testWithPosixTools('a path under an unreadable directory stats permissionDenied, not notFound', () async {
       // dart:io's stat folds EACCES into notFound; the re-probe must
       // surface the real errno (same for download and the attribute
       // writes) — the SFTP adapter answers permission-denied here.
-      if (runningAsRoot) return;
+      if (runningAsRoot) {
+        markTestSkipped('root bypasses mode-bit read denial');
+        return;
+      }
       final dir = await putDir('locked');
       await putFile('locked/inside');
       chmodSync('000', dir.path);
@@ -316,7 +330,7 @@ void main() {
   });
 
   group('stat', () {
-    test('follows links by default (target identity)', () async {
+    testWithSymbolicLinks('follows links by default (target identity)', () async {
       final file = await putFile('target', 'xyz');
       await putLink('alias', file.path);
       final entry = await fs.stat(pathOf('alias'));
@@ -325,7 +339,7 @@ void main() {
       expect(entry.name, 'alias');
     });
 
-    test('followLinks: false reports the link itself with null metadata', () async {
+    testWithSymbolicLinks('followLinks: false reports the link itself with null metadata', () async {
       final file = await putFile('target', 'xyz');
       await putLink('alias', file.path);
       final entry = await fs.stat(pathOf('alias'), followLinks: false);
@@ -349,7 +363,7 @@ void main() {
   });
 
   group('setMode', () {
-    test('changes permissions', () async {
+    testWithPosixTools('changes permissions', () async {
       final file = await putFile('f');
       await fs.setMode(file.path, oct('600'));
       expect(modeOf(file.path), oct('600'));
@@ -360,25 +374,29 @@ void main() {
       expect(() => fs.setMode(pathOf('f'), 0x1000), throwsRangeError);
     });
 
-    test('missing path fails notFound', () async {
+    test('missing path is notFound on POSIX, unsupported on Windows', () async {
       final error = remoteFailure(
         await failureOf(fs.setMode(pathOf('gone'), oct('644'))),
       );
-      expect(error.kind, RemoteFileErrorKind.notFound);
+      expect(error.kind, Platform.isWindows
+          ? RemoteFileErrorKind.unsupported
+          : RemoteFileErrorKind.notFound);
     });
 
-    test('refuses symlinks (unsupported) — the target keeps its mode', () async {
+    testWithSymbolicLinks('refuses symlinks (unsupported) — the target keeps its mode', () async {
       final file = await putFile('target');
       final link = await putLink('alias', file.path);
       final error = remoteFailure(
         await failureOf(fs.setMode(link.path, oct('600'))),
       );
       expect(error.kind, RemoteFileErrorKind.unsupported);
-      expect(error.message, contains('Symbolic link'));
-      expect(modeOf(file.path), oct('644'));
+      if (!Platform.isWindows) {
+        expect(error.message, contains('Symbolic link'));
+        expect(modeOf(file.path), oct('644'));
+      }
     });
 
-    test('maps a chmod EPERM stderr line to permissionDenied', () async {
+    testWithPosixTools('maps a chmod EPERM stderr line to permissionDenied', () async {
       final file = await putFile('f');
       final (fakeFs, bin) = fakeBinFs();
       installFake(
@@ -392,7 +410,7 @@ void main() {
       expect(error.kind, RemoteFileErrorKind.permissionDenied);
     });
 
-    test('maps a chmod ENOENT stderr line to notFound', () async {
+    testWithPosixTools('maps a chmod ENOENT stderr line to notFound', () async {
       await putFile('f');
       final (fakeFs, bin) = fakeBinFs();
       installFake(
@@ -406,7 +424,7 @@ void main() {
       expect(error.kind, RemoteFileErrorKind.notFound);
     });
 
-    test('an unmapped chmod stderr fails other with the line as detail', () async {
+    testWithPosixTools('an unmapped chmod stderr fails other with the line as detail', () async {
       await putFile('f');
       final (fakeFs, bin) = fakeBinFs();
       installFake(bin, 'chmod', "echo \"chmod: something novel\" >&2; exit 1");
@@ -417,7 +435,7 @@ void main() {
       expect(error.message, contains('something novel'));
     });
 
-    test('classifies by the trailing stderr segment, never a substring match', () async {
+    testWithPosixTools('classifies by the trailing stderr segment, never a substring match', () async {
       await putFile('f');
       // The path legally embeds "Operation not permitted"; the real
       // failure is ENOENT. A substring scan would misclassify.
@@ -433,7 +451,7 @@ void main() {
       expect(error.kind, RemoteFileErrorKind.notFound);
     });
 
-    test('a path swapped to a symlink mid-write fails with the landing site', () async {
+    testWithPosixTools('a path swapped to a symlink mid-write fails with the landing site', () async {
       final file = await putFile('f');
       final elsewhere = await putFile('elsewhere', 'secret');
       // Fake chmod: perform the swap ($3 is the path — `--` $2 is the
@@ -464,6 +482,22 @@ void main() {
       expect(changed.kind, isNot(RemoteFileErrorKind.conflict));
     });
   });
+
+  test('Windows mode and owner writes fail unsupported without changing bytes', () async {
+    final file = await putFile('windows-attributes', 'unchanged');
+    final modeBefore = modeOf(file.path);
+    for (final operation in <Future<void> Function()>[
+      () => fs.setMode(file.path, oct('600')),
+      () => fs.setOwner(file.path, uid: 1),
+    ]) {
+      final error = remoteFailure(await failureOf(operation()));
+      expect(error.kind, RemoteFileErrorKind.unsupported);
+      expect(error.path, file.path);
+      expect(error.message, contains('not supported on Windows'));
+      expect(await file.readAsString(), 'unchanged');
+      expect(modeOf(file.path), modeBefore);
+    }
+  }, skip: Platform.isWindows ? false : 'Windows-only unsupported contract');
 
   group('setTimes', () {
     test('sets the modification time and preserves the access time', () async {
@@ -526,7 +560,7 @@ void main() {
       }
     });
 
-    test('refuses symlinks — the target keeps its times', () async {
+    testWithSymbolicLinks('refuses symlinks — the target keeps its times', () async {
       final file = await putFile('target');
       final before = (await fs.stat(file.path)).modifiedAt;
       final link = await putLink('alias', file.path);
@@ -548,7 +582,7 @@ void main() {
   });
 
   group('setOwner', () {
-    test('chown to the current owner succeeds and leaves the file intact', () async {
+    testWithPosixTools('chown to the current owner succeeds and leaves the file intact', () async {
       final file = await putFile('f');
       final uid = int.parse(
         Process.runSync('id', ['-u']).stdout.toString().trim(),
@@ -564,7 +598,7 @@ void main() {
       expect(() => fs.setOwner(pathOf('f'), gid: 0x100000000), throwsRangeError);
     });
 
-    test('refuses symlinks before chown ever runs', () async {
+    testWithPosixTools('refuses symlinks before chown ever runs', () async {
       final file = await putFile('target');
       final link = await putLink('alias', file.path);
       final bin = Directory.systemTemp.createTempSync('pg-chownbin');
@@ -592,7 +626,7 @@ void main() {
       );
     });
 
-    test('maps a chown EPERM stderr line to permissionDenied', () async {
+    testWithPosixTools('maps a chown EPERM stderr line to permissionDenied', () async {
       await putFile('f');
       final (fakeFs, bin) = fakeBinFs();
       installFake(
@@ -606,7 +640,7 @@ void main() {
       expect(error.kind, RemoteFileErrorKind.permissionDenied);
     });
 
-    test('the utility argv is option-guarded before any operand', () async {
+    testWithPosixTools('the utility argv is option-guarded before any operand', () async {
       // Pins the `--` end-of-options guard centrally inserted by
       // _runUtility: a dash-prefixed path operand can never parse as
       // an option, absolute or relative.
@@ -636,7 +670,7 @@ void main() {
   });
 
   group('readSymbolicLink', () {
-    test('returns the target verbatim (absolute and relative)', () async {
+    testWithSymbolicLinks('returns the target verbatim (absolute and relative)', () async {
       final file = await putFile('target');
       final link = await putLink('abs', file.path);
       final rel = await putLink('rel', 'target');
@@ -653,7 +687,7 @@ void main() {
   });
 
   group('createSymbolicLink', () {
-    test('creates the link and round-trips through readSymbolicLink', () async {
+    testWithSymbolicLinks('creates the link and round-trips through readSymbolicLink', () async {
       await fs.createSymbolicLink(pathOf('lnk'), pathOf('dest'));
       expect(await fs.readSymbolicLink(pathOf('lnk')), pathOf('dest'));
     });
@@ -669,7 +703,7 @@ void main() {
       expect(Link(file.path).existsSync(), isFalse);
     });
 
-    test('a missing parent fails notFound (never auto-parents)', () async {
+    testWithSymbolicLinks('a missing parent fails notFound (never auto-parents)', () async {
       final error = remoteFailure(
         await failureOf(fs.createSymbolicLink(pathOf('gone/lnk'), 'x')),
       );
@@ -721,7 +755,7 @@ void main() {
       expect(File(pathOf('dir2/inside')).existsSync(), isTrue);
     });
 
-    test('renames a symlink itself — the target stays put and reachable', () async {
+    testWithSymbolicLinks('renames a symlink itself — the target stays put and reachable', () async {
       final file = await putFile('target');
       final link = await putLink('lnk', file.path);
       await fs.rename(link.path, pathOf('lnk2'));
@@ -780,7 +814,10 @@ void main() {
     test('same-lowercase but distinct entries are two files, not one rename', () async {
       // Needs a case-sensitive host: elsewhere the two names are one
       // entry and the fixture below would silently collapse.
-      if (!caseSensitiveFs) return;
+      if (!caseSensitiveFs) {
+        markTestSkipped('volume is case-insensitive: a and A are one entry');
+        return;
+      }
       final lower = await putFile('a', 'lower');
       final upper = await putFile('A', 'upper');
       final error = remoteFailure(
@@ -799,7 +836,7 @@ void main() {
       expect(file.existsSync(), isFalse);
     });
 
-    test('deletes a symlink without touching its target', () async {
+    testWithSymbolicLinks('deletes a symlink without touching its target', () async {
       final file = await putFile('target');
       final link = await putLink('lnk', file.path);
       await fs.delete(await fs.stat(link.path, followLinks: false));
@@ -889,7 +926,7 @@ void main() {
       expect(error.kind, RemoteFileErrorKind.notFound);
     });
 
-    test('a symlink and a directory fail unsupported — links are never followed down', () async {
+    testWithSymbolicLinks('a symlink and a directory fail unsupported — links are never followed down', () async {
       final file = await putFile('target');
       final link = await putLink('lnk', file.path);
       final dir = await putDir('d');
@@ -946,12 +983,12 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
-    test('honors preserveMode', () async {
+    testWithPosixTools('honors preserveMode', () async {
       await fs.upload(pathOf('out'), Stream.value([1]), preserveMode: oct('755'));
       expect(modeOf(pathOf('out')), oct('755'));
     });
 
-    test('carries the existing mode over an overwrite by default', () async {
+    testWithPosixTools('carries the existing mode over an overwrite by default', () async {
       final file = await putFile('existing');
       await fs.setMode(file.path, oct('640'));
       await fs.upload(file.path, Stream.value(utf8.encode('new')), overwrite: true);
@@ -1082,6 +1119,46 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
+    test('cancellation waits for source cleanup before completing', () async {
+      final cancellation = RemoteTransferCancellation();
+      final cleanupStarted = Completer<void>();
+      final releaseCleanup = Completer<void>();
+      final source = StreamController<List<int>>(
+        onCancel: () async {
+          cleanupStarted.complete();
+          await releaseCleanup.future;
+        },
+      );
+      source.add([1]);
+      var completed = false;
+      final operation = failureOf(
+        fs.upload(
+          pathOf('out'),
+          source.stream,
+          cancellation: cancellation,
+          onProgress: (_, _) => cancellation.cancel(),
+        ),
+      ).then((error) {
+        completed = true;
+        return error;
+      });
+
+      try {
+        await cleanupStarted.future;
+        // Hold cleanup across event turns so detached cancellation is visible.
+        const cleanupObservationWindow = Duration(milliseconds: 100);
+        await Future<void>.delayed(cleanupObservationWindow);
+        expect(completed, isFalse);
+      } finally {
+        releaseCleanup.complete();
+        await operation;
+        await source.close();
+      }
+
+      expect(remoteFailure(await operation).kind, RemoteFileErrorKind.cancelled);
+      expect(siblingLitter(), isEmpty);
+    });
+
     test('cancellation mid-stream throws cancelled and cleans the temp', () async {
       final cancellation = RemoteTransferCancellation();
       Stream<List<int>> content() async* {
@@ -1116,7 +1193,7 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
-    test('an overwrite onto a symlink target refuses instead of escaping through it', () async {
+    testWithSymbolicLinks('an overwrite onto a symlink target refuses instead of escaping through it', () async {
       final target = await putFile('target', 'safe');
       final link = await putLink('lnk', target.path);
       final error = remoteFailure(
@@ -1184,10 +1261,12 @@ void main() {
             throwsFormatException,
           );
           expect(siblingLitter(), isEmpty);
-          if (case_.$1 != '.' && case_.$1 != '..') {
-            expect(File(target).existsSync(), isFalse);
-          }
-        });
+          // Reserved device paths need not stat as absent on Windows.
+          expect(root.listSync(), isEmpty);
+        }, skip: Platform.isWindows && case_.$1.contains('\\')
+            ? 'backslash is a Windows path separator, not a leaf; '
+              'validatePathComponent covers untrusted components'
+            : false);
       }
     });
   });

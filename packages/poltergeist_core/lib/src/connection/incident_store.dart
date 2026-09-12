@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:path/path.dart' as p;
+
 import 'pool_key.dart';
 
 /// One persisted trust incident (owner decision 2026-09-09, option 2a):
@@ -343,11 +345,11 @@ const _abandonedTempAge = Duration(hours: 1);
 /// break loading, and a temp that is too young or undeletable is swept on a
 /// later startup.
 Future<void> _sweepOrphanedTemps(File target) async {
-  // Resolve once: a directory listing yields parent-joined paths, so a bare
-  // relative target ('incidents.json', parent '.') would never match its own
-  // temps ('./incidents.json.tmp-…') and the sweep would silently do nothing.
   final resolved = target.absolute;
-  final prefix = '${resolved.path}.tmp-';
+
+  // Listing paths use native separators; callers may use forward slashes.
+  // The listing already scopes the parent, so match only the leaf name.
+  final prefix = '${p.basename(resolved.path)}.tmp-';
   final abandonedBefore = DateTime.now().subtract(_abandonedTempAge);
   try {
     final parent = resolved.parent;
@@ -356,7 +358,7 @@ Future<void> _sweepOrphanedTemps(File target) async {
       if (entry is! File) continue;
       // Scoped to this target: a sibling store's temp belongs to its own
       // sweep, and may belong to a write in flight right now.
-      if (!entry.path.startsWith(prefix)) continue;
+      if (!p.basename(entry.path).startsWith(prefix)) continue;
 
       final DateTime modified;
       try {

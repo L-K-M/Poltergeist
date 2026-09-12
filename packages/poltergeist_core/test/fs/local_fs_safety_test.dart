@@ -1,15 +1,10 @@
-@OnPlatform({
-  'windows': Skip(
-    'local_fs_safety tests need POSIX symlink creation and NAME_MAX',
-  ),
-})
-library;
-
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
+
+import 'local_fs_test_support.dart';
 
 // The public local-safety helpers (03 §2.3): the port of Séance's
 // RemoteFilesController statics, plus the crash-recovery sweep for
@@ -21,8 +16,7 @@ import 'package:test/test.dart';
 const int permissionsMask = 0xFFF;
 
 /// True when this process cannot be refused by mode bits (root on any
-/// POSIX host — the suite itself is POSIX-only via the `@OnPlatform`
-/// Windows skip on this library). A host without an `id` binary reads
+/// POSIX host). A host without an `id` binary reads
 /// as non-root — the conservative default, since mode bits are the
 /// test's refusal mechanism.
 final bool runningAsRoot = !Platform.isWindows && _uidIsRoot();
@@ -45,10 +39,10 @@ void main() {
     // a symlinked component (/tmp or /var/folders/...), and the walk's
     // strict containment refuses unresolved symlinked ancestors.
     final temp = Directory.systemTemp.createTempSync('pg-lfssafety');
-    root = Directory(temp.resolveSymbolicLinksSync());
     addTearDown(() {
       if (temp.existsSync()) temp.deleteSync(recursive: true);
     });
+    root = Directory(temp.resolveSymbolicLinksSync());
   });
 
   String pathOf(String name) => p.join(root.path, name);
@@ -68,19 +62,10 @@ void main() {
       .toList();
 
   /// Restricts [path] to mode 555 for the rest of the test and restores
-  /// the original permission bits in a tear-down. Skips the test when
-  /// mode bits cannot deny access (root). The skip must precede the
-  /// chmod, and the tear-down registers after it, so LIFO teardown
-  /// restores the mode before the setUp root deletion.
+  /// the original permission bits in a tear-down. Callers require a
+  /// non-root POSIX host; LIFO teardown restores mode before root deletion.
   void restrictModeBitsForTest(String path) {
-    if (runningAsRoot) {
-      markTestSkipped('running as root — mode bits cannot deny access');
-    }
     final original = FileStat.statSync(path).mode & permissionsMask;
-    final restrict = Process.runSync('chmod', ['555', path]);
-    if (restrict.exitCode != 0) {
-      fail('fixture chmod 555 failed: ${restrict.stderr}');
-    }
     addTearDown(() {
       final result = Process.runSync('chmod', [
         original.toRadixString(8),
@@ -90,6 +75,10 @@ void main() {
         fail('fixture chmod restore failed: ${result.stderr}');
       }
     });
+    final restrict = Process.runSync('chmod', ['555', path]);
+    if (restrict.exitCode != 0) {
+      fail('fixture chmod 555 failed: ${restrict.stderr}');
+    }
   }
 
   group('validatePathComponent', () {
@@ -208,7 +197,7 @@ void main() {
       );
     });
 
-    test('refuses to traverse through a symlink component', () async {
+    testWithSymbolicLinks('refuses to traverse through a symlink component', () async {
       // The link targets a directory on purpose: an implementation
       // typing with followLinks: true would see a directory and
       // descend — only the no-follow type check refuses here.
@@ -264,7 +253,7 @@ void main() {
       );
     });
 
-    test('leaves an existing oddly named ancestor usable', () async {
+    testWithPosixTools('leaves an existing oddly named ancestor usable', () async {
       // Existing components are type-checked, not re-validated: a legal
       // POSIX name that Windows would refuse stays traversable.
       final odd = Directory(pathOf('trailing.'));
@@ -316,7 +305,7 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
-    test(
+    testWithSymbolicLinks(
       'refuses to replace a symlink, leaving it and its target intact',
       () async {
         final realTarget = await putFile('real', 'safe');
@@ -350,7 +339,7 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
-    test('refuses a symlink part — the link is never installed', () async {
+    testWithSymbolicLinks('refuses a symlink part — the link is never installed', () async {
       // rename moves the link itself without following it: a swapped
       // part would install the link as the user's file.
       final staged = await putFile('staged', 'payload');
@@ -373,7 +362,11 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
-    test('restores the original when the second rename fails', () async {
+    testWithPosixTools('restores the original when the second rename fails', () async {
+      if (runningAsRoot) {
+        markTestSkipped('root bypasses mode-bit rename denial');
+        return;
+      }
       final target = await putFile('data', 'old');
       // The part is staged inside a read-only sibling directory (as
       // non-root): its rename fails with EACCES deterministically
@@ -455,7 +448,8 @@ void main() {
           replaceLocalFile(part, target),
           throwsFormatException,
         );
-        expect(target.existsSync(), isFalse);
+        // Device paths can report existence on Windows without a disk entry.
+        expect(root.listSync().map((e) => p.basename(e.path)), ['part']);
         expect(part.existsSync(), isTrue);
       }
       expect(siblingLitter(), isEmpty);
@@ -560,8 +554,12 @@ void main() {
       );
     });
 
-    test('a failing restore parks its orphan without aborting the sweep',
+    testWithPosixTools('a failing restore parks its orphan without aborting the sweep',
         () async {
+      if (runningAsRoot) {
+        markTestSkipped('root bypasses mode-bit rename denial');
+        return;
+      }
       // A read-only directory (as non-root) makes every restore fail
       // with EACCES after the listing succeeded: the sweep must
       // complete without throwing and leave the orphan parked for a

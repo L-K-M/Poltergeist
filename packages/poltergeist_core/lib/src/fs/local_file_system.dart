@@ -1123,7 +1123,8 @@ Stream<T> _cancelWhenRequested<T>(
       yield iterator.current;
     }
   } finally {
-    unawaited(iterator.cancel().catchError((_) {}));
+    // Completion releases the source handle, including Windows file locks.
+    await iterator.cancel().catchError((_) {});
   }
 }
 

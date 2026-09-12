@@ -10,6 +10,7 @@ const _requiredEvents = ['push', 'workflow_dispatch'];
 void main() {
   late String guard;
   late YamlList integrationPaths;
+  late YamlMap jobs;
 
   setUpAll(() async {
     final workspace = await Isolate.resolvePackageUri(
@@ -24,7 +25,7 @@ void main() {
               ).readAsString(),
             )
             as YamlMap;
-    final jobs = workflow['jobs'] as YamlMap;
+    jobs = workflow['jobs'] as YamlMap;
     final detection = jobs['detect_integration'] as YamlMap;
     final steps = (detection['steps'] as YamlList).cast<YamlMap>();
     final changes = steps.singleWhere((step) => step['id'] == 'changes');
@@ -32,6 +33,51 @@ void main() {
     integrationPaths = filters['integration'] as YamlList;
     guard =
         steps.singleWhere((step) => step['id'] == 'fixture')['run'] as String;
+  });
+
+  test('ordinary Dart contracts are required on all three native OSes', () {
+    final dart = jobs['dart'] as YamlMap;
+    expect(dart['runs-on'], r'${{ matrix.os }}');
+    expect(dart['strategy']['fail-fast'], isFalse);
+    expect(dart['strategy']['matrix']['os'], [
+      'ubuntu-latest',
+      'macos-latest',
+      'windows-latest',
+    ]);
+    expect(dart['if'], isNull);
+    expect(dart['continue-on-error'], isNull);
+    expect(dart['defaults']['run']['shell'], 'bash');
+    final steps = (dart['steps'] as YamlList).cast<YamlMap>();
+    for (final name in ['Analyze', 'Test']) {
+      final step = steps.singleWhere((step) => step['name'] == name);
+      expect(step['if'], isNull);
+      expect(step['continue-on-error'], isNull);
+      expect(step['run'], contains('packages/*'));
+      expect(step['run'], contains('set -euo pipefail'));
+    }
+    final testCommand = steps.singleWhere((s) => s['name'] == 'Test')['run'];
+    expect(testCommand, contains(r'dart test --reporter expanded "${dirs[@]}"'));
+  });
+
+  test('fixture and benchmark tooling stays on Ubuntu', () {
+    final tools = jobs['dart_tools'] as YamlMap;
+    expect(tools['runs-on'], 'ubuntu-latest');
+    expect(tools['if'], isNull);
+    expect(tools['continue-on-error'], isNull);
+    final names = (tools['steps'] as YamlList).map((step) => step['name']);
+    expect(names, containsAll([
+      'Test dependency guard',
+      'Test engine protocol guard',
+      'Test release gate',
+      'Test release version tool',
+      'Test Séance pin audit',
+      'Test M0 benchmark harness',
+      'Validate committed M0 evidence',
+      'Test integration fixture tools',
+      'Validate rendered integration fixture',
+      'Guard Séance release gate',
+    ]));
+    expect(jobs['m0_bench']['needs'], containsAll(['dart', 'dart_tools']));
   });
 
   test('workspace dependency changes select SSH integration', () {
