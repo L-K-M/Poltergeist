@@ -33,8 +33,9 @@ pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 Next milestone: M3 (panes v1, 07 §3.4). The pure listing-state reducer
-is implemented below. PaneController wiring needs cancellable listings
-through the pinned VFS and engine protocol (open item 12). The local
+and metadata-only listing sort are implemented below. PaneController wiring
+needs cancellable listings through the pinned VFS and engine protocol
+(open item 12). The local
 browse-channel seam is available (item 11, closed).
 
 ## Done
@@ -2482,6 +2483,35 @@ No widgets, D12 rendering surface, dependency/pin change, or source
 port; PORTS.md is unchanged. PaneController's D2 port, scoped local access,
 location construction, browsing widgets, and the rest of M3 remain open.
 
+## M3 — deterministic listing sort (2026-09-12)
+
+`sortFileEntries` supplies 02 §2.3's pure core sorting: natural names,
+seven column keys with their initial directions, optional directory grouping,
+ascending secondary names, and immutable output retaining entry identity.
+It folds names once per row with pinned Unicode 17.0.0 simple mappings;
+numeric runs compare without integer conversion. Directory inode sizes never
+substitute for calculated totals. The function performs no I/O.
+
+02 §2.3 now specifies ASCII digit runs, leading-zero ties, missing metadata,
+Kind ordering, POSIX permission masking, numeric ownership, and supplied
+directory totals. Unicode data, source hash, offline generator, exhaustive
+mapping test, and license are committed; the package LICENSE includes the
+Unicode notice for Flutter's license collector. No dependency or Séance pin
+changed; original code, no D2 port, PORTS.md unchanged.
+
+Validation: 16 sorting tests and seven Unicode tests pass after the new
+surface tests first failed to compile. They cover all columns/directions,
+grouping, nulls, long numeric runs, Unicode, shuffled-order determinism,
+input preservation, and every Unicode scalar against the pinned source.
+Core analysis and 571 tests pass (15 existing SSH-fixture skips); Flutter
+analysis and 433 tests pass. The dependency guard passes. A local 100k-row
+model-sort smoke test measured a 272 ms median over five warm runs; this is
+not a D12 paint benchmark. CI and automated review follow on the PR.
+
+This is an ungated M3 model slice. PaneController, widgets, and D12 rendering
+benchmarks remain with their slices. Listing cancellation remains item 12;
+the raw-name prerequisite discovered here is item 13. No milestone close.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
@@ -2964,6 +2994,17 @@ location construction, browsing widgets, and the rest of M3 remain open.
     state on every terminal path, and keep sibling listings alive.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
+
+13. **2026-09-12 — M3: raw-name metadata before pane browsing ships.**
+    The pinned `RemoteFileEntry` exposes decoded name/path only, with no
+    raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
+    escaped-name disambiguation, and disabled operations on flagged rows.
+    The pure sorter orders decoded names only; a path tiebreak cannot
+    distinguish two byte names decoded to the same string. Add metadata
+    upstream and bridge it through the engine before wiring those pane
+    behaviors; preserve the raw-byte tiebreak before the path fallback.
+    D25 still defers byte-preserving operations. No local VFS fork or
+    replacement interface is authorized by this item.
 
 ## Independent audit
 

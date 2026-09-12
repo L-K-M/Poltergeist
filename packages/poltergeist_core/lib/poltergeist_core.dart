@@ -64,6 +64,8 @@ export 'package:seance_core/seance_core.dart'
         remoteParent,
         secureRandomBytes;
 
+export 'src/browse/file_entry_sort.dart'
+    show sortFileEntries, FileSortKey, FileSortDirection, DirectoryGrouping;
 export 'src/connection/connection_manager.dart'
     show
         ConnectionManager,
