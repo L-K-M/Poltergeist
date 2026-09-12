@@ -9,6 +9,7 @@ import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
+import '../services/pane_location.dart';
 import '../services/registered_command.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/workspace_controller.dart';
@@ -250,6 +251,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                           workspace: workspace,
                           focusNode: leftFocus,
                           onSwapFocus: () => _focusPane(rightFocus!),
+                          onCancelRecovery: () =>
+                              _cancelPaneRecovery(workspace, workspace.left),
                         ),
                   secondary: workspace == null || rightFocus == null
                       ? const SizedBox.shrink()
@@ -258,6 +261,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                           workspace: workspace,
                           focusNode: rightFocus,
                           onSwapFocus: () => _focusPane(leftFocus!),
+                          onCancelRecovery: () =>
+                              _cancelPaneRecovery(workspace, workspace.right),
                         ),
                 ),
               ),
@@ -272,6 +277,26 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   void _focusPane(FocusNode node) {
     node.requestFocus();
+  }
+
+  /// The banner's cancel, sibling-aware (02 §2.7 in a two-pane world):
+  /// the engine keys pool references by serverId, so a plain disconnect
+  /// would kill a sibling pane browsing the same server. Detach only the
+  /// cancelling pane when the server is shared; drop the reference — and
+  /// with it the pool's recovery — when this pane is its last user.
+  void _cancelPaneRecovery(WorkspaceController workspace, PaneController pane) {
+    final location = pane.location;
+    if (location is! RemotePaneLocation) return;
+    final sibling = identical(pane, workspace.left)
+        ? workspace.right
+        : workspace.left;
+    final siblingShares = sibling.location is RemotePaneLocation &&
+        (sibling.location as RemotePaneLocation).serverId == location.serverId;
+    if (siblingShares) {
+      unawaited(pane.detachRemote());
+    } else {
+      unawaited(pane.cancelRecovery());
+    }
   }
 
   /// Resolves the row's bookmark and binds the active pane to it. The

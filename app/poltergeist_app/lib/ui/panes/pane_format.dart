@@ -47,7 +47,19 @@ String formatPaneModified(
   final localNow = now.toLocal();
   final dayStart = DateTime(localNow.year, localNow.month, localNow.day);
   final time = DateFormat.jm(localeName).format(localModified);
-  if (!localModified.isBefore(dayStart)) return today(time);
+  if (!localModified.isBefore(dayStart)) {
+    // Same calendar day → "today"; genuinely future mtimes (clock skew,
+    // migrated archives) fall through to the absolute format rather
+    // than reading as today.
+    final nextDayStart = DateTime(
+      localNow.year,
+      localNow.month,
+      localNow.day + 1,
+    );
+    return localModified.isBefore(nextDayStart)
+        ? today(time)
+        : DateFormat.yMd(localeName).add_jm().format(localModified);
+  }
   // Calendar-day arithmetic, not 24-hour subtraction: across a DST
   // transition, midnight minus 24h lands at 23:00 or 01:00 of the
   // previous day (Dart normalizes out-of-range day components).

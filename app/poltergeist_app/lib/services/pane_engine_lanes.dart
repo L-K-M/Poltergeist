@@ -8,9 +8,10 @@ import 'engine_session.dart';
 /// [EngineSession.paneLanes]; widget tests script a fake, so the pane
 /// flows are drivable without an isolate.
 ///
-/// The live `watchServer` stream carries no replay (03 §5), so callers
-/// must subscribe before the connect whose state they want to observe —
-/// the pane controller upholds that ordering.
+/// The `watchServer` stream seeds the server's current status on
+/// subscribe (03 §3.2) and replays nothing older than that (03 §5) — so
+/// callers must subscribe before the connect whose transitions they
+/// want to observe. The pane controller upholds that ordering.
 abstract interface class PaneEngineLanes {
   /// Opens a local browse channel (03 §5's engine-side seam): the engine
   /// owns the backing `LocalFileSystem` (D8 — no dart:io on the UI
@@ -26,7 +27,8 @@ abstract interface class PaneEngineLanes {
     required ServerConfig config,
   });
 
-  /// One server's connection status, current value first (03 §3.2).
+  /// One server's connection status: the current value is seeded on
+  /// subscribe (03 §3.2); nothing older replays (03 §5).
   Stream<ServerStatus> watchServer(String serverId);
 
   /// Drops this serverId's pool reference (03 §3.2): the pane banner's

@@ -3009,7 +3009,9 @@ milestone-close claim.
     `EngineClient` facade, and tests — after which the pane slice
     resumes against it. Directory watching (03 §7.5), per-location
     view prefs, and the rest of 07 §3.4 stay with their own slices.
-    **Closed 2026-09-11** (dated section above).
+    **Closed 2026-09-11** (its own dated section above, the engine-side
+    local browse seam of 2026-09-11 — not the panes section of
+    2026-09-12 that follows the resume).
 12. **2026-09-12 — M3: `PaneLocation`'s home is `poltergeist_core` (02
     §2), not the app.** The panes-v1-foundation slice defined the sealed
     location type app-side (`lib/services/pane_location.dart`) because

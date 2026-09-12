@@ -10,6 +10,7 @@ void main() {
     String id, {
     List<ShortcutActivator> Function(TargetPlatform)? activators,
     bool enabled = true,
+    void Function()? onRun,
   }) {
     return RegisteredCommand(
       id: id,
@@ -17,7 +18,7 @@ void main() {
       label: (l10n) => id,
       activators: activators,
       enabled: () => enabled,
-      run: (_) async {},
+      run: (_) async => onRun?.call(),
     );
   }
 
@@ -58,6 +59,37 @@ void main() {
     // The command layer owns the chord even when the command is
     // disabled: outer scopes never see it (02 §8.2's ownership rule).
     expect(outerSawKey, isFalse);
+  });
+
+  testWidgets('an enabled command\'s chord runs it', (tester) async {
+    var ran = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: CommandChordScope(
+          commands: [
+            command(
+              'x',
+              activators: (_) => [activator],
+              onRun: () => ran = true,
+            ),
+          ],
+          child: const Scaffold(
+            body: Focus(autofocus: true, child: SizedBox.expand()),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+
+    expect(ran, isTrue);
   });
 
   testWidgets('duplicate activators fail the registration assert', (

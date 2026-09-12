@@ -54,7 +54,11 @@ void main() {
     addTearDown(session!.shutdown);
 
     await tester.pumpWidget(
-      PoltergeistApp(bookmarks: bookmarks, engineSession: session),
+      PoltergeistApp(
+        bookmarks: bookmarks,
+        engineSession: session,
+        navigatorKey: navigatorKey,
+      ),
     );
     await tester.pump();
     return session;
@@ -82,6 +86,8 @@ void main() {
         ['/home/tester'],
       ],
     );
+    // The home anchor is the engine-expanded '~', never a raw path.
+    expect(engine.localChannelRoots, ['~', '~']);
     expect(find.text('left.txt'), findsOneWidget);
     expect(find.text('right.txt'), findsOneWidget);
   });
@@ -279,7 +285,9 @@ void main() {
     ]);
 
     final remote = session_test.FakeAppBrowseChannel(homePath: '/srv/home');
-    remote.listings['/srv/home'] = [_entry('from-remote.txt', parent: '/srv')];
+    remote.listings['/srv/home'] = [
+      _entry('from-remote.txt', parent: '/srv/home'),
+    ];
     engine.channel = remote;
 
     await pumpApp(tester, bookmarks: store);

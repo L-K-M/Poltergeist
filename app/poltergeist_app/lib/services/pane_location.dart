@@ -70,8 +70,26 @@ final class RemotePaneLocation extends PaneLocation {
 /// paths follow the platform (`\` on Windows, including UNC share
 /// roots — only `\\server\share` is a listable root, never
 /// `\\server`).
+/// The display name of a path's last segment (the pane footer's
+/// loading line): a root path ('/' or 'C:\') is its own label.
+String paneLastSegment(String? path) {
+  if (path == null) return '';
+  final parent = paneParentPath(path);
+  if (parent == path) return path;
+  final separator = path.startsWith('/')
+      ? '/'
+      : (path.contains('\\') ? '\\' : '/');
+  return path.substring(parent.length).replaceAll(separator, '');
+}
+
 String paneParentPath(String path) {
-  final separator = path.contains('\\') ? '\\' : '/';
+  // Absolute POSIX paths (every remote path; local POSIX) keep '/' even
+  // when a name contains a literal backslash — a legal POSIX filename
+  // character (a Windows-migrated file named 'C:\backup' on a Linux
+  // server must not flip the separator heuristic).
+  final separator = path.startsWith('/')
+      ? '/'
+      : (path.contains('\\') ? '\\' : '/');
   var trimmed = path;
   while (trimmed.length > 1 && trimmed.endsWith(separator)) {
     trimmed = trimmed.substring(0, trimmed.length - 1);

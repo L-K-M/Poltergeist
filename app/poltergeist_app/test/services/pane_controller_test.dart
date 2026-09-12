@@ -18,6 +18,7 @@ class FakePaneLanes implements PaneEngineLanes {
   FakePaneChannel? nextLocalChannel;
   FakePaneChannel? nextRemoteChannel;
   Object? remoteOpenFailure;
+  Object? localOpenFailure;
 
   /// When set, the next remote open parks on this completer before
   /// answering — the connecting-state UI is testable without races.
@@ -26,6 +27,8 @@ class FakePaneLanes implements PaneEngineLanes {
   @override
   Future<AppBrowseChannel> openLocalChannel({required String rootPath}) async {
     calls.add('openLocal:$rootPath');
+    final failure = localOpenFailure;
+    if (failure != null) throw failure;
     final channel = nextLocalChannel ?? FakePaneChannel('/home/tester');
     nextLocalChannel = null;
     return channel;
@@ -286,6 +289,11 @@ void main() {
     // the OLD directory's listing, so the location stays where it was
     // going and verbs stay disabled until a listing is accepted.
     expect(controller.entries, same(before));
+    expect(
+      controller.location,
+      const LocalPaneLocation('/home/tester/gone'),
+      reason: 'the optimistic location stays after the error (02 §2.7)',
+    );
 
     // Retry clears the error and re-accepts a listing.
     channel.listings['/home/tester/gone'] = [_entry('back.txt')];
@@ -452,6 +460,11 @@ void main() {
       lanes.statesControllers['srv-1']?.hasListener,
       isFalse,
       reason: 'rebinding must drop the previous server watch',
+    );
+    expect(
+      lanes.statesControllers['srv-2']?.hasListener,
+      isTrue,
+      reason: 'rebinding must watch the new server',
     );
     expect(controller.location, const RemotePaneLocation('srv-2', '/other/home'));
     controller.dispose();
@@ -630,6 +643,87 @@ void main() {
     await controller.cancelRecovery();
 
     expect(lanes.disconnects, isEmpty);
+  });
+
+  test('detaching a shared server leaves the pool for the sibling', () async {
+    final lanes = FakePaneLanes();
+    final a = FakePaneChannel('/srv/home')..listings['/srv/home'] = const [];
+    final b = FakePaneChannel('/srv/home')..listings['/srv/home'] = const [];
+    lanes.nextRemoteChannel = a;
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await left.connectRemote(_remoteBookmark());
+    await settle();
+    lanes.nextRemoteChannel = b;
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await right.connectRemote(_remoteBookmark());
+    await settle();
+
+    // The shell-level cancel path detaches the pane without dropping
+    // the shared server reference the sibling still browses on.
+    left.detachRemote();
+    expect(a.closeCalls, 1);
+    expect(lanes.disconnects, isEmpty);
+    expect(left.phase, PanePhase.unbound);
+    // The sibling keeps its binding and can still list.
+    right.refresh();
+    await Future<void>.delayed(Duration.zero);
+    expect(b.listCalls, ['/srv/home', '/srv/home']);
+    left.dispose();
+    right.dispose();
+  });
+
+  test('verbs stay disabled after cancelling the first listing', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('x.txt')];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+
+    // Esc during the FIRST listing restores the quiescent snapshot,
+    // whose location is null — verbs must stay off with no location.
+    controller.cancelNavigation();
+    expect(controller.phase, PanePhase.browsing);
+    expect(controller.location, isNull);
+    expect(controller.loading, isFalse);
+    expect(controller.verbsEnabled, isFalse);
+    controller.dispose();
+  });
+
+  test('arrow up from no cursor selects the last row', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('a'),
+      _entry('b'),
+      _entry('c'),
+    ];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+    await settle();
+
+    controller.moveCursorBy(-1);
+    expect(controller.cursorIndex, 2);
+    controller.moveCursorBy(-1);
+    expect(controller.cursorIndex, 1);
+    controller.moveCursorBy(-1);
+    controller.moveCursorBy(-1);
+    expect(controller.cursorIndex, 0);
+    controller.dispose();
+  });
+
+  test('a failing local open never rejects the future', () async {
+    final lanes = FakePaneLanes()
+      ..localOpenFailure = StateError('no local browse channel scripted');
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+
+    await controller.openLocalHome();
+
+    expect(controller.phase, PanePhase.openingLocal);
+    expect(controller.error, isNotNull);
+    expect(controller.error!.kind, RemoteFileErrorKind.other);
+    controller.dispose();
   });
 
   test('reconnecting state raises the connection-lost banner', () async {

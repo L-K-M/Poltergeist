@@ -658,7 +658,7 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 item} other{{count} items}}'**
   String paneItemCount(int count);
 
-  /// Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8).
+  /// Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8). Translator note: Esc is the literal key name and must stay untranslated.
   ///
   /// In en, this message translates to:
   /// **'Loading {name} — Esc cancels'**

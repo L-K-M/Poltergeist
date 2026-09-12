@@ -361,7 +361,7 @@ final class EngineSession {
 
       try {
         final channel = await _engine.openBrowseChannel(
-          serverId: serverId,
+          serverId: bookmark.id,
           paneTabId: kHostKeyReviewPaneTabId,
           config: serverConfigForBookmark(bookmark),
         );

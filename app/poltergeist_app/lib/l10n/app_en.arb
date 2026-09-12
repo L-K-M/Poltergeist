@@ -455,7 +455,7 @@
   },
   "paneLoadingFolder": "Loading {name} — Esc cancels",
   "@paneLoadingFolder": {
-    "description": "Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8).",
+    "description": "Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8). Translator note: Esc is the literal key name and must stay untranslated.",
     "placeholders": {
       "name": {"type": "String"}
     }

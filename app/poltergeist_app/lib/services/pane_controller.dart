@@ -108,9 +108,13 @@ class PaneController extends ChangeNotifier {
 
   /// Verbs act on `location` and are live only on a fresh, error-free
   /// listing of a live binding (02 §2.8): unbound and mid-open phases
-  /// carry nothing to act on.
+  /// carry nothing to act on, and neither does the post-first-cancel
+  /// state (browsing phase, snapshot restored, no location).
   bool get verbsEnabled =>
-      _phase == PanePhase.browsing && _error == null && !loading;
+      _phase == PanePhase.browsing &&
+      _location != null &&
+      _error == null &&
+      !loading;
 
   /// The remote binding's live connection truth (current value first from
   /// the engine's watch); null for local panes and unbound panes.
@@ -199,8 +203,11 @@ class PaneController extends ChangeNotifier {
     }
   }
 
-  /// Opens one row (Enter / double-click): directories and links to
-  /// directories navigate; files do nothing yet — the double-click action
+  /// Opens one row (Enter / double-click): only entries the listing
+  /// itself types as directories navigate — a symlink is not a directory
+  /// from listing metadata alone (02 §2.3 classifies without a target
+  /// round trip), so opening it does nothing this slice. Files do
+  /// nothing yet — the double-click action
   /// setting and the file verbs land with their own slices.
   void openEntry(RemoteFileEntry entry) {
     if (entry.type == RemoteFileType.directory) {
@@ -265,10 +272,13 @@ class PaneController extends ChangeNotifier {
     }
   }
 
-  /// Moves the cursor by [delta], clamped to the listing.
+  /// Moves the cursor by [delta], clamped to the listing. An unset
+  /// cursor seeds from the list's far end (first Down selects the first
+  /// row, first Up the last — the Finder convention).
   void moveCursorBy(int delta) {
     if (_entries.isEmpty) return;
-    final next = (_cursorIndex ?? (delta > 0 ? -1 : 0)) + delta;
+    final seed = delta > 0 ? -1 : _entries.length;
+    final next = (_cursorIndex ?? seed) + delta;
     setCursorIndex(next.clamp(0, _entries.length - 1));
   }
 
@@ -284,6 +294,10 @@ class PaneController extends ChangeNotifier {
   /// Drops the remote binding's server reference: the banner's cancel —
   /// transport-level recovery stops, the watch reports disconnected, and
   /// the next navigation re-raises the failure to retry against (02 §2.7).
+  ///
+  /// The engine keys pool references by serverId, so this severs every
+  /// pane bound to the same server — the shell routes the banner's cancel
+  /// through [detachRemote] when a sibling still browses the server.
   Future<void> cancelRecovery() async {
     final lanes = _lanes;
     final current = _location;
@@ -293,6 +307,31 @@ class PaneController extends ChangeNotifier {
     } on Object catch (error, stackTrace) {
       _report(error, stackTrace);
     }
+  }
+
+  /// Detaches a remote binding without touching the shared server:
+  /// the pane's channel closes (the pool refcounts pane bindings), the
+  /// binding state resets, and the server reference stays for any
+  /// sibling pane still browsing it. The banner's cancel path when the
+  /// server is shared (02 §2.7's cancel, made two-pane-safe).
+  Future<void> detachRemote() async {
+    if (_disposed || _location is! RemotePaneLocation) return;
+    final attempt = ++_bindAttempt;
+    _cancelListing();
+    _phase = PanePhase.unbound;
+    _location = null;
+    _entries = const [];
+    _error = null;
+    _snapshot = null;
+    _cursorIndex = null;
+    _connectionStatus = null;
+    _pendingRemote = null;
+    unawaited(_statusWatch?.cancel());
+    _statusWatch = null;
+    notifyListeners();
+
+    await _releaseBinding();
+    if (_disposed || attempt != _bindAttempt) return;
   }
 
   @override
@@ -308,6 +347,11 @@ class PaneController extends ChangeNotifier {
 
   // ── internals ──────────────────────────────────────────────────────────
 
+  /// The one shared bind lifecycle (local and remote differ only in the
+  /// open and the first navigation): attempt capture, binding reset,
+  /// previous-channel release, then the kind-specific [connect] under
+  /// the shared error surface. Every await rechecks `_disposed` and the
+  /// attempt counter; a stale attempt's channel is closed, never kept.
   Future<void> _bind({
     required PanePhase connectingPhase,
     required String operation,
@@ -393,12 +437,6 @@ class PaneController extends ChangeNotifier {
       },
     );
   }
-
-  /// The one shared bind lifecycle (local and remote differ only in the
-  /// open and the first navigation): attempt capture, binding reset,
-  /// previous-channel release, then the kind-specific [connect] under
-  /// the shared error surface. Every await rechecks `_disposed` and the
-  /// attempt counter; a stale attempt's channel is closed, never kept.
 
   /// 02 §2.8's navigation-issue transition: snapshot the quiescent state
   /// (only on the not-loading → loading edge), set the location

@@ -97,6 +97,10 @@ List<RegisteredCommand> buildPaneCommands({
           SingleActivator(LogicalKeyboardKey.arrowLeft, meta: true, alt: true),
         ],
         other: const [
+          // The 02 §8.3 spec chord; note Ctrl+Alt+arrows is OS-reserved on
+          // some desktops (Intel display rotation on Windows, virtual-
+          // desktop switching on KDE/X11) — delivery needs verification on
+          // target desktops and the settings slice must allow rebinding.
           SingleActivator(
             LogicalKeyboardKey.arrowLeft,
             control: true,
@@ -118,6 +122,7 @@ List<RegisteredCommand> buildPaneCommands({
           SingleActivator(LogicalKeyboardKey.arrowRight, meta: true, alt: true),
         ],
         other: const [
+          // Same OS-reservation note as pane.focusLeft above.
           SingleActivator(
             LogicalKeyboardKey.arrowRight,
             control: true,

@@ -60,7 +60,10 @@ void main() {
   late FocusNode leftNode;
   late FocusNode rightNode;
 
+  DateTime Function() clock = _fixedClock;
+
   setUp(() {
+    clock = _fixedClock;
     lanes = controller_test.FakePaneLanes();
     left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     right = PaneController(paneTabId: 'pane.right', lanes: lanes);
@@ -75,7 +78,6 @@ void main() {
     rightNode.dispose();
   });
 
-  DateTime Function()? clock = _fixedClock;
 
   Future<void> pumpShell(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1400, 900);
@@ -95,6 +97,7 @@ void main() {
                   workspace: workspace,
                   focusNode: leftNode,
                   onSwapFocus: () => rightNode.requestFocus(),
+                  onCancelRecovery: () => unawaited(right.cancelRecovery()),
                   clock: clock,
                 ),
               ),
@@ -104,6 +107,7 @@ void main() {
                   workspace: workspace,
                   focusNode: rightNode,
                   onSwapFocus: () => leftNode.requestFocus(),
+                  onCancelRecovery: () => unawaited(left.cancelRecovery()),
                   clock: clock,
                 ),
               ),
@@ -356,6 +360,8 @@ void main() {
     rightChannel.listings['/home/tester'] = const [];
     lanes.nextLocalChannel = rightChannel;
     await right.openLocalHome();
+    final sentinelNode = FocusNode();
+    addTearDown(sentinelNode.dispose);
     await tester.pumpWidget(
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -366,6 +372,7 @@ void main() {
               // A focusable region before the panes: reverse traversal
               // from the left pane must reach it, not swap to the right.
               Focus(
+                focusNode: sentinelNode,
                 autofocus: true,
                 child: const SizedBox(height: 20, width: 20),
               ),
@@ -378,6 +385,7 @@ void main() {
                         workspace: workspace,
                         focusNode: leftNode,
                         onSwapFocus: () => rightNode.requestFocus(),
+                        onCancelRecovery: () {},
                         clock: clock,
                       ),
                     ),
@@ -387,6 +395,7 @@ void main() {
                         workspace: workspace,
                         focusNode: rightNode,
                         onSwapFocus: () => leftNode.requestFocus(),
+                        onCancelRecovery: () {},
                         clock: clock,
                       ),
                     ),
@@ -412,6 +421,7 @@ void main() {
     // so default reverse traversal moved focus out of the pane instead
     // of swapping to the right pane.
     expect(leftNode.hasFocus, isFalse);
+    expect(sentinelNode.hasFocus, isTrue);
     expect(workspace.activePane, left);
   });
 
@@ -515,6 +525,38 @@ void main() {
     expect(find.text('shallow.txt'), findsOneWidget);
   });
 
+  testWidgets('a navigation from a scrolled listing reveals the top', (
+    tester,
+  ) async {
+    final channel = localChannelWithEntries();
+    channel.listings['/home/tester'] = List.generate(
+      200,
+      (i) => _entry('file-$i.txt'),
+    );
+    channel.listings['/home/tester/docs'] = List.generate(
+      200,
+      (i) => _entry('doc-$i.txt'),
+    );
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    // Scroll deep into the listing (controller-level: no pointer churn),
+    // then navigate into a subfolder: the new listing's top must be
+    // revealed, not the stale offset. The path bar also hosts a
+    // ListView; the listing's is the one with the scroll controller.
+    final listing = tester
+        .widgetList<ListView>(find.byType(ListView))
+        .firstWhere((view) => view.controller != null);
+    listing.controller!.jumpTo(2000);
+    await tester.pump();
+
+    left.navigate('/home/tester/docs');
+    await tester.pumpAndSettle();
+
+    expect(find.text('doc-0.txt'), findsOneWidget);
+    expect(listing.controller!.position.pixels, 0);
+  });
+
   testWidgets('the focused pane path renders in the accent color', (
     tester,
   ) async {
@@ -526,23 +568,24 @@ void main() {
     await right.openLocalHome();
     await pumpShell(tester);
 
-    final leftSegment = tester.widget<Text>(
-      find.descendant(of: find.byKey(const ValueKey('pane.left.path')), matching: find.text('tester')).first,
+    Text pathSegment(String pane, String label) => tester.widget<Text>(
+      find
+          .descendant(
+            of: find.byKey(ValueKey('pane.$pane.path')),
+            matching: find.text(label),
+          )
+          .first,
     );
-    final accent = Theme.of(tester.element(find.byKey(const ValueKey('pane.left.path')))).colorScheme.primary;
-    expect(leftSegment.style?.color, accent);
+    final accent = Theme.of(
+      tester.element(find.byKey(const ValueKey('pane.left.path'))),
+    ).colorScheme.primary;
+    expect(pathSegment('left', 'tester').style?.color, accent);
 
     rightNode.requestFocus();
     await tester.pump();
-    final rightSegment = tester.widget<Text>(
-      find.descendant(of: find.byKey(const ValueKey('pane.right.path')), matching: find.text('tester')).first,
-    );
-    expect(rightSegment.style?.color, accent);
+    expect(pathSegment('right', 'tester').style?.color, accent);
     // The left pane lost focus: its segments dropped to the variant tone.
-    final leftAfter = tester.widget<Text>(
-      find.descendant(of: find.byKey(const ValueKey('pane.left.path')), matching: find.text('tester')).first,
-    );
-    expect(leftAfter.style?.color, isNot(accent));
+    expect(pathSegment('left', 'tester').style?.color, isNot(accent));
   });
 
   testWidgets('rows announce name, size, and date to semantics', (
@@ -581,6 +624,7 @@ void main() {
             workspace: enginelessWorkspace,
             focusNode: leftNode,
             onSwapFocus: () {},
+            onCancelRecovery: () {},
             clock: clock,
           ),
         ),

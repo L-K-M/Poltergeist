@@ -39,6 +39,7 @@ class PaneView extends StatefulWidget {
     required this.workspace,
     required this.focusNode,
     required this.onSwapFocus,
+    required this.onCancelRecovery,
     this.clock = _systemClock,
   });
 
@@ -55,6 +56,12 @@ class PaneView extends StatefulWidget {
   /// the shell owns both nodes, so it wires the pair.
   final VoidCallback onSwapFocus;
 
+  /// The connection-lost banner's cancel, routed by the shell: with a
+  /// sibling pane on the same server it detaches only this pane
+  /// (disconnectServer would sever the shared transport); alone it
+  /// drops the server reference so recovery stops.
+  final VoidCallback onCancelRecovery;
+
   /// Injectable clock for deterministic relative-date rendering.
   final DateTime Function() clock;
 
@@ -69,6 +76,8 @@ class _PaneViewState extends State<PaneView> {
   Timer? _graceTimer;
   bool _pastGrace = false;
   bool _disposed = false;
+  String? _revealedLocationPath;
+  List<RemoteFileEntry>? _revealedEntries;
 
   @override
   void dispose() {
@@ -78,21 +87,48 @@ class _PaneViewState extends State<PaneView> {
     super.dispose();
   }
 
-  /// Keeps the cursor row inside the viewport after keyboard moves: the
-  /// fixed extent makes the row geometry arithmetic exact.
+  /// A navigation that lands while the viewport keeps its old offset
+  /// leaves the TOP of the new listing off-screen (key-event reveals
+  /// cannot fix what the user has not touched). Scroll a genuinely new
+  /// location to its top — but never a cancel-restore: the restored
+  /// listing is the same unmodifiable instance, so it keeps the user's
+  /// place.
+  void _syncReveal() {
+    final path = widget.controller.location?.path;
+    final entries = widget.controller.entries;
+    final pathChanged = path != _revealedLocationPath;
+    final entriesReplaced = !identical(entries, _revealedEntries);
+    _revealedLocationPath = path;
+    _revealedEntries = entries;
+    if (!pathChanged || !entriesReplaced || path == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted || !_scrollController.hasClients) return;
+      if (_scrollController.offset > 0) {
+        _scrollController.jumpTo(0);
+      }
+    });
+  }
+
   void _revealCursor() {
     if (!_scrollController.hasClients) return;
-    final extent = _rowExtent();
-    final rowTop = (widget.controller.cursorIndex ?? 0) * extent;
-    final rowBottom = rowTop + extent;
-    final viewportTop = _scrollController.position.pixels;
-    final viewportBottom = viewportTop + _scrollController.position.viewportDimension;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      if (!_scrollController.hasClients) return;
+      final extent = _rowExtent();
+      final rowTop = (widget.controller.cursorIndex ?? 0) * extent;
+      final rowBottom = rowTop + extent;
+      final viewportTop = _scrollController.position.pixels;
+      final viewportBottom =
+          viewportTop + _scrollController.position.viewportDimension;
 
-    if (rowTop < viewportTop) {
-      _scrollController.jumpTo(rowTop);
-    } else if (rowBottom > viewportBottom) {
-      _scrollController.jumpTo(rowBottom - _scrollController.position.viewportDimension);
-    }
+      if (rowTop < viewportTop) {
+        _scrollController.jumpTo(rowTop);
+      } else if (rowBottom > viewportBottom) {
+        _scrollController.jumpTo(
+          rowBottom - _scrollController.position.viewportDimension,
+        );
+      }
+    });
   }
 
   double _rowExtent() => scaledPaneRowExtent(context);
@@ -133,6 +169,9 @@ class _PaneViewState extends State<PaneView> {
       case LogicalKeyboardKey.enter:
         // Enter opens on Windows/Linux; on macOS Enter is the rename key
         // (§8.3), and rename lands with the row-interactions slice.
+        // Key repeats never re-open — holding Enter must not drill
+        // through nested folders.
+        if (event is KeyRepeatEvent) return KeyEventResult.ignored;
         if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
           _openCursor();
@@ -201,6 +240,7 @@ class _PaneViewState extends State<PaneView> {
       listenable: Listenable.merge([widget.controller, widget.workspace]),
       builder: (context, _) {
         _syncGrace(widget.controller.loading);
+        _syncReveal();
         final active = identical(
           widget.workspace.activePane,
           widget.controller,
@@ -231,7 +271,7 @@ class _PaneViewState extends State<PaneView> {
                 clock: widget.clock,
                 onCancelNavigation: widget.controller.cancelNavigation,
                 onRetry: () => widget.controller.retry(),
-                onCancelRecovery: () => widget.controller.cancelRecovery(),
+                onCancelRecovery: widget.onCancelRecovery,
                 onActivateRow: (index) {
                   widget.controller.setCursorIndex(index);
                   widget.focusNode.requestFocus();
@@ -309,10 +349,11 @@ class _PaneSurface extends StatelessWidget {
             PanePhase.browsing => _listing(context, l10n),
           },
         ),
-        // 02 §2.8: the old listing stays visible, dimmed, past the grace.
+        // 02 §2.8: the old listing stays visible, dimmed, past the grace —
+        // and inert while the navigation it belongs to is still in flight.
         if (controller.loading && graceVisible)
           Positioned.fill(
-            child: IgnorePointer(
+            child: AbsorbPointer(
               child: ColoredBox(
                 color: Theme.of(
                   context,
@@ -542,6 +583,8 @@ class _PaneRow extends StatelessWidget {
 
     return Semantics(
       label: l10n.paneRowSemantics(entry.name, size, modified),
+      // The cursor row's highlight gets its accessibility equivalent.
+      selected: highlighted,
       child: InkWell(
         onTap: onTap,
         onDoubleTap: onDoubleTap,
@@ -571,10 +614,12 @@ class _PaneRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
-                  width: 64,
+                  width: 64 * MediaQuery.textScalerOf(context).scale(1),
                   child: Text(
                     size,
                     textAlign: TextAlign.end,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colors.onSurfaceVariant,
                     ),
@@ -582,10 +627,12 @@ class _PaneRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
-                  width: 120,
+                  width: 120 * MediaQuery.textScalerOf(context).scale(1),
                   child: Text(
                     modified,
                     textAlign: TextAlign.end,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colors.onSurfaceVariant,
                     ),
@@ -610,12 +657,11 @@ class _PaneFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
-
     // 02 §2.8/§2.9: the footer doubles as the loading line, behind the
     // same anti-flash grace as the dim.
     final String text =
         controller.loading && graceVisible
-        ? l10n.paneLoadingFolder(_lastSegment(controller.location?.path))
+        ? l10n.paneLoadingFolder(paneLastSegment(controller.location?.path))
         : l10n.paneItemCount(controller.entries.length);
 
     return Container(
@@ -633,14 +679,6 @@ class _PaneFooter extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _lastSegment(String? path) {
-    if (path == null) return '';
-    final separator = path.contains('\\') ? '\\' : '/';
-    if (path == separator) return separator;
-    final parent = paneParentPath(path);
-    return path.substring(parent.length).replaceAll(separator, '');
   }
 }
 
@@ -769,7 +807,10 @@ class _LostConnectionBanner extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: IgnorePointer(
+          // Absorb, not ignore: the stale listing under the scrim must
+          // not take interactions while the transport is down (the
+          // banner above the scrim stays reachable).
+          child: AbsorbPointer(
             child: ColoredBox(
               color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
             ),

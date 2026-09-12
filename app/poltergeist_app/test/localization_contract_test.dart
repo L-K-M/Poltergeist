@@ -169,6 +169,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).
   'lib/services/pane_location.dart': {
+    "''",
     "'\\\\'",
     "'\\\\\\\\'",
     "'/'",

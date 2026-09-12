@@ -22,4 +22,30 @@ void main() {
     // Only \\server\share is a listable root; \\server is not a directory.
     expect(paneParentPath(r'\\server\share'), r'\\server\share');
   });
+
+  test('a backslash inside a POSIX name never flips the separator', () {
+    // A Windows-migrated file on a Linux server: the path is absolute
+    // POSIX, so '/' wins and the backslash is just a name character.
+    expect(paneParentPath('/home/a\\b'), '/home');
+    expect(paneParentPath('/home/a\\b/file'), '/home/a\\b');
+    // Forward-slash Windows forms keep their own separator.
+    expect(paneParentPath('C:/Users/tester'), 'C:/Users');
+    expect(paneParentPath('C:/'), r'C:\');
+  });
+
+  test('relative and empty inputs are pinned, never crashes', () {
+    // Degenerate inputs can reach the footer/helper from an unbound
+    // pane: they return unchanged rather than throwing.
+    expect(paneParentPath(''), '');
+    expect(paneParentPath('docs'), 'docs');
+    expect(paneParentPath('./docs'), '.');
+  });
+
+  test('paneLastSegment labels roots and leaves', () {
+    expect(paneLastSegment(null), '');
+    expect(paneLastSegment('/'), '/');
+    expect(paneLastSegment(r'C:\'), r'C:\');
+    expect(paneLastSegment('/home/tester'), 'tester');
+    expect(paneLastSegment(r'C:\Users\tester'), 'tester');
+  });
 }

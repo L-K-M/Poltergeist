@@ -77,6 +77,9 @@ class FakeAppEngine implements AppEngine {
   final localChannels = <FakeAppBrowseChannel>[];
   int _localChannelCursor = 0;
 
+  /// Roots the panes requested at open time (the home anchor contract).
+  final localChannelRoots = <String>[];
+
   /// Emitted (and awaited) in order inside [openBrowseChannel].
   List<EnginePromptEvent> promptScript = const [];
 
@@ -191,6 +194,7 @@ class FakeAppEngine implements AppEngine {
 
   @override
   Future<AppBrowseChannel> openLocalChannel({required String rootPath}) async {
+    localChannelRoots.add(rootPath);
     if (_localChannelCursor >= localChannels.length) {
       throw StateError('no local browse channel scripted');
     }
