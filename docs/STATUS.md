@@ -2402,6 +2402,12 @@ no server-state surface; the engine canonicalizes the root with 03
 answering the existing `BrowseChannelOpened`/`CloseBrowseChannelRequest`/
 `ListDirectoryRequest` shapes on the same channel-id space, so listing,
 closing, and the closed-channel error taxonomy are additive and unchanged.
+Recorded contract (review round 1, made explicit in the request's doc):
+the root is the channel's initial home, not a sandbox — like pool
+channels, listings may navigate to any absolute path, the user's OS
+permissions bound the reach, and confinement belongs to 03 §7.2's
+app-side `ScopedPathAccess` seam (v1 desktop grants pass-through),
+never to this request.
 `EngineHost` mounts a `_LocalPaneChannel implements PaneChannel` backed by
 a `LocalFileSystem` instance the engine owns (03 §5's ownership table;
 D8 — no app-side dart:io, no second engine): the pool's existing
@@ -2419,14 +2425,15 @@ resumes against this facade.
 
 Validation (failing-first: the new-surface tests failed to compile
 before the implementation landed): protocol round-trips through a
-spawned isolate for the new request plus the v7 bump; seven host tests
+spawned isolate for the new request plus the v7 bump; eight host tests
 over temp-dir fixtures (canonicalized home + listing with files,
 sizes, and directories; links reported as links with null metadata;
 missing root opens and its first listing answers the pinned `notFound`
 taxonomy with operation `list`; chmod-000 directory answers
-`permissionDenied`; idempotent close with the disconnected
-closed-channel error; local and pool channels sharing one id space
-without interference; shutdown retiring local channels); three
+`permissionDenied`; `~` expansion through the engine environment;
+idempotent close with the disconnected closed-channel error; local and
+pool channels sharing one id space without interference; shutdown
+retiring local channels); three
 real-isolate client tests (browse + subdirectory navigation across a
 spawned engine, the typed taxonomy crossing as `RemoteFileException`,
 idempotent close retiring the channel). Full core suite 546 green

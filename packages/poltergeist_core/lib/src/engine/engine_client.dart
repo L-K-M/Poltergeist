@@ -211,8 +211,12 @@ class EngineClient implements PromptBridge, ProbeBridge {
   /// isolate — and canonicalizes [rootPath] into [EngineBrowseChannel.homePath].
   /// The same [EngineBrowseChannel] surface as [openBrowseChannel]: panes
   /// list and close identically, and failures arrive as typed
-  /// [RemoteFileException]s from the local funnel (03 §2.2). No server
-  /// state exists to watch, so there is no stream to subscribe first.
+  /// [RemoteFileException]s from the local funnel (03 §2.2). [rootPath] is
+  /// the initial home, not a sandbox — like pool channels, listings may
+  /// navigate anywhere the user's OS permissions allow (confinement is
+  /// 03 §7.2's app-side `ScopedPathAccess` seam, pass-through on v1
+  /// desktop). No server state exists to watch, so there is no stream to
+  /// subscribe first.
   Future<EngineBrowseChannel> openLocalChannel({
     required String rootPath,
   }) async {

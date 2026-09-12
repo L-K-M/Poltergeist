@@ -343,7 +343,9 @@ void main() {
       final client = await EngineClient.spawn(const EngineConfig());
       addTearDown(client.shutdown);
 
-      final missing = '${Directory.systemTemp.path}/pg-engine-no-such';
+      final missing =
+          '${Directory.systemTemp.path}/pg-engine-no-such'
+          '-${DateTime.now().microsecondsSinceEpoch}';
       final channel = await client.openLocalChannel(rootPath: missing);
 
       await expectLater(

@@ -350,10 +350,14 @@ final class OpenBrowseChannelRequest extends EngineRequest {
 /// Opens a local browse channel backed by a `LocalFileSystem` the engine
 /// owns (03 §5's ownership table; D8 keeps dart:io off the UI isolate). No
 /// [ServerConfig], no pool, no server-state surface — a local pane is not a
-/// connection. The engine canonicalizes [rootPath] (03 §2.2's realpath
-/// semantics; `~` expands through the engine's environment) and answers
-/// [BrowseChannelOpened] on the same channel-id routing as pool channels,
-/// so listing and closing reuse the existing requests unchanged.
+/// connection. [rootPath] is the channel's initial home, not a sandbox:
+/// like pool channels, listings may navigate to any absolute path — the
+/// user's OS permissions bound the reach, and confinement is 03 §7.2's
+/// app-side `ScopedPathAccess` seam (v1 desktop grants are pass-through),
+/// never this request. The engine canonicalizes [rootPath] (03 §2.2's
+/// realpath semantics; `~` expands through the engine's environment) and
+/// answers [BrowseChannelOpened] on the same channel-id routing as pool
+/// channels, so listing and closing reuse the existing requests unchanged.
 final class OpenLocalBrowseChannelRequest extends EngineRequest {
   final String rootPath;
 

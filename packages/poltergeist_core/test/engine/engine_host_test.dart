@@ -1117,7 +1117,9 @@ void main() {
       () async {
         final h = HostHarness();
         addTearDown(h.dispose);
-        final missing = '${Directory.systemTemp.path}/pg-no-such-root';
+        final missing =
+            '${Directory.systemTemp.path}/pg-no-such-root'
+            '-${DateTime.now().microsecondsSinceEpoch}';
 
         // 03 §2.2: canonicalize never fails for a missing path, so the open
         // succeeds and the navigation surfaces the typed notFound taxonomy.
@@ -1236,6 +1238,21 @@ void main() {
         await h.list(poolChannel.channelId, '/home/test'),
         isA<DirectoryListed>(),
       );
+    });
+
+    test('`~` expands through the engine environment', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+
+      final opened = await h.openLocal('~');
+      expect(opened.homePath, await _canonical('~'));
+
+      // With a resolvable home the expansion is real, not a pass-through.
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home != null && home.isNotEmpty) {
+        expect(opened.homePath, isNot(contains('~')));
+      }
     });
 
     test('shutdown retires local channels', () async {
