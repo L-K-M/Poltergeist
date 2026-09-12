@@ -64,6 +64,13 @@ final class RemotePaneLocation extends PaneLocation {
   String toString() => 'RemotePaneLocation($serverId, $path)';
 }
 
+/// The path's dominant separator: absolute POSIX paths keep '/' (even
+/// with literal backslashes in names — a legal POSIX filename
+/// character); Windows forms (drive, UNC) use '\\'; anything else
+/// defaults to '/'. One definition, shared by parent and label logic.
+String paneSeparator(String path) =>
+    path.startsWith('/') ? '/' : (path.contains('\\') ? '\\' : '/');
+
 /// The display name of a path's last segment (the pane footer's
 /// loading line): a root path ('/' or 'C:\') is its own label.
 String paneLastSegment(String? path) {
@@ -73,9 +80,7 @@ String paneLastSegment(String? path) {
   // (bare 'C:' → 'C:\') — the input is then its own label, never a
   // substring RangeError.
   if (parent == path || parent.length >= path.length) return path;
-  final separator = path.startsWith('/')
-      ? '/'
-      : (path.contains('\\') ? '\\' : '/');
+  final separator = paneSeparator(path);
   final label = path.substring(parent.length).replaceAll(separator, '');
   // A remainder of only separators means the input was a root with a
   // trailing separator — the root labels itself, not ''.
@@ -89,13 +94,7 @@ String paneLastSegment(String? path) {
 /// roots — only `\\server\share` is a listable root, never
 /// `\\server`).
 String paneParentPath(String path) {
-  // Absolute POSIX paths (every remote path; local POSIX) keep '/' even
-  // when a name contains a literal backslash — a legal POSIX filename
-  // character (a Windows-migrated file named 'C:\backup' on a Linux
-  // server must not flip the separator heuristic).
-  final separator = path.startsWith('/')
-      ? '/'
-      : (path.contains('\\') ? '\\' : '/');
+  final separator = paneSeparator(path);
   var trimmed = path;
   while (trimmed.length > 1 && trimmed.endsWith(separator)) {
     trimmed = trimmed.substring(0, trimmed.length - 1);
@@ -110,7 +109,18 @@ String paneParentPath(String path) {
     return trimmed;
   }
   // POSIX '/x' → '/', the root its own parent.
-  if (lastSlash == 0) return separator;
+  // POSIX '/x' → '/', the root its own parent — except a bare UNC
+  // server ('\\\\server'), whose '\' would be the CURRENT DRIVE's
+  // root: climbing from it must not jump drives.
+  if (lastSlash == 0) {
+    if (separator == '\\' &&
+        trimmed.startsWith('\\\\') &&
+        trimmed.length > 2 &&
+        !trimmed.substring(2).contains('\\')) {
+      return trimmed;
+    }
+    return separator;
+  }
   final parent0 = trimmed.substring(0, lastSlash);
   // Collapse doubled separators in the parent ('/a//b' → '/a', not
   // '/a/') so one directory maps to one canonical parent path.

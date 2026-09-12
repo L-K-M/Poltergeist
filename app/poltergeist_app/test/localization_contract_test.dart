@@ -145,6 +145,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.right'",
     "'pane.left.listing'",
     "'pane.right.listing'",
+    "'openInPane: no bookmark for \${server.serverId}'",
   },
   // The workspace controller's debug assert message — a dev-facing
   // invariant, never rendered.

@@ -200,6 +200,13 @@ class CommandChordScope extends StatelessWidget {
           !bindings.containsKey(activator),
           'Duplicate shortcut activator $activator: later command wins',
         );
+        // Release builds keep later-command-wins silently by design; the
+        // print keeps user-reported "shortcut does nothing" diagnosable.
+        if (bindings.containsKey(activator)) {
+          debugPrint(
+            'Duplicate shortcut activator $activator: later command wins',
+          );
+        }
         // Unmodified keys — any activator type — stay with the pane focus
         // nodes (02 §8.2), not only SingleActivator spellings.
         final bool unmodified = activator is SingleActivator

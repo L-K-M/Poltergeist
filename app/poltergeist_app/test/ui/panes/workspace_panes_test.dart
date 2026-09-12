@@ -305,9 +305,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('connection.open.srv-9')));
+    // The open pops the route itself — the pane it opened is revealed.
     await tester.pump();
-    // The route covers the panes; back reveals what opened in the pane.
-    await tester.pageBack();
     await tester.pumpAndSettle();
 
     // The left pane (active by default) now browses the remote listing.

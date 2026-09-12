@@ -457,7 +457,9 @@ void main() {
     lanes.holdRemoteOpen = open;
     final connecting = left.connectRemote(_bookmark('srv-1'));
     await pumpShell(tester);
+    await tester.pump(const Duration(milliseconds: 200));
 
+    // Past the anti-flash grace (02 §2.8): the connecting state shows.
     expect(find.text('Connecting to web.example.com…'), findsOneWidget);
     expect(find.text('late.txt'), findsNothing);
 

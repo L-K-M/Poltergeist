@@ -239,7 +239,12 @@ class _ConnectionRow extends StatelessWidget {
             IconButton(
               key: ValueKey('connection.open.${server.serverId}'),
               tooltip: l10n.connectionsOpenInPane,
-              onPressed: () => onOpenInPane?.call(server),
+              onPressed: () {
+                onOpenInPane?.call(server);
+                // Reveal the pane the bookmark opened in: the full-screen
+                // route would otherwise swallow the effect.
+                Navigator.of(context, rootNavigator: true).maybePop();
+              },
               icon: const Icon(Icons.open_in_new_outlined, size: 18),
             ),
           ],

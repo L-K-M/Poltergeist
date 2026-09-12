@@ -158,7 +158,7 @@ class PaneController extends ChangeNotifier {
                 notifyListeners();
               },
               onError: (Object error, StackTrace stackTrace) {
-                if (_disposed) return;
+                if (_disposed || attempt != _bindAttempt) return;
                 _report(error, stackTrace);
               },
             );
@@ -324,7 +324,7 @@ class PaneController extends ChangeNotifier {
   /// including the post-first-cancel state and an in-flight connect.
   Future<void> detachRemote() async {
     if (_disposed || _pendingRemote == null) return;
-    final attempt = ++_bindAttempt;
+    _bindAttempt++; // invalidate the bind this detach replaces
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
@@ -339,7 +339,6 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
 
     await _releaseBinding();
-    if (_disposed || attempt != _bindAttempt) return;
   }
 
   @override

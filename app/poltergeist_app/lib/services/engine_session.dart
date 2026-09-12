@@ -78,6 +78,9 @@ typedef AppEngineSpawner = Future<AppEngine> Function(EngineConfig config);
 /// credential resolution can answer). Shared by the review connect and
 /// the panes' remote bindings. The returned config's id is the bookmark
 /// id, so callers must pass that same value as the engine's serverId.
+/// createdAt/updatedAt mirror the bookmark's edit times (not connect
+/// time), so every caller derives a stable, identical config for one
+/// bookmark.
 /// A bookmark without an embedded identity fails fast here — never an
 /// empty-host dial (both call sites list identity-backed rows only).
 ServerConfig serverConfigForBookmark(Bookmark bookmark) {
@@ -361,6 +364,10 @@ final class EngineSession {
 
       try {
         final reviewConfig = serverConfigForBookmark(bookmark);
+        // bookmark.id is also the panes' serverId: the finally below
+        // drops the whole server reference after the review — correct,
+        // because a reviewed endpoint blocks every pane on it until the
+        // verdict (D18), so no live pane binding survives to sever.
         final channel = await _engine.openBrowseChannel(
           serverId: reviewConfig.id,
           paneTabId: kHostKeyReviewPaneTabId,

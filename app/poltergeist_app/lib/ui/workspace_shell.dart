@@ -154,6 +154,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // engine's local channel (03 §5's seam; one engine, no second spawn).
     // Keyboard starts on the left pane's listing.
     if (lanes != null) {
+      // openLocalHome never rejects (its shared bind funnels every
+      // fault into the pane's error state — pinned by test); unawaited
+      // therefore discards nothing.
       unawaited(left.openLocalHome());
       unawaited(right.openLocalHome());
     }
@@ -331,6 +334,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           return;
         }
       }
+      // The row outlived its backing bookmark (deleted between render
+      // and tap) — a silent dead tap would read as a broken button.
+      ApplicationErrorReporter().report(
+        StateError('openInPane: no bookmark for ${server.serverId}'),
+        StackTrace.current,
+      );
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
     }

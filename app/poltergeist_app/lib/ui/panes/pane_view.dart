@@ -170,6 +170,17 @@ class _PaneViewState extends State<PaneView> {
     final platform = Theme.of(context).platform;
     final key = event.logicalKey;
 
+    // 02 §2.8: once the grace passes, the dimmed listing is inert —
+    // only Esc (cancel) and Tab (swap panes) stay live while the
+    // navigation is in flight. Keys must not act on stale entries
+    // through the pane's primary input modality either.
+    if (controller.loading &&
+        _pastGrace &&
+        key != LogicalKeyboardKey.escape &&
+        key != LogicalKeyboardKey.tab) {
+      return KeyEventResult.handled;
+    }
+
     switch (key) {
       case LogicalKeyboardKey.arrowDown:
         controller.moveCursorBy(1);
@@ -258,10 +269,18 @@ class _PaneViewState extends State<PaneView> {
       // Null the fired timer: a callback that early-returns must not
       // leave a dead timer blocking the next load's grace re-arm.
       _graceTimer = null;
-      if (_disposed || !mounted || !widget.controller.loading) return;
+      if (_disposed || !mounted || !_graceBusy()) return;
       setState(() => _pastGrace = true);
     });
   }
+
+  /// The grace gates every busy surface (02 §2.8): an in-flight listing
+  /// AND a mid-bind phase (the connecting spinner, which is not
+  /// `loading` — no generation is outstanding yet).
+  bool _graceBusy() =>
+      widget.controller.loading ||
+      widget.controller.phase == PanePhase.openingLocal ||
+      widget.controller.phase == PanePhase.connectingRemote;
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +288,7 @@ class _PaneViewState extends State<PaneView> {
     return ListenableBuilder(
       listenable: _listenable,
       builder: (context, _) {
-        _syncGrace(widget.controller.loading);
+        _syncGrace(_graceBusy());
         _syncReveal();
         final active = identical(
           widget.workspace.activePane,
@@ -300,7 +319,7 @@ class _PaneViewState extends State<PaneView> {
                 scrollController: _scrollController,
                 clock: widget.clock,
                 onCancelNavigation: widget.controller.cancelNavigation,
-                onRetry: () => widget.controller.retry(),
+                onRetry: () => unawaited(widget.controller.retry()),
                 onCancelRecovery: widget.onCancelRecovery,
                 onActivateRow: (index) {
                   widget.controller.setCursorIndex(index);
@@ -407,7 +426,9 @@ class _PaneSurface extends StatelessWidget {
   }
 
   Widget _connectingBody(BuildContext context, AppLocalizations l10n) {
-    if (controller.error != null) {
+    // Nothing before the anti-flash grace (02 §2.8): a fast open must
+    // not flash a spinner any more than a fast navigation does.
+    if (controller.error != null || !graceVisible) {
       // The error overlay renders above; nothing else to show.
       return const SizedBox.shrink();
     }
@@ -553,7 +574,7 @@ class _PathBar extends StatelessWidget {
   /// ('/', '/'), ('home', '/home'), ('tester', '/home/tester') — one
   /// clickable segment per ancestor, root first.
   List<(String, String)> _segmentsOf(String path) {
-    final separator = path.contains('\\') ? '\\' : '/';
+    final separator = path.startsWith('/') ? '/' : '\\';
     final segments = <(String, String)>[];
     var walking = path;
     while (true) {
@@ -771,6 +792,8 @@ class _ErrorOverlay extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               error.message,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: colors.onSurfaceVariant,
               ),
@@ -827,10 +850,16 @@ class _LostConnectionBanner extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  l10n.paneConnectionLost(label),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.onErrorContainer,
+                // Live region: the banner's appearance is announced to
+                // assistive tech (the scrim hides the stale content from
+                // semantics, so the banner is the only signal).
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    l10n.paneConnectionLost(label),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onErrorContainer,
+                    ),
                   ),
                 ),
               ),
