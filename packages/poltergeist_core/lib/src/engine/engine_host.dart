@@ -477,6 +477,7 @@ class EngineHost {
 final class _LocalPaneChannel implements PaneChannel {
   final LocalFileSystem _fs;
   final LocalDirectoryWatcher _watcher;
+  bool _closed = false;
 
   @override
   final String homePath;
@@ -495,9 +496,13 @@ final class _LocalPaneChannel implements PaneChannel {
   /// Validation fails loud and typed before any backend is touched: an
   /// empty path is a caller bug, a missing root answers the local funnel's
   /// `notFound` (operation `inspect`, like the open seam's `resolve`), and
-  /// a non-directory target is refused. The race after validation — the
-  /// root vanishing before the backend arms — degrades to an immediate
-  /// `lost` signal, never a silent stop.
+  /// a non-directory target is refused. The validation awaits real I/O,
+  /// so a channel close processed mid-validation leaves the watcher
+  /// disposed — rechecked after the awaits, the watch answers the typed
+  /// channel-closed refusal instead of acking a watch nothing will serve
+  /// (a disposed watcher would otherwise silently no-op the retarget).
+  /// The race after validation — the root vanishing before the backend
+  /// arms — degrades to an immediate `lost` signal, never a silent stop.
   Future<EngineAck> watch(String path) async {
     if (path.isEmpty) {
       throw const RemoteFileException(
@@ -508,6 +513,13 @@ final class _LocalPaneChannel implements PaneChannel {
     }
     final canonical = await _fs.canonicalize(path);
     final entry = await _fs.stat(canonical);
+    if (_closed) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'watch',
+        message: 'The browse channel is closed.',
+      );
+    }
     if (entry.type != RemoteFileType.directory) {
       throw RemoteFileException(
         kind: RemoteFileErrorKind.other,
@@ -525,6 +537,7 @@ final class _LocalPaneChannel implements PaneChannel {
 
   @override
   Future<void> close() async {
+    _closed = true;
     await _watcher.dispose();
   }
 

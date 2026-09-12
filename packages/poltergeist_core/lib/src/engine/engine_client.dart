@@ -452,8 +452,14 @@ class EngineBrowseChannel {
   /// `canonicalize('.')` at open — the server-side home.
   final String homePath;
 
+  /// Cached at construction: after [close] removes the map entry, later
+  /// `directoryChanges` accesses must keep returning the same (closed)
+  /// stream — a putIfAbsent per access would mint a fresh dead controller
+  /// that never emits and never completes.
+  late final StreamController<DirectoryWatchEvent> _watchEvents;
+
   EngineBrowseChannel._(this._client, this.channelId, this.homePath) {
-    _client._directoryWatchController(channelId);
+    _watchEvents = _client._directoryWatchController(channelId);
   }
 
   /// Invalidation signals for this channel's watched directory (03 §7.5):
@@ -463,8 +469,7 @@ class EngineBrowseChannel {
   /// on channel close and engine death. Local channels only —
   /// [watchDirectory] on a pool channel fails with the typed local-only
   /// refusal.
-  Stream<DirectoryWatchEvent> get directoryChanges =>
-      _client._directoryWatchController(channelId).stream;
+  Stream<DirectoryWatchEvent> get directoryChanges => _watchEvents.stream;
 
   /// Starts (or retargets) this channel's single non-recursive watch on
   /// [path] (03 §7.5); the engine canonicalizes it. One watch per channel:

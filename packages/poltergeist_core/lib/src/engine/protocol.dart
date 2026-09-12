@@ -444,10 +444,14 @@ final class ListDirectoryRequest extends EngineRequest {
 /// `~` expands through the engine's environment) and fails the request
 /// typed for an empty path, a missing root (the local funnel's `notFound`),
 /// or a non-directory target. A watch that dies after establishment
-/// surfaces as a [DirectoryWatchEvent] with [DirectoryWatchSignal.lost],
-/// never as a silent stop. A second watch on the same channel replaces the
-/// first: stale callbacks from the replaced watch cannot invalidate the new
-/// binding.
+/// surfaces as a [DirectoryWatchEvent] with [DirectoryWatchSignal.lost]
+/// immediately and releases the watch — never as a silent stop; the one
+/// backend exception is Windows, where removing the watched directory
+/// itself defers (delete-pending while the watch holds its handle) and
+/// yields no loss signal — the children-removal
+/// [DirectoryWatchSignal.changed] and its rescan are the observable path
+/// there. A second watch on the same channel replaces the first: stale
+/// callbacks from the replaced watch cannot invalidate the new binding.
 final class WatchLocalDirectoryRequest extends EngineRequest {
   final int channelId;
   final String path;

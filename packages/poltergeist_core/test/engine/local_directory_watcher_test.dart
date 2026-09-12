@@ -112,6 +112,30 @@ void main() {
     });
   });
 
+  test('a change after a fired debounce arms a fresh one', () {
+    fakeAsync((async) {
+      final backend = FakeBackend();
+      final watcher = LocalDirectoryWatcher(backend: backend);
+
+      final signals = collect(async, watcher, _root);
+
+      backend.emit(_root, _create('$_root/a.txt'));
+      async.elapse(const Duration(milliseconds: 301));
+      expect(signals, hasLength(1));
+
+      // The watch must keep notifying: a one-shot debounce regression
+      // (or a subscription torn down after the first signal) would stop
+      // here.
+      backend.emit(_root, _create('$_root/b.txt'));
+      async.elapse(const Duration(milliseconds: 301));
+
+      expect(signals, hasLength(2));
+      expect(signals.last.kind, DirectoryWatchSignal.changed);
+
+      finish(async, watcher);
+    });
+  });
+
   test('grandchild events are filtered (non-recursive watch)', () {
     fakeAsync((async) {
       final backend = FakeBackend();
@@ -365,6 +389,24 @@ void main() {
     });
   });
 
+  test('dispose cancels a pending debounce', () {
+    fakeAsync((async) {
+      final backend = FakeBackend();
+      final watcher = LocalDirectoryWatcher(backend: backend);
+
+      final signals = collect(async, watcher, _root);
+      backend.emit(_root, _create('$_root/a.txt'));
+      async.flushMicrotasks();
+
+      finish(async, watcher);
+      async.elapse(const Duration(seconds: 5));
+
+      // An orphaned timer firing into the closed signals stream would
+      // surface as a nondeterministic unhandled error; it must be gone.
+      expect(signals, isEmpty);
+    });
+  });
+
   test('events after stop are dropped', () {
     fakeAsync((async) {
       final backend = FakeBackend();
@@ -416,12 +458,17 @@ void main() {
 
       final signals = collect(async, watcher, _root);
       watcher.retarget(_other);
-      async.flushMicrotasks();
 
-      // Late events and loss shapes from the replaced watch (delivered
-      // while its cancel was still in flight) must be dropped by epoch.
+      // Emitted immediately after the retarget — with the synchronous
+      // release the old subscription is already cancelled, so a
+      // controller-backed fake drops these by broadcast semantics before
+      // the epoch; cross-binding epoch coverage is the delete-then-close
+      // shape below (same-binding late loss), the guard being
+      // defense-in-depth for backend-internal delivery windows no
+      // public-API fake can construct.
       backend.emit(_root, _create('$_root/late.txt'));
       backend.emit(_root, _delete(_root));
+      async.flushMicrotasks();
       async.elapse(const Duration(seconds: 5));
 
       expect(signals, isEmpty);

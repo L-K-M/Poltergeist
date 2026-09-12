@@ -531,25 +531,26 @@ void main() {
     });
 
     test(
-      'closing the channel closes directoryChanges and releases the watch',
+      'closing the channel closes directoryChanges',
       () async {
-        final (_, channel, root) = await localFixture('pg-watch-close');
+        final (_, channel, _) = await localFixture('pg-watch-close');
 
         final done = Completer<void>();
-        final changes = <DirectoryWatchEvent>[];
         channel.directoryChanges.listen(
-          changes.add,
+          (_) {},
           onDone: done.complete,
         );
         await channel.watchDirectory(channel.homePath);
         await drainSetupBacklog();
-        changes.clear();
         await channel.close();
 
         await done.future.timeout(_watchCrossingTimeout);
-        File('${root.path}/after-close.txt').writeAsStringSync('late');
-        await Future<void>.delayed(_watchQuietWindow);
-        expect(changes, isEmpty);
+        // The engine-side release is pinned by the host test observing the
+        // backend cancel; here, post-close access must yield the same
+        // closed stream, not a fresh never-completing one.
+        await channel.directoryChanges
+            .drain<void>()
+            .timeout(_watchCrossingTimeout);
       },
     );
 

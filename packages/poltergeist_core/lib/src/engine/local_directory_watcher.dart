@@ -130,8 +130,9 @@ final class LocalDirectoryWatcher {
   }
 
   /// Releases the watch and closes [signals]; the watcher is unusable
-  /// afterwards.
+  /// afterwards. Idempotent — a second call is a no-op, like [stop].
   Future<void> dispose() async {
+    if (_disposed) return;
     _disposed = true;
     _release();
     await _signals.close();

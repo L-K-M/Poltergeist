@@ -6,7 +6,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_core/src/engine/connect_log_coalescer.dart'
     show connectionLogFlushInterval;
 import 'package:poltergeist_core/src/engine/local_directory_watcher.dart'
-    show LocalWatchBackend;
+    show LocalDirectoryWatcher, LocalWatchBackend;
 import 'package:test/test.dart';
 
 import '../connection/pool_fakes.dart';
@@ -1345,6 +1345,10 @@ void main() {
     ) async {
       final backend = FakeWatchBackend();
       final h = HostHarness(localWatch: backend);
+      // Registered at construction: a failure inside this helper must not
+      // leak the harness isolate for the rest of the suite. dispose() is
+      // idempotent, so the per-test registrations below are safe either way.
+      addTearDown(h.dispose);
       final opened = await h.openLocal(root.path);
       final result = await h.call(
         (id) => WatchLocalDirectoryRequest(
@@ -1359,9 +1363,12 @@ void main() {
       return (h, backend, opened.channelId, opened.homePath);
     }
 
-    /// Waits past the 300 ms debounce so a debounced change has crossed.
-    Future<void> settleDebounce() =>
-        Future<void>.delayed(const Duration(milliseconds: 600));
+    /// Waits past the debounce window so a debounced change has crossed —
+    /// derived from the production constant, not a restated millisecond
+    /// value that can drift (the connectionLogFlushInterval precedent).
+    Future<void> settleDebounce() => Future<void>.delayed(
+          LocalDirectoryWatcher.debounceInterval * 2,
+        );
 
     List<DirectoryWatchEvent> watchEvents(HostHarness h) =>
         h.events.whereType<DirectoryWatchEvent>().toList();
@@ -1493,8 +1500,7 @@ void main() {
     });
 
     test('a file target answers typed, unwatched', () async {
-      final backend = FakeWatchBackend();
-      final h = HostHarness(localWatch: backend);
+      final h = HostHarness(localWatch: _NeverWatchBackend());
       addTearDown(h.dispose);
       final root = _localFixture('pg-watch-file');
 
@@ -1511,7 +1517,6 @@ void main() {
       );
       expect(error.kind, RemoteFileErrorKind.other);
       expect(error.message, contains('not a directory'));
-      expect(backend.controllers, isEmpty);
     });
 
     test('an empty path answers typed', () async {
@@ -1603,10 +1608,46 @@ void main() {
 
     test('shutdown releases local watches', () async {
       final root = _localFixture('pg-watch-shutdown');
-      final (h, backend, channelId, homePath) = await watchFixture(root);
+      final (h, backend, _, homePath) = await watchFixture(root);
 
       await h.call((id) => ShutdownRequest(requestId: id));
       expect(backend.cancelled, [homePath]);
     });
+
+    test(
+      'a watch racing a channel close answers the typed channel-closed refusal',
+      () async {
+        final backend = FakeWatchBackend();
+        final h = HostHarness(localWatch: backend);
+        addTearDown(h.dispose);
+        final root = _localFixture('pg-watch-close-race');
+
+        final opened = await h.openLocal(root.path);
+        // Both requests issued back to back without awaiting between: the
+        // watch suspends inside its canonicalize/stat awaits, the close
+        // removes the channel and disposes the watcher synchronously, and
+        // the resumed watch must refuse typed instead of acking a watch
+        // onto a disposed watcher.
+        final watch = h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: opened.channelId,
+            path: opened.homePath,
+          ),
+        );
+        await h.call(
+          (id) => CloseBrowseChannelRequest(
+            requestId: id,
+            channelId: opened.channelId,
+          ),
+        );
+
+        final error = await expectError(watch);
+        expect(error.kind, RemoteFileErrorKind.disconnected);
+        expect(error.operation, 'watch');
+        // The close won: nothing was ever watched.
+        expect(backend.controllers, isEmpty);
+      },
+    );
   });
 }

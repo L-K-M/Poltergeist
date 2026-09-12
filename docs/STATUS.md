@@ -3138,10 +3138,20 @@ is 611 pass +16 skips.
     state on every terminal path, and keep sibling listings alive.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
+13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
+    The pinned `RemoteFileEntry` exposes decoded name/path only, with no
+    raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
+    escaped-name disambiguation, and disabled operations on flagged rows.
+    The pure sorter orders decoded names only; a path tiebreak cannot
+    distinguish two byte names decoded to the same string. Add metadata
+    upstream and bridge it through the engine before wiring those pane
+    behaviors; preserve the raw-byte tiebreak before the path fallback.
+    D25 still defers byte-preserving operations. No local VFS fork or
+    replacement interface is authorized by this item.
 14. **2026-09-13 — M3: Linux inotify overflow is invisible through
     dart:io.** The watch seam's `LocalDirectoryWatcher` (dated section
     above) cannot observe `IN_Q_OVERFLOW`: the kernel posts the overflow
-event with watch descriptor −1, which matches no watched path in the
+    event with watch descriptor −1, which matches no watched path in the
     SDK's event routing, and its decoded mask is 0 — nothing reaches a
     Dart listener, so a Linux overflow silently drops events with no
     signal (verified against Dart 3.13.3
@@ -3153,17 +3163,6 @@ event with watch descriptor −1, which matches no watched path in the
     `LocalWatchBackend` seam — an additive, reversible swap when wanted;
     until then the seam honestly reports `changed`/`lost` only and never
     claims overflow detection on Linux.
-
-13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
-    The pinned `RemoteFileEntry` exposes decoded name/path only, with no
-    raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
-    escaped-name disambiguation, and disabled operations on flagged rows.
-    The pure sorter orders decoded names only; a path tiebreak cannot
-    distinguish two byte names decoded to the same string. Add metadata
-    upstream and bridge it through the engine before wiring those pane
-    behaviors; preserve the raw-byte tiebreak before the path fallback.
-    D25 still defers byte-preserving operations. No local VFS fork or
-    replacement interface is authorized by this item.
 
 ## Independent audit
 

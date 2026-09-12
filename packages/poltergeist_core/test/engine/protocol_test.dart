@@ -294,7 +294,9 @@ void main() {
           channelId: 7,
           path: '/home/user',
           signal: DirectoryWatchSignal.lost,
-          detail: 'the watched directory was removed',
+          // Real FileSystemException text: quotes, backslashes (Windows
+          // paths), a newline, and non-ASCII — escaping must survive.
+          detail: 'watcher failed: "C:\\Users\\aoi" — gone\n(retry?)',
         ),
       );
       for (final signal in DirectoryWatchSignal.values) {
