@@ -397,12 +397,15 @@ class _PaneSurface extends StatelessWidget {
 
     return Stack(
       children: [
-        // While the connection-lost banner owns the pane, the stale
-        // listing leaves the semantics tree too — the banner is the
-        // only signal (a reachable-but-inert row would read as broken).
+        // While the connection-lost banner owns the pane — or the
+        // post-grace dim declares the listing inert — the stale listing
+        // leaves the semantics tree too: a reachable-but-inert row
+        // would read as broken (AT activation bypasses hit testing).
         Positioned.fill(
           child: ExcludeSemantics(
-            excluding: controller.connectionLost,
+            excluding:
+                controller.connectionLost ||
+                (controller.loading && graceVisible),
             child: switch (controller.phase) {
               PanePhase.unbound => _Centered(l10n.paneNoLocation),
               PanePhase.openingLocal ||

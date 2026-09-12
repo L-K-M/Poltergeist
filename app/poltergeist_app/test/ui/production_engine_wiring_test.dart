@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,7 +60,9 @@ void main() {
     // One store shared by the session and the app, as main.dart wires it.
     final bookmarks = FakeBookmarkStore([_blockedBookmark()]);
     final session = await startEngineSession(
-      supportDirectoryPath: './engine-session',
+      supportDirectoryPath: Directory.systemTemp
+          .createTempSync('pg-engine-session-')
+          .path,
       bookmarks: bookmarks,
       navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
@@ -134,7 +137,9 @@ void main() {
     // One store shared by the session and the app, as main.dart wires it.
     final bookmarks = FakeBookmarkStore([_blockedBookmark()]);
     final session = await startEngineSession(
-      supportDirectoryPath: './engine-session',
+      supportDirectoryPath: Directory.systemTemp
+          .createTempSync('pg-engine-session-')
+          .path,
       bookmarks: bookmarks,
       navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
@@ -185,7 +190,9 @@ void main() {
     final engine = engineWithTwoLocalPanes();
     addTearDown(engine.close);
     final session = await startEngineSession(
-      supportDirectoryPath: './engine-session',
+      supportDirectoryPath: Directory.systemTemp
+          .createTempSync('pg-engine-session-')
+          .path,
       bookmarks: FakeBookmarkStore(),
       navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),

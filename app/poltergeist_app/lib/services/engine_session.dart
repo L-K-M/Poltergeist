@@ -364,6 +364,10 @@ final class EngineSession {
 
       try {
         final reviewConfig = serverConfigForBookmark(bookmark);
+        assert(
+          reviewConfig.id == serverId,
+          'review-connect serverId must equal bookmark.id',
+        );
         // bookmark.id is also the panes' serverId: the finally below
         // drops the whole server reference after the review — correct,
         // because a reviewed endpoint blocks every pane on it until the

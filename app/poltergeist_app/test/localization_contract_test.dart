@@ -27,6 +27,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'incidents.json'",
     "'identity_reads.jsonl'",
     "'review'",
+    "'review-connect serverId must equal bookmark.id'",
     r"'$supportDirectoryPath$separator$_pinStoreFileName'",
     r"'$supportDirectoryPath$separator$_incidentStoreFileName'",
     r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
