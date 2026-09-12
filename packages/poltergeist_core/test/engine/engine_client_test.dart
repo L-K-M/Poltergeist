@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -306,6 +307,84 @@ void main() {
         ),
       ),
     );
+  });
+
+  group('local browse channels', () {
+    test(
+      'openLocalChannel browses a local root across real isolates',
+      () async {
+        final client = await EngineClient.spawn(const EngineConfig());
+        addTearDown(client.shutdown);
+
+        final root = Directory.systemTemp.createTempSync('pg-engine-local');
+        addTearDown(() => root.deleteSync(recursive: true));
+        File('${root.path}/a.txt').writeAsStringSync('alpha');
+        Directory('${root.path}/sub').createSync();
+
+        final channel = await client.openLocalChannel(rootPath: root.path);
+        expect(
+          channel.homePath,
+          await LocalFileSystem().canonicalize(root.path),
+        );
+
+        final entries = await channel.listDirectory(channel.homePath);
+        final byName = {for (final entry in entries) entry.name: entry};
+        expect(byName.keys, {'a.txt', 'sub'});
+        expect(byName['a.txt']!.type, RemoteFileType.file);
+        expect(byName['sub']!.type, RemoteFileType.directory);
+
+        // A subdirectory navigation rides the same channel: no server, no
+        // second open — the pane's ordinary navigation shape.
+        expect(await channel.listDirectory('${channel.homePath}/sub'), isEmpty);
+      },
+    );
+
+    test('local failures cross as the typed taxonomy', () async {
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+
+      final missing =
+          '${Directory.systemTemp.path}/pg-engine-no-such'
+          '-${DateTime.now().microsecondsSinceEpoch}';
+      final channel = await client.openLocalChannel(rootPath: missing);
+
+      await expectLater(
+        channel.listDirectory(channel.homePath),
+        throwsA(
+          isA<RemoteFileException>()
+              .having(
+                (error) => error.kind,
+                'kind',
+                RemoteFileErrorKind.notFound,
+              )
+              .having((error) => error.operation, 'operation', 'list')
+              .having((error) => error.path, 'path', channel.homePath),
+        ),
+      );
+    });
+
+    test('closing a local channel is idempotent and retires it', () async {
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+
+      final root = Directory.systemTemp.createTempSync('pg-engine-local-close');
+      addTearDown(() => root.deleteSync(recursive: true));
+
+      final channel = await client.openLocalChannel(rootPath: root.path);
+      await channel.close();
+      await channel.close();
+
+      await expectLater(
+        channel.listDirectory(channel.homePath),
+        throwsA(
+          isA<RemoteFileException>().having(
+            (error) => error.kind,
+            'kind',
+            RemoteFileErrorKind.disconnected,
+          ),
+        ),
+      );
+    });
   });
 
   test('invalid policy kills the engine and surfaces termination', () async {

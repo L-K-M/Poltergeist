@@ -206,6 +206,31 @@ class EngineClient implements PromptBridge, ProbeBridge {
     return EngineBrowseChannel._(this, opened.channelId, opened.homePath);
   }
 
+  /// Opens a local browse channel (03 §5's engine-side seam): the engine
+  /// owns the backing `LocalFileSystem` — D8 keeps dart:io off the UI
+  /// isolate — and canonicalizes [rootPath] into [EngineBrowseChannel.homePath].
+  /// The same [EngineBrowseChannel] surface as [openBrowseChannel]: panes
+  /// list and close identically, and failures arrive as typed
+  /// [RemoteFileException]s from the local funnel (03 §2.2). [rootPath] is
+  /// the initial home, not a sandbox — like pool channels, listings may
+  /// navigate anywhere the user's OS permissions allow (confinement is
+  /// 03 §7.2's app-side `ScopedPathAccess` seam, pass-through on v1
+  /// desktop). [rootPath] should be absolute (or `~`-anchored) — a
+  /// relative root resolves against the engine's working directory.
+  /// Only a missing root is guaranteed to open (`notFound` surfaces at
+  /// first listing); a root under an unreadable ancestor fails the open
+  /// typed. No server state exists to watch, so there is no stream to
+  /// subscribe first.
+  Future<EngineBrowseChannel> openLocalChannel({
+    required String rootPath,
+  }) async {
+    final result = await _call(
+      (id) => OpenLocalBrowseChannelRequest(requestId: id, rootPath: rootPath),
+    );
+    final opened = result as BrowseChannelOpened;
+    return EngineBrowseChannel._(this, opened.channelId, opened.homePath);
+  }
+
   /// ServerIds with live transports — feeds the probe loop's sync reads.
   Future<Set<String>> connectedServerIds() async {
     final result = await _call(

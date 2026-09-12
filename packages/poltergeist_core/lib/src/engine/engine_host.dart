@@ -8,6 +8,7 @@ import '../connection/credential_resolution.dart';
 import '../connection/incident_store.dart';
 import '../connection/pool_key.dart';
 import '../connection/ssh_transport.dart';
+import '../fs/local_file_system.dart';
 import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
 import 'protocol.dart';
@@ -37,8 +38,9 @@ void engineMain(SendPort events) {
 }
 
 /// Serves the typed port protocol inside the engine isolate: owns the
-/// [PooledConnectionManager], executes VFS requests on its channels, and
-/// bridges every user-facing prompt to an [EnginePromptEvent]/reply pair —
+/// [PooledConnectionManager] and the pane-facing `LocalFileSystem`
+/// instances (03 §5's ownership table), executes VFS requests on its
+/// channels, and bridges every user-facing prompt to an [EnginePromptEvent]/reply pair —
 /// the seance_core prompt callbacks cannot cross isolates (03 §5).
 ///
 /// Constructed with the [EngineConfig]; emits every [EngineEvent] on
@@ -153,10 +155,7 @@ class EngineHost {
   static IncidentStore _seededIncidentStore(
     EngineConfig config,
     SendPort events,
-  ) => _IncidentBridge(
-    InMemoryIncidentStore.seeded(config.incidents),
-    events,
-  );
+  ) => _IncidentBridge(InMemoryIncidentStore.seeded(config.incidents), events);
 
   void handle(Object? message) {
     switch (message) {
@@ -173,6 +172,17 @@ class EngineHost {
             channelId: channelId,
             homePath: channel.homePath,
           );
+        });
+      case final OpenLocalBrowseChannelRequest request:
+        _guard(request.requestId, () async {
+          final fs = LocalFileSystem();
+          // 03 §2.2: canonicalize never fails for a missing path, so the
+          // open succeeds and an unresolvable root surfaces through the
+          // typed notFound taxonomy at first listing, like any navigation.
+          final homePath = await fs.canonicalize(request.rootPath);
+          final channelId = _nextChannelId++;
+          _channels[channelId] = _LocalPaneChannel(fs, homePath);
+          return BrowseChannelOpened(channelId: channelId, homePath: homePath);
         });
       case final CloseBrowseChannelRequest request:
         _guard(request.requestId, () async {
@@ -364,6 +374,14 @@ class EngineHost {
     }
     _watches.clear();
 
+    // Local channels bind no pool, so disconnectServer never saw them:
+    // close them directly — trivial today, and the seam 03 §7.5's directory
+    // watchers clean up through when they attach to these channels. Pool
+    // bindings were closed by disconnectServer above.
+    for (final channel in _channels.values) {
+      if (channel is _LocalPaneChannel) await channel.close();
+    }
+
     // disconnectServer already closed every pane binding (03 §3.5); these
     // maps are state hygiene so a post-shutdown host answers cleanly
     // instead of vending dead channels.
@@ -371,6 +389,34 @@ class EngineHost {
     _servers.clear();
     return const EngineAck();
   }
+}
+
+/// The local half of the host's channel routing (03 §5): a `LocalFileSystem`
+/// the engine owns, served through the same map and requests as pool
+/// `PaneChannel`s so panes cannot tell the two apart by protocol shape.
+///
+/// Local failures are terminal facts, never transport loss: nothing recovers,
+/// so [reportFailure] is a no-op — the host's recovery reporting keys off
+/// `disconnected`-kind failures that the local funnel (03 §2.2) never
+/// produces. [close] retires the engine's instance; the `LocalFileSystem`
+/// itself holds no OS handles, and the map removal is what makes later
+/// requests answer the channel-closed error.
+final class _LocalPaneChannel implements PaneChannel {
+  final LocalFileSystem _fs;
+
+  @override
+  final String homePath;
+
+  _LocalPaneChannel(this._fs, this.homePath);
+
+  @override
+  RemoteFileSystem get fs => _fs;
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  void reportFailure(RemoteFileSystem source, RemoteFileException error) {}
 }
 
 /// A pin store that forwards every write to the UI (03 §5's pin bridge).

@@ -32,9 +32,9 @@ settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
 pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
-Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice is
-blocked on open item 11 (the engine-side local browse seam) until a
-core PR lands it.
+Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
+resumes against the engine-side local browse seam (open item 11, closed
+below: `EngineClient.openLocalChannel` and its host-side channel).
 
 ## Done
 
@@ -2391,6 +2391,61 @@ created prefixes; callers own cleanup), control-character escaping
 in messages, and a Windows MAX_PATH cap (no v1 surface). Applied:
 the PORTS divergence heading now names the rounds it spans and the
 STATUS validation parenthetical tracks round 10.
+
+## M3 — engine-side local browse seam (2026-09-11)
+
+STATUS item 11 closed: the engine protocol (v7) gained
+`OpenLocalBrowseChannelRequest` — a local variant of the browse-channel
+open carrying only the root path (no `ServerConfig`, no pool,
+no server-state surface; the engine canonicalizes the root with 03
+§2.2's realpath semantics, `~` expanding through its environment) and
+answering the existing `BrowseChannelOpened`/`CloseBrowseChannelRequest`/
+`ListDirectoryRequest` shapes on the same channel-id space, so listing,
+closing, and the closed-channel error taxonomy are additive and unchanged.
+Recorded contract (review round 1, made explicit in the request's doc):
+the root is the channel's initial home, not a sandbox — like pool
+channels, listings may navigate to any absolute path, the user's OS
+permissions bound the reach, and confinement belongs to 03 §7.2's
+app-side `ScopedPathAccess` seam (v1 desktop grants pass-through),
+never to this request. Round 3 added the open-failure contract: only a
+missing root is guaranteed to open (`notFound` at first listing); a
+root under an unreadable ancestor fails the open itself, typed
+`permissionDenied` operation `resolve` through the local funnel.
+`EngineHost` mounts a `_LocalPaneChannel implements PaneChannel` backed by
+a `LocalFileSystem` instance the engine owns (03 §5's ownership table;
+D8 — no app-side dart:io, no second engine): the pool's existing
+`_listDirectory` plumbing serves it, `reportFailure` is a no-op (local
+failures are terminal facts — the funnel never produces the
+`disconnected` kind recovery keys on), close is idempotent and retires
+the engine's reference, and shutdown closes local channels directly
+(the seam 03 §7.5's directory watchers clean up through when they land).
+`EngineClient.openLocalChannel` returns the same `EngineBrowseChannel`
+facade as `openBrowseChannel`, so panes list and close identically;
+no watch surface exists to subscribe to, consistent with a local pane
+not being a connection. Directory watching, per-location view prefs,
+and the rest of 07 §3.4 stay with their own slices; the pane slice
+resumes against this facade.
+
+Validation (failing-first: the new-surface tests failed to compile
+before the implementation landed): protocol round-trips through a
+spawned isolate for the new request plus the v7 bump; nine host tests
+over temp-dir fixtures (canonicalized home + listing with files,
+sizes, and directories; links reported as links with null metadata;
+missing root opens and its first listing answers the pinned `notFound`
+taxonomy with operation `list`; a root under an unreadable ancestor
+fails the open typed `permissionDenied`/`resolve`; chmod-000
+directory answers `permissionDenied`; `~` expansion through the
+engine environment; idempotent close with the disconnected
+closed-channel error; local and pool channels sharing one id space
+without interference; shutdown retiring local channels); three
+real-isolate client tests (browse + subdirectory navigation across a
+spawned engine, the typed taxonomy crossing as `RemoteFileException`,
+idempotent close retiring the channel). Full core suite 546 green
+(+15 Docker-fixture skips, Docker unavailable locally); core analyze
+clean; import guard (92 + repo scan) and protocol guard (51) green.
+No app change, no pin/lock change, no transfer/queue protocol work
+(M4), no port (original code — PORTS.md unchanged), no
+milestone-close claim.
 
 ## Open items
 

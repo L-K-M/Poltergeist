@@ -14,8 +14,10 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// previously reserved [ServerStateEvent.detail]. v5 adds probe targets,
 /// activity control, and tri-state reachability snapshots. v6 adds
 /// [RemoveBookmarkRequest] and the incident-store bridge
-/// ([IncidentStoreEvent]).
-const engineProtocolVersion = 6;
+/// ([IncidentStoreEvent]). v7 adds the local browse-channel open request
+/// ([OpenLocalBrowseChannelRequest]) — the engine-side seam for local
+/// panes (03 §5's ownership table).
+const engineProtocolVersion = 7;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -342,6 +344,30 @@ final class OpenBrowseChannelRequest extends EngineRequest {
     required this.serverId,
     required this.paneTabId,
     required this.config,
+  });
+}
+
+/// Opens a local browse channel backed by a `LocalFileSystem` the engine
+/// owns (03 §5's ownership table; D8 keeps dart:io off the UI isolate). No
+/// [ServerConfig], no pool, no server-state surface — a local pane is not a
+/// connection. [rootPath] is the channel's initial home, not a sandbox:
+/// like pool channels, listings may navigate to any absolute path — the
+/// user's OS permissions bound the reach, and confinement is 03 §7.2's
+/// app-side `ScopedPathAccess` seam (v1 desktop grants are pass-through),
+/// never this request. The engine canonicalizes [rootPath] (03 §2.2's
+/// realpath semantics; `~` expands through the engine's environment) and
+/// answers [BrowseChannelOpened] on the same channel-id routing as pool
+/// channels, so listing and closing reuse the existing requests unchanged.
+/// Only a *missing* root is guaranteed to open (surfacing the typed
+/// `notFound` at first listing): a root under an unreadable ancestor
+/// cannot be traversed, so the open itself fails typed
+/// (`permissionDenied`, operation `resolve`) through the local funnel.
+final class OpenLocalBrowseChannelRequest extends EngineRequest {
+  final String rootPath;
+
+  const OpenLocalBrowseChannelRequest({
+    required super.requestId,
+    required this.rootPath,
   });
 }
 
