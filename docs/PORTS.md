@@ -382,6 +382,16 @@ port candidates.
   (09 §3.5), and the commit-point leaf validation — all applicable to
   Séance's own statics.
 
+## M3 native contract repairs (2026-09-12)
+
+PR #81's native matrix exposed local source cleanup returning before the
+file handle closed. `LocalFileSystem` now awaits iterator cancellation;
+a held-cleanup regression pins completion ownership. This changes only
+the local VFS, not the pinned remote adapter. No source copy or pin change.
+The incident store's orphan sweep now matches basenames within its listed
+parent, accepting Windows paths with mixed separators. No upstream store
+counterpart is ported here.
+
 ## packages/poltergeist_core/test/fs/local_fs_safety_test.dart
 
 - Source: app/seance_app/test/remote_files_controller_test.dart (the

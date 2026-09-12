@@ -2499,8 +2499,19 @@ location construction, browsing widgets, and the rest of M3 remain open.
    skips plus the Windows-only case); 156 filesystem tests pass. The two
    new workflow guards failed against Ubuntu-only CI, then passed;
    fixture tools (64), guard suites, and M0 evidence validation pass.
-   Logs/exits: `/tmp/poltergeist-task17-logs/`. No production, UI, pin,
-   or milestone-close change.
+   Native run `34713212268` at `f8040cb`: Ubuntu packages/tooling,
+   SSH, pin audit, Flutter, and five clients passed. macOS exposed a
+   getcwd fixture alias; Windows exposed a mixed-separator expectation,
+   incident-temp sweep prefix mismatch, and detached stream cleanup.
+   PR #81 repairs both expectations, matches temp basenames within the
+   listed parent, and awaits source cancellation before returning.
+   A held-cleanup regression failed locally before the repair, then passed;
+   core analysis and 549 tests pass; filesystem/store tests: 176 pass.
+   Native repair validation and final review remain pending. Review round
+   1 had no confirmed important findings: apply diagnostic/skip-predicate
+   nits; refute the root-guard and setup-dart cache claims with source.
+   Full dispositions live in #81. Logs/exits:
+   `/tmp/poltergeist-task17-logs/`. No UI, pin, or milestone-close change.
    **2026-09-07 review follow-up (#34):** before running the protocol guard's
    symlink fixture on Windows, probe link-creation privileges and skip only
    when unavailable. Its current CI job runs on Ubuntu.

@@ -190,7 +190,7 @@ void main() {
     test('never throws for a missing path — normalized absolute form', () async {
       expect(
         await fs.canonicalize('${root.path}/gone/../child/x'),
-        pathOf('child/x'),
+        p.join(root.path, 'child', 'x'),
       );
     });
 
@@ -211,7 +211,11 @@ void main() {
       final previous = Directory.current;
       Directory.current = root;
       addTearDown(() => Directory.current = previous);
-      expect(await fs.canonicalize('sub/../rel'), pathOf('rel'));
+      // getcwd resolves macOS's /var alias even for a missing child.
+      expect(
+        await fs.canonicalize('sub/../rel'),
+        p.join(Directory.current.path, 'rel'),
+      );
     });
   });
 
@@ -276,6 +280,9 @@ void main() {
       // OS diagnostics differ (ENOTDIR versus Windows ERROR_DIRECTORY).
       expect(error.message, startsWith('Could not list "${file.path}": '));
       expect(error.cause, isA<FileSystemException>());
+      if (!Platform.isWindows) {
+        expect(error.message, contains('Not a directory'));
+      }
     });
 
     testWithPosixTools('an unreadable directory fails permissionDenied', () async {
@@ -1112,6 +1119,46 @@ void main() {
       expect(siblingLitter(), isEmpty);
     });
 
+    test('cancellation waits for source cleanup before completing', () async {
+      final cancellation = RemoteTransferCancellation();
+      final cleanupStarted = Completer<void>();
+      final releaseCleanup = Completer<void>();
+      final source = StreamController<List<int>>(
+        onCancel: () async {
+          cleanupStarted.complete();
+          await releaseCleanup.future;
+        },
+      );
+      source.add([1]);
+      var completed = false;
+      final operation = failureOf(
+        fs.upload(
+          pathOf('out'),
+          source.stream,
+          cancellation: cancellation,
+          onProgress: (_, _) => cancellation.cancel(),
+        ),
+      ).then((error) {
+        completed = true;
+        return error;
+      });
+
+      try {
+        await cleanupStarted.future;
+        // Hold cleanup across event turns so detached cancellation is visible.
+        const cleanupObservationWindow = Duration(milliseconds: 100);
+        await Future<void>.delayed(cleanupObservationWindow);
+        expect(completed, isFalse);
+      } finally {
+        releaseCleanup.complete();
+        await operation;
+        await source.close();
+      }
+
+      expect(remoteFailure(await operation).kind, RemoteFileErrorKind.cancelled);
+      expect(siblingLitter(), isEmpty);
+    });
+
     test('cancellation mid-stream throws cancelled and cleans the temp', () async {
       final cancellation = RemoteTransferCancellation();
       Stream<List<int>> content() async* {
@@ -1216,7 +1263,7 @@ void main() {
           expect(siblingLitter(), isEmpty);
           // Reserved device paths need not stat as absent on Windows.
           expect(root.listSync(), isEmpty);
-        }, skip: Platform.isWindows && case_.$1 == r'a\b'
+        }, skip: Platform.isWindows && case_.$1.contains('\\')
             ? 'backslash is a Windows path separator, not a leaf; '
               'validatePathComponent covers untrusted components'
             : false);
