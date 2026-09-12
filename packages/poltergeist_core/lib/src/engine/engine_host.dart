@@ -11,6 +11,7 @@ import '../connection/ssh_transport.dart';
 import '../fs/local_file_system.dart';
 import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
+import 'local_directory_watcher.dart';
 import 'protocol.dart';
 
 /// Boots the engine isolate (the `Isolate.spawn` entrypoint).
@@ -59,19 +60,24 @@ class EngineHost {
   final Map<String, ServerConfig> _servers = {};
   final Map<int, PaneChannel> _channels = {};
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
+  late final LocalWatchBackend _localWatch;
   int _nextChannelId = 1;
   bool _shuttingDown = false;
 
   /// [openTransport], [prober], and [hostKeyStore] are test seams — the
   /// production defaults need real sockets; tests inject socket-free fakes.
+  /// [localWatch] is the same for 03 §7.5's directory watchers: the default
+  /// is dart:io's `Directory.watch`; tests inject deterministic backends.
   factory EngineHost({
     required EngineConfig config,
     required SendPort events,
     SshTransportOpener openTransport = openDartSshTransport,
     Prober prober = const TcpBannerProber(),
     HostKeyStore? hostKeyStore,
+    LocalWatchBackend? localWatch,
   }) {
     final host = EngineHost._(events);
+    host._localWatch = localWatch ?? watchLocalDirectory;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
       resolveServer: host._resolveKnownServer,
@@ -181,9 +187,29 @@ class EngineHost {
           // typed notFound taxonomy at first listing, like any navigation.
           final homePath = await fs.canonicalize(request.rootPath);
           final channelId = _nextChannelId++;
-          _channels[channelId] = _LocalPaneChannel(fs, homePath);
+          final watcher = LocalDirectoryWatcher(backend: _localWatch);
+          _channels[channelId] = _LocalPaneChannel(
+            fs,
+            homePath,
+            watcher,
+            (signal) {
+              if (_shuttingDown) return;
+              _events.send(
+                DirectoryWatchEvent(
+                  channelId: channelId,
+                  path: signal.path,
+                  signal: signal.kind,
+                  detail: signal.detail,
+                ),
+              );
+            },
+          );
           return BrowseChannelOpened(channelId: channelId, homePath: homePath);
         });
+      case final WatchLocalDirectoryRequest request:
+        _guard(request.requestId, () => _watchLocalDirectory(request));
+      case final UnwatchLocalDirectoryRequest request:
+        _guard(request.requestId, () => _unwatchLocalDirectory(request));
       case final CloseBrowseChannelRequest request:
         _guard(request.requestId, () async {
           final channel = _channels.remove(request.channelId);
@@ -304,6 +330,52 @@ class EngineHost {
     }
   }
 
+  Future<EngineResult> _watchLocalDirectory(
+    WatchLocalDirectoryRequest request,
+  ) async {
+    final channel = _channels[request.channelId];
+    if (channel == null) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'watch',
+        message: 'The browse channel is closed.',
+      );
+    }
+    if (channel is! _LocalPaneChannel) {
+      // Explicit refusal, never a silent no-op: watching a remote directory
+      // would be a polling feature this engine deliberately lacks
+      // (03 §7.5).
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.unsupported,
+        operation: 'watch',
+        message: 'Directory watching is available on local channels only.',
+      );
+    }
+    return channel.watch(request.path);
+  }
+
+  Future<EngineResult> _unwatchLocalDirectory(
+    UnwatchLocalDirectoryRequest request,
+  ) async {
+    final channel = _channels[request.channelId];
+    if (channel == null) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'unwatch',
+        message: 'The browse channel is closed.',
+      );
+    }
+    if (channel is! _LocalPaneChannel) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.unsupported,
+        operation: 'unwatch',
+        message: 'Directory watching is available on local channels only.',
+      );
+    }
+    await channel.unwatch();
+    return const EngineAck();
+  }
+
   void _watch(String serverId) {
     // Last request wins: a fresh watch replaces any existing forwarding so
     // the first forwarded event is again the current state.
@@ -375,9 +447,9 @@ class EngineHost {
     _watches.clear();
 
     // Local channels bind no pool, so disconnectServer never saw them:
-    // close them directly — trivial today, and the seam 03 §7.5's directory
-    // watchers clean up through when they attach to these channels. Pool
-    // bindings were closed by disconnectServer above.
+    // close them directly — which also releases each channel's directory
+    // watch (03 §7.5) and its debounce timer. Pool bindings were closed by
+    // disconnectServer above.
     for (final channel in _channels.values) {
       if (channel is _LocalPaneChannel) await channel.close();
     }
@@ -398,22 +470,63 @@ class EngineHost {
 /// Local failures are terminal facts, never transport loss: nothing recovers,
 /// so [reportFailure] is a no-op — the host's recovery reporting keys off
 /// `disconnected`-kind failures that the local funnel (03 §2.2) never
-/// produces. [close] retires the engine's instance; the `LocalFileSystem`
-/// itself holds no OS handles, and the map removal is what makes later
-/// requests answer the channel-closed error.
+/// produces. The channel also owns its directory watch (03 §7.5), one
+/// non-recursive watch per channel: [watch] starts or retargets it,
+/// [unwatch] and [close] release it, and its typed signals cross the port
+/// through the [onSignal] forwarder the host installs at construction.
 final class _LocalPaneChannel implements PaneChannel {
   final LocalFileSystem _fs;
+  final LocalDirectoryWatcher _watcher;
+  final void Function(LocalWatchSignal signal) _onSignal;
+  StreamSubscription<LocalWatchSignal>? _signalSubscription;
 
   @override
   final String homePath;
 
-  _LocalPaneChannel(this._fs, this.homePath);
+  _LocalPaneChannel(this._fs, this.homePath, this._watcher, this._onSignal) {
+    _signalSubscription = _watcher.signals.listen(_onSignal);
+  }
 
   @override
   RemoteFileSystem get fs => _fs;
 
+  /// Starts (or retargets) this channel's watch on [path] (03 §7.5).
+  /// Validation fails loud and typed before any backend is touched: an
+  /// empty path is a caller bug, a missing root answers the local funnel's
+  /// `notFound` (operation `inspect`, like the open seam's `resolve`), and
+  /// a non-directory target is refused. The race after validation — the
+  /// root vanishing before the backend arms — degrades to an immediate
+  /// `lost` signal, never a silent stop.
+  Future<EngineAck> watch(String path) async {
+    if (path.isEmpty) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.other,
+        operation: 'watch',
+        message: 'The watch path must not be empty.',
+      );
+    }
+    final canonical = await _fs.canonicalize(path);
+    final entry = await _fs.stat(canonical);
+    if (entry.type != RemoteFileType.directory) {
+      throw RemoteFileException(
+        kind: RemoteFileErrorKind.other,
+        operation: 'watch',
+        path: canonical,
+        message: 'The watch target "$canonical" is not a directory.',
+      );
+    }
+    await _watcher.retarget(canonical);
+    return const EngineAck();
+  }
+
+  /// Releases the watch without a signal; idempotent.
+  Future<void> unwatch() => _watcher.stop();
+
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    await _signalSubscription?.cancel();
+    await _watcher.dispose();
+  }
 
   @override
   void reportFailure(RemoteFileSystem source, RemoteFileException error) {}

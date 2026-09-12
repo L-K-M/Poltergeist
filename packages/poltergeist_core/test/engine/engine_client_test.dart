@@ -13,6 +13,13 @@ const _connectedServerId = 'srv-2';
 const _removedServerId = 'srv-1';
 const _streamClosureTimeout = Duration(seconds: 5);
 
+/// The real watch debounce is 300 ms; the fixture events must cross the
+/// engine boundary within this bound or the test fails rather than hangs.
+const _watchCrossingTimeout = Duration(seconds: 5);
+
+/// A window comfortably past the debounce in which nothing may arrive.
+const _watchQuietWindow = Duration(milliseconds: 900);
+
 /// A declined changed-key record, as the engine's incident store mirrors it
 /// to the app for persistence (owner decision 2a).
 const _incidentRecord = IncidentRecord(
@@ -384,6 +391,151 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('local directory watches', () {
+    /// Spawns a real engine and opens a local channel on a temp fixture:
+    /// `a.txt` plus an empty `sub` directory, both deleted at teardown.
+    Future<(EngineClient, EngineBrowseChannel, Directory)> localFixture(
+      String name,
+    ) async {
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+      final root = Directory.systemTemp.createTempSync(name);
+      // The vanish test deletes its own root; tolerate an absent tree.
+      addTearDown(() {
+        if (root.existsSync()) root.deleteSync(recursive: true);
+      });
+      File('${root.path}/a.txt').writeAsStringSync('alpha');
+      Directory('${root.path}/sub').createSync();
+      final channel = await client.openLocalChannel(rootPath: root.path);
+      return (client, channel, root);
+    }
+
+    test(
+      'a real local change crosses the engine boundary, debounced',
+      () async {
+        final (_, channel, root) = await localFixture('pg-watch-real');
+
+        await channel.watchDirectory(channel.homePath);
+        File('${root.path}/created.txt').writeAsStringSync('new');
+
+        final event = await channel.directoryChanges.first.timeout(
+          _watchCrossingTimeout,
+        );
+        expect(event.signal, DirectoryWatchSignal.changed);
+        expect(event.path, channel.homePath);
+        expect(event.channelId, channel.channelId);
+      },
+    );
+
+    test('grandchild and sibling mutations make no noise', () async {
+      final (_, channel, root) = await localFixture('pg-watch-noise');
+
+      final changes = <DirectoryWatchEvent>[];
+      channel.directoryChanges.listen(changes.add);
+      await channel.watchDirectory(channel.homePath);
+      // A grandchild edit and a sibling-of-root edit: neither is a direct
+      // child of the watched directory on any of the three backends.
+      File('${root.path}/sub/deep.txt').writeAsStringSync('deep');
+      final sibling = Directory(
+        '${root.parent.path}/pg-watch-sibling'
+        '-${DateTime.now().microsecondsSinceEpoch}',
+      )..createSync();
+      addTearDown(() => sibling.deleteSync(recursive: true));
+      File('${sibling.path}/x.txt').writeAsStringSync('x');
+
+      // Past the debounce window with nothing delivered.
+      await Future<void>.delayed(_watchQuietWindow);
+      expect(changes, isEmpty);
+    });
+
+    test('retarget switches the watched directory safely', () async {
+      final (_, channel, root) = await localFixture('pg-watch-retarget');
+
+      await channel.watchDirectory(channel.homePath);
+      final subPath = await channel
+          .listDirectory(channel.homePath)
+          .then(
+            (entries) =>
+                entries.singleWhere((e) => e.name == 'sub').path,
+          );
+      await channel.watchDirectory(subPath);
+
+      // The old binding's change cannot invalidate the new one.
+      File('${root.path}/stale.txt').writeAsStringSync('stale');
+      File('$subPath/fresh.txt').writeAsStringSync('fresh');
+
+      final event = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(event.path, subPath);
+      expect(event.signal, DirectoryWatchSignal.changed);
+    });
+
+    test('deleting the watched directory signals lost immediately',
+        () async {
+      final (_, channel, root) = await localFixture('pg-watch-vanish');
+
+      await channel.watchDirectory(channel.homePath);
+      root.deleteSync(recursive: true);
+
+      final event = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(event.signal, DirectoryWatchSignal.lost);
+      expect(event.path, channel.homePath);
+      expect(event.detail, isNotNull);
+    });
+
+    test('unwatchDirectory releases the engine-side watch', () async {
+      final (_, channel, root) = await localFixture('pg-watch-release');
+
+      final changes = <DirectoryWatchEvent>[];
+      channel.directoryChanges.listen(changes.add);
+      await channel.watchDirectory(channel.homePath);
+      await channel.unwatchDirectory();
+      File('${root.path}/after-unwatch.txt').writeAsStringSync('late');
+
+      await Future<void>.delayed(_watchQuietWindow);
+      expect(changes, isEmpty);
+    });
+
+    test(
+      'closing the channel closes directoryChanges and releases the watch',
+      () async {
+        final (_, channel, root) = await localFixture('pg-watch-close');
+
+        final done = Completer<void>();
+        final changes = <DirectoryWatchEvent>[];
+        channel.directoryChanges.listen(
+          changes.add,
+          onDone: done.complete,
+        );
+        await channel.watchDirectory(channel.homePath);
+        await channel.close();
+
+        await done.future.timeout(_watchCrossingTimeout);
+        File('${root.path}/after-close.txt').writeAsStringSync('late');
+        await Future<void>.delayed(_watchQuietWindow);
+        expect(changes, isEmpty);
+      },
+    );
+
+    test('engine death closes directoryChanges', () async {
+      final (client, channel, _) =
+          await localFixture('pg-watch-engine-death');
+
+      final done = Completer<void>();
+      channel.directoryChanges.listen(
+        (_) {},
+        onDone: done.complete,
+      );
+      await channel.watchDirectory(channel.homePath);
+
+      await client.shutdown();
+      await done.future.timeout(_watchCrossingTimeout);
     });
   });
 

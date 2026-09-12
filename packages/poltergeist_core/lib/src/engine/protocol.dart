@@ -16,8 +16,10 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// [RemoveBookmarkRequest] and the incident-store bridge
 /// ([IncidentStoreEvent]). v7 adds the local browse-channel open request
 /// ([OpenLocalBrowseChannelRequest]) — the engine-side seam for local
-/// panes (03 §5's ownership table).
-const engineProtocolVersion = 7;
+/// panes (03 §5's ownership table). v8 adds the local directory-watch
+/// seam (03 §7.5): [WatchLocalDirectoryRequest],
+/// [UnwatchLocalDirectoryRequest], and [DirectoryWatchEvent].
+const engineProtocolVersion = 8;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -190,6 +192,47 @@ final class IncidentRecordRemovedEvent extends IncidentStoreEvent {
   final PoolKey? endpoint;
 
   const IncidentRecordRemovedEvent({required this.serverId, this.endpoint});
+}
+
+// ── Local directory watches (03 §7.5) ────────────────────────────────
+
+/// Why a watched local directory invalidated (03 §7.5).
+enum DirectoryWatchSignal {
+  /// An ordinary change in the watched directory — coalesced (debounced
+  /// 300 ms) engine-side. The consumer rescans the directory.
+  changed,
+
+  /// The watch is gone: the watched directory was removed or renamed away,
+  /// or the watcher backend failed or closed. Delivered immediately, never
+  /// silently, and the watch is released — a consumer must rescan or
+  /// retarget; more signals for this path will not arrive without a new
+  /// [WatchLocalDirectoryRequest].
+  lost,
+}
+
+/// One invalidation signal for a local channel's watched directory
+/// (03 §7.5). The watch lives behind the isolate boundary with the engine's
+/// `LocalFileSystem` instances (03 §5's ownership table; D8) — only the
+/// typed signal crosses.
+final class DirectoryWatchEvent extends EngineEvent {
+  final int channelId;
+
+  /// The canonical watched path — the identity a retarget replaces, so a
+  /// consumer can drop signals naming a directory it no longer shows.
+  final String path;
+
+  final DirectoryWatchSignal signal;
+
+  /// Diagnostic detail for a [DirectoryWatchSignal.lost] signal (local
+  /// diagnostics, D19); null for [DirectoryWatchSignal.changed].
+  final String? detail;
+
+  const DirectoryWatchEvent({
+    required this.channelId,
+    required this.path,
+    required this.signal,
+    this.detail,
+  });
 }
 
 // ── Prompt model ────────────────────────────────────────────────────────
@@ -389,6 +432,43 @@ final class ListDirectoryRequest extends EngineRequest {
     required super.requestId,
     required this.channelId,
     required this.path,
+  });
+}
+
+/// Starts (or retargets) [channelId]'s single non-recursive watch on
+/// [path] (03 §7.5): one watch per subscribed local channel — opening a
+/// channel or listing alone never starts one. Local channels only: a pool
+/// channel answers the typed `unsupported` refusal, because watching a
+/// remote directory would be a polling feature this engine deliberately
+/// lacks. The engine canonicalizes [path] (03 §2.2's realpath semantics;
+/// `~` expands through the engine's environment) and fails the request
+/// typed for an empty path, a missing root (the local funnel's `notFound`),
+/// or a non-directory target. A watch that dies after establishment
+/// surfaces as a [DirectoryWatchEvent] with [DirectoryWatchSignal.lost],
+/// never as a silent stop. A second watch on the same channel replaces the
+/// first: stale callbacks from the replaced watch cannot invalidate the new
+/// binding.
+final class WatchLocalDirectoryRequest extends EngineRequest {
+  final int channelId;
+  final String path;
+
+  const WatchLocalDirectoryRequest({
+    required super.requestId,
+    required this.channelId,
+    required this.path,
+  });
+}
+
+/// Releases [channelId]'s watch (backend subscription and debounce timer).
+/// Idempotent per channel. Closing the channel and engine shutdown release
+/// the watch too. A pool channel answers the same typed `unsupported`
+/// refusal as [WatchLocalDirectoryRequest].
+final class UnwatchLocalDirectoryRequest extends EngineRequest {
+  final int channelId;
+
+  const UnwatchLocalDirectoryRequest({
+    required super.requestId,
+    required this.channelId,
   });
 }
 

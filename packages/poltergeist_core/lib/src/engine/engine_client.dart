@@ -48,6 +48,7 @@ class EngineClient implements PromptBridge, ProbeBridge {
 
   final _pending = <int, Completer<EngineResult>>{};
   final _serverStates = <String, StreamController<ServerStatus>>{};
+  final _directoryWatches = <int, StreamController<DirectoryWatchEvent>>{};
   final _prompts = StreamController<EnginePromptEvent>.broadcast();
   final _promptDismissals = StreamController<PromptDismissedEvent>.broadcast();
   final _hostKeyPins = StreamController<HostKeyPinnedEvent>.broadcast();
@@ -318,6 +319,8 @@ class EngineClient implements PromptBridge, ProbeBridge {
         _serverStates[event.serverId]?.add(
           ServerStatus(event.state, detail: event.detail),
         );
+      case final DirectoryWatchEvent event:
+        _directoryWatches[event.channelId]?.add(event);
       case final ConnectionLogEvent event:
         _connectLog.add(event);
       case final ProbeStatusesEvent event:
@@ -384,6 +387,20 @@ class EngineClient implements PromptBridge, ProbeBridge {
     return request;
   }
 
+  /// Invalidation signals for watched local directories, one broadcast
+  /// controller per open channel (03 §7.5). Closed with its channel and
+  /// all at once on engine death.
+  StreamController<DirectoryWatchEvent> _directoryWatchController(
+    int channelId,
+  ) => _directoryWatches.putIfAbsent(
+    channelId,
+    () => StreamController<DirectoryWatchEvent>.broadcast(),
+  );
+
+  void _closeDirectoryWatch(int channelId) {
+    unawaited(_directoryWatches.remove(channelId)?.close());
+  }
+
   static RemoteFileException _notRunning() => const RemoteFileException(
     kind: RemoteFileErrorKind.disconnected,
     operation: 'engine',
@@ -407,6 +424,10 @@ class EngineClient implements PromptBridge, ProbeBridge {
       controller.close();
     }
     _serverStates.clear();
+    for (final controller in _directoryWatches.values) {
+      unawaited(controller.close());
+    }
+    _directoryWatches.clear();
     _prompts.close();
     _promptDismissals.close();
     _hostKeyPins.close();
@@ -431,7 +452,42 @@ class EngineBrowseChannel {
   /// `canonicalize('.')` at open — the server-side home.
   final String homePath;
 
-  const EngineBrowseChannel._(this._client, this.channelId, this.homePath);
+  EngineBrowseChannel._(this._client, this.channelId, this.homePath) {
+    _client._directoryWatchController(channelId);
+  }
+
+  /// Invalidation signals for this channel's watched directory (03 §7.5):
+  /// [DirectoryWatchSignal.changed] after the engine-side 300 ms debounce,
+  /// [DirectoryWatchSignal.lost] immediately when the watch dies. The
+  /// stream is broadcast, per channel, live across retargets, and closes
+  /// on channel close and engine death. Local channels only —
+  /// [watchDirectory] on a pool channel fails with the typed local-only
+  /// refusal.
+  Stream<DirectoryWatchEvent> get directoryChanges =>
+      _client._directoryWatchController(channelId).stream;
+
+  /// Starts (or retargets) this channel's single non-recursive watch on
+  /// [path] (03 §7.5); the engine canonicalizes it. One watch per channel:
+  /// a second call replaces the first, and stale signals from the replaced
+  /// watch never name the new binding. Fails typed for an empty path, a
+  /// missing root, or a non-directory target.
+  Future<void> watchDirectory(String path) async {
+    await _client._call(
+      (id) => WatchLocalDirectoryRequest(
+        requestId: id,
+        channelId: channelId,
+        path: path,
+      ),
+    );
+  }
+
+  /// Releases this channel's watch; idempotent. Closing the channel or
+  /// the engine releases it too.
+  Future<void> unwatchDirectory() async {
+    await _client._call(
+      (id) => UnwatchLocalDirectoryRequest(requestId: id, channelId: channelId),
+    );
+  }
 
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     final result = await _client._call(
@@ -451,6 +507,11 @@ class EngineBrowseChannel {
       );
     } on RemoteFileException catch (error) {
       if (error.kind != RemoteFileErrorKind.disconnected) rethrow;
+    } finally {
+      // The engine released its watch with the channel; the mirrored
+      // stream completes for every listener regardless of how the close
+      // resolved.
+      _client._closeDirectoryWatch(channelId);
     }
   }
 }
