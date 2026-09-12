@@ -4,10 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
-import 'package:poltergeist_app/services/probe_controller.dart';
-import 'package:poltergeist_app/services/probe_settings_store.dart';
 import 'package:poltergeist_app/ui/connections/connections_command.dart';
-import 'package:poltergeist_app/ui/demo/sftp_demo_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../services/engine_session_test.dart' as session_test;
@@ -35,44 +32,9 @@ Bookmark _blockedBookmark() {
   );
 }
 
-/// Probe settings over nothing persisted: the demo session requires the
-/// seam, and an in-memory sink keeps this suite off the disk.
-class _NoopProbeSettings implements ProbeSettings {
-  @override
-  Future<ProbePreference> loadGlobalPreference() async =>
-      ProbePreference.enabled;
-
-  @override
-  Future<ProbeServerFacts> loadServerFacts({
-    required String serverId,
-    required String host,
-    required int port,
-  }) async => ProbeServerFacts.unseen;
-
-  @override
-  Future<void> markConnected({
-    required String serverId,
-    required String host,
-    required int port,
-  }) async {}
-
-  @override
-  Future<void> markSeen({
-    required String serverId,
-    required String host,
-    required int port,
-  }) async {}
-
-  @override
-  Future<void> removeServer(String serverId) async {}
-}
-
 void main() {
   final connectionsButton = find.byKey(
     const ValueKey('command.$kConnectionsCommandId'),
-  );
-  final demoButton = find.byKey(
-    const ValueKey('command.$kSftpDemoCommandId'),
   );
 
   testWidgets('Connections surface consumes the production engine', (
@@ -83,7 +45,11 @@ void main() {
     addTearDown(tester.view.reset);
 
     final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine();
+    final engine = session_test.FakeAppEngine()
+      ..localChannels.addAll([
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+      ]);
     addTearDown(engine.close);
     // One store shared by the session and the app, as main.dart wires it.
     final bookmarks = FakeBookmarkStore([_blockedBookmark()]);
@@ -106,9 +72,6 @@ void main() {
 
     await tester.pumpWidget(
       PoltergeistApp(
-        // The production engine is not debug-gated: the surface stays
-        // live with the demo disabled.
-        debugDemoEnabled: false,
         bookmarks: bookmarks,
         engineSession: session,
         navigatorKey: navigatorKey,
@@ -148,7 +111,11 @@ void main() {
     addTearDown(tester.view.reset);
 
     final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine();
+    final engine = session_test.FakeAppEngine()
+      ..localChannels.addAll([
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+      ]);
     engine.promptScript = [
       EnginePromptEvent(
         promptId: 'p1',
@@ -178,7 +145,6 @@ void main() {
 
     await tester.pumpWidget(
       PoltergeistApp(
-        debugDemoEnabled: false,
         bookmarks: bookmarks,
         engineSession: session,
         navigatorKey: navigatorKey,
@@ -209,169 +175,17 @@ void main() {
     expect(find.byType(AlertDialog), findsOneWidget);
   });
 
-  testWidgets('demo command reuses the production engine, no second spawn', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1180, 760);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine();
-    engine.channel = session_test.FakeAppBrowseChannel(
-      entries: const [
-        RemoteFileEntry(
-          path: '/home/deploy/docs',
-          name: 'docs',
-          type: RemoteFileType.directory,
-        ),
-      ],
-    );
-    addTearDown(engine.close);
-    final session = await startEngineSession(
-      supportDirectoryPath: './engine-session',
-      bookmarks: FakeBookmarkStore(),
-      navigatorKey: navigatorKey,
-      pinStore: InMemoryHostKeyStore(),
-      incidentStore: InMemoryIncidentStore(),
-      spawn: (config) async => engine,
-    );
-    addTearDown(session!.shutdown);
-    var sentinelSpawns = 0;
-
-    await tester.pumpWidget(
-      PoltergeistApp(
-        debugDemoEnabled: true,
-        probeSettings: _NoopProbeSettings(),
-        engineSession: session,
-        navigatorKey: navigatorKey,
-        // A session must override any factory: only one engine per process.
-        sftpDemoEngineFactory: () async {
-          sentinelSpawns++;
-          throw StateError('a second engine must never spawn');
-        },
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(demoButton);
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('sftp-demo-host')),
-      'example.com',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('sftp-demo-port')),
-      '22',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('sftp-demo-username')),
-      'deploy',
-    );
-    await tester.tap(find.byKey(const ValueKey('sftp-demo-connect')));
-    await tester.pumpAndSettle();
-
-    // The connect ran through the production engine, not the sentinel.
-    expect(sentinelSpawns, 0);
-    expect(engine.openCalls, hasLength(1));
-    expect(find.text('docs'), findsOneWidget);
-
-    // Closing the demo tears its session down without stopping the
-    // production engine.
-    await tester.tap(find.byKey(const ValueKey('sftp-demo-close')));
-    await tester.pumpAndSettle();
-    expect(engine.shutdownCalls, 0);
-    expect(engine.disconnectIds, isNotEmpty);
-  });
-
-  testWidgets('demo prompts render through the session coordinator', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1180, 760);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-
-    final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine();
-    addTearDown(engine.close);
-    // A first-use trust prompt on the demo connect: the session's one
-    // coordinator must render it (a second, demo-owned coordinator would
-    // render it twice) — on the root navigator, above the demo route.
-    engine.promptScript = [
-      EnginePromptEvent(
-        promptId: 'p1',
-        kind: EnginePromptKind.hostKeyFirstUse,
-        data: HostKeyPromptData(
-          host: 'example.com',
-          port: 22,
-          keyType: 'ssh-ed25519',
-          fingerprintSha256: 'SHA256:presented',
-        ),
-      ),
-    ];
-    engine.channel = session_test.FakeAppBrowseChannel();
-    final session = await startEngineSession(
-      supportDirectoryPath: './engine-session',
-      bookmarks: FakeBookmarkStore(),
-      navigatorKey: navigatorKey,
-      pinStore: InMemoryHostKeyStore(),
-      incidentStore: InMemoryIncidentStore(),
-      spawn: (config) async => engine,
-    );
-    // Idempotent insurance, registered before anything risky runs.
-    addTearDown(() {
-      unawaited(session!.shutdown());
-    });
-
-    await tester.pumpWidget(
-      PoltergeistApp(
-        debugDemoEnabled: true,
-        probeSettings: _NoopProbeSettings(),
-        engineSession: session,
-        navigatorKey: navigatorKey,
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(demoButton);
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('sftp-demo-host')),
-      'example.com',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('sftp-demo-port')),
-      '22',
-    );
-    await tester.enterText(
-      find.byKey(const ValueKey('sftp-demo-username')),
-      'deploy',
-    );
-    await tester.tap(find.byKey(const ValueKey('sftp-demo-connect')));
-    await tester.pump();
-    await tester.pump();
-
-    // Exactly one dialog: the shared coordinator owns the prompt.
-    expect(find.byType(AlertDialog), findsOneWidget);
-
-    // Shutdown drains in the body, not an awaited teardown: the chain's
-    // future does not re-complete inside the fake-async zone once it has
-    // been entered, so an awaited teardown would hang the suite.
-    unawaited(session!.shutdown());
-    for (var i = 0; i < 50 && engine.shutdownCalls == 0; i++) {
-      await tester.pump();
-    }
-    expect(engine.shutdownCalls, 1);
-  });
-
   testWidgets('app detach shuts the production engine down', (tester) async {
     tester.view.physicalSize = const Size(1180, 760);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
     final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine();
+    final engine = session_test.FakeAppEngine()
+      ..localChannels.addAll([
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+      ]);
     addTearDown(engine.close);
     final session = await startEngineSession(
       supportDirectoryPath: './engine-session',
@@ -389,7 +203,6 @@ void main() {
 
     await tester.pumpWidget(
       PoltergeistApp(
-        debugDemoEnabled: false,
         engineSession: session,
         navigatorKey: navigatorKey,
       ),

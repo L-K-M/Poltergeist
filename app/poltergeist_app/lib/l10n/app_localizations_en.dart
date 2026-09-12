@@ -18,7 +18,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneBName => 'Pane B';
 
   @override
-  String get emptyPanePrompt => 'Choose a location';
+  String get paneNoEngine => 'No engine is running, so nothing can be browsed.';
+
+  @override
+  String get paneNoLocation => 'This pane has no location open.';
 
   @override
   String get resizePanes => 'Resize panes';
@@ -288,72 +291,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not save the imported favorites.';
 
   @override
-  String get sftpDemoCommandLabel => 'Demo: SFTP listing';
-
-  @override
-  String get sftpDemoTitle => 'SFTP listing demo';
-
-  @override
-  String get sftpDemoDebugNote =>
-      'Debug-only surface; the real panes replace it.';
-
-  @override
-  String get sftpDemoHostLabel => 'Host';
-
-  @override
-  String get sftpDemoPortLabel => 'Port';
-
-  @override
-  String get sftpDemoUsernameLabel => 'Username';
-
-  @override
-  String get sftpDemoAuthMethodLabel => 'Authentication';
-
-  @override
-  String get sftpDemoAuthAgent => 'SSH agent';
-
-  @override
-  String get sftpDemoAuthPassword => 'Password';
-
-  @override
-  String get sftpDemoHostRequired => 'Enter a host.';
-
-  @override
-  String get sftpDemoUsernameRequired => 'Enter a username.';
-
-  @override
-  String get sftpDemoPortInvalid => 'Enter a port between 1 and 65535.';
-
-  @override
-  String get sftpDemoConnect => 'Connect';
-
-  @override
-  String get sftpDemoDisconnect => 'Disconnect';
-
-  @override
-  String get sftpDemoListingLoading => 'Loading the directory listing';
-
-  @override
-  String get sftpDemoListingEmpty => 'The directory is empty.';
-
-  @override
-  String sftpDemoListingCount(int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count entries',
-      one: '1 entry',
-    );
-    return '$_temp0';
-  }
-
-  @override
-  String get sftpDemoEngineFailed => 'The connection engine could not start.';
-
-  @override
-  String get sftpDemoClose => 'Close';
-
-  @override
   String get probeStatusUnknown => 'Reachability unknown';
 
   @override
@@ -391,4 +328,100 @@ class AppLocalizationsEn extends AppLocalizations {
   String connectionsPaneFailure(String pane, String message) {
     return 'Pane $pane failed: $message';
   }
+
+  @override
+  String get paneOpeningHome => 'Opening home…';
+
+  @override
+  String paneConnectingTo(String label) {
+    return 'Connecting to $label…';
+  }
+
+  @override
+  String get paneEmptyFolder => 'This folder is empty';
+
+  @override
+  String paneItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String paneLoadingFolder(String name) {
+    return 'Loading $name — Esc cancels';
+  }
+
+  @override
+  String get paneCancelLoading => 'Cancel loading';
+
+  @override
+  String get paneErrorNotFound => 'The folder could not be found.';
+
+  @override
+  String get paneErrorPermissionDenied =>
+      'You don\'t have permission to open this folder.';
+
+  @override
+  String get paneErrorUnsupported => 'This operation is not supported here.';
+
+  @override
+  String get paneErrorDisconnected => 'The connection was closed.';
+
+  @override
+  String get paneErrorConflict => 'The item changed while being opened.';
+
+  @override
+  String get paneErrorCancelled => 'The operation was cancelled.';
+
+  @override
+  String get paneErrorOther => 'The folder could not be opened.';
+
+  @override
+  String paneConnectionLost(String label) {
+    return 'Connection to $label lost — reconnecting…';
+  }
+
+  @override
+  String get paneConnectionLostCancel => 'Cancel';
+
+  @override
+  String paneDateToday(String time) {
+    return 'Today at $time';
+  }
+
+  @override
+  String paneDateYesterday(String time) {
+    return 'Yesterday at $time';
+  }
+
+  @override
+  String paneRowSemantics(String name, String size, String modified) {
+    return '$name, $size, $modified';
+  }
+
+  @override
+  String get goEnclosingLabel => 'Parent Folder';
+
+  @override
+  String get goOpenLabel => 'Open';
+
+  @override
+  String get viewRefreshLabel => 'Refresh';
+
+  @override
+  String get paneFocusLeftLabel => 'Focus Left Pane';
+
+  @override
+  String get paneFocusRightLabel => 'Focus Right Pane';
+
+  @override
+  String get paneSwapFocusLabel => 'Swap Pane Focus';
+
+  @override
+  String get connectionsOpenInPane => 'Open in Pane';
 }

@@ -20,18 +20,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${supportDirectory.path}${Platform.pathSeparator}bookmarks.json'",
   },
   // The production engine session's store file names and wiring literals
-  // (paths inside the app-support directory, the review pane-tab id, and
-  // the shared-engine refusal message).
+  // (paths inside the app-support directory, the review pane-tab id) —
+  // plus the empty identity fallbacks of the bookmark-to-config mapping.
   'lib/services/engine_session.dart': {
     "'host_keys.json'",
     "'incidents.json'",
     "'identity_reads.jsonl'",
     "'review'",
+    "''",
     r"'$supportDirectoryPath$separator$_pinStoreFileName'",
     r"'$supportDirectoryPath$separator$_incidentStoreFileName'",
     r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
-    "'The demo session shares the production engine; only the session '",
-    "'owns its shutdown.'",
   },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:
@@ -136,30 +135,82 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'must be finite'",
   },
   // Registered commands render from the registry keyed by id — widget
-  // plumbing, not authored copy.
+  // plumbing, not authored copy. The pane ids and focus-node labels key
+  // to the engine's paneTabId channel identity (03 §3.2).
   'lib/ui/workspace_shell.dart': {
     "'command.\${command.id}'",
     "'connectionEngine is ignored when engineSession is provided'",
+    "'pane.left'",
+    "'pane.right'",
+    "'pane.left.listing'",
+    "'pane.right.listing'",
   },
-  // The demo controller's machine data: the pane-tab key the channel
-  // registers under, the ephemeral bookmark's label/path (never UI
-  // copy), and dev-facing assert messages.
-  'lib/services/sftp_demo_controller.dart': {
-    "'demo'",
-    r"'${facts.username}@${facts.host}'",
+  // The pane controller's machine data: the home anchor the engine
+  // expands, the dotfile filter prefix, the root path, the taxonomy
+  // operations, and the fallback summaries for non-VFS faults (rendered
+  // under ARB sentences in the pane, never standalone copy).
+  'lib/services/pane_controller.dart': {
+    "'~'",
+    "'.'",
     "'/'",
-    "'sharedPrompts and engineOwnership must agree: a shared engine '",
-    "'reuses the session prompt coordinator, an owned engine owns its '",
-    "'own.'",
+    "'connect'",
+    "'open'",
+    "'list'",
+    "'The connection could not be opened.'",
+    "'The local browser could not be opened.'",
+    "'The folder could not be listed.'",
   },
-  // The demo view's form keys and the prefilled default SSH port —
-  // widget plumbing, not authored copy. The app.dart entry is the debug
-  // assert tripping on a dropped engine factory or settings seam.
+  // The location type's value semantics: toString output for debugging
+  // and the path-separator arithmetic (POSIX and Windows forms).
+  'lib/services/pane_location.dart': {
+    "'\\\\'",
+    "'/'",
+    "':'",
+    r"'$trimmed$separator'",
+    r"'$parent$separator'",
+    "'LocalPaneLocation(\$path)'",
+    "'RemotePaneLocation(\$serverId, \$path)'",
+  },
+  // The pane-command registry ids (D21 plumbing) and the pane view's
+  // widget keys plus path-separator arithmetic — machine data, never
+  // authored copy.
+  'lib/ui/panes/pane_commands.dart': {
+    "'go.enclosing'",
+    "'go.open'",
+    "'view.refresh'",
+    "'pane.focusLeft'",
+    "'pane.focusRight'",
+    "'pane.swapFocus'",
+  },
+  'lib/ui/panes/pane_view.dart': {
+    "'pane.left'",
+    "'pane.cancel'",
+    "'pane.progress'",
+    "'pane.footer'",
+    "'pane.error.retry'",
+    "'pane.banner'",
+    "'pane.banner.cancel'",
+    r"'${controller.paneTabId}.path'",
+    "''",
+    "'/'",
+    "'\\\\'",
+  },
+  // Byte-unit table, the unevaluated dash, and the trailing-".0" trim
+  // — technical formatting (02 §2.3 rendering rules).
+  'lib/ui/panes/pane_format.dart': {
+    "'B'",
+    "'KB'",
+    "'MB'",
+    "'GB'",
+    "'TB'",
+    "'—'",
+    "'.0'",
+    r"'$bytes ${_byteUnits[0]}'",
+    r"'$text ${_byteUnits[unit]}'",
+  },
+  // The app.dart entry is the engine-seam assert (the demo entries left
+  // with the deleted surface).
   'lib/app.dart': {
-    "'sftpDemoEngineFactory was provided but debugDemoEnabled is off; '",
-    "'the factory will be silently ignored.'",
-    "'debugDemoEnabled requires probeSettings: the demo session\\'s '",
-    "'probe wiring must persist.'",
     "'connectionEngine is a test seam; engineSession supplies its own '",
     "'lanes. Provide one, not both.'",
   },
@@ -207,6 +258,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'connections-retry'",
     r"'connection.${server.serverId}'",
     r"'connection.review.${server.serverId}'",
+    r"'connection.open.${server.serverId}'",
     r"'${server.username}@${server.host}:${server.port}'",
   },
   'lib/ui/connections/connections_command.dart': {
@@ -217,17 +269,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/connection_status_controller.dart': {
     r"'PaneFailure($paneTabId, $message)'",
     r"'ConnectionServer($serverId, $label, $status)'",
-  },
-  'lib/ui/demo/sftp_demo_view.dart': {
-    "'connect.demoListing'",
-    r"'$_defaultSshPort'",
-    "'sftp-demo-host'",
-    "'sftp-demo-port'",
-    "'sftp-demo-username'",
-    "'sftp-demo-auth'",
-    "'sftp-demo-connect'",
-    "'sftp-demo-close'",
-    "'sftp-demo-disconnect'",
   },
 };
 

@@ -116,6 +116,7 @@ void main() {
   Future<ConnectionStatusController> pumpView(
     WidgetTester tester, {
     void Function(ConnectionServer server)? onReviewBlocked,
+    void Function(ConnectionServer server)? onOpenInPane,
   }) async {
     tester.view.physicalSize = const Size(1180, 760);
     tester.view.devicePixelRatio = 1;
@@ -131,7 +132,11 @@ void main() {
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: ConnectionsView(controller, onReviewBlocked: onReviewBlocked),
+        home: ConnectionsView(
+          controller,
+          onReviewBlocked: onReviewBlocked,
+          onOpenInPane: onOpenInPane,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -479,6 +484,25 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a row can open its bookmark in a pane', (tester) async {
+      store.bookmarks = [_server('a')];
+      final opened = <ConnectionServer>[];
+      await pumpView(tester, onOpenInPane: opened.add);
+
+      await tester.tap(find.byKey(const ValueKey('connection.open.a')));
+
+      expect(opened.single.serverId, 'a');
+    });
+
+    testWidgets('rows without an open seam render no open button', (
+      tester,
+    ) async {
+      store.bookmarks = [_server('a')];
+      await pumpView(tester);
+
+      expect(find.byKey(const ValueKey('connection.open.a')), findsNothing);
     });
   });
 }

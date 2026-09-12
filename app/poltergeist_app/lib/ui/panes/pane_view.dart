@@ -1,0 +1,789 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../../services/pane_controller.dart';
+import '../../services/pane_location.dart';
+import '../../services/workspace_controller.dart';
+import 'pane_format.dart';
+
+/// 02 §2.8's anti-flash grace: no spinner, dim, footer swap, or cancel
+/// affordance before this, so fast navigations never flash.
+const _antiFlashGrace = Duration(milliseconds: 150);
+
+/// 02 §11's comfortable row density (28 px), scaled by the active text
+/// scale so scaled text never clips (D20). Recomputed per build, which
+/// preserves the fixed-extent virtualization.
+const _comfortableRowExtent = 28.0;
+
+/// One pane's browsing surface (foundation slice): path bar with
+/// clickable ancestor segments, fixed-extent listing rows (name, kind,
+/// size, mtime), inline errors over cached entries, latency-honest
+/// loading states, the connection-lost banner, and the keyboard-first
+/// interactions (arrows, Enter, Esc, Tab, Home/End, Backspace — 02 §8.2
+/// scoped to the pane's focus node).
+///
+/// The pane never blocks the UI isolate (D8): every byte of file data
+/// crosses through the engine channel the controller drives.
+class PaneView extends StatefulWidget {
+  const PaneView({
+    super.key,
+    required this.controller,
+    required this.workspace,
+    required this.focusNode,
+    required this.onSwapFocus,
+    this.clock = _systemClock,
+  });
+
+  final PaneController controller;
+
+  /// The workspace that owns pane activity: the active pane drives the
+  /// accent path (02 §2.1) and receives pane-scoped commands.
+  final WorkspaceController workspace;
+
+  /// This pane's listing focus node (02 §8.2: one FocusScope per pane).
+  final FocusNode focusNode;
+
+  /// `pane.swapFocus`: activates the other pane and moves focus there —
+  /// the shell owns both nodes, so it wires the pair.
+  final VoidCallback onSwapFocus;
+
+  /// Injectable clock for deterministic relative-date rendering.
+  final DateTime Function() clock;
+
+  static DateTime _systemClock() => DateTime.now();
+
+  @override
+  State<PaneView> createState() => _PaneViewState();
+}
+
+class _PaneViewState extends State<PaneView> {
+  final _scrollController = ScrollController();
+  Timer? _graceTimer;
+  bool _pastGrace = false;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _graceTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Keeps the cursor row inside the viewport after keyboard moves: the
+  /// fixed extent makes the row geometry arithmetic exact.
+  void _revealCursor() {
+    if (!_scrollController.hasClients) return;
+    final extent = _rowExtent();
+    final rowTop = (widget.controller.cursorIndex ?? 0) * extent;
+    final rowBottom = rowTop + extent;
+    final viewportTop = _scrollController.position.pixels;
+    final viewportBottom = viewportTop + _scrollController.position.viewportDimension;
+
+    if (rowTop < viewportTop) {
+      _scrollController.jumpTo(rowTop);
+    } else if (rowBottom > viewportBottom) {
+      _scrollController.jumpTo(rowBottom - _scrollController.position.viewportDimension);
+    }
+  }
+
+  double _rowExtent() =>
+      _comfortableRowExtent * MediaQuery.textScalerOf(context).scale(1);
+
+  /// 02 §8.2's single-key table, scoped to this pane's focus node: these
+  /// keys must never fire while any text field anywhere holds focus —
+  /// inside this surface there is none, and the node itself only gains
+  /// focus from the listing, so the scope holds by construction.
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final controller = widget.controller;
+    final platform = Theme.of(context).platform;
+    final key = event.logicalKey;
+
+    switch (key) {
+      case LogicalKeyboardKey.arrowDown:
+        controller.moveCursorBy(1);
+        _revealCursor();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowUp:
+        controller.moveCursorBy(-1);
+        _revealCursor();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.home:
+        if (controller.entries.isNotEmpty) {
+          controller.setCursorIndex(0);
+          _revealCursor();
+        }
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.end:
+        if (controller.entries.isNotEmpty) {
+          controller.setCursorIndex(controller.entries.length - 1);
+          _revealCursor();
+        }
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.enter:
+        // Enter opens on Windows/Linux; on macOS Enter is the rename key
+        // (§8.3), and rename lands with the row-interactions slice.
+        if (platform == TargetPlatform.windows ||
+            platform == TargetPlatform.linux) {
+          _openCursor();
+        }
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.backspace:
+        // Parent-folder key on Windows/Linux (§8.3).
+        if (platform == TargetPlatform.windows ||
+            platform == TargetPlatform.linux) {
+          controller.goUp();
+        }
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.escape:
+        if (controller.loading) controller.cancelNavigation();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.tab:
+        widget.onSwapFocus();
+        return KeyEventResult.handled;
+      default:
+        return KeyEventResult.ignored;
+    }
+  }
+
+  void _openCursor() {
+    final controller = widget.controller;
+    final cursor = controller.cursorIndex;
+    if (cursor == null || cursor >= controller.entries.length) return;
+    controller.openEntry(controller.entries[cursor]);
+  }
+
+  void _syncGrace(bool loading) {
+    if (!loading) {
+      if (_pastGrace || _graceTimer != null) {
+        _graceTimer?.cancel();
+        _graceTimer = null;
+        // Called from the controller-driven rebuild: this build already
+        // re-renders with the grace cleared, so no setState is needed
+        // (and one would throw mid-build).
+        _pastGrace = false;
+      }
+      return;
+    }
+    if (_pastGrace || _graceTimer != null) return;
+    _graceTimer = Timer(_antiFlashGrace, () {
+      if (_disposed || !mounted || !widget.controller.loading) return;
+      setState(() => _pastGrace = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return ListenableBuilder(
+      listenable: Listenable.merge([widget.controller, widget.workspace]),
+      builder: (context, _) {
+        _syncGrace(widget.controller.loading);
+        final active = identical(
+          widget.workspace.activePane,
+          widget.controller,
+        );
+        return Semantics(
+          container: true,
+          label: widget.controller.paneTabId == 'pane.left'
+              ? l10n.paneAName
+              : l10n.paneBName,
+          child: Focus(
+            focusNode: widget.focusNode,
+            onKeyEvent: _handleKey,
+            onFocusChange: (focused) {
+              if (focused) widget.workspace.setActivePane(widget.controller);
+            },
+            child: Listener(
+              // Clicking anywhere in the pane focuses its listing (and so
+              // activates the pane) — the two-pane muscle-memory basic. A
+              // raw pointer listener, not a gesture: a pane-level tap
+              // recognizer would join the arena against the row InkWells
+              // and both would lose.
+              onPointerDown: (_) => widget.focusNode.requestFocus(),
+              child: _PaneSurface(
+                controller: widget.controller,
+                active: active,
+                graceVisible: _pastGrace,
+                scrollController: _scrollController,
+                clock: widget.clock,
+                onCancelNavigation: widget.controller.cancelNavigation,
+                onRetry: () => widget.controller.retry(),
+                onCancelRecovery: () => widget.controller.cancelRecovery(),
+                onActivateRow: (index) {
+                  widget.controller.setCursorIndex(index);
+                  widget.focusNode.requestFocus();
+                },
+                onOpenRow: (index) {
+                  final entries = widget.controller.entries;
+                  if (index < entries.length) {
+                    widget.controller.openEntry(entries[index]);
+                  }
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PaneSurface extends StatelessWidget {
+  const _PaneSurface({
+    required this.controller,
+    required this.active,
+    required this.graceVisible,
+    required this.scrollController,
+    required this.clock,
+    required this.onCancelNavigation,
+    required this.onRetry,
+    required this.onCancelRecovery,
+    required this.onActivateRow,
+    required this.onOpenRow,
+  });
+
+  final PaneController controller;
+  final bool active;
+  final bool graceVisible;
+  final ScrollController scrollController;
+  final DateTime Function() clock;
+  final VoidCallback onCancelNavigation;
+  final VoidCallback onRetry;
+  final VoidCallback onCancelRecovery;
+  final ValueChanged<int> onActivateRow;
+  final ValueChanged<int> onOpenRow;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PathBar(
+          controller: controller,
+          active: active,
+          loadingVisible: graceVisible,
+          onCancel: onCancelNavigation,
+        ),
+        Expanded(child: _body(context, l10n)),
+        _PaneFooter(controller: controller, graceVisible: graceVisible),
+      ],
+    );
+  }
+
+  Widget _body(BuildContext context, AppLocalizations l10n) {
+    if (!controller.hasEngine) {
+      return _Centered(l10n.paneNoEngine);
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: switch (controller.phase) {
+            PanePhase.unbound => _Centered(l10n.paneNoLocation),
+            PanePhase.openingLocal ||
+            PanePhase.connectingRemote => _connectingBody(context, l10n),
+            PanePhase.browsing => _listing(context, l10n),
+          },
+        ),
+        // 02 §2.8: the old listing stays visible, dimmed, past the grace.
+        if (controller.loading && graceVisible)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerLowest.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
+        if (controller.connectionLost)
+          Positioned.fill(
+            child: _LostConnectionBanner(
+              label: controller.remoteBookmark?.label ?? '',
+              onCancel: onCancelRecovery,
+            ),
+          ),
+        if (controller.error != null)
+          Positioned.fill(
+            child: _ErrorOverlay(error: controller.error!, onRetry: onRetry),
+          ),
+      ],
+    );
+  }
+
+  Widget _connectingBody(BuildContext context, AppLocalizations l10n) {
+    if (controller.error != null) {
+      // The error overlay renders above; nothing else to show.
+      return const SizedBox.shrink();
+    }
+    final label = controller.remoteBookmark?.label;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            label == null ? l10n.paneOpeningHome : l10n.paneConnectingTo(label),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _listing(BuildContext context, AppLocalizations l10n) {
+    if (controller.entries.isEmpty) {
+      return Center(child: Text(l10n.paneEmptyFolder));
+    }
+
+    final extent = _comfortableRowExtent *
+        MediaQuery.textScalerOf(context).scale(1);
+
+    return ListView.builder(
+      controller: scrollController,
+      itemExtent: extent,
+      itemCount: controller.entries.length,
+      itemBuilder: (context, index) => _PaneRow(
+        entry: controller.entries[index],
+        highlighted: controller.cursorIndex == index,
+        active: active,
+        clock: clock,
+        onTap: () => onActivateRow(index),
+        onDoubleTap: () => onOpenRow(index),
+      ),
+    );
+  }
+}
+
+/// The path bar (02 §2.1, foundation subset): one clickable segment per
+/// ancestor, focused-pane accent, the 2 px progress line, and the cancel
+/// affordance while a navigation is outstanding.
+class _PathBar extends StatelessWidget {
+  const _PathBar({
+    required this.controller,
+    required this.active,
+    required this.loadingVisible,
+    required this.onCancel,
+  });
+
+  final PaneController controller;
+  final bool active;
+  final bool loadingVisible;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
+    final location = controller.location;
+    final segments = location == null
+        ? <(String, String)>[]
+        : _segmentsOf(location.path);
+
+    // 02 §2.1: the focused pane's segments render in the accent color so
+    // the transfer-deciding side is always visible.
+    final segmentColor = active ? colors.primary : colors.onSurfaceVariant;
+
+    return Column(
+      children: [
+        Container(
+          key: ValueKey('${controller.paneTabId}.path'),
+          height: 34,
+          color: colors.surfaceContainerLow,
+          padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              Icon(
+                location is RemotePaneLocation
+                    ? Icons.dns_outlined
+                    : Icons.folder_outlined,
+                size: 16,
+                color: segmentColor,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final (label, path) in segments)
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 2),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(4),
+                          onTap: () => controller.navigate(path),
+                          child: Padding(
+                            padding: const EdgeInsetsDirectional.symmetric(
+                              horizontal: 6,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              label,
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodySmall?.copyWith(
+                                color: segmentColor,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (controller.loading && loadingVisible)
+                IconButton(
+                  key: const ValueKey('pane.cancel'),
+                  tooltip: l10n.paneCancelLoading,
+                  onPressed: onCancel,
+                  icon: const Icon(Icons.close, size: 16),
+                ),
+            ],
+          ),
+        ),
+        // 02 §2.8: a 2 px indeterminate progress line under the path bar
+        // once the anti-flash grace has passed.
+        if (controller.loading && loadingVisible)
+          const SizedBox(
+            key: ValueKey('pane.progress'),
+            height: 2,
+            child: LinearProgressIndicator(),
+          ),
+      ],
+    );
+  }
+
+  /// ('/', '/'), ('home', '/home'), ('tester', '/home/tester') — one
+  /// clickable segment per ancestor, root first.
+  List<(String, String)> _segmentsOf(String path) {
+    final separator = path.contains('\\') ? '\\' : '/';
+    final segments = <(String, String)>[];
+    var walking = path;
+    while (true) {
+      final parent = paneParentPath(walking);
+      if (parent == walking) break;
+      segments.add((
+        walking.substring(parent.length).replaceAll(separator, ''),
+        walking,
+      ));
+      walking = parent;
+    }
+    segments.insert(0, (walking, walking)); // the root ('/' or 'C:\')
+    return segments;
+  }
+}
+
+class _PaneRow extends StatelessWidget {
+  const _PaneRow({
+    required this.entry,
+    required this.highlighted,
+    required this.active,
+    required this.clock,
+    required this.onTap,
+    required this.onDoubleTap,
+  });
+
+  final RemoteFileEntry entry;
+  final bool highlighted;
+  final bool active;
+  final DateTime Function() clock;
+  final VoidCallback onTap;
+  final VoidCallback onDoubleTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final platform = Theme.of(context).platform;
+
+    final size = formatPaneSize(
+      entry.type == RemoteFileType.directory ? null : entry.size,
+      platform: platform,
+    );
+    final modified = formatPaneModified(
+      entry.modifiedAt,
+      now: clock(),
+      localeName: Localizations.localeOf(context).toString(),
+      today: l10n.paneDateToday,
+      yesterday: l10n.paneDateYesterday,
+    );
+
+    // 02 §2.1: the unfocused pane's selection highlight drops to a
+    // neutral tone.
+    final rowColor = highlighted
+        ? (active ? colors.primaryContainer : colors.surfaceContainerHighest)
+        : null;
+
+    return Semantics(
+      label: l10n.paneRowSemantics(entry.name, size, modified),
+      child: InkWell(
+        onTap: onTap,
+        onDoubleTap: onDoubleTap,
+        child: ColoredBox(
+          color: rowColor ?? colors.surface,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                Icon(
+                  switch (entry.type) {
+                    RemoteFileType.directory => Icons.folder_outlined,
+                    RemoteFileType.symbolicLink => Icons.shortcut_outlined,
+                    _ => Icons.insert_drive_file_outlined,
+                  },
+                  size: 16,
+                  color: colors.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    entry.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    size,
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 120,
+                  child: Text(
+                    modified,
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PaneFooter extends StatelessWidget {
+  const _PaneFooter({required this.controller, required this.graceVisible});
+
+  final PaneController controller;
+  final bool graceVisible;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+
+    // 02 §2.8/§2.9: the footer doubles as the loading line, behind the
+    // same anti-flash grace as the dim.
+    final String text =
+        controller.loading && graceVisible
+        ? l10n.paneLoadingFolder(_lastSegment(controller.location?.path))
+        : l10n.paneItemCount(controller.entries.length);
+
+    return Container(
+      key: const ValueKey('pane.footer'),
+      height: 24,
+      padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
+      color: colors.surfaceContainerLow,
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
+      ),
+    );
+  }
+
+  String _lastSegment(String? path) {
+    if (path == null) return '';
+    final separator = path.contains('\\') ? '\\' : '/';
+    if (path == separator) return separator;
+    final parent = paneParentPath(path);
+    return path.substring(parent.length).replaceAll(separator, '');
+  }
+}
+
+class _ErrorOverlay extends StatelessWidget {
+  const _ErrorOverlay({required this.error, required this.onRetry});
+
+  final RemoteFileException error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors.outlineVariant),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.error_outline, size: 18, color: colors.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    // D20: the taxonomy sentence is ARB-authored; the
+                    // engine's message rides below as the diagnostic line.
+                    switch (error.kind) {
+                      RemoteFileErrorKind.notFound => l10n.paneErrorNotFound,
+                      RemoteFileErrorKind.permissionDenied =>
+                        l10n.paneErrorPermissionDenied,
+                      RemoteFileErrorKind.unsupported =>
+                        l10n.paneErrorUnsupported,
+                      RemoteFileErrorKind.disconnected =>
+                        l10n.paneErrorDisconnected,
+                      RemoteFileErrorKind.conflict => l10n.paneErrorConflict,
+                      RemoteFileErrorKind.cancelled =>
+                        l10n.paneErrorCancelled,
+                      RemoteFileErrorKind.other => l10n.paneErrorOther,
+                    },
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              error.message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: FilledButton.tonalIcon(
+                key: const ValueKey('pane.error.retry'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text(l10n.connectionRetry),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 02 §2.7's connection-lost banner: keyed on connection state, it owns
+/// the pane's single dim layer while the transport reconnects.
+class _LostConnectionBanner extends StatelessWidget {
+  const _LostConnectionBanner({
+    required this.label,
+    required this.onCancel,
+  });
+
+  final String label;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        Container(
+          key: const ValueKey('pane.banner'),
+          width: double.infinity,
+          padding: const EdgeInsetsDirectional.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
+          color: colors.errorContainer,
+          child: Row(
+            children: [
+              Icon(
+                Icons.cloud_off_outlined,
+                size: 16,
+                color: colors.onErrorContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n.paneConnectionLost(label),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onErrorContainer,
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const ValueKey('pane.banner.cancel'),
+                onPressed: onCancel,
+                child: Text(l10n.paneConnectionLostCancel),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: IgnorePointer(
+            child: ColoredBox(
+              color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Centered extends StatelessWidget {
+  const _Centered(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}

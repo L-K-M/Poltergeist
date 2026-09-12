@@ -21,7 +21,12 @@ const _noLiveConnection = ServerStatus(ServerConnectionState.disconnected);
 /// section with its context menu (Disconnect, Open in other pane); nothing
 /// here owns a sidebar layout.
 class ConnectionsView extends StatefulWidget {
-  const ConnectionsView(this.controller, {this.onReviewBlocked, super.key});
+  const ConnectionsView(
+    this.controller, {
+    this.onReviewBlocked,
+    this.onOpenInPane,
+    super.key,
+  });
 
   final ConnectionStatusController controller;
 
@@ -32,6 +37,11 @@ class ConnectionsView extends StatefulWidget {
   /// Null where no composition can start a connect yet; the blocked row then
   /// carries the warning copy alone, which names that path.
   final void Function(ConnectionServer server)? onReviewBlocked;
+
+  /// Opens the row's bookmark in the active pane (the M3 window's remote
+  /// entry point: the interim list stays until M5's sidebar). Null leaves
+  /// the rows without the affordance (no engine, tests).
+  final void Function(ConnectionServer server)? onOpenInPane;
 
   @override
   State<ConnectionsView> createState() => _ConnectionsViewState();
@@ -143,16 +153,22 @@ class _ConnectionsViewState extends State<ConnectionsView> {
       itemBuilder: (context, index) => _ConnectionRow(
         server: servers[index],
         onReviewBlocked: widget.onReviewBlocked,
+        onOpenInPane: widget.onOpenInPane,
       ),
     );
   }
 }
 
 class _ConnectionRow extends StatelessWidget {
-  const _ConnectionRow({required this.server, required this.onReviewBlocked});
+  const _ConnectionRow({
+    required this.server,
+    required this.onReviewBlocked,
+    this.onOpenInPane,
+  });
 
   final ConnectionServer server;
   final void Function(ConnectionServer server)? onReviewBlocked;
+  final void Function(ConnectionServer server)? onOpenInPane;
 
   @override
   Widget build(BuildContext context) {
@@ -215,6 +231,15 @@ class _ConnectionRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(appearance.label, style: text.labelMedium),
+          if (onOpenInPane != null) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              key: ValueKey('connection.open.${server.serverId}'),
+              tooltip: l10n.connectionsOpenInPane,
+              onPressed: () => onOpenInPane?.call(server),
+              icon: const Icon(Icons.open_in_new_outlined, size: 18),
+            ),
+          ],
         ],
       ),
     );

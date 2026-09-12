@@ -112,11 +112,17 @@ abstract class AppLocalizations {
   /// **'Pane B'**
   String get paneBName;
 
-  /// Prompt shown before a pane has a location.
+  /// State of a pane with no engine session behind it.
   ///
   /// In en, this message translates to:
-  /// **'Choose a location'**
-  String get emptyPanePrompt;
+  /// **'No engine is running, so nothing can be browsed.'**
+  String get paneNoEngine;
+
+  /// State of an unbound pane (no location, nothing in flight).
+  ///
+  /// In en, this message translates to:
+  /// **'This pane has no location open.'**
+  String get paneNoLocation;
 
   /// Accessibility label for the pane splitter.
   ///
@@ -556,120 +562,6 @@ abstract class AppLocalizations {
   /// **'Could not save the imported favorites.'**
   String get sshImportFavoritesSaveFailed;
 
-  /// Toolbar entry for the debug-only SFTP demo surface.
-  ///
-  /// In en, this message translates to:
-  /// **'Demo: SFTP listing'**
-  String get sftpDemoCommandLabel;
-
-  /// Title of the debug-only SFTP demo page.
-  ///
-  /// In en, this message translates to:
-  /// **'SFTP listing demo'**
-  String get sftpDemoTitle;
-
-  /// Note that the demo surface is debug-only and throwaway.
-  ///
-  /// In en, this message translates to:
-  /// **'Debug-only surface; the real panes replace it.'**
-  String get sftpDemoDebugNote;
-
-  /// Label of the demo connect form's host field.
-  ///
-  /// In en, this message translates to:
-  /// **'Host'**
-  String get sftpDemoHostLabel;
-
-  /// Label of the demo connect form's port field.
-  ///
-  /// In en, this message translates to:
-  /// **'Port'**
-  String get sftpDemoPortLabel;
-
-  /// Label of the demo connect form's username field.
-  ///
-  /// In en, this message translates to:
-  /// **'Username'**
-  String get sftpDemoUsernameLabel;
-
-  /// Label of the demo connect form's authentication picker.
-  ///
-  /// In en, this message translates to:
-  /// **'Authentication'**
-  String get sftpDemoAuthMethodLabel;
-
-  /// Authentication picker entry for agent auth.
-  ///
-  /// In en, this message translates to:
-  /// **'SSH agent'**
-  String get sftpDemoAuthAgent;
-
-  /// Authentication picker entry for password auth.
-  ///
-  /// In en, this message translates to:
-  /// **'Password'**
-  String get sftpDemoAuthPassword;
-
-  /// Validation error for a blank host.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a host.'**
-  String get sftpDemoHostRequired;
-
-  /// Validation error for a blank username.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a username.'**
-  String get sftpDemoUsernameRequired;
-
-  /// Validation error for a port outside the SSH range.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter a port between 1 and 65535.'**
-  String get sftpDemoPortInvalid;
-
-  /// Demo connect button label.
-  ///
-  /// In en, this message translates to:
-  /// **'Connect'**
-  String get sftpDemoConnect;
-
-  /// Demo disconnect action label.
-  ///
-  /// In en, this message translates to:
-  /// **'Disconnect'**
-  String get sftpDemoDisconnect;
-
-  /// Progress line while the demo lists the home directory.
-  ///
-  /// In en, this message translates to:
-  /// **'Loading the directory listing'**
-  String get sftpDemoListingLoading;
-
-  /// Shown when the demo listing returns no entries.
-  ///
-  /// In en, this message translates to:
-  /// **'The directory is empty.'**
-  String get sftpDemoListingEmpty;
-
-  /// Count of listed entries above the demo listing.
-  ///
-  /// In en, this message translates to:
-  /// **'{count, plural, =1{1 entry} other{{count} entries}}'**
-  String sftpDemoListingCount(int count);
-
-  /// Notice when the engine isolate fails to spawn.
-  ///
-  /// In en, this message translates to:
-  /// **'The connection engine could not start.'**
-  String get sftpDemoEngineFailed;
-
-  /// Accessibility label of the demo page's close action.
-  ///
-  /// In en, this message translates to:
-  /// **'Close'**
-  String get sftpDemoClose;
-
   /// Tooltip and semantics label of the grey status dot: the server has not been probed yet or probing is disabled.
   ///
   /// In en, this message translates to:
@@ -741,6 +633,156 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pane {pane} failed: {message}'**
   String connectionsPaneFailure(String pane, String message);
+
+  /// State shown while the initial local home channel opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening home…'**
+  String get paneOpeningHome;
+
+  /// State shown while a remote bookmark's connection opens.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting to {label}…'**
+  String paneConnectingTo(String label);
+
+  /// Empty-folder state of a pane listing (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'This folder is empty'**
+  String get paneEmptyFolder;
+
+  /// Pane footer count of visible entries.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item} other{{count} items}}'**
+  String paneItemCount(int count);
+
+  /// Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8).
+  ///
+  /// In en, this message translates to:
+  /// **'Loading {name} — Esc cancels'**
+  String paneLoadingFolder(String name);
+
+  /// Tooltip of the pane's cancel affordance while loading.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel loading'**
+  String get paneCancelLoading;
+
+  /// Inline error sentence for the notFound taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'The folder could not be found.'**
+  String get paneErrorNotFound;
+
+  /// Inline error sentence for the permissionDenied taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'You don\'t have permission to open this folder.'**
+  String get paneErrorPermissionDenied;
+
+  /// Inline error sentence for the unsupported taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'This operation is not supported here.'**
+  String get paneErrorUnsupported;
+
+  /// Inline error sentence for the disconnected taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'The connection was closed.'**
+  String get paneErrorDisconnected;
+
+  /// Inline error sentence for the conflict taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'The item changed while being opened.'**
+  String get paneErrorConflict;
+
+  /// Inline error sentence for the cancelled taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'The operation was cancelled.'**
+  String get paneErrorCancelled;
+
+  /// Inline error sentence for the other taxonomy kind.
+  ///
+  /// In en, this message translates to:
+  /// **'The folder could not be opened.'**
+  String get paneErrorOther;
+
+  /// Banner shown while the remote transport reconnects (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Connection to {label} lost — reconnecting…'**
+  String paneConnectionLost(String label);
+
+  /// The connection-lost banner's cancel action (stops reconnection).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get paneConnectionLostCancel;
+
+  /// Relative modified date for today (02 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Today at {time}'**
+  String paneDateToday(String time);
+
+  /// Relative modified date for yesterday (02 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Yesterday at {time}'**
+  String paneDateYesterday(String time);
+
+  /// Screen-reader label of one listing row: announced name–size–date (D20).
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {size}, {modified}'**
+  String paneRowSemantics(String name, String size, String modified);
+
+  /// Command label: navigate to the parent folder.
+  ///
+  /// In en, this message translates to:
+  /// **'Parent Folder'**
+  String get goEnclosingLabel;
+
+  /// Command label: open the selected row.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get goOpenLabel;
+
+  /// Command label: refresh the focused pane's listing.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get viewRefreshLabel;
+
+  /// Command label: move focus to the left pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus Left Pane'**
+  String get paneFocusLeftLabel;
+
+  /// Command label: move focus to the right pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus Right Pane'**
+  String get paneFocusRightLabel;
+
+  /// Command label: swap focus between the panes.
+  ///
+  /// In en, this message translates to:
+  /// **'Swap Pane Focus'**
+  String get paneSwapFocusLabel;
+
+  /// Tooltip of the Connections row action that opens the bookmark in the active pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Open in Pane'**
+  String get connectionsOpenInPane;
 }
 
 class _AppLocalizationsDelegate

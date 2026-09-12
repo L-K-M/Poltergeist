@@ -71,6 +71,12 @@ class FakeAppEngine implements AppEngine {
   final openCalls =
       <({String serverId, String paneTabId, ServerConfig config})>[];
 
+  /// Scripted local channels, consumed FIFO by [openLocalChannel] (the
+  /// panes' initial browse). Kept in place so tests can assert on their
+  /// recorded calls after the panes consumed them.
+  final localChannels = <FakeAppBrowseChannel>[];
+  int _localChannelCursor = 0;
+
   /// Emitted (and awaited) in order inside [openBrowseChannel].
   List<EnginePromptEvent> promptScript = const [];
 
@@ -184,6 +190,14 @@ class FakeAppEngine implements AppEngine {
   }
 
   @override
+  Future<AppBrowseChannel> openLocalChannel({required String rootPath}) async {
+    if (_localChannelCursor >= localChannels.length) {
+      throw StateError('no local browse channel scripted');
+    }
+    return localChannels[_localChannelCursor++];
+  }
+
+  @override
   Future<void> disconnectServer(String serverId) async {
     disconnectIds.add(serverId);
   }
@@ -218,20 +232,22 @@ class FakeAppEngine implements AppEngine {
 }
 
 class FakeAppBrowseChannel implements AppBrowseChannel {
-  FakeAppBrowseChannel({
-    this.homePath = '/home/deploy',
-    this.entries = const [],
-  });
+  FakeAppBrowseChannel({this.homePath = '/home/deploy'});
 
   @override
   final String homePath;
 
-  final List<RemoteFileEntry> entries;
+  /// Per-path scripted listings; paths without an entry answer empty.
+  final listings = <String, List<RemoteFileEntry>>{};
 
+  final listCalls = <String>[];
   int closeCalls = 0;
 
   @override
-  Future<List<RemoteFileEntry>> listDirectory(String path) async => entries;
+  Future<List<RemoteFileEntry>> listDirectory(String path) async {
+    listCalls.add(path);
+    return listings[path] ?? const [];
+  }
 
   @override
   Future<void> close() async {
@@ -693,14 +709,14 @@ void main() {
       expect(session.prompts, isA<PromptCoordinator>());
       expect(session.connectionLanes.watchServer('b1'), isNotNull);
 
-      // The demo facet must route to the same production engine — one
-      // engine per process, never a second spawn behind the demo entry.
-      await (await session.demoEngineFactory()).openBrowseChannel(
-        serverId: 'demo',
-        paneTabId: 'demo',
+      // The pane lanes are the same production engine — one engine per
+      // process, never a second spawn behind a pane binding.
+      await session.paneLanes.openBrowseChannel(
+        serverId: 'pane',
+        paneTabId: 'pane.left',
         config: ServerConfig(
-          id: 'demo',
-          label: 'demo',
+          id: 'pane',
+          label: 'pane',
           host: 'demo.example.com',
           port: 22,
           username: 'deploy',
