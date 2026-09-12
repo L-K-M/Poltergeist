@@ -2614,11 +2614,14 @@ instead of a callback field — no guard allowlist widening; macOS
 FSEvents delivered changes made shortly before the watch started
 (dart:io's documented limitation), so the real-backend tests drain
 that fixture-setup backlog past the debounce before staging the
-events they assert on; Windows delivers root-deletion child-removal
-events first, so a debounced `changed` legitimately precedes the
-`lost` there — the vanish test awaits the lost signal (production
-semantics unchanged; the adapter's doc records the per-backend loss
-shapes). App re-verified on the rebased tree (barrel changed):
+events they assert on; and Windows produces no root-deletion loss
+signal at all — the OS defers removing a directory an open handle
+watches (delete-pending), so the children-removal `changed` and its
+rescan are the observable path there (the root-loss logic itself is
+covered cross-platform by the injected-backend adapter suite, and the
+real-OS vanish test skips Windows with that reason — a focused,
+documented skip, not a global one). Production semantics unchanged;
+the adapter's doc records the per-backend loss shapes. App re-verified on the rebased tree (barrel changed):
 analyze clean, 433 tests pass. On the final tree the full core suite
 is 611 pass +16 skips.
 

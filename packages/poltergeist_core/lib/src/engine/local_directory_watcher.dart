@@ -62,9 +62,11 @@ final class LocalWatchSignal {
 /// Dart-side patch): Linux and macOS report a removed/renamed watched
 /// directory as a delete event naming the watched path itself, then close
 /// the stream; Windows surfaces `ReadDirectoryChangesW` buffer overflow
-/// and unexpected closure as stream errors — and on root deletion it
-/// delivers the children's removal events first, so a debounced `changed`
-/// may precede the `lost`; macOS FSEvents already
+/// and unexpected closure as stream errors — but not root deletion:
+/// the OS defers removing a directory an open handle watches
+/// (delete-pending), so no loss signal exists there and the
+/// children-removal `changed` with its rescan is the observable path;
+/// macOS FSEvents already
 /// depth-filters non-recursive watches to direct children in the C++
 /// layer, so the child filter below is defense in depth (it also covers a
 /// future backend that reports subtrees). FSEvents' documented quirks —

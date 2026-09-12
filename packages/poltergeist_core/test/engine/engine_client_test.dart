@@ -486,23 +486,34 @@ void main() {
       expect(event.signal, DirectoryWatchSignal.changed);
     });
 
-    test('deleting the watched directory signals lost immediately',
-        () async {
-      final (_, channel, root) = await localFixture('pg-watch-vanish');
+    test(
+      'deleting the watched directory signals lost immediately',
+      () async {
+        final (_, channel, root) = await localFixture('pg-watch-vanish');
 
-      await channel.watchDirectory(channel.homePath);
-      await drainSetupBacklog();
-      root.deleteSync(recursive: true);
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        root.deleteSync(recursive: true);
 
-      // Windows delivers the children's removal events first, so a
-      // debounced changed may legitimately precede the loss; the contract
-      // is that the loss arrives and nothing was swallowed.
-      final event = await channel.directoryChanges
-          .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
-          .timeout(_watchCrossingTimeout);
-      expect(event.path, channel.homePath);
-      expect(event.detail, isNotNull);
-    });
+        // Windows delivers the children's removal events first, so a
+        // debounced changed may legitimately precede the loss; the contract
+        // is that the loss arrives and nothing was swallowed.
+        final event = await channel.directoryChanges
+            .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
+            .timeout(_watchCrossingTimeout);
+        expect(event.path, channel.homePath);
+        expect(event.detail, isNotNull);
+      },
+      // Windows defers deleting a watched directory (delete-pending while
+      // the watch holds its handle), so the OS produces no loss signal at
+      // all there; the root-loss logic itself is covered cross-platform by
+      // the injected-backend adapter suite.
+      skip: Platform.isWindows
+          ? 'Windows defers removing a watched directory; no loss signal '
+              'exists there — the children-removal changed and its rescan '
+              'are the observable path'
+          : false,
+    );
 
     test('unwatchDirectory releases the engine-side watch', () async {
       final (_, channel, root) = await localFixture('pg-watch-release');
