@@ -53,6 +53,7 @@ void main() {
     );
     addTearDown(session!.shutdown);
 
+
     await tester.pumpWidget(
       PoltergeistApp(
         bookmarks: bookmarks,
@@ -217,13 +218,17 @@ void main() {
       ),
     ]);
 
+    final navigatorKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
-      PoltergeistApp(bookmarks: store, engineSession: null),
+      PoltergeistApp(
+        bookmarks: store,
+        engineSession: null,
+        navigatorKey: navigatorKey,
+      ),
     );
     await tester.pump();
     expect(find.textContaining('Browsing is unavailable'), findsNWidgets(2));
 
-    final navigatorKey = GlobalKey<NavigatorState>();
     addTearDown(engine.close);
     final supportDir = Directory.systemTemp.createTempSync('pg-panes-');
     addTearDown(() => supportDir.deleteSync(recursive: true));
@@ -241,7 +246,11 @@ void main() {
     // surface must pick the session's lanes (a stale null bridge would
     // leave every row reading not connected).
     await tester.pumpWidget(
-      PoltergeistApp(bookmarks: store, engineSession: session),
+      PoltergeistApp(
+        bookmarks: store,
+        engineSession: session,
+        navigatorKey: navigatorKey,
+      ),
     );
     await tester.pump();
     expect(find.text('left.txt'), findsOneWidget);

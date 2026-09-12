@@ -161,7 +161,8 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 /// consumed without falling through to outer scopes (standard Flutter
 /// focus precedence still lets a nearer surface take a chord first) —
 /// locked in by test.
-/// Unmodified single keys are deliberately excluded — they belong to the
+/// Single keys with no ctrl/meta/alt modifier — including shift-only
+/// combos like Shift+Tab — are deliberately excluded; they belong to the
 /// pane focus nodes (02 §8.2), so this layer can never fire Enter or Tab
 /// globally. This slice's shell contains no text surfaces; dialog routes
 /// push above the shell, so their fields never see these chords. The

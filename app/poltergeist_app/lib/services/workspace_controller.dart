@@ -8,7 +8,11 @@ import 'pane_controller.dart';
 /// slices (ratios already persist through the M1 shell's splitter).
 class WorkspaceController extends ChangeNotifier {
   WorkspaceController({required this.left, required this.right})
-    : _activePane = left;
+    : assert(
+        !identical(left, right),
+        'Workspace panes must be distinct PaneController instances.',
+      ),
+      _activePane = left;
 
   /// The two panes (02 §1's pane A/pane B). Owned by the shell, which
   /// disposes them with the workspace.

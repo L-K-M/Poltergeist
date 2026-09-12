@@ -73,11 +73,31 @@ class PaneView extends StatefulWidget {
 
 class _PaneViewState extends State<PaneView> {
   final _scrollController = ScrollController();
+  // Memoized: ListenableBuilder compares by identity, so a per-build
+  // merge would churn both subscriptions on every cursor move. Refreshed
+  // in didUpdateWidget — a session swap replaces the controllers under a
+  // reused element.
+  late Listenable _listenable = Listenable.merge([
+    widget.controller,
+    widget.workspace,
+  ]);
   Timer? _graceTimer;
   bool _pastGrace = false;
   bool _disposed = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
+
+  @override
+  void didUpdateWidget(PaneView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller) ||
+        !identical(oldWidget.workspace, widget.workspace)) {
+      _listenable = Listenable.merge([
+        widget.controller,
+        widget.workspace,
+      ]);
+    }
+  }
 
   @override
   void dispose() {
@@ -96,11 +116,16 @@ class _PaneViewState extends State<PaneView> {
   void _syncReveal() {
     final path = widget.controller.location?.path;
     final entries = widget.controller.entries;
+    // Record the location only when its listing instance has actually
+    // arrived: an optimistic navigation start (location set at issue)
+    // must not consume the reveal before the entries replace. A
+    // cancel-restore never gets here — its listing is the same
+    // unmodifiable instance, so it keeps the user's place.
+    if (identical(entries, _revealedEntries)) return;
     final pathChanged = path != _revealedLocationPath;
-    final entriesReplaced = !identical(entries, _revealedEntries);
     _revealedLocationPath = path;
     _revealedEntries = entries;
-    if (!pathChanged || !entriesReplaced || path == null) return;
+    if (!pathChanged || path == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_disposed || !mounted || !_scrollController.hasClients) return;
       if (_scrollController.offset > 0) {
@@ -196,8 +221,10 @@ class _PaneViewState extends State<PaneView> {
         return KeyEventResult.handled;
       case LogicalKeyboardKey.tab:
         // Only plain Tab swaps (02 §8.2); Shift+Tab keeps the standard
-        // reverse traversal.
-        if (HardwareKeyboard.instance.isShiftPressed) {
+        // reverse traversal, and repeats never swap — holding Tab must
+        // not oscillate focus between the panes.
+        if (event is KeyRepeatEvent ||
+            HardwareKeyboard.instance.isShiftPressed) {
           return KeyEventResult.ignored;
         }
         widget.onSwapFocus();
@@ -237,7 +264,7 @@ class _PaneViewState extends State<PaneView> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return ListenableBuilder(
-      listenable: Listenable.merge([widget.controller, widget.workspace]),
+      listenable: _listenable,
       builder: (context, _) {
         _syncGrace(widget.controller.loading);
         _syncReveal();
@@ -535,8 +562,11 @@ class _PathBar extends StatelessWidget {
       ));
       walking = parent;
     }
-    segments.insert(0, (walking, walking)); // the root ('/' or 'C:\')
-    return segments;
+    // Collected deepest-first; flip so children follow parents, with
+    // the root leading (02 §2.1's ancestor order).
+    final ordered = segments.reversed.toList();
+    ordered.insert(0, (walking, walking)); // the root ('/' or 'C:\')
+    return ordered;
   }
 }
 
@@ -585,11 +615,14 @@ class _PaneRow extends StatelessWidget {
       label: l10n.paneRowSemantics(entry.name, size, modified),
       // The cursor row's highlight gets its accessibility equivalent.
       selected: highlighted,
-      child: InkWell(
-        onTap: onTap,
-        onDoubleTap: onDoubleTap,
-        child: ColoredBox(
-          color: rowColor ?? colors.surface,
+      child: Material(
+        // The row owns its surface so ink feedback paints above the
+        // row color (an opaque ColoredBox inside the InkWell would
+        // cover the splash entirely).
+        color: rowColor ?? colors.surface,
+        child: InkWell(
+          onTap: onTap,
+          onDoubleTap: onDoubleTap,
           child: Padding(
             padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
             child: Row(

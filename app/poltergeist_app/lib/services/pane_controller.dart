@@ -139,6 +139,7 @@ class PaneController extends ChangeNotifier {
   /// streams keep no replay, 03 §5), opens the browse channel, and
   /// navigates to the bookmark's path ('/' meaning the canonical home).
   Future<void> connectRemote(Bookmark bookmark) async {
+    if (_disposed || _lanes == null) return;
     _pendingRemote = bookmark;
     await _bind(
       connectingPhase: PanePhase.connectingRemote,
@@ -188,19 +189,21 @@ class PaneController extends ChangeNotifier {
     );
   }
 
-  /// Navigates to [path] on the live channel (path bar, entries, refresh).
+  /// Navigates to [path] on the live channel (path bar, entries,
+  /// refresh). The target's kind comes from the BINDING, not the last
+  /// location: a cancelled first listing leaves the location null while
+  /// the channel stays live, and a null location on a remote pane must
+  /// never mint a local one.
   void navigate(String path) {
     if (_disposed || _channel == null) return;
-    final current = _location;
-    if (current case RemotePaneLocation remote) {
-      _issueNavigation(
-        RemotePaneLocation(remote.serverId, path),
-        path,
-        _channel!,
-      );
-    } else {
-      _issueNavigation(LocalPaneLocation(path), path, _channel!);
-    }
+    final serverId = _pendingRemote?.id;
+    _issueNavigation(
+      serverId != null
+          ? RemotePaneLocation(serverId, path)
+          : LocalPaneLocation(path),
+      path,
+      _channel!,
+    );
   }
 
   /// Opens one row (Enter / double-click): only entries the listing
@@ -284,7 +287,7 @@ class PaneController extends ChangeNotifier {
 
   /// Sets the cursor to [index] (a row tap or a direct jump), clamped.
   void setCursorIndex(int index) {
-    if (_entries.isEmpty) return;
+    if (_disposed || _entries.isEmpty) return;
     final clamped = index.clamp(0, _entries.length - 1);
     if (_cursorIndex == clamped) return;
     _cursorIndex = clamped;

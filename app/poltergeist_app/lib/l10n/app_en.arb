@@ -442,7 +442,7 @@
       "label": {"type": "String"}
     }
   },
-  "paneEmptyFolder": "This folder is empty",
+  "paneEmptyFolder": "This folder is empty.",
   "@paneEmptyFolder": {
     "description": "Empty-folder state of a pane listing (02 §2.7)."
   },

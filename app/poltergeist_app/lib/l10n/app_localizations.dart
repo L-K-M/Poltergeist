@@ -649,7 +649,7 @@ abstract class AppLocalizations {
   /// Empty-folder state of a pane listing (02 §2.7).
   ///
   /// In en, this message translates to:
-  /// **'This folder is empty'**
+  /// **'This folder is empty.'**
   String get paneEmptyFolder;
 
   /// Pane footer count of visible entries.

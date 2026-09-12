@@ -645,6 +645,29 @@ void main() {
     expect(lanes.disconnects, isEmpty);
   });
 
+  test('a cancelled first listing keeps the remote kind for navigation', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('root.txt')];
+    channel.listings['/srv/www'] = [_entry('www.txt')];
+    lanes.nextRemoteChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+
+    // Esc during the FIRST listing restores the null-location snapshot
+    // while the remote channel stays live.
+    controller.cancelNavigation();
+    expect(controller.location, isNull);
+
+    // A navigation after that must stay a REMOTE location — the binding,
+    // not the cancelled location, decides the kind.
+    controller.navigate('/srv/www');
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.location, const RemotePaneLocation('srv-1', '/srv/www'));
+    expect(controller.entries.single.name, 'www.txt');
+    controller.dispose();
+  });
+
   test('detaching a shared server leaves the pool for the sibling', () async {
     final lanes = FakePaneLanes();
     final a = FakePaneChannel('/srv/home')..listings['/srv/home'] = const [];

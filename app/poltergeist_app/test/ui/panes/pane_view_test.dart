@@ -181,7 +181,7 @@ void main() {
     await left.openLocalHome();
     await pumpShell(tester);
 
-    expect(find.text('This folder is empty'), findsOneWidget);
+    expect(find.text('This folder is empty.'), findsOneWidget);
   });
 
   testWidgets('taxonomy errors render inline with Retry over stale entries',
@@ -517,6 +517,18 @@ void main() {
     expect(find.text('home'), findsOneWidget);
     expect(find.text('tester'), findsOneWidget);
     expect(find.text('docs'), findsOneWidget);
+    // Root first, deepest last (02 §2.1's ancestor order).
+    final offsets = [
+      tester.getTopLeft(find.text('/')).dx,
+      tester.getTopLeft(find.text('home')).dx,
+      tester.getTopLeft(find.text('tester')).dx,
+      tester.getTopLeft(find.text('docs')).dx,
+    ];
+    expect(
+      offsets,
+      equals(offsets.toList()..sort()),
+      reason: 'path segments render root → deepest, left to right',
+    );
 
     await tester.tap(find.text('tester'));
     await tester.pumpAndSettle();

@@ -338,7 +338,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get paneEmptyFolder => 'This folder is empty';
+  String get paneEmptyFolder => 'This folder is empty.';
 
   @override
   String paneItemCount(int count) {

@@ -159,7 +159,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       final primary = FocusManager.instance.primaryFocus;
       final focusElsewhere =
           primary != null && primary != FocusManager.instance.rootScope;
-      if (!focusElsewhere && !right.hasFocus) {
+      if (!focusElsewhere) {
         left.requestFocus();
       }
     });
@@ -250,7 +250,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                           controller: workspace.left,
                           workspace: workspace,
                           focusNode: leftFocus,
-                          onSwapFocus: () => _focusPane(rightFocus!),
+                          onSwapFocus: () => _focusPane(rightFocus),
                           onCancelRecovery: () =>
                               _cancelPaneRecovery(workspace, workspace.left),
                         ),
@@ -260,7 +260,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                           controller: workspace.right,
                           workspace: workspace,
                           focusNode: rightFocus,
-                          onSwapFocus: () => _focusPane(leftFocus!),
+                          onSwapFocus: () => _focusPane(leftFocus),
                           onCancelRecovery: () =>
                               _cancelPaneRecovery(workspace, workspace.right),
                         ),
@@ -275,8 +275,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
-  void _focusPane(FocusNode node) {
-    node.requestFocus();
+  void _focusPane(FocusNode? node) {
+    node?.requestFocus();
   }
 
   /// The banner's cancel, sibling-aware (02 §2.7 in a two-pane world):
@@ -284,18 +284,27 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// would kill a sibling pane browsing the same server. Detach only the
   /// cancelling pane when the server is shared; drop the reference — and
   /// with it the pool's recovery — when this pane is its last user.
-  void _cancelPaneRecovery(WorkspaceController workspace, PaneController pane) {
+  Future<void> _cancelPaneRecovery(
+    WorkspaceController workspace,
+    PaneController pane,
+  ) async {
     final location = pane.location;
     if (location is! RemotePaneLocation) return;
     final sibling = identical(pane, workspace.left)
         ? workspace.right
         : workspace.left;
-    final siblingShares = sibling.location is RemotePaneLocation &&
-        (sibling.location as RemotePaneLocation).serverId == location.serverId;
-    if (siblingShares) {
-      unawaited(pane.detachRemote());
-    } else {
-      unawaited(pane.cancelRecovery());
+    final siblingLocation = sibling.location;
+    final siblingShares =
+        siblingLocation is RemotePaneLocation &&
+        siblingLocation.serverId == location.serverId;
+    try {
+      if (siblingShares) {
+        await pane.detachRemote();
+      } else {
+        await pane.cancelRecovery();
+      }
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
     }
   }
 

@@ -64,24 +64,30 @@ final class RemotePaneLocation extends PaneLocation {
   String toString() => 'RemotePaneLocation($serverId, $path)';
 }
 
+/// The display name of a path's last segment (the pane footer's
+/// loading line): a root path ('/' or 'C:\') is its own label.
+String paneLastSegment(String? path) {
+  if (path == null) return '';
+  final parent = paneParentPath(path);
+  // paneParentPath can return an AUGMENTED root longer than the input
+  // (bare 'C:' → 'C:\') — the input is then its own label, never a
+  // substring RangeError.
+  if (parent == path || parent.length >= path.length) return path;
+  final separator = path.startsWith('/')
+      ? '/'
+      : (path.contains('\\') ? '\\' : '/');
+  final label = path.substring(parent.length).replaceAll(separator, '');
+  // A remainder of only separators means the input was a root with a
+  // trailing separator — the root labels itself, not ''.
+  return label.isEmpty ? parent : label;
+}
+
 /// The parent of [path], keeping every root form its own parent:
 /// navigation up from a volume/server root is a no-op, never a bogus
 /// path. Handles both separator styles: remote paths are POSIX, local
 /// paths follow the platform (`\` on Windows, including UNC share
 /// roots — only `\\server\share` is a listable root, never
 /// `\\server`).
-/// The display name of a path's last segment (the pane footer's
-/// loading line): a root path ('/' or 'C:\') is its own label.
-String paneLastSegment(String? path) {
-  if (path == null) return '';
-  final parent = paneParentPath(path);
-  if (parent == path) return path;
-  final separator = path.startsWith('/')
-      ? '/'
-      : (path.contains('\\') ? '\\' : '/');
-  return path.substring(parent.length).replaceAll(separator, '');
-}
-
 String paneParentPath(String path) {
   // Absolute POSIX paths (every remote path; local POSIX) keep '/' even
   // when a name contains a literal backslash — a legal POSIX filename

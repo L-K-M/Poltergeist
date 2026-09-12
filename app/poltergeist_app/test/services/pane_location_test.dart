@@ -48,4 +48,13 @@ void main() {
     expect(paneLastSegment('/home/tester'), 'tester');
     expect(paneLastSegment(r'C:\Users\tester'), 'tester');
   });
+
+  test('paneLastSegment tolerates augmented and trailing-separator roots', () {
+    // paneParentPath augments a bare drive to its root ('C:' → 'C:\'),
+    // which is longer than the input — the label must not RangeError.
+    expect(paneLastSegment('C:'), 'C:');
+    // A root carrying a trailing separator labels itself, not ''.
+    expect(paneLastSegment(r'\\server\share\'), r'\\server\share');
+    expect(paneLastSegment(r'C:\foo\'), 'foo');
+  });
 }

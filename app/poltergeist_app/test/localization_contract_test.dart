@@ -149,6 +149,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The workspace controller's debug assert message — a dev-facing
   // invariant, never rendered.
   'lib/services/workspace_controller.dart': {
+    "'Workspace panes must be distinct PaneController instances.'",
     "'Active pane must be one of this workspace\\'s panes.'",
   },
   // The pane controller's machine data: the home anchor the engine
