@@ -507,6 +507,15 @@ final class _LocalPaneChannel implements PaneChannel {
   /// The race after validation — the root vanishing before the backend
   /// arms — degrades to an immediate `lost` signal, never a silent stop.
   Future<EngineAck> watch(String path) async {
+    // Fails fast before the validation I/O; the post-await recheck below
+    // covers a close racing the awaits.
+    if (_closed) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'watch',
+        message: 'The browse channel is closed.',
+      );
+    }
     if (path.isEmpty) {
       throw const RemoteFileException(
         kind: RemoteFileErrorKind.other,
@@ -540,6 +549,7 @@ final class _LocalPaneChannel implements PaneChannel {
 
   @override
   Future<void> close() async {
+    if (_closed) return;
     _closed = true;
     await _watcher.dispose();
   }

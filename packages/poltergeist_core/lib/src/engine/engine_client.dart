@@ -475,7 +475,10 @@ class EngineBrowseChannel {
   /// [path] (03 §7.5); the engine canonicalizes it. One watch per channel:
   /// a second call replaces the first, and stale signals from the replaced
   /// watch never name the new binding. Fails typed for an empty path, a
-  /// missing root, or a non-directory target.
+  /// missing root, or a non-directory target. Subscribe to
+  /// [directoryChanges] before calling — the stream is broadcast and
+  /// buffers nothing, so a signal emitted before a listener attaches (an
+  /// early lost) is dropped.
   Future<void> watchDirectory(String path) async {
     await _client._call(
       (id) => WatchLocalDirectoryRequest(

@@ -456,10 +456,9 @@ void main() {
       // A grandchild edit and a sibling-of-root edit: neither is a direct
       // child of the watched directory on any of the three backends.
       File('${root.path}/sub/deep.txt').writeAsStringSync('deep');
-      final sibling = Directory(
-        '${root.parent.path}/pg-watch-sibling'
-        '-${DateTime.now().microsecondsSinceEpoch}',
-      )..createSync();
+      final sibling = Directory.systemTemp.createTempSync(
+        'pg-watch-sibling',
+      );
       addTearDown(() => sibling.deleteSync(recursive: true));
       File('${sibling.path}/x.txt').writeAsStringSync('x');
 
@@ -538,6 +537,16 @@ void main() {
       await channel.watchDirectory(channel.homePath);
       await drainSetupBacklog();
       changes.clear();
+
+      // Positive control: the watch is live before the release, so the
+      // silence below cannot pass vacuously (the noise test's trap).
+      File('${root.path}/before-unwatch.txt').writeAsStringSync('early');
+      final control = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(control.signal, DirectoryWatchSignal.changed);
+      changes.clear();
+
       await channel.unwatchDirectory();
       File('${root.path}/after-unwatch.txt').writeAsStringSync('late');
 

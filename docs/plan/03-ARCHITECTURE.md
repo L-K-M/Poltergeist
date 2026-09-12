@@ -1996,7 +1996,7 @@ changes 300 ms, reports root loss, backend error, and backend close as an
 immediate `lost` (the watch is released, never silently stopped), and
 retargets atomically so a replaced watch's stale events cannot invalidate
 the new binding. Pool channels answer an explicit typed refusal — remote
-watching would be a polling feature the engine does not have. This pane
+watching would be a polling feature the engine does not have. The pane
 policy above (active-tab-only, retarget on navigation, drop on
 launcher/remote) is app-side wiring over that seam. One known backend
 limitation is recorded in STATUS (open item 14): Linux's inotify queue

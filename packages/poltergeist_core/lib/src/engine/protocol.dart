@@ -206,7 +206,10 @@ enum DirectoryWatchSignal {
   /// or the watcher backend failed or closed. Delivered immediately, never
   /// silently, and the watch is released — a consumer must rescan or
   /// retarget; more signals for this path will not arrive without a new
-  /// [WatchLocalDirectoryRequest].
+  /// [WatchLocalDirectoryRequest]. One backend exception: on Windows,
+  /// removing the watched directory itself defers (delete-pending while
+  /// the watch holds its handle) and yields no lost signal — only
+  /// [DirectoryWatchSignal.changed] and its rescan are observable there.
   lost,
 }
 

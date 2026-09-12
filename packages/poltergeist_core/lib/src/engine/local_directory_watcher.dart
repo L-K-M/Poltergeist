@@ -111,7 +111,9 @@ final class LocalDirectoryWatcher {
   String? _watchedPath;
   bool _disposed = false;
 
-  /// The typed signals; broadcast, closes on [dispose].
+  /// The typed signals; broadcast, closes on [dispose]. A signal emitted
+  /// while no listener is attached is dropped — subscribe before the first
+  /// `retarget` to observe every lost signal.
   Stream<LocalWatchSignal> get signals => _signals.stream;
 
   /// Starts watching [canonicalPath], replacing any current watch. The
