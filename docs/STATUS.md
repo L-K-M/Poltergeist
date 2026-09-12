@@ -2471,7 +2471,12 @@ Validation: 11 transition tests pass after first failing to compile against
 the absent model. They cover defensive copies, lazy stale-payload rejection,
 monotonic generations, stacked cancellation, retry-error restoration, and
 terminal answer rejection. All 433 Flutter tests pass; Flutter analysis and
-the dependency guard are clean. No widgets, D12 rendering surface, dependency/pin change, or source
+the dependency guard are clean.
+[CI](https://github.com/L-K-M/Poltergeist/actions/runs/34692910410) also passes
+core checks and all five client builds. Review's constructor and validation
+claims were refuted: [Dart 3.12 supports private named initializing formals](https://dart.dev/language/constructors#private-named-parameters),
+and CI confirms 433 passing app tests on the reviewed revision.
+No widgets, D12 rendering surface, dependency/pin change, or source
 port; PORTS.md is unchanged. PaneController's D2 port, scoped local access,
 location construction, browsing widgets, and the rest of M3 remain open.
 
