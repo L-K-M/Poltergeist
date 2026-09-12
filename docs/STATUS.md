@@ -2484,34 +2484,39 @@ location construction, browsing widgets, and the rest of M3 remain open.
 
 ## Open items
 
-1. **M3 — OS Dart client matrix.** Implemented 2026-09-12; native CI
-   validation pending. Package analysis and ordinary tests now run on
-   ubuntu-latest, macos-latest, and windows-latest with explicit,
-   dynamically discovered paths and expanded test logs. Separate Ubuntu
-   tooling retains the fixture, pin, protocol, release, and M0 gates;
-   SSH integration and all five client builds are unchanged.
-   The two local-filesystem suites no longer skip Windows wholesale:
-   real timestamp, rename, backup, containment, validator, and transfer
-   contracts run there; chmod/chown fixtures stay POSIX-only, link tests
-   probe Windows capability, and case-sensitive-only tests report why
-   they skip. A Windows-only test pins mode/owner writes as unsupported.
-   Local validation: core analysis and 548 tests pass (15 SSH-fixture
-   skips plus the Windows-only case); 156 filesystem tests pass. The two
-   new workflow guards failed against Ubuntu-only CI, then passed;
-   fixture tools (64), guard suites, and M0 evidence validation pass.
-   Native run `34713212268` at `f8040cb`: Ubuntu packages/tooling,
-   SSH, pin audit, Flutter, and five clients passed. macOS exposed a
-   getcwd fixture alias; Windows exposed a mixed-separator expectation,
-   incident-temp sweep prefix mismatch, and detached stream cleanup.
-   PR #81 repairs both expectations, matches temp basenames within the
-   listed parent, and awaits source cancellation before returning.
-   A held-cleanup regression failed locally before the repair, then passed;
-   core analysis and 549 tests pass; filesystem/store tests: 176 pass.
-   Native repair validation and final review remain pending. Review round
-   1 had no confirmed important findings: apply diagnostic/skip-predicate
-   nits; refute the root-guard and setup-dart cache claims with source.
-   Full dispositions live in #81. Logs/exits:
-   `/tmp/poltergeist-task17-logs/`. No UI, pin, or milestone-close change.
+1. **M3 — OS Dart client matrix: validated 2026-09-12.**
+   [PR #81](https://github.com/L-K-M/Poltergeist/pull/81) activates
+   Ubuntu, macOS, and Windows package analysis/tests with dynamic explicit
+   paths. Ubuntu tooling, SSH integration, M0 evidence gates, and all five
+   client builds remain intact. No release-workflow or milestone-close change.
+   [CI 34713912737](https://github.com/L-K-M/Poltergeist/actions/runs/34713912737)
+   at `a5588ed` passed all executed jobs. Native package logs (Dart 3.13.3):
+   Ubuntu job `103607494694`, 549 passed/16 skipped; macOS `103607494655`,
+   548/13; Windows `103607494699`, 524/37. All three analyzed cleanly.
+   M0 measurements/evidence jobs are dispatch-only and skipped on this PR;
+   committed M0 evidence validation passed in Ubuntu tooling.
+   **Skip audit:** Ubuntu: 15 unavailable SSH fixtures plus one Windows-only
+   contract. macOS: 11 unavailable SSH fixtures, one Windows-only contract,
+   and one distinct-case fixture on a case-insensitive volume. Windows:
+   11 unavailable SSH fixtures, 17 POSIX filesystem fixtures, four incident
+   store mode fixtures, two engine mode fixtures, the existing engine-link
+   fixture, one distinct-case fixture, and one backslash-as-leaf fixture.
+   Four additional SSH tests are Linux-only registrations. The local VFS
+   and safety link helpers ran on Windows without capability skips;
+   native timestamps, case-only rename, reserved names, containment,
+   backup recovery, and transfer contracts remain covered. SSH job
+   `103608923552` exercised the enabled fixture separately on Ubuntu.
+   Initial CI `34713212268` exposed macOS getcwd alias and Windows separator
+   expectations, Windows orphan-temp matching, and detached source cleanup.
+   Repairs preserve those tests; the held-cleanup regression failed before
+   the fix and passed afterward. Local core analysis/549 tests and the
+   import/protocol scans pass; filesystem/store tests: 176 passed.
+   Review runs `34713212233` and `34713912733` completed without confirmed
+   important findings. Two minor-only rounds end optional review changes;
+   #81 records every disposition and final-head gates. The proposed removal
+   of returns after `markTestSkipped` contradicts test_api's void contract.
+   Deferred: expanding the workflow comment's explicit-path rationale;
+   AGENTS already documents it. No UI or pin change.
    **2026-09-07 review follow-up (#34):** before running the protocol guard's
    symlink fixture on Windows, probe link-creation privileges and skip only
    when unavailable. Its current CI job runs on Ubuntu.
