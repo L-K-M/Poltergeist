@@ -344,7 +344,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(controller.error, isNotNull);
 
-    channel.listings['/home/tester'] = [_entry('root.txt')];
+    channel.listings['/home/tester'] = [_entry('fresh.txt')];
     final hold2 = Completer<void>();
     channel.holdNext = hold2;
     controller.retry(); // in flight, will succeed when released

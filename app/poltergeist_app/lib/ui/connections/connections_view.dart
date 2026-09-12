@@ -239,12 +239,13 @@ class _ConnectionRow extends StatelessWidget {
             IconButton(
               key: ValueKey('connection.open.${server.serverId}'),
               tooltip: l10n.connectionsOpenInPane,
-              onPressed: () {
-                // Reveal the workspace before the open runs: a
-                // synchronous push (e.g. the changed-key review) would
-                // otherwise become maybePop's target instead of this
+              onPressed: () async {
+                // Pop before the open runs: maybePop only pops after
+                // awaiting willPop (a microtask later), so a synchronous
+                // push from the open (e.g. the changed-key review) would
+                // otherwise become the pop's target instead of this
                 // route, and the session guard releases with the pop.
-                Navigator.of(context, rootNavigator: true).maybePop();
+                await Navigator.of(context, rootNavigator: true).maybePop();
                 onOpenInPane?.call(server);
               },
               icon: const Icon(Icons.open_in_new_outlined, size: 18),

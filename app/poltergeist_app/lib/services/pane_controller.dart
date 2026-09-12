@@ -348,7 +348,7 @@ class PaneController extends ChangeNotifier {
     _bindAttempt++;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
-    unawaited(_teardownChannel());
+    unawaited(_releaseBinding());
     super.dispose();
   }
 
@@ -518,18 +518,6 @@ class PaneController extends ChangeNotifier {
     _channel = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
-    if (channel != null) {
-      try {
-        await channel.close();
-      } on Object catch (error, stackTrace) {
-        _report(error, stackTrace);
-      }
-    }
-  }
-
-  Future<void> _teardownChannel() async {
-    final channel = _channel;
-    _channel = null;
     if (channel != null) {
       try {
         await channel.close();

@@ -170,15 +170,18 @@ class _PaneViewState extends State<PaneView> {
     final platform = Theme.of(context).platform;
     final key = event.logicalKey;
 
-    // 02 §2.8: once the grace passes, every busy surface is inert for
-    // keys — only Esc (cancel) and Tab (swap panes) stay live. Keys
-    // must not act on stale entries through the pane's primary input
-    // modality either (mid-bind phases count: the spinner is up and
-    // the listing beneath is stale).
-    if (_graceBusy() &&
-        _pastGrace &&
-        key != LogicalKeyboardKey.escape &&
-        key != LogicalKeyboardKey.tab) {
+    // 02 §2.8: once the grace passes, the pane's OWN keys are inert —
+    // the entries under the dim are stale. Unowned keys fall through to
+    // ancestors (app shortcuts stay live during slow loads); Esc and
+    // Tab reach the switch below and stay live.
+    final ownedKey =
+        key == LogicalKeyboardKey.arrowDown ||
+        key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.home ||
+        key == LogicalKeyboardKey.end ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.backspace;
+    if (_graceBusy() && _pastGrace && ownedKey) {
       return KeyEventResult.handled;
     }
 
@@ -394,13 +397,19 @@ class _PaneSurface extends StatelessWidget {
 
     return Stack(
       children: [
+        // While the connection-lost banner owns the pane, the stale
+        // listing leaves the semantics tree too — the banner is the
+        // only signal (a reachable-but-inert row would read as broken).
         Positioned.fill(
-          child: switch (controller.phase) {
-            PanePhase.unbound => _Centered(l10n.paneNoLocation),
-            PanePhase.openingLocal ||
-            PanePhase.connectingRemote => _connectingBody(context, l10n),
-            PanePhase.browsing => _listing(context, l10n),
-          },
+          child: ExcludeSemantics(
+            excluding: controller.connectionLost,
+            child: switch (controller.phase) {
+              PanePhase.unbound => _Centered(l10n.paneNoLocation),
+              PanePhase.openingLocal ||
+              PanePhase.connectingRemote => _connectingBody(context, l10n),
+              PanePhase.browsing => _listing(context, l10n),
+            },
+          ),
         ),
         // 02 §2.8: the old listing stays visible, dimmed, past the grace —
         // and inert while the navigation it belongs to is still in flight.
@@ -673,8 +682,11 @@ class _PaneRow extends StatelessWidget {
     return Semantics(
       label: l10n.paneRowSemantics(entry.name, size, modified),
       // The composed label replaces the child text's own semantics —
-      // without this, screen readers announce the name twice.
+      // without this, screen readers announce the name twice. The
+      // excluded child no longer provides the tap action either, so
+      // activation is exposed here.
       excludeSemantics: true,
+      onTap: onTap,
       // The cursor row's highlight gets its accessibility equivalent.
       selected: highlighted,
       child: Material(
