@@ -12,9 +12,9 @@
   "@paneBName": {
     "description": "Label for the right file pane."
   },
-  "paneNoEngine": "No engine is running, so nothing can be browsed.",
+  "paneNoEngine": "Browsing is unavailable right now.",
   "@paneNoEngine": {
-    "description": "State of a pane with no engine session behind it."
+    "description": "State of a pane with no engine session behind it (user terms; the engine concept is internal)."
   },
   "paneNoLocation": "This pane has no location open.",
   "@paneNoLocation": {

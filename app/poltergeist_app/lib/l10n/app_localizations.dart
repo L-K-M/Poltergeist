@@ -112,10 +112,10 @@ abstract class AppLocalizations {
   /// **'Pane B'**
   String get paneBName;
 
-  /// State of a pane with no engine session behind it.
+  /// State of a pane with no engine session behind it (user terms; the engine concept is internal).
   ///
   /// In en, this message translates to:
-  /// **'No engine is running, so nothing can be browsed.'**
+  /// **'Browsing is unavailable right now.'**
   String get paneNoEngine;
 
   /// State of an unbound pane (no location, nothing in flight).

@@ -1,4 +1,7 @@
 
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
 import 'package:flutter/services.dart';
@@ -36,8 +39,12 @@ void main() {
 
     final navigatorKey = GlobalKey<NavigatorState>();
     addTearDown(engine.close);
+    // A per-test temp directory: the injected in-memory stores never
+    // touch it, but nothing should write into the checkout either.
+    final supportDir = Directory.systemTemp.createTempSync('pg-panes-');
+    addTearDown(() => supportDir.deleteSync(recursive: true));
     final session = await startEngineSession(
-      supportDirectoryPath: './engine-session',
+      supportDirectoryPath: supportDir.path,
       bookmarks: bookmarks ?? FakeBookmarkStore(),
       navigatorKey: navigatorKey,
       pinStore: InMemoryHostKeyStore(),
@@ -139,16 +146,16 @@ void main() {
   });
 
   testWidgets('pane focus commands move focus between panes', (tester) async {
-    await pumpApp(tester);
-
-    await tester.tap(
-      find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
-    );
-    await tester.pump();
-
-    // The focused pane is right: refresh through the chord targets it.
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     try {
+      await pumpApp(tester);
+
+      await tester.tap(
+        find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
+      );
+      await tester.pump();
+
+      // The focused pane is right: refresh through the chord targets it.
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
@@ -169,8 +176,82 @@ void main() {
 
     await tester.pumpWidget(const PoltergeistApp());
 
-    expect(find.textContaining('No engine'), findsNWidgets(2));
+    expect(find.textContaining('Browsing is unavailable'), findsNWidgets(2));
     expect(find.text('left.txt'), findsNothing);
+  });
+
+  testWidgets('a session arriving later gains live connections truth', (
+    tester,
+  ) async {
+    // The startup posture: the shell mounts before any engine exists,
+    // then the session arrives (main.dart awaits it before runApp, but
+    // the swap is the didUpdateWidget contract the shell must honor).
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final now = DateTime.utc(2026, 9, 12);
+    final store = FakeBookmarkStore([
+      Bookmark(
+        id: 'srv-x',
+        kind: BookmarkKind.remotePath,
+        label: 'late.example.com',
+        server: BookmarkServerRef(
+          identity: EmbeddedHostIdentity(
+            host: 'late.example.com',
+            port: 22,
+            username: 'tester',
+            authMethod: AuthMethod.password,
+          ),
+        ),
+        remotePath: '/',
+        sortKey: 'k',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ]);
+
+    await tester.pumpWidget(
+      PoltergeistApp(bookmarks: store, engineSession: null),
+    );
+    await tester.pump();
+    expect(find.textContaining('Browsing is unavailable'), findsNWidgets(2));
+
+    final navigatorKey = GlobalKey<NavigatorState>();
+    addTearDown(engine.close);
+    final supportDir = Directory.systemTemp.createTempSync('pg-panes-');
+    addTearDown(() => supportDir.deleteSync(recursive: true));
+    final session = await startEngineSession(
+      supportDirectoryPath: supportDir.path,
+      bookmarks: store,
+      navigatorKey: navigatorKey,
+      pinStore: InMemoryHostKeyStore(),
+      incidentStore: InMemoryIncidentStore(),
+      spawn: (config) async => engine,
+    );
+    addTearDown(session!.shutdown);
+
+    // Same store, session added: the panes bind and the Connections
+    // surface must pick the session's lanes (a stale null bridge would
+    // leave every row reading not connected).
+    await tester.pumpWidget(
+      PoltergeistApp(bookmarks: store, engineSession: session),
+    );
+    await tester.pump();
+    expect(find.text('left.txt'), findsOneWidget);
+
+    await tester.tap(connectionsButton);
+    await tester.pumpAndSettle();
+    engine.statesControllers.putIfAbsent(
+      'srv-x',
+      () => StreamController<ServerStatus>.broadcast(sync: true),
+    );
+    engine.statesControllers['srv-x']!.add(
+      const ServerStatus(ServerConnectionState.connected),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connected'), findsOneWidget);
   });
 
   testWidgets('a remote bookmark opens in the active pane from Connections', (

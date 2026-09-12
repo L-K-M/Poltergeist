@@ -76,18 +76,28 @@ typedef AppEngineSpawner = Future<AppEngine> Function(EngineConfig config);
 /// identity mapped through the pinned model (04 §2.1 — the vault
 /// reference and the "reference, don't store" key path cross so
 /// credential resolution can answer). Shared by the review connect and
-/// the panes' remote bindings.
+/// the panes' remote bindings. The returned config's id is the bookmark
+/// id, so callers must pass that same value as the engine's serverId.
+/// A bookmark without an embedded identity fails fast here — never an
+/// empty-host dial (both call sites list identity-backed rows only).
 ServerConfig serverConfigForBookmark(Bookmark bookmark) {
   final identity = bookmark.server?.identity;
+  if (identity == null) {
+    throw ArgumentError.value(
+      bookmark.id,
+      'bookmark.id',
+      'bookmark has no embedded server identity',
+    );
+  }
   return ServerConfig(
     id: bookmark.id,
     label: bookmark.label,
-    host: identity?.host ?? '',
-    port: identity?.port ?? 22,
-    username: identity?.username ?? '',
-    authMethod: identity?.authMethod ?? AuthMethod.password,
-    secretRef: identity?.secretRef,
-    identityFilePath: identity?.identityFilePath,
+    host: identity.host,
+    port: identity.port,
+    username: identity.username,
+    authMethod: identity.authMethod,
+    secretRef: identity.secretRef,
+    identityFilePath: identity.identityFilePath,
     createdAt: bookmark.createdAt.millisecondsSinceEpoch,
     updatedAt: bookmark.updatedAt.millisecondsSinceEpoch,
   );

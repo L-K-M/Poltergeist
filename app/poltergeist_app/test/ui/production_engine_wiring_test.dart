@@ -32,6 +32,15 @@ Bookmark _blockedBookmark() {
   );
 }
 
+/// The two-pane shell binds one local channel per pane at startup:
+/// every engine fixture here scripts exactly that pair.
+session_test.FakeAppEngine engineWithTwoLocalPanes() =>
+    session_test.FakeAppEngine()
+      ..localChannels.addAll([
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
+      ]);
+
 void main() {
   final connectionsButton = find.byKey(
     const ValueKey('command.$kConnectionsCommandId'),
@@ -45,11 +54,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine()
-      ..localChannels.addAll([
-        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
-        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
-      ]);
+    final engine = engineWithTwoLocalPanes();
     addTearDown(engine.close);
     // One store shared by the session and the app, as main.dart wires it.
     final bookmarks = FakeBookmarkStore([_blockedBookmark()]);
@@ -111,11 +116,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine()
-      ..localChannels.addAll([
-        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
-        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
-      ]);
+    final engine = engineWithTwoLocalPanes();
     engine.promptScript = [
       EnginePromptEvent(
         promptId: 'p1',
@@ -181,11 +182,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     final navigatorKey = GlobalKey<NavigatorState>();
-    final engine = session_test.FakeAppEngine()
-      ..localChannels.addAll([
-        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
-        session_test.FakeAppBrowseChannel(homePath: '/home/deploy'),
-      ]);
+    final engine = engineWithTwoLocalPanes();
     addTearDown(engine.close);
     final session = await startEngineSession(
       supportDirectoryPath: './engine-session',

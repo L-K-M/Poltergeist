@@ -21,6 +21,14 @@ String formatPaneSize(int? bytes, {required TargetPlatform platform}) {
   }
   if (unit == 0) return '$bytes ${_byteUnits[0]}';
   var text = value.toStringAsFixed(value >= 10 ? 0 : 1);
+  // Rounding can push the mantissa back up to the divisor (999.999 KB
+  // rounds to "1000 KB"); renormalize so a boundary value renders as
+  // the next unit, like Finder/Explorer.
+  while (double.parse(text) >= divisor && unit < _byteUnits.length - 1) {
+    unit++;
+    value /= divisor;
+    text = value.toStringAsFixed(value >= 10 ? 0 : 1);
+  }
   if (text.endsWith('.0')) text = text.substring(0, text.length - 2);
   return '$text ${_byteUnits[unit]}';
 }
@@ -40,7 +48,11 @@ String formatPaneModified(
   final dayStart = DateTime(localNow.year, localNow.month, localNow.day);
   final time = DateFormat.jm(localeName).format(localModified);
   if (!localModified.isBefore(dayStart)) return today(time);
-  if (!localModified.isBefore(dayStart.subtract(const Duration(days: 1)))) {
+  // Calendar-day arithmetic, not 24-hour subtraction: across a DST
+  // transition, midnight minus 24h lands at 23:00 or 01:00 of the
+  // previous day (Dart normalizes out-of-range day components).
+  if (!localModified
+      .isBefore(DateTime(localNow.year, localNow.month, localNow.day - 1))) {
     return yesterday(time);
   }
   return DateFormat.yMd(localeName)

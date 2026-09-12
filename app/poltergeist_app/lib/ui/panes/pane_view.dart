@@ -16,8 +16,12 @@ const _antiFlashGrace = Duration(milliseconds: 150);
 
 /// 02 §11's comfortable row density (28 px), scaled by the active text
 /// scale so scaled text never clips (D20). Recomputed per build, which
-/// preserves the fixed-extent virtualization.
+/// preserves the fixed-extent virtualization. One definition, shared by
+/// the row extent and the cursor-reveal scroll arithmetic.
 const _comfortableRowExtent = 28.0;
+
+double scaledPaneRowExtent(BuildContext context) =>
+    _comfortableRowExtent * MediaQuery.textScalerOf(context).scale(1);
 
 /// One pane's browsing surface (foundation slice): path bar with
 /// clickable ancestor segments, fixed-extent listing rows (name, kind,
@@ -91,8 +95,7 @@ class _PaneViewState extends State<PaneView> {
     }
   }
 
-  double _rowExtent() =>
-      _comfortableRowExtent * MediaQuery.textScalerOf(context).scale(1);
+  double _rowExtent() => scaledPaneRowExtent(context);
 
   /// 02 §8.2's single-key table, scoped to this pane's focus node: these
   /// keys must never fire while any text field anywhere holds focus —
@@ -143,9 +146,21 @@ class _PaneViewState extends State<PaneView> {
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
-        if (controller.loading) controller.cancelNavigation();
+        if (controller.loading) {
+          controller.cancelNavigation();
+        } else if (controller.error != null) {
+          // The inline error's keyboard escape hatch: Esc retries the
+          // failed operation (the overlay's Retry is otherwise
+          // mouse-only in this keyboard-first surface).
+          unawaited(controller.retry());
+        }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.tab:
+        // Only plain Tab swaps (02 §8.2); Shift+Tab keeps the standard
+        // reverse traversal.
+        if (HardwareKeyboard.instance.isShiftPressed) {
+          return KeyEventResult.ignored;
+        }
         widget.onSwapFocus();
         return KeyEventResult.handled;
       default:
@@ -349,8 +364,7 @@ class _PaneSurface extends StatelessWidget {
       return Center(child: Text(l10n.paneEmptyFolder));
     }
 
-    final extent = _comfortableRowExtent *
-        MediaQuery.textScalerOf(context).scale(1);
+    final extent = scaledPaneRowExtent(context);
 
     return ListView.builder(
       controller: scrollController,
@@ -401,7 +415,7 @@ class _PathBar extends StatelessWidget {
       children: [
         Container(
           key: ValueKey('${controller.paneTabId}.path'),
-          height: 34,
+          height: 34 * MediaQuery.textScalerOf(context).scale(1),
           color: colors.surfaceContainerLow,
           padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
           child: Row(
@@ -606,7 +620,7 @@ class _PaneFooter extends StatelessWidget {
 
     return Container(
       key: const ValueKey('pane.footer'),
-      height: 24,
+      height: 24 * MediaQuery.textScalerOf(context).scale(1),
       padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
       color: colors.surfaceContainerLow,
       child: Align(

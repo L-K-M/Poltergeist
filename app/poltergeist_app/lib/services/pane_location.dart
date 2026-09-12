@@ -64,12 +64,12 @@ final class RemotePaneLocation extends PaneLocation {
   String toString() => 'RemotePaneLocation($serverId, $path)';
 }
 
-/// The parent of [path], keeping the root its own parent: navigation up
-/// from a volume/server root is a no-op, never a bogus path.
-///
-/// Handles both separator styles: remote paths are POSIX, local paths
-/// follow the platform (`\` on Windows). A root path ('/' or 'C:\')
-/// returns itself.
+/// The parent of [path], keeping every root form its own parent:
+/// navigation up from a volume/server root is a no-op, never a bogus
+/// path. Handles both separator styles: remote paths are POSIX, local
+/// paths follow the platform (`\` on Windows, including UNC share
+/// roots — only `\\server\share` is a listable root, never
+/// `\\server`).
 String paneParentPath(String path) {
   final separator = path.contains('\\') ? '\\' : '/';
   var trimmed = path;
@@ -78,9 +78,10 @@ String paneParentPath(String path) {
   }
   final lastSlash = trimmed.lastIndexOf(separator);
   if (lastSlash < 0) {
-    // No separator at all: a bare drive ('C:') — its root keeps one.
+    // No separator at all: a bare drive ('C:') — its root keeps the
+    // platform's own separator.
     if (trimmed.length == 2 && trimmed[1] == ':') {
-      return '$trimmed$separator';
+      return '$trimmed\\';
     }
     return trimmed;
   }
@@ -88,6 +89,14 @@ String paneParentPath(String path) {
   if (lastSlash == 0) return separator;
   final parent = trimmed.substring(0, lastSlash);
   // Windows: the parent of 'C:\x' is 'C:\', not 'C:'.
-  if (parent.length == 2 && parent[1] == ':') return '$parent$separator';
+  if (parent.length == 2 && parent[1] == ':') return '$parent\\';
+  // Windows UNC: '\\server\share' is itself a root — never climb to
+  // '\\server', which no file API can list.
+  if (separator == '\\' &&
+      parent.length > 2 &&
+      parent.startsWith('\\\\') &&
+      !parent.substring(2).contains('\\')) {
+    return trimmed;
+  }
   return parent;
 }

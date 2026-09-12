@@ -107,8 +107,10 @@ class PaneController extends ChangeNotifier {
   bool get loading => _issuedGeneration > _answeredGeneration && _error == null;
 
   /// Verbs act on `location` and are live only on a fresh, error-free
-  /// listing (02 §2.8).
-  bool get verbsEnabled => _error == null && !loading;
+  /// listing of a live binding (02 §2.8): unbound and mid-open phases
+  /// carry nothing to act on.
+  bool get verbsEnabled =>
+      _phase == PanePhase.browsing && _error == null && !loading;
 
   /// The remote binding's live connection truth (current value first from
   /// the engine's watch); null for local panes and unbound panes.
@@ -133,72 +135,53 @@ class PaneController extends ChangeNotifier {
   /// streams keep no replay, 03 §5), opens the browse channel, and
   /// navigates to the bookmark's path ('/' meaning the canonical home).
   Future<void> connectRemote(Bookmark bookmark) async {
-    final lanes = _lanes;
-    if (_disposed || lanes == null) return;
-
-    final attempt = ++_bindAttempt;
     _pendingRemote = bookmark;
-    _phase = PanePhase.connectingRemote;
-    _beginBinding();
-    notifyListeners();
-
-    await _releaseBinding();
-    if (_disposed || attempt != _bindAttempt) return;
-
-    // Subscribe before connecting: a connect that raises state (or a
-    // prompt the coordinator answers) must find this pane listening.
-    _statusWatch = lanes
-        .watchServer(bookmark.id)
-        .listen(
-          (status) {
-            if (_disposed || attempt != _bindAttempt) return;
-            _connectionStatus = status;
-            notifyListeners();
-          },
-          onError: (Object error, StackTrace stackTrace) {
-            if (_disposed) return;
-            _report(error, stackTrace);
-          },
+    await _bind(
+      connectingPhase: PanePhase.connectingRemote,
+      operation: 'connect',
+      failMessage: 'The connection could not be opened.',
+      connect: (lanes, attempt) async {
+        // Subscribe before connecting: a connect that raises state (or
+        // a prompt the coordinator answers) must find this pane
+        // listening.
+        _statusWatch = lanes
+            .watchServer(bookmark.id)
+            .listen(
+              (status) {
+                if (_disposed || attempt != _bindAttempt) return;
+                _connectionStatus = status;
+                notifyListeners();
+              },
+              onError: (Object error, StackTrace stackTrace) {
+                if (_disposed) return;
+                _report(error, stackTrace);
+              },
+            );
+        final channel = await lanes.openBrowseChannel(
+          serverId: bookmark.id,
+          paneTabId: paneTabId,
+          config: serverConfigForBookmark(bookmark),
         );
+        if (_disposed || attempt != _bindAttempt) {
+          await _closeChannel(channel);
+          return;
+        }
+        _channel = channel;
+        _phase = PanePhase.browsing;
+        notifyListeners();
 
-    try {
-      final channel = await lanes.openBrowseChannel(
-        serverId: bookmark.id,
-        paneTabId: paneTabId,
-        config: serverConfigForBookmark(bookmark),
-      );
-      if (_disposed || attempt != _bindAttempt) {
-        await _closeChannel(channel);
-        return;
-      }
-      _channel = channel;
-      _phase = PanePhase.browsing;
-      notifyListeners();
-
-      final remotePath = bookmark.remotePath;
-      final target =
-          remotePath == null || remotePath == '/'
-              ? channel.homePath
-              : remotePath;
-      _issueNavigation(
-        RemotePaneLocation(bookmark.id, target),
-        target,
-        channel,
-      );
-    } on RemoteFileException catch (error) {
-      if (_disposed || attempt != _bindAttempt) return;
-      _error = error;
-      notifyListeners();
-    } on Object catch (error, stackTrace) {
-      if (_disposed || attempt != _bindAttempt) return;
-      _report(error, stackTrace);
-      _error = RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: 'connect',
-        message: 'The connection could not be opened.',
-      );
-      notifyListeners();
-    }
+        final remotePath = bookmark.remotePath;
+        final target =
+            remotePath == null || remotePath == '/'
+                ? channel.homePath
+                : remotePath;
+        _issueNavigation(
+          RemotePaneLocation(bookmark.id, target),
+          target,
+          channel,
+        );
+      },
+    );
   }
 
   /// Navigates to [path] on the live channel (path bar, entries, refresh).
@@ -304,7 +287,7 @@ class PaneController extends ChangeNotifier {
   Future<void> cancelRecovery() async {
     final lanes = _lanes;
     final current = _location;
-    if (lanes == null || current is! RemotePaneLocation) return;
+    if (_disposed || lanes == null || current is! RemotePaneLocation) return;
     try {
       await lanes.disconnectServer(current.serverId);
     } on Object catch (error, stackTrace) {
@@ -324,6 +307,42 @@ class PaneController extends ChangeNotifier {
   }
 
   // ── internals ──────────────────────────────────────────────────────────
+
+  Future<void> _bind({
+    required PanePhase connectingPhase,
+    required String operation,
+    required String failMessage,
+    required Future<void> Function(PaneEngineLanes lanes, int attempt)
+        connect,
+  }) async {
+    final lanes = _lanes;
+    if (_disposed || lanes == null) return;
+
+    final attempt = ++_bindAttempt;
+    _phase = connectingPhase;
+    _beginBinding();
+    notifyListeners();
+
+    await _releaseBinding();
+    if (_disposed || attempt != _bindAttempt) return;
+
+    try {
+      await connect(lanes, attempt);
+    } on RemoteFileException catch (error) {
+      if (_disposed || attempt != _bindAttempt) return;
+      _error = error;
+      notifyListeners();
+    } on Object catch (error, stackTrace) {
+      if (_disposed || attempt != _bindAttempt) return;
+      _report(error, stackTrace);
+      _error = RemoteFileException(
+        kind: RemoteFileErrorKind.other,
+        operation: operation,
+        message: failMessage,
+      );
+      notifyListeners();
+    }
+  }
 
   bool _loadingActive() =>
       _issuedGeneration > _answeredGeneration && _error == null;
@@ -350,49 +369,36 @@ class PaneController extends ChangeNotifier {
   }
 
   Future<void> openLocalHome() async {
-    final lanes = _lanes;
-    if (_disposed || lanes == null) return;
-
-    final attempt = ++_bindAttempt;
     _pendingRemote = null;
-    _phase = PanePhase.openingLocal;
-    _beginBinding();
-    notifyListeners();
-
-    await _releaseBinding();
-    if (_disposed || attempt != _bindAttempt) return;
-
-    try {
-      // '~' expands to the user's home inside the engine (03 §2.2); the
-      // channel answers the canonicalized home path.
-      final channel = await lanes.openLocalChannel(rootPath: '~');
-      if (_disposed || attempt != _bindAttempt) {
-        await _closeChannel(channel);
-        return;
-      }
-      _channel = channel;
-      _phase = PanePhase.browsing;
-      notifyListeners();
-      _issueNavigation(
-        LocalPaneLocation(channel.homePath),
-        channel.homePath,
-        channel,
-      );
-    } on RemoteFileException catch (error) {
-      if (_disposed || attempt != _bindAttempt) return;
-      _error = error;
-      notifyListeners();
-    } on Object catch (error, stackTrace) {
-      if (_disposed || attempt != _bindAttempt) return;
-      _report(error, stackTrace);
-      _error = RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: 'open',
-        message: 'The local browser could not be opened.',
-      );
-      notifyListeners();
-    }
+    await _bind(
+      connectingPhase: PanePhase.openingLocal,
+      operation: 'open',
+      failMessage: 'The local browser could not be opened.',
+      connect: (lanes, attempt) async {
+        // '~' expands to the user's home inside the engine (03 §2.2);
+        // the channel answers the canonicalized home path.
+        final channel = await lanes.openLocalChannel(rootPath: '~');
+        if (_disposed || attempt != _bindAttempt) {
+          await _closeChannel(channel);
+          return;
+        }
+        _channel = channel;
+        _phase = PanePhase.browsing;
+        notifyListeners();
+        _issueNavigation(
+          LocalPaneLocation(channel.homePath),
+          channel.homePath,
+          channel,
+        );
+      },
+    );
   }
+
+  /// The one shared bind lifecycle (local and remote differ only in the
+  /// open and the first navigation): attempt capture, binding reset,
+  /// previous-channel release, then the kind-specific [connect] under
+  /// the shared error surface. Every await rechecks `_disposed` and the
+  /// attempt counter; a stale attempt's channel is closed, never kept.
 
   /// 02 §2.8's navigation-issue transition: snapshot the quiescent state
   /// (only on the not-loading → loading edge), set the location

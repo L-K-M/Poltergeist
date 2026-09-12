@@ -347,6 +347,96 @@ void main() {
     expect(rightNode.hasFocus, isTrue);
   });
 
+  testWidgets('Shift+Tab does not swap panes (reverse traversal keeps it)', (
+    tester,
+  ) async {
+    localChannelWithEntries();
+    await left.openLocalHome();
+    final rightChannel = controller_test.FakePaneChannel('/home/tester');
+    rightChannel.listings['/home/tester'] = const [];
+    lanes.nextLocalChannel = rightChannel;
+    await right.openLocalHome();
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Column(
+            children: [
+              // A focusable region before the panes: reverse traversal
+              // from the left pane must reach it, not swap to the right.
+              Focus(
+                autofocus: true,
+                child: const SizedBox(height: 20, width: 20),
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: PaneView(
+                        controller: left,
+                        workspace: workspace,
+                        focusNode: leftNode,
+                        onSwapFocus: () => rightNode.requestFocus(),
+                        clock: clock,
+                      ),
+                    ),
+                    Expanded(
+                      child: PaneView(
+                        controller: right,
+                        workspace: workspace,
+                        focusNode: rightNode,
+                        onSwapFocus: () => leftNode.requestFocus(),
+                        clock: clock,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    leftNode.requestFocus();
+    await tester.pump();
+    expect(workspace.activePane, left);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+
+    // The pane node ignored Shift+Tab (02 §8.2 scopes only plain Tab),
+    // so default reverse traversal moved focus out of the pane instead
+    // of swapping to the right pane.
+    expect(leftNode.hasFocus, isFalse);
+    expect(workspace.activePane, left);
+  });
+
+  testWidgets('Esc over an inline error retries the navigation', (
+    tester,
+  ) async {
+    final channel = localChannelWithEntries();
+    await left.openLocalHome();
+    await pumpShell(tester);
+    leftNode.requestFocus();
+    await tester.pump();
+
+    left.navigate('/home/tester/gone');
+    await tester.pumpAndSettle();
+    expect(left.error, isNotNull);
+
+    // The failed path now lists successfully; Esc retries it.
+    channel.listings['/home/tester/gone'] = [_entry('back.txt')];
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(left.error, isNull);
+    expect(find.text('back.txt'), findsOneWidget);
+  });
+
   testWidgets('remote connect renders the connecting state until it lands', (
     tester,
   ) async {
@@ -497,6 +587,6 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('No engine'), findsOneWidget);
+    expect(find.textContaining('Browsing is unavailable'), findsOneWidget);
   });
 }

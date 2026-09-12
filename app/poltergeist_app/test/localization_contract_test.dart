@@ -27,10 +27,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'incidents.json'",
     "'identity_reads.jsonl'",
     "'review'",
-    "''",
     r"'$supportDirectoryPath$separator$_pinStoreFileName'",
     r"'$supportDirectoryPath$separator$_incidentStoreFileName'",
     r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
+    "'bookmark.id'",
+    "'bookmark has no embedded server identity'",
   },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:
@@ -145,6 +146,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.left.listing'",
     "'pane.right.listing'",
   },
+  // The workspace controller's debug assert message — a dev-facing
+  // invariant, never rendered.
+  'lib/services/workspace_controller.dart': {
+    "'Active pane must be one of this workspace\\'s panes.'",
+  },
   // The pane controller's machine data: the home anchor the engine
   // expands, the dotfile filter prefix, the root path, the taxonomy
   // operations, and the fallback summaries for non-VFS faults (rendered
@@ -164,10 +170,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // and the path-separator arithmetic (POSIX and Windows forms).
   'lib/services/pane_location.dart': {
     "'\\\\'",
+    "'\\\\\\\\'",
     "'/'",
     "':'",
-    r"'$trimmed$separator'",
-    r"'$parent$separator'",
+    r"'$trimmed\\'",
+    r"'$parent\\'",
     "'LocalPaneLocation(\$path)'",
     "'RemotePaneLocation(\$serverId, \$path)'",
   },
@@ -181,6 +188,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.focusLeft'",
     "'pane.focusRight'",
     "'pane.swapFocus'",
+    r"'Duplicate shortcut activator $activator: later command wins'",
   },
   'lib/ui/panes/pane_view.dart': {
     "'pane.left'",

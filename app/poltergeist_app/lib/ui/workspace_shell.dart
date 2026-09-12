@@ -97,10 +97,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     super.didUpdateWidget(oldWidget);
     // The composition root supplies the store once but may supply the
     // engine later (the startup-wiring flow mounts the shell before any
-    // engine exists); a replacement of either must not leave the surface
-    // listing the previous store's bookmarks or a dead engine seam.
+    // engine exists); a replacement of any seam must not leave the
+    // surface listing the previous store's bookmarks or a dead engine
+    // lane — the session's lanes feed this surface too.
     if (!identical(oldWidget.bookmarks, widget.bookmarks) ||
-        !identical(oldWidget.connectionEngine, widget.connectionEngine)) {
+        !identical(oldWidget.connectionEngine, widget.connectionEngine) ||
+        !identical(oldWidget.engineSession, widget.engineSession)) {
       _connections?.dispose();
       _connections = _buildConnections();
     }
@@ -149,7 +151,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final left = _leftFocus;
       final right = _rightFocus;
-      if (left != null && !(right?.hasFocus ?? false)) {
+      if (left == null || right == null) return;
+      // Claim initial focus only when nothing else holds it: a session
+      // rebind mid-interaction must not yank focus from a toolbar
+      // control or field back to the left listing.
+      final primary = FocusManager.instance.primaryFocus;
+      final focusElsewhere =
+          primary != null && primary != FocusManager.instance.rootScope;
+      if (!focusElsewhere && !right.hasFocus) {
         left.requestFocus();
       }
     });
@@ -269,15 +278,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// pane's own connect flow owns prompts and errors; failures surface in
   /// the pane, not here.
   Future<void> _openBookmarkInActivePane(ConnectionServer server) async {
-    final workspace = _workspace;
     final store = widget.bookmarks;
-    if (workspace == null || store == null) return;
+    if (store == null) return;
     try {
       final bookmarks = await store.load();
       if (!mounted) return;
+      // Re-resolve after the await: a session swap may have disposed the
+      // captured workspace while the store read was in flight (09 §3.1's
+      // recheck idiom — `mounted` alone does not cover it).
+      final pane = _workspace?.activePane;
+      if (pane == null) return;
       for (final bookmark in bookmarks) {
         if (bookmark.id == server.serverId) {
-          await workspace.activePane.connectRemote(bookmark);
+          await pane.connectRemote(bookmark);
           return;
         }
       }

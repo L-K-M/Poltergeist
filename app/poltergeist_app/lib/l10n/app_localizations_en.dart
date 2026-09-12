@@ -18,7 +18,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneBName => 'Pane B';
 
   @override
-  String get paneNoEngine => 'No engine is running, so nothing can be browsed.';
+  String get paneNoEngine => 'Browsing is unavailable right now.';
 
   @override
   String get paneNoLocation => 'This pane has no location open.';

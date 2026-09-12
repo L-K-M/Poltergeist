@@ -151,6 +151,11 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 }
 
 /// Dispatches modified command chords for the shell (02 §8.3's table).
+/// A registered chord is owned by the command layer relative to scopes
+/// FARTHER from focus — including a disabled command's chord, which is
+/// consumed without falling through to outer scopes (standard Flutter
+/// focus precedence still lets a nearer surface take a chord first) —
+/// locked in by test.
 /// Unmodified single keys are deliberately excluded — they belong to the
 /// pane focus nodes (02 §8.2), so this layer can never fire Enter or Tab
 /// globally. This slice's shell contains no text surfaces; dialog routes
@@ -180,6 +185,13 @@ class CommandChordScope extends StatelessWidget {
             !activator.alt) {
           continue;
         }
+        // Two commands claiming one chord is a registration bug; debug
+        // builds fail it immediately (release keeps later-command-wins,
+        // the documented fallback).
+        assert(
+          !bindings.containsKey(activator),
+          'Duplicate shortcut activator $activator: later command wins',
+        );
         bindings[activator] = () {
           if (!command.enabled()) return;
           command.run(context);

@@ -13,14 +13,10 @@ class FakePaneLanes implements PaneEngineLanes {
   FakePaneLanes();
 
   final calls = <String>[];
-  final localChannels = <FakePaneChannel>[];
-  final remoteChannels = <FakePaneChannel>[];
-  final watches = <String>[];
   final statesControllers = <String, StreamController<ServerStatus>>{};
 
   FakePaneChannel? nextLocalChannel;
   FakePaneChannel? nextRemoteChannel;
-  Object? localOpenFailure;
   Object? remoteOpenFailure;
 
   /// When set, the next remote open parks on this completer before
@@ -30,11 +26,8 @@ class FakePaneLanes implements PaneEngineLanes {
   @override
   Future<AppBrowseChannel> openLocalChannel({required String rootPath}) async {
     calls.add('openLocal:$rootPath');
-    final failure = localOpenFailure;
-    if (failure != null) throw failure;
     final channel = nextLocalChannel ?? FakePaneChannel('/home/tester');
     nextLocalChannel = null;
-    localChannels.add(channel);
     return channel;
   }
 
@@ -55,7 +48,6 @@ class FakePaneLanes implements PaneEngineLanes {
     }
     final channel = nextRemoteChannel ?? FakePaneChannel('/srv/home');
     nextRemoteChannel = null;
-    remoteChannels.add(channel);
     return channel;
   }
 
@@ -68,7 +60,6 @@ class FakePaneLanes implements PaneEngineLanes {
   @override
   Stream<ServerStatus> watchServer(String serverId) {
     calls.add('watch:$serverId');
-    watches.add(serverId);
     return _statesOf(serverId).stream;
   }
 
@@ -275,6 +266,10 @@ void main() {
     lanes.nextLocalChannel = channel;
     final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
     await controller.openLocalHome();
+    // The cached listing is proven visible before the failing navigation
+    // snapshots it (02 §2.7's cached-data rule).
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.entries.single.name, 'here.txt');
     final before = controller.entries;
 
     controller.navigate('/home/tester/gone');
@@ -345,6 +340,13 @@ void main() {
     controller.cancelNavigation();
     expect(controller.error, isNotNull, reason: 'the snapshot error returns');
     expect(controller.entries.single.name, 'root.txt');
+
+    // Releasing the still-held retry must not overwrite the restored
+    // snapshot: its generation was cancelled.
+    hold2.complete();
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.entries.single.name, 'root.txt');
+    expect(controller.error, isNotNull);
     controller.dispose();
   });
 
@@ -446,7 +448,70 @@ void main() {
     await controller.connectRemote(_remoteBookmark(id: 'srv-2'));
     await settle();
     expect(remote.closeCalls, 1);
+    expect(
+      lanes.statesControllers['srv-1']?.hasListener,
+      isFalse,
+      reason: 'rebinding must drop the previous server watch',
+    );
     expect(controller.location, const RemotePaneLocation('srv-2', '/other/home'));
+    controller.dispose();
+  });
+
+  test('verbsEnabled requires a live browsing phase', () async {
+    // No engine at all: never verbs.
+    final engineless = PaneController(paneTabId: 'pane.left');
+    expect(engineless.phase, PanePhase.unbound);
+    expect(engineless.verbsEnabled, isFalse);
+    engineless.dispose();
+
+    // Mid-open phases carry no listing to act on.
+    final lanes = FakePaneLanes();
+    lanes.nextLocalChannel = FakePaneChannel('/home/tester')
+      ..listings['/home/tester'] = const [];
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    expect(controller.phase, PanePhase.unbound);
+    expect(controller.verbsEnabled, isFalse);
+
+    await controller.openLocalHome();
+    // openLocalHome resolves once the channel is open and the first
+    // navigation issued: the phase is browsing and, after the listing
+    // lands, verbs are live.
+    expect(controller.phase, PanePhase.browsing);
+    expect(controller.verbsEnabled, isFalse, reason: 'still loading');
+    await settle();
+    expect(controller.phase, PanePhase.browsing);
+    expect(controller.verbsEnabled, isTrue);
+    controller.dispose();
+  });
+
+  test('a bookmark without a server identity fails the bind fast', () async {
+    final lanes = FakePaneLanes();
+    final faults = <Object>[];
+    final controller = PaneController(
+      paneTabId: 'pane.right',
+      lanes: lanes,
+      onError: (error, _) => faults.add(error),
+    );
+    final now = DateTime.utc(2026, 9, 12);
+    final identityless = Bookmark(
+      id: 'srv-1',
+      kind: BookmarkKind.remotePath,
+      label: 'web.example.com',
+      remotePath: '/',
+      sortKey: 'k',
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await controller.connectRemote(identityless);
+
+    expect(controller.phase, PanePhase.connectingRemote);
+    expect(controller.error, isNotNull);
+    expect(controller.error!.kind, RemoteFileErrorKind.other);
+    // The underlying ArgumentError was reported as a fault, and no
+    // channel open was ever attempted against an empty host.
+    expect(faults.single, isA<ArgumentError>());
+    expect(lanes.calls.where((c) => c.startsWith('openBrowse')), isEmpty);
     controller.dispose();
   });
 
@@ -472,12 +537,20 @@ void main() {
       _entry('file.txt'),
       _entry('link', type: RemoteFileType.symbolicLink),
     ];
+    channel.listings['/parent/folder'] = const [];
     lanes.nextLocalChannel = channel;
     final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
     await controller.openLocalHome();
     await settle();
 
     controller.openEntry(controller.entries[1]);
+    expect(channel.listCalls, ['/home/tester']);
+
+    // A symlink is not a directory from listing metadata alone (02
+    // §2.3): opening it must never navigate.
+    controller.openEntry(
+      controller.entries.firstWhere((e) => e.name == 'link'),
+    );
     expect(channel.listCalls, ['/home/tester']);
 
     controller.openEntry(controller.entries[0]);
@@ -542,6 +615,21 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(controller.cursorIndex, isNull);
     controller.dispose();
+  });
+
+  test('cancelRecovery after dispose is a no-op', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = const [];
+    lanes.nextRemoteChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    controller.dispose();
+    await controller.cancelRecovery();
+
+    expect(lanes.disconnects, isEmpty);
   });
 
   test('reconnecting state raises the connection-lost banner', () async {
