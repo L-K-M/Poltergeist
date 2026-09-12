@@ -25,7 +25,48 @@ concurrency:
 
 jobs:
   dart:
-    name: Pure-Dart packages (analyze + test)
+    name: Pure-Dart packages (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        # Git Bash on Windows; never interpret the package loops as PowerShell.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve workspace
+        run: dart pub get
+      # Discover packages, but keep every analyze/test path explicit.
+      - name: Analyze
+        run: |
+          set -euo pipefail
+          for package in packages/*; do
+            [[ -d "$package" ]] || continue
+            dart analyze "$package"
+          done
+      - name: Test
+        run: |
+          set -euo pipefail
+          dirs=()
+          for package in packages/*; do
+            [[ -d "$package/test" ]] || continue
+            dirs+=("$package")
+          done
+          if [[ ${#dirs[@]} -eq 0 ]]; then
+            echo "no package has a test/ directory yet"; exit 1
+          fi
+          dart test --reporter expanded "${dirs[@]}"
+
+  # These guards use POSIX tools, Docker, or GNU timeout, not native contracts.
+  dart_tools:
+    name: Dart tooling (Ubuntu)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -40,10 +81,6 @@ jobs:
       - name: Resolve M0 benchmark harness
         working-directory: tool/bench
         run: dart pub get
-      # Packages are discovered dynamically so adding one never needs a
-      # workflow edit — but paths stay explicit (never a bare `dart analyze`
-      # at the root: once app/poltergeist_app exists it would try to resolve
-      # the Flutter app and fail without the Flutter SDK).
       - name: Analyze dependency guard
         run: dart analyze tool/import_guard
       - name: Test dependency guard
@@ -59,8 +96,6 @@ jobs:
         run: dart test tool/protocol_guard/test
       - name: Check engine protocol boundaries (08 §3.3)
         run: dart run tool/protocol_guard/bin/check.dart .
-      - name: Analyze
-        run: dart analyze $(ls -d packages/*)
       - name: Analyze release gate
         run: dart analyze tool/license_gate
       - name: Analyze release version tool
@@ -72,16 +107,6 @@ jobs:
         run: dart analyze
       - name: Analyze integration fixture tools
         run: dart analyze test/integration
-      - name: Test
-        run: |
-          dirs=""
-          for p in packages/*; do
-            [ -d "$p/test" ] && dirs="$dirs $p"
-          done
-          if [ -z "$dirs" ]; then
-            echo "no package has a test/ directory yet"; exit 1
-          fi
-          dart test $dirs
       - name: Test release gate
         run: dart test tool/license_gate/test
       - name: Test release version tool
@@ -222,7 +247,7 @@ jobs:
   # Dispatch a branch commit so the durable evidence keeps an ancestor SHA.
   m0_bench:
     name: M0 SSH fitness measurements (${{ matrix.shard }})
-    needs: [dart, seance_pin_audit]
+    needs: [dart, dart_tools, seance_pin_audit]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:

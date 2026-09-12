@@ -217,6 +217,7 @@ void main() {
 
     expect((benchmark['needs'] as YamlList).toList(), [
       'dart',
+      'dart_tools',
       'seance_pin_audit',
     ]);
     expect(strategy['fail-fast'], isFalse);
@@ -349,7 +350,7 @@ void main() {
         loadYaml(File('.github/workflows/ci.yml').readAsStringSync())
             as YamlMap;
     final jobs = workflow['jobs'] as YamlMap;
-    final dartJob = jobs['dart'] as YamlMap;
+    final dartJob = jobs['dart_tools'] as YamlMap;
     final steps = (dartJob['steps'] as YamlList).cast<YamlMap>();
     final checkout = steps.singleWhere(
       (step) => step['uses'] == _checkoutAction,
@@ -369,7 +370,7 @@ void main() {
     );
 
     for (final entry in jobs.entries) {
-      if (entry.key == 'dart') continue;
+      if (entry.key == 'dart_tools') continue;
 
       final job = entry.value as YamlMap;
       final otherSteps = (job['steps'] as YamlList).cast<YamlMap>();

@@ -396,6 +396,9 @@ port candidates.
   rides M4's transfer queue); the remaining suites are new local
   coverage (validators, containment walk, dance refusals/restore,
   NAME_MAX, and the sweep — Séance tests none of these directly).
+  2026-09-12: native Windows execution replaces the library-wide skip;
+  only POSIX-mode and unavailable-link fixtures skip. Cleanup precedes
+  setup writes; device-name assertions inspect directory entries.
 - Port-back candidates: the validator and sweep suites, once Séance
   exposes the statics for testing.
 

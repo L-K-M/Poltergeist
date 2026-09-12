@@ -2484,8 +2484,23 @@ location construction, browsing widgets, and the rest of M3 remain open.
 
 ## Open items
 
-1. **M3 — OS Dart client matrix.** Deliberately deferred until M3, when
-   `LocalFileSystem` lands; this is not an M1 closure claim.
+1. **M3 — OS Dart client matrix.** Implemented 2026-09-12; native CI
+   validation pending. Package analysis and ordinary tests now run on
+   ubuntu-latest, macos-latest, and windows-latest with explicit,
+   dynamically discovered paths and expanded test logs. Separate Ubuntu
+   tooling retains the fixture, pin, protocol, release, and M0 gates;
+   SSH integration and all five client builds are unchanged.
+   The two local-filesystem suites no longer skip Windows wholesale:
+   real timestamp, rename, backup, containment, validator, and transfer
+   contracts run there; chmod/chown fixtures stay POSIX-only, link tests
+   probe Windows capability, and case-sensitive-only tests report why
+   they skip. A Windows-only test pins mode/owner writes as unsupported.
+   Local validation: core analysis and 548 tests pass (15 SSH-fixture
+   skips plus the Windows-only case); 156 filesystem tests pass. The two
+   new workflow guards failed against Ubuntu-only CI, then passed;
+   fixture tools (64), guard suites, and M0 evidence validation pass.
+   Logs/exits: `/tmp/poltergeist-task17-logs/`. No production, UI, pin,
+   or milestone-close change.
    **2026-09-07 review follow-up (#34):** before running the protocol guard's
    symlink fixture on Windows, probe link-creation privileges and skip only
    when unavailable. Its current CI job runs on Ubuntu.
