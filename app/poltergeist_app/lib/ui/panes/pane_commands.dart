@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../services/pane_controller.dart';
@@ -194,6 +196,19 @@ class CommandChordScope extends StatelessWidget {
       final activators = command.activators?.call(platform);
       if (activators == null) continue;
       for (final activator in activators) {
+        // Unmodified keys — any activator type — stay with the pane focus
+        // nodes (02 §8.2), not only SingleActivator spellings; skip them
+        // BEFORE the duplicate diagnostics so an unmodified overlap is
+        // not misreported as a chord collision.
+        final bool unmodified = activator is SingleActivator
+            ? !activator.control && !activator.meta && !activator.alt
+            : activator is CharacterActivator &&
+                  !activator.control &&
+                  !activator.meta &&
+                  !activator.alt;
+        if (unmodified) {
+          continue;
+        }
         // Two commands claiming one chord is a registration bug; debug
         // builds fail it immediately (release keeps later-command-wins,
         // the documented fallback).
@@ -208,20 +223,18 @@ class CommandChordScope extends StatelessWidget {
             'Duplicate shortcut activator $activator: later command wins',
           );
         }
-        // Unmodified keys — any activator type — stay with the pane focus
-        // nodes (02 §8.2), not only SingleActivator spellings.
-        final bool unmodified = activator is SingleActivator
-            ? !activator.control && !activator.meta && !activator.alt
-            : activator is CharacterActivator &&
-                  !activator.control &&
-                  !activator.meta &&
-                  !activator.alt;
-        if (unmodified) {
-          continue;
-        }
         bindings[activator] = () {
           if (!command.enabled()) return;
-          command.run(context);
+          // Pane commands complete without escaping routes, but a
+          // future app-scope chord must not leak an unhandled zone
+          // error — the guard mirrors _runCommand's.
+          unawaited(
+            command.run(context).catchError((Object error, StackTrace st) {
+              FlutterError.reportError(
+                FlutterErrorDetails(exception: error, stack: st),
+              );
+            }),
+          );
         };
       }
     }

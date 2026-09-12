@@ -97,6 +97,17 @@ class _PaneViewState extends State<PaneView> {
         widget.workspace,
       ]);
     }
+    if (!identical(oldWidget.controller, widget.controller)) {
+      // The old controller's grace/reveal bookkeeping must not leak
+      // into the new one: a session swap mid-load would otherwise skip
+      // the new session's first anti-flash grace (stale _pastGrace) and
+      // suppress the first listing's scroll-to-top reveal.
+      _graceTimer?.cancel();
+      _graceTimer = null;
+      _pastGrace = false;
+      _revealedLocationPath = null;
+      _revealedEntries = null;
+    }
   }
 
   @override
@@ -166,9 +177,20 @@ class _PaneViewState extends State<PaneView> {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
+    // Only the listing node's own focus drives the pane key table — a
+    // focused descendant (path segment, cancel button) keeps its keys.
+    if (!identical(node, widget.focusNode)) {
+      return KeyEventResult.ignored;
+    }
     final controller = widget.controller;
     final platform = Theme.of(context).platform;
     final key = event.logicalKey;
+
+    // The pane's single keys are PLAIN keys: modified chords (Ctrl+Enter,
+    // Alt+Backspace, …) belong to whoever binds them, not this table.
+    final bool plainKey = !HardwareKeyboard.instance.isControlPressed &&
+        !HardwareKeyboard.instance.isMetaPressed &&
+        !HardwareKeyboard.instance.isAltPressed;
 
     // 02 §2.8: once the grace passes, the pane's OWN keys are inert —
     // the entries under the dim are stale. Unowned keys fall through to
@@ -181,7 +203,7 @@ class _PaneViewState extends State<PaneView> {
         key == LogicalKeyboardKey.end ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.backspace;
-    if (_graceBusy() && _pastGrace && ownedKey) {
+    if (_graceBusy() && _pastGrace && ownedKey && plainKey) {
       return KeyEventResult.handled;
     }
 
@@ -211,18 +233,21 @@ class _PaneViewState extends State<PaneView> {
         // (§8.3), and rename lands with the row-interactions slice.
         // Key repeats never re-open — holding Enter must not drill
         // through nested folders (and the owned key must not leak its
-        // repeats to other handlers).
-        if (event is KeyRepeatEvent) return KeyEventResult.handled;
+        // repeats to other handlers). Modified chords are not this
+        // table's.
+        if (event is KeyRepeatEvent || !plainKey) {
+          return KeyEventResult.handled;
+        }
         if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
           _openCursor();
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.backspace:
-        // Parent-folder key on Windows/Linux (§8.3).
+        // Parent-folder key on Windows/Linux (§8.3); plain presses only.
         if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
-          controller.goUp();
+          if (plainKey) controller.goUp();
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
@@ -515,6 +540,19 @@ class _PathBarState extends State<_PathBar> {
   String? _revealedPath;
 
   @override
+  void initState() {
+    super.initState();
+    // First mount with a deep path: didUpdateWidget never fires for
+    // it, so seed the reveal here too.
+    final path = widget.controller.location?.path;
+    _revealedPath = path;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_segmentScroll.hasClients) return;
+      _segmentScroll.jumpTo(_segmentScroll.position.maxScrollExtent);
+    });
+  }
+
+  @override
   void dispose() {
     _segmentScroll.dispose();
     super.dispose();
@@ -689,7 +727,10 @@ class _PaneRow extends StatelessWidget {
       // excluded child no longer provides the tap action either, so
       // activation is exposed here.
       excludeSemantics: true,
-      onTap: onTap,
+      // AT activation opens the row: a screen reader's activate gesture
+      // is the row's primary verb here (the cursor-set single click is
+      // a sighted-user convention; Enter covers it for keyboards).
+      onTap: onDoubleTap,
       // The cursor row's highlight gets its accessibility equivalent.
       selected: highlighted,
       child: Material(
