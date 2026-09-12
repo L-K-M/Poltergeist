@@ -1986,6 +1986,24 @@ The sync engine uses explicit scans, never watchers (05). The checkout
 watcher keeps Séance's separate design untouched: parent-directory watch,
 600 ms debounce, reconcile-on-resume fallback.
 
+*Implementation seam (2026-09-13, engine protocol v8):* the watch lives
+engine-side behind the local browse channel — `EngineBrowseChannel`
+offers `watchDirectory(path)`/`unwatchDirectory()` and a per-channel
+`directoryChanges` stream of typed `changed`/`lost` signals. One
+non-recursive watch per subscribed local channel (never implicit in
+open/list); the engine canonicalizes the target, debounces ordinary
+changes 300 ms, reports root loss, backend error, and backend close as an
+immediate `lost` (the watch is released, never silently stopped), and
+retargets atomically so a replaced watch's stale events cannot invalidate
+the new binding. Pool channels answer an explicit typed refusal — remote
+watching would be a polling feature the engine does not have. The pane
+policy above (active-tab-only, retarget on navigation, drop on
+launcher/remote) is app-side wiring over that seam. One known backend
+limitation is recorded in STATUS (open item 14): Linux's inotify queue
+overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
+rests on the drain-promptly mitigation until a compatible FFI backend
+surfaces it through the same seam.
+
 ## 8. Code-sharing mechanics (D2)
 
 ### 8.1 Git-pinned Séance packages

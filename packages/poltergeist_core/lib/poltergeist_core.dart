@@ -125,6 +125,8 @@ export 'src/engine/protocol.dart'
         CredentialPromptData,
         CredentialPromptReply,
         DirectoryListed,
+        DirectoryWatchEvent,
+        DirectoryWatchSignal,
         DisconnectServerRequest,
         BrowseChannelOpened,
         EngineAck,
@@ -162,7 +164,9 @@ export 'src/engine/protocol.dart'
         ShutdownRequest,
         TransferProgressEvent,
         TransferProgressBatchEvent,
+        UnwatchLocalDirectoryRequest,
         UnwatchServerRequest,
+        WatchLocalDirectoryRequest,
         WatchServerRequest,
         engineProtocolVersion;
 

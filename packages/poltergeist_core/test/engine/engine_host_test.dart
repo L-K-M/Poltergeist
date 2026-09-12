@@ -5,6 +5,8 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_core/src/engine/connect_log_coalescer.dart'
     show connectionLogFlushInterval;
+import 'package:poltergeist_core/src/engine/local_directory_watcher.dart'
+    show LocalDirectoryWatcher, LocalWatchBackend;
 import 'package:test/test.dart';
 
 import '../connection/pool_fakes.dart';
@@ -33,6 +35,25 @@ Directory _localFixture(String name) {
 /// The engine-side canonical form of [path], computed test-side for parity
 /// (03 §2.2: realpath semantics, never an error for a missing path).
 Future<String> _canonical(String path) => LocalFileSystem().canonicalize(path);
+
+/// A scriptable watch backend for the watch seam tests: one broadcast
+/// controller per watched path, cancel recording for release assertions.
+class FakeWatchBackend implements LocalWatchBackend {
+  final controllers = <String, StreamController<FileSystemEvent>>{};
+  final cancelled = <String>[];
+
+  @override
+  Stream<FileSystemEvent> watch(String directory) {
+    return (controllers[directory] ??=
+            StreamController<FileSystemEvent>.broadcast(onCancel: () {
+              cancelled.add(directory);
+            }))
+        .stream;
+  }
+
+  void emit(String directory, FileSystemEvent event) =>
+      controllers[directory]?.add(event);
+}
 
 /// Filesystem for the engine suite's channels: home resolution plus a
 /// scripted listing. Anything else fails loudly.
@@ -121,6 +142,7 @@ class HostHarness {
   HostHarness({
     EngineConfig config = const EngineConfig(),
     FakeTransportOpener? opener,
+    LocalWatchBackend? localWatch,
   }) : opener = opener ?? FakeTransportOpener() {
     this.opener.transportFsBuilder = (_) => fs;
     _port.listen((message) {
@@ -136,6 +158,7 @@ class HostHarness {
       events: _port.sendPort,
       openTransport: this.opener.opener,
       prober: prober,
+      localWatch: localWatch,
     );
   }
 
@@ -246,6 +269,15 @@ Future<EngineError> expectError(Future<EngineResult> future) async {
   final result = await future;
   expect(result, isA<EngineError>(), reason: 'expected a failure result');
   return result as EngineError;
+}
+
+/// A watch backend that fails the test the moment the engine starts a
+/// watch — for asserting validation happens before any backend is
+/// touched.
+class _NeverWatchBackend implements LocalWatchBackend {
+  @override
+  Stream<FileSystemEvent> watch(String directory) =>
+      fail('backend must not start');
 }
 
 void main() {
@@ -1301,6 +1333,323 @@ void main() {
       skip: _posixNonRoot
           ? false
           : 'mode-bit refusal needs a POSIX host with a non-root user',
+    );
+  });
+
+  group('local directory watches', () {
+    /// Opens a local channel over [root] with a fresh injected backend and
+    /// starts a watch on the canonical home, failing loudly on any wire
+    /// error.
+    Future<(HostHarness, FakeWatchBackend, int, String)> watchFixture(
+      Directory root,
+    ) async {
+      final backend = FakeWatchBackend();
+      final h = HostHarness(localWatch: backend);
+      // Registered at construction: a failure inside this helper must not
+      // leak the harness isolate for the rest of the suite. dispose() is
+      // idempotent, so the per-test registrations below are safe either way.
+      addTearDown(h.dispose);
+      final opened = await h.openLocal(root.path);
+      final result = await h.call(
+        (id) => WatchLocalDirectoryRequest(
+          requestId: id,
+          channelId: opened.channelId,
+          // A non-canonical spelling: the backend must receive the
+          // canonicalized form, not the request's raw text.
+          path: '${opened.homePath}/.',
+        ),
+      );
+      if (result is! EngineAck) {
+        fail('watch failed: ${(result as EngineError).message}');
+      }
+      return (h, backend, opened.channelId, opened.homePath);
+    }
+
+    /// Waits past the debounce window so a debounced change has crossed —
+    /// derived from the production constant, not a restated millisecond
+    /// value that can drift (the connectionLogFlushInterval precedent).
+    Future<void> settleDebounce() => Future<void>.delayed(
+          LocalDirectoryWatcher.debounceInterval * 2,
+        );
+
+    List<DirectoryWatchEvent> watchEvents(HostHarness h) =>
+        h.events.whereType<DirectoryWatchEvent>().toList();
+
+    test('watch canonicalizes the target and forwards debounced changes',
+        () async {
+      final root = _localFixture('pg-watch-forward');
+      final (h, backend, channelId, homePath) = await watchFixture(root);
+      addTearDown(h.dispose);
+
+      // The backend receives the canonical path, not the raw request one.
+      expect(backend.controllers.keys, [homePath]);
+      backend.emit(homePath, FileSystemCreateEvent('$homePath/new.txt', false));
+
+      await settleDebounce();
+      final events = watchEvents(h);
+      expect(events, hasLength(1));
+      expect(events.single.channelId, channelId);
+      expect(events.single.path, homePath);
+      expect(events.single.signal, DirectoryWatchSignal.changed);
+      expect(events.single.detail, isNull);
+    });
+
+    test('root loss crosses immediately, never silently', () async {
+      final root = _localFixture('pg-watch-lost');
+      final (h, backend, channelId, homePath) = await watchFixture(root);
+      addTearDown(h.dispose);
+
+      backend.emit(
+        homePath,
+        FileSystemDeleteEvent(homePath, false),
+      );
+      await h.pumping();
+
+      final events = watchEvents(h);
+      expect(events, hasLength(1));
+      expect(events.single.channelId, channelId);
+      expect(events.single.signal, DirectoryWatchSignal.lost);
+      expect(events.single.path, homePath);
+      expect(events.single.detail, isNotNull);
+    });
+
+    test('retarget replaces the watch; stale events never cross', () async {
+      final root = _localFixture('pg-watch-retarget');
+      final sub = Directory('${root.path}/sub')..createSync();
+
+      final backend = FakeWatchBackend();
+      final h = HostHarness(localWatch: backend);
+      addTearDown(h.dispose);
+      final opened = await h.openLocal(root.path);
+      final homePath = opened.homePath;
+      final subCanonical = await _canonical(sub.path);
+
+      Future<EngineResult> watch(String path) => h.call(
+            (id) => WatchLocalDirectoryRequest(
+              requestId: id,
+              channelId: opened.channelId,
+              path: path,
+            ),
+          );
+
+      expect(await watch(homePath), isA<EngineAck>());
+      expect(await watch(subCanonical), isA<EngineAck>());
+      expect(backend.cancelled, [homePath]);
+
+      // The replaced watch's events are epoch-dead.
+      backend.emit(homePath, FileSystemCreateEvent('$homePath/old.txt', false));
+      await settleDebounce();
+      expect(watchEvents(h), isEmpty);
+
+      // The new binding signals.
+      backend.emit(
+        subCanonical,
+        FileSystemCreateEvent('$subCanonical/new.txt', false),
+      );
+      await settleDebounce();
+      final events = watchEvents(h);
+      expect(events, hasLength(1));
+      expect(events.single.path, subCanonical);
+      expect(events.single.signal, DirectoryWatchSignal.changed);
+    });
+
+    test('a pool channel answers the explicit local-only refusal', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      final poolChannel = await h.openWithDefaults();
+
+      final error = await expectError(
+        h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: poolChannel.channelId,
+            path: '/tmp',
+          ),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.unsupported);
+      expect(error.operation, 'watch');
+
+      final unwatchError = await expectError(
+        h.call(
+          (id) => UnwatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: poolChannel.channelId,
+          ),
+        ),
+      );
+      expect(unwatchError.kind, RemoteFileErrorKind.unsupported);
+    });
+
+    test('a missing root answers the typed notFound, unwatched', () async {
+      final h = HostHarness(localWatch: _NeverWatchBackend());
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-watch-missing');
+      final missing = '${root.path}/no-such-dir';
+
+      final opened = await h.openLocal(root.path);
+      final error = await expectError(
+        h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: opened.channelId,
+            path: missing,
+          ),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.notFound);
+      expect(error.path, await _canonical(missing));
+    });
+
+    test('a file target answers typed, unwatched', () async {
+      final h = HostHarness(localWatch: _NeverWatchBackend());
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-watch-file');
+
+      final opened = await h.openLocal(root.path);
+      final file = await _canonical('${root.path}/a.txt');
+      final error = await expectError(
+        h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: opened.channelId,
+            path: file,
+          ),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.other);
+      expect(error.message, contains('not a directory'));
+    });
+
+    test('an empty path answers typed', () async {
+      final h = HostHarness(localWatch: _NeverWatchBackend());
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-watch-empty');
+
+      final opened = await h.openLocal(root.path);
+      final error = await expectError(
+        h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: opened.channelId,
+            path: '',
+          ),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.other);
+      expect(error.operation, 'watch');
+    });
+
+    test('an unknown channel answers disconnected', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+
+      final error = await expectError(
+        h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: 999,
+            path: '/tmp',
+          ),
+        ),
+      );
+      expect(error.kind, RemoteFileErrorKind.disconnected);
+      expect(error.operation, 'watch');
+    });
+
+    test('unwatch releases the backend watch and is idempotent', () async {
+      final root = _localFixture('pg-watch-unwatch');
+      final (h, backend, channelId, homePath) = await watchFixture(root);
+      addTearDown(h.dispose);
+
+      expect(
+        await h.call(
+          (id) => UnwatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: channelId,
+          ),
+        ),
+        isA<EngineAck>(),
+      );
+      expect(backend.cancelled, [homePath]);
+
+      // Idempotent: a channel with no watch still acks.
+      expect(
+        await h.call(
+          (id) => UnwatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: channelId,
+          ),
+        ),
+        isA<EngineAck>(),
+      );
+
+      // Released: events no longer cross.
+      backend.emit(homePath, FileSystemCreateEvent('$homePath/x.txt', false));
+      await settleDebounce();
+      expect(watchEvents(h), isEmpty);
+    });
+
+    test('closing the channel releases the watch', () async {
+      final root = _localFixture('pg-watch-close');
+      final (h, backend, channelId, homePath) = await watchFixture(root);
+      addTearDown(h.dispose);
+
+      await h.call(
+        (id) => CloseBrowseChannelRequest(
+          requestId: id,
+          channelId: channelId,
+        ),
+      );
+      expect(backend.cancelled, [homePath]);
+
+      backend.emit(homePath, FileSystemCreateEvent('$homePath/x.txt', false));
+      await settleDebounce();
+      expect(watchEvents(h), isEmpty);
+    });
+
+    test('shutdown releases local watches', () async {
+      final root = _localFixture('pg-watch-shutdown');
+      final (h, backend, _, homePath) = await watchFixture(root);
+
+      await h.call((id) => ShutdownRequest(requestId: id));
+      expect(backend.cancelled, [homePath]);
+    });
+
+    test(
+      'a watch racing a channel close answers the typed channel-closed refusal',
+      () async {
+        final backend = FakeWatchBackend();
+        final h = HostHarness(localWatch: backend);
+        addTearDown(h.dispose);
+        final root = _localFixture('pg-watch-close-race');
+
+        final opened = await h.openLocal(root.path);
+        // Both requests issued back to back without awaiting between: the
+        // watch suspends inside its canonicalize/stat awaits, the close
+        // removes the channel and disposes the watcher synchronously, and
+        // the resumed watch must refuse typed instead of acking a watch
+        // onto a disposed watcher.
+        final watch = h.call(
+          (id) => WatchLocalDirectoryRequest(
+            requestId: id,
+            channelId: opened.channelId,
+            path: opened.homePath,
+          ),
+        );
+        await h.call(
+          (id) => CloseBrowseChannelRequest(
+            requestId: id,
+            channelId: opened.channelId,
+          ),
+        );
+
+        final error = await expectError(watch);
+        expect(error.kind, RemoteFileErrorKind.disconnected);
+        expect(error.operation, 'watch');
+        // The close won: nothing was ever watched.
+        expect(backend.controllers, isEmpty);
+      },
     );
   });
 }
