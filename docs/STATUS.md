@@ -2604,6 +2604,24 @@ remains open and now depends on this seam. No source port (original
 code — PORTS.md unchanged), no pin/lock change, no milestone-close
 claim.
 
+The first native CI round (run 34719413261) produced three platform
+findings, all repaired on the PR head: the protocol-boundary repo
+scan (not just its test suite — the CLI check is part of validation)
+rejects function-typed fields in engine sources, so the backend seam
+became an interface class (`DartIoWatchBackend` default; test fakes
+implement it) and the local channel exposes a `signals` getter
+instead of a callback field — no guard allowlist widening; macOS
+FSEvents delivered changes made shortly before the watch started
+(dart:io's documented limitation), so the real-backend tests drain
+that fixture-setup backlog past the debounce before staging the
+events they assert on; Windows delivers root-deletion child-removal
+events first, so a debounced `changed` legitimately precedes the
+`lost` there — the vanish test awaits the lost signal (production
+semantics unchanged; the adapter's doc records the per-backend loss
+shapes). App re-verified on the rebased tree (barrel changed):
+analyze clean, 433 tests pass. On the final tree the full core suite
+is 611 pass +16 skips.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
