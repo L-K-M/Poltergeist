@@ -241,9 +241,9 @@ void main() {
     final producers = <Process>[];
     final terminated = <int>{};
     final producerDiagnostics = <String>[];
-    // The cancellation future is a placeholder until the body cancels;
-    // the finally always re-points it at the real cancellation so an
-    // early body failure still awaits an actual release.
+    // Null until the body assigns its own cancellation; on an early
+    // failure the finally cancels itself so the await below always
+    // covers an actual release.
     Future<void>? cancellation;
     var cancellationStalled = false;
     try {
@@ -299,13 +299,19 @@ void main() {
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigterm);
       }
-      // Never let a stalled cancellation displace the original failure or
-      // skip the kill/reap below — but record the stall so a helper that
-      // stopped acknowledging cannot hide behind a green body.
-      await pending.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => cancellationStalled = true,
-      );
+      // Never let a stalled or errored cancellation displace the original
+      // failure or skip the kill/reap below — record the stall so a
+      // helper that stopped acknowledging cannot hide behind a green
+      // body; a cancel error on the green path already surfaced when the
+      // body awaited the same future.
+      try {
+        await pending.timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => cancellationStalled = true,
+        );
+      } catch (_) {
+        cancellationStalled = true;
+      }
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigkill);
       }
