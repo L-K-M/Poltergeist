@@ -536,6 +536,11 @@ void main() {
     // gate, so release completion is driven by explicit delayed
     // completion, never by timing.
     final gate = Completer<void>();
+    // Complete on teardown if a failing assertion skipped the happy path,
+    // so a parked release can never outlive the test.
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
     var cancelIssued = false;
     final stream = Stream<FileSystemEvent>.multi((controller) {
       controller.onCancel = () {
@@ -566,6 +571,10 @@ void main() {
 
   test('dispose waits the release tail before closing signals', () async {
     final gate = Completer<void>();
+    // Complete on teardown if a failing assertion skipped the happy path.
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
     final stream = Stream<FileSystemEvent>.multi(
       (controller) => controller.onCancel = () => gate.future,
     );
@@ -590,6 +599,37 @@ void main() {
     gate.complete();
     await disposed;
     await done.future;
+  });
+
+  test('a concurrent second dispose awaits the first teardown', () async {
+    final gate = Completer<void>();
+    // Complete on teardown if a failing assertion skipped the happy path.
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final stream = Stream<FileSystemEvent>.multi((controller) {
+      controller.onCancel = () => gate.future;
+    });
+    final watcher = LocalDirectoryWatcher(
+      backend: _SingleStreamBackend(stream),
+    );
+    await watcher.retarget(_root);
+
+    final first = watcher.dispose();
+    // A concurrent second dispose must not complete while the first is
+    // still parked on the release tail — an acknowledged dispose means
+    // the teardown finished.
+    final second = watcher.dispose();
+    var secondDone = false;
+    unawaited(second.then((_) => secondDone = true));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(secondDone, isFalse,
+        reason: 'the second dispose must await the first teardown');
+
+    gate.complete();
+    await first;
+    await second;
+    expect(secondDone, isTrue);
   });
 
   test('a retarget ack does not wait the replaced watchs release', () async {

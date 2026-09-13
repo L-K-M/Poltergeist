@@ -163,8 +163,13 @@ void main() {
       ),
     );
     // The backend registration is synchronous under listen; the gate exists
-    // by the time the watch acked.
+    // by the time the watch acked. Completed on teardown if a failing
+    // assertion skips the happy path, so a parked release cannot outlive
+    // the test.
     final gate = backend.gates[channel.homePath]!;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
 
     final stopping = harness.call(
       (id) => UnwatchLocalDirectoryRequest(

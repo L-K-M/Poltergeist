@@ -147,10 +147,14 @@ final class LocalDirectoryWatcher {
   }
 
   /// Releases the watch and closes [signals]; the watcher is unusable
-  /// afterwards. Idempotent — a second call is a no-op, like [stop].
-  /// Like [stop], completion means the backend teardown completed.
-  Future<void> dispose() async {
-    if (_disposed) return;
+  /// afterwards. Idempotent — a second call awaits the first call's
+  /// teardown rather than acking early. Like [stop], completion means
+  /// the backend teardown completed.
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void>? _disposeFuture;
+
+  Future<void> _dispose() async {
     _disposed = true;
     _dropCurrentWatch();
     await _releaseTail;
