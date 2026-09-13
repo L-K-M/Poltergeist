@@ -10,8 +10,8 @@ import 'connection_state_bridge.dart';
 import 'file_stores.dart';
 import 'identity_audit_log.dart';
 import 'identity_file_reader.dart';
+import 'pane_engine_lanes.dart';
 import 'prompt_coordinator.dart';
-import 'sftp_demo_controller.dart';
 
 /// File names inside the app-support directory, one store per file (03 §6):
 /// pin and incident storage stay app-owned; the engine seeds from them at
@@ -29,7 +29,7 @@ const kHostKeyReviewPaneTabId = 'review';
 /// connection, prompt, probe, and trust lanes. Production code names the
 /// concrete client nowhere but here; tests substitute a scripted fake, so
 /// the composition is drivable without an isolate.
-abstract interface class AppEngine implements PromptBridge, ProbeBridge {
+abstract interface class AppEngine implements PromptBridge, ProbeBridge, PaneEngineLanes {
   /// Host keys the engine pinned; the app persists them (one store owner).
   Stream<HostKeyPinnedEvent> get hostKeyPins;
 
@@ -37,6 +37,7 @@ abstract interface class AppEngine implements PromptBridge, ProbeBridge {
   Stream<IncidentStoreEvent> get incidentChanges;
 
   /// One server's connection status, current value first (03 §3.2).
+  @override
   Stream<ServerStatus> watchServer(String serverId);
 
   /// Terminal recovery failures, independent of any watch (03 §3.3).
@@ -45,12 +46,14 @@ abstract interface class AppEngine implements PromptBridge, ProbeBridge {
   /// Live connect transcript lines (03 §5).
   Stream<ConnectionLogEvent> get connectionLog;
 
+  @override
   Future<AppBrowseChannel> openBrowseChannel({
     required String serverId,
     required String paneTabId,
     required ServerConfig config,
   });
 
+  @override
   Future<void> disconnectServer(String serverId);
 
   /// Orderly engine shutdown (03 §5: orderly, then kill).
@@ -68,6 +71,40 @@ abstract interface class AppBrowseChannel {
 }
 
 typedef AppEngineSpawner = Future<AppEngine> Function(EngineConfig config);
+
+/// The endpoint identity a connect dials with: the bookmark's embedded
+/// identity mapped through the pinned model (04 §2.1 — the vault
+/// reference and the "reference, don't store" key path cross so
+/// credential resolution can answer). Shared by the review connect and
+/// the panes' remote bindings. The returned config's id is the bookmark
+/// id, so callers must pass that same value as the engine's serverId.
+/// createdAt/updatedAt mirror the bookmark's edit times (not connect
+/// time), so every caller derives a stable, identical config for one
+/// bookmark.
+/// A bookmark without an embedded identity fails fast here — never an
+/// empty-host dial (both call sites list identity-backed rows only).
+ServerConfig serverConfigForBookmark(Bookmark bookmark) {
+  final identity = bookmark.server?.identity;
+  if (identity == null) {
+    throw ArgumentError.value(
+      bookmark.id,
+      'bookmark.id',
+      'bookmark has no embedded server identity',
+    );
+  }
+  return ServerConfig(
+    id: bookmark.id,
+    label: bookmark.label,
+    host: identity.host,
+    port: identity.port,
+    username: identity.username,
+    authMethod: identity.authMethod,
+    secretRef: identity.secretRef,
+    identityFilePath: identity.identityFilePath,
+    createdAt: bookmark.createdAt.millisecondsSinceEpoch,
+    updatedAt: bookmark.updatedAt.millisecondsSinceEpoch,
+  );
+}
 
 /// The production spawner: the real engine isolate behind [AppEngine].
 Future<AppEngine> spawnAppEngine(EngineConfig config) async =>
@@ -129,6 +166,12 @@ final class _EngineClientAppEngine implements AppEngine {
       config: config,
     ),
   );
+
+  @override
+  Future<AppBrowseChannel> openLocalChannel({required String rootPath})
+    async => _EngineClientChannel(
+      await _client.openLocalChannel(rootPath: rootPath),
+    );
 
   @override
   Future<void> disconnectServer(String serverId) =>
@@ -246,11 +289,11 @@ final class EngineSession {
     _engine,
   );
 
-  /// The debug demo's engine: the production engine itself, wrapped so the
-  /// demo session's teardown cannot shut it down. One engine per process —
-  /// the demo never spawns a second while the production one lives.
-  SftpDemoEngineFactory get demoEngineFactory =>
-      () async => _SharedEngineDemoAdapter(_engine);
+  /// The browsing panes' engine lanes (03 §6's PaneController seam): the
+  /// two channel opens, the per-server state lane, and the disconnect
+  /// the pane banner cancels recovery through. Stable across rebuilds
+  /// for the same reason as [connectionLanes].
+  late final PaneEngineLanes paneLanes = _engine;
 
   void _onPinPinned(HostKeyPinnedEvent event) {
     _pinTail = _pinTail
@@ -320,10 +363,19 @@ final class EngineSession {
       if (bookmark == null || identity == null) return;
 
       try {
+        final reviewConfig = serverConfigForBookmark(bookmark);
+        assert(
+          reviewConfig.id == serverId,
+          'review-connect serverId must equal bookmark.id',
+        );
+        // bookmark.id is also the panes' serverId: the finally below
+        // drops the whole server reference after the review — correct,
+        // because a reviewed endpoint blocks every pane on it until the
+        // verdict (D18), so no live pane binding survives to sever.
         final channel = await _engine.openBrowseChannel(
-          serverId: serverId,
+          serverId: reviewConfig.id,
           paneTabId: kHostKeyReviewPaneTabId,
-          config: _reviewConfig(serverId, bookmark.label, identity),
+          config: reviewConfig,
         );
         // Approved or the pinned key returned: close the channel and let
         // the finally below drop the reference.
@@ -354,30 +406,6 @@ final class EngineSession {
     } finally {
       _reviewInFlight = false;
     }
-  }
-
-  /// The endpoint identity a review connect dials with: the bookmark's
-  /// embedded identity mapped through the pinned model (04 §2.1 — the
-  /// vault reference and the "reference, don't store" key path cross so
-  /// credential resolution can answer).
-  static ServerConfig _reviewConfig(
-    String serverId,
-    String label,
-    EmbeddedHostIdentity identity,
-  ) {
-    final now = DateTime.now().toUtc().millisecondsSinceEpoch;
-    return ServerConfig(
-      id: serverId,
-      label: label,
-      host: identity.host,
-      port: identity.port,
-      username: identity.username,
-      authMethod: identity.authMethod,
-      secretRef: identity.secretRef,
-      identityFilePath: identity.identityFilePath,
-      createdAt: now,
-      updatedAt: now,
-    );
   }
 
   /// Awaits the pending mirror writes (pin and incident tails). Called
@@ -532,83 +560,4 @@ final class _AppConnectionLanes implements ConnectionStateBridge {
   @override
   Stream<RecoveryFailedEvent> get recoveryFailures =>
       _engine.recoveryFailures;
-}
-
-/// The production engine behind the demo seam: every call delegates, and
-/// [shutdown] is unreachable through the demo (the session owns engine
-/// lifetime) — the demo's session teardown closes only its own channel
-/// and server reference.
-final class _SharedEngineDemoAdapter implements SftpDemoEngine {
-  _SharedEngineDemoAdapter(this._engine);
-
-  final AppEngine _engine;
-
-  @override
-  Stream<EnginePromptEvent> get prompts => _engine.prompts;
-
-  @override
-  Stream<PromptDismissedEvent> get promptDismissals =>
-      _engine.promptDismissals;
-
-  @override
-  void replyPrompt(String promptId, EnginePromptKind kind, PromptReply reply) =>
-      _engine.replyPrompt(promptId, kind, reply);
-
-  @override
-  Stream<ServerStatus> watchServer(String serverId) =>
-      _engine.watchServer(serverId);
-
-  @override
-  Stream<ConnectionLogEvent> get connectionLog => _engine.connectionLog;
-
-  @override
-  Stream<ProbeStatusesEvent> get probeStatuses => _engine.probeStatuses;
-
-  @override
-  Future<void> setProbeTargets(List<ServerConfig> targets) =>
-      _engine.setProbeTargets(targets);
-
-  @override
-  Future<void> setProbeActivity(ProbeActivity activity) =>
-      _engine.setProbeActivity(activity);
-
-  @override
-  Future<SftpDemoBrowseChannel> openBrowseChannel({
-    required String serverId,
-    required String paneTabId,
-    required ServerConfig config,
-  }) async => _DemoChannelAdapter(
-    await _engine.openBrowseChannel(
-      serverId: serverId,
-      paneTabId: paneTabId,
-      config: config,
-    ),
-  );
-
-  @override
-  Future<void> disconnectServer(String serverId) =>
-      _engine.disconnectServer(serverId);
-
-  @override
-  Future<void> shutdown() => throw UnsupportedError(
-    'The demo session shares the production engine; only the session '
-    'owns its shutdown.',
-  );
-}
-
-/// An [AppBrowseChannel] as the demo's channel seam (same shape).
-final class _DemoChannelAdapter implements SftpDemoBrowseChannel {
-  _DemoChannelAdapter(this._channel);
-
-  final AppBrowseChannel _channel;
-
-  @override
-  String get homePath => _channel.homePath;
-
-  @override
-  Future<List<RemoteFileEntry>> listDirectory(String path) =>
-      _channel.listDirectory(path);
-
-  @override
-  Future<void> close() => _channel.close();
 }

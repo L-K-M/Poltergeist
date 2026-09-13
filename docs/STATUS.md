@@ -32,15 +32,17 @@ settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
 pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
-Next milestone: M3 (panes v1, 07 §3.4). The pure listing-state reducer
-and metadata-only listing sort are implemented below, alongside Quick
-Select's pure matching and selection model. PaneController
-wiring needs cancellable listings through the pinned VFS and engine
-protocol (open item 12). The local browse-channel seam is available
-(item 11, closed), as is the engine-side local directory watch seam
-(dated section below; pane refresh wiring itself remains open).
-Per-location view preference persistence is implemented below; canonical
-location binding and the view-options UI remain with pane wiring.
+Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
+is implemented in PR #84 (dated section below; open item 20 tracks the
+location type's move into core); the next M3 slices are recorded
+there. The sibling slices' pure models — the listing-state reducer,
+the metadata-only sort, Quick Select's matching and selection, and
+the per-location view-pref persistence — are implemented below; the
+pane foundation implements 02 §2.8's machine inline, and each
+model's wiring (comparator, selection, prefs) rides its owning
+slice, as does the engine-side local directory watch seam (pane
+refresh wiring itself remains open). Upstream listing cancellation remains
+open item 12: this foundation cancels presentation, not in-flight VFS I/O.
 
 ## Done
 
@@ -2453,6 +2455,181 @@ No app change, no pin/lock change, no transfer/queue protocol work
 (M4), no port (original code — PORTS.md unchanged), no
 milestone-close claim.
 
+## M3 — panes v1 foundation (2026-09-12)
+
+07 §3.4's first pane slice, lane A: the production two-pane shell browses
+local and remote through the one VFS. `WorkspaceController` (03 §6,
+foundation form: pane pair + active pane) drives two `PaneController`s,
+one per pane, each implementing 02 §2.8's normative listing machine —
+optimistic location at issue, monotonic generations with stale answers
+dropped (errors included), verbs disabled over cached post-error entries,
+Esc-cancel restoring the last quiescent snapshot (error included),
+generation never moving backward — with 09 §3's idioms (dispose guards,
+bind-attempt counters, channel `identical()` rechecks after every await).
+Local panes bind through `EngineClient.openLocalChannel` (the #77 seam,
+D8: no dart:io anywhere in the pane stack; the engine owns the
+`LocalFileSystem`); remote panes subscribe to `watchServer` BEFORE the
+channel open (live streams keep no replay) and open the pool channel at
+the bookmark's `remotePath` ('/' = canonical home), reusing the session's
+one engine. The sealed `PaneLocation` (Local/Remote, value equality,
+02 §2) is app-side this slice — core is closed to it — recorded as open
+item 20 with the NFC/case-fold keying rule.
+
+The `PaneView` renders the foundation surface: clickable ancestor path
+segments (focused pane accent per 02 §2.1, location glyph), fixed-extent
+rows (28 px comfortable × text scale) with kind glyph, size (decimal
+macOS/Linux, binary Windows), and mtime (today/yesterday relative,
+absolute otherwise) with name–size–date semantics labels (D20, all new
+copy in ARB); the 150 ms anti-flash grace governs the dim, the 2 px
+progress line, the footer's loading line swap, and the ✕ cancel;
+errors render inline (ARB taxonomy sentence + the engine's diagnostic +
+Retry) over the cached listing; the 02 §2.7 connection-lost banner owns
+the dim layer while the transport reconnects, with a Cancel that drops
+the server reference. Keyboard-first: arrows/Home/End move the cursor,
+Enter opens directories on Windows/Linux (macOS Enter stays the rename
+key — rename is a later slice), Backspace goes up, Tab swaps panes from
+inside a listing (§8.2 scoping), Esc cancels navigation — all on the
+pane's focus node, never global. Commands (D21): `go.open`,
+`go.enclosing`, `view.refresh`, `pane.focusLeft`, `pane.focusRight`,
+`pane.swapFocus`, dispatched by `CommandChordScope` (dual macOS/Ctrl
+chords; unmodified single keys deliberately excluded so the layer can
+never fire Enter/Tab globally).
+
+The M2 debug demo surface is retired per plan ("M3 replaces it"): the
+controller, view, command, ARB copy, tests, and the app/main wiring are
+deleted; the panes supersede its exact flow in production. The interim
+Connections surface stays (M5 owns removal) and gains each row's
+"Open in Pane" action — the M3–M4 window's remote entry point, binding
+the ACTIVE pane to the row's bookmark. Probe wiring survives as services
+but loses its only driver (the demo session): probes do not run again
+until the launcher/empty-states slice supplies the interim-list owner —
+a deliberate, temporary deviation from 07 §3.4's bullet ("its probe
+dots stay live for the M3–M4 window"): release builds never had a
+driver, so shipped behavior is unchanged, but debug builds lose the
+live dots until the launcher slice lands; recorded below with the
+slice's follow-ups.
+
+Follow-ups this slice deliberately leaves to their owning M3+ slices
+(each per 07 §3.4's own bullets): launcher/empty states incl. Quick
+Connect (02 §2.7) with the interim-list probe dots and a durable-id
+probe owner; tabs per pane and the pane toggle (02 §3); path editing
+`go.editPath`/`go.toFolder` and navigation history back/forward (02
+§2.1); view modes + the §2.3 natural comparator in core + per-location
+view prefs with the §2.4 precedence chain (the hidden-files default
+filters dotfiles with no toggle yet; sorting is the placeholder
+directories-first/name comparator, app-side); the §2.5 selection
+model, type-ahead, Quick Select, filter; row interactions incl. rename
+(Enter on macOS), file open actions, Get Info; single-key-scoped
+Enter-on-link classification (02 §2.3's metadata rule); §7.5 directory
+watching; §7.2 ScopedPathAccess; menus + the keyboard-completeness
+invariant test (08) and the quick-open palette (M9); footer
+user@host/free-space; the empty-rootPath fail-fast guard on the local
+open facade (#77's deferred hardening — the pane surfaces the typed
+open failure, the guard itself is core-side); the teardown-order swap
+(03 §7.5's watcher slice). The demo's scrollable-prompt regression
+coverage was removed with its surface; the coordinator suites and the
+blocked-review production test carry the coordinator behavior.
+
+Validation (regressions observed failing first — see
+tasks/run3-task15-logs/regressions-failing-first.log): 15 controller
+tests (the ListingState machine transition-by-transition: issue/accept/
+stale/error/Esc-snapshot-with-error, bind ordering subscribe-before-
+open, rebind channel close, taxonomy kinds, banner state, cursor
+semantics, dotfile filtering, parent-at-root no-op), 15 pane-view widget
+tests (rendering local and remote listings through the seams, empty
+state, taxonomy surface with Retry re-issue, anti-flash timing, Esc
+cancel with no stale repaint, platform-conditional Enter/Backspace,
+Tab focus swap, connecting state, banner, path-bar segment navigation,
+focused-pane accent, row semantics, no-engine state), 7 shell tests
+(panes browse through one engine seam, placeholders and demo command
+gone, Ctrl+R/Meta+R chord targets the focused pane, focus commands,
+open-in-pane end to end), 2 Connections row tests, plus the updated
+shell/wiring/localization-contract suites. Full app suite 422 green,
+analyze clean; core re-verified untouched (analyze clean, 548 tests,
++15 Docker-fixture skips); ARB regenerated. Rootless widget captures
+(5 labeled states, not native QA) under tasks/run3-task15-captures.
+No core change, no pin/lock change, no port (PORTS.md unchanged), no
+milestone-close claim.
+
+Demo-suite coverage mapping (round-14/15 review requirement — the
+deleted sftp_demo_view_test's behaviors by successor):
+- prompt flows (host-key first-use/changed, credential,
+  keyboard-interactive): the owning suites remain — prompt_coordinator
+  (24 tests), engine_session, and the production wiring test's
+  review-affordance flow; the deleted cases exercised the same
+  production paths through the demo route only.
+- teardown ordering (engine shutdown once, channel close once):
+  engine_session_test (shutdown) and pane_controller_test (dispose
+  closes the channel; rebind closes the previous; detach releases) —
+  plus the new round-15 regressions.
+- probe #55 subscribe-before-send: probe_coordinator_test (21 tests,
+  the owning suite) remains; the demo was one consumer.
+- double-tap spawn guard: the shell's one-command-session guard is the
+  production successor and now has its own double-tap regression
+  (connections suite).
+- SftpDemoController-specific races (stale-cleanup awaits, `_connecting`
+  guard unwedging, zombie-connect): obsolete with the controller; their
+  PaneController equivalents are the bind-attempt invalidation, the
+  cancel-during-connect invalidation, and the failed-bind watch drop —
+  each pinned in pane_controller_test/pane_cancel_regressions.
+
+### Foundation recovery verification (2026-09-13, PR #84)
+
+The preceding validation counts are historical, not final-head proof.
+Recovery retains main #93's watch contracts and stable open-item IDs;
+#78 and #83 are closed, unmerged predecessors of this one task.
+Their two 90-minute review cancellations and truncated GitHub summaries
+remain evidence gaps, not approval. The PR preserves earlier dispositions;
+later runtime evidence supersedes incorrect declines explicitly.
+
+Fresh red-first tests reproduce a failed bookmark's landing path leaking
+into another bookmark, cancellation disconnecting a replacement bind, and
+open-in-pane callbacks opening after a pop veto or popping a covering route.
+The fixes stay in the owning controller/row. `maybePop`'s boolean is never
+used as proof of a pop. The alleged post-await landing-path race does not
+reproduce: HEAD issues navigation synchronously. A parked old listing,
+newer failed bind, old completion, and retry still land on the newer path;
+successful retries clear the error.
+
+`pane_session_lifetime_test` exercises two pending pane opens through one
+production session/coordinator, FIFO trust prompts, separate channel
+releases, sibling refresh after detach, and exactly-once engine shutdown.
+It also replaces a session with a listing outstanding and proves the old
+answer cannot repaint either replacement pane. Its first harness runs
+stalled by awaiting a fake-zone shutdown future in real teardown; the
+corrected harness awaits and asserts shutdown within each widget test.
+
+Local recovery checks: app analyze and 548 tests pass; core analyze and
+749 tests pass with 16 platform/fixture skips; import scan, protocol scan,
+and 51 protocol-guard tests pass. All exit 0. Full bounded logs and explicit
+exits live in `tasks/run3-task15-logs/recovery3/`. Final-head CI/review are
+recorded on PR #84, not inferred from earlier green runs.
+The mixed-owner r17 run is excluded.
+The five inherited `tasks/run3-task15-captures/` images were inspected:
+Ahem glyphs and transparent backgrounds limit them to widget geometry;
+they do not establish text legibility, native rendering, or install QA.
+Native desktop/install QA remains unverified. Recovery4 adds readable-font
+widget captures of the production shell through fake engine lanes, not native
+QA. The isolated harness loads installed Roboto/MaterialIcons and substitutes
+Roboto Mono for the requested monospace family; product fonts are unchanged.
+
+Those captures exposed stale toolbar enablement after binding, selection,
+and focus changes. Three runtime regressions failed before a toolbar-only
+listener repair and pass afterward. Pending-listing transitions also update
+the controls without rebuilding pane listings. Full app analyze and 551 tests
+pass; bounded logs/exits and before/after captures are retained under
+`tasks/run3-task15-logs/recovery4/`. The initial capture harness compile error
+and premature tap assertion are harness failures, not product red evidence.
+
+The latest route review premise was refuted against pinned Flutter 3.47.2:
+`isActive` reads entry presence, not navigator attachment. Isolated runtime
+checks prove opening during animated pop before disposal, veto/local-history
+refusal, and covering-route safety across the await. A correctly sequenced
+fake also proves the superseded channel closes once without closing its
+replacement. These checks add no product changes; the existing route guard
+stays. Fresh exact-head CI/review after the toolbar repair remain PR gates.
+No full-M3, watch-wiring, probe-driver restoration, or release claim.
+
 ## M3 — pane listing-state transitions (2026-09-12)
 
 `ListingState<Location>` implements 02 §2.8's pure transitions in the app
@@ -2930,7 +3107,7 @@ https://github.com/L-K-M/Poltergeist/actions/runs/34756562117), attempt 2 at
 native packages (Linux 730/16 skipped; macOS 729/13; Windows 705/37).
 All four deletion/rename cases ran on every desktop. Attempt 1 passed the
 watch cases but failed the unchanged Windows incident-store test; its job
-passed on retry (item 19). Higher-ancestor renames remain item 18; Linux
+passed on retry (item 19). Ancestor invalidation remains item 18; Linux
 overflow remains item 14. M3 stays open.
 
 Review round 1 found no confirmed important defect. Two minor suggestions
@@ -3494,7 +3671,9 @@ pass. Final-head native CI and review are recorded on PR #93.
     `EngineClient` facade, and tests — after which the pane slice
     resumes against it. Directory watching (03 §7.5), per-location
     view prefs, and the rest of 07 §3.4 stay with their own slices.
-
+    **Closed 2026-09-11** (its own dated section above, the engine-side
+    local browse seam of 2026-09-11 — not the panes section of
+    2026-09-12 that follows the resume).
 12. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
     The pin (`2e6d1f1`) defines `RemoteFileSystem.listDirectory(String path)`
     without a cancellation token; its SFTP implementation awaits
@@ -3542,7 +3721,12 @@ pass. Final-head native CI and review are recorded on PR #93.
     for root renames and event-driven metadata checks for delete-pending
     roots. Native tests cover populated, empty, already-emptied, and
     rename/recreate cases. No skip hides Windows root deletion. Higher
-    ancestor renames remain item 18; Linux overflow remains item 14.
+    ancestor invalidation remains item 18; Linux overflow remains item 14.
+    **History (the pre-#92 diagnosis, superseded):** empty-directory
+    root removal was believed unobservable through dart:io
+    (delete-pending deferral); the native evidence in #92 showed the
+    empty case already signalled and the populated case needed the
+    metadata check, not a parent-watch redesign.
 
 15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
@@ -3586,6 +3770,14 @@ pass. Final-head native CI and review are recorded on PR #93.
     Windows read/replace sharing failure is a hypothesis, not a confirmed
     diagnosis. If it recurs, capture `first.incidentStoreErrors` before
     changing the timeout or persistence behavior.
+
+20. **2026-09-12: M3 pane location identity remains app-side.**
+    `lib/services/pane_location.dart` belongs in core (02 §2), but this
+    bounded app slice adds no core consumer. Move it when composing view
+    preferences or recents; apply NFC and volume-aware case folding before
+    equality/keying. Paths currently compare raw strings. Bookmark landing
+    paths can contain spelling variants; VFS-derived paths alone do not
+    establish canonical equality.
 
 ## Independent audit
 

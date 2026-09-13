@@ -17,7 +17,9 @@ void main() {
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
     expect(find.byKey(AdaptiveShell.splitterKey), findsOneWidget);
     expect(find.text('Poltergeist'), findsOneWidget);
-    expect(find.text('Choose a location'), findsNWidgets(2));
+    // No engine session in this composition: both panes render the honest
+    // no-engine state instead of placeholder prompts (M3's real panes).
+    expect(find.textContaining('Browsing is unavailable'), findsNWidgets(2));
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.themeMode, ThemeMode.system);

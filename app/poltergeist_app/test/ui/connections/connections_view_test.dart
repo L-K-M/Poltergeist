@@ -116,6 +116,7 @@ void main() {
   Future<ConnectionStatusController> pumpView(
     WidgetTester tester, {
     void Function(ConnectionServer server)? onReviewBlocked,
+    void Function(ConnectionServer server)? onOpenInPane,
   }) async {
     tester.view.physicalSize = const Size(1180, 760);
     tester.view.devicePixelRatio = 1;
@@ -131,7 +132,11 @@ void main() {
       MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: ConnectionsView(controller, onReviewBlocked: onReviewBlocked),
+        home: ConnectionsView(
+          controller,
+          onReviewBlocked: onReviewBlocked,
+          onOpenInPane: onOpenInPane,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -162,7 +167,22 @@ void main() {
       expect(find.byKey(const ValueKey('connection.a')), findsOneWidget);
     });
 
-    testWidgets('the session ends when the route pops', (tester) async {
+    testWidgets('a rapid double-tap opens one session', (tester) async {
+    store.bookmarks = [_server('a')];
+    await pumpApp(tester);
+
+    // Two taps in the same frame window before the route mounts: the
+    // one-command-session guard must refuse the second (the successor
+    // of the demo suite's double-tap spawn guard).
+    await tester.tap(_commandButton);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.tap(_commandButton, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ConnectionsView), findsOneWidget);
+  });
+
+  testWidgets('the session ends when the route pops', (tester) async {
       store.bookmarks = [_server('a')];
       await pumpApp(tester);
 
@@ -479,6 +499,37 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a row can open its bookmark in a pane', (tester) async {
+      store.bookmarks = [_server('a')];
+      final opened = <ConnectionServer>[];
+      await pumpView(tester);
+      final controller = ConnectionStatusController(bookmarks: store, bridge: bridge);
+      addTearDown(controller.dispose);
+      final navigator = Navigator.of(tester.element(find.byType(ConnectionsView)));
+      navigator.push<void>(MaterialPageRoute<void>(
+        builder: (_) => ConnectionsView(controller, onOpenInPane: opened.add),
+      ));
+      await controller.loadServers();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('connection.open.a')));
+      await tester.pumpAndSettle();
+
+      expect(opened.single.serverId, 'a');
+    });
+
+    testWidgets('rows without an open seam render no open button', (
+      tester,
+    ) async {
+      store.bookmarks = [_server('a')];
+      await pumpView(tester);
+
+      // The row must render — otherwise findsNothing passes vacuously
+      // when the list itself failed to load.
+      expect(find.byKey(const ValueKey('connection.a')), findsOneWidget);
+      expect(find.byKey(const ValueKey('connection.open.a')), findsNothing);
     });
   });
 }
