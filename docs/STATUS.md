@@ -2728,10 +2728,10 @@ second request. Fix at the host request boundary: retirements in flight
 are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
-drains the map and never clears it (so it cannot ack over a
-still-closing channel that settles — a never-settling one is
-abandoned at the drain's bound, its release dying with the isolate;
-the 2026-09-13 shutdown-drain repair below removed the erroneous
+drains the map without clearing it, so shutdown cannot ack over a
+still-closing channel that settles; a never-settling retirement is
+abandoned at the drain's bound and its release dies with the isolate
+(the 2026-09-13 shutdown-drain repair below removed the erroneous
 pre-drain clear),
 and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
@@ -2836,8 +2836,9 @@ the interleavings: pre-shutdown duplicate closes (both-acks-gated),
 drain-window duplicates (this repro), the retire-loop race (a close
 racing the loop shares the tracked retirement), open rejection once
 shutting down, and the never-settling retirement bound (an injectable
-drain timeout keeps the ack bounded; opens gated at shutdown close
-both the fixed point's leak and starvation premises). The mid-loop
+drain timeout keeps the ack bounded; gating opens once shutting
+down closes off both the fixed point's leak and the starvation
+premise). The mid-loop
 mutation is
 now deterministic (a pump between issuing the racing close and
 releasing the gates guarantees the map mutation lands inside the loop's

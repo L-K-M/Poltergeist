@@ -165,7 +165,9 @@ void main() {
       requestId: id, channelId: channelB.channelId,
     ));
     var bAcked = false;
-    unawaited(closingB.then((_) => bAcked = true));
+    closingB
+        .then((_) => bAcked = true, onError: (_) => bAcked = true)
+        .ignore();
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
@@ -247,13 +249,25 @@ void main() {
     await h.call((id) => WatchLocalDirectoryRequest(
       requestId: id, channelId: channel.channelId, path: channel.homePath,
     ));
-    // The gate is deliberately NEVER completed: the backend cancellation
-    // never settles.
+    // The gate is deliberately NEVER completed by the test flow: the
+    // backend cancellation never settles within the bound. The LIFO
+    // teardown below still releases it so h.dispose cannot hang past the
+    // injected bound.
+    final gate = backend.gates[channel.homePath]!;
+    // addTearDown runs LIFO: registered after h.dispose so the gate is
+    // completed before the harness tears down.
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
 
     final result = await h
         .call((id) => ShutdownRequest(requestId: id))
         .timeout(const Duration(seconds: 5));
     expect(result, isA<EngineAck>());
+    // Prove the drain actually reached the gated cancellation (and timed
+    // out on it) rather than acking from an empty drain.
+    expect(backend.cancelled, contains(channel.homePath),
+        reason: 'drain never reached the gated backend cancellation');
   });
 
   test('an open parked across shutdown resolves rejected, registering nothing',

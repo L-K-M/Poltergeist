@@ -363,7 +363,11 @@ class EngineHost {
     }
 
     final retirement = _retireChannel(channelId, channel);
-    await retirement;
+    // Mirror the drain's bound: a wedged release (or one a shutdown drain
+    // abandoned) cannot hang the close ack — the ack lands when the
+    // bound elapses while the release keeps settling in the background
+    // (its own bookkeeping handles the eventual outcome).
+    await retirement.timeout(_shutdownDrainTimeout, onTimeout: () {});
     return const EngineAck();
   }
 
@@ -427,17 +431,15 @@ class EngineHost {
   }
 
   /// The open gate's mint-time half: an open that passed the entry check
-  /// can still be parked on its awaits when shutdown drains and acks —
-  /// re-check before registering, closing the freshly built channel so
-  /// nothing it holds outlives the shutdown that already completed.
+  /// can still be parked on its awaits when shutdown engages — re-check
+  /// before registering, retiring the freshly built channel under a
+  /// fresh internal id (the open failed, so no client ever learns it) so
+  /// a still-running drain awaits this release under the shared bound
+  /// instead of acking past an untracked live backend channel. Post-ack
+  /// insertions only leave a stale entry in a dying host.
   void _rejectMintAfterShutdown(PaneChannel channel) {
     if (!_shuttingDown) return;
-    unawaited(
-      channel
-          .close()
-          .timeout(_shutdownDrainTimeout, onTimeout: () {})
-          .catchError((Object _) {}),
-    );
+    unawaited(_retireChannel(_nextChannelId++, channel));
     _rejectIfShuttingDown();
   }
 

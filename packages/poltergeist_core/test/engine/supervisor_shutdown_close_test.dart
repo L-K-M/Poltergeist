@@ -42,7 +42,9 @@ void main() {
     ));
     var firstAcked = false;
     var secondAcked = false;
-    first.then((_) => firstAcked = true).ignore();
+    first
+        .then((_) => firstAcked = true, onError: (_) => firstAcked = true)
+        .ignore();
     // Records any completion — success or error — so a wrongly-early
     // error ack trips the checkpoint too, not just a late Future.wait.
     second
