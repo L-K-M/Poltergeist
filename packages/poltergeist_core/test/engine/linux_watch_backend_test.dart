@@ -299,12 +299,16 @@ void main() {
         producer.kill(ProcessSignal.sigkill);
       }
       await Future.wait(producers.map((producer) => producer.exitCode));
-      expect(
-        cancellationStalled,
-        isFalse,
-        reason: 'cancellation outlived the cleanup bound',
-      );
     }
+
+    // After the try/finally: a stall fails a green body, while an
+    // original body failure propagates untouched instead of being
+    // displaced by this assertion.
+    expect(
+      cancellationStalled,
+      isFalse,
+      reason: 'cancellation outlived the cleanup bound',
+    );
   });
 
   test('repeated retarget and stop cycles on one adapter release cleanly',
