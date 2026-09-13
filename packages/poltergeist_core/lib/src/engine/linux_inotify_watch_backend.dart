@@ -415,10 +415,9 @@ bool _drainInotify(_HelperConfig config, Pointer<Uint8> buffer) {
     if (count < 0) {
       final code = _errno();
       if (code == errnoAgain) return false;
-      if (code == errnoInterrupt) {
-        batch--;
-        continue;
-      }
+      // EINTR consumes a batch slot so the drain stays bounded even under
+      // a repeating signal; poll re-arms instantly while data remains.
+      if (code == errnoInterrupt) continue;
       config.toMain.send([_syscallError('read', code), null]);
       return true;
     }
