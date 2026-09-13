@@ -2031,8 +2031,11 @@ validation, with no timer, recursive scan, or remote polling. The check
 after subscription covers disappearance during native watch setup. The
 old blanket claim that empty-root removal never signals is incorrect:
 Windows can report it as an asynchronous watch error. Native regression
-tests cover empty and populated deletion and ancestor renames on every
-desktop OS; STATUS records evidence and remaining limitations.
+tests cover empty and populated deletion. Ancestor-rename notification
+assertions require a successful native rename: an OS refusal is not a
+missing notification. Windows live-handle restrictions must be distinguished
+from notification gaps; STATUS records unresolved native acceptance and
+permission/resource validation of the cross-platform chain.
 
 ## 8. Code-sharing mechanics (D2)
 
