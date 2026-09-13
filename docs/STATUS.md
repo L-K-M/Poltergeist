@@ -3147,7 +3147,7 @@ native packages (Linux 730/16 skipped; macOS 729/13; Windows 705/37).
 All four deletion/rename cases ran on every desktop. Attempt 1 passed the
 watch cases but failed the unchanged Windows incident-store test; its job
 passed on retry (item 19). Ancestor invalidation remains item 18; Linux
-overflow remains item 14. M3 stays open.
+overflow is closed by the inotify backend (item 14). M3 stays open.
 
 Review round 1 found no confirmed important defect. Two minor suggestions
 were applied: an internal absolute-path assertion (test failed before it)
@@ -3212,6 +3212,72 @@ regression, 23 unchanged Windows-backend fake tests, 207 engine tests, and
 749 core tests pass (16 fixture skips); core analysis and the protocol scan
 pass. Final-head native CI and review are recorded on PR #93.
 
+## M3 — Linux inotify overflow backend (2026-09-13)
+
+STATUS item 14 closed: a real Linux kernel queue overflow now surfaces as
+an immediate `lost` through the production-selected backend. The new
+`LinuxInotifyWatchBackend` (`lib/src/engine/linux_inotify_watch_backend.dart`)
+sits behind the unchanged `LocalWatchBackend` seam; `platform()` selects it
+on Linux only (Android keeps dart:io — `Platform.isLinux` is false there;
+macOS keeps dart:io; Windows keeps #92's backend). No VFS, protocol,
+ancestor-watch, or permission change; the watch stays leaf-only, so the
+#93 traverse-only-ancestor regression passes untouched.
+
+Design: one non-recursive `inotify_add_watch` per shown directory; a
+helper isolate blocks in a timeout-less `poll` on {inotify fd,
+stop pipe} — the engine isolate never blocks, and there is no timer,
+spin, or filesystem polling (dart:ffi descriptors cannot join the Dart
+event loop). The helper decodes raw `struct inotify_event` batches
+(host-endian header, NUL-padded names decoded with malformed-UTF-8
+replacement, matching the plan's listing stance) and forwards records;
+the owning isolate maps them to the dart:io event shapes the adapter
+already consumes — move halves pair by cookie into one merged
+FileSystemMoveEvent, unpaired halves flush as create/delete, exactly as
+dart:io's Linux watcher does. `IN_Q_OVERFLOW` (descriptor −1) becomes a backend
+error — the adapter's immediate `lost`; `IN_DELETE_SELF`/`IN_MOVE_SELF`/
+`IN_UNMOUNT` produce dart:io's Linux root-loss shape (one delete naming
+the watched path, then stream close, collapsed to one lost by the
+adapter's epoch); `IN_IGNORED` is dropped. Cancellation writes one
+stop-pipe byte and closes the write end, so `poll` wakes immediately and
+teardown never waits on filesystem activity; the cancel future completes
+only after the helper acknowledged its loop exit and the owning isolate
+closed the inotify descriptor, both pipe descriptors, freed the read
+buffer, and closed the ports. Setup failures release stepwise (init →
+watch → pipe → buffer → spawn), overflow and read errors deliver the
+loss before teardown, repeated cancels share one memoized release, and
+host shutdown rides the existing channel-close tail. Honest limit: an
+unsupervised engine-isolate kill bypasses all Dart cleanup and leaks the
+descriptor set plus a parked helper until process exit — documented in
+the backend and 03 §7.5, never claimed as released.
+
+Native failing-first proof (real kernel overflow, not synthetic): the
+owned child fixture runs the production `LocalDirectoryWatcher`, proves
+installation with a real marker event, is SIGSTOPped (all threads, so
+nothing drains the queue), receives `max_queued_events + 4096` distinct
+create/delete events from the supervisor, is SIGCONTed, and must report
+a lost whose detail names the overflow. At base `36211a27` (production
+still dart:io) the child printed `TIMEOUT` and exited 3 — no signal, the
+exact silent-drop defect (`tasks/task21-logs/native-overflow-baseline.log`,
+harness exit 1); with the backend selected the same harness passes in
+~4 s (`native-overflow-after.log`, harness exit 0). The sysctl is only
+ever read; the child is always resumed, killed, and reaped in `finally`;
+only the owned child is ever signalled.
+
+Validation: 13 pure decoder/mapper tests (packed batches, unnamed and
+overflow-shaped events, malformed-UTF-8 names, truncated header/name
+deterministic errors, every mapping branch including ignore/overflow
+asymmetry) run on all platforms; 7 native Linux backend tests (real
+event fidelity, delete/rename root loss with stream close, 25-cycle
+cancellation with descriptor accounting, post-cancel silence, sibling
+loss isolation, 20-cycle adapter retarget/stop release); the overflow
+harness runs unskipped on Linux CI (`@TestOn('linux')` elsewhere, the
+same focused-skip pattern as #81/#93). Full core suite 770 pass + 16
+fixture skips; app analyze + 496 tests pass; core analyze clean;
+protocol scan and import guard clean. New direct dependency: `ffi ^2.2.0`
+(dart:ffi has no allocator; version matches the existing lock entry —
+the workspace lock itself is unchanged). PORTS.md unchanged (original
+code, no port). M3 stays open; item 18 (ancestor invalidation,
+Linux/macOS) remains the open watch follow-up.
 ## M3 — pane listing uses the core natural sorter (2026-09-13)
 
 PaneController's placeholder comparator (lowercase lexical) is replaced by
@@ -3762,21 +3828,19 @@ captures: layout is unchanged and order is proven programmatically.
     D25 still defers byte-preserving operations. No local VFS fork or
     replacement interface is authorized by this item.
 14. **2026-09-13 — M3: Linux inotify overflow is invisible through
-    dart:io.** The watch seam's `LocalDirectoryWatcher` (dated section
-    above) cannot observe `IN_Q_OVERFLOW`: the kernel posts the overflow
-    event with watch descriptor −1, which matches no watched path in the
-    SDK's event routing, and its decoded mask is 0 — nothing reaches a
-    Dart listener, so a Linux overflow silently drops events with no
-    signal (verified against Dart 3.13.3
-    `runtime/bin/file_system_watcher_linux.cc`). The continuous
-    subscription drains the kernel queue promptly, which is the available
-    mitigation. Full coverage needs a compatible FFI inotify backend that
-    surfaces `IN_Q_OVERFLOW` as the watch backend's error, behind the same
-    `LocalWatchBackend` seam — an additive, reversible swap when wanted;
-    until then the seam honestly reports `changed`/`lost` only and never
-    claims overflow detection on Linux. (The 2026-09-13 repair below
-    corrected this item's earlier "every other §7.5 failure mode is
-    surfaced" claim: Windows root removal is its own gap, item 16.)
+    dart:io (closed by the inotify backend).** The watch
+    seam's `LocalDirectoryWatcher` (dated section above) could not
+    observe `IN_Q_OVERFLOW` through dart:io: the kernel posts the
+    overflow event with watch descriptor −1, which matches no watched
+    path in the SDK's event routing, and its decoded mask is 0 — nothing
+    reached a Dart listener, so a Linux overflow silently dropped events
+    with no signal (verified against Dart 3.13.3
+    `runtime/bin/file_system_watcher_linux.cc`). Closed by the Linux
+    inotify backend behind the same `LocalWatchBackend` seam (dated
+    section above): the backend decodes the raw event stream through a
+    helper-isolate `poll` bridge and surfaces the overflow as a backend
+    error — the adapter's immediate `lost`. Native failing-first evidence
+    and the repaired run are recorded in the dated section.
 16. **2026-09-13: M3 Windows watched-root loss (closed by PR #92).**
     The dated section above replaces the original diagnosis with native
     failing-first evidence: populated deletion timed out; empty deletion
@@ -3784,7 +3848,8 @@ captures: layout is unchanged and order is proven programmatically.
     for root renames and event-driven metadata checks for delete-pending
     roots. Native tests cover populated, empty, already-emptied, and
     rename/recreate cases. No skip hides Windows root deletion. Higher
-    ancestor invalidation remains item 18; Linux overflow remains item 14.
+    ancestor invalidation remains item 18; Linux overflow is closed by the
+    inotify backend (item 14).
     **History (the pre-#92 diagnosis, superseded):** empty-directory
     root removal was believed unobservable through dart:io
     (delete-pending deferral); the native evidence in #92 showed the
@@ -3821,7 +3886,8 @@ captures: layout is unchanged and order is proven programmatically.
     the recreate case must recreate the full watched path to test masking.
     Address detection without regressing traverse-only ancestor access or
     silently increasing watch resources. No fix or closure is claimed here.
-    Keep #92's root-loss/cancellation behavior; Linux overflow remains item 14.
+    Keep #92's root-loss/cancellation behavior; Linux overflow is closed
+    (item 14).
 
 19. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
     `a declined incident survives a real store round-trip on disk` failed

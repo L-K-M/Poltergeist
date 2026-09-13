@@ -3,11 +3,16 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'linux_inotify_watch_backend.dart';
+
 /// Native watch mechanics stay behind this engine-internal seam (03 §7.5).
 abstract interface class LocalWatchBackend {
-  factory LocalWatchBackend.platform() => Platform.isWindows
-      ? const WindowsWatchBackend()
-      : const DartIoWatchBackend();
+  factory LocalWatchBackend.platform() {
+    if (Platform.isWindows) return const WindowsWatchBackend();
+    // Platform.isLinux is false on Android, which keeps dart:io.
+    if (Platform.isLinux) return const LinuxInotifyWatchBackend();
+    return const DartIoWatchBackend();
+  }
 
   /// Requires an absolute, link-resolved path from the engine's VFS.
   /// Starts on listen; cancellation must await all owned resources.
@@ -15,8 +20,9 @@ abstract interface class LocalWatchBackend {
 }
 
 /// Non-recursive native events cover watched-directory self-loss on
-/// Linux/macOS. Permitted ancestor renames can go undetected (STATUS item 18);
-/// Linux inotify queue overflow also remains unreported (item 14).
+/// Linux/macOS. Permitted ancestor renames can go undetected (STATUS item
+/// 18). Linux watches run on the inotify backend above, which also sees
+/// the kernel's queue overflow; macOS keeps dart:io.
 final class DartIoWatchBackend implements LocalWatchBackend {
   const DartIoWatchBackend();
 
