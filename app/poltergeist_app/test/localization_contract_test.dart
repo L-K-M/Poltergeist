@@ -15,6 +15,43 @@ const _generatedDartSuffixes = {'.freezed.dart', '.g.dart', '.mocks.dart'};
 
 // Technical literals are reviewed per file so an allowlist cannot hide UI copy.
 const _allowedTechnicalLiterals = <String, Set<String>>{
+  // View schema keys and validation diagnostics, never rendered UI copy.
+  'lib/services/view_preferences_store.dart': {
+    "'view.preferences'",
+    "'version'",
+    "'defaults'",
+    "'locations'",
+    "'location'",
+    "'preferences'",
+    "'Unsupported view preferences schema'",
+    "'Invalid view preference locations'",
+    "'Invalid view preference record'",
+  },
+  'lib/services/view_preferences.dart': {
+    "'identity'",
+    "'Must not be empty'",
+    "'canonicalPath'",
+    "'kind'",
+    "'Invalid view location identity'",
+    "'Invalid view location canonical path'",
+    "'columns'",
+    "'Name must be first'",
+    "'Columns must be unique'",
+    "'columnWidths'",
+    "'Widths must be positive and finite'",
+    "'mode'",
+    "'density'",
+    "'directories'",
+    "'hiddenFiles'",
+    "'dates'",
+    "'sortKey'",
+    "'sortDirection'",
+    r"'Invalid view preferences: ${error.message}'",
+    "'View columns must be a list'",
+    "'View column widths must be numbers'",
+    "'View preferences require a JSON object'",
+    r"'Invalid view preference: $field'",
+  },
   // The empty query starts a transient selection session; it is not UI copy.
   'lib/services/quick_select_state.dart': {"''"},
   'lib/main.dart': {

@@ -55,7 +55,20 @@ final class LocalWatchSignal {
 ///   synchronously (release, then subscribe, with no await between), and
 ///   every backend callback and the pending debounce capture the watch's
 ///   epoch — a release bumps it — so stale events from a replaced watch
-///   can never invalidate the new binding.
+///   can never invalidate the new binding. `retarget`'s future completes
+///   when the new watch is listening; the replaced watch's teardown was
+///   initiated synchronously (its callbacks dead) and completes on the
+///   release tail — `stop` and `dispose` are the futures that wait it
+///   out, so an acknowledged stop/dispose means the backend subscription
+///   is really gone, not merely scheduled to go. That makes a completing
+///   `StreamSubscription.cancel()` an implicit contract for every backend
+///   behind this seam: one whose cancel never settles would hang
+///   `stop`/`dispose` — and delay the `signals` done event — forever,
+///   while one whose cancel settles without gating on its teardown
+///   future (e.g. a bare broadcast `StreamController`) acks release too
+///   early. Error containment on the tail is bookkeeping, not proof: the
+///   backend itself owns actually releasing the OS watch, whatever its
+///   cancel future reports.
 ///
 /// Verified dart:io backend guarantees this adapter is built on (Dart
 /// 3.13, `runtime/bin/file_system_watcher_{linux,macos,win}.cc` plus the
@@ -64,9 +77,12 @@ final class LocalWatchSignal {
 /// the stream; Windows surfaces `ReadDirectoryChangesW` buffer overflow
 /// and unexpected closure as stream errors — but not root deletion:
 /// the OS defers removing a directory an open handle watches
-/// (delete-pending), so no loss signal exists there and the
-/// children-removal `changed` with its rescan is the observable path;
-/// macOS FSEvents already
+/// (delete-pending), so no loss signal exists there; when the watched
+/// directory still has children their removal surfaces as `changed`
+/// (the rescan path), but an empty — or already-emptied — watched
+/// directory yields nothing observable at all (STATUS open item 16
+/// tracks the gap and the compatible parent-watch adapter); macOS
+/// FSEvents already
 /// depth-filters non-recursive watches to direct children in the C++
 /// layer, so the child filter below is defense in depth (it also covers a
 /// future backend that reports subtrees). FSEvents' documented quirks —
@@ -111,6 +127,11 @@ final class LocalDirectoryWatcher {
   String? _watchedPath;
   bool _disposed = false;
 
+  /// The teardown tail: the acknowledgments of every backend cancellation
+  /// issued, in issue order (each cancellation itself is issued the moment
+  /// its watch is dropped).
+  Future<void> _releaseTail = Future<void>.value();
+
   /// The typed signals; broadcast, closes on [dispose]. A signal emitted
   /// while no listener is attached is dropped — subscribe before the first
   /// `retarget` to observe every lost signal.
@@ -119,29 +140,39 @@ final class LocalDirectoryWatcher {
   /// Starts watching [canonicalPath], replacing any current watch. The
   /// replacement is atomic: the old watch is released and the new one
   /// subscribed with no await between, so the two can never interleave.
+  /// Completes when the new watch is listening (the replaced watch's
+  /// teardown completes on the tail [stop] awaits, not this future).
   Future<void> retarget(String canonicalPath) {
     _retarget(canonicalPath);
     return Future.value();
   }
 
   /// Releases the current watch without a signal (an explicit
-  /// unsubscribe). Idempotent.
+  /// unsubscribe). Idempotent. Completes only when every backend
+  /// cancellation this watcher issued has completed — an acknowledged
+  /// stop means the OS watch is gone.
   Future<void> stop() {
-    _release();
-    return Future.value();
+    _dropCurrentWatch();
+    return _releaseTail;
   }
 
   /// Releases the watch and closes [signals]; the watcher is unusable
-  /// afterwards. Idempotent — a second call is a no-op, like [stop].
-  Future<void> dispose() async {
-    if (_disposed) return;
+  /// afterwards. Idempotent — a second call awaits the first call's
+  /// teardown rather than acking early. Like [stop], completion means
+  /// the backend teardown completed.
+  Future<void> dispose() => _disposeFuture ??= _dispose();
+
+  Future<void>? _disposeFuture;
+
+  Future<void> _dispose() async {
     _disposed = true;
-    _release();
+    _dropCurrentWatch();
+    await _releaseTail;
     await _signals.close();
   }
 
   void _retarget(String path) {
-    _release();
+    _dropCurrentWatch();
     if (_disposed) return;
 
     final epoch = _epoch;
@@ -165,16 +196,26 @@ final class LocalDirectoryWatcher {
 
   // Synchronous by contract: the epoch bump retires every captured
   // callback and the pending debounce at once, and the backend cancel is
-  // issued without awaiting it — a subscription's cancel future completes
-  // on the event loop (under fake_async it never does), while correctness
-  // depends only on the epoch, never on the cancel's completion.
-  void _release() {
+  // chained onto the release tail below. Correctness of signal routing
+  // rests on the epoch, never on the cancel's completion — but stop() and
+  // dispose() await the tail, so an acknowledged release also means the
+  // cancellation finished.
+  void _dropCurrentWatch() {
     _epoch++;
     _debounce?.cancel();
     _debounce = null;
     _watchedPath = null;
-    _subscription?.cancel().catchError((Object _) {});
+    final subscription = _subscription;
     _subscription = null;
+    if (subscription != null) {
+      // Issue the cancellation immediately (the OS watch starts tearing
+      // down now, never queued behind a slow earlier release); the tail
+      // chains only the acknowledgments, in issue order, so stop()/
+      // dispose() still wait out every cancellation ever issued. Each
+      // link absorbs its own errors so the tail itself can never fail.
+      final cancelDone = subscription.cancel().catchError((Object _) {});
+      _releaseTail = _releaseTail.then((_) => cancelDone);
+    }
   }
 
   void _onEvent(int epoch, FileSystemEvent event) {
@@ -228,7 +269,7 @@ final class LocalDirectoryWatcher {
         detail: detail,
       ),
     );
-    _release();
+    _dropCurrentWatch();
   }
 
   /// True when [candidate] is exactly one path component below [watched]

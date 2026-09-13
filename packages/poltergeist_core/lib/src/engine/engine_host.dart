@@ -59,6 +59,15 @@ class EngineHost {
 
   final Map<String, ServerConfig> _servers = {};
   final Map<int, PaneChannel> _channels = {};
+
+  /// Channel retirements still in flight: the close request removed the
+  /// channel from [_channels] (routing retires immediately — no stale
+  /// events or requests leak) but its teardown — the local channel's
+  /// backend watch release — has not completed yet. Duplicate closes and
+  /// shutdown share the pending completion instead of treating map
+  /// removal as proof of teardown. Entries self-remove on completion, so
+  /// the map is bounded by in-flight closes.
+  final Map<int, Future<void>> _pendingCloses = {};
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   late final LocalWatchBackend _localWatch;
   int _nextChannelId = 1;
@@ -214,12 +223,7 @@ class EngineHost {
       case final UnwatchLocalDirectoryRequest request:
         _guard(request.requestId, () => _unwatchLocalDirectory(request));
       case final CloseBrowseChannelRequest request:
-        _guard(request.requestId, () async {
-          final channel = _channels.remove(request.channelId);
-          // Idempotent: closing a closed channel succeeds.
-          await channel?.close();
-          return const EngineAck();
-        });
+        _guard(request.requestId, () => _closeChannel(request));
       case final ListDirectoryRequest request:
         _guard(request.requestId, () => _listDirectory(request));
       case final WatchServerRequest request:
@@ -307,6 +311,41 @@ class EngineHost {
           'No connection request has supplied a config for '
           '"$serverId" yet.',
     );
+  }
+
+  /// Closes the channel (03 §3.2): routing retires synchronously, the
+  /// acknowledgement waits out the actual teardown. A duplicate close —
+  /// one racing this retirement — shares the pending completion rather
+  /// than acking against a channel map entry already removed. Closing an
+  /// unknown, fully retired channel stays idempotent and acks. Channel
+  /// ids are never reused and duplicates await rather than create, so
+  /// each tracked retirement is the only one its id will ever have.
+  Future<EngineResult> _closeChannel(
+    CloseBrowseChannelRequest request,
+  ) async {
+    final channelId = request.channelId;
+    final channel = _channels.remove(channelId);
+    if (channel == null) {
+      // Either retired long ago (idempotent ack) or still closing: share
+      // that retirement's completion so both acknowledgements mean the
+      // same thing — teardown finished.
+      final pending = _pendingCloses[channelId];
+      if (pending != null) await pending;
+      return const EngineAck();
+    }
+
+    final retirement = channel.close();
+    _pendingCloses[channelId] = retirement;
+    // Bounded bookkeeping: drop the entry once this retirement settles.
+    // The guard swallows the outcome for cleanup only — the awaiting
+    // callers still see it (the handler awaits `retirement` itself).
+    unawaited(
+      retirement.catchError((Object _) {}).then((_) {
+        _pendingCloses.remove(channelId);
+      }),
+    );
+    await retirement;
+    return const EngineAck();
   }
 
   Future<EngineResult> _listDirectory(ListDirectoryRequest request) async {
@@ -452,9 +491,25 @@ class EngineHost {
     // Local channels bind no pool, so disconnectServer never saw them:
     // close them directly — which also releases each channel's directory
     // watch (03 §7.5) and its debounce timer. Pool bindings were closed by
-    // disconnectServer above.
-    for (final channel in _channels.values) {
+    // disconnectServer above. Channels already removed from the map but
+    // still closing (a close request in flight) are in _pendingCloses —
+    // shutdown waits those too, so it can never ack over a live backend
+    // watch it stopped tracking in the map. The loop awaits, so a close
+    // request processed mid-loop can mutate _channels — snapshot first
+    // (a channel closed by such a request is retired through its own
+    // memoized close; this loop re-awaits the same future, never a
+    // double teardown).
+    for (final channel in List.of(_channels.values)) {
       if (channel is _LocalPaneChannel) await channel.close();
+    }
+    final pendingCloses = List.of(_pendingCloses.values);
+    _pendingCloses.clear();
+    for (final retirement in pendingCloses) {
+      try {
+        await retirement;
+      } on Object {
+        // Shutdown must complete even if one retirement is broken.
+      }
     }
 
     // disconnectServer already closed every pane binding (03 §3.5); these
@@ -482,6 +537,14 @@ final class _LocalPaneChannel implements PaneChannel {
   final LocalDirectoryWatcher _watcher;
   bool _closed = false;
 
+  /// The generation of the newest watch-control request (watch, unwatch,
+  /// close). Watch validation awaits real I/O; a request that resumes with
+  /// a stale generation must not install — the newest request already
+  /// decided the channel's watch state, and an older validation
+  /// resurrecting a watch would undo an acknowledged unwatch (or a newer
+  /// watch's binding).
+  int _watchGeneration = 0;
+
   @override
   final String homePath;
 
@@ -499,14 +562,19 @@ final class _LocalPaneChannel implements PaneChannel {
   /// Validation fails loud and typed before any backend is touched: an
   /// empty path is a caller bug, a missing root answers the local funnel's
   /// `notFound` (operation `inspect`, like the open seam's `resolve`), and
-  /// a non-directory target is refused. The validation awaits real I/O,
-  /// so a channel close processed mid-validation leaves the watcher
-  /// disposed — rechecked after the awaits, the watch answers the typed
-  /// channel-closed refusal instead of acking a watch nothing will serve
-  /// (a disposed watcher would otherwise silently no-op the retarget).
+  /// a non-directory target is refused (deliberately leaving any installed
+  /// watch untouched — note a failing request still supersedes older
+  /// in-flight watches, since every request claims the generation at
+  /// entry). Last request wins: every watch-control request on
+  /// this channel bumps the generation, and a validation that resumes
+  /// superseded answers typed `cancelled` instead of installing — an
+  /// acknowledged unwatch can never be undone by an older, slower watch.
+  /// A close processed mid-validation still answers the typed
+  /// channel-closed refusal (checked before and after the awaits).
   /// The race after validation — the root vanishing before the backend
   /// arms — degrades to an immediate `lost` signal, never a silent stop.
   Future<EngineAck> watch(String path) async {
+    final generation = ++_watchGeneration;
     // Fails fast before the validation I/O; the post-await recheck below
     // covers a close racing the awaits.
     if (_closed) {
@@ -532,6 +600,14 @@ final class _LocalPaneChannel implements PaneChannel {
         message: 'The browse channel is closed.',
       );
     }
+    if (_watchGeneration != generation) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.cancelled,
+        operation: 'watch',
+        message: 'The watch request was superseded by a later watch or '
+            'unwatch on this channel.',
+      );
+    }
     if (entry.type != RemoteFileType.directory) {
       throw RemoteFileException(
         kind: RemoteFileErrorKind.other,
@@ -544,13 +620,22 @@ final class _LocalPaneChannel implements PaneChannel {
     return const EngineAck();
   }
 
-  /// Releases the watch without a signal; idempotent.
-  Future<void> unwatch() => _watcher.stop();
+  /// Releases the watch without a signal; idempotent, and the newest
+  /// word on the channel's watch state — an in-flight older watch
+  /// validation is superseded by the generation bump here.
+  Future<void> unwatch() {
+    _watchGeneration++;
+    return _watcher.stop();
+  }
 
   @override
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() => _closeFuture ??= _close();
+
+  Future<void>? _closeFuture;
+
+  Future<void> _close() async {
     _closed = true;
+    _watchGeneration++;
     await _watcher.dispose();
   }
 

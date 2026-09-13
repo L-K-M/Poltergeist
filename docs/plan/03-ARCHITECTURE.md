@@ -1789,7 +1789,7 @@ screen renders them; this table owns storage):
 | Home | Settings |
 |---|---|
 | Global (`settings.json`) | density, the conflict matrix (02 §5.2), bandwidth limits, probe opt-out, "new tabs open", reconnect-restored-tabs, recents (capped at 100; persisted **debounced** — trailing ~1–2 s, with a quit-time flush that goes through the same serialized writer above — never a second, parallel write path, which could otherwise race an in-flight debounced flush and serialize a stale pre-recents-update snapshot over a newer one at exactly the highest-risk moment — awaited via a quit-deferring lifecycle hook (`AppLifecycleListener.onExitRequested` / window-close interception) so the trailing window is never dropped by quitting before the flush lands — so a burst of navigation does not rewrite the whole settings file per open, keeping the most-frequently-changing data off the immediate-persist path) |
-| Per-server device-local map inside `settings.json`, keyed by serverId (§3.5) | remote-trash opt-in (D15), per-location view prefs (500-entry LRU, 02 §2.4), probe exposure/connected facts (§3.4: `seen` + successful local connection, host/port-bound and reset on retarget; probe *results* are never persisted, D19) |
+| Device-local maps inside `settings.json` | remote-trash opt-in (D15) and probe exposure/connected facts keyed by serverId (§3.5; §3.4: `seen` + successful local connection, host/port-bound and reset on retarget; probe *results* are never persisted, D19); per-location view prefs keyed by local-volume/remote-server identity plus canonical path, stored oldest-first in one 500-entry LRU whose snapshots resolve above global defaults (02 §2.4) |
 | Synced `Bookmark` fields | everything in 04 §2.1's synced list (04 §2.3 fixes the synced/device-local split) |
 
 Two idioms from Séance are **required patterns** in every controller, and
@@ -2002,7 +2002,12 @@ launcher/remote) is app-side wiring over that seam. One known backend
 limitation is recorded in STATUS (open item 14): Linux's inotify queue
 overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
 rests on the drain-promptly mitigation until a compatible FFI backend
-surfaces it through the same seam.
+surfaces it through the same seam. A second backend limitation, opened
+by the 2026-09-13 post-merge repair, is STATUS open item 16: on Windows
+a watched directory's removal is unobservable (delete-pending while the
+watch holds its handle — an empty watched directory yields nothing at
+all), with a compatible parent-watch adapter proposed there; both gaps
+are M3 blockers for pane wiring, not completed QA.
 
 ## 8. Code-sharing mechanics (D2)
 

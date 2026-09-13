@@ -475,7 +475,9 @@ class EngineBrowseChannel {
   /// [path] (03 §7.5); the engine canonicalizes it. One watch per channel:
   /// a second call replaces the first, and stale signals from the replaced
   /// watch never name the new binding. Fails typed for an empty path, a
-  /// missing root, or a non-directory target. Subscribe to
+  /// missing root, a non-directory target — and, on a pool (remote)
+  /// channel, the local-only `unsupported` refusal, the failure a caller
+  /// hits most often in practice. Subscribe to
   /// [directoryChanges] before calling — the stream is broadcast and
   /// buffers nothing, so a signal emitted before a listener attaches (an
   /// early lost) is dropped.
@@ -489,8 +491,10 @@ class EngineBrowseChannel {
     );
   }
 
-  /// Releases this channel's watch; idempotent. Closing the channel or
-  /// the engine releases it too.
+  /// Releases this channel's watch; idempotent on local channels. On a
+  /// pool (remote) channel it throws the same local-only `unsupported`
+  /// refusal as [watchDirectory] — never a silent no-op. Closing the
+  /// channel or the engine releases the watch too.
   Future<void> unwatchDirectory() async {
     await _client._call(
       (id) => UnwatchLocalDirectoryRequest(requestId: id, channelId: channelId),

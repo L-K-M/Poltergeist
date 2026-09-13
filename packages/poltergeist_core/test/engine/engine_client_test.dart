@@ -433,14 +433,19 @@ void main() {
 
         await channel.watchDirectory(channel.homePath);
         await drainSetupBacklog();
+        final events = <DirectoryWatchEvent>[];
+        final subscription = channel.directoryChanges.listen(events.add);
         File('${root.path}/created.txt').writeAsStringSync('new');
+        // A second write inside the debounce window must coalesce into the
+        // same emission — the property the debounce exists for.
+        File('${root.path}/created.txt').writeAsStringSync('newer');
 
-        final event = await channel.directoryChanges.first.timeout(
-          _watchCrossingTimeout,
-        );
-        expect(event.signal, DirectoryWatchSignal.changed);
-        expect(event.path, channel.homePath);
-        expect(event.channelId, channel.channelId);
+        await Future<void>.delayed(_watchQuietWindow);
+        await subscription.cancel();
+        expect(events, hasLength(1));
+        expect(events.single.signal, DirectoryWatchSignal.changed);
+        expect(events.single.path, channel.homePath);
+        expect(events.single.channelId, channel.channelId);
       },
     );
 
@@ -557,7 +562,7 @@ void main() {
     test(
       'closing the channel closes directoryChanges',
       () async {
-        final (_, channel, _) = await localFixture('pg-watch-close');
+        final (_, channel, root) = await localFixture('pg-watch-close');
 
         final done = Completer<void>();
         channel.directoryChanges.listen(
@@ -566,6 +571,11 @@ void main() {
         );
         await channel.watchDirectory(channel.homePath);
         await drainSetupBacklog();
+        // Positive control: the stream is live before the close, so the
+        // onDone below proves closing ended a live stream (the noise
+        // test's vacuous-pass trap).
+        File('${root.path}/pre-close.txt').writeAsStringSync('pre');
+        await channel.directoryChanges.first.timeout(_watchCrossingTimeout);
         await channel.close();
 
         await done.future.timeout(_watchCrossingTimeout);
@@ -579,7 +589,7 @@ void main() {
     );
 
     test('engine death closes directoryChanges', () async {
-      final (client, channel, _) =
+      final (client, channel, root) =
           await localFixture('pg-watch-engine-death');
 
       final done = Completer<void>();
@@ -588,7 +598,11 @@ void main() {
         onDone: done.complete,
       );
       await channel.watchDirectory(channel.homePath);
-
+      await drainSetupBacklog();
+      // Positive control: events flow before death, so onDone proves the
+      // engine's death — not a stream that was never live — closed it.
+      File('${root.path}/pre-death.txt').writeAsStringSync('pre');
+      await channel.directoryChanges.first.timeout(_watchCrossingTimeout);
       await client.shutdown();
       await done.future.timeout(_watchCrossingTimeout);
     });

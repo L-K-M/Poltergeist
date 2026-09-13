@@ -36,11 +36,11 @@ Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
 landed 2026-09-12 (dated section below; open item 12 tracks the
 location type's move into core); the next M3 slices are recorded
 there. The sibling slices' pure models — the listing-state reducer,
-the metadata-only sort, Quick Select's matching and selection — are
-implemented below and feed the pane controller's transitions, as does
-the engine-side local directory watch seam (pane refresh wiring
-itself remains open).
-
+the metadata-only sort, Quick Select's matching and selection, and
+the per-location view-pref persistence — are implemented below and
+feed the pane controller's transitions, as does the engine-side
+local directory watch seam (pane refresh wiring itself remains
+open).
 ## Done
 
 | Area | State |
@@ -2714,11 +2714,14 @@ that fixture-setup backlog past the debounce before staging the
 events they assert on; and Windows produces no root-deletion loss
 signal at all — the OS defers removing a directory an open handle
 watches (delete-pending), so the children-removal `changed` and its
-rescan are the observable path there (the root-loss logic itself is
-covered cross-platform by the injected-backend adapter suite, and the
-real-OS vanish test skips Windows with that reason — a focused,
-documented skip, not a global one). Production semantics unchanged;
-the adapter's doc records the per-backend loss shapes. App re-verified on the rebased tree (barrel changed):
+rescan are the observable path there for a NON-EMPTY directory (the
+root-loss logic itself is covered cross-platform by the injected-backend
+adapter suite, and the real-OS vanish test skips Windows with that
+reason — a focused, documented skip, not a global one). Production
+semantics unchanged; the adapter's doc records the per-backend loss
+shapes. (The 2026-09-13 post-merge repair below sharpened this: an
+empty watched directory yields nothing observable on Windows — open
+item 16.) App re-verified on the rebased tree (barrel changed):
 analyze clean, 433 tests pass. On the final tree the full core suite
 is 611 pass +16 skips.
 
@@ -2754,6 +2757,145 @@ One ungated M3 model slice. The field, command, keyboard integration, selection
 pruning on actual pane changes, and widget tests remain with pane wiring.
 No widget or D12 rendering surface, persistence, dependency/pin change, or
 source port; PORTS.md is unchanged. M3 remains open.
+
+## M3 — watch-seam lifetime repair (2026-09-13, post-merge on #82)
+
+Supervisor verification of merged #82 reproduced a confirmed lifecycle
+race the review rounds missed: `WatchLocalDirectoryRequest` then
+`UnwatchLocalDirectoryRequest` issued back-to-back before the watch's
+canonicalize/stat awaits resume — the unwatch acked, then the older
+validation resumed and installed the watch anyway (the fake backend
+kept a live listener). Root cause: the channel checked only `_closed`
+after its awaits; nothing invalidated an in-flight validation against
+later watch-control requests, and the watcher's epoch starts too late
+(only at retarget) to protect the validation window.
+
+Fix, at the channel request lifetime boundary:
+- `_LocalPaneChannel` gains a watch generation. Every watch-control
+  request (watch, unwatch, close) bumps it; a watch captures it at entry
+  and rechecks after its awaits — superseded validations answer the
+  typed `cancelled` refusal ("superseded by a later watch or unwatch")
+  and install nothing, so last request wins regardless of which I/O
+  resumes first, and an acknowledged unwatch can never be undone by an
+  older, slower watch. A close still wins with the typed `disconnected`
+  refusal (checked before and after the awaits). Invalid-target
+  validations still leave an installed watch untouched, deliberately.
+- The adapter's release is now a completion-tracked tail: every backend
+  cancellation issued is chained in order, `stop()`/`dispose()` complete
+  only when the whole tail has, and errors are contained per link. An
+  acknowledged unwatch/close/shutdown therefore means the backend
+  subscription really is gone, not merely scheduled to go — epoch
+  suppression is signal routing, not resource release. `retarget`'s ack
+  still means establishment (the replaced watch's teardown rides the
+  tail; its callbacks are dead synchronously).
+
+Also opened honestly (not silently deferred): Windows root-removal is
+unobservable through dart:io including the empty-directory case where
+even the children-removal `changed` never fires — open item 16, with a
+compatible parent-watch adapter proposal; item 14's overstated "every
+other failure mode is surfaced" sentence corrected; the protocol,
+adapter, and chapter docs now carry the empty-directory nuance.
+
+Validation (regression-first, delayed completion — no timing guesses):
+the supervisor's repro (kept verbatim in
+`test/engine/watch_supersession_test.dart`) observed red on merged
+e009b1f (`tasks/task18-logs/postmerge-race-before.log`, exit 1 — a
+live listener after the acknowledged unwatch) and passes after; new
+regressions cover the typed `cancelled` refusal with no backend touch,
+reordered watch/watch (only the newer installs, whichever I/O resumes
+first), shutdown superseding a validating watch (`disconnected`), and
+release completion gated on explicit completer-held backend cancels —
+including the finding that a broadcast controller's `cancel()` does NOT
+gate on `onCancel`'s future while `Stream.multi` (dart:io's watch-stream
+shape) does, which is why the gated fakes use `Stream.multi` and why
+the production guarantee is real. Full core suite, protocol repo scan,
+and guards green; native CI on the repair PR.
+
+## M3 — close-boundary and review-resolution repair (2026-09-13, post-merge on #86)
+
+Supervisor verification of merged #86 (original race verified fixed)
+confirmed a second lifetime defect at the host close-request boundary:
+`CloseBrowseChannelRequest` removed the channel from the routing map
+before awaiting its close, so a concurrent duplicate close saw no
+channel and acked immediately — while the first was still parked on the
+backend cancellation. The channel-level memoized close never saw the
+second request. Fix at the host request boundary: retirements in flight
+are tracked per channel id (`_pendingCloses`, bounded — entries
+self-remove on settlement, ids never reused, duplicates await rather
+than create), duplicate closes share the pending completion, shutdown
+drains and clears the map (never acking over a still-closing channel it
+stopped tracking), and routing still retires synchronously so no stale
+events or requests leak; closing a fully retired channel stays
+idempotent. The Windows root-removal gap's STATUS entry was also
+renumbered 15 → 16 (it collided with #85's Quick Select item 15) with
+all seven textual references updated.
+
+The supervisor's full-pagination audit also found both merged PRs' 44
+inline review threads still flagged unresolved despite recorded body
+dispositions, and the latest edited review summaries carrying findings
+beyond the inline sets. All threads were resolved after per-thread
+verification, and the newly-triaged findings received dispositions
+(appended to the PR bodies, not reconstructed): declined — late-
+subscriber replay cache for early `lost` signals (subscribe-before-watch
+is the documented client contract; the pane wiring must subscribe before
+setup/retarget — recorded as a pane-wiring requirement, not a cache
+redesign) and the close-error mirror (premise false: the host removes
+routing first, so no post-failure path exists for a "live routable
+channel"); deferred — a capped debounce (trailing-only starvation is
+documented behavior; a max-wait cap is a behavior decision for the pane
+owner, not a repair invention); corrected rationale — the isDirectory
+fixture parameterization decline (the adapter never inspects the bit —
+the earlier delete-self SDK evidence was about delete events and did
+not address modify shapes; parameterization stays optional); applied —
+doc accuracy (the pool-channel refusal on `watchDirectory`/
+`unwatchDirectory`, the Windows rescan-failure-is-implicit-loss hint on
+`changed`, the failing-request-supersedes contract sentence, and the
+backend cancel-completion obligation: a cancel must settle and settle
+only after teardown, while error containment is bookkeeping, not proof
+of OS release), plus test hardening (real-backend debounce coalescing,
+pre-close and pre-death positive controls, `pumpEventQueue` over
+wall-clock sleeps, dispose-while-parked on the retarget test, and
+both-futures consumption in the close-race test).
+
+Validation (regression-first): the supervisor's concurrent-close repro
+(verbatim in `test/engine/concurrent_channel_close_test.dart`) observed
+red on merged `8b4f493` (`tasks/task18-logs/close-boundary-before.log`,
+exit 1 — second close acked before backend release) and passes; new
+deterministic regressions cover shutdown interleaving with a pending
+close (shutdown ack gated on the backend release) and post-retirement
+idempotency. Core suite 697 pass (+16 fixture skips), analyze clean,
+protocol repo scan clean; native CI and app checks on the repair PR.
+
+## M3: per-location view preferences (2026-09-13)
+
+Immutable view preferences cover List/Details, density, directory grouping,
+hidden visibility, relative dates, sorting, column visibility/order, and widths.
+`ViewPreferencesStore` persists complete folder snapshots above global defaults
+through the existing atomic `SettingsStore`. Reset removes a snapshot; changing
+defaults leaves explicit folder choices intact. One device-local 500-entry LRU
+spans local volumes and remote server ids; reads of saved locations and writes
+refresh durable recency. Unsaved locations consume no entries. Server removal
+clears only that server's entries. Serialized operations preserve concurrent
+pane edits; malformed schemas and write failures propagate without replacing
+stored preferences, and later operations can retry.
+
+Location keys carry kind, volume/server identity, and an already-canonical path
+as separate fields. Canonicalization remains the location owner's contract
+(02 §2); this service cannot infer remote or volume case sensitivity. Transient
+tab hidden overrides have no persistence field. The view-options controls,
+command registration, active-pane binding, and transient hidden toggle remain
+with the pane slices; this adds no widget or timing surface. Chapters 02/03
+clarify defaults, complete snapshots, and the shared LRU representation.
+
+Validation: 50 focused model/store tests and all 496 app tests pass; app and
+core analysis, dependency boundaries, and the engine protocol guard are clean.
+The tests cover immutable snapshots, schema validation, identity isolation,
+restart persistence, LRU eviction, concurrent edits, and failed-write rollback.
+No dependency or source-port change; PORTS.md was checked and has no affected
+entry. [CI 34742129311](https://github.com/L-K-M/Poltergeist/actions/runs/34742129311)
+at `57faa73` passed the app checks, all five client builds, three native Dart
+suites, and tooling checks. SSH fixtures were skipped by scope detection;
+M0 measurements remain dispatch-only. M3 remains open.
 
 ## Open items
 
@@ -3299,14 +3441,35 @@ source port; PORTS.md is unchanged. M3 remains open.
     SDK's event routing, and its decoded mask is 0 — nothing reaches a
     Dart listener, so a Linux overflow silently drops events with no
     signal (verified against Dart 3.13.3
-    `runtime/bin/file_system_watcher_linux.cc`; every other §7.5
-    failure mode is surfaced). The continuous subscription drains the
-    kernel queue promptly, which is the available mitigation. Full
-    coverage needs a compatible FFI inotify backend that surfaces
-    `IN_Q_OVERFLOW` as the watch backend's error, behind the same
+    `runtime/bin/file_system_watcher_linux.cc`). The continuous
+    subscription drains the kernel queue promptly, which is the available
+    mitigation. Full coverage needs a compatible FFI inotify backend that
+    surfaces `IN_Q_OVERFLOW` as the watch backend's error, behind the same
     `LocalWatchBackend` seam — an additive, reversible swap when wanted;
     until then the seam honestly reports `changed`/`lost` only and never
-    claims overflow detection on Linux.
+    claims overflow detection on Linux. (The 2026-09-13 repair below
+    corrected this item's earlier "every other §7.5 failure mode is
+    surfaced" claim: Windows root removal is its own gap, item 16.)
+16. **2026-09-13 — M3: Windows root-removal is unobservable through
+    dart:io (opened by the task18 post-merge verification).** Deleting a
+    watched directory on Windows defers while the watch holds its handle
+    (delete-pending), so `ReadDirectoryChangesW` delivers no error, no
+    close, and no root event — no `lost` signal can exist. A non-empty
+    watched directory still surfaces its children's removal as the
+    debounced `changed` (the rescan path catches the loss), but an EMPTY
+    — or already-emptied — watched directory yields nothing observable
+    at all: the pane's rescan never triggers, so 03 §7.5's "a pane never
+    shows a listing it silently stopped watching" does not hold for that
+    case on Windows. The root-loss logic itself is covered cross-platform
+    by the injected-backend adapter suite; the real-OS vanish test skips
+    Windows with this reason (a focused, documented skip — not a global
+    one). Compatible adapter, no speculative multi-platform FFI needed:
+    a Windows `LocalWatchBackend` variant that additionally watches the
+    watched directory's PARENT non-recursively and maps a parent-reported
+    removal of the watched name into the `lost` signal (the parent's own
+    handle sees the child go) — event-based, local-only, behind the same
+    seam. Owner gate: this is an M3 blocker for pane wiring, not
+    completed QA; item 14's Linux overflow stays its own gap.
 
 15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
@@ -3315,6 +3478,17 @@ source port; PORTS.md is unchanged. M3 remains open.
     if needed. This model slice introduces no UI timing surface. Keep folding
     encapsulated in core rather than exposing a pre-folded-string API before
     the consumer and measurements establish the required contract.
+
+17. **2026-09-13: M3 view preference composition (#89 review).** Before
+    pane wiring, measure recency-only writes with 500 saved locations against
+    the browse budgets. Reads currently persist touches immediately through
+    the asynchronous atomic writer; the future recents debounce/quit-flush
+    path (03 §6) may coalesce them if measurements warrant it. No telemetry
+    (D19). Also provide an explicit recovery flow for semantically damaged
+    view preferences when settings error UI lands: preserve rejected data
+    and require deliberate reset rather than silently replacing malformed
+    or newer schemas. The store currently reports `FormatException` without
+    changing the section; `reset(location)` cannot bypass that validation.
 
 ## Independent audit
 
