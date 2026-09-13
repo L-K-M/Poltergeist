@@ -2646,7 +2646,8 @@ the banner. Failed healing keeps cached rows and offers localized Retry;
 Retry awaits old-channel release before reopening this pane, retaining the
 cache meanwhile. Cancel/detach invalidate pending healing and respect newer
 same-id binds and healthy siblings. Recovery after a cancelled first listing
-uses the bound channel's home when no location remains.
+uses the bound channel's home when no location remains. A failed/ended status
+watch clears its stale status but retains retryable loss, not false healing.
 
 The loss banner owns one dim layer, never a stacked loading/error overlay.
 It reserves space above cached rows rather than covering the first rows.
@@ -2655,11 +2656,13 @@ The public `canRetryRecovery` getter supplies only the existing Retry action's
 availability; binding/recovery modes and engine mechanics remain private.
 
 Validation: the two supervisor failures, stacked error overlay, and covered
-first-row layout were observed red before repair. Thirteen controller cases
+first-row layout were observed red before repair. Fourteen controller cases
 cover status-only recovery, delayed/failed healing, stale results, explicit
 retry, release waits, cancellation, same-id replacement, siblings, and the
 cancelled-first-listing boundary. Pane/session widget coverage verifies toolbar
-state and single-overlay rendering. Full app 565 tests and analysis pass.
+state and single-overlay rendering. Three status-watch runtime reds corrected
+the old assumption that EOF/error could dismiss unhealed loss. Full app 566
+tests and analysis pass.
 Bounded logs/exits and seven inspected readable widget captures live under
 `tasks/run3-task15-logs/reconnect/`; fonts remain harness-only substitutes,
 not native/install QA. No core/backend/protocol, pin, port, or stable open-item

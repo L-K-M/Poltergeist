@@ -478,6 +478,40 @@ void main() {
     },
   );
 
+  test('status EOF cannot heal loss or accept its pending listing', () async {
+    lanes.emitState(
+      bookmark().id,
+      const ServerStatus(ServerConnectionState.reconnecting),
+    );
+    await settle();
+    final held = Completer<void>();
+    channel.holdNext = held;
+    lanes.emitState(
+      bookmark().id,
+      const ServerStatus(ServerConnectionState.connected),
+    );
+    await settle();
+    await lanes.statesControllers[bookmark().id]!.close();
+    held.complete();
+    await settle();
+    expect(pane.connectionStatus, isNull);
+    expect(pane.connectionLost, isTrue);
+    expect(pane.canRetryRecovery, isTrue);
+    expect(pane.verbsEnabled, isFalse);
+    expect(pane.entries.single.name, 'cached.txt');
+
+    // An explicit replacement's accepted listing is usable proof after EOF.
+    final healed = FakePaneChannel('/srv/home')..listings['/srv/home'] = [];
+    lanes.statesControllers.remove(bookmark().id);
+    lanes.nextRemoteChannel = healed;
+    await pane.retry();
+    await settle();
+    expect(channel.closeCalls, 1);
+    expect(pane.connectionLost, isFalse);
+    expect(pane.verbsEnabled, isTrue);
+    expect(pane.entries, isEmpty);
+  });
+
   test(
     'connected status alone cannot dismiss the cached-loss banner',
     () async {

@@ -524,7 +524,8 @@ class PaneController extends ChangeNotifier {
     if (!connectionLost) return;
     _cancelListing();
     _error ??= _connectionLostError;
-    _recovery = _RecoveryPhase.none;
+    // EOF/error cannot prove healing; offer Retry rather than endless waiting.
+    _recovery = _RecoveryPhase.failed;
   }
 
   void _acceptStatus(ServerStatus status) {
