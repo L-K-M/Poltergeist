@@ -246,6 +246,12 @@ void main() {
       everyElement(isIn(listed)),
     );
     expect(controller.entries, isNot(same(listed)));
+    // The §2.3 wiring must keep the old List.unmodifiable contract:
+    // mutating the accepted listing has to throw.
+    expect(
+      () => controller.entries[0] = listed.first,
+      throwsUnsupportedError,
+    );
     controller.dispose();
   });
 
