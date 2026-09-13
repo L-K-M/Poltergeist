@@ -41,10 +41,14 @@ void main() {
     file.renameSync(moved.path);
     moved.deleteSync();
 
+    // Await the terminal delete rather than an event count: the write
+    // path's modify multiplicity varies across filesystems.
     await _waitFor(
-      () => events.length >= 4,
+      () => events.whereType<FileSystemDeleteEvent>().any(
+        (event) => p.equals(event.path, p.join(root.path, 'moved.txt')),
+      ),
       deadline,
-      'four events; seen: $events',
+      'terminal delete; seen: $events',
     );
 
     expect(events[0], isA<FileSystemCreateEvent>());
@@ -76,13 +80,14 @@ void main() {
 
   test('watched-directory removal reports the root then closes', () async {
     final root = await tempFixture('pg-inotify-vanish');
-    final watchedPath = root.resolveSymbolicLinksSync();
     final rootLoss = Completer<FileSystemEvent>();
     final done = Completer<void>();
 
+    // The backend reports the exact string passed to watch();
+    // canonicalization is the engine channel's job, tested there.
     final subscription = LocalWatchBackend.platform().watch(root.path).listen(
       (event) {
-        if (!rootLoss.isCompleted && p.equals(event.path, watchedPath)) {
+        if (!rootLoss.isCompleted && p.equals(event.path, root.path)) {
           rootLoss.complete(event);
         }
       },
@@ -102,17 +107,17 @@ void main() {
       () async {
     final parent = await tempFixture('pg-inotify-move');
     final root = Directory(p.join(parent.path, 'watched'))..createSync();
-    final watchedPath = root.resolveSymbolicLinksSync();
     final rootLoss = Completer<FileSystemEvent>();
     final done = Completer<void>();
 
     final subscription = LocalWatchBackend.platform().watch(root.path).listen(
       (event) {
-        if (!rootLoss.isCompleted && p.equals(event.path, watchedPath)) {
+        if (!rootLoss.isCompleted && p.equals(event.path, root.path)) {
           rootLoss.complete(event);
         }
       },
       onDone: done.complete,
+      onError: done.completeError,
     );
     addTearDown(subscription.cancel);
 

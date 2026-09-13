@@ -574,10 +574,11 @@ final class _LinuxInotifyWatch {
           );
       if (mapped != null) _events.add(mapped);
 
-      // dart:io's Linux loss shape: unmatched moves flush first, then
-      // the root-loss delete is the last event and the stream closes (the
-      // adapter collapses the done into the same lost). The kernel has
-      // already removed the watch.
+      // dart:io's Linux loss shape (addEvent's delete-self branch): the
+      // root-loss delete is emitted by the mapping above, then unmatched
+      // moves flush, then the stream closes (the adapter collapses the
+      // done into the same lost). The kernel has already removed the
+      // watch.
       if (record.mask &
             (inotifyDeleteSelf | inotifyMoveSelf | inotifyUnmount) !=
           0) {
