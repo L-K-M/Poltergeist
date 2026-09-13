@@ -2630,6 +2630,45 @@ replacement. These checks add no product changes; the existing route guard
 stays. Fresh exact-head CI/review after the toolbar repair remain PR gates.
 No full-M3, watch-wiring, probe-driver restoration, or release claim.
 
+### Post-merge reconnect truth repair (2026-09-13, #84 follow-up)
+
+Independent runtime verification found two gaps after #84: a status-only
+transport loss left cached verbs enabled, and `connected` dismissed the
+banner before a healed listing. The preceding green suites did not cover
+these cases. The unchanged supervisor tests fail on the merged foundation;
+this companion repair does not close M3 or count as another foundation slice.
+
+The production engine rebinds healthy pane channels before emitting connected;
+a failed pane binding can still retain a permanent recovery error. The pane
+now latches loss, invalidates old listings, and re-lists its existing channel
+on connected. Only the accepted healed listing restores verbs and removes
+the banner. Failed healing keeps cached rows and offers localized Retry;
+Retry awaits old-channel release before reopening this pane, retaining the
+cache meanwhile. Cancel/detach invalidate pending healing and respect newer
+same-id binds and healthy siblings. Recovery after a cancelled first listing
+uses the bound channel's home when no location remains. A failed/ended status
+watch clears its stale status but retains retryable loss, not false healing.
+
+The loss banner owns one dim layer, never a stacked loading/error overlay.
+It reserves space above cached rows rather than covering the first rows.
+Refresh and cached-entry actions stay disabled until listing proof arrives.
+The public `canRetryRecovery` getter supplies only the existing Retry action's
+availability; binding/recovery modes and engine mechanics remain private.
+
+Validation: the two supervisor failures, stacked error overlay, and covered
+first-row layout were observed red before repair. Fourteen controller cases
+cover status-only recovery, delayed/failed healing, stale results, explicit
+retry, release waits, cancellation, same-id replacement, siblings, and the
+cancelled-first-listing boundary. Pane/session widget coverage verifies toolbar
+state and single-overlay rendering. Three status-watch runtime reds corrected
+the old assumption that EOF/error could dismiss unhealed loss. Full app 566
+tests and analysis pass.
+Bounded logs/exits and seven inspected readable widget captures live under
+`tasks/run3-task15-logs/reconnect/`; fonts remain harness-only substitutes,
+not native/install QA. No core/backend/protocol, pin, port, or stable open-item
+ID change. #84's route refutation, toolbar fix, and historical review gaps
+remain valid. Exact companion-head CI/review are recorded in its PR.
+
 ## M3 — pane listing-state transitions (2026-09-12)
 
 `ListingState<Location>` implements 02 §2.8's pure transitions in the app
@@ -3239,6 +3278,29 @@ protocol scan and import guard clean. New direct dependency: `ffi ^2.2.0`
 the workspace lock itself is unchanged). PORTS.md unchanged (original
 code, no port). M3 stays open; item 18 (ancestor invalidation,
 Linux/macOS) remains the open watch follow-up.
+## M3 — pane listing uses the core natural sorter (2026-09-13)
+
+PaneController's placeholder comparator (lowercase lexical) is replaced by
+the pinned `sortFileEntries` defaults at the presentation boundary: name
+key ascending, directories first, natural digit runs, Unicode simple fold,
+unmodifiable copy. Dotfile filtering, accepted-listing snapshots, and
+cancellation/generation behavior are unchanged; the VFS-returned list is
+never reordered in place and entry identity is retained. Listings now show
+file1, file2, file10 instead of file1, file10, file2. No sort controls,
+per-location prefs, hidden toggle, ARB keys, or registered commands; those
+ride their own slices. Item 13 stays open: the helper orders decoded names
+only, so this wiring closes no raw-byte collision ordering and makes no
+byte-preserving claim. No core, pin, or port change.
+
+Validation: three controller regressions (numeric order plus VFS-list
+immutability, simple-fold names where toLowerCase differs, directories
+first with dotfiles hidden) and one widget test reading the painted row
+order back from the laid-out rows each failed against the placeholder,
+then passed with the wiring. App analysis clean, 570 tests pass; core
+re-verified untouched (analyze clean, 749 tests, 16 fixture skips); import
+and protocol guards pass. Bounded logs and exits:
+tasks/task22-logs/ (red-phase, green-phase, suites, guards). No widget
+captures: layout is unchanged and order is proven programmatically.
 
 ## Open items
 

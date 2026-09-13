@@ -436,7 +436,7 @@ void registerRound15Tests() {
     expect(controller.error, isNull);
   });
 
-  test('a dead status lane cannot latch the connection-lost banner', () async {
+  test('a dead status lane offers retry instead of claiming recovery', () async {
     final lanes = FakePaneLanes();
     final channel = FakePaneChannel('/srv/home');
     channel.listings['/srv/home'] = const [];
@@ -459,12 +459,15 @@ void registerRound15Tests() {
     lanes.statesControllers['srv-1']!.addError('lane died');
     await _settle();
 
-    // A dead lane must not leave the banner pinned on its last state.
-    expect(controller.connectionLost, isFalse);
+    // End the stale status, not the unhealed loss; Retry replaces waiting.
+    expect(controller.connectionStatus, isNull);
+    expect(controller.connectionLost, isTrue);
+    expect(controller.canRetryRecovery, isTrue);
+    expect(controller.verbsEnabled, isFalse);
     controller.dispose();
   });
 
-  test('a cleanly closed status lane cannot latch the connection-lost banner', () async {
+  test('a closed status lane offers retry instead of claiming recovery', () async {
     final lanes = FakePaneLanes();
     final channel = FakePaneChannel('/srv/home');
     channel.listings['/srv/home'] = const [];
@@ -483,9 +486,11 @@ void registerRound15Tests() {
     await lanes.statesControllers['srv-1']!.close();
     await _settle();
 
-    // A cleanly-ended lane must not leave the banner pinned either
-    // (same rule as an errored lane).
-    expect(controller.connectionLost, isFalse);
+    // EOF is not listing proof and must not leave an endless waiting label.
+    expect(controller.connectionStatus, isNull);
+    expect(controller.connectionLost, isTrue);
+    expect(controller.canRetryRecovery, isTrue);
+    expect(controller.verbsEnabled, isFalse);
     controller.dispose();
   });
 }

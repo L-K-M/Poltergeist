@@ -138,6 +138,51 @@ void main() {
     return channel;
   }
 
+  testWidgets('loss owns the overlay until a healed listing succeeds', (tester) async {
+    final channel = controller_test.FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('cached.txt')];
+    lanes.nextRemoteChannel = channel;
+    await right.connectRemote(_bookmark('srv-1'));
+    await pumpShell(tester);
+    lanes.emitState('srv-1', const ServerStatus(ServerConnectionState.reconnecting));
+    await tester.pump();
+    expect(find.text('cached.txt'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pane.banner')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('cached.txt')).dy,
+      greaterThanOrEqualTo(tester.getBottomLeft(find.byKey(const ValueKey('pane.banner'))).dy),
+      reason: 'the banner must not cover the cached first row',
+    );
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsNothing,
+        reason: 'the loss error is rendered as the banner, never another overlay');
+
+    final held = Completer<void>();
+    channel.holdNext = held;
+    lanes.emitState('srv-1', const ServerStatus(ServerConnectionState.connected));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    final scrims = tester.widgetList<ColoredBox>(find.byType(ColoredBox))
+        .where((box) => box.color.a == 0.6);
+    expect(scrims, hasLength(1), reason: 'loss and loading must not stack dims');
+    expect(find.byKey(const ValueKey('pane.banner')), findsOneWidget);
+    channel.listingFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.permissionDenied, operation: 'list', message: 'Denied',
+    );
+    held.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsNothing);
+    expect(find.byKey(const ValueKey('pane.banner.retry')), findsOneWidget);
+
+    final healed = controller_test.FakePaneChannel('/srv/home');
+    healed.listings['/srv/home'] = [_entry('fresh.txt')];
+    lanes.nextRemoteChannel = healed;
+    await tester.tap(find.byKey(const ValueKey('pane.banner.retry')));
+    await tester.pumpAndSettle();
+    expect(find.text('fresh.txt'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pane.banner')), findsNothing);
+    expect(channel.closeCalls, 1);
+  });
+
   testWidgets('renders a local listing: name, kind glyph, size, mtime', (
     tester,
   ) async {
@@ -157,6 +202,26 @@ void main() {
     expect(find.textContaining('9/11/2026'), findsOneWidget);
     // Links carry null metadata: no date cell content beyond the dash.
     expect(channel.listCalls, ['/home/tester']);
+  });
+
+  testWidgets('rows render in natural name order, directories first',
+      (tester) async {
+    final channel = localChannelWithEntries();
+    channel.listings['/home/tester'] = [
+      _entry('file10'),
+      _entry('file1'),
+      _entry('file2'),
+      _entry('alpha'),
+    ];
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    // The displayed order is the pane's accepted listing order (02 §2.3's
+    // natural names), read back from the laid-out rows themselves.
+    double rowY(String name) => tester.getTopLeft(find.text(name)).dy;
+    expect(rowY('alpha'), lessThan(rowY('file1')));
+    expect(rowY('file1'), lessThan(rowY('file2')));
+    expect(rowY('file2'), lessThan(rowY('file10')));
   });
 
   testWidgets('renders a remote listing through the browse-channel seam', (

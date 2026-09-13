@@ -25,6 +25,17 @@ enum PanePhase {
   browsing,
 }
 
+enum _RecoveryPhase { none, waiting, listing, failed, reopening }
+
+enum _BindingPresentation { replace, retainCache }
+
+// Connection loss is rendered by the localized banner, not a raw diagnostic.
+const _connectionLostError = RemoteFileException(
+  kind: RemoteFileErrorKind.disconnected,
+  operation: 'reconnect',
+  message: '',
+);
+
 /// The last quiescent state, captured on every not-loading → loading
 /// transition (02 §2.8): Esc-cancel restores exactly this, never a
 /// transient mid-navigation state.
@@ -95,6 +106,7 @@ class PaneController extends ChangeNotifier {
   AppBrowseChannel? _channel;
   StreamSubscription<ServerStatus>? _statusWatch;
   ServerStatus? _connectionStatus;
+  _RecoveryPhase _recovery = _RecoveryPhase.none;
   Bookmark? _pendingRemote;
   int? _cursorIndex;
   bool _disposed = false;
@@ -132,17 +144,19 @@ class PaneController extends ChangeNotifier {
       _phase == PanePhase.browsing &&
       _location != null &&
       _error == null &&
+      !connectionLost &&
       !loading;
 
   /// The remote binding's live connection truth (current value first from
   /// the engine's watch); null for local panes and unbound panes.
   ServerStatus? get connectionStatus => _connectionStatus;
 
-  /// The 02 §2.7 connection-lost banner: keyed on connection state, not on
-  /// listing state — transport-level reconnect shows the banner over the
-  /// cached listing instead of a pane error.
-  bool get connectionLost =>
-      _connectionStatus?.state == ServerConnectionState.reconnecting;
+  /// Transport recovery starts the banner; only a healed listing ends it.
+  /// The engine can report connected while this pane's binding still fails.
+  bool get connectionLost => _recovery != _RecoveryPhase.none;
+
+  /// A failed healed listing needs an explicit reopen, not a dead-lane relist.
+  bool get canRetryRecovery => _recovery == _RecoveryPhase.failed;
 
   /// The bookmark whose remote binding is live or connecting; the retry
   /// after a failed connect reuses it.
@@ -168,7 +182,14 @@ class PaneController extends ChangeNotifier {
   /// still returns the user where they were, not the bookmark root.
   String? _pendingRemotePath;
 
-  Future<void> connectRemote(Bookmark bookmark, {String? initialPath}) async {
+  Future<void> connectRemote(Bookmark bookmark, {String? initialPath}) =>
+      _connectRemote(bookmark, initialPath: initialPath);
+
+  Future<void> _connectRemote(
+    Bookmark bookmark, {
+    String? initialPath,
+    _BindingPresentation presentation = _BindingPresentation.replace,
+  }) async {
     if (_disposed || _lanes == null) return;
 
     // Preserve retries, but never carry one bookmark's path into another.
@@ -179,6 +200,7 @@ class PaneController extends ChangeNotifier {
       connectingPhase: PanePhase.connectingRemote,
       operation: 'connect',
       fault: PaneFault.connectionOpen,
+      presentation: presentation,
       connect: (lanes, attempt) async {
         // Subscribe before connecting: a connect that raises state (or
         // a prompt the coordinator answers) must find this pane
@@ -188,8 +210,7 @@ class PaneController extends ChangeNotifier {
             .listen(
               (status) {
                 if (_disposed || attempt != _bindAttempt) return;
-                _connectionStatus = status;
-                notifyListeners();
+                _acceptStatus(status);
               },
               onError: (Object error, StackTrace stackTrace) {
                 if (_disposed || attempt != _bindAttempt) return;
@@ -199,6 +220,7 @@ class PaneController extends ChangeNotifier {
                 // if the stream survives the error, the next event
                 // restores the truth.
                 _connectionStatus = null;
+                _endRecoveryWatch();
                 notifyListeners();
               },
               onDone: () {
@@ -206,6 +228,7 @@ class PaneController extends ChangeNotifier {
                 // A lane that closes cleanly must not pin the banner
                 // on its last state either (same rule as a dead lane).
                 _connectionStatus = null;
+                _endRecoveryWatch();
                 notifyListeners();
               },
             );
@@ -229,11 +252,15 @@ class PaneController extends ChangeNotifier {
             remotePath == null || remotePath == '/'
                 ? channel.homePath
                 : remotePath;
-        _issueNavigation(
-          RemotePaneLocation(bookmark.id, target),
-          target,
-          channel,
-        );
+        final location = RemotePaneLocation(bookmark.id, target);
+        if (_recovery == _RecoveryPhase.waiting &&
+            _connectionStatus?.state != ServerConnectionState.connected) {
+          _location = location;
+          notifyListeners();
+          return;
+        }
+        if (connectionLost) _recovery = _RecoveryPhase.listing;
+        _issueNavigation(location, target, channel);
         // The landing directory is consumed by the bind that used it.
         _pendingRemotePath = null;
       },
@@ -246,7 +273,7 @@ class PaneController extends ChangeNotifier {
   /// the channel stays live, and a null location on a remote pane must
   /// never mint a local one.
   void navigate(String path) {
-    if (_disposed || _channel == null) return;
+    if (_disposed || _channel == null || connectionLost) return;
     final serverId = _pendingRemote?.id;
     _issueNavigation(
       serverId != null
@@ -291,7 +318,7 @@ class PaneController extends ChangeNotifier {
   /// from the cancelled navigation arrives stale and is swallowed) and
   /// restores the last quiescent snapshot, including its error.
   void cancelNavigation() {
-    if (_disposed || !_loadingActive()) return;
+    if (_disposed || connectionLost || !_loadingActive()) return;
 
     final snapshot = _snapshot;
     _location = snapshot?.location;
@@ -312,6 +339,16 @@ class PaneController extends ChangeNotifier {
   /// reopens and lands on the directory the user was in.
   Future<void> retry() async {
     if (_disposed) return;
+    if (connectionLost) {
+      final bookmark = _pendingRemote;
+      if (!canRetryRecovery || bookmark == null) return;
+      await _connectRemote(
+        bookmark,
+        initialPath: _location?.path ?? _pendingRemotePath,
+        presentation: _BindingPresentation.retainCache,
+      );
+      return;
+    }
     if (_phase == PanePhase.connectingRemote && _error != null) {
       final bookmark = _pendingRemote;
       if (bookmark != null) {
@@ -358,9 +395,8 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Drops the remote binding's server reference: the banner's cancel —
-  /// transport-level recovery stops, the watch reports disconnected, and
-  /// the next navigation re-raises the failure to retry against (02 §2.7).
+  /// Detaches the pane and drops its server reference (02 §2.7's Cancel).
+  /// Recovery stops; pending healing cannot restore the cancelled binding.
   ///
   /// The engine keys pool references by serverId, so this severs every
   /// pane bound to the same server — the shell routes the banner's cancel
@@ -372,16 +408,11 @@ class PaneController extends ChangeNotifier {
     final lanes = _lanes;
     final serverId = _pendingRemote?.id;
     if (_disposed || lanes == null || serverId == null) return;
-    if (_phase == PanePhase.connectingRemote) {
-      // A cancelled server must not re-bind through the in-flight
-      // connect: detach invalidates the attempt (the stale open's
-      // completion then closes its own channel and drops itself) and
-      // resets the binding before the server reference drops.
-      final detachedAttempt = _bindAttempt + 1;
-      await detachRemote();
-      // Detach claims one attempt; a later bind owns any newer reference.
-      if (_disposed || _bindAttempt != detachedAttempt) return;
-    }
+    // Cancel invalidates pending healing as well as pending opens. Close
+    // this pane before dropping the reference; newer same-id binds own it.
+    final detachedAttempt = _bindAttempt + 1;
+    await detachRemote();
+    if (_disposed || _bindAttempt != detachedAttempt) return;
     try {
       await lanes.disconnectServer(serverId);
     } on Object catch (error, stackTrace) {
@@ -407,6 +438,7 @@ class PaneController extends ChangeNotifier {
     _snapshot = null;
     _cursorIndex = null;
     _connectionStatus = null;
+    _recovery = _RecoveryPhase.none;
     _pendingRemote = null;
     _pendingRemotePath = null;
     unawaited(_statusWatch?.cancel());
@@ -438,6 +470,7 @@ class PaneController extends ChangeNotifier {
     required PanePhase connectingPhase,
     required String operation,
     required PaneFault fault,
+    _BindingPresentation presentation = _BindingPresentation.replace,
     required Future<void> Function(PaneEngineLanes lanes, int attempt)
         connect,
   }) async {
@@ -446,7 +479,7 @@ class PaneController extends ChangeNotifier {
 
     final attempt = ++_bindAttempt;
     _phase = connectingPhase;
-    _beginBinding();
+    _beginBinding(presentation);
     notifyListeners();
 
     await _releaseBinding();
@@ -457,12 +490,18 @@ class PaneController extends ChangeNotifier {
     } on RemoteFileException catch (error) {
       if (_disposed || attempt != _bindAttempt) return;
       _dropStatusWatch();
+      if (presentation == _BindingPresentation.retainCache) {
+        _recovery = _RecoveryPhase.failed;
+      }
       _error = error;
       notifyListeners();
     } on Object catch (error, stackTrace) {
       if (_disposed || attempt != _bindAttempt) return;
       _report(error, stackTrace);
       _dropStatusWatch();
+      if (presentation == _BindingPresentation.retainCache) {
+        _recovery = _RecoveryPhase.failed;
+      }
       _error = PaneFaultException(fault, operation: operation);
       notifyListeners();
     }
@@ -478,18 +517,66 @@ class PaneController extends ChangeNotifier {
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
     _connectionStatus = null;
+    _recovery = _RecoveryPhase.none;
+  }
+
+  void _endRecoveryWatch() {
+    if (!connectionLost) return;
+    _cancelListing();
+    _error ??= _connectionLostError;
+    // EOF/error cannot prove healing; offer Retry rather than endless waiting.
+    _recovery = _RecoveryPhase.failed;
+  }
+
+  void _acceptStatus(ServerStatus status) {
+    _connectionStatus = status;
+    if (status.state == ServerConnectionState.reconnecting) {
+      // Old transport answers must not clear loss or replace cached rows.
+      _cancelListing();
+      _snapshot = null;
+      _error = _connectionLostError;
+      if (_recovery != _RecoveryPhase.reopening) {
+        _recovery = _RecoveryPhase.waiting;
+      }
+    } else if (status.state == ServerConnectionState.connected &&
+        _recovery == _RecoveryPhase.waiting) {
+      final channel = _channel;
+      final bookmark = _pendingRemote;
+      if (channel != null && bookmark != null) {
+        // Cancelling the first listing leaves no location but keeps the lane.
+        final location = _location ??
+            RemotePaneLocation(bookmark.id, channel.homePath);
+        // The engine rebinds healthy PaneChannels before emitting connected.
+        // Listing proves this particular binding healed; pool state cannot.
+        _recovery = _RecoveryPhase.listing;
+        _issueNavigation(location, location.path, channel);
+      }
+    } else if (connectionLost &&
+        (status.state == ServerConnectionState.disconnected ||
+            status.state == ServerConnectionState.blocked) &&
+        _recovery != _RecoveryPhase.reopening) {
+      _cancelListing();
+      _error = _connectionLostError;
+      _recovery = _RecoveryPhase.failed;
+    }
+    notifyListeners();
   }
 
   bool _loadingActive() =>
       _issuedGeneration > _answeredGeneration && _error == null;
 
-  /// Resets listing state for a new binding (02 §2.8's transitions apply
-  /// within a binding; a rebind starts fresh and cancels everything).
-  void _beginBinding() {
+  /// A new location starts fresh; recovery retains the cached presentation.
+  /// Both invalidate every old answer before releasing the prior channel.
+  void _beginBinding(_BindingPresentation presentation) {
     _cancelListing();
-    _location = null;
-    _entries = const [];
-    _error = null;
+    if (presentation == _BindingPresentation.replace) {
+      _location = null;
+      _entries = const [];
+      _error = null;
+      _recovery = _RecoveryPhase.none;
+    } else {
+      _recovery = _RecoveryPhase.reopening;
+    }
     _snapshot = null;
     _cursorIndex = null;
     _connectionStatus = null;
@@ -565,6 +652,7 @@ class PaneController extends ChangeNotifier {
         return;
       }
       _entries = _visibleSorted(listed);
+      _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
       _error = null;
       _cursorIndex = null;
@@ -576,6 +664,7 @@ class PaneController extends ChangeNotifier {
         return;
       }
       _answeredGeneration = generation;
+      if (connectionLost) _recovery = _RecoveryPhase.failed;
       _error = error;
       notifyListeners();
     } on Object catch (error, stackTrace) {
@@ -586,6 +675,7 @@ class PaneController extends ChangeNotifier {
       }
       _report(error, stackTrace);
       _answeredGeneration = generation;
+      if (connectionLost) _recovery = _RecoveryPhase.failed;
       _error = PaneFaultException(PaneFault.listFolder, operation: 'list');
       notifyListeners();
     }
@@ -617,26 +707,17 @@ class PaneController extends ChangeNotifier {
     }
   }
 
-  /// The visible listing order: directories first, then case-insensitive
-  /// name with a case-sensitive tiebreak — the §2.3 natural comparator's
-  /// placeholder (digit-run comparison lands in `poltergeist_core` with
-  /// its slice). Dotfiles are hidden by default (02 §2.5; the toggle and
-  /// the §2.4 precedence chain land with the view-options slice).
+  /// The visible listing: dotfiles are hidden by default (02 §2.5; the
+  /// toggle and the §2.4 precedence chain land with the view-options
+  /// slice), then the §2.3 core comparator orders the snapshot — default
+  /// name key, ascending, directories first, with natural digit runs and
+  /// Unicode simple folding. `sortFileEntries` returns an unmodifiable
+  /// copy over new row order, so the VFS-returned list is never mutated.
   List<RemoteFileEntry> _visibleSorted(List<RemoteFileEntry> listed) {
     final visible = listed
         .where((entry) => !entry.name.startsWith('.'))
-        .toList(growable: false)
-      ..sort(_compareEntries);
-    return List.unmodifiable(visible);
-  }
-
-  int _compareEntries(RemoteFileEntry a, RemoteFileEntry b) {
-    if (a.isDirectory != b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
-    final fold = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    if (fold != 0) return fold;
-    return a.name.compareTo(b.name);
+        .toList(growable: false);
+    return sortFileEntries(visible);
   }
 
   void _report(Object error, StackTrace stackTrace) {
