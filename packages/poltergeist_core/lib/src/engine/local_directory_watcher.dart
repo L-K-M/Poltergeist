@@ -119,7 +119,9 @@ final class LocalDirectoryWatcher {
   String? _watchedPath;
   bool _disposed = false;
 
-  /// The teardown tail: every backend cancellation issued, in issue order.
+  /// The teardown tail: the acknowledgments of every backend cancellation
+  /// issued, in issue order (each cancellation itself is issued the moment
+  /// its watch is dropped).
   Future<void> _releaseTail = Future<void>.value();
 
   /// The typed signals; broadcast, closes on [dispose]. A signal emitted
@@ -198,11 +200,13 @@ final class LocalDirectoryWatcher {
     final subscription = _subscription;
     _subscription = null;
     if (subscription != null) {
-      // Every cancellation ever issued, in issue order; each link absorbs
-      // its own errors so the tail itself can never fail.
-      _releaseTail = _releaseTail
-          .then((_) => subscription.cancel())
-          .catchError((Object _) {});
+      // Issue the cancellation immediately (the OS watch starts tearing
+      // down now, never queued behind a slow earlier release); the tail
+      // chains only the acknowledgments, in issue order, so stop()/
+      // dispose() still wait out every cancellation ever issued. Each
+      // link absorbs its own errors so the tail itself can never fail.
+      final cancelDone = subscription.cancel().catchError((Object _) {});
+      _releaseTail = _releaseTail.then((_) => cancelDone);
     }
   }
 

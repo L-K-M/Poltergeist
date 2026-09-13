@@ -508,7 +508,9 @@ final class _LocalPaneChannel implements PaneChannel {
   /// empty path is a caller bug, a missing root answers the local funnel's
   /// `notFound` (operation `inspect`, like the open seam's `resolve`), and
   /// a non-directory target is refused (deliberately leaving any installed
-  /// watch untouched). Last request wins: every watch-control request on
+  /// watch untouched — note a failing request still supersedes older
+  /// in-flight watches, since every request claims the generation at
+  /// entry). Last request wins: every watch-control request on
   /// this channel bumps the generation, and a validation that resumes
   /// superseded answers typed `cancelled` instead of installing — an
   /// acknowledged unwatch can never be undone by an older, slower watch.
