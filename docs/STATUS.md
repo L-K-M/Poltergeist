@@ -32,16 +32,16 @@ settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
 pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
-Next milestone: M3 (panes v1, 07 §3.4). The pure listing-state reducer
-and metadata-only listing sort are implemented below, alongside Quick
-Select's pure matching and selection model. PaneController
-wiring needs cancellable listings through the pinned VFS and engine
-protocol (open item 12). The local browse-channel seam is available
-(item 11, closed), as is the engine-side local directory watch seam
-(dated section below; pane refresh wiring itself remains open).
-Per-location view preference persistence is implemented below; canonical
-location binding and the view-options UI remain with pane wiring.
-
+Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
+landed 2026-09-12 (dated section below; open item 12 tracks the
+location type's move into core); the next M3 slices are recorded
+there. The sibling slices' pure models — the listing-state reducer,
+the metadata-only sort, Quick Select's matching and selection, and
+the per-location view-pref persistence — are implemented below; the
+pane foundation implements 02 §2.8's machine inline, and each
+model's wiring (comparator, selection, prefs) rides its owning
+slice, as does the engine-side local directory watch seam (pane
+refresh wiring itself remains open).
 ## Done
 
 | Area | State |
@@ -2453,6 +2453,102 @@ No app change, no pin/lock change, no transfer/queue protocol work
 (M4), no port (original code — PORTS.md unchanged), no
 milestone-close claim.
 
+## M3 — panes v1 foundation (2026-09-12)
+
+07 §3.4's first pane slice, lane A: the production two-pane shell browses
+local and remote through the one VFS. `WorkspaceController` (03 §6,
+foundation form: pane pair + active pane) drives two `PaneController`s,
+one per pane, each implementing 02 §2.8's normative listing machine —
+optimistic location at issue, monotonic generations with stale answers
+dropped (errors included), verbs disabled over cached post-error entries,
+Esc-cancel restoring the last quiescent snapshot (error included),
+generation never moving backward — with 09 §3's idioms (dispose guards,
+bind-attempt counters, channel `identical()` rechecks after every await).
+Local panes bind through `EngineClient.openLocalChannel` (the #77 seam,
+D8: no dart:io anywhere in the pane stack; the engine owns the
+`LocalFileSystem`); remote panes subscribe to `watchServer` BEFORE the
+channel open (live streams keep no replay) and open the pool channel at
+the bookmark's `remotePath` ('/' = canonical home), reusing the session's
+one engine. The sealed `PaneLocation` (Local/Remote, value equality,
+02 §2) is app-side this slice — core is closed to it — recorded as open
+item 12 with the NFC/case-fold keying rule.
+
+The `PaneView` renders the foundation surface: clickable ancestor path
+segments (focused pane accent per 02 §2.1, location glyph), fixed-extent
+rows (28 px comfortable × text scale) with kind glyph, size (decimal
+macOS/Linux, binary Windows), and mtime (today/yesterday relative,
+absolute otherwise) with name–size–date semantics labels (D20, all new
+copy in ARB); the 150 ms anti-flash grace governs the dim, the 2 px
+progress line, the footer's loading line swap, and the ✕ cancel;
+errors render inline (ARB taxonomy sentence + the engine's diagnostic +
+Retry) over the cached listing; the 02 §2.7 connection-lost banner owns
+the dim layer while the transport reconnects, with a Cancel that drops
+the server reference. Keyboard-first: arrows/Home/End move the cursor,
+Enter opens directories on Windows/Linux (macOS Enter stays the rename
+key — rename is a later slice), Backspace goes up, Tab swaps panes from
+inside a listing (§8.2 scoping), Esc cancels navigation — all on the
+pane's focus node, never global. Commands (D21): `go.open`,
+`go.enclosing`, `view.refresh`, `pane.focusLeft`, `pane.focusRight`,
+`pane.swapFocus`, dispatched by `CommandChordScope` (dual macOS/Ctrl
+chords; unmodified single keys deliberately excluded so the layer can
+never fire Enter/Tab globally).
+
+The M2 debug demo surface is retired per plan ("M3 replaces it"): the
+controller, view, command, ARB copy, tests, and the app/main wiring are
+deleted; the panes supersede its exact flow in production. The interim
+Connections surface stays (M5 owns removal) and gains each row's
+"Open in Pane" action — the M3–M4 window's remote entry point, binding
+the ACTIVE pane to the row's bookmark. Probe wiring survives as services
+but loses its only driver (the demo session): probes do not run again
+until the launcher/empty-states slice supplies the interim-list owner —
+a deliberate, temporary deviation from 07 §3.4's bullet ("its probe
+dots stay live for the M3–M4 window"): release builds never had a
+driver, so shipped behavior is unchanged, but debug builds lose the
+live dots until the launcher slice lands; recorded below with the
+slice's follow-ups.
+
+Follow-ups this slice deliberately leaves to their owning M3+ slices
+(each per 07 §3.4's own bullets): launcher/empty states incl. Quick
+Connect (02 §2.7) with the interim-list probe dots and a durable-id
+probe owner; tabs per pane and the pane toggle (02 §3); path editing
+`go.editPath`/`go.toFolder` and navigation history back/forward (02
+§2.1); view modes + the §2.3 natural comparator in core + per-location
+view prefs with the §2.4 precedence chain (the hidden-files default
+filters dotfiles with no toggle yet; sorting is the placeholder
+directories-first/name comparator, app-side); the §2.5 selection
+model, type-ahead, Quick Select, filter; row interactions incl. rename
+(Enter on macOS), file open actions, Get Info; single-key-scoped
+Enter-on-link classification (02 §2.3's metadata rule); §7.5 directory
+watching; §7.2 ScopedPathAccess; menus + the keyboard-completeness
+invariant test (08) and the quick-open palette (M9); footer
+user@host/free-space; the empty-rootPath fail-fast guard on the local
+open facade (#77's deferred hardening — the pane surfaces the typed
+open failure, the guard itself is core-side); the teardown-order swap
+(03 §7.5's watcher slice). The demo's scrollable-prompt regression
+coverage was removed with its surface; the coordinator suites and the
+blocked-review production test carry the coordinator behavior.
+
+Validation (regressions observed failing first — see
+tasks/run3-task15-logs/regressions-failing-first.log): 15 controller
+tests (the ListingState machine transition-by-transition: issue/accept/
+stale/error/Esc-snapshot-with-error, bind ordering subscribe-before-
+open, rebind channel close, taxonomy kinds, banner state, cursor
+semantics, dotfile filtering, parent-at-root no-op), 15 pane-view widget
+tests (rendering local and remote listings through the seams, empty
+state, taxonomy surface with Retry re-issue, anti-flash timing, Esc
+cancel with no stale repaint, platform-conditional Enter/Backspace,
+Tab focus swap, connecting state, banner, path-bar segment navigation,
+focused-pane accent, row semantics, no-engine state), 7 shell tests
+(panes browse through one engine seam, placeholders and demo command
+gone, Ctrl+R/Meta+R chord targets the focused pane, focus commands,
+open-in-pane end to end), 2 Connections row tests, plus the updated
+shell/wiring/localization-contract suites. Full app suite 422 green,
+analyze clean; core re-verified untouched (analyze clean, 548 tests,
++15 Docker-fixture skips); ARB regenerated. Rootless widget captures
+(5 labeled states, not native QA) under tasks/run3-task15-captures.
+No core change, no pin/lock change, no port (PORTS.md unchanged), no
+milestone-close claim.
+
 ## M3 — pane listing-state transitions (2026-09-12)
 
 `ListingState<Location>` implements 02 §2.8's pure transitions in the app
@@ -3360,8 +3456,22 @@ corrected body, and this repair applies all of them.
     `EngineClient` facade, and tests — after which the pane slice
     resumes against it. Directory watching (03 §7.5), per-location
     view prefs, and the rest of 07 §3.4 stay with their own slices.
+    **Closed 2026-09-11** (its own dated section above, the engine-side
+    local browse seam of 2026-09-11 — not the panes section of
+    2026-09-12 that follows the resume).
+12. **2026-09-12 — M3: `PaneLocation`'s home is `poltergeist_core` (02
+    §2), not the app.** The panes-v1-foundation slice defined the sealed
+    location type app-side (`lib/services/pane_location.dart`) because
+    core is closed to app-driven slices and no core consumer exists yet.
+    Move it with the first cross-package consumer — the per-location
+    view-prefs keying (02 §2.4) or recents — which also lands 02 §2's
+    canonicalization rule (NFC normalization; case-folding on
+    case-insensitive volumes) ahead of `==`/hashCode. Today the type
+    compares raw paths; every navigation path arrives canonical from
+    the VFS's listings, so no same-volume spelling variants occur in
+    practice.
 
-12. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
+13. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
     The pin (`2e6d1f1`) defines `RemoteFileSystem.listDirectory(String path)`
     without a cancellation token; its SFTP implementation awaits
     `SftpClient.listdir`. `EngineBrowseChannel.listDirectory` also has no
@@ -3375,7 +3485,7 @@ corrected body, and this repair applies all of them.
     state on every terminal path, and keep sibling listings alive.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
-13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
+14. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
     The pinned `RemoteFileEntry` exposes decoded name/path only, with no
     raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
     escaped-name disambiguation, and disabled operations on flagged rows.
@@ -3385,7 +3495,7 @@ corrected body, and this repair applies all of them.
     behaviors; preserve the raw-byte tiebreak before the path fallback.
     D25 still defers byte-preserving operations. No local VFS fork or
     replacement interface is authorized by this item.
-14. **2026-09-13 — M3: Linux inotify overflow is invisible through
+15. **2026-09-13 — M3: Linux inotify overflow is invisible through
     dart:io.** The watch seam's `LocalDirectoryWatcher` (dated section
     above) cannot observe `IN_Q_OVERFLOW`: the kernel posts the overflow
     event with watch descriptor −1, which matches no watched path in the
@@ -3420,9 +3530,9 @@ corrected body, and this repair applies all of them.
     removal of the watched name into the `lost` signal (the parent's own
     handle sees the child go) — event-based, local-only, behind the same
     seam. Owner gate: this is an M3 blocker for pane wiring, not
-    completed QA; item 14's Linux overflow stays its own gap.
+    completed QA; item 15's Linux overflow stays its own gap.
 
-15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
+17. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
     changes. Measure live input over large Unicode listings when the field
     lands; consider caching folded names or matched keys within the session

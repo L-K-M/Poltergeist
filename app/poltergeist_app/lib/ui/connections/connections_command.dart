@@ -16,6 +16,7 @@ RegisteredCommand buildConnectionsCommand({
   required ConnectionStatusController controller,
   required bool Function() enabled,
   void Function(ConnectionServer server)? onReviewBlocked,
+  void Function(ConnectionServer server)? onOpenInPane,
 }) {
   return RegisteredCommand(
     id: kConnectionsCommandId,
@@ -23,7 +24,12 @@ RegisteredCommand buildConnectionsCommand({
     label: (l10n) => l10n.connectionsTitle,
     icon: Icons.lan_outlined,
     enabled: enabled,
-    run: (context) => _openConnections(context, controller, onReviewBlocked),
+    run: (context) => _openConnections(
+      context,
+      controller,
+      onReviewBlocked: onReviewBlocked,
+      onOpenInPane: onOpenInPane,
+    ),
   );
 }
 
@@ -31,13 +37,17 @@ RegisteredCommand buildConnectionsCommand({
 /// one-command-session guard covers this route like every other.
 Future<void> _openConnections(
   BuildContext context,
-  ConnectionStatusController controller,
+  ConnectionStatusController controller, {
   void Function(ConnectionServer server)? onReviewBlocked,
-) async {
+  void Function(ConnectionServer server)? onOpenInPane,
+}) async {
   await Navigator.of(context, rootNavigator: true).push<void>(
     MaterialPageRoute<void>(
-      builder: (_) =>
-          ConnectionsView(controller, onReviewBlocked: onReviewBlocked),
+      builder: (_) => ConnectionsView(
+        controller,
+        onReviewBlocked: onReviewBlocked,
+        onOpenInPane: onOpenInPane,
+      ),
     ),
   );
 }

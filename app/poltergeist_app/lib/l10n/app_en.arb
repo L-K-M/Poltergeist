@@ -12,9 +12,13 @@
   "@paneBName": {
     "description": "Label for the right file pane."
   },
-  "emptyPanePrompt": "Choose a location",
-  "@emptyPanePrompt": {
-    "description": "Prompt shown before a pane has a location."
+  "paneNoEngine": "Browsing is unavailable right now.",
+  "@paneNoEngine": {
+    "description": "State of a pane with no engine session behind it (user terms; the engine concept is internal)."
+  },
+  "paneNoLocation": "This pane has no location open.",
+  "@paneNoLocation": {
+    "description": "State of an unbound pane (no location, nothing in flight)."
   },
   "resizePanes": "Resize panes",
   "@resizePanes": {
@@ -375,85 +379,6 @@
   "@sshImportFavoritesSaveFailed": {
     "description": "Notice when persisting the imported bookmarks fails."
   },
-  "sftpDemoCommandLabel": "Demo: SFTP listing",
-  "@sftpDemoCommandLabel": {
-    "description": "Toolbar entry for the debug-only SFTP demo surface."
-  },
-  "sftpDemoTitle": "SFTP listing demo",
-  "@sftpDemoTitle": {
-    "description": "Title of the debug-only SFTP demo page."
-  },
-  "sftpDemoDebugNote": "Debug-only surface; the real panes replace it.",
-  "@sftpDemoDebugNote": {
-    "description": "Note that the demo surface is debug-only and throwaway."
-  },
-  "sftpDemoHostLabel": "Host",
-  "@sftpDemoHostLabel": {
-    "description": "Label of the demo connect form's host field."
-  },
-  "sftpDemoPortLabel": "Port",
-  "@sftpDemoPortLabel": {
-    "description": "Label of the demo connect form's port field."
-  },
-  "sftpDemoUsernameLabel": "Username",
-  "@sftpDemoUsernameLabel": {
-    "description": "Label of the demo connect form's username field."
-  },
-  "sftpDemoAuthMethodLabel": "Authentication",
-  "@sftpDemoAuthMethodLabel": {
-    "description": "Label of the demo connect form's authentication picker."
-  },
-  "sftpDemoAuthAgent": "SSH agent",
-  "@sftpDemoAuthAgent": {
-    "description": "Authentication picker entry for agent auth."
-  },
-  "sftpDemoAuthPassword": "Password",
-  "@sftpDemoAuthPassword": {
-    "description": "Authentication picker entry for password auth."
-  },
-  "sftpDemoHostRequired": "Enter a host.",
-  "@sftpDemoHostRequired": {
-    "description": "Validation error for a blank host."
-  },
-  "sftpDemoUsernameRequired": "Enter a username.",
-  "@sftpDemoUsernameRequired": {
-    "description": "Validation error for a blank username."
-  },
-  "sftpDemoPortInvalid": "Enter a port between 1 and 65535.",
-  "@sftpDemoPortInvalid": {
-    "description": "Validation error for a port outside the SSH range."
-  },
-  "sftpDemoConnect": "Connect",
-  "@sftpDemoConnect": {
-    "description": "Demo connect button label."
-  },
-  "sftpDemoDisconnect": "Disconnect",
-  "@sftpDemoDisconnect": {
-    "description": "Demo disconnect action label."
-  },
-  "sftpDemoListingLoading": "Loading the directory listing",
-  "@sftpDemoListingLoading": {
-    "description": "Progress line while the demo lists the home directory."
-  },
-  "sftpDemoListingEmpty": "The directory is empty.",
-  "@sftpDemoListingEmpty": {
-    "description": "Shown when the demo listing returns no entries."
-  },
-  "sftpDemoListingCount": "{count, plural, =1{1 entry} other{{count} entries}}",
-  "@sftpDemoListingCount": {
-    "description": "Count of listed entries above the demo listing.",
-    "placeholders": {
-      "count": {"type": "int"}
-    }
-  },
-  "sftpDemoEngineFailed": "The connection engine could not start.",
-  "@sftpDemoEngineFailed": {
-    "description": "Notice when the engine isolate fails to spawn."
-  },
-  "sftpDemoClose": "Close",
-  "@sftpDemoClose": {
-    "description": "Accessibility label of the demo page's close action."
-  },
   "probeStatusUnknown": "Reachability unknown",
   "@probeStatusUnknown": {
     "description": "Tooltip and semantics label of the grey status dot: the server has not been probed yet or probing is disabled."
@@ -505,5 +430,128 @@
       "pane": {"type": "String"},
       "message": {"type": "String"}
     }
+  },
+  "paneOpeningHome": "Opening home…",
+  "@paneOpeningHome": {
+    "description": "State shown while the initial local home channel opens."
+  },
+  "paneConnectingTo": "Connecting to {label}…",
+  "@paneConnectingTo": {
+    "description": "State shown while a remote bookmark's connection opens.",
+    "placeholders": {
+      "label": {"type": "String"}
+    }
+  },
+  "paneEmptyFolder": "This folder is empty.",
+  "@paneEmptyFolder": {
+    "description": "Empty-folder state of a pane listing (02 §2.7)."
+  },
+  "paneItemCount": "{count, plural, =1{1 item} other{{count} items}}",
+  "@paneItemCount": {
+    "description": "Pane footer count of visible entries.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "paneLoadingFolder": "Loading {name} — Esc cancels",
+  "@paneLoadingFolder": {
+    "description": "Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8). Translator note: Esc is the literal key name and must stay untranslated.",
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "paneCancelLoading": "Cancel loading",
+  "@paneCancelLoading": {
+    "description": "Tooltip of the pane's cancel affordance while loading."
+  },
+  "paneErrorNotFound": "The folder could not be found.",
+  "@paneErrorNotFound": {
+    "description": "Inline error sentence for the notFound taxonomy kind."
+  },
+  "paneErrorPermissionDenied": "You don't have permission to open this folder.",
+  "@paneErrorPermissionDenied": {
+    "description": "Inline error sentence for the permissionDenied taxonomy kind."
+  },
+  "paneErrorUnsupported": "This operation is not supported here.",
+  "@paneErrorUnsupported": {
+    "description": "Inline error sentence for the unsupported taxonomy kind."
+  },
+  "paneErrorDisconnected": "The connection was closed.",
+  "@paneErrorDisconnected": {
+    "description": "Inline error sentence for the disconnected taxonomy kind."
+  },
+  "paneErrorConflict": "The item changed while being opened.",
+  "@paneErrorConflict": {
+    "description": "Inline error sentence for the conflict taxonomy kind."
+  },
+  "paneErrorCancelled": "The operation was cancelled.",
+  "@paneErrorCancelled": {
+    "description": "Inline error sentence for the cancelled taxonomy kind."
+  },
+  "paneErrorOther": "The folder could not be opened.",
+  "@paneErrorOther": {
+    "description": "Inline error sentence for the other taxonomy kind."
+  },
+  "paneConnectionLost": "Connection to {label} lost — reconnecting…",
+  "@paneConnectionLost": {
+    "description": "Banner shown while the remote transport reconnects (02 §2.7).",
+    "placeholders": {
+      "label": {"type": "String"}
+    }
+  },
+  "paneConnectionLostCancel": "Cancel",
+  "@paneConnectionLostCancel": {
+    "description": "The connection-lost banner's cancel action (stops reconnection)."
+  },
+  "paneDateToday": "Today at {time}",
+  "@paneDateToday": {
+    "description": "Relative modified date for today (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.",
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "paneDateYesterday": "Yesterday at {time}",
+  "@paneDateYesterday": {
+    "description": "Relative modified date for yesterday (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.",
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "paneRowSemantics": "{name}, {size}, {modified}",
+  "@paneRowSemantics": {
+    "description": "Screen-reader label of one listing row: announced name–size–date (D20).",
+    "placeholders": {
+      "name": {"type": "String"},
+      "size": {"type": "String"},
+      "modified": {"type": "String"}
+    }
+  },
+  "goEnclosingLabel": "Parent Folder",
+  "@goEnclosingLabel": {
+    "description": "Command label: navigate to the parent folder."
+  },
+  "goOpenLabel": "Open",
+  "@goOpenLabel": {
+    "description": "Command label: open the selected row."
+  },
+  "viewRefreshLabel": "Refresh",
+  "@viewRefreshLabel": {
+    "description": "Command label: refresh the focused pane's listing."
+  },
+  "paneFocusLeftLabel": "Focus Left Pane",
+  "@paneFocusLeftLabel": {
+    "description": "Command label: move focus to the left pane."
+  },
+  "paneFocusRightLabel": "Focus Right Pane",
+  "@paneFocusRightLabel": {
+    "description": "Command label: move focus to the right pane."
+  },
+  "paneSwapFocusLabel": "Swap Pane Focus",
+  "@paneSwapFocusLabel": {
+    "description": "Command label: swap focus between the panes."
+  },
+  "connectionsOpenInPane": "Open in Pane",
+  "@connectionsOpenInPane": {
+    "description": "Tooltip of the Connections row action that opens the bookmark in the active pane."
   }
 }
