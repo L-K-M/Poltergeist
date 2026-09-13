@@ -632,15 +632,24 @@ void main() {
     expect(secondDone, isTrue);
   });
 
-  test('a retarget ack does not wait the replaced watchs release', () async {
+  test("a retarget ack does not wait the replaced watch's release", () async {
     final backend = _GatedFirstPathBackend(_root);
+    // Complete on teardown if a failing assertion skipped the happy path,
+    // so a parked release can never outlive the test.
+    addTearDown(() {
+      if (!backend.gate.isCompleted) backend.gate.complete();
+    });
     final watcher = LocalDirectoryWatcher(backend: backend);
 
     await watcher.retarget(_root);
-    // The replaced watch's cancellation parks; the retarget ack must not
-    // wait it — the new watch is listening, and stop()/dispose() own the
-    // wait.
-    await watcher.retarget(_other);
+    // The replaced watch's cancellation parks on the gate; the retarget
+    // ack must not wait it — the new watch is listening, and
+    // stop()/dispose() own the wait.
+    var acked = false;
+    unawaited(watcher.retarget(_other).then((_) => acked = true));
+    await pumpEventQueue();
+    expect(acked, isTrue,
+        reason: 'the retarget ack must not wait the replaced release');
 
     expect(backend.gate.isCompleted, isFalse);
     backend.gate.complete();
