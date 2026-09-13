@@ -3131,7 +3131,7 @@ the raw-name prerequisite discovered here is item 13. No milestone close.
     the VFS's listings, so no same-volume spelling variants occur in
     practice.
 
-12. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
+13. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
     The pin (`2e6d1f1`) defines `RemoteFileSystem.listDirectory(String path)`
     without a cancellation token; its SFTP implementation awaits
     `SftpClient.listdir`. `EngineBrowseChannel.listDirectory` also has no
@@ -3146,7 +3146,7 @@ the raw-name prerequisite discovered here is item 13. No milestone close.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
 
-13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
+14. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
     The pinned `RemoteFileEntry` exposes decoded name/path only, with no
     raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
     escaped-name disambiguation, and disabled operations on flagged rows.

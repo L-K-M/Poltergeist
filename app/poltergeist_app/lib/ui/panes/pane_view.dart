@@ -206,6 +206,11 @@ class _PaneViewState extends State<PaneView> {
     if (_graceBusy() && _pastGrace && ownedKey && plainKey) {
       return KeyEventResult.handled;
     }
+    // Modified chords (Ctrl+Enter, Alt+Home, …) belong to whoever binds
+    // them, not this table — pass them through untouched.
+    if (!plainKey) {
+      return KeyEventResult.ignored;
+    }
 
     switch (key) {
       case LogicalKeyboardKey.arrowDown:
@@ -233,9 +238,8 @@ class _PaneViewState extends State<PaneView> {
         // (§8.3), and rename lands with the row-interactions slice.
         // Key repeats never re-open — holding Enter must not drill
         // through nested folders (and the owned key must not leak its
-        // repeats to other handlers). Modified chords are not this
-        // table's.
-        if (event is KeyRepeatEvent || !plainKey) {
+        // repeats to other handlers).
+        if (event is KeyRepeatEvent) {
           return KeyEventResult.handled;
         }
         if (platform == TargetPlatform.windows ||
