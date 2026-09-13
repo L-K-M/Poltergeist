@@ -28,10 +28,17 @@ import 'local_watch_backend.dart';
 ///
 /// `cancel()` writes one byte to a stop pipe and closes its write end; the
 /// helper's `poll()` wakes on the byte or the hangup, so teardown never
-/// waits for filesystem activity. The cancel future completes only after
-/// the helper acknowledged (its poll loop has exited) and this isolate has
-/// closed the inotify descriptor, both pipe descriptors, and the read
-/// buffer — an acknowledged release means the OS watch is really gone.
+/// waits for filesystem activity. The helper's drain is bounded to
+/// [maxReadBatchesPerPoll] read batches before `poll()` is re-armed —
+/// sustained event pressure would otherwise keep every `read()` returning
+/// data, EAGAIN would never arrive, and the stop pipe would never be
+/// revisited, holding cancellation pending for as long as producers run.
+/// With the bound, stop latency is capped at one drain's decode/send work
+/// regardless of filesystem behavior. The cancel future completes only
+/// after the helper acknowledged (its poll loop has exited) and this
+/// isolate has closed the inotify descriptor, both pipe descriptors, and
+/// the read buffer — an acknowledged release means the OS watch is really
+/// gone.
 ///
 /// # Resource ownership
 ///
@@ -281,6 +288,15 @@ final class InotifyMoveMatcher {
 /// a full overflow queue drains in a few dozen reads.
 const int readBufferBytes = 64 * 1024;
 
+/// Read batches per drain step before the loop re-arms `poll`. Without
+/// this bound, sustained input keeps every `read()` returning data and
+/// EAGAIN never arrives — the helper would never revisit the stop pipe,
+/// and cancellation would wait for filesystem quiescence. The bound caps
+/// stop latency at one drain's decode/send work while leaving throughput
+/// unchanged: `poll` with a readable inotify descriptor returns
+/// immediately, so re-arming costs one extra syscall per megabyte.
+const int maxReadBatchesPerPoll = 16;
+
 /// The stop-pipe byte. The write end's close (hangup) is a second,
 /// redundant wakeup for the same purpose.
 const int stopCommandByte = 0;
@@ -389,14 +405,18 @@ void _runHelperLoop(_HelperConfig config, Pointer<_PollFd> pollFds) {
   }
 }
 
-/// Drains until EAGAIN. Returns true when a fatal read error ended the
-/// helper (the error was already forwarded).
+/// Drains a bounded number of batches, then returns so the poll loop —
+/// which checks the stop pipe first — is re-armed even while producers
+/// keep the queue non-empty. Returns true only when a fatal read error
+/// ended the helper (the error was already forwarded).
 bool _drainInotify(_HelperConfig config, Pointer<Uint8> buffer) {
-  while (true) {
+  for (var batch = 0; batch < maxReadBatchesPerPoll; batch++) {
     final count = _read(config.inotifyFd, buffer, readBufferBytes);
     if (count < 0) {
       final code = _errno();
       if (code == errnoAgain) return false;
+      // EINTR consumes a batch slot so the drain stays bounded even under
+      // a repeating signal; poll re-arms instantly while data remains.
       if (code == errnoInterrupt) continue;
       config.toMain.send([_syscallError('read', code), null]);
       return true;
@@ -404,6 +424,7 @@ bool _drainInotify(_HelperConfig config, Pointer<Uint8> buffer) {
     if (count == 0) return false;
     config.toMain.send(decodeInotifyEvents(buffer.asTypedList(count)));
   }
+  return false;
 }
 
 /// A two-element failure report `[error, stack]` matching the isolate
