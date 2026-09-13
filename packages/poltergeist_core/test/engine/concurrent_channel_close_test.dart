@@ -35,7 +35,8 @@ void main() {
     expect(secondAcked, isFalse,
       reason: 'second close acknowledged before backend cancellation completed');
     gate.complete();
-    await Future.wait([first, second]);
+    final acks = await Future.wait([first, second]);
+    expect(acks, everyElement(isA<EngineAck>()));
   });
 
   test('shutdown awaits a channel close still in flight', () async {
@@ -64,7 +65,8 @@ void main() {
         reason: 'shutdown acknowledged before the in-flight close released');
 
     gate.complete();
-    await Future.wait([closing, shuttingDown]);
+    final results = await Future.wait([closing, shuttingDown]);
+    expect(results.first, isA<EngineAck>());
     expect(shutdownAcked, isTrue);
   });
 
