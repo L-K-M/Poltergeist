@@ -2924,8 +2924,24 @@ insufficient because [Windows retains delete-pending entries](
 https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-removedirectoryw).
 Local validation: core and app analysis, the import/protocol guards, 21
 deterministic backend tests, the core suite (730 passed, 16 fixture skips),
-and all 496 app tests passed. Repaired Windows CI is pending. Higher-ancestor
-renames remain item 18; Linux overflow remains item 14. M3 stays open.
+and all 496 app tests passed. [CI 34756562117](
+https://github.com/L-K-M/Poltergeist/actions/runs/34756562117), attempt 2 at
+`4ef9a03`, passed: all five client builds, real SSH fixtures, tooling, and
+native packages (Linux 730/16 skipped; macOS 729/13; Windows 705/37).
+All four deletion/rename cases ran on every desktop. Attempt 1 passed the
+watch cases but failed the unchanged Windows incident-store test; its job
+passed on retry (item 19). Higher-ancestor renames remain item 18; Linux
+overflow remains item 14. M3 stays open.
+
+Review round 1 found no confirmed important defect. Two minor suggestions
+were applied: an internal absolute-path assertion (test failed before it)
+and positive event-fidelity coverage. Symlink-root failure was refuted:
+the engine resolves links before subscribing; an added native link-path
+test pins that boundary. Transient retry was declined under 03 §7.5:
+Dart type lookup collapses lookup errors to `notFound`, so the proposed
+exception-code retry cannot classify them. The proposed deletion flag
+assertion was refuted against Dart's API: `isDirectory` is always false
+for `FileSystemDeleteEvent`. PR #92 records each disposition with evidence.
 
 Original engine code; PORTS.md checked, no affected port or upstream change.
 The Séance pin and dependencies are unchanged. The subscription tools are
@@ -3471,7 +3487,7 @@ on completion.
     claims overflow detection on Linux. (The 2026-09-13 repair below
     corrected this item's earlier "every other §7.5 failure mode is
     surfaced" claim: Windows root removal is its own gap, item 16.)
-16. **2026-09-13: M3 Windows watched-root loss (PR #92, validation pending).**
+16. **2026-09-13: M3 Windows watched-root loss (closed by PR #92).**
     The dated section above replaces the original diagnosis with native
     failing-first evidence: populated deletion timed out; empty deletion
     already signalled. The Windows backend now adds parent notifications
@@ -3506,6 +3522,17 @@ on completion.
     pane wiring, close this remaining invalidation gap without recursive
     subtree watches or remote polling. Direct root deletion/rename coverage
     does not establish higher-ancestor detection.
+
+19. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
+    `a declined incident survives a real store round-trip on disk` failed
+    on [job 103721821421](
+    https://github.com/L-K-M/Poltergeist/actions/runs/34756562117/job/103721821421)
+    at `4ef9a03`: disk retained only the first incident until the five-second
+    deadline. The same job passed on retry. This test uses the pool directly,
+    before the watch tests run; its code is unchanged by #92. A concurrent
+    Windows read/replace sharing failure is a hypothesis, not a confirmed
+    diagnosis. If it recurs, capture `first.incidentStoreErrors` before
+    changing the timeout or persistence behavior.
 
 ## Independent audit
 

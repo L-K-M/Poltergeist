@@ -7,6 +7,8 @@ import 'package:poltergeist_core/src/engine/local_directory_watcher.dart'
     show LocalDirectoryWatcher;
 import 'package:test/test.dart';
 
+import '../fs/local_fs_test_support.dart' show testWithSymbolicLinks;
+
 /// A port nothing listens on: connect attempts fail fast with ECONNREFUSED,
 /// proving the full request → engine → production-opener → error → response
 /// round trip without needing an sshd fixture (08 §5 owns those legs).
@@ -545,6 +547,27 @@ void main() {
       final event = await lost;
       expect(event.path, emptyPath);
       expect(event.detail, isNotNull);
+    });
+
+    testWithSymbolicLinks('watch resolves linked directories before subscribing',
+        () async {
+      final (_, channel, root) = await localFixture('pg-watch-linked-root');
+      final target = '${root.path}/sub';
+      final alias = '${root.path}/alias';
+      Link(alias).createSync(target);
+
+      // The backend receives a real directory, even when the requested
+      // location is a link. Rejecting a later link replacement stays safe.
+      await channel.watchDirectory(alias);
+      await drainSetupBacklog();
+      final changed = channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      File('$target/new.txt').writeAsStringSync('through the canonical root');
+
+      final event = await changed;
+      expect(event.signal, DirectoryWatchSignal.changed);
+      expect(event.path, '${channel.homePath}${Platform.pathSeparator}sub');
     });
 
     test('deleting an already-emptied watched directory signals lost', () async {

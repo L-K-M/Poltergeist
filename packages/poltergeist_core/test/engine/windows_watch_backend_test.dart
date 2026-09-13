@@ -129,6 +129,13 @@ final class _NativeWatch {
 }
 
 void main() {
+  test('relative watch paths violate the canonical-path precondition', () {
+    expect(
+      () => const WindowsWatchBackend().watch('relative'),
+      throwsA(isA<AssertionError>()),
+    );
+  });
+
   test('attaches parent first and checks the root without following links', () {
     final h = _Harness();
     return h.run(() async {
@@ -139,6 +146,34 @@ void main() {
       expect(h.probePaths, [_root]);
       expect(h.probeFollowLinks, [false]);
       expect(h.events, isEmpty);
+    });
+  });
+
+  test('healthy root events retain their objects and order', () {
+    final h = _Harness();
+    return h.run(() async {
+      await h.healthy();
+      final original = p.join(_root, 'original');
+      final renamed = p.join(_root, 'renamed');
+      final changes = <FileSystemEvent>[
+        FileSystemCreateEvent(original, false),
+        FileSystemModifyEvent(original, false, true),
+        FileSystemMoveEvent(original, false, renamed),
+        FileSystemDeleteEvent(renamed, false),
+      ];
+      for (final change in changes) {
+        h.watchFor(_root).emit(change);
+      }
+      await _flush();
+
+      h.probes[1].complete(FileSystemEntityType.directory);
+      await _flush();
+      h.probes.last.complete(FileSystemEntityType.directory);
+      await _flush();
+
+      expect(h.events, changes.map(same).toList());
+      expect(h.errors, isEmpty);
+      expect(h.cancelledPaths, isEmpty);
     });
   });
 

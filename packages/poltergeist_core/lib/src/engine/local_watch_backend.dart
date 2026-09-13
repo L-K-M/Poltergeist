@@ -9,6 +9,7 @@ abstract interface class LocalWatchBackend {
       ? const WindowsWatchBackend()
       : const DartIoWatchBackend();
 
+  /// Requires an absolute, link-resolved path from the engine's VFS.
   /// Starts on listen; cancellation must await all owned resources.
   Stream<FileSystemEvent> watch(String directory);
 }
@@ -37,7 +38,9 @@ final class WindowsWatchBackend implements LocalWatchBackend {
 }
 
 final class _WindowsWatch {
-  _WindowsWatch(this._path) : _parent = p.dirname(_path) {
+  _WindowsWatch(this._path)
+    : assert(p.isAbsolute(_path), 'The watch path must be absolute.'),
+      _parent = p.dirname(_path) {
     _events = StreamController<FileSystemEvent>(
       onListen: _start,
       onCancel: _stop,
