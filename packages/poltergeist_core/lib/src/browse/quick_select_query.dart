@@ -8,6 +8,7 @@ const _wildcard = '*';
 /// Only `*` is special: its presence switches literal substring matching to a
 /// whole-name glob. Caller supplies eligible names; this cannot identify the
 /// invalid-UTF-8 entries that 02 §13 excludes from by-name selection.
+/// An empty query matches nothing.
 final class QuickSelectQuery {
   QuickSelectQuery(String query)
     : _segments = List.unmodifiable(simpleCaseFold(query).split(_wildcard));

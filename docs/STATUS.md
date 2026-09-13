@@ -2648,6 +2648,10 @@ selected flagged rows; its regression failed before the repair. An independent
 temporary dynamic-programming oracle agreed on 278,715 short pattern/name
 pairs. Core analysis and 685 tests pass (16 existing fixture/platform skips);
 Flutter analysis and 446 tests pass; the dependency guard passes.
+PR #85's first CI run passes all three core hosts, app tests, SSH integration,
+and all five client builds. Automated review found no correctness issue;
+its empty-query documentation suggestion was applied, and repeated name
+folding is deferred to pane-wiring measurement (item 15).
 
 One ungated M3 model slice. The field, command, keyboard integration, selection
 pruning on actual pane changes, and widget tests remain with pane wiring.
@@ -3192,6 +3196,14 @@ source port; PORTS.md is unchanged. M3 remains open.
     `LocalWatchBackend` seam — an additive, reversible swap when wanted;
     until then the seam honestly reports `changed`/`lost` only and never
     claims overflow detection on Linux.
+
+15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
+    Each preview folds the immutable row names again, including on mode
+    changes. Measure live input over large Unicode listings when the field
+    lands; consider caching folded names or matched keys within the session
+    if needed. This model slice introduces no UI timing surface. Keep folding
+    encapsulated in core rather than exposing a pre-folded-string API before
+    the consumer and measurements establish the required contract.
 
 ## Independent audit
 
