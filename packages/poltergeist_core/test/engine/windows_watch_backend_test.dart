@@ -73,8 +73,8 @@ final class _Harness {
     },
   );
 
-  Future<void> start([String? path]) async {
-    subscription = const WindowsWatchBackend()
+  Future<void> start({String? path, LocalWatchBackend? backend}) async {
+    subscription = (backend ?? const WindowsWatchBackend())
         .watch(path ?? _root)
         .listen(events.add, onError: errors.add, onDone: done.complete);
     await _flush();
@@ -211,7 +211,7 @@ void main() {
     });
   });
 
-  test('a missing setup target fails and closes both native watches', () {
+  test('a missing setup target fails and closes every native watch', () {
     final h = _Harness();
     return h.run(() async {
       await h.start();
@@ -219,10 +219,11 @@ void main() {
       await _flush();
 
       expect(h.errors, [isA<FileSystemException>()]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
       expect(h.events, isEmpty);
-      h.watchFor(_parent).releaseCancellation();
-      h.watchFor(_root).releaseCancellation();
+      for (final dir in [..._chainAbove(_root), _root]) {
+        h.watchFor(dir).releaseCancellation();
+      }
       await h.done.future;
     });
   });
@@ -239,7 +240,7 @@ void main() {
 
       expect(h.probes, hasLength(2));
       expect(h.errors, [isA<FileSystemException>()]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
     });
   });
 
@@ -277,7 +278,7 @@ void main() {
         await _flush();
 
         expect(h.errors, [isA<FileSystemException>()]);
-        expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+        expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
       });
     });
   }
@@ -298,7 +299,7 @@ void main() {
           _root,
         ),
       ]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
       expect(h.errors, isEmpty);
     });
   });
@@ -317,7 +318,7 @@ void main() {
           _root,
         ),
       ]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
     });
   });
 
@@ -335,7 +336,7 @@ void main() {
           _root,
         ),
       ]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
     });
   });
 
@@ -347,9 +348,7 @@ void main() {
       // parent; nothing owned the grandparent's watch before the chain.
       h
           .watchFor(_grandparent)
-          .emit(
-            FileSystemMoveEvent(_parent, true, p.join(_grandparent, 'moved')),
-          );
+          .emit(FileSystemMoveEvent(_parent, true, p.join(_grandparent, 'moved')));
       await _flush();
 
       expect(h.events, [
@@ -414,9 +413,7 @@ void main() {
               p.join(_greatGrandparent, 'moved'),
             ),
           );
-      h
-          .watchFor(_greatGrandparent)
-          .emit(FileSystemCreateEvent(_grandparent, true));
+      h.watchFor(_greatGrandparent).emit(FileSystemCreateEvent(_grandparent, true));
       await _flush();
 
       expect(h.events, [
@@ -510,18 +507,20 @@ void main() {
     });
   });
 
-  test('root subscribe failure releases the installed parent', () {
+  test('root subscribe failure releases the installed chain', () {
     final h = _Harness()..throwOnWatch = _root;
     return h.run(() async {
       await h.start();
 
       expect(h.errors, [isA<FileSystemException>()]);
-      expect(h.watchedPaths, [_parent]);
-      expect(h.cancelledPaths, [_parent]);
+      expect(h.watchedPaths, _chainAbove(_root));
+      expect(h.cancelledPaths, _chainAbove(_root));
       expect(h.probes, isEmpty);
       expect(h.done.isCompleted, isFalse);
 
-      h.watchFor(_parent).releaseCancellation();
+      for (final dir in _chainAbove(_root)) {
+        h.watchFor(dir).releaseCancellation();
+      }
       await h.done.future;
     });
   });
@@ -535,7 +534,7 @@ void main() {
         await _flush();
 
         expect(h.errors, [isA<FileSystemException>()]);
-        expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+        expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
       });
     });
   }
@@ -548,7 +547,7 @@ void main() {
       await _flush();
 
       expect(h.errors, [isA<FileSystemException>()]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
     });
   });
 
@@ -560,7 +559,7 @@ void main() {
       await _flush();
 
       expect(h.errors, [isA<FileSystemException>()]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
     });
   });
 
@@ -584,7 +583,7 @@ void main() {
       await _flush();
 
       expect(h.errors, [isA<FileSystemException>()]);
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
     });
   });
 
@@ -598,13 +597,17 @@ void main() {
       );
       await _flush();
 
-      expect(h.cancelledPaths, unorderedEquals([_parent, _root]));
-      h.watchFor(_parent).releaseCancellation();
-      await _flush();
-      expect(cancelled, isFalse);
+      expect(h.cancelledPaths, unorderedEquals([..._chainAbove(_root), _root]));
+      // Acknowledgement waits for every acquired watch: releasing the
+      // root and all but the last ancestor is still not enough.
       h.watchFor(_root).releaseCancellation();
+      final chain = _chainAbove(_root);
+      for (final dir in chain.take(chain.length - 1)) {
+        h.watchFor(dir).releaseCancellation();
+      }
       await _flush();
       expect(cancelled, isFalse);
+      h.watchFor(chain.last).releaseCancellation();
 
       // A failed result after cancellation must neither signal nor restart work.
       h.probes.single.complete(FileSystemEntityType.notFound);
@@ -627,8 +630,9 @@ void main() {
       await _flush();
       final beforeCancel = List<FileSystemEvent>.of(h.events);
       final cancellation = h.subscription!.cancel();
-      h.watchFor(_parent).releaseCancellation();
-      h.watchFor(_root).releaseCancellation();
+      for (final dir in [..._chainAbove(_root), _root]) {
+        h.watchFor(dir).releaseCancellation();
+      }
       h.probes.single.completeError(const FileSystemException('late probe'));
       await cancellation;
       await _flush();
@@ -643,11 +647,70 @@ void main() {
     final h = _Harness();
     return h.run(() async {
       final filesystemRoot = p.rootPrefix(_root);
-      await h.start(filesystemRoot);
+      await h.start(path: filesystemRoot);
 
       expect(h.watchedPaths, [filesystemRoot]);
       expect(h.probePaths, [filesystemRoot]);
       expect(h.recursiveModes, [false]);
+    });
+  });
+
+  group('dart:io backend', () {
+    test('shares the ancestor chain without root metadata checks', () {
+      final h = _Harness();
+      return h.run(() async {
+        await h.start(backend: const DartIoWatchBackend());
+
+        expect(h.watchedPaths, [..._chainAbove(_root), _root]);
+        // Native self-loss events suffice: no probe after setup.
+        expect(h.probes, isEmpty);
+      });
+    });
+
+    test('a higher-ancestor rename loses the watch', () {
+      final h = _Harness();
+      return h.run(() async {
+        await h.start(backend: const DartIoWatchBackend());
+        // Linux inotify reports IN_MOVE_SELF only on the renamed
+        // directory's own watch, so the chain child event carries it.
+        h
+            .watchFor(_greatGrandparent)
+            .emit(
+              FileSystemMoveEvent(
+                _grandparent,
+                true,
+                p.join(_greatGrandparent, 'moved'),
+              ),
+            );
+        await _flush();
+
+        expect(h.events, [
+          isA<FileSystemDeleteEvent>().having(
+            (event) => event.path,
+            'path',
+            _root,
+          ),
+        ]);
+        expect(h.errors, isEmpty);
+        expect(
+          h.cancelledPaths,
+          unorderedEquals([..._chainAbove(_root), _root]),
+        );
+      });
+    });
+
+    test('root events pass through unchanged', () {
+      final h = _Harness();
+      return h.run(() async {
+        await h.start(backend: const DartIoWatchBackend());
+        final change = FileSystemModifyEvent(p.join(_root, 'child'), false, true);
+        h.watchFor(_root).emit(change);
+        await _flush();
+
+        expect(h.events, [same(change)]);
+        expect(h.probes, isEmpty);
+        expect(h.cancelledPaths, isEmpty);
+      });
     });
   });
 }

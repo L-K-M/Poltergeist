@@ -2948,6 +2948,39 @@ The Séance pin and dependencies are unchanged. The subscription tools are
 unavailable; PR #92 uses GitHub polling and an hourly Paseo heartbeat, deleted
 on completion.
 
+## M3: ancestor-rename invalidation (2026-09-13)
+
+Every desktop backend now owns one non-recursive native watch per path
+component above the watched directory, up to the filesystem root: no OS
+reports an ancestor's rename to the moved tree's own watchers (inotify
+delivers `IN_MOVE_SELF` only to the renamed directory's own watch;
+FSEvents and `ReadDirectoryChangesW` report it only through the renamed
+entry's parent). Each chain level maps a removal or rename of the next
+component down to the uniform root-loss shape — a replacement at the old
+pathname cannot mask it — and sibling events stay filtered. The chain walk
+terminates at any `dirname` fixed point (`/`, `C:\`, `\\server\\share`), a
+chain setup failure fails the whole watch explicitly, and cancellation
+still waits for every subscription plus any outstanding Windows root
+check. Windows keeps PR #92's event-driven root checks; Linux and macOS
+trust native self-loss events. No recursive scans, timers, remote watches,
+Linux FFI, or protocol change; item 18's scope widened from Windows-only
+because the baseline red reproduced natively on all three OSes.
+
+Falling-first evidence at `cb3a62b` (tests-only head `7afbefc`, PR #93):
+fake-native 24 passed / 5 failed (exactly the new ancestor tests), native
+Linux 26 passed / 3 failed, and [CI 34762015179](
+https://github.com/L-K-M/Poltergeist/actions/runs/34762015179) failed
+the ancestor cases on Ubuntu, macOS, and Windows dart legs — the Windows
+leg is the item-18 reproduction; macOS/Linux prove the same observable gap
+in `DartIoWatchBackend`. Logs:
+`tasks/task20-logs/{fake-red-baseline-cb3a62b,native-linux-red-baseline-cb3a62b,baseline-windows-native-ci}.log`.
+After the fix: 32 fake backend tests, the full core suite (745 passed,
+16 fixture skips), analyze, and the protocol scan all pass locally on
+Linux; native macOS/Windows coverage comes from the final-head CI below.
+03 §7.5's backend-precision paragraph and protocol.dart's watch docs now
+describe the chain (and drop the stale claim that Windows root deletion
+yields nothing observable — PR #92 closed item 16).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -3515,13 +3548,14 @@ on completion.
     or newer schemas. The store currently reports `FormatException` without
     changing the section; `reset(location)` cannot bypass that validation.
 
-18. **2026-09-13: M3 Windows ancestor rename detection (#92).** The backend
-    watches the shown directory and its immediate parent. Renaming a higher
-    ancestor can leave both handles following the moved tree without an
-    event; metadata checks run only on setup and qualifying events. Before
-    pane wiring, close this remaining invalidation gap without recursive
-    subtree watches or remote polling. Direct root deletion/rename coverage
-    does not establish higher-ancestor detection.
+18. **2026-09-13: M3 ancestor rename detection (closed by PR #93).** The
+    dated section above records the fix: one watch per ancestor above the
+    watched directory on every desktop backend, terminating at volume/UNC
+    roots, failing closed on chain setup errors. Closed with widened scope —
+    the baseline reproduced the missing lost natively on Linux and macOS
+too, not only Windows. Direct root deletion/rename, deletion-pending
+    roots, and rename/recreate keep PR #92's behavior; Linux inotify
+    overflow remains item 14.
 
 19. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
     `a declined incident survives a real store round-trip on disk` failed

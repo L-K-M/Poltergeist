@@ -59,8 +59,8 @@ final class LocalWatchSignal {
 /// the stream; Windows surfaces `ReadDirectoryChangesW` buffer overflow
 /// and unexpected closure as stream errors. Windows root deletion may
 /// instead leave a silent delete-pending watch after child events; the
-/// platform backend adds event-driven root checks and a parent watch for
-/// renames (03 §7.5). macOS FSEvents already
+/// platform backend adds event-driven root checks and ancestor-chain
+/// watches for renames (03 §7.5). macOS FSEvents already
 /// depth-filters non-recursive watches to direct children in the C++
 /// layer, so the child filter below is defense in depth (it also covers a
 /// future backend that reports subtrees). FSEvents' documented quirks —
