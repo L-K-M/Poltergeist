@@ -14,6 +14,14 @@ import 'engine_probes.dart';
 import 'local_directory_watcher.dart';
 import 'protocol.dart';
 
+/// The drain's own abandon-signal: thrown by the timeout wrapper, never
+/// by a retirement — so `settled` classification cannot conflate a
+/// retirement that rejects with its own TimeoutException with the drain
+/// abandoning it.
+class _DrainAbandoned implements Exception {
+  const _DrainAbandoned();
+}
+
 /// Boots the engine isolate (the `Isolate.spawn` entrypoint).
 ///
 /// Handshake: the caller spawns with its event port as the spawn message;
@@ -190,6 +198,7 @@ class EngineHost {
             request.serverId,
             paneTabId: request.paneTabId,
           );
+          _rejectMintAfterShutdown(channel);
           final channelId = _nextChannelId++;
           _channels[channelId] = channel;
           return BrowseChannelOpened(
@@ -208,6 +217,10 @@ class EngineHost {
           final channelId = _nextChannelId++;
           final watcher = LocalDirectoryWatcher(backend: _localWatch);
           final channel = _LocalPaneChannel(fs, homePath, watcher);
+          // Mint-time gate: shutdown may have drained and acked while this
+          // handler was parked on canonicalize — a channel registered now
+          // would be invisible to the fixed point and never retired.
+          _rejectMintAfterShutdown(channel);
           // The host owns the forwarding subscription; the channel owns
           // the watcher. dispose() closes the signal stream, which ends
           // this subscription — no separate cancel bookkeeping.
@@ -331,7 +344,10 @@ class EngineHost {
   /// ids are never reused and duplicates await rather than create, so
   /// each tracked retirement is the only one its id will ever have. A
   /// retirement that fails surfaces its error to every close sharing it;
-  /// only after settlement does closing the id become the idempotent ack.
+  /// only after settlement does closing the id become the idempotent ack
+  /// (exception: a retirement the shutdown drain abandoned after its
+  /// timeout is gone from both maps, so closes for it ack idempotently
+  /// even though the backend release never settled).
   Future<EngineResult> _closeChannel(
     CloseBrowseChannelRequest request,
   ) async {
@@ -398,7 +414,9 @@ class EngineHost {
   /// final check) nor be bounded by it (sustained opens would starve the
   /// drain forever). Everything else is bounded already — duplicate
   /// closes share an existing retirement, and closes for retired
-  /// channels ack idempotently.
+  /// channels ack idempotently. Enforced at entry AND at mint time (an
+  /// open parked on its awaits across shutdown's completion registers
+  /// nothing — see [_rejectMintAfterShutdown]).
   void _rejectIfShuttingDown() {
     if (!_shuttingDown) return;
     throw const RemoteFileException(
@@ -406,6 +424,16 @@ class EngineHost {
       operation: 'open',
       message: 'The engine is shutting down.',
     );
+  }
+
+  /// The open gate's mint-time half: an open that passed the entry check
+  /// can still be parked on its awaits when shutdown drains and acks —
+  /// re-check before registering, closing the freshly built channel so
+  /// nothing it holds outlives the shutdown that already completed.
+  void _rejectMintAfterShutdown(PaneChannel channel) {
+    if (!_shuttingDown) return;
+    unawaited(channel.close().catchError((Object _) {}));
+    _rejectIfShuttingDown();
   }
 
   Future<EngineResult> _watchLocalDirectory(
@@ -560,12 +588,19 @@ class EngineHost {
         final batch = List.of(_pendingCloses.values);
         final settled = await Future.wait(
           batch.map(
-            (retirement) => retirement.timeout(_shutdownDrainTimeout).then(
-              (_) => true,
-              // A thrown retirement still settled — its self-removal
-              // listener ran; only a timeout means unsettled.
-              onError: (Object error) => error is! TimeoutException,
-            ),
+            (retirement) => retirement
+                .timeout(
+                  _shutdownDrainTimeout,
+                  onTimeout: () => throw const _DrainAbandoned(),
+                )
+                .then(
+                  (_) => true,
+                  // A thrown retirement still settled — its self-removal
+                  // listener ran; only the drain's own abandon-signal
+                  // means unsettled (a retirement rejecting with its own
+                  // TimeoutException still settled).
+                  onError: (Object error) => error is! _DrainAbandoned,
+                ),
           ),
         );
         assert(

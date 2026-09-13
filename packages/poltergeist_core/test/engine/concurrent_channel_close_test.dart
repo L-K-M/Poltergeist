@@ -247,6 +247,38 @@ void main() {
     expect(result, isA<EngineAck>());
   });
 
+  test('an open parked across shutdown resolves rejected, registering nothing',
+      () async {
+    final root = Directory.systemTemp.createTempSync('open-toctou-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+
+    // Deterministic staging: the open dispatches synchronously and parks
+    // on its canonicalize I/O (an event-loop turn); the shutdown issued
+    // right behind it drains nothing and completes entirely on
+    // microtasks — so it always acks before the open resumes. Without the
+    // mint-time gate the open then registers a channel no fixed point
+    // will ever retire.
+    final opening = h.call(
+      (id) => OpenLocalBrowseChannelRequest(
+        requestId: id,
+        rootPath: root.path,
+      ),
+    );
+    expect(
+      await h.call((id) => ShutdownRequest(requestId: id)),
+      isA<EngineAck>(),
+    );
+
+    final error = await expectError(opening);
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(error.message, contains('shutting down'));
+    expect(backend.cancelled, isEmpty,
+        reason: 'nothing was ever watched on the aborted open');
+  });
+
   test('closing a fully retired channel stays idempotent', () async {
     final root = Directory.systemTemp.createTempSync('retired-close-');
     addTearDown(() => root.deleteSync(recursive: true));

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -18,6 +19,9 @@ void main() {
       requestId: id, channelId: channel.channelId, path: channel.homePath,
     ));
     final gate = backend.gates.values.single;
+    // addTearDown runs LIFO: this must remain the LAST registration so the
+    // gate is released before h.dispose (which may await the drain) and
+    // before the temp directory is deleted.
     addTearDown(() { if (!gate.isCompleted) gate.complete(); });
 
     // The second request must share pending retirement, not treat removal
@@ -26,6 +30,7 @@ void main() {
       requestId: id, channelId: channel.channelId,
     ));
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    shuttingDown.ignore();
     // Match the sibling suite's park-the-drain strength (its for-loop
     // idiom) so the "during the drain" precondition is equally
     // deterministic here.
@@ -41,9 +46,12 @@ void main() {
     second.then((_) => secondAcked = true).ignore();
     await pumpEventQueue();
     // Precondition check: the drain really is parked at the backend gate
-    // (the first close's ack is held until release) — otherwise the
+    // (the first close reached the backend — not merely that its ack
+    // hasn't arrived — and is held until release); otherwise the
     // second-close assertion below could pass merely because nothing was
     // dispatched yet.
+    expect(backend.cancelled, contains(channel.homePath),
+      reason: 'first close never reached the backend gate');
     expect(firstAcked, isFalse,
       reason: 'drain not parked at the backend gate; precondition unmet');
     expect(secondAcked, isFalse,
