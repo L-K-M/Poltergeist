@@ -440,6 +440,11 @@ void main() {
         // same emission — the property the debounce exists for.
         File('${root.path}/created.txt').writeAsStringSync('newer');
 
+        // Await the first emission via the proven timeout; the quiet
+        // window then only guards against a spurious SECOND emission,
+        // which is the property under test — a loaded runner delaying the
+        // debounce past the window can no longer flake the hasLength(1).
+        await channel.directoryChanges.first.timeout(_watchCrossingTimeout);
         await Future<void>.delayed(_watchQuietWindow);
         await subscription.cancel();
         expect(events, hasLength(1));

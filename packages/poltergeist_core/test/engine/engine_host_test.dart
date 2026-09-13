@@ -1645,12 +1645,12 @@ void main() {
         );
 
         final error = await expectError(watch);
-        // Consume both in-flight futures deterministically — a throwing
-        // close must not strand the already-errored watch future as an
-        // unhandled async error.
-        await closed;
         expect(error.kind, RemoteFileErrorKind.disconnected);
         expect(error.operation, 'watch');
+        // Consume the close future deterministically — after the primary
+        // expectations, so a throwing or hanging close cannot mask the
+        // watch-contract assertions.
+        await closed;
         // The close won: nothing was ever watched.
         expect(backend.controllers, isEmpty);
       },

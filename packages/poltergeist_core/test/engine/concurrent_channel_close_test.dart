@@ -108,6 +108,12 @@ void main() {
     final closingB = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channelB.channelId,
     ));
+    // The loop cannot advance while gateA is incomplete, so pumping here
+    // guarantees closingB's handler mutates the map INSIDE the loop's
+    // iteration — without this the microtask-resumed loop could finish
+    // before the close's event delivery lands, and the regression would
+    // pass without exercising the snapshot.
+    await pumpEventQueue();
 
     gateA.complete();
     gateB.complete();

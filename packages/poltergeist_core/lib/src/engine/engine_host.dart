@@ -319,7 +319,9 @@ class EngineHost {
   /// than acking against a channel map entry already removed. Closing an
   /// unknown, fully retired channel stays idempotent and acks. Channel
   /// ids are never reused and duplicates await rather than create, so
-  /// each tracked retirement is the only one its id will ever have.
+  /// each tracked retirement is the only one its id will ever have. A
+  /// retirement that fails surfaces its error to every close sharing it;
+  /// only after settlement does closing the id become the idempotent ack.
   Future<EngineResult> _closeChannel(
     CloseBrowseChannelRequest request,
   ) async {
@@ -502,8 +504,12 @@ class EngineHost {
     for (final channel in List.of(_channels.values)) {
       if (channel is _LocalPaneChannel) await channel.close();
     }
+    // No clear before the drain: entries self-remove on settlement, and
+    // a duplicate close processed while shutdown is parked awaiting one
+    // of these retirements must still find its pending entry and await
+    // it — clearing here would reopen the exact early-ack window this
+    // map exists to close.
     final pendingCloses = List.of(_pendingCloses.values);
-    _pendingCloses.clear();
     for (final retirement in pendingCloses) {
       try {
         await retirement;
