@@ -49,5 +49,12 @@ void main() {
     expect(results, everyElement(isA<EngineError>()),
         reason: 'timed-out backend release returned success while the engine '
             'and unreleased resource remain live');
+    // Pin the typed failure itself, not just any error: a success-on-
+    // timeout regression must not hide behind an unrelated EngineError.
+    for (final result in results) {
+      final error = result as EngineError;
+      expect(error.operation, 'close');
+      expect(error.message, contains('did not settle'));
+    }
   });
 }

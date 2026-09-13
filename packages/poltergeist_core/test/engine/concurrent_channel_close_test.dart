@@ -374,6 +374,9 @@ void main() {
         ))
         .timeout(const Duration(seconds: 5));
     expect(whilePending, isA<EngineError>());
+    final pendingError = whilePending as EngineError;
+    expect(pendingError.operation, 'close');
+    expect(pendingError.message, contains('did not settle'));
 
     // Eventual release: once the gate completes, the retirement settles,
     // its self-removal drops the entry, and closing the id becomes the
