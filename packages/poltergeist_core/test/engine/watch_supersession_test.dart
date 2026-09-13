@@ -19,7 +19,9 @@ class GatedWatchBackend implements LocalWatchBackend {
 
   @override
   Stream<FileSystemEvent> watch(String directory) {
-    final gate = gates[directory] ??= Completer<void>();
+    // A fresh gate per watch call: a repeated path must not inherit an
+    // already-completed gate and silently lose its cancellation gating.
+    final gate = gates[directory] = Completer<void>();
     return Stream<FileSystemEvent>.multi((controller) {
       controller.onCancel = () {
         cancelled.add(directory);
@@ -131,6 +133,7 @@ void main() {
     final root = _fixture('watch-shutdown-race-');
     final backend = FakeWatchBackend();
     final harness = HostHarness(localWatch: backend);
+    addTearDown(harness.dispose);
     final channel = await harness.openLocal(root.path);
 
     final watching = harness.call(
@@ -180,7 +183,9 @@ void main() {
     // The cancellation is parked on the gate: the ack must not arrive.
     var acknowledged = false;
     unawaited(stopping.then((_) => acknowledged = true));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Deterministic: a wrongly-immediate ack completes within the pumped
+    // event-loop turns; no wall-clock sleep.
+    await pumpEventQueue();
     expect(acknowledged, isFalse,
         reason: 'the unwatch ack must wait out the backend cancellation');
     expect(backend.cancelled, [channel.homePath]);

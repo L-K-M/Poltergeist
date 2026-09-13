@@ -460,9 +460,10 @@ final class ListDirectoryRequest extends EngineRequest {
 /// nothing observable (STATUS open item 15). A second watch on the same
 /// channel replaces the first: stale
 /// callbacks from the replaced watch cannot invalidate the new binding,
-/// and a watch superseded (by a later watch, unwatch, or close) before it
-/// finished validating answers the typed `cancelled` refusal — clients
-/// treat that as last-request-wins, not a failure.
+/// and a watch superseded (by a later watch or unwatch) before it finished
+/// validating answers the typed `cancelled` refusal, while a close
+/// superseding it answers the channel-closed `disconnected` refusal —
+/// clients treat both as last-request-wins, not a failure.
 final class WatchLocalDirectoryRequest extends EngineRequest {
   final int channelId;
   final String path;

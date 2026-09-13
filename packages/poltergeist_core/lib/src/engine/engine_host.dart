@@ -572,8 +572,11 @@ final class _LocalPaneChannel implements PaneChannel {
   }
 
   @override
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() => _closeFuture ??= _close();
+
+  Future<void>? _closeFuture;
+
+  Future<void> _close() async {
     _closed = true;
     _watchGeneration++;
     await _watcher.dispose();
