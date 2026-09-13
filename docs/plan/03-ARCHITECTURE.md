@@ -2004,38 +2004,32 @@ overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
 rests on the drain-promptly mitigation until a compatible FFI backend
 surfaces it through the same seam.
 
-*Backend precision (2026-09-13):* one logical pane watcher owns one
-non-recursive native subscription per path component above the shown
-directory — the immediate parent first, up to the filesystem root — plus
-the shown directory itself (only one at a volume root). Linux/macOS
-ancestor-loss gaps motivate watching each chain level for removal or
-rename of the next component down and mapping it to the uniform root-loss
-shape; sibling events never refresh the pane. The chain walk terminates
-at any `dirname` fixed point — `/`, a drive root (`C:\`), or a UNC share
-root (`\\server\\share`) — so traversal never climbs past a volume. Cost:
-roughly depth-of-path native handles per pane watch; a chain subscription
-that fails to install fails the whole watch explicitly rather than
-covering fewer ancestors silently. Chain watching alone cannot detect
-Windows' delete-pending roots: Windows may retain the directory entry
-while its child watch holds a handle, and Dart drops a synchronous
-`ReadDirectoryChangesW` failure when re-arming after child events.
-Therefore the Windows backend additionally checks root type asynchronously
-after subscribing and after qualifying events. A non-directory result or
-check failure loses the watch. Checks run one at a time; events during a
-check require a trailing check, and cancellation waits for every
-subscription and the outstanding check. This is event-driven metadata
-validation, with no timer, recursive scan, or remote polling. The check
-after subscription covers disappearance during native watch setup. The
-old blanket claim that empty-root removal never signals is incorrect:
-Windows can report it as an asynchronous watch error. Native regression
-tests cover empty and populated deletion. Ancestor-rename notification
-assertions require a successful native rename: an OS refusal is not a
-missing notification. With the supported Windows dart:io mechanism, a live
-descendant watch can prevent ancestor moves even though handles share
-`FILE_SHARE_DELETE`; adding ancestor watches does not remove that restriction.
-Do not claim loss of a binding when the attempted move was refused. STATUS
-records native evidence and unresolved acceptance, including the chain's
-additional ancestor-permission requirement and cross-platform scope barrier.
+*Windows backend precision (2026-09-13):* one logical pane watcher owns
+two non-recursive native subscriptions: the shown directory and its parent
+(only one at a volume root). The parent supplies root rename/removal events;
+sibling events never refresh the pane. Either subscription failing loses
+the logical watch. Parent watching alone cannot detect delete-pending roots:
+Windows may retain the directory entry while its child watch holds a handle.
+Dart also drops a synchronous `ReadDirectoryChangesW` failure when re-arming
+after child events. Therefore the backend checks root type asynchronously
+after subscribing and after events from the child watch. A non-directory
+result or check failure loses the watch. Checks run one at a time; events
+during a check require a trailing check, and cancellation waits for both
+subscriptions and the outstanding check. This is event-driven metadata
+validation, with no timer, recursive scan, or remote polling. The check after
+subscription covers disappearance during native watch setup. The old blanket
+claim that empty-root removal never signals is incorrect: Windows can report
+it as an asynchronous watch error. Native regression tests cover both empty
+and populated deletion; STATUS records evidence and remaining limitations.
+
+Linux/macOS retain a single leaf subscription, without requiring watch access
+to every ancestor. Ancestor-move notification guarantees require native evidence
+of a successful move: an OS refusal is not a missing notification. The tested
+Windows runner/SDK refuses ancestor moves with live descendant watch handles,
+even with `FILE_SHARE_DELETE`, and permits them after cancellation. This does
+not establish that every Windows filesystem or move mechanism refuses them.
+STATUS item 18 separates that boundary from Linux/macOS missing-loss evidence;
+neither justifies silently expanding ancestor permissions or watch resources.
 
 ## 8. Code-sharing mechanics (D2)
 

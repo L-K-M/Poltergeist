@@ -2948,64 +2948,53 @@ The Séance pin and dependencies are unchanged. The subscription tools are
 unavailable; PR #92 uses GitHub polling and an hourly Paseo heartbeat, deleted
 on completion.
 
-## M3: ancestor-rename invalidation (2026-09-13)
+## M3: ancestor-watch evidence correction (2026-09-13)
 
-PR #93's candidate gives every desktop backend one non-recursive native
-watch per path component above the watched directory. Linux/macOS native
-baselines missed ancestor-loss signals; Windows refused the moves instead.
-Each chain level maps a removal or rename of the next
-component down to the uniform root-loss shape — a replacement at the old
-pathname cannot mask it — and sibling events stay filtered. The chain walk
-terminates at any `dirname` fixed point (`/`, `C:\`, `\\server\\share`), a
-chain setup failure fails the whole watch explicitly, and cancellation
-still waits for every subscription plus any outstanding Windows root
-check. Windows keeps PR #92's event-driven root checks; Linux and macOS
-trust native self-loss events. No recursive scans, timers, remote watches,
-Linux FFI, or protocol change. This candidate expansion to Linux/macOS
-remains under review for ancestor permissions, resource cost, and scope;
-it is not an accepted closure of item 18.
+PR #93 is redirected to contracts/tests, not a Windows loss fix. Production
+behavior remains #92's root+parent Windows watches and leaf-only Linux/macOS
+watches. Host close deadlines, shared release futures, immediate loss, and
+probe/cancellation ownership are unchanged. M3 and item 18 remain open.
 
-Falling-first evidence at `cb3a62b` (tests-only head `7afbefc`, PR #93):
-fake-native 24 passed / 5 failed (exactly the new ancestor tests), native
-Linux 26 passed / 3 failed, and [CI 34762015179](
-https://github.com/L-K-M/Poltergeist/actions/runs/34762015179) failed
-the ancestor cases on Ubuntu, macOS, and Windows Dart legs. Windows did
-NOT reproduce missing loss: all three native cases failed at rename with
-`PathAccessException` (Access is denied, errno 5), before awaiting loss.
-Linux/macOS failures concern missing signals. Logs:
-`tasks/task20-logs/{fake-red-baseline-cb3a62b,native-linux-red-baseline-cb3a62b,baseline-windows-native-ci}.log`.
-After the fix: 32 fake backend tests, the full core suite (745 passed,
-16 fixture skips), analyze, and the protocol scan all pass locally on
-Linux. Candidate head `677ca68`, CI `34762377645`, passes Linux/macOS;
-Windows job `103737343673` retains all three rename-denied failures
-(717 passed, 37 skipped).
+The test-only baseline `7afbefc`, [CI 34762015179](
+https://github.com/L-K-M/Poltergeist/actions/runs/34762015179), did NOT
+reproduce Windows missing loss: all three native ancestor cases failed at
+`Directory.rename` with access denied (errno 5), before awaiting loss.
+Five fake failures were separate evidence, not a native reproduction.
+Linux/macOS did reproduce missing ancestor signals; their tests and raw logs
+remain in the archived candidate and external `tasks/task20-logs/`.
 
-Native investigation at `cb059e7`, [CI 34763389767](
+Native operation probes at `cb059e7`, [CI 34763389767](
 https://github.com/L-K-M/Poltergeist/actions/runs/34763389767), Windows job
-`103740002147`: all 20 operation probes pass. Without watches, root,
-parent, higher-ancestor, reparent, and case-only moves succeed. With
-root-only, #92 root+parent, or full-chain handles, root rename succeeds
-but all ancestor moves fail with errno 5. Every refused operation succeeds
-on the same fixture after cancellation. This isolates a live descendant
-watch-handle restriction, not a fixture ACL or missing notification.
-The three untouched loss tests still fail at rename (737 passed,
-37 skipped, 3 failed overall). No permitted native ancestor move reproduced
-the required Windows gap; acceptance remains blocked.
+`103740002147`, and candidate `6366437`, [CI 34763626749](
+https://github.com/L-K-M/Poltergeist/actions/runs/34763626749), job
+`103740628858`, isolate a live-handle restriction on the tested runner/SDK.
+No watcher permits root/parent/higher/reparent/case-only moves. Root-only,
+root+parent, and full-chain layouts permit root rename but refuse ancestor
+moves; every refusal succeeds after cancellation on the same fixture.
+Both runs retain the three rename-denied failures. This is not evidence
+that all Windows filesystems or move mechanisms prevent ancestor moves.
 
-Cross-platform scope barrier: a Linux UID-1000 probe under an owned,
-traverse-only ancestor (mode 0111) receives real events with the old
-leaf-only watch but fails EACCES with the candidate chain. Retaining this
-expansion regresses working locations; silently degrading coverage would
-violate the task's fail-closed requirement. No such policy change is made.
-The review's Linux FD-multiplication premise is false: one and two logical
-chains both use one inotify FD, consistent with Dart's multiplexing and
-inode-watch reuse. macOS root-stream traffic remains an unmeasured cost.
-Raw native/probe sources, logs and exits are retained externally under
-`tasks/task20-recovery/`. The candidate is preserved for scope resolution,
-not approved for merge.
-03 §7.5's backend-precision paragraph and protocol.dart's watch docs now
-describe the chain (and drop the stale claim that Windows root deletion
-yields nothing observable — PR #92 closed item 16).
+The unsupported loss assertions and their chain-only fake tests are removed,
+not skipped. Fifteen native operation probes retain the unwatched and existing
+production handle layouts, with parent-first Windows installation and explicit
+post-cancel success. They record native outcomes, not a repaired loss signal.
+A Linux regression test requires real leaf events beneath an owned traverse-only
+ancestor (mode 0111). It fails with candidate EACCES and passes with #92 behavior.
+No global permissions, fallback policy, registry, FFI, or polling changes.
+
+Candidate `6366437cf715a0b51995b9ddd5f2f089a020bc59` is preserved as
+`archive/task20-ancestor-candidate-6366437` and an external Git bundle.
+Raw baseline/candidate/native logs, permission red/green logs, sources,
+review summaries and dispositions are retained in `tasks/task20-recovery/`.
+The chain's ancestor-permission regression rules out retaining it as-is;
+Linux/macOS ancestor detection needs a separate justified task (item 18).
+Protocol/03 comments also remove the stale Windows empty-root-loss claim:
+#92 already closed item 16. No source port or dependency change.
+
+Redirect validation on Linux: 15 native operation probes plus the permission
+regression, 23 unchanged Windows-backend fake tests, 207 engine tests, and
+749 core tests pass (16 fixture skips); core analysis and the protocol scan
+pass. Final-head native CI and review are recorded on PR #93.
 
 ## Open items
 
@@ -3574,17 +3563,18 @@ yields nothing observable — PR #92 closed item 16).
     or newer schemas. The store currently reports `FormatException` without
     changing the section; `reset(location)` cannot bypass that validation.
 
-18. **2026-09-13: M3 ancestor rename detection (OPEN, PR #93).** Native
-    Windows baseline and candidate tests both fail at rename with access
-    denied, not missing loss. Required permitted-ancestor-move red/green
-    evidence remains unresolved. Native CI `34763389767` isolates a live
-    descendant-handle restriction: unwatched and post-cancel ancestor moves
-    succeed, while root-only, #92 root+parent, and full-chain moves fail.
-    Linux/macOS missing-loss evidence does not prove the Windows defect.
-    The candidate expansion also regresses Linux watches under traverse-only
-    ancestors. Resolving that policy/scope conflict is required before merge.
-    Preserve #92's root-loss and cancellation contracts. Linux inotify
-    overflow remains item 14.
+18. **2026-09-13: M3 ancestor invalidation follow-up (OPEN).** PR #93
+    corrects an unsupported Windows premise without changing production.
+    Native ancestor moves on the tested Windows runner/SDK are refused while
+    descendant watches remain live; another supported mechanism would need
+    its own permitted-move reproducer before a loss fix is justified.
+    **Separate Linux/macOS follow-up:** baseline `7afbefc`, CI `34762015179`,
+    misses loss after permitted ancestor renames. Preserve those regressions
+    from `archive/task20-ancestor-candidate-6366437` and `tasks/task20-logs/`;
+    the recreate case must recreate the full watched path to test masking.
+    Address detection without regressing traverse-only ancestor access or
+    silently increasing watch resources. No fix or closure is claimed here.
+    Keep #92's root-loss/cancellation behavior; Linux overflow remains item 14.
 
 19. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
     `a declined incident survives a real store round-trip on disk` failed

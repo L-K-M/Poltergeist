@@ -14,62 +14,33 @@ abstract interface class LocalWatchBackend {
   Stream<FileSystemEvent> watch(String directory);
 }
 
-/// dart:io watches plus the shared ancestor chain (03 §7.5).
-///
-/// No desktop OS reports a rename of a watched directory's ancestor to
-/// the moved tree's own watchers: inotify delivers `IN_MOVE_SELF` only
-/// to the renamed directory's own watch, while FSEvents and
-/// `ReadDirectoryChangesW` report a rename only through the renamed
-/// entry's parent. Each ancestor of the watched directory therefore gets
-/// its own non-recursive watch. Linux's inotify queue-overflow gap
-/// remains (STATUS item 14).
+/// Non-recursive native events suffice on Linux and macOS, except for
+/// dart:io's documented Linux overflow gap (STATUS item 14).
 final class DartIoWatchBackend implements LocalWatchBackend {
   const DartIoWatchBackend();
 
   @override
   Stream<FileSystemEvent> watch(String directory) =>
-      _AncestorWatch(directory, _RootChecks.nativeOnly).stream;
+      Directory(directory).watch();
 }
 
-/// Adds event-driven root metadata checks to the shared ancestor chain.
+/// Adds root-loss detection to Windows' child-only native notifications.
 ///
-/// Windows retains delete-pending directory entries while a native
-/// handle holds them open, and Dart drops the synchronous read failure
-/// when re-arming the watcher, so root loss can arrive as silence rather
-/// than an event. Neither mechanism scans descendants or polls on a
-/// timer.
+/// A parent watch detects renames. Event-driven metadata checks detect
+/// delete-pending roots when Dart drops a synchronous native read failure.
+/// Neither mechanism scans descendants or polls on a timer.
 final class WindowsWatchBackend implements LocalWatchBackend {
   const WindowsWatchBackend();
 
   @override
   Stream<FileSystemEvent> watch(String directory) =>
-      _AncestorWatch(directory, _RootChecks.eventDriven).stream;
+      _WindowsWatch(directory).stream;
 }
 
-/// When the backend verifies the watched root's metadata outside native
-/// loss events (03 §7.5).
-enum _RootChecks {
-  /// Native self-loss events suffice (Linux inotify, macOS FSEvents).
-  nativeOnly,
-
-  /// Also check root type after setup and qualifying events: Windows
-  /// retains delete-pending entries while a watch handle holds them, and
-  /// Dart drops the synchronous read failure when re-arming the watcher.
-  eventDriven,
-}
-
-/// One logical pane watch: the watched directory plus one non-recursive
-/// native watch per ancestor above it.
-///
-/// Ownership and cost: one native handle per path component above the
-/// watched directory (a volume-root watch owns none beyond the root
-/// itself). Any chain subscription that fails to install — access
-/// denied, handle exhaustion — fails the whole watch explicitly; the
-/// backend never covers fewer ancestors silently.
-final class _AncestorWatch {
-  _AncestorWatch(this._path, this._rootChecks)
+final class _WindowsWatch {
+  _WindowsWatch(this._path)
     : assert(p.isAbsolute(_path), 'The watch path must be absolute.'),
-      _chain = _ancestorChain(_path) {
+      _parent = p.dirname(_path) {
     _events = StreamController<FileSystemEvent>(
       onListen: _start,
       onCancel: _stop,
@@ -77,17 +48,10 @@ final class _AncestorWatch {
   }
 
   final String _path;
-  final _RootChecks _rootChecks;
-
-  /// One entry per ancestor, child-first: the immediate parent's watch
-  /// first, the filesystem root's last. Each key is the directory
-  /// watched; each value is the chain child whose removal or rename at
-  /// that level detaches the canonical path. Empty at a volume root.
-  final List<MapEntry<String, String>> _chain;
-
+  final String _parent;
   late final StreamController<FileSystemEvent> _events;
   StreamSubscription<FileSystemEvent>? _rootSubscription;
-  final List<StreamSubscription<FileSystemEvent>> _chainSubscriptions = [];
+  StreamSubscription<FileSystemEvent>? _parentSubscription;
   Future<void>? _probeFuture;
   Future<void>? _stopFuture;
   bool _probeAgain = false;
@@ -95,37 +59,16 @@ final class _AncestorWatch {
 
   Stream<FileSystemEvent> get stream => _events.stream;
 
-  /// Walks [path]'s ancestors child-first up to the filesystem root.
-  ///
-  /// The walk terminates at any `dirname` fixed point — `/` on POSIX, a
-  /// drive root (`C:\`) or UNC share root (`\\server\share`) on Windows —
-  /// so traversal always terminates with a finite chain and never climbs
-  /// past a volume onto the host or another share.
-  static List<MapEntry<String, String>> _ancestorChain(String path) {
-    final chain = <MapEntry<String, String>>[];
-    var child = path;
-    var dir = p.dirname(child);
-    while (!p.equals(dir, child)) {
-      chain.add(MapEntry(dir, child));
-      child = dir;
-      dir = p.dirname(child);
-    }
-    return chain;
-  }
-
   void _start() {
     try {
-      // Install the immediate parent first so a root rename during the
-      // remaining setup is retained, then walk upward. On Windows the
-      // post-setup root check backstops a rename that slips past a
-      // not-yet-installed ancestor watch.
-      for (final link in _chain) {
-        _chainSubscriptions.add(
-          Directory(link.key).watch().listen(
-            (event) => _onChainEvent(link.key, link.value, event),
-            onError: _fail,
-            onDone: _closed,
-          ),
+      // Install the parent first so a rename during root setup is retained.
+      // A volume root has no distinct parent to subscribe to.
+      if (!p.equals(_path, _parent)) {
+        final events = Directory(_parent).watch();
+        _parentSubscription = events.listen(
+          _onParentEvent,
+          onError: _fail,
+          onDone: _closed,
         );
       }
       final events = Directory(_path).watch();
@@ -134,7 +77,7 @@ final class _AncestorWatch {
         onError: _fail,
         onDone: _closed,
       );
-      if (_rootChecks == _RootChecks.eventDriven) _requestProbe();
+      _requestProbe();
     } on Object catch (error, stack) {
       _fail(error, stack);
     }
@@ -143,24 +86,23 @@ final class _AncestorWatch {
   void _onRootEvent(FileSystemEvent event) {
     if (_stopped) return;
     _events.add(event);
-    if (_rootChecks == _RootChecks.eventDriven) _requestProbe();
+    _requestProbe();
   }
 
-  void _onChainEvent(String dir, String child, FileSystemEvent event) {
+  void _onParentEvent(FileSystemEvent event) {
     if (_stopped) return;
-    if (!p.equals(event.path, child) && !p.equals(event.path, dir)) {
+    if (!p.equals(event.path, _path) && !p.equals(event.path, _parent)) {
       return;
     }
 
-    // A removal or rename at any chain level detaches the canonical path
-    // from the native binding — even if a replacement already occupies
-    // the old pathname. Emit the adapter's uniform root-loss shape.
+    // Emit the adapter's existing root-loss shape even if a new directory
+    // already occupies the old path. The native binding follows the old one.
     if (event is FileSystemDeleteEvent || event is FileSystemMoveEvent) {
       _events.add(FileSystemDeleteEvent(_path, true));
       _finish();
       return;
     }
-    if (_rootChecks == _RootChecks.eventDriven) _requestProbe();
+    _requestProbe();
   }
 
   void _requestProbe() {
@@ -226,17 +168,15 @@ final class _AncestorWatch {
     _stopped = true;
     _probeAgain = false;
     final root = _rootSubscription;
+    final parent = _parentSubscription;
     _rootSubscription = null;
-    final chain = List.of(_chainSubscriptions);
-    _chainSubscriptions.clear();
+    _parentSubscription = null;
 
-    // Issue every cancel before awaiting any, preserving the engine's
-    // close boundary when one native cancellation is slow; wait for all
-    // of them even when one fails, so cancellation acknowledges only
-    // full release.
+    // Issue both cancels before awaiting either; preserve the existing
+    // engine close boundary even when one native cancellation is slow.
     await Future.wait<void>([
       if (root != null) Future<void>.sync(root.cancel),
-      for (final subscription in chain) Future<void>.sync(subscription.cancel),
+      if (parent != null) Future<void>.sync(parent.cancel),
       if (_probeFuture case final probe?) probe,
     ]);
   }

@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 
 const _deadline = Duration(seconds: 10);
 
-enum _Handles { none, root, rootAndParent, fullChain }
+enum _Handles { none, root, rootAndParent }
 
 enum _Move { root, parent, higherAncestor, reparentAncestor, caseOnlyAncestor }
 
@@ -24,26 +24,16 @@ void main() {
         final subscriptions = <StreamSubscription<FileSystemEvent>>[];
         final events = <String>[];
         final errors = <String>[];
-        final paths = <String>[];
+        final paths = switch (handles) {
+          _Handles.none => <String>[],
+          _Handles.root => [root.path],
+          _Handles.rootAndParent => [root.parent.path, root.path],
+        };
         final ready = Completer<void>();
         final marker = p.join(root.path, 'ready');
 
         try {
-          if (handles != _Handles.none) paths.add(root.path);
-          if (handles == _Handles.rootAndParent) {
-            paths.add(root.parent.path);
-          }
-          if (handles == _Handles.fullChain) {
-            var child = root.path;
-            var parent = p.dirname(child);
-            while (!p.equals(parent, child)) {
-              paths.add(parent);
-              child = parent;
-              parent = p.dirname(child);
-            }
-            // Match production's parent-first, root-last installation.
-            paths.add(paths.removeAt(0));
-          }
+          // Match production's parent-first Windows installation order.
           for (final path in paths) {
             subscriptions.add(
               Directory(path).watch().listen((event) {
@@ -57,7 +47,14 @@ void main() {
 
           // A real child event proves handles are live before the mutation.
           await File(marker).writeAsString('ready');
-          if (paths.isNotEmpty) await ready.future.timeout(_deadline);
+          if (paths.isNotEmpty) {
+            await ready.future.timeout(
+              _deadline,
+              onTimeout: () => fail(
+                'No marker event for $marker; errors: $errors; events: $events',
+              ),
+            );
+          }
           expect(errors, isEmpty);
           events.clear();
 
