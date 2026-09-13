@@ -39,6 +39,8 @@ wiring needs cancellable listings through the pinned VFS and engine
 protocol (open item 12). The local browse-channel seam is available
 (item 11, closed), as is the engine-side local directory watch seam
 (dated section below; pane refresh wiring itself remains open).
+Per-location view preference persistence is implemented below; canonical
+location binding and the view-options UI remain with pane wiring.
 
 ## Done
 
@@ -2769,6 +2771,37 @@ close (shutdown ack gated on the backend release) and post-retirement
 idempotency. Core suite 697 pass (+16 fixture skips), analyze clean,
 protocol repo scan clean; native CI and app checks on the repair PR.
 
+## M3: per-location view preferences (2026-09-13)
+
+Immutable view preferences cover List/Details, density, directory grouping,
+hidden visibility, relative dates, sorting, column visibility/order, and widths.
+`ViewPreferencesStore` persists complete folder snapshots above global defaults
+through the existing atomic `SettingsStore`. Reset removes a snapshot; changing
+defaults leaves explicit folder choices intact. One device-local 500-entry LRU
+spans local volumes and remote server ids; reads of saved locations and writes
+refresh durable recency. Unsaved locations consume no entries. Server removal
+clears only that server's entries. Serialized operations preserve concurrent
+pane edits; malformed schemas and write failures propagate without replacing
+stored preferences, and later operations can retry.
+
+Location keys carry kind, volume/server identity, and an already-canonical path
+as separate fields. Canonicalization remains the location owner's contract
+(02 §2); this service cannot infer remote or volume case sensitivity. Transient
+tab hidden overrides have no persistence field. The view-options controls,
+command registration, active-pane binding, and transient hidden toggle remain
+with the pane slices; this adds no widget or timing surface. Chapters 02/03
+clarify defaults, complete snapshots, and the shared LRU representation.
+
+Validation: 50 focused model/store tests and all 496 app tests pass; app and
+core analysis, dependency boundaries, and the engine protocol guard are clean.
+The tests cover immutable snapshots, schema validation, identity isolation,
+restart persistence, LRU eviction, concurrent edits, and failed-write rollback.
+No dependency or source-port change; PORTS.md was checked and has no affected
+entry. [CI 34742129311](https://github.com/L-K-M/Poltergeist/actions/runs/34742129311)
+at `57faa73` passed the app checks, all five client builds, three native Dart
+suites, and tooling checks. SSH fixtures were skipped by scope detection;
+M0 measurements remain dispatch-only. M3 remains open.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -3336,6 +3369,17 @@ protocol repo scan clean; native CI and app checks on the repair PR.
     if needed. This model slice introduces no UI timing surface. Keep folding
     encapsulated in core rather than exposing a pre-folded-string API before
     the consumer and measurements establish the required contract.
+
+17. **2026-09-13: M3 view preference composition (#89 review).** Before
+    pane wiring, measure recency-only writes with 500 saved locations against
+    the browse budgets. Reads currently persist touches immediately through
+    the asynchronous atomic writer; the future recents debounce/quit-flush
+    path (03 §6) may coalesce them if measurements warrant it. No telemetry
+    (D19). Also provide an explicit recovery flow for semantically damaged
+    view preferences when settings error UI lands: preserve rejected data
+    and require deliberate reset rather than silently replacing malformed
+    or newer schemas. The store currently reports `FormatException` without
+    changing the section; `reset(location)` cannot bypass that validation.
 
 ## Independent audit
 
