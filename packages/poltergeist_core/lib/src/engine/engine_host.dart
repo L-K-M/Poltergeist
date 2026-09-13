@@ -494,8 +494,12 @@ class EngineHost {
     // disconnectServer above. Channels already removed from the map but
     // still closing (a close request in flight) are in _pendingCloses —
     // shutdown waits those too, so it can never ack over a live backend
-    // watch it stopped tracking in the map.
-    for (final channel in _channels.values) {
+    // watch it stopped tracking in the map. The loop awaits, so a close
+    // request processed mid-loop can mutate _channels — snapshot first
+    // (a channel closed by such a request is retired through its own
+    // memoized close; this loop re-awaits the same future, never a
+    // double teardown).
+    for (final channel in List.of(_channels.values)) {
       if (channel is _LocalPaneChannel) await channel.close();
     }
     final pendingCloses = List.of(_pendingCloses.values);

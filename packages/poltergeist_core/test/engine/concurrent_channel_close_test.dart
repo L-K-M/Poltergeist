@@ -70,6 +70,52 @@ void main() {
     expect(shutdownAcked, isTrue);
   });
 
+  test('a close racing shutdown cannot corrupt the shutdown loop', () async {
+    final rootA = Directory.systemTemp.createTempSync('shutdown-race-a-');
+    addTearDown(() => rootA.deleteSync(recursive: true));
+    final rootB = Directory.systemTemp.createTempSync('shutdown-race-b-');
+    addTearDown(() => rootB.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+    final channelA = await h.openLocal(rootA.path);
+    final channelB = await h.openLocal(rootB.path);
+    for (final channel in [channelA, channelB]) {
+      await h.call((id) => WatchLocalDirectoryRequest(
+        requestId: id, channelId: channel.channelId, path: channel.homePath,
+      ));
+    }
+    final gateA = backend.gates[channelA.homePath]!;
+    final gateB = backend.gates[channelB.homePath]!;
+    addTearDown(() {
+      if (!gateA.isCompleted) gateA.complete();
+      if (!gateB.isCompleted) gateB.complete();
+    });
+
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    // Drive the loop until it is parked closing the first channel — the
+    // cancellation of A's backend subscription is observable.
+    for (var i = 0;
+        i < 20 && !backend.cancelled.contains(channelA.homePath);
+        i++) {
+      await pumpEventQueue();
+    }
+    expect(backend.cancelled, contains(channelA.homePath));
+
+    // A close for B processed while the loop is parked in A's await
+    // mutates the channel map mid-iteration — without the snapshot this
+    // is a ConcurrentModificationError that fails shutdown.
+    final closingB = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelB.channelId,
+    ));
+
+    gateA.complete();
+    gateB.complete();
+    final result = await shuttingDown;
+    expect(result, isA<EngineAck>());
+    await closingB;
+  });
+
   test('closing a fully retired channel stays idempotent', () async {
     final root = Directory.systemTemp.createTempSync('retired-close-');
     addTearDown(() => root.deleteSync(recursive: true));
