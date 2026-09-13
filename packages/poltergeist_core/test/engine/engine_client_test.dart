@@ -398,8 +398,9 @@ void main() {
   });
 
   group('local directory watches', () {
-    /// Spawns a real engine and opens a local channel on a temp fixture:
-    /// `a.txt` plus an empty `sub` directory, both deleted at teardown.
+    /// Spawns a real engine and opens a local channel on a temp fixture,
+    /// optionally populated with `a.txt` plus an empty `sub` directory
+    /// ([populate], default true); the tree is deleted at teardown.
     Future<(EngineClient, EngineBrowseChannel, Directory)> localFixture(
       String name, {
       bool populate = true,
@@ -593,11 +594,12 @@ void main() {
             .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
             .timeout(_watchCrossingTimeout);
 
-        // The loss must not leak the OS handle: on Windows a held handle
-        // keeps a delete-pending name alive, so the name only leaves the
-        // namespace once the backend really released it. Bounded polling
-        // — the observable here is kernel-side, not Dart-side.
-        await channel.unwatchDirectory();
+        // The loss path itself must release the OS handle: on Windows a
+        // held handle keeps a delete-pending name alive, so the name only
+        // leaves the namespace once the engine's own post-loss teardown
+        // completed — no explicit unwatch may run here, or it would
+        // release the handle and mask exactly the leak this pins. The
+        // observable is kernel-side, hence bounded polling.
         final deadline = DateTime.now().add(_watchCrossingTimeout);
         while (root.existsSync()) {
           if (DateTime.now().isAfter(deadline)) {
