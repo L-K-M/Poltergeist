@@ -528,16 +528,25 @@ void main() {
         expect(event.path, channel.homePath);
         expect(event.detail, isNotNull);
       },
-      // Windows defers deleting a watched directory (delete-pending while
-      // the watch holds its handle), so the OS produces no loss signal at
-      // all there; the root-loss logic itself is covered cross-platform by
-      // the injected-backend adapter suite.
-      skip: Platform.isWindows
-          ? 'Windows defers removing a watched directory; no loss signal '
-              'exists there — the children-removal changed and its rescan '
-              'are the observable path'
-          : false,
     );
+
+    test('deleting an empty watched directory signals lost', () async {
+      final (_, channel, root) = await localFixture('pg-watch-empty-vanish');
+      final emptyPath = '${channel.homePath}${Platform.pathSeparator}sub';
+      await channel.watchDirectory(emptyPath);
+      await drainSetupBacklog();
+
+      // No child event can trigger a rescan: the watch must detect the
+      // root's loss while its Windows handle still holds deletion pending.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/sub').deleteSync();
+
+      final event = await lost;
+      expect(event.path, emptyPath);
+      expect(event.detail, isNotNull);
+    });
 
     test('unwatchDirectory releases the engine-side watch', () async {
       final (_, channel, root) = await localFixture('pg-watch-release');

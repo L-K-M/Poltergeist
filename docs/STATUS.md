@@ -2900,6 +2900,15 @@ EngineAck only for the shutdown's own drain). All earlier race
 regressions (duplicate sharing, drain-window duplicates, retire-loop
 race, open gating, never-settling drain bound) pass unchanged.
 
+## M3: Windows watched-directory loss (2026-09-13, in progress)
+
+Item 16's regression now requires empty and populated watched directories
+to report `lost` through the real engine on Windows too. Native CI must
+establish the failing baseline before the backend changes. The suggested
+parent watch remains unverified: Windows can defer removing the parent's
+child entry until the watched child's last handle closes. No fix or
+milestone completion is claimed yet.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
