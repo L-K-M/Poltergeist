@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-import 'engine_host_test.dart' show HostHarness;
+import 'engine_host_test.dart' show HostHarness, expectError;
 import 'watch_supersession_test.dart' show GatedWatchBackend;
 
 void main() {
@@ -122,25 +122,31 @@ void main() {
     await closingB;
   });
 
-  test('a first close arriving during the drain is awaited by shutdown',
+  test('a close racing the retire loop shares the tracked retirement',
       () async {
-    final rootA = Directory.systemTemp.createTempSync('drain-new-a-');
+    final rootA = Directory.systemTemp.createTempSync('drain-race-a-');
     addTearDown(() => rootA.deleteSync(recursive: true));
+    final rootB = Directory.systemTemp.createTempSync('drain-race-b-');
+    addTearDown(() => rootB.deleteSync(recursive: true));
     final backend = GatedWatchBackend();
     final h = HostHarness(localWatch: backend);
     addTearDown(h.dispose);
     final channelA = await h.openLocal(rootA.path);
-    await h.call((id) => WatchLocalDirectoryRequest(
-      requestId: id, channelId: channelA.channelId, path: channelA.homePath,
-    ));
+    final channelB = await h.openLocal(rootB.path);
+    for (final channel in [channelA, channelB]) {
+      await h.call((id) => WatchLocalDirectoryRequest(
+        requestId: id, channelId: channel.channelId, path: channel.homePath,
+      ));
+    }
     final gateA = backend.gates[channelA.homePath]!;
+    final gateB = backend.gates[channelB.homePath]!;
     addTearDown(() {
       if (!gateA.isCompleted) gateA.complete();
+      if (!gateB.isCompleted) gateB.complete();
     });
 
-    // Park the drain on A's tracked retirement: A is closed by request
-    // (so the channel loop has nothing to close) and shutdown's drain
-    // snapshot holds exactly A.
+    // Park the drain on A's tracked retirement (A closed by request, so
+    // the retire loop starts empty-handed).
     final closingA = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channelA.channelId,
     ));
@@ -149,106 +155,96 @@ void main() {
       await pumpEventQueue();
     }
 
-    // A channel OPENED during shutdown is not in the channel loop's
-    // snapshot, so only its own close request retires it — during the
-    // drain, creating an entry after the drain's one-shot snapshot.
-    final openedC = await h.call(
-      (id) => OpenLocalBrowseChannelRequest(
-        requestId: id,
-        rootPath: rootA.parent.path,
-      ),
-    );
-    final opened = openedC as BrowseChannelOpened;
-    final channelC = opened.channelId;
-    final canonicalC = opened.homePath;
-    await h.call((id) => WatchLocalDirectoryRequest(
-      requestId: id, channelId: channelC, path: canonicalC,
+    // B is pre-existing and still open: its close races the retire loop.
+    // Whichever retires it first, the close's ack and the shutdown ack
+    // both await the SAME tracked release.
+    final closingB = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelB.channelId,
     ));
-    final gateC = backend.gates[canonicalC]!;
-    addTearDown(() {
-      if (!gateC.isCompleted) gateC.complete();
-    });
-    final closingC = h.call((id) => CloseBrowseChannelRequest(
-      requestId: id, channelId: channelC,
-    ));
-    var shutdownAcked = false;
-    unawaited(shuttingDown.then((_) => shutdownAcked = true));
+    var bAcked = false;
+    unawaited(closingB.then((_) => bAcked = true));
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
-    expect(backend.cancelled, containsAll([channelA.homePath, canonicalC]));
+    expect(backend.cancelled, containsAll([channelA.homePath, channelB.homePath]));
 
-    // A's release completes; C's is still gated. Shutdown must NOT ack
-    // over C's in-flight retirement.
+    // A settles first; B's release is still gated — neither B's close nor
+    // shutdown may ack over it.
     gateA.complete();
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
-    expect(shutdownAcked, isFalse,
-        reason: 'shutdown acked over a retirement created during the drain');
+    expect(bAcked, isFalse,
+        reason: 'close B must await its own backend release');
 
-    gateC.complete();
+    gateB.complete();
     expect(await shuttingDown, isA<EngineAck>());
-    expect(await closingC, isA<EngineAck>());
-    expect(await closingA, isA<EngineAck>());
+    expect(await closingB, isA<EngineAck>());
+    await closingA;
   });
 
-  test('a channel opened during shutdown is retired before the ack',
-      () async {
-    final rootA = Directory.systemTemp.createTempSync('drain-open-a-');
-    addTearDown(() => rootA.deleteSync(recursive: true));
+  test('opens are rejected once the engine is shutting down', () async {
+    final root = Directory.systemTemp.createTempSync('shutdown-open-gate-');
+    addTearDown(() => root.deleteSync(recursive: true));
     final backend = GatedWatchBackend();
     final h = HostHarness(localWatch: backend);
     addTearDown(h.dispose);
-    final channelA = await h.openLocal(rootA.path);
+    final channel = await h.openLocal(root.path);
     await h.call((id) => WatchLocalDirectoryRequest(
-      requestId: id, channelId: channelA.channelId, path: channelA.homePath,
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
     ));
-    final gateA = backend.gates[channelA.homePath]!;
+    final gate = backend.gates[channel.homePath]!;
     addTearDown(() {
-      if (!gateA.isCompleted) gateA.complete();
+      if (!gate.isCompleted) gate.complete();
     });
 
-    // Park the drain on A's tracked retirement.
-    final closingA = h.call((id) => CloseBrowseChannelRequest(
-      requestId: id, channelId: channelA.channelId,
-    ));
+    // Park shutdown in the drain; a local open racing it is the only
+    // intake that could mint an unretirable channel. The close is fired
+    // without awaiting — its ack parks on the gate.
+    unawaited(h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    )));
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
 
-    // Open and WATCH a channel during the drain, then never close it —
-    // no retirement exists for the drain to await, so only the retire
-    // loop can keep this watch from outliving the shutdown ack.
-    final openedC = await h.call(
-      (id) => OpenLocalBrowseChannelRequest(
-        requestId: id,
-        rootPath: rootA.parent.path,
+    final error = await expectError(
+      h.call(
+        (id) => OpenLocalBrowseChannelRequest(
+          requestId: id,
+          rootPath: root.path,
+        ),
       ),
     );
-    final opened = openedC as BrowseChannelOpened;
-    await h.call((id) => WatchLocalDirectoryRequest(
-      requestId: id, channelId: opened.channelId, path: opened.homePath,
-    ));
-    final gateC = backend.gates[opened.homePath]!;
-    addTearDown(() {
-      if (!gateC.isCompleted) gateC.complete();
-    });
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(error.message, contains('shutting down'));
 
-    gateA.complete();
-    var shutdownAcked = false;
-    unawaited(shuttingDown.then((_) => shutdownAcked = true));
-    for (var i = 0; i < 20; i++) {
-      await pumpEventQueue();
-    }
-    expect(shutdownAcked, isFalse,
-        reason: 'shutdown acked while a never-closed channel\'s watch '
-            'was still live');
-
-    gateC.complete();
+    gate.complete();
     expect(await shuttingDown, isA<EngineAck>());
-    await closingA;
+  });
+
+  test('a never-settling retirement cannot hang the shutdown ack',
+      () async {
+    final root = Directory.systemTemp.createTempSync('shutdown-hang-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(
+      localWatch: backend,
+      shutdownDrainTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    // The gate is deliberately NEVER completed: the backend cancellation
+    // never settles.
+
+    final result = await h
+        .call((id) => ShutdownRequest(requestId: id))
+        .timeout(const Duration(seconds: 5));
+    expect(result, isA<EngineAck>());
   });
 
   test('closing a fully retired channel stays idempotent', () async {

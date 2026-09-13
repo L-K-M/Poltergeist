@@ -2728,9 +2728,9 @@ second request. Fix at the host request boundary: retirements in flight
 are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
-drains the map without clearing it first (never acking over a
-still-closing channel it stopped tracking; the 2026-09-13
-shutdown-drain repair below removed the erroneous pre-drain clear),
+drains the map and never clears it (so it cannot ack over a
+still-closing channel; the 2026-09-13 shutdown-drain repair below
+removed the erroneous pre-drain clear),
 and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
 idempotent. The Windows root-removal gap's STATUS entry was also
@@ -2803,8 +2803,12 @@ entry. [CI 34742129311](https://github.com/L-K-M/Poltergeist/actions/runs/347421
 at `57faa73` passed the app checks, all five client builds, three native Dart
 suites, and tooling checks. SSH fixtures were skipped by scope detection;
 M0 measurements remain dispatch-only. M3 remains open.
-## M3 — shutdown-drain repair (2026-09-13, post-merge on #87)
 
+## M3 — shutdown-drain repair (2026-09-13, post-merge on #87; PR #88)
+
+Engine and test changes: this PR (#88) carries them — the red
+baseline is anchored at `0289922`
+(`tasks/task18-logs/shutdown-drain-before.log`, exit 1).
 Supervisor verification of merged #87 found the next lifetime window:
 `_shutdown` snapshotted `_pendingCloses` and then CLEARED the map before
 awaiting the drain — so a duplicate `CloseBrowseChannelRequest`
@@ -2825,9 +2829,13 @@ in `test/engine/supervisor_shutdown_close_test.dart`) was red on merged
 `0289922` (`tasks/task18-logs/shutdown-drain-before.log`, exit 1) and
 passes; the during-drain-creation regression was observed red on this
 repair's first head and passes with the loop drain. The suite now pins
-all three interleavings: pre-shutdown
-duplicate closes (both-acks-gated), drain-window duplicates (this
-repro), and the shutdown/channel-loop race — whose mid-loop mutation is
+the interleavings: pre-shutdown duplicate closes (both-acks-gated),
+drain-window duplicates (this repro), the retire-loop race (a close
+racing the loop shares the tracked retirement), open rejection once
+shutting down, and the never-settling retirement bound (an injectable
+drain timeout keeps the ack bounded; opens gated at shutdown close
+both the fixed point's leak and starvation premises). The mid-loop
+mutation is
 now deterministic (a pump between issuing the racing close and
 releasing the gates guarantees the map mutation lands inside the loop's
 iteration; without it the microtask-resumed loop could finish first and
@@ -2841,11 +2849,11 @@ the assertions), the pumped negative assertions document why
 debounce — is cancelled synchronously on release), and `_closeChannel`'s
 doc states the failure-sharing asymmetry (a failed retirement surfaces
 its error to every sharing close; only post-settlement closes ack
-idempotently). PR #87's final review round — whose edited summary
-carried this exact major finding plus four minors and one info finding
-under a zero inline/actionable count — was initially misreported as
-"no findings"; the summary findings are fully dispositioned in that
-PR's corrected body and this repair applies all of them.
+idempotently). PR #87's final review round was initially misreported
+as "no findings": its edited summary actually carried this exact major
+finding plus four minors and one info finding (zero inline/actionable
+count). Those summary findings are fully dispositioned in that PR's
+corrected body, and this repair applies all of them.
 
 ## Open items
 

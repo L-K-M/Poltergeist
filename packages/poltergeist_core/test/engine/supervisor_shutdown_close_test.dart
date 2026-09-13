@@ -27,7 +27,12 @@ void main() {
       requestId: id, channelId: channel.channelId,
     ));
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
-    await pumpEventQueue();
+    // Match the sibling suite's park-the-drain strength (its for-loop
+    // idiom) so the "during the drain" precondition is equally
+    // deterministic here.
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
     final second = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channel.channelId,
     ));

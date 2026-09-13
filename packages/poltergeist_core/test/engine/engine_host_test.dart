@@ -143,6 +143,7 @@ class HostHarness {
     EngineConfig config = const EngineConfig(),
     FakeTransportOpener? opener,
     LocalWatchBackend? localWatch,
+    Duration? shutdownDrainTimeout,
   }) : opener = opener ?? FakeTransportOpener() {
     this.opener.transportFsBuilder = (_) => fs;
     _port.listen((message) {
@@ -159,6 +160,7 @@ class HostHarness {
       openTransport: this.opener.opener,
       prober: prober,
       localWatch: localWatch,
+      shutdownDrainTimeout: shutdownDrainTimeout,
     );
   }
 

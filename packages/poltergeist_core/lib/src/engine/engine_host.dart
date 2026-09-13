@@ -70,6 +70,12 @@ class EngineHost {
   final Map<int, Future<void>> _pendingCloses = {};
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   late final LocalWatchBackend _localWatch;
+
+  /// Bound per retirement during the shutdown drain — the bounded-
+  /// teardown convention (a wedged backend cancel must not hang the
+  /// shutdown ack forever). Injectable for tests.
+  late final Duration _shutdownDrainTimeout;
+  static const _defaultDrainTimeout = Duration(seconds: 30);
   int _nextChannelId = 1;
   bool _shuttingDown = false;
 
@@ -84,9 +90,11 @@ class EngineHost {
     Prober prober = const TcpBannerProber(),
     HostKeyStore? hostKeyStore,
     LocalWatchBackend? localWatch,
+    Duration? shutdownDrainTimeout,
   }) {
     final host = EngineHost._(events);
     host._localWatch = localWatch ?? const DartIoWatchBackend();
+    host._shutdownDrainTimeout = shutdownDrainTimeout ?? _defaultDrainTimeout;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
       resolveServer: host._resolveKnownServer,
@@ -176,6 +184,7 @@ class EngineHost {
     switch (message) {
       case final OpenBrowseChannelRequest request:
         _guard(request.requestId, () async {
+          _rejectIfShuttingDown();
           _servers[request.serverId] = request.config;
           final channel = await _manager.openBrowseChannel(
             request.serverId,
@@ -190,6 +199,7 @@ class EngineHost {
         });
       case final OpenLocalBrowseChannelRequest request:
         _guard(request.requestId, () async {
+          _rejectIfShuttingDown();
           final fs = LocalFileSystem();
           // 03 §2.2: canonicalize never fails for a missing path, so the
           // open succeeds and an unresolvable root surfaces through the
@@ -382,6 +392,22 @@ class EngineHost {
     }
   }
 
+  /// Opens are the only requests that mint new channels, so they are
+  /// the only intake shutdown must gate: once draining, a new channel
+  /// could neither join the retirement fixed point (opened after the
+  /// final check) nor be bounded by it (sustained opens would starve the
+  /// drain forever). Everything else is bounded already — duplicate
+  /// closes share an existing retirement, and closes for retired
+  /// channels ack idempotently.
+  void _rejectIfShuttingDown() {
+    if (!_shuttingDown) return;
+    throw const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'open',
+      message: 'The engine is shutting down.',
+    );
+  }
+
   Future<EngineResult> _watchLocalDirectory(
     WatchLocalDirectoryRequest request,
   ) async {
@@ -502,10 +528,17 @@ class EngineHost {
     // retire them — which also releases each channel's directory watch
     // (03 §7.5) and its debounce timer, tracked so duplicate closes and
     // this shutdown share the completion. Pool bindings were closed by
-    // disconnectServer above. Fixed-point: channels OPENED while shutdown
-    // awaits (requests are still routed) were in no snapshot, so only
-    // re-retiring until both maps empty guarantees no watch outlives the
-    // shutdown ack.
+    // disconnectServer above (they hold no directory watch — watching is
+    // local-only — and are dropped here exactly as the pre-repair final
+    // clear dropped them). Fixed-point: channels opened while shutdown
+    // awaits are retired on the next iteration, so re-retiring until
+    // both maps empty guarantees no watch outlives the shutdown ack.
+    // Bounded: opens are rejected once shutting down, each channel can
+    // mint at most one tracked retirement, duplicate closes share it,
+    // and closes for retired channels ack idempotently — no client
+    // traffic can starve the fixed point. The loop clears _channels per
+    // iteration and exits only when empty, so the post-loop map is
+    // empty on every path (the hygiene the old final clear provided).
     while (_channels.isNotEmpty || _pendingCloses.isNotEmpty) {
       final entries = List.of(_channels.entries);
       _channels.clear();
@@ -522,24 +555,34 @@ class EngineHost {
       // exists to close.
       while (_pendingCloses.isNotEmpty) {
         final retirement = _pendingCloses.values.first;
+        var settled = true;
         try {
-          await retirement;
+          // Bounded: a retirement that never settles must not hang the
+          // shutdown ack (the timeout lands below; the stuck branch then
+          // abandons the entry).
+          await retirement.timeout(_shutdownDrainTimeout);
+        } on TimeoutException {
+          settled = false;
         } on Object {
-          // Shutdown must complete even if one retirement is broken.
+          // Threw: settled-with-error — the cleanup listener still ran.
         }
         // The self-removal listener is registered at retirement time,
-        // earlier than this await, so it runs first. If a settled future
-        // ever stays in the map, the loop would busy-spin on microtasks
-        // and starve the isolate — fail loud in debug, and force
-        // progress in release builds (removal matches the idempotent-ack
-        // semantics for a settled retirement).
+        // earlier than this await, so it runs first for any retirement
+        // that settles. An entry still sitting here after a SETTLED
+        // await is an invariant break (it would spin the drain) — fail
+        // loud in debug; an unsettled (timed-out) one is legitimately
+        // abandoned, its release dying with the isolate. Release builds
+        // force progress either way.
         final stuck = _pendingCloses.isNotEmpty &&
             identical(_pendingCloses.values.first, retirement);
-        assert(!stuck, 'A settled retirement did not self-remove from '
-            '_pendingCloses; the shutdown drain would spin forever.');
+        assert(
+          !stuck || !settled,
+          'A settled retirement did not self-remove from _pendingCloses; '
+          'the shutdown drain would spin forever.',
+        );
         if (stuck) {
-          // The removed value is the already-settled retirement; discard
-          // its (already-completed) future explicitly.
+          // The removed value is the abandoned retirement; discard its
+          // future explicitly.
           unawaited(_pendingCloses.remove(_pendingCloses.keys.first));
         }
       }
