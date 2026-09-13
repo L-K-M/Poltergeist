@@ -214,6 +214,92 @@ void main() {
     controller.dispose();
   });
 
+  test('digit runs order naturally on the accepted listing', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    final listed = [
+      _entry('file10'),
+      _entry('file1'),
+      _entry('file2'),
+    ];
+    channel.listings['/home/tester'] = listed;
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+
+    await controller.openLocalHome();
+    await settle();
+
+    // 02 §2.3: digit runs compare numerically, so file2 precedes file10
+    // (lexical lowercase order would interleave file10 after file1).
+    expect(
+      controller.entries.map((e) => e.name).toList(),
+      ['file1', 'file2', 'file10'],
+    );
+    // The sorted pane listing is a new order: the VFS-returned list keeps
+    // the server's order and its entries keep their identity.
+    expect(
+      listed.map((e) => e.name).toList(),
+      ['file10', 'file1', 'file2'],
+    );
+    expect(
+      controller.entries,
+      everyElement(isIn(listed)),
+    );
+    expect(controller.entries, isNot(same(listed)));
+    controller.dispose();
+  });
+
+  test('Unicode simple fold orders names lowercase comparison would not',
+      () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    // ς (final sigma) folds to σ and ſ (long s) folds to s under 02 §2.3's
+    // simple fold, while toLowerCase leaves both untouched: lowercase
+    // lexical order would put sz before ſb and ςa before σz.
+    channel.listings['/home/tester'] = [
+      _entry('ςa'),
+      _entry('sz'),
+      _entry('ſb'),
+      _entry('σz'),
+    ];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+
+    await controller.openLocalHome();
+    await settle();
+
+    expect(
+      controller.entries.map((e) => e.name).toList(),
+      ['ſb', 'sz', 'ςa', 'σz'],
+    );
+    controller.dispose();
+  });
+
+  test('directories group first with natural names below', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('file10'),
+      _entry('.hidden'),
+      _entry('Dir 2', type: RemoteFileType.directory),
+      _entry('file2'),
+      _entry('Dir 10', type: RemoteFileType.directory),
+    ];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+
+    await controller.openLocalHome();
+    await settle();
+
+    // Dotfiles stay hidden; directories group ahead of files, and the
+    // files below them still sort naturally (file2 before file10).
+    expect(
+      controller.entries.map((e) => e.name).toList(),
+      ['Dir 2', 'Dir 10', 'file2', 'file10'],
+    );
+    controller.dispose();
+  });
+
   test('navigation issues optimistically and accepts current listings',
       () async {
     final lanes = FakePaneLanes();
