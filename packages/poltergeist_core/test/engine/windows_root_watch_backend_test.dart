@@ -38,7 +38,8 @@ class _ScriptedBackend implements LocalWatchBackend {
       throw const FileSystemException('backend refused', 'watch');
     }
     final stream = Stream<FileSystemEvent>.multi((multi) {
-      controllers[directory] = multi;      multi.onCancel = () {
+      controllers[directory] = multi;
+      multi.onCancel = () {
         cancels.add(directory);
         return gates[directory]?.future;
       };
@@ -263,15 +264,15 @@ void main() {
     expect(backend.cancels, [_watched, _parent]);
   });
 
-  test('release during partial setup cannot be double-issued', () async {
+  test('a cancel after the end-of-stream release is a no-op', () async {
     final backend = _ScriptedBackend();
     final merged = WindowsRootWatchBackend(raw: backend).watch(_watched);
 
     final subscription = merged.listen((_) {});
     await pumpEventQueue();
     // A parent close racing the watcher's own release: whichever runs
-    // release() first nulls the subscriptions, and the second call stays
-    // a no-op — no double cancel, no late crash.
+    // release() first owns the teardown, and the second call stays a
+    // no-op — no duplicate cancellation, no late crash.
     unawaited(backend.controllers[_parent]!.close());
     await pumpEventQueue();
     final afterLoss = List.of(backend.cancels);
@@ -282,6 +283,59 @@ void main() {
     // The explicit cancel issues nothing new: the end-of-stream release
     // already nulled both subscriptions.
     expect(backend.cancels, afterLoss);
+  });
+
+  test('cancellation awaits a release the end-of-stream already started',
+      () async {
+    final backend = _ScriptedBackend();
+    final merged = WindowsRootWatchBackend(raw: backend).watch(_watched);
+
+    backend.armGate(_watched);
+    final subscription = merged.listen((_) {});
+    await pumpEventQueue();
+
+    unawaited(backend.controllers[_parent]!.close());
+    await pumpEventQueue();
+    // The end-of-stream release already issued the target's cancellation
+    // and it is parked on the gate.
+    expect(backend.cancels, containsAll([_watched, _parent]));
+
+    // An acknowledged cancel must wait out that in-flight teardown, never
+    // ack over it. (Whether the merged done event still reaches a
+    // consumer across a parked close flush is framework behavior; the
+    // release-ownership contract is what this pins.)
+    var acknowledged = false;
+    final cancelled = subscription.cancel().then((_) => acknowledged = true);
+    await pumpEventQueue();
+    expect(acknowledged, isFalse);
+    backend.completeCancel(_watched);
+    await cancelled;
+    expect(acknowledged, isTrue);
+  });
+
+  test('cancellation awaits a release the setup failure already started',
+      () async {
+    final backend = _ScriptedBackend()..throwOn = _parent;
+    final merged = WindowsRootWatchBackend(raw: backend).watch(_watched);
+
+    backend.armGate(_watched);
+    final subscription = merged.listen((_) {}, onError: (_) {});
+    await pumpEventQueue();
+    expect(backend.cancels, [_watched]);
+    expect(backend.gates[_watched]!.isCompleted, isFalse);
+
+    // The failed setup released the acquired target watch on its own; the
+    // consumer's cancel must await that in-flight teardown — the cancel
+    // hook owns the release even though setup never completed. (The loud
+    // failure itself is pinned by the refused-at-subscribe test above,
+    // whose release is not gated.)
+    var acknowledged = false;
+    final cancelled = subscription.cancel().then((_) => acknowledged = true);
+    await pumpEventQueue();
+    expect(acknowledged, isFalse);
+    backend.completeCancel(_watched);
+    await cancelled;
+    expect(acknowledged, isTrue);
   });
 
   test('a parent delete signals lost immediately, cancelling the debounce',
@@ -365,6 +419,42 @@ void main() {
       unawaited(watcher.dispose());
       async.flushMicrotasks();
     });
+  });
+
+  test('a stop after a loss awaits the release the loss already started',
+      () async {
+    final backend = _ScriptedBackend();
+    final watcher = LocalDirectoryWatcher(
+      backend: WindowsRootWatchBackend(raw: backend),
+    );
+
+    final signals = <LocalWatchSignal>[];
+    watcher.signals.listen(signals.add);
+    await watcher.retarget(_watched);
+    await pumpEventQueue();
+
+    backend.armGate(_watched);
+    backend
+        .controllers[_parent]!
+        .addError(const FileSystemException('parent died', _parent));
+    await pumpEventQueue();
+    // The error crosses as lost immediately — signal routing does not
+    // wait for the release.
+    expect(signals, hasLength(1));
+    expect(signals.single.kind, DirectoryWatchSignal.lost);
+    expect(backend.gates[_watched]!.isCompleted, isFalse);
+
+    // The loss's own teardown is still in flight; the acknowledged stop
+    // must await it — a host-level ack cannot bypass the backend release.
+    final stopped = watcher.stop();
+    var done = false;
+    unawaited(stopped.then((_) => done = true));
+    await pumpEventQueue();
+    expect(done, isFalse);
+    backend.completeCancel(_watched);
+    await stopped;
+    expect(done, isTrue);
+    await watcher.dispose();
   });
 
   test('an explicit stop releases both watches in issue order', () {

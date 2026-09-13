@@ -3439,23 +3439,38 @@ race, open gating, never-settling drain bound) pass unchanged.
     claims overflow detection on Linux. (The 2026-09-13 repair below
     corrected this item's earlier "every other §7.5 failure mode is
     surfaced" claim: Windows root removal is its own gap, item 16.)
-16. **2026-09-13 — M3: a watched directory's rename-away on Windows is
-    unobservable through dart:io (native CI evidence, PR #91); fix in
-    flight on #91.** Correction of this item's original claim: the
-    empty-root DELETION case is NOT unobservable — the native Windows CI
-    run (job 103717516589, PR #91's baseline) delivered `lost` for a
-    deleted empty watched directory, so the earlier "nothing observable
-    at all" claim (opened by the task18 post-merge verification) was
-    wrong for deletions. What IS unobservable is the RENAME-AWAY: the
-    watch handle silently follows the renamed directory and no event,
-    error, or close ever fires (the same run's rename regression timed
-    out waiting for `lost` after the rename succeeded). The repair is
-    the compatible parent-watch adapter: a Windows `LocalWatchBackend`
-    variant that additionally watches the watched directory's PARENT
-    non-recursively, strictly filtered to the watched name, and maps a
-    parent-reported removal or rename of the watched name into the
-    uniform root-loss shape (03 §7.5); event-based, local-only, no
-    recursive expansion. Item 14's Linux overflow stays its own gap.
+16. **2026-09-13 — M3: a watched directory's rename-away on Windows was
+    unobservable through dart:io (native CI evidence); closed by #91's
+    parent-watch adapter.** Correction of this item's original claim:
+    the empty-root DELETION case was never unobservable — the native
+    Windows CI run at PR #91's baseline (run 34754899395, job
+    103717516589) delivered `lost` for a deleted empty watched directory,
+    so the earlier "nothing observable at all" claim (opened by the
+    task18 post-merge verification) was wrong for deletions. What WAS
+    unobservable is the RENAME-AWAY: the watch handle silently follows
+    the renamed directory and no event, error, or close ever fires (the
+    same run's rename regression timed out waiting for `lost` after the
+    rename succeeded). The fix is the compatible parent-watch adapter: a
+    Windows `LocalWatchBackend` variant that additionally watches the
+    watched directory's PARENT non-recursively, strictly filtered to the
+    watched name, and maps a parent-reported removal or rename of the
+    watched name into the uniform root-loss shape (03 §7.5);
+    event-based, local-only, no recursive expansion. Native green: CI
+    34756085152 (at 0e13558) ran the rename and handle-release
+    regressions on Windows against the adapter and passed (699 pass / 37
+    skips). Supervisor verification then found a deterministic teardown
+    defect in the adapter's dual-release bookkeeping (an acknowledged
+    cancel could bypass an in-flight release started by an end-of-stream
+    or a setup failure); repaired with a shared cached release
+    completion and cancellation ownership installed before setup, pinned
+    by red-first regressions now in the adapter suite. Scope: the
+    closure covers a direct rename/removal of the watched name;
+    renaming an ANCESTOR above the parent stays silent on every
+    platform through dart:io (pre-existing limitation of the seam — the
+    parent's handle follows the renamed ancestor like the target's
+    follows the target), documented in the adapter and 03 §7.5, with the
+    consumer's rescan-notFound as the backstop; no recursive ancestor
+    watch is added. Item 14's Linux overflow stays its own gap.
 
 15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode

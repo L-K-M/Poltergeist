@@ -23,6 +23,20 @@ const String _backslash = '\\';
 /// parent's handle sees the child's name leave it; the adapter is
 /// event-based, local-only, and adds no recursive watch.
 ///
+/// Residual gap (pre-existing, not introduced here): renaming an ANCESTOR
+/// above the parent stays silent on every platform through dart:io — the
+/// parent's own handle follows the renamed ancestor exactly as the
+/// target's follows a renamed target — and no recursive ancestor watch is
+/// added; the consumer's rescan (answering `notFound`) is the backstop.
+/// This closure claim is scoped to a direct rename/removal of the watched
+/// name.
+///
+/// The synthesized loss event carries `isDirectory: false` on purpose:
+/// the SDK's own decoder constructs every Windows delete event — and the
+/// Linux/macOS delete-self shape this replicates — with `false`, and
+/// `FileSystemDeleteEvent.isDirectory` is documented as always false; the
+/// consumer (the watcher's root match) keys on the path only.
+///
 /// Selection: the production path uses this backend on Windows only
 /// ([EngineHost]'s default); Linux and macOS keep the plain dart:io
 /// watch, whose native delete-self loss needs no adapter.
@@ -68,22 +82,33 @@ final class WindowsRootWatchBackend implements LocalWatchBackend {
 
       // ONE truthful release for BOTH underlying watches: every
       // cancellation is issued before any is awaited, so a failing link
-      // cannot skip its sibling, and the returned future settles only
-      // when every issued cancellation has. Per-link errors are
-      // contained: signal routing is already dead above, and the
-      // watcher's epoch never rests on cancel completion — but the
-      // acknowledged release here means both OS watches are really gone,
-      // not merely scheduled to go.
+      // cannot skip its sibling, and the first teardown path to run
+      // caches its completion — every later release (an explicit cancel,
+      // a second end-of-stream) returns that same future instead of
+      // issuing duplicate cancellations or acking early. An acknowledged
+      // cancellation therefore always means the in-flight teardown
+      // completed: both OS watches are really gone, not merely scheduled
+      // to go. Per-link errors are contained: signal routing is already
+      // dead above, and the watcher's epoch never rests on cancel
+      // completion.
+      Future<void>? pendingRelease;
+
       Future<void> release() {
+        final inFlight = pendingRelease;
+        if (inFlight != null) return inFlight;
         final target = targetSubscription;
         final parentSubscription0 = parentSubscription;
         targetSubscription = null;
         parentSubscription = null;
+        if (target == null && parentSubscription0 == null) {
+          return Future<void>.value();
+        }
         final issued = [
           if (target != null) target.cancel(),
           if (parentSubscription0 != null) parentSubscription0.cancel(),
         ];
-        return Future.wait(issued).then((_) {}, onError: (Object _) {});
+        return pendingRelease =
+            Future.wait(issued).then((_) {}, onError: (Object _) {});
       }
 
       void relay(FileSystemEvent event) {
@@ -105,6 +130,16 @@ final class WindowsRootWatchBackend implements LocalWatchBackend {
         unawaited(release());
       }
 
+      // Delivery note: a backend ERROR crosses immediately and drives
+      // lost without waiting the release; a backend CLOSE (end-of-stream)
+      // settles with it — the Stream.multi close flush runs the
+      // consumer's cancellation first, and that cancellation is the
+      // truthful release. The verified Windows loss shapes are
+      // error- and event-driven, so the lost signal is prompt there; a
+      // backend whose cancellation never settles delays a close-driven
+      // lost under the same cancel-must-settle contract stop and dispose
+      // already require.
+
       // The parent is the loss detector: its events are its own direct
       // children, so every event that does not name the watched directory
       // is a sibling's business — dropped here, before the watcher's
@@ -123,6 +158,14 @@ final class WindowsRootWatchBackend implements LocalWatchBackend {
         if (!isLoss) return;
         controller.add(FileSystemDeleteEvent(directory, false));
       }
+
+      // Cancellation ownership is installed BEFORE any setup can fail:
+      // a setup failure starts the teardown itself, and the consumer's
+      // cancel must still await that in-flight release.
+      controller.onCancel = () {
+        routing = false;
+        return release();
+      };
 
       // Both watches are armed inside one guarded setup: a synchronous
       // refusal at watch/listen time must release whatever was acquired
@@ -150,11 +193,6 @@ final class WindowsRootWatchBackend implements LocalWatchBackend {
         controller.close();
         return;
       }
-
-      controller.onCancel = () {
-        routing = false;
-        return release();
-      };
     });
   }
 }

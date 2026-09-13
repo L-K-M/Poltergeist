@@ -2002,15 +2002,20 @@ launcher/remote) is app-side wiring over that seam. One known backend
 limitation is recorded in STATUS (open item 14): Linux's inotify queue
 overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
 rests on the drain-promptly mitigation until a compatible FFI backend
-surfaces it through the same seam. A second gap, verified natively in
-M3 (STATUS item 16, closed by the same PR): a watched directory's
-rename-away on Windows is unobservable through its own watch handle
-(the handle silently follows the rename), so the production Windows
-backend additionally watches the watched directory's parent,
-non-recursively, strictly filtered to the watched name, and maps a
-parent-reported removal or rename of that name into the `lost` signal —
-behind the same `LocalWatchBackend` seam, event-based, local-only. Both
-gaps are M3 blockers for pane wiring, not completed QA.
+surfaces it through the same seam — that gap remains the M3
+pane-wiring blocker. A second gap, verified natively in M3, was closed
+by the same slice that proved it (STATUS item 16): a watched
+directory's rename-away on Windows is unobservable through its own
+watch handle (the handle silently follows the rename), so the
+production Windows backend additionally watches the watched directory's
+parent, non-recursively, strictly filtered to the watched name, and
+maps a parent-reported removal or rename of that name into the `lost`
+signal — behind the same `LocalWatchBackend` seam, event-based,
+local-only, with no recursive watch. The closure is scoped to a direct
+rename/removal of the watched name: renaming an ancestor above the
+parent stays silent on every platform through dart:io (pre-existing;
+the rescan's `notFound` is the backstop), and no recursive ancestor
+watch is added.
 
 ## 8. Code-sharing mechanics (D2)
 
