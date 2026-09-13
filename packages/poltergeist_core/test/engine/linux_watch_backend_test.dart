@@ -49,9 +49,23 @@ void main() {
 
     expect(events[0], isA<FileSystemCreateEvent>());
     expect(events.any((event) => event is FileSystemModifyEvent), isTrue);
+    // dart:io's Linux shape: the rename halves merge into one move event
+    // naming the source with its destination.
     expect(
-      events.whereType<FileSystemMoveEvent>().map((event) => event.path),
-      contains(p.join(root.path, 'entry.txt')),
+      events.whereType<FileSystemMoveEvent>().toList(),
+      [
+        isA<FileSystemMoveEvent>()
+            .having(
+              (event) => event.path,
+              'path',
+              p.join(root.path, 'entry.txt'),
+            )
+            .having(
+              (event) => event.destination,
+              'destination',
+              p.join(root.path, 'moved.txt'),
+            ),
+      ],
     );
     expect(
       events.whereType<FileSystemDeleteEvent>().map((event) => event.path),
@@ -111,7 +125,7 @@ void main() {
 
   test('cancellation releases every descriptor it created', () async {
     final root = await tempFixture('pg-inotify-fd');
-    final baseline = _descriptorCount();
+    final baseline = await _descriptorFloor();
 
     for (var cycle = 0; cycle < 25; cycle++) {
       final delivered = Completer<void>();
@@ -131,10 +145,11 @@ void main() {
     // Helper-isolate exit and port teardown finish on the event loop.
     await _pumpEventQueue();
     // Suites run as isolates of one process, so /proc/self/fd carries
-    // ambient descriptors from concurrently running suites. A real
-    // per-cycle leak would add fifty descriptors, far past the tolerance.
+    // ambient descriptors from concurrently running suites; sampling the
+    // minimum over a short window settles that churn. A real per-cycle
+    // leak would add fifty descriptors, far past the tolerance.
     expect(
-      _descriptorCount(),
+      await _descriptorFloor(),
       lessThanOrEqualTo(baseline + _ambientDescriptorSlack),
       reason: '25 watch lifetimes leaked',
     );
@@ -189,7 +204,7 @@ void main() {
     final first = Directory(p.join(parent.path, 'first'))..createSync();
     final second = Directory(p.join(parent.path, 'second'))..createSync();
 
-    final baseline = _descriptorCount();
+    final baseline = await _descriptorFloor();
     final watcher = LocalDirectoryWatcher();
     addTearDown(watcher.dispose);
     final losses = <LocalWatchSignal>[];
@@ -210,7 +225,7 @@ void main() {
     // Same ambient-tolerance reasoning as the cancellation test: a leak
     // here would add forty descriptors across the twenty cycles.
     expect(
-      _descriptorCount(),
+      await _descriptorFloor(),
       lessThanOrEqualTo(baseline + _ambientDescriptorSlack),
       reason: 'retarget cycles leaked',
     );
@@ -221,6 +236,19 @@ void main() {
 /// Ambient descriptor churn from suites sharing this process. A per-cycle
 /// descriptor leak accumulates far past this bound.
 const int _ambientDescriptorSlack = 8;
+
+/// The minimum count over a short window: transient holds from sibling
+/// suites settle, a genuine leak's floor stays elevated.
+Future<int> _descriptorFloor() async {
+  var floor = _descriptorCount();
+  for (var i = 0; i < 3; i++) {
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    floor = _min(floor, _descriptorCount());
+  }
+  return floor;
+}
+
+int _min(int a, int b) => a < b ? a : b;
 
 Future<void> _waitFor(
   bool Function() condition,

@@ -71,7 +71,8 @@ void main() {
         );
         // The detail ties the loss to the overflow itself, not to an
         // incidental close or unrelated error.
-        expect(lost, contains('overflow'), reason: 'stdout: $stdoutLines');
+        expect(lost, contains('overflow'),
+            reason: 'stdout: ${stdoutLines.lines}');
       } finally {
         if (!exited) {
           child.kill(ProcessSignal.sigcont);
@@ -119,12 +120,19 @@ Future<Process> _spawnChild(String directory) async {
 }
 
 Future<void> _awaitStopped(int pid) async {
+  String? lastState;
   for (var attempt = 0; attempt < 25; attempt++) {
-    final state = _processState(pid);
-    if (state == 'T' || state == 't') return;
+    try {
+      lastState = _processState(pid);
+    } on PathNotFoundException {
+      // The child is gone; it can never reach the stopped state, and the
+      // captured output explains why better than a /proc read error.
+      break;
+    }
+    if (lastState == 'T' || lastState == 't') return;
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
-  fail('child ${_processState(pid)} never reached the stopped state');
+  fail('child never reached the stopped state (last state: $lastState)');
 }
 
 /// The state letter follows the final ')' because the comm field may

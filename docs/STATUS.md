@@ -3008,14 +3008,16 @@ ancestor-watch, or permission change; the watch stays leaf-only, so the
 #93 traverse-only-ancestor regression passes untouched.
 
 Design: one non-recursive `inotify_add_watch` per shown directory; a
-helper isolate blocks in descriptor-less-timeout `poll` on {inotify fd,
+helper isolate blocks in a timeout-less `poll` on {inotify fd,
 stop pipe} — the engine isolate never blocks, and there is no timer,
 spin, or filesystem polling (dart:ffi descriptors cannot join the Dart
 event loop). The helper decodes raw `struct inotify_event` batches
 (host-endian header, NUL-padded names decoded with malformed-UTF-8
 replacement, matching the plan's listing stance) and forwards records;
 the owning isolate maps them to the dart:io event shapes the adapter
-already consumes. `IN_Q_OVERFLOW` (descriptor −1) becomes a backend
+already consumes — move halves pair by cookie into one merged
+FileSystemMoveEvent, unpaired halves flush as create/delete, exactly as
+dart:io's Linux watcher does. `IN_Q_OVERFLOW` (descriptor −1) becomes a backend
 error — the adapter's immediate `lost`; `IN_DELETE_SELF`/`IN_MOVE_SELF`/
 `IN_UNMOUNT` produce dart:io's Linux root-loss shape (one delete naming
 the watched path, then stream close, collapsed to one lost by the
@@ -3039,12 +3041,11 @@ nothing drains the queue), receives `max_queued_events + 4096` distinct
 create/delete events from the supervisor, is SIGCONTed, and must report
 a lost whose detail names the overflow. At base `36211a27` (production
 still dart:io) the child printed `TIMEOUT` and exited 3 — no signal, the
-exact silent-drop defect
-(`tasks/task21-logs/native-overflow-baseline.log`, exit 1); with the
-backend selected the same harness passes in ~4 s
-(`native-overflow-after.log`, exit 0). The sysctl is only ever read; the
-child is always resumed, killed, and reaped in `finally`; only the owned
-child is ever signalled.
+exact silent-drop defect (`tasks/task21-logs/native-overflow-baseline.log`,
+harness exit 1); with the backend selected the same harness passes in
+~4 s (`native-overflow-after.log`, harness exit 0). The sysctl is only
+ever read; the child is always resumed, killed, and reaped in `finally`;
+only the owned child is ever signalled.
 
 Validation: 13 pure decoder/mapper tests (packed batches, unnamed and
 overflow-shaped events, malformed-UTF-8 names, truncated header/name
@@ -3586,7 +3587,7 @@ Linux/macOS) remains the open watch follow-up.
     D25 still defers byte-preserving operations. No local VFS fork or
     replacement interface is authorized by this item.
 14. **2026-09-13 — M3: Linux inotify overflow is invisible through
-    dart:io (closed by the inotify backend, 2026-09-13).** The watch
+    dart:io (closed by the inotify backend).** The watch
     seam's `LocalDirectoryWatcher` (dated section above) could not
     observe `IN_Q_OVERFLOW` through dart:io: the kernel posts the
     overflow event with watch descriptor −1, which matches no watched
@@ -3595,7 +3596,7 @@ Linux/macOS) remains the open watch follow-up.
     with no signal (verified against Dart 3.13.3
     `runtime/bin/file_system_watcher_linux.cc`). Closed by the Linux
     inotify backend behind the same `LocalWatchBackend` seam (dated
-    section below): the backend decodes the raw event stream through a
+    section above): the backend decodes the raw event stream through a
     helper-isolate `poll` bridge and surfaces the overflow as a backend
     error — the adapter's immediate `lost`. Native failing-first evidence
     and the repaired run are recorded in the dated section.

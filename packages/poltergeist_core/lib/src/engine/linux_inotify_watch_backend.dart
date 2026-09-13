@@ -83,6 +83,10 @@ const int inotifyIsDir = 0x40000000;
 const int inotifyNonBlock = 0x800;
 const int inotifyCloseOnExec = 0x80000;
 
+/// fcntl `O_CLOEXEC` (same value inotify_init1's IN_CLOEXEC shares); used
+/// for the stop pipe so the descriptors never leak into exec'd children.
+const int oCloseOnExec = 0x80000;
+
 // -- poll interface constants (man 2 poll) ---------------------------------
 
 const int pollIn = 0x0001;
@@ -121,9 +125,10 @@ const int inotifyEventHeaderBytes = 16;
 final class InotifyEventRecord {
   final int wd;
   final int mask;
+  final int cookie;
   final String name;
 
-  const InotifyEventRecord(this.wd, this.mask, this.name);
+  const InotifyEventRecord(this.wd, this.mask, this.cookie, this.name);
 }
 
 /// Decodes one `read()` batch. The kernel guarantees whole events per
@@ -139,6 +144,7 @@ List<InotifyEventRecord> decodeInotifyEvents(Uint8List bytes) {
     }
     final wd = data.getInt32(offset, Endian.host);
     final mask = data.getUint32(offset + 4, Endian.host);
+    final cookie = data.getUint32(offset + 8, Endian.host);
     final nameLength = data.getUint32(offset + 12, Endian.host);
     final nameStart = offset + inotifyEventHeaderBytes;
     final nameEnd = nameStart + nameLength;
@@ -150,6 +156,7 @@ List<InotifyEventRecord> decodeInotifyEvents(Uint8List bytes) {
       InotifyEventRecord(
         wd,
         mask,
+        cookie,
         _decodeName(bytes, nameStart, nameEnd),
       ),
     );
@@ -167,9 +174,11 @@ String _decodeName(Uint8List bytes, int start, int end) {
   return utf8.decode(bytes.sublist(start, start + length), allowMalformed: true);
 }
 
-/// Maps one event record to the dart:io event shape the watch adapter is
-/// built on. Returns null for `IN_IGNORED` (the watch was removed; its
-/// loss already surfaced) and for combinations with no mapped bits.
+/// Maps one non-move event record to the dart:io event shape the watch
+/// adapter is built on. Returns null for `IN_IGNORED` (the watch was
+/// removed; its loss already surfaced) and for combinations with no
+/// mapped bits. Move halves go through [InotifyMoveMatcher] instead —
+/// pairing needs state dart:io keeps per chunk.
 ///
 /// `IN_Q_OVERFLOW` never reaches here: the backend turns it into a stream
 /// error before mapping, because dropped events are a loss, not a change.
@@ -200,10 +209,63 @@ FileSystemEvent? fileSystemEventFromInotify({
       mask & inotifyModify != 0,
     );
   }
-  if (mask & (inotifyMovedFrom | inotifyMovedTo) != 0) {
-    return FileSystemMoveEvent(path, isDirectory, null);
-  }
   return null;
+}
+
+/// Pairs `IN_MOVED_FROM`/`IN_MOVED_TO` halves by cookie exactly as
+/// dart:io's Linux watcher does (`_WatchedPath.addEvent`): a matched pair
+/// becomes one [FileSystemMoveEvent] naming the source with its
+/// destination; an unpaired half is flushed as a create (moved-to) or
+/// delete (moved-from) once the read batch ends. This state machine is
+/// the reason the raw stream is decoded instead of consumed event-wise.
+final class InotifyMoveMatcher {
+  /// Most recently encountered move halves by cookie.
+  final _unmatched = <int, ({int mask, String name})>{};
+
+  /// Feeds one move-shaped record; returns the completed move event when
+  /// this record pairs an earlier half, null otherwise (parked, or a
+  /// non-move mask passed through untouched).
+  FileSystemEvent? match({
+    required int mask,
+    required int cookie,
+    required String name,
+    required String watchedPath,
+  }) {
+    if (mask & (inotifyMovedFrom | inotifyMovedTo) == 0) return null;
+
+    if (cookie > 0) {
+      final linked = _unmatched.remove(cookie);
+      if (linked == null) {
+        _unmatched[cookie] = (mask: mask, name: name);
+        return null;
+      }
+      return FileSystemMoveEvent(
+        _pathOf(linked.name, watchedPath),
+        mask & inotifyIsDir != 0,
+        _pathOf(name, watchedPath),
+      );
+    }
+    return _unpaired(mask, name, watchedPath);
+  }
+
+  /// Emits every still-unmatched half as dart:io's flush does: a parked
+  /// moved-to becomes a create, a moved-from a delete. Called when a read
+  /// batch ends, so a rename split across reads still refreshes.
+  List<FileSystemEvent> flush(String watchedPath) => [
+    for (final (:mask, :name) in _unmatched.values)
+      _unpaired(mask, name, watchedPath)!,
+    ];
+
+  FileSystemEvent? _unpaired(int mask, String name, String watchedPath) {
+    final path = _pathOf(name, watchedPath);
+    if (mask & inotifyMovedTo != 0) {
+      return FileSystemCreateEvent(path, mask & inotifyIsDir != 0);
+    }
+    return FileSystemDeleteEvent(path, mask & inotifyIsDir != 0);
+  }
+
+  static String _pathOf(String name, String watchedPath) =>
+      name.isEmpty ? watchedPath : p.join(watchedPath, name);
 }
 
 // -- the FFI bridge ---------------------------------------------------------
@@ -230,8 +292,8 @@ final _inotifyInit1 = _libc.lookupFunction<Int32 Function(Int32),
 final _inotifyAddWatch = _libc
     .lookupFunction<Int32 Function(Int32, Pointer<Uint8>, Uint32),
         int Function(int, Pointer<Uint8>, int)>('inotify_add_watch');
-final _pipe = _libc.lookupFunction<Int32 Function(Pointer<Int32>),
-    int Function(Pointer<Int32>)>('pipe');
+final _pipe = _libc.lookupFunction<Int32 Function(Pointer<Int32>, Int32),
+    int Function(Pointer<Int32>, int)>('pipe2');
 final _poll = _libc.lookupFunction<
     Int32 Function(Pointer<_PollFd>, UnsignedLong, Int32),
     int Function(Pointer<_PollFd>, int, int)>('poll');
@@ -371,6 +433,7 @@ final class _LinuxInotifyWatch {
 
   bool _failed = false;
   Future<void>? _releaseFuture;
+  final InotifyMoveMatcher _moves = InotifyMoveMatcher();
 
   Stream<FileSystemEvent> get stream => _events.stream;
 
@@ -410,7 +473,7 @@ final class _LinuxInotifyWatch {
 
     final pipeFds = calloc<Int32>(2);
     try {
-      if (_pipe(pipeFds) != 0) {
+      if (_pipe(pipeFds, oCloseOnExec) != 0) {
         final code = _errno();
         _closeInotify();
         throw _osError('pipe failed', code);
@@ -424,10 +487,18 @@ final class _LinuxInotifyWatch {
     _readBuffer = calloc<Uint8>(readBufferBytes);
 
     _fromHelper = ReceivePort('inotify events')..listen(_onHelperMessage);
-    // Serves as both the spawn error port and the exit port: any message
-    // means the helper can no longer touch the descriptors.
+    // Serves as both the spawn error port and the exit port: normal exit
+    // delivers null; an uncaught helper error delivers [error, stack].
+    // Either way the helper can no longer touch the descriptors — but an
+    // error shape must also fail the watch, or it would stay silently
+    // installed while delivering nothing.
     _helperExit = ReceivePort('inotify helper exit')
-      ..listen((_) => _signalHelperDone());
+      ..listen((message) {
+        _signalHelperDone();
+        if (message case [final Object error, final Object? stack]) {
+          _fail(error, stack is StackTrace ? stack : null);
+        }
+      });
 
     unawaited(
       Isolate.spawn(
@@ -483,22 +554,37 @@ final class _LinuxInotifyWatch {
         return;
       }
 
-      final event = fileSystemEventFromInotify(
+      final event = _moves.match(
         mask: record.mask,
+        cookie: record.cookie,
         name: record.name,
         watchedPath: _path,
       );
-      if (event != null) _events.add(event);
+      final mapped = event ??
+          fileSystemEventFromInotify(
+            mask: record.mask,
+            name: record.name,
+            watchedPath: _path,
+          );
+      if (mapped != null) _events.add(mapped);
 
       // dart:io's Linux loss shape: the root-loss delete is the last
       // event, then the stream closes (the adapter collapses the done
-      // into the same lost). The kernel has already removed the watch.
+      // into the same lost). Unmatched moves flush first, as dart:io
+      // does. The kernel has already removed the watch.
       if (record.mask &
             (inotifyDeleteSelf | inotifyMoveSelf | inotifyUnmount) !=
           0) {
         _endStream();
         return;
       }
+    }
+
+    // A rename split across two reads still refreshes: unmatched halves
+    // become dart:io's flush events once the batch ends.
+    for (final event in _moves.flush(_path)) {
+      if (_failed || _releaseFuture != null) return;
+      _events.add(event);
     }
   }
 

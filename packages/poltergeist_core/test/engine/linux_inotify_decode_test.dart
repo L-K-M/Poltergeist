@@ -1,5 +1,6 @@
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -30,6 +31,19 @@ void main() {
       expect(records[0].name, 'new-dir');
       expect(records[1].wd, 7);
       expect(records[1].name, 'gone.txt');
+    });
+
+    test('decodes move cookies verbatim', () {
+      final bytes = BytesBuilder();
+      _appendEvent(
+        bytes,
+        wd: 7,
+        mask: inotifyMovedFrom,
+        cookie: 412,
+        name: 'a',
+      );
+
+      expect(decodeInotifyEvents(bytes.toBytes()).single.cookie, 412);
     });
 
     test('decodes an unnamed event (empty name)', () {
@@ -126,23 +140,6 @@ void main() {
       expect((attributes as FileSystemModifyEvent).contentChanged, isFalse);
     });
 
-    test('move halves map to move events with an unknown destination', () {
-      final from = _map(inotifyMovedFrom, 'a', watched)!;
-      final to = _map(inotifyMovedTo, 'b', watched)!;
-
-      expect(
-        from,
-        isA<FileSystemMoveEvent>()
-            .having((event) => event.path, 'path', p.join(watched, 'a'))
-            .having((event) => event.destination, 'destination', isNull),
-      );
-      expect(
-        to,
-        isA<FileSystemMoveEvent>()
-            .having((event) => event.path, 'path', p.join(watched, 'b')),
-      );
-    });
-
     test('self and unmount events name the watched path as a delete', () {
       for (final mask in [inotifyDeleteSelf, inotifyMoveSelf, inotifyUnmount]) {
         final event = _map(mask, '', watched);
@@ -156,12 +153,100 @@ void main() {
       }
     });
 
+    test('move halves pair by cookie into dart:io\'s merged move', () {
+      final matcher = InotifyMoveMatcher();
+      final parked = matcher.match(
+        mask: inotifyMovedFrom,
+        cookie: 9,
+        name: 'old',
+        watchedPath: watched,
+      );
+      expect(parked, isNull, reason: 'the pair is incomplete');
+
+      final completed = matcher.match(
+        mask: inotifyMovedTo | inotifyIsDir,
+        cookie: 9,
+        name: 'new',
+        watchedPath: watched,
+      );
+
+      expect(
+        completed,
+        isA<FileSystemMoveEvent>()
+            .having((event) => event.path, 'path', p.join(watched, 'old'))
+            .having(
+              (event) => event.destination,
+              'destination',
+              p.join(watched, 'new'),
+            ),
+      );
+      expect(matcher.flush(watched), isEmpty);
+    });
+
+    test('an unmatched moved-from flushes as a delete', () {
+      final matcher = InotifyMoveMatcher();
+      expect(
+        matcher.match(
+          mask: inotifyMovedFrom,
+          cookie: 9,
+          name: 'only',
+          watchedPath: watched,
+        ),
+        isNull,
+      );
+
+      final flushed = matcher.flush(watched);
+      expect(flushed.single, isA<FileSystemDeleteEvent>());
+      expect(flushed.single.path, p.join(watched, 'only'));
+    });
+
+    test('an unmatched moved-to flushes as a create', () {
+      final matcher = InotifyMoveMatcher();
+      expect(
+        matcher.match(
+          mask: inotifyMovedTo,
+          cookie: 9,
+          name: 'only',
+          watchedPath: watched,
+        ),
+        isNull,
+      );
+
+      final flushed = matcher.flush(watched);
+      expect(flushed.single, isA<FileSystemCreateEvent>());
+      expect(flushed.single.path, p.join(watched, 'only'));
+    });
+
+    test('cookie-less move halves map immediately', () {
+      final matcher = InotifyMoveMatcher();
+      final from = matcher.match(
+        mask: inotifyMovedFrom,
+        cookie: 0,
+        name: 'from',
+        watchedPath: watched,
+      );
+      final to = matcher.match(
+        mask: inotifyMovedTo,
+        cookie: 0,
+        name: 'to',
+        watchedPath: watched,
+      );
+
+      expect(from, isA<FileSystemDeleteEvent>());
+      expect(to, isA<FileSystemCreateEvent>());
+    });
+
     test('ignored is dropped: the loss already surfaced', () {
       expect(_map(inotifyIgnored, '', watched), isNull);
     });
 
     test('overflow is not mapped to an event — it is an error upstream', () {
       expect(_map(inotifyQOverflow, '', watched), isNull);
+    });
+
+    test('moves no longer map directly: pairing owns them', () {
+      expect(_map(inotifyMovedFrom, 'a', watched), isNull);
+      expect(_map(inotifyMovedTo, 'b', watched), isNull);
     });
   });
 }
@@ -173,11 +258,12 @@ void _appendEvent(
   BytesBuilder bytes, {
   required int wd,
   required int mask,
+  int cookie = 0,
   String name = '',
   List<int>? rawName,
 }) {
   final nameBytes = Uint8List.fromList([
-    ...(rawName ?? name.codeUnits),
+    ...(rawName ?? utf8.encode(name)),
     0,
   ]);
   // The kernel pads the name to a multiple of four bytes.
@@ -186,7 +272,7 @@ void _appendEvent(
   final header = ByteData(inotifyEventHeaderBytes)
     ..setInt32(0, wd, Endian.host)
     ..setUint32(4, mask, Endian.host)
-    ..setUint32(8, 0, Endian.host)
+    ..setUint32(8, cookie, Endian.host)
     ..setUint32(12, paddedLength, Endian.host);
   bytes.add(header.buffer.asUint8List());
 
