@@ -223,6 +223,17 @@ void main() {
           if (!delivered.isCompleted) delivered.complete();
         }, onError: errors.add);
 
+    // The producer script needs python3; skip this focused fixture on
+    // hosts without it rather than failing on an unrelated capability.
+    try {
+      final probe = await Process.run('python3', ['--version']);
+      if (probe.exitCode != 0) {
+        markTestSkipped('python3 is not available on this host');
+      }
+    } on ProcessException {
+      markTestSkipped('python3 is not available on this host');
+    }
+
     const producerCount = 4;
     final producers = <Process>[];
     final terminated = <int>{};
@@ -243,7 +254,9 @@ void main() {
         producerDiagnostics.add,
       );
     }
-    bool allRunning() => terminated.length < producerCount;
+    // Any producer death invalidates the sustained-pressure premise, so
+    // require all four, not merely one survivor.
+    bool allRunning() => terminated.isEmpty;
 
     var cancellation = Future<void>.value();
     try {
@@ -274,7 +287,9 @@ void main() {
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigterm);
       }
-      await cancellation.timeout(const Duration(seconds: 30));
+      // Never let a stalled cancellation displace the original failure or
+      // skip the kill/reap below.
+      await cancellation.timeout(const Duration(seconds: 30), onTimeout: () {});
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigkill);
       }
@@ -336,14 +351,15 @@ int _min(int a, int b) => a < b ? a : b;
 
 /// Owned rename pressure: the probe-proven shape. Two 249-byte names per
 /// pair (legal filesystem bytes, malformed UTF-8), tight os.rename turns,
-/// self-terminating after 12 s as a runaway backstop.
+/// self-terminating after 60 s as a runaway backstop — the test's
+/// finally SIGTERM/SIGKILLs and reaps long before that on every path.
 const String _renameProducerScript = r'''
 import os, sys, time
 root = os.fsencode(sys.argv[1]) + b'/' + sys.argv[2].encode()
 a = root + b'\xff' * 249
 b = root + b'\xfe' * 249
 open(a, 'w').close()
-end = time.monotonic() + 12
+end = time.monotonic() + 60
 while time.monotonic() < end:
     for _ in range(1000):
         os.rename(a, b)
