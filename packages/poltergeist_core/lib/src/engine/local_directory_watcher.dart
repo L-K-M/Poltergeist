@@ -60,7 +60,10 @@ final class LocalWatchSignal {
 ///   initiated synchronously (its callbacks dead) and completes on the
 ///   release tail — `stop` and `dispose` are the futures that wait it
 ///   out, so an acknowledged stop/dispose means the backend subscription
-///   is really gone, not merely scheduled to go.
+///   is really gone, not merely scheduled to go. That makes a completing
+///   `StreamSubscription.cancel()` an implicit contract for every backend
+///   behind this seam: one whose cancel never settles would hang
+///   `stop`/`dispose` — and delay the `signals` done event — forever.
 ///
 /// Verified dart:io backend guarantees this adapter is built on (Dart
 /// 3.13, `runtime/bin/file_system_watcher_{linux,macos,win}.cc` plus the
