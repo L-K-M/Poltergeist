@@ -2797,7 +2797,10 @@ core analysis, dependency boundaries, and the engine protocol guard are clean.
 The tests cover immutable snapshots, schema validation, identity isolation,
 restart persistence, LRU eviction, concurrent edits, and failed-write rollback.
 No dependency or source-port change; PORTS.md was checked and has no affected
-entry. Native builds and remote-fixture coverage run in PR CI. M3 remains open.
+entry. [CI 34742129311](https://github.com/L-K-M/Poltergeist/actions/runs/34742129311)
+at `57faa73` passed the app checks, all five client builds, three native Dart
+suites, and tooling checks. SSH fixtures were skipped by scope detection;
+M0 measurements remain dispatch-only. M3 remains open.
 
 ## Open items
 
@@ -3366,6 +3369,17 @@ entry. Native builds and remote-fixture coverage run in PR CI. M3 remains open.
     if needed. This model slice introduces no UI timing surface. Keep folding
     encapsulated in core rather than exposing a pre-folded-string API before
     the consumer and measurements establish the required contract.
+
+17. **2026-09-13: M3 view preference composition (#89 review).** Before
+    pane wiring, measure recency-only writes with 500 saved locations against
+    the browse budgets. Reads currently persist touches immediately through
+    the asynchronous atomic writer; the future recents debounce/quit-flush
+    path (03 §6) may coalesce them if measurements warrant it. No telemetry
+    (D19). Also provide an explicit recovery flow for semantically damaged
+    view preferences when settings error UI lands: preserve rejected data
+    and require deliberate reset rather than silently replacing malformed
+    or newer schemas. The store currently reports `FormatException` without
+    changing the section; `reset(location)` cannot bypass that validation.
 
 ## Independent audit
 

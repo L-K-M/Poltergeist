@@ -101,6 +101,11 @@ void main() {
     final values = [
       for (final column in FileSortKey.values) ViewPreferences(sortKey: column),
     ];
+    expect(
+      values.length,
+      greaterThanOrEqualTo(locations.length),
+      reason: 'Each location needs a distinct preference fixture.',
+    );
 
     for (var index = 0; index < locations.length; index++) {
       await preferences.save(locations[index], values[index]);
@@ -248,6 +253,7 @@ void main() {
       expect(entries, hasLength(3));
       expect((entries[0] as Map)['location'], _local('/middle').toJson());
       expect((entries[1] as Map)['location'], duplicate.toJson());
+      expect((entries[2] as Map)['location'], _local('/new').toJson());
     },
   );
 
@@ -431,6 +437,10 @@ void main() {
         final saved = await settingsFile.readAsString();
 
         await expectLater(preferences.loadDefaults(), throwsFormatException);
+        await expectLater(
+          preferences.load(_local('/folder')),
+          throwsFormatException,
+        );
         await expectLater(
           preferences.save(_local('/folder'), ViewPreferences()),
           throwsFormatException,
