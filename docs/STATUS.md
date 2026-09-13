@@ -2624,7 +2624,7 @@ reason — a focused, documented skip, not a global one). Production
 semantics unchanged; the adapter's doc records the per-backend loss
 shapes. (The 2026-09-13 post-merge repair below sharpened this: an
 empty watched directory yields nothing observable on Windows — open
-item 15.) App re-verified on the rebased tree (barrel changed):
+item 16.) App re-verified on the rebased tree (barrel changed):
 analyze clean, 433 tests pass. On the final tree the full core suite
 is 611 pass +16 skips.
 
@@ -2694,7 +2694,7 @@ Fix, at the channel request lifetime boundary:
 
 Also opened honestly (not silently deferred): Windows root-removal is
 unobservable through dart:io including the empty-directory case where
-even the children-removal `changed` never fires — open item 15, with a
+even the children-removal `changed` never fires — open item 16, with a
 compatible parent-watch adapter proposal; item 14's overstated "every
 other failure mode is surfaced" sentence corrected; the protocol,
 adapter, and chapter docs now carry the empty-directory nuance.
@@ -2713,6 +2713,61 @@ gate on `onCancel`'s future while `Stream.multi` (dart:io's watch-stream
 shape) does, which is why the gated fakes use `Stream.multi` and why
 the production guarantee is real. Full core suite, protocol repo scan,
 and guards green; native CI on the repair PR.
+
+## M3 — close-boundary and review-resolution repair (2026-09-13, post-merge on #86)
+
+Supervisor verification of merged #86 (original race verified fixed)
+confirmed a second lifetime defect at the host close-request boundary:
+`CloseBrowseChannelRequest` removed the channel from the routing map
+before awaiting its close, so a concurrent duplicate close saw no
+channel and acked immediately — while the first was still parked on the
+backend cancellation. The channel-level memoized close never saw the
+second request. Fix at the host request boundary: retirements in flight
+are tracked per channel id (`_pendingCloses`, bounded — entries
+self-remove on settlement, ids never reused, duplicates await rather
+than create), duplicate closes share the pending completion, shutdown
+drains and clears the map (never acking over a still-closing channel it
+stopped tracking), and routing still retires synchronously so no stale
+events or requests leak; closing a fully retired channel stays
+idempotent. The Windows root-removal gap's STATUS entry was also
+renumbered 15 → 16 (it collided with #85's Quick Select item 15) with
+all seven textual references updated.
+
+The supervisor's full-pagination audit also found both merged PRs' 44
+inline review threads still flagged unresolved despite recorded body
+dispositions, and the latest edited review summaries carrying findings
+beyond the inline sets. All threads were resolved after per-thread
+verification, and the newly-triaged findings received dispositions
+(appended to the PR bodies, not reconstructed): declined — late-
+subscriber replay cache for early `lost` signals (subscribe-before-watch
+is the documented client contract; the pane wiring must subscribe before
+setup/retarget — recorded as a pane-wiring requirement, not a cache
+redesign) and the close-error mirror (premise false: the host removes
+routing first, so no post-failure path exists for a "live routable
+channel"); deferred — a capped debounce (trailing-only starvation is
+documented behavior; a max-wait cap is a behavior decision for the pane
+owner, not a repair invention); corrected rationale — the isDirectory
+fixture parameterization decline (the adapter never inspects the bit —
+the earlier delete-self SDK evidence was about delete events and did
+not address modify shapes; parameterization stays optional); applied —
+doc accuracy (the pool-channel refusal on `watchDirectory`/
+`unwatchDirectory`, the Windows rescan-failure-is-implicit-loss hint on
+`changed`, the failing-request-supersedes contract sentence, and the
+backend cancel-completion obligation: a cancel must settle and settle
+only after teardown, while error containment is bookkeeping, not proof
+of OS release), plus test hardening (real-backend debounce coalescing,
+pre-close and pre-death positive controls, `pumpEventQueue` over
+wall-clock sleeps, dispose-while-parked on the retarget test, and
+both-futures consumption in the close-race test).
+
+Validation (regression-first): the supervisor's concurrent-close repro
+(verbatim in `test/engine/concurrent_channel_close_test.dart`) observed
+red on merged `8b4f493` (`tasks/task18-logs/close-boundary-before.log`,
+exit 1 — second close acked before backend release) and passes; new
+deterministic regressions cover shutdown interleaving with a pending
+close (shutdown ack gated on the backend release) and post-retirement
+idempotency. Core suite 697 pass (+16 fixture skips), analyze clean,
+protocol repo scan clean; native CI and app checks on the repair PR.
 
 ## Open items
 
@@ -3252,8 +3307,8 @@ and guards green; native CI on the repair PR.
     until then the seam honestly reports `changed`/`lost` only and never
     claims overflow detection on Linux. (The 2026-09-13 repair below
     corrected this item's earlier "every other §7.5 failure mode is
-    surfaced" claim: Windows root removal is its own gap, item 15.)
-15. **2026-09-13 — M3: Windows root-removal is unobservable through
+    surfaced" claim: Windows root removal is its own gap, item 16.)
+16. **2026-09-13 — M3: Windows root-removal is unobservable through
     dart:io (opened by the task18 post-merge verification).** Deleting a
     watched directory on Windows defers while the watch holds its handle
     (delete-pending), so `ReadDirectoryChangesW` delivers no error, no

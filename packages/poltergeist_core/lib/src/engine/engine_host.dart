@@ -59,6 +59,15 @@ class EngineHost {
 
   final Map<String, ServerConfig> _servers = {};
   final Map<int, PaneChannel> _channels = {};
+
+  /// Channel retirements still in flight: the close request removed the
+  /// channel from [_channels] (routing retires immediately — no stale
+  /// events or requests leak) but its teardown — the local channel's
+  /// backend watch release — has not completed yet. Duplicate closes and
+  /// shutdown share the pending completion instead of treating map
+  /// removal as proof of teardown. Entries self-remove on completion, so
+  /// the map is bounded by in-flight closes.
+  final Map<int, Future<void>> _pendingCloses = {};
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   late final LocalWatchBackend _localWatch;
   int _nextChannelId = 1;
@@ -214,12 +223,7 @@ class EngineHost {
       case final UnwatchLocalDirectoryRequest request:
         _guard(request.requestId, () => _unwatchLocalDirectory(request));
       case final CloseBrowseChannelRequest request:
-        _guard(request.requestId, () async {
-          final channel = _channels.remove(request.channelId);
-          // Idempotent: closing a closed channel succeeds.
-          await channel?.close();
-          return const EngineAck();
-        });
+        _guard(request.requestId, () => _closeChannel(request));
       case final ListDirectoryRequest request:
         _guard(request.requestId, () => _listDirectory(request));
       case final WatchServerRequest request:
@@ -307,6 +311,41 @@ class EngineHost {
           'No connection request has supplied a config for '
           '"$serverId" yet.',
     );
+  }
+
+  /// Closes the channel (03 §3.2): routing retires synchronously, the
+  /// acknowledgement waits out the actual teardown. A duplicate close —
+  /// one racing this retirement — shares the pending completion rather
+  /// than acking against a channel map entry already removed. Closing an
+  /// unknown, fully retired channel stays idempotent and acks. Channel
+  /// ids are never reused and duplicates await rather than create, so
+  /// each tracked retirement is the only one its id will ever have.
+  Future<EngineResult> _closeChannel(
+    CloseBrowseChannelRequest request,
+  ) async {
+    final channelId = request.channelId;
+    final channel = _channels.remove(channelId);
+    if (channel == null) {
+      // Either retired long ago (idempotent ack) or still closing: share
+      // that retirement's completion so both acknowledgements mean the
+      // same thing — teardown finished.
+      final pending = _pendingCloses[channelId];
+      if (pending != null) await pending;
+      return const EngineAck();
+    }
+
+    final retirement = channel.close();
+    _pendingCloses[channelId] = retirement;
+    // Bounded bookkeeping: drop the entry once this retirement settles.
+    // The guard swallows the outcome for cleanup only — the awaiting
+    // callers still see it (the handler awaits `retirement` itself).
+    unawaited(
+      retirement.catchError((Object _) {}).then((_) {
+        _pendingCloses.remove(channelId);
+      }),
+    );
+    await retirement;
+    return const EngineAck();
   }
 
   Future<EngineResult> _listDirectory(ListDirectoryRequest request) async {
@@ -452,9 +491,21 @@ class EngineHost {
     // Local channels bind no pool, so disconnectServer never saw them:
     // close them directly — which also releases each channel's directory
     // watch (03 §7.5) and its debounce timer. Pool bindings were closed by
-    // disconnectServer above.
+    // disconnectServer above. Channels already removed from the map but
+    // still closing (a close request in flight) are in _pendingCloses —
+    // shutdown waits those too, so it can never ack over a live backend
+    // watch it stopped tracking in the map.
     for (final channel in _channels.values) {
       if (channel is _LocalPaneChannel) await channel.close();
+    }
+    final pendingCloses = List.of(_pendingCloses.values);
+    _pendingCloses.clear();
+    for (final retirement in pendingCloses) {
+      try {
+        await retirement;
+      } on Object {
+        // Shutdown must complete even if one retirement is broken.
+      }
     }
 
     // disconnectServer already closed every pane binding (03 §3.5); these

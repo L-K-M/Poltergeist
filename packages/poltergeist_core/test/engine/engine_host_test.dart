@@ -1637,7 +1637,7 @@ void main() {
             path: opened.homePath,
           ),
         );
-        await h.call(
+        final closed = h.call(
           (id) => CloseBrowseChannelRequest(
             requestId: id,
             channelId: opened.channelId,
@@ -1645,6 +1645,10 @@ void main() {
         );
 
         final error = await expectError(watch);
+        // Consume both in-flight futures deterministically — a throwing
+        // close must not strand the already-errored watch future as an
+        // unhandled async error.
+        await closed;
         expect(error.kind, RemoteFileErrorKind.disconnected);
         expect(error.operation, 'watch');
         // The close won: nothing was ever watched.

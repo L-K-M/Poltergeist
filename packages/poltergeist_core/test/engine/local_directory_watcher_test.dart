@@ -557,7 +557,7 @@ void main() {
     final stopped = watcher.stop();
     var completed = false;
     unawaited(stopped.then((_) => completed = true));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await pumpEventQueue();
 
     // The cancellation was issued synchronously, but the acknowledged stop
     // must wait out its completion — epoch suppression is not release.
@@ -592,7 +592,7 @@ void main() {
     final disposed = watcher.dispose();
     var closed = false;
     unawaited(done.future.then((_) => closed = true));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await pumpEventQueue();
     expect(closed, isFalse,
         reason: 'signals must not close before the backend released');
 
@@ -622,7 +622,7 @@ void main() {
     final second = watcher.dispose();
     var secondDone = false;
     unawaited(second.then((_) => secondDone = true));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await pumpEventQueue();
     expect(secondDone, isFalse,
         reason: 'the second dispose must await the first teardown');
 
@@ -652,8 +652,18 @@ void main() {
         reason: 'the retarget ack must not wait the replaced release');
 
     expect(backend.gate.isCompleted, isFalse);
+    // Dispose must await the replaced watch's parked release — the
+    // acknowledged dispose means that release completed, not merely that
+    // the retarget acked without it.
+    final disposed = watcher.dispose();
+    var disposeDone = false;
+    unawaited(disposed.then((_) => disposeDone = true));
+    await pumpEventQueue();
+    expect(disposeDone, isFalse,
+        reason: 'dispose must await the replaced watch release');
+
     backend.gate.complete();
-    await watcher.dispose();
+    await disposed;
   });
 
   test('a second watch after a lost watch still signals', () {

@@ -63,7 +63,12 @@ final class LocalWatchSignal {
 ///   is really gone, not merely scheduled to go. That makes a completing
 ///   `StreamSubscription.cancel()` an implicit contract for every backend
 ///   behind this seam: one whose cancel never settles would hang
-///   `stop`/`dispose` — and delay the `signals` done event — forever.
+///   `stop`/`dispose` — and delay the `signals` done event — forever,
+///   while one whose cancel settles without gating on its teardown
+///   future (e.g. a bare broadcast `StreamController`) acks release too
+///   early. Error containment on the tail is bookkeeping, not proof: the
+///   backend itself owns actually releasing the OS watch, whatever its
+///   cancel future reports.
 ///
 /// Verified dart:io backend guarantees this adapter is built on (Dart
 /// 3.13, `runtime/bin/file_system_watcher_{linux,macos,win}.cc` plus the
@@ -75,7 +80,7 @@ final class LocalWatchSignal {
 /// (delete-pending), so no loss signal exists there; when the watched
 /// directory still has children their removal surfaces as `changed`
 /// (the rescan path), but an empty — or already-emptied — watched
-/// directory yields nothing observable at all (STATUS open item 15
+/// directory yields nothing observable at all (STATUS open item 16
 /// tracks the gap and the compatible parent-watch adapter); macOS
 /// FSEvents already
 /// depth-filters non-recursive watches to direct children in the C++
