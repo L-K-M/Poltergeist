@@ -204,6 +204,17 @@ void main() {
   });
 
   test('cancellation completes while the kernel queue stays busy', () async {
+    // Skip before any resource exists: markTestSkipped throws, and the
+    // cleanup try/finally only opens after the producers spawn below.
+    try {
+      final probe = await Process.run('python3', ['--version']);
+      if (probe.exitCode != 0) {
+        markTestSkipped('python3 is not available on this host');
+      }
+    } on ProcessException {
+      markTestSkipped('python3 is not available on this host');
+    }
+
     // Raw rename loops in owned processes reproduce the starvation shape:
     // production outpaces the helper's drain, so the kernel queue never
     // reports empty and a drain-until-EAGAIN loop never revisits the stop
@@ -222,17 +233,6 @@ void main() {
         .listen((event) {
           if (!delivered.isCompleted) delivered.complete();
         }, onError: errors.add);
-
-    // The producer script needs python3; skip this focused fixture on
-    // hosts without it rather than failing on an unrelated capability.
-    try {
-      final probe = await Process.run('python3', ['--version']);
-      if (probe.exitCode != 0) {
-        markTestSkipped('python3 is not available on this host');
-      }
-    } on ProcessException {
-      markTestSkipped('python3 is not available on this host');
-    }
 
     const producerCount = 4;
     final producers = <Process>[];
@@ -259,6 +259,7 @@ void main() {
     bool allRunning() => terminated.isEmpty;
 
     var cancellation = Future<void>.value();
+    var cancellationStalled = false;
     try {
       await delivered.future.timeout(deadline);
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -288,12 +289,21 @@ void main() {
         producer.kill(ProcessSignal.sigterm);
       }
       // Never let a stalled cancellation displace the original failure or
-      // skip the kill/reap below.
-      await cancellation.timeout(const Duration(seconds: 30), onTimeout: () {});
+      // skip the kill/reap below — but record the stall so a helper that
+      // stopped acknowledging cannot hide behind a green body.
+      await cancellation.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => cancellationStalled = true,
+      );
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigkill);
       }
       await Future.wait(producers.map((producer) => producer.exitCode));
+      expect(
+        cancellationStalled,
+        isFalse,
+        reason: 'cancellation outlived the cleanup bound',
+      );
     }
   });
 
