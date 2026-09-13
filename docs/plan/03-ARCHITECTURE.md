@@ -2012,15 +2012,24 @@ the logical watch. Parent watching alone cannot detect delete-pending roots:
 Windows may retain the directory entry while its child watch holds a handle.
 Dart also drops a synchronous `ReadDirectoryChangesW` failure when re-arming
 after child events. Therefore the backend checks root type asynchronously
-after subscribing and after events from the child watch. A non-directory
-result or check failure loses the watch. Checks run one at a time; events
-during a check require a trailing check, and cancellation waits for both
-subscriptions and the outstanding check. This is event-driven metadata
-validation, with no timer, recursive scan, or remote polling. The check after
+after subscribing, after child-watch events, and after qualifying parent-watch
+events. A non-directory result or check failure loses the watch. Checks run
+one at a time; events during a check require a trailing check. Cancellation
+waits for both subscriptions and the outstanding check. This is event-driven
+metadata validation, with no timer, recursive scan, or remote polling. The check after
 subscription covers disappearance during native watch setup. The old blanket
 claim that empty-root removal never signals is incorrect: Windows can report
 it as an asynchronous watch error. Native regression tests cover both empty
 and populated deletion; STATUS records evidence and remaining limitations.
+
+Linux/macOS retain a single leaf subscription, without requiring watch access
+to every ancestor. Ancestor-move notification guarantees require native evidence
+of a successful move: an OS refusal is not a missing notification. The tested
+Windows runner/SDK refuses ancestor moves with live descendant watch handles,
+even with `FILE_SHARE_DELETE`, and permits them after cancellation. This does
+not establish that every Windows filesystem or move mechanism refuses them.
+STATUS item 18 separates that boundary from Linux/macOS missing-loss evidence;
+neither justifies silently expanding ancestor permissions or watch resources.
 
 ## 8. Code-sharing mechanics (D2)
 
