@@ -707,26 +707,17 @@ class PaneController extends ChangeNotifier {
     }
   }
 
-  /// The visible listing order: directories first, then case-insensitive
-  /// name with a case-sensitive tiebreak — the §2.3 natural comparator's
-  /// placeholder (digit-run comparison lands in `poltergeist_core` with
-  /// its slice). Dotfiles are hidden by default (02 §2.5; the toggle and
-  /// the §2.4 precedence chain land with the view-options slice).
+  /// The visible listing: dotfiles are hidden by default (02 §2.5; the
+  /// toggle and the §2.4 precedence chain land with the view-options
+  /// slice), then the §2.3 core comparator orders the snapshot — default
+  /// name key, ascending, directories first, with natural digit runs and
+  /// Unicode simple folding. `sortFileEntries` returns an unmodifiable
+  /// copy over new row order, so the VFS-returned list is never mutated.
   List<RemoteFileEntry> _visibleSorted(List<RemoteFileEntry> listed) {
     final visible = listed
         .where((entry) => !entry.name.startsWith('.'))
-        .toList(growable: false)
-      ..sort(_compareEntries);
-    return List.unmodifiable(visible);
-  }
-
-  int _compareEntries(RemoteFileEntry a, RemoteFileEntry b) {
-    if (a.isDirectory != b.isDirectory) {
-      return a.isDirectory ? -1 : 1;
-    }
-    final fold = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    if (fold != 0) return fold;
-    return a.name.compareTo(b.name);
+        .toList(growable: false);
+    return sortFileEntries(visible);
   }
 
   void _report(Object error, StackTrace stackTrace) {

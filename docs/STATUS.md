@@ -3212,6 +3212,30 @@ regression, 23 unchanged Windows-backend fake tests, 207 engine tests, and
 749 core tests pass (16 fixture skips); core analysis and the protocol scan
 pass. Final-head native CI and review are recorded on PR #93.
 
+## M3 — pane listing uses the core natural sorter (2026-09-13)
+
+PaneController's placeholder comparator (lowercase lexical) is replaced by
+the pinned `sortFileEntries` defaults at the presentation boundary: name
+key ascending, directories first, natural digit runs, Unicode simple fold,
+unmodifiable copy. Dotfile filtering, accepted-listing snapshots, and
+cancellation/generation behavior are unchanged; the VFS-returned list is
+never reordered in place and entry identity is retained. Listings now show
+file1, file2, file10 instead of file1, file10, file2. No sort controls,
+per-location prefs, hidden toggle, ARB keys, or registered commands; those
+ride their own slices. Item 13 stays open: the helper orders decoded names
+only, so this wiring closes no raw-byte collision ordering and makes no
+byte-preserving claim. No core, pin, or port change.
+
+Validation: three controller regressions (numeric order plus VFS-list
+immutability, simple-fold names where toLowerCase differs, directories
+first with dotfiles hidden) and one widget test reading the painted row
+order back from the laid-out rows each failed against the placeholder,
+then passed with the wiring. App analysis clean, 570 tests pass; core
+re-verified untouched (analyze clean, 749 tests, 16 fixture skips); import
+and protocol guards pass. Bounded logs and exits:
+tasks/task22-logs/ (red-phase, green-phase, suites, guards). No widget
+captures: layout is unchanged and order is proven programmatically.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

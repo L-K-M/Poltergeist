@@ -204,6 +204,26 @@ void main() {
     expect(channel.listCalls, ['/home/tester']);
   });
 
+  testWidgets('rows render in natural name order, directories first',
+      (tester) async {
+    final channel = localChannelWithEntries();
+    channel.listings['/home/tester'] = [
+      _entry('file10'),
+      _entry('file1'),
+      _entry('file2'),
+      _entry('alpha'),
+    ];
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    // The displayed order is the pane's accepted listing order (02 §2.3's
+    // natural names), read back from the laid-out rows themselves.
+    double rowY(String name) => tester.getTopLeft(find.text(name)).dy;
+    expect(rowY('alpha'), lessThan(rowY('file1')));
+    expect(rowY('file1'), lessThan(rowY('file2')));
+    expect(rowY('file2'), lessThan(rowY('file10')));
+  });
+
   testWidgets('renders a remote listing through the browse-channel seam', (
     tester,
   ) async {
