@@ -401,8 +401,9 @@ void main() {
     /// Spawns a real engine and opens a local channel on a temp fixture:
     /// `a.txt` plus an empty `sub` directory, both deleted at teardown.
     Future<(EngineClient, EngineBrowseChannel, Directory)> localFixture(
-      String name,
-    ) async {
+      String name, {
+      bool populate = true,
+    }) async {
       // The tree cleanup registers BEFORE the engine shutdown so LIFO
       // teardown releases the engine's watch handles first — deleting a
       // watched tree out from under a live engine defers on Windows (the
@@ -413,8 +414,10 @@ void main() {
       });
       final client = await EngineClient.spawn(const EngineConfig());
       addTearDown(client.shutdown);
-      File('${root.path}/a.txt').writeAsStringSync('alpha');
-      Directory('${root.path}/sub').createSync();
+      if (populate) {
+        File('${root.path}/a.txt').writeAsStringSync('alpha');
+        Directory('${root.path}/sub').createSync();
+      }
       final channel = await client.openLocalChannel(rootPath: root.path);
       return (client, channel, root);
     }
@@ -537,6 +540,81 @@ void main() {
               'exists there — the children-removal changed and its rescan '
               'are the observable path'
           : false,
+    );
+
+    test(
+      'deleting an empty watched directory signals lost immediately',
+      () async {
+        final (_, channel, root) =
+            await localFixture('pg-watch-empty-vanish', populate: false);
+
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        root.deleteSync(recursive: true);
+
+        // STATUS item 16: on Windows the OS defers the removal while the
+        // watch holds its handle, so nothing observable ever fires there —
+        // this test is the native proof that the empty-root loss path
+        // works (or, until the fix lands, fails) on the real OS.
+        final event = await channel.directoryChanges
+            .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
+            .timeout(_watchCrossingTimeout);
+        expect(event.path, channel.homePath);
+        expect(event.detail, isNotNull);
+      },
+    );
+
+    test(
+      'renaming an empty watched directory away signals lost immediately',
+      () async {
+        final (_, channel, root) =
+            await localFixture('pg-watch-empty-rename', populate: false);
+        // Unique sibling so a leftover from an aborted run cannot collide.
+        final movedPath = '${root.parent.path}/'
+            'pg-watch-empty-rename-${DateTime.now().microsecondsSinceEpoch}';
+        addTearDown(() {
+          final moved = Directory(movedPath);
+          if (moved.existsSync()) moved.deleteSync(recursive: true);
+        });
+
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        root.renameSync(movedPath);
+
+        final event = await channel.directoryChanges
+            .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
+            .timeout(_watchCrossingTimeout);
+        expect(event.path, channel.homePath);
+        expect(event.detail, isNotNull);
+      },
+    );
+
+    test(
+      'after the empty-root loss the engine releases the directory',
+      () async {
+        final (_, channel, root) =
+            await localFixture('pg-watch-empty-release', populate: false);
+
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        root.deleteSync(recursive: true);
+        await channel.directoryChanges
+            .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
+            .timeout(_watchCrossingTimeout);
+
+        // The loss must not leak the OS handle: on Windows a held handle
+        // keeps a delete-pending name alive, so the name only leaves the
+        // namespace once the backend really released it. Bounded polling
+        // — the observable here is kernel-side, not Dart-side.
+        await channel.unwatchDirectory();
+        final deadline = DateTime.now().add(_watchCrossingTimeout);
+        while (root.existsSync()) {
+          if (DateTime.now().isAfter(deadline)) {
+            fail('the watched directory is still held after the loss');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      },
     );
 
     test('unwatchDirectory releases the engine-side watch', () async {
