@@ -207,7 +207,9 @@ class _PaneViewState extends State<PaneView> {
         key == LogicalKeyboardKey.end ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.backspace;
-    if ((controller.connectionLost || (_graceBusy() && _pastGrace)) &&
+    if ((controller.connectionLost ||
+            controller.error != null ||
+            (_graceBusy() && _pastGrace)) &&
         ownedKey &&
         plainKey) {
       return KeyEventResult.handled;
@@ -256,12 +258,14 @@ class _PaneViewState extends State<PaneView> {
       case LogicalKeyboardKey.backspace:
         // Parent-folder key on Windows/Linux (§8.3). Key repeats never
         // re-ascend — holding Backspace must not race up the tree
-        // (mirrors the Enter repeat guard above).
+        // (mirrors the Enter repeat guard above). Unbound platforms
+        // let the key fall through to ancestor handlers.
         if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
           if (event is! KeyRepeatEvent) controller.goUp();
+          return KeyEventResult.handled;
         }
-        return KeyEventResult.handled;
+        return KeyEventResult.ignored;
       case LogicalKeyboardKey.escape:
         if (controller.loading) {
           controller.cancelNavigation();
@@ -446,6 +450,7 @@ class _PaneSurface extends StatelessWidget {
           child: ExcludeSemantics(
             excluding:
                 controller.connectionLost ||
+                controller.error != null ||
                 (controller.loading && graceVisible),
             child: switch (controller.phase) {
               PanePhase.unbound => _Centered(l10n.paneNoLocation),
@@ -909,7 +914,17 @@ class _ErrorOverlay extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              error.message,
+              // Non-VFS faults carry no engine-authored diagnostic —
+              // the view maps the typed fault to an ARB sentence (D20);
+              // every other error keeps the engine's message line.
+              switch (error) {
+                PaneFaultException(:final fault) => switch (fault) {
+                  PaneFault.connectionOpen => l10n.paneFaultConnectionOpen,
+                  PaneFault.localOpen => l10n.paneFaultLocalOpen,
+                  PaneFault.listFolder => l10n.paneFaultListFolder,
+                },
+                _ => error.message,
+              },
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(

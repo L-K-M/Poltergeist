@@ -121,10 +121,11 @@ void main() {
     await tester.tap(button, warnIfMissed: false);
     await tester.pumpAndSettle();
 
-    // Whatever happened, the shell route underneath must survive and
-    // the open must not have double-fired.
+    // Strengthened: the first tap must have fired (the sibling test
+    // proves the same setup connects) and the second must not re-fire.
+    expect(opened, ['a']);
+    // And the shell route underneath must survive both taps.
     expect(find.byKey(const ValueKey('shell.marker')), findsOneWidget);
-    expect(opened.length, lessThan(2));
   });
 
   testWidgets('a single tap pops the connections route and opens the pane',

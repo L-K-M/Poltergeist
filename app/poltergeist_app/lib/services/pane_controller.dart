@@ -36,6 +36,21 @@ class _QuiescentSnapshot {
   final RemoteFileException? error;
 }
 
+/// Which app-side operation failed for a non-VFS fault: the pane view
+/// maps this to an ARB-authored diagnostic line (D20 — the controller
+/// never authors user copy).
+enum PaneFault { connectionOpen, localOpen, listFolder }
+
+/// A non-VFS fault surfacing on the pane: the taxonomy message is a
+/// machine sentinel (never rendered); [fault] carries the renderable
+/// identity for the view's localized diagnostic line.
+class PaneFaultException extends RemoteFileException {
+  const PaneFaultException(this.fault, {required super.operation})
+    : super(kind: RemoteFileErrorKind.other, message: 'fault:$fault');
+
+  final PaneFault fault;
+}
+
 /// One pane-tab's browsing controller (03 §6): navigation state per 02
 /// §2.8's normative machine — optimistic location, monotonic generations,
 /// stale answers dropped, errors inline over cached entries, Esc restores
@@ -138,13 +153,19 @@ class PaneController extends ChangeNotifier {
   /// subscribes to the server's state lane BEFORE connecting (live
   /// streams keep no replay, 03 §5), opens the browse channel, and
   /// navigates to the bookmark's path ('/' meaning the canonical home).
-  Future<void> connectRemote(Bookmark bookmark) async {
+  /// Binds the pane to a remote bookmark: closes any previous channel,
+  /// subscribes to the server's state lane BEFORE connecting (live
+  /// streams keep no replay, 03 §5), opens the browse channel, and
+  /// navigates to the bookmark's path ('/' meaning the canonical home).
+  /// [initialPath] overrides the landing directory — retry after a
+  /// severed transport uses it to return the user where they were.
+  Future<void> connectRemote(Bookmark bookmark, {String? initialPath}) async {
     if (_disposed || _lanes == null) return;
     _pendingRemote = bookmark;
     await _bind(
       connectingPhase: PanePhase.connectingRemote,
       operation: 'connect',
-      failMessage: 'The connection could not be opened.',
+      fault: PaneFault.connectionOpen,
       connect: (lanes, attempt) async {
         // Subscribe before connecting: a connect that raises state (or
         // a prompt the coordinator answers) must find this pane
@@ -160,6 +181,12 @@ class PaneController extends ChangeNotifier {
               onError: (Object error, StackTrace stackTrace) {
                 if (_disposed || attempt != _bindAttempt) return;
                 _report(error, stackTrace);
+                // A dead status lane must not leave the banner pinned on
+                // its last state (a 'reconnecting' that never resolves);
+                // if the stream survives the error, the next event
+                // restores the truth.
+                _connectionStatus = null;
+                notifyListeners();
               },
             );
         final channel = await lanes.openBrowseChannel(
@@ -175,7 +202,7 @@ class PaneController extends ChangeNotifier {
         _phase = PanePhase.browsing;
         notifyListeners();
 
-        final remotePath = bookmark.remotePath;
+        final remotePath = initialPath ?? bookmark.remotePath;
         final target =
             remotePath == null || remotePath == '/'
                 ? channel.homePath
@@ -255,7 +282,10 @@ class PaneController extends ChangeNotifier {
 
   /// Retries whatever failed: a failed connect reopens the channel, a
   /// failed first local open retries it, and a listing error re-issues
-  /// the navigation.
+  /// the navigation — except when the listing failed because the
+  /// transport is gone (typed `disconnected` on a remote binding):
+  /// refreshing the dead channel would loop forever, so the bind
+  /// reopens and lands on the directory the user was in.
   Future<void> retry() async {
     if (_disposed) return;
     if (_phase == PanePhase.connectingRemote && _error != null) {
@@ -271,6 +301,13 @@ class PaneController extends ChangeNotifier {
     }
     final current = _location;
     if (current != null && _error != null) {
+      final bookmark = _pendingRemote;
+      if (bookmark != null &&
+          current is RemotePaneLocation &&
+          _error!.kind == RemoteFileErrorKind.disconnected) {
+        await connectRemote(bookmark, initialPath: current.path);
+        return;
+      }
       refresh();
     }
   }
@@ -370,7 +407,7 @@ class PaneController extends ChangeNotifier {
   Future<void> _bind({
     required PanePhase connectingPhase,
     required String operation,
-    required String failMessage,
+    required PaneFault fault,
     required Future<void> Function(PaneEngineLanes lanes, int attempt)
         connect,
   }) async {
@@ -396,11 +433,7 @@ class PaneController extends ChangeNotifier {
       if (_disposed || attempt != _bindAttempt) return;
       _report(error, stackTrace);
       _dropStatusWatch();
-      _error = RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: operation,
-        message: failMessage,
-      );
+      _error = PaneFaultException(fault, operation: operation);
       notifyListeners();
     }
   }
@@ -446,7 +479,7 @@ class PaneController extends ChangeNotifier {
     await _bind(
       connectingPhase: PanePhase.openingLocal,
       operation: 'open',
-      failMessage: 'The local browser could not be opened.',
+      fault: PaneFault.localOpen,
       connect: (lanes, attempt) async {
         // '~' expands to the user's home inside the engine (03 §2.2);
         // the channel answers the canonicalized home path.
@@ -522,11 +555,7 @@ class PaneController extends ChangeNotifier {
       }
       _report(error, stackTrace);
       _answeredGeneration = generation;
-      _error = RemoteFileException(
-        kind: RemoteFileErrorKind.other,
-        operation: 'list',
-        message: 'The folder could not be listed.',
-      );
+      _error = PaneFaultException(PaneFault.listFolder, operation: 'list');
       notifyListeners();
     }
   }

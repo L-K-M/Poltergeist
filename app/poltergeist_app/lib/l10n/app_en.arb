@@ -492,6 +492,18 @@
   "@paneErrorOther": {
     "description": "Inline error sentence for the other taxonomy kind."
   },
+  "paneFaultConnectionOpen": "The connection to this server could not be opened.",
+  "@paneFaultConnectionOpen": {
+    "description": "Diagnostic line for a non-VFS fault while opening a remote connection."
+  },
+  "paneFaultLocalOpen": "The local file browser could not be opened.",
+  "@paneFaultLocalOpen": {
+    "description": "Diagnostic line for a non-VFS fault while opening the local browser."
+  },
+  "paneFaultListFolder": "This folder could not be listed.",
+  "@paneFaultListFolder": {
+    "description": "Diagnostic line for a non-VFS fault while listing a folder."
+  },
   "paneConnectionLost": "Connection to {label} lost — reconnecting…",
   "@paneConnectionLost": {
     "description": "Banner shown while the remote transport reconnects (02 §2.7).",

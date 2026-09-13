@@ -195,8 +195,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The pane controller's machine data: the home anchor the engine
   // expands, the dotfile filter prefix, the root path, the taxonomy
-  // operations, and the fallback summaries for non-VFS faults (rendered
-  // under ARB sentences in the pane, never standalone copy).
+  // operations. Non-VFS faults carry a machine sentinel message
+  // ('fault:<kind>', never rendered — the view maps the typed fault to
+  // ARB copy per D20).
   'lib/services/pane_controller.dart': {
     "'~'",
     "'.'",
@@ -204,9 +205,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'connect'",
     "'open'",
     "'list'",
-    "'The connection could not be opened.'",
-    "'The local browser could not be opened.'",
-    "'The folder could not be listed.'",
+    "'fault:\$fault'",
   },
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).

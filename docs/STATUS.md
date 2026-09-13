@@ -2549,6 +2549,28 @@ analyze clean; core re-verified untouched (analyze clean, 548 tests,
 No core change, no pin/lock change, no port (PORTS.md unchanged), no
 milestone-close claim.
 
+Demo-suite coverage mapping (round-14/15 review requirement — the
+deleted sftp_demo_view_test's behaviors by successor):
+- prompt flows (host-key first-use/changed, credential,
+  keyboard-interactive): the owning suites remain — prompt_coordinator
+  (24 tests), engine_session, and the production wiring test's
+  review-affordance flow; the deleted cases exercised the same
+  production paths through the demo route only.
+- teardown ordering (engine shutdown once, channel close once):
+  engine_session_test (shutdown) and pane_controller_test (dispose
+  closes the channel; rebind closes the previous; detach releases) —
+  plus the new round-15 regressions.
+- probe #55 subscribe-before-send: probe_coordinator_test (21 tests,
+  the owning suite) remains; the demo was one consumer.
+- double-tap spawn guard: the shell's one-command-session guard is the
+  production successor and now has its own double-tap regression
+  (connections suite).
+- SftpDemoController-specific races (stale-cleanup awaits, `_connecting`
+  guard unwedging, zombie-connect): obsolete with the controller; their
+  PaneController equivalents are the bind-attempt invalidation, the
+  cancel-during-connect invalidation, and the failed-bind watch drop —
+  each pinned in pane_controller_test/pane_cancel_regressions.
+
 ## M3 — pane listing-state transitions (2026-09-12)
 
 `ListingState<Location>` implements 02 §2.8's pure transitions in the app

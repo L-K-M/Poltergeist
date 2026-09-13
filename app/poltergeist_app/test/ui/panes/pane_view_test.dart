@@ -489,6 +489,155 @@ void main() {
     }
   });
 
+  testWidgets('owned keys and row semantics are inert under the error overlay', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    final semantics = tester.ensureSemantics();
+    try {
+      final channel = localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      // A failing navigation shows the error overlay over the cached
+      // listing.
+      left.navigate('/home/tester/gone');
+      await tester.pumpAndSettle();
+      expect(left.error, isNotNull);
+
+      // Owned keys are consumed: no cursor move, no hidden navigation.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pumpAndSettle();
+      expect(left.cursorIndex, isNull);
+      expect(left.location, const LocalPaneLocation('/home/tester/gone'));
+
+      // The stale rows under the overlay leave the semantics tree.
+      // One extra frame: the semantics pipeline attaches to the next
+      // build after the excluding flip, not the one that flipped it.
+      await tester.pump();
+      final excluderOfRow = tester.widget<ExcludeSemantics>(
+        find.ancestor(
+          of: find.text('report.txt'),
+          matching: find.byType(ExcludeSemantics),
+        ),
+      );
+      expect(excluderOfRow.excluding, isTrue,
+          reason: 'the error overlay must exclude row semantics');
+
+      // Esc still reaches the retry escape hatch (scripted to succeed
+      // this time — Esc re-issues the failed navigation).
+      channel.listings['/home/tester/gone'] = [_entry('back.txt')];
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(left.error, isNull,
+          reason: 'Esc retried the failed navigation');
+      expect(find.text('back.txt'), findsOneWidget);    } finally {
+      semantics.dispose();
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('plain Backspace falls through on macOS', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      var ancestorSawBackspace = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.backspace):
+                  () => ancestorSawBackspace = true,
+            },
+            child: Scaffold(
+              body: Row(
+                children: [
+                  Expanded(
+                    child: PaneView(
+                      controller: left,
+                      workspace: workspace,
+                      focusNode: leftNode,
+                      onSwapFocus: () => rightNode.requestFocus(),
+                      onCancelRecovery: () {},
+                      clock: clock,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      leftNode.requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+      await tester.pump();
+
+      // Unbound on macOS (§8.3 binds Backspace only on Windows/Linux):
+      // the key must reach ancestor handlers, not die at the pane.
+      expect(ancestorSawBackspace, isTrue);
+      expect(left.location, const LocalPaneLocation('/home/tester'));
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('non-VFS faults render the ARB diagnostic, never the sentinel', (
+    tester,
+  ) async {
+    // A local open whose seam throws a non-VFS error (no scripted
+    // channel): the fault is app-side, so the diagnostic line is the
+    // ARB sentence; the machine sentinel must never render.
+    final lanes = controller_test.FakePaneLanes()
+      ..localOpenFailure = StateError('no local browse channel scripted');
+    final controller = PaneController(
+      paneTabId: 'pane.left',
+      lanes: lanes,
+      onError: (_, _) {},
+    );
+    final otherPane = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final workspace = WorkspaceController(
+      left: controller,
+      right: otherPane,
+    );
+    addTearDown(workspace.dispose);
+
+    await controller.openLocalHome();
+    expect(controller.error, isA<PaneFaultException>());
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: PaneView(
+            controller: controller,
+            workspace: workspace,
+            focusNode: leftNode,
+            onSwapFocus: () {},
+            onCancelRecovery: () {},
+            clock: clock,
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(
+      find.text('The local file browser could not be opened.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('fault:'), findsNothing);
+  });
+
   testWidgets('remote connect renders the connecting state until it lands', (
     tester,
   ) async {

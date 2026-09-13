@@ -382,6 +382,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneErrorOther => 'The folder could not be opened.';
 
   @override
+  String get paneFaultConnectionOpen =>
+      'The connection to this server could not be opened.';
+
+  @override
+  String get paneFaultLocalOpen =>
+      'The local file browser could not be opened.';
+
+  @override
+  String get paneFaultListFolder => 'This folder could not be listed.';
+
+  @override
   String paneConnectionLost(String label) {
     return 'Connection to $label lost — reconnecting…';
   }

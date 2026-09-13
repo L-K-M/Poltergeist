@@ -712,6 +712,24 @@ abstract class AppLocalizations {
   /// **'The folder could not be opened.'**
   String get paneErrorOther;
 
+  /// Diagnostic line for a non-VFS fault while opening a remote connection.
+  ///
+  /// In en, this message translates to:
+  /// **'The connection to this server could not be opened.'**
+  String get paneFaultConnectionOpen;
+
+  /// Diagnostic line for a non-VFS fault while opening the local browser.
+  ///
+  /// In en, this message translates to:
+  /// **'The local file browser could not be opened.'**
+  String get paneFaultLocalOpen;
+
+  /// Diagnostic line for a non-VFS fault while listing a folder.
+  ///
+  /// In en, this message translates to:
+  /// **'This folder could not be listed.'**
+  String get paneFaultListFolder;
+
   /// Banner shown while the remote transport reconnects (02 §2.7).
   ///
   /// In en, this message translates to:
