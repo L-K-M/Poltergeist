@@ -70,14 +70,10 @@ final class LocalWatchSignal {
 /// same debounced `changed` (an occasional spurious early refresh), and
 /// only the root-loss shape is immediate.
 ///
-/// Known gap (recorded as a dated STATUS.md item): Linux's inotify queue
-/// overflow (`IN_Q_OVERFLOW`) is invisible through dart:io — the overflow
-/// event carries watch descriptor -1, which matches no watched path, and
-/// its decoded mask is 0 — so a Linux overflow silently drops events with
-/// no signal this adapter can observe. The continuous subscription drains
-/// the kernel queue promptly, which is the available mitigation; surfacing
-/// the overflow needs a compatible FFI inotify backend behind the same
-/// [LocalWatchBackend] seam.
+/// Linux runs the inotify backend ([LinuxInotifyWatchBackend]), which
+/// mirrors the delete-then-close shape and additionally surfaces the
+/// kernel's `IN_Q_OVERFLOW` as a backend error — an immediate [lost] —
+/// where dart:io dropped it silently (STATUS item 14, closed 2026-09-13).
 final class LocalDirectoryWatcher {
   /// 03 §7.5's fixed debounce: ordinary changes coalesce for this long
   /// after the last event.

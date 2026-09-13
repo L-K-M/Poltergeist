@@ -201,9 +201,9 @@ enum DirectoryWatchSignal {
   /// An ordinary change in the watched directory — coalesced (debounced
   /// 300 ms) engine-side. The consumer rescans the directory. A rescan
   /// answering `notFound` must still be handled as an implicit loss (see
-  /// the [lost] variant): dropped native events (Linux's inotify queue
-  /// overflow, STATUS item 14) can leave the path gone before any lost
-  /// signal arrives.
+  /// the [lost] variant): backend events can go unreported without a
+  /// lost signal (permitted ancestor moves, STATUS item 18), leaving the
+  /// shown path gone while the watch stays silently installed.
   changed,
 
   /// The backend reported root loss, failure, or closure. Delivered

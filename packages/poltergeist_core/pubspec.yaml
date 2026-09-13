@@ -28,6 +28,9 @@ dependencies:
   crypto: ^3.0.0
   path: ^1.9.0
   meta: ^1.15.0
+  # The Linux inotify watch backend's native buffer/string marshalling
+  # (dart:ffi has no allocator; 03 §7.5). Version matches the lockfile.
+  ffi: ^2.2.0
 
 dev_dependencies:
   # Exercise the vault's locked primitives without changing runtime deps.

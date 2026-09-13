@@ -1999,10 +1999,28 @@ the new binding. Pool channels answer an explicit typed refusal — remote
 watching would be a polling feature the engine does not have. The pane
 policy above (active-tab-only, retarget on navigation, drop on
 launcher/remote) is app-side wiring over that seam. One known backend
-limitation is recorded in STATUS (open item 14): Linux's inotify queue
-overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
-rests on the drain-promptly mitigation until a compatible FFI backend
-surfaces it through the same seam.
+limitation was recorded in STATUS (closed as item 14, 2026-09-13):
+Linux's inotify queue overflow is invisible through dart:io, so Linux now
+runs a dedicated inotify backend behind the same seam.
+
+*Linux backend precision (2026-09-13):* one non-recursive inotify watch
+per shown directory, polled by a small helper isolate — `poll` with no
+timeout, so the engine isolate never blocks and there is no timer or
+filesystem polling. The backend decodes the raw event stream itself, so
+the kernel's `IN_Q_OVERFLOW` surfaces as a backend error (an immediate
+`lost`) where dart:io's Linux implementation dropped it silently: the
+overflow event carries watch descriptor −1, which matches no watched path
+there. Root removal, rename, and unmount surface as dart:io's Linux shape
+— one delete naming the watched path, then stream close. Cancellation
+writes a stop-pipe byte and closes its write end, so `poll` wakes
+immediately and teardown never waits on filesystem activity; a completed
+cancel means the inotify descriptor, both pipe descriptors, and the read
+buffer are released. An unsupervised engine-isolate kill bypasses all
+Dart cleanup and would leak that descriptor set plus a parked helper
+until process exit — recorded honestly, never claimed otherwise.
+dart:io remains the macOS backend; Android keeps dart:io
+(`Platform.isLinux` is false there). The #93 rule stands: the Linux watch
+is leaf-only and requires no new permissions on ancestors.
 
 *Windows backend precision (2026-09-13):* one logical pane watcher owns
 two non-recursive native subscriptions: the shown directory and its parent
