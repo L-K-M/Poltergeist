@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-import 'engine_host_test.dart' show HostHarness;
+import 'engine_host_test.dart' show HostHarness, expectError;
 import 'watch_supersession_test.dart' show GatedWatchBackend;
 
 void main() {
@@ -108,12 +108,332 @@ void main() {
     final closingB = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channelB.channelId,
     ));
+    // The loop cannot advance while gateA is incomplete, so pumping here
+    // guarantees closingB's handler mutates the map INSIDE the loop's
+    // iteration — without this the microtask-resumed loop could finish
+    // before the close's event delivery lands, and the regression would
+    // pass without exercising the snapshot.
+    await pumpEventQueue();
 
     gateA.complete();
     gateB.complete();
     final result = await shuttingDown;
     expect(result, isA<EngineAck>());
     await closingB;
+  });
+
+  test('a close racing the retire loop shares the tracked retirement',
+      () async {
+    final rootA = Directory.systemTemp.createTempSync('drain-race-a-');
+    addTearDown(() => rootA.deleteSync(recursive: true));
+    final rootB = Directory.systemTemp.createTempSync('drain-race-b-');
+    addTearDown(() => rootB.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+    final channelA = await h.openLocal(rootA.path);
+    final channelB = await h.openLocal(rootB.path);
+    for (final channel in [channelA, channelB]) {
+      await h.call((id) => WatchLocalDirectoryRequest(
+        requestId: id, channelId: channel.channelId, path: channel.homePath,
+      ));
+    }
+    final gateA = backend.gates[channelA.homePath]!;
+    final gateB = backend.gates[channelB.homePath]!;
+    // addTearDown runs LIFO: registered after h.dispose so the gates are
+    // completed before the harness tears down (which may await the
+    // drain).
+    addTearDown(() {
+      if (!gateA.isCompleted) gateA.complete();
+      if (!gateB.isCompleted) gateB.complete();
+    });
+
+    // Park the drain on A's tracked retirement (A closed by request, so
+    // the retire loop starts empty-handed).
+    final closingA = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelA.channelId,
+    ));
+    // Probes for all three in-flight futures: a regression that strands
+    // or errors any of them fails its checkpoint, not just the final
+    // awaits.
+    closingA
+        .then((_) {}, onError: (Object _) {})
+        .ignore();
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    shuttingDown.ignore();
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+
+    // B is pre-existing and still open: its close races the retire loop.
+    // Whichever retires it first, the close's ack and the shutdown ack
+    // both await the SAME tracked release.
+    final closingB = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelB.channelId,
+    ));
+    var bAcked = false;
+    closingB
+        .then((_) => bAcked = true, onError: (_) => bAcked = true)
+        .ignore();
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+    expect(backend.cancelled, containsAll([channelA.homePath, channelB.homePath]));
+
+    // A settles first; B's release is still gated — neither B's close nor
+    // shutdown may ack over it. The shutdown probe records any completion
+    // so an early error ack trips this checkpoint too, not just the
+    // final await.
+    final shutdownProbe = shuttingDown;
+    var shutdownAcked = false;
+    shutdownProbe
+        .then((_) => shutdownAcked = true,
+            onError: (_) => shutdownAcked = true)
+        .ignore();
+    gateA.complete();
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+    expect(bAcked, isFalse,
+        reason: 'close B must await its own backend release');
+    expect(shutdownAcked, isFalse,
+        reason: 'shutdown must await B\'s backend release');
+
+    gateB.complete();
+    expect(await shutdownProbe, isA<EngineAck>());
+    expect(await closingB, isA<EngineAck>());
+    await closingA;
+  });
+
+  test('opens are rejected once the engine is shutting down', () async {
+    final root = Directory.systemTemp.createTempSync('shutdown-open-gate-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    final gate = backend.gates[channel.homePath]!;
+    // addTearDown runs LIFO: registered after h.dispose so the gate is
+    // completed before the harness tears down.
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    // Park shutdown in the drain; a local open racing it is the only
+    // intake that could mint an unretirable channel. The close is fired
+    // without awaiting — its ack parks on the gate — and held for
+    // consumption below so a regression that strands it fails loudly
+    // here rather than as a silent unhandled future.
+    final parkedClose = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+    parkedClose.ignore();
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    shuttingDown.ignore();
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+
+    final error = await expectError(
+      h.call(
+        (id) => OpenLocalBrowseChannelRequest(
+          requestId: id,
+          rootPath: root.path,
+        ),
+      ),
+    );
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(error.message, contains('shutting down'));
+
+    gate.complete();
+    expect(await shuttingDown, isA<EngineAck>());
+    await parkedClose;
+  });
+
+  test('a never-settling retirement cannot hang the shutdown ack',
+      () async {
+    final root = Directory.systemTemp.createTempSync('shutdown-hang-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(
+      localWatch: backend,
+      shutdownDrainTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    // The gate is deliberately NEVER completed by the test flow: the
+    // backend cancellation never settles within the bound. The LIFO
+    // teardown below still releases it so h.dispose cannot hang past the
+    // injected bound.
+    final gate = backend.gates[channel.homePath]!;
+    // addTearDown runs LIFO: registered after h.dispose so the gate is
+    // completed before the harness tears down.
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    final result = await h
+        .call((id) => ShutdownRequest(requestId: id))
+        .timeout(const Duration(seconds: 5));
+    expect(result, isA<EngineAck>());
+    // Prove the drain actually reached the gated cancellation — it
+    // entered the await that the bound later abandoned — rather than
+    // acking from an empty drain. `cancelled` records entry into
+    // cancellation synchronously, so this cannot race the timeout.
+    expect(backend.cancelled, contains(channel.homePath),
+        reason: 'drain never reached the gated backend cancellation');
+  });
+
+  test('an open parked across shutdown resolves rejected, registering nothing',
+      () async {
+    final root = Directory.systemTemp.createTempSync('open-toctou-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+
+    // Deterministic staging: the open dispatches synchronously and parks
+    // on its canonicalize I/O (an event-loop turn); the shutdown issued
+    // right behind it drains nothing and completes entirely on
+    // microtasks — so it always acks before the open resumes. Without the
+    // mint-time gate the open then registers a channel no fixed point
+    // will ever retire.
+    final opening = h.call(
+      (id) => OpenLocalBrowseChannelRequest(
+        requestId: id,
+        rootPath: root.path,
+      ),
+    );
+    expect(
+      await h.call((id) => ShutdownRequest(requestId: id)),
+      isA<EngineAck>(),
+    );
+
+    final error = await expectError(opening);
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(error.message, contains('shutting down'));
+    expect(backend.cancelled, isEmpty,
+        reason: 'nothing was ever watched on the aborted open');
+  });
+
+  test('close timeout reports failure while the release stays tracked',
+      () async {
+    final root = Directory.systemTemp.createTempSync('dup-bound-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(
+      localWatch: backend,
+      shutdownDrainTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    final gate = backend.gates[channel.homePath]!;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    // The starter close and a duplicate both park on the gated (never
+    // settling within the bound) retirement. Neither may hang, and
+    // neither may report success: a deadline miss is a failure to
+    // confirm release, not a completed release.
+    final starter = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+    await pumpEventQueue();
+    final duplicate = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+
+    final firstResults = await Future.wait([
+      starter.timeout(const Duration(seconds: 5)),
+      duplicate.timeout(const Duration(seconds: 5)),
+    ]);
+    expect(firstResults, everyElement(isA<EngineError>()));
+    for (final result in firstResults) {
+      final error = result as EngineError;
+      expect(error.operation, 'close');
+      expect(error.message, contains('did not settle'));
+    }
+    expect(gate.isCompleted, isFalse);
+
+    // A later close while the release is STILL pending shares it and
+    // reports the same typed timeout failure — never an idempotent ack
+    // over a live resource.
+    final whilePending = await h
+        .call((id) => CloseBrowseChannelRequest(
+          requestId: id, channelId: channel.channelId,
+        ))
+        .timeout(const Duration(seconds: 5));
+    expect(whilePending, isA<EngineError>());
+    final pendingError = whilePending as EngineError;
+    expect(pendingError.operation, 'close');
+    expect(pendingError.message, contains('did not settle'));
+
+    // Eventual release: once the gate completes, the retirement settles,
+    // its self-removal drops the entry, and closing the id becomes the
+    // truthful idempotent ack — failure did not prevent cleanup.
+    gate.complete();
+    await pumpEventQueue();
+    final settled = await h
+        .call((id) => CloseBrowseChannelRequest(
+          requestId: id, channelId: channel.channelId,
+        ))
+        .timeout(const Duration(seconds: 5));
+    expect(settled, isA<EngineAck>());
+  });
+
+  test('a duplicate close survives shutdown-drain abandonment', () async {
+    final root = Directory.systemTemp.createTempSync('dup-drain-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(
+      localWatch: backend,
+      shutdownDrainTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    // The gate is never completed within the bound: the drain will
+    // abandon the retirement. The LIFO teardown still releases it so
+    // h.dispose cannot hang past the injected bound.
+    final gate = backend.gates[channel.homePath]!;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    final starter = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    await pumpEventQueue();
+    final duplicate = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+
+    final results = await Future.wait([
+      starter.timeout(const Duration(seconds: 5)),
+      duplicate.timeout(const Duration(seconds: 5)),
+      shuttingDown.timeout(const Duration(seconds: 5)),
+    ]);
+    // The closes raced a wedged release: both report the typed timeout
+    // failure (a deadline is not a completed release, even mid-shutdown
+    // — the engine is still serving until the ack). The shutdown itself
+    // keeps its documented abandonment semantics: its ack follows the
+    // drain's bounded abandonment, and the isolate dies with it.
+    expect(results[0], isA<EngineError>());
+    expect(results[1], isA<EngineError>());
+    expect(results[2], isA<EngineAck>());
   });
 
   test('closing a fully retired channel stays idempotent', () async {

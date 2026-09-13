@@ -557,6 +557,12 @@ void main() {
     final stopped = watcher.stop();
     var completed = false;
     unawaited(stopped.then((_) => completed = true));
+    // pumpEventQueue drains microtasks/zero-delay timers only. The
+    // stop/dispose/signals-close paths carry no nonzero-duration timer
+    // (the debounce timer is cancelled synchronously on release — the
+    // watcher's only Timer), so this still catches a wrongly-early
+    // completion; if those paths ever adopt a real-time timer, switch
+    // this to fakeAsync or a bounded delay.
     await pumpEventQueue();
 
     // The cancellation was issued synchronously, but the acknowledged stop

@@ -3,28 +3,10 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'local_watch_backend.dart';
 import 'protocol.dart' show DirectoryWatchSignal;
 
-/// The injectable backend for one non-recursive directory watch (03
-/// §7.5). The production default wraps dart:io's `Directory.watch`; tests
-/// inject deterministic fakes. An interface, not a function type: the
-/// engine protocol guard forbids function-typed fields in engine sources
-/// (08 §3.3), and this seam stays engine-internal either way — nothing
-/// here crosses the isolate port.
-abstract interface class LocalWatchBackend {
-  /// Returns the event stream for [directory] — dart:io's contract: the
-  /// OS watch starts when the stream is listened to.
-  Stream<FileSystemEvent> watch(String directory);
-}
-
-/// The production backend: dart:io's non-recursive `Directory.watch`.
-final class DartIoWatchBackend implements LocalWatchBackend {
-  const DartIoWatchBackend();
-
-  @override
-  Stream<FileSystemEvent> watch(String directory) =>
-      Directory(directory).watch();
-}
+export 'local_watch_backend.dart' show LocalWatchBackend, DartIoWatchBackend;
 
 /// One typed signal off a [LocalDirectoryWatcher] (engine-internal; the
 /// host crosses it as a `DirectoryWatchEvent`).
@@ -75,14 +57,10 @@ final class LocalWatchSignal {
 /// Dart-side patch): Linux and macOS report a removed/renamed watched
 /// directory as a delete event naming the watched path itself, then close
 /// the stream; Windows surfaces `ReadDirectoryChangesW` buffer overflow
-/// and unexpected closure as stream errors — but not root deletion:
-/// the OS defers removing a directory an open handle watches
-/// (delete-pending), so no loss signal exists there; when the watched
-/// directory still has children their removal surfaces as `changed`
-/// (the rescan path), but an empty — or already-emptied — watched
-/// directory yields nothing observable at all (STATUS open item 16
-/// tracks the gap and the compatible parent-watch adapter); macOS
-/// FSEvents already
+/// and unexpected closure as stream errors. Windows root deletion may
+/// instead leave a silent delete-pending watch after child events; the
+/// platform backend adds event-driven root checks and a parent watch for
+/// renames (03 §7.5). macOS FSEvents already
 /// depth-filters non-recursive watches to direct children in the C++
 /// layer, so the child filter below is defense in depth (it also covers a
 /// future backend that reports subtrees). FSEvents' documented quirks —
@@ -111,7 +89,7 @@ final class LocalDirectoryWatcher {
       'unexpectedly.';
 
   LocalDirectoryWatcher({LocalWatchBackend? backend})
-    : _backend = backend ?? const DartIoWatchBackend();
+    : _backend = backend ?? LocalWatchBackend.platform();
 
   final LocalWatchBackend _backend;
   final _signals = StreamController<LocalWatchSignal>.broadcast();

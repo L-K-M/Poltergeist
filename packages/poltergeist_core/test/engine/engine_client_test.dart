@@ -7,6 +7,8 @@ import 'package:poltergeist_core/src/engine/local_directory_watcher.dart'
     show LocalDirectoryWatcher;
 import 'package:test/test.dart';
 
+import '../fs/local_fs_test_support.dart' show testWithSymbolicLinks;
+
 /// A port nothing listens on: connect attempts fail fast with ECONNREFUSED,
 /// proving the full request → engine → production-opener → error → response
 /// round trip without needing an sshd fixture (08 §5 owns those legs).
@@ -405,8 +407,7 @@ void main() {
     ) async {
       // The tree cleanup registers BEFORE the engine shutdown so LIFO
       // teardown releases the engine's watch handles first — deleting a
-      // watched tree out from under a live engine defers on Windows (the
-      // vanish test's own skip reason documents the trap).
+      // watched tree can defer on Windows until its handles close.
       final root = Directory.systemTemp.createTempSync(name);
       addTearDown(() {
         if (root.existsSync()) root.deleteSync(recursive: true);
@@ -440,6 +441,11 @@ void main() {
         // same emission — the property the debounce exists for.
         File('${root.path}/created.txt').writeAsStringSync('newer');
 
+        // Await the first emission via the proven timeout; the quiet
+        // window then only guards against a spurious SECOND emission,
+        // which is the property under test — a loaded runner delaying the
+        // debounce past the window can no longer flake the hasLength(1).
+        await channel.directoryChanges.first.timeout(_watchCrossingTimeout);
         await Future<void>.delayed(_watchQuietWindow);
         await subscription.cancel();
         expect(events, hasLength(1));
@@ -523,16 +529,91 @@ void main() {
         expect(event.path, channel.homePath);
         expect(event.detail, isNotNull);
       },
-      // Windows defers deleting a watched directory (delete-pending while
-      // the watch holds its handle), so the OS produces no loss signal at
-      // all there; the root-loss logic itself is covered cross-platform by
-      // the injected-backend adapter suite.
-      skip: Platform.isWindows
-          ? 'Windows defers removing a watched directory; no loss signal '
-              'exists there — the children-removal changed and its rescan '
-              'are the observable path'
-          : false,
     );
+
+    test('deleting an empty watched directory signals lost', () async {
+      final (_, channel, root) = await localFixture('pg-watch-empty-vanish');
+      final emptyPath = '${channel.homePath}${Platform.pathSeparator}sub';
+      await channel.watchDirectory(emptyPath);
+      await drainSetupBacklog();
+
+      // No child event can trigger a rescan: the watch must detect the
+      // root's loss while its Windows handle still holds deletion pending.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/sub').deleteSync();
+
+      final event = await lost;
+      expect(event.path, emptyPath);
+      expect(event.detail, isNotNull);
+    });
+
+    testWithSymbolicLinks('watch resolves linked directories before subscribing',
+        () async {
+      final (_, channel, root) = await localFixture('pg-watch-linked-root');
+      final target = '${root.path}/sub';
+      final alias = '${root.path}/alias';
+      Link(alias).createSync(target);
+
+      // The backend receives a real directory, even when the requested
+      // location is a link. Rejecting a later link replacement stays safe.
+      await channel.watchDirectory(alias);
+      await drainSetupBacklog();
+      final changed = channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      File('$target/new.txt').writeAsStringSync('through the canonical root');
+
+      final event = await changed;
+      expect(event.signal, DirectoryWatchSignal.changed);
+      expect(event.path, '${channel.homePath}${Platform.pathSeparator}sub');
+    });
+
+    test('deleting an already-emptied watched directory signals lost', () async {
+      final (_, channel, root) = await localFixture('pg-watch-drained-vanish');
+      await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
+
+      final emptied = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.changed)
+          .timeout(_watchCrossingTimeout);
+      File('${root.path}/a.txt').deleteSync();
+      Directory('${root.path}/sub').deleteSync();
+      await emptied;
+
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      root.deleteSync();
+      expect((await lost).path, channel.homePath);
+    });
+
+    test('renaming and recreating a watched path loses its old binding', () async {
+      final (_, channel, root) = await localFixture('pg-watch-renamed-root');
+      final watchedPath = '${channel.homePath}${Platform.pathSeparator}sub';
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+
+      // A type check alone would see the replacement directory and miss
+      // that the native subscription still follows the renamed one.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/sub').renameSync('${root.path}/renamed');
+      Directory('${root.path}/sub').createSync();
+      expect((await lost).path, watchedPath);
+
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+      final changed = channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      File('${root.path}/sub/new.txt').writeAsStringSync('new binding');
+      final event = await changed;
+      expect(event.path, watchedPath);
+      expect(event.signal, DirectoryWatchSignal.changed);
+    });
 
     test('unwatchDirectory releases the engine-side watch', () async {
       final (_, channel, root) = await localFixture('pg-watch-release');

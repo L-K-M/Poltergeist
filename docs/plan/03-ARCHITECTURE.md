@@ -2002,12 +2002,25 @@ launcher/remote) is app-side wiring over that seam. One known backend
 limitation is recorded in STATUS (open item 14): Linux's inotify queue
 overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
 rests on the drain-promptly mitigation until a compatible FFI backend
-surfaces it through the same seam. A second backend limitation, opened
-by the 2026-09-13 post-merge repair, is STATUS open item 16: on Windows
-a watched directory's removal is unobservable (delete-pending while the
-watch holds its handle — an empty watched directory yields nothing at
-all), with a compatible parent-watch adapter proposed there; both gaps
-are M3 blockers for pane wiring, not completed QA.
+surfaces it through the same seam.
+
+*Windows backend precision (2026-09-13):* one logical pane watcher owns
+two non-recursive native subscriptions: the shown directory and its parent
+(only one at a volume root). The parent supplies root rename/removal events;
+sibling events never refresh the pane. Either subscription failing loses
+the logical watch. Parent watching alone cannot detect delete-pending roots:
+Windows may retain the directory entry while its child watch holds a handle.
+Dart also drops a synchronous `ReadDirectoryChangesW` failure when re-arming
+after child events. Therefore the backend checks root type asynchronously
+after subscribing and after events from the child watch. A non-directory
+result or check failure loses the watch. Checks run one at a time; events
+during a check require a trailing check, and cancellation waits for both
+subscriptions and the outstanding check. This is event-driven metadata
+validation, with no timer, recursive scan, or remote polling. The check after
+subscription covers disappearance during native watch setup. The old blanket
+claim that empty-root removal never signals is incorrect: Windows can report
+it as an asynchronous watch error. Native regression tests cover both empty
+and populated deletion; STATUS records evidence and remaining limitations.
 
 ## 8. Code-sharing mechanics (D2)
 

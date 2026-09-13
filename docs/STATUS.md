@@ -2846,8 +2846,13 @@ second request. Fix at the host request boundary: retirements in flight
 are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
-drains and clears the map (never acking over a still-closing channel it
-stopped tracking), and routing still retires synchronously so no stale
+drains the map without clearing it, so shutdown cannot ack over a
+still-closing channel that settles (corrected 2026-09-13 by the
+shutdown-drain repair below — #87 as merged cleared the map
+pre-drain and could ack early on a drain-window duplicate); a
+never-settling retirement is abandoned at the drain's bound and
+its release dies with the isolate,
+and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
 idempotent. The Windows root-removal gap's STATUS entry was also
 renumbered 15 → 16 (it collided with #85's Quick Select item 15) with
@@ -2919,6 +2924,147 @@ entry. [CI 34742129311](https://github.com/L-K-M/Poltergeist/actions/runs/347421
 at `57faa73` passed the app checks, all five client builds, three native Dart
 suites, and tooling checks. SSH fixtures were skipped by scope detection;
 M0 measurements remain dispatch-only. M3 remains open.
+
+## M3 — shutdown-drain repair (2026-09-13, post-merge on #87; PR #88)
+
+Engine and test changes: this PR (#88) carries them — the red
+baseline is anchored at `0289922`
+(`tasks/task18-logs/shutdown-drain-before.log`, exit 1).
+Supervisor verification of merged #87 found the next lifetime window:
+`_shutdown` snapshotted `_pendingCloses` and then CLEARED the map before
+awaiting the drain — so a duplicate `CloseBrowseChannelRequest`
+processed while shutdown was parked on a gated retirement found no
+pending entry and acked early, exactly the early-ack shape #87 exists
+to close. Fix: the clear is gone and the drain loops until the map
+empties — entries already self-remove on settlement, so a drain-window
+duplicate still finds and awaits its retirement, and a retirement
+created during the drain (a channel opened in the window before the
+shutting-down gate starts rejecting opens, then closed by
+its own request — the one-shot snapshot's blind spot, found by #88's
+review) is awaited too before shutdown acks — arrivals after the
+drain's final emptiness check cannot interleave the check-to-ack
+microtask boundary (no await between them; request handlers run on
+event-loop turns), so the window is structurally closed and
+documented at the drain. The supervisor's repro
+(verbatim
+in `test/engine/supervisor_shutdown_close_test.dart`) was red on merged
+`0289922` (`tasks/task18-logs/shutdown-drain-before.log`, exit 1) and
+passes; the during-drain-creation regression was observed red on the
+repair's first head `e6fa3c3` (batched-drain commit `9e3b2f3`'s parent;
+mutation-verified: `Expected false, Actual true` against the one-shot
+drain) and passes with the loop drain. The suite now pins
+the interleavings: pre-shutdown duplicate closes (both-acks-gated),
+drain-window duplicates (this repro), the retire-loop race (a close
+racing the loop shares the tracked retirement), open rejection once
+shutting down, and the never-settling retirement bound (an injectable
+drain timeout keeps the ack bounded; gating opens once shutting
+down closes off both the fixed point's leak and the starvation
+premise). The mid-loop
+mutation is
+now deterministic (a pump between issuing the racing close and
+releasing the gates guarantees the map mutation lands inside the loop's
+iteration; without it the microtask-resumed loop could finish first and
+the regression pass vacuously). Review-surfaced hardening in the same
+PR: the debounce-coalescing test awaits its first emission via the
+proven timeout before the quiet window (loaded runners can no longer
+flake `hasLength(1)`), the close-race test asserts the watch contract
+before consuming the close future (a throwing close can no longer mask
+the assertions), the pumped negative assertions document why
+`pumpEventQueue` suffices (the watcher's only nonzero timer — the
+debounce — is cancelled synchronously on release), and `_closeChannel`'s
+doc states the failure-sharing asymmetry (a failed retirement surfaces
+its error to every sharing close; only post-settlement closes ack
+idempotently). PR #87's final review round was initially misreported
+as "no findings": its edited summary actually carried this exact major
+finding plus four minors and one info finding (zero inline/actionable
+count). Those summary findings are fully dispositioned in that PR's
+corrected body, and this repair applies all of them.
+
+## M3 — close-timeout truthfulness repair (2026-09-13, post-merge on #88)
+
+Supervisor verification of merged #88 reproduced the final defect in
+the close-lifetime chain: a non-shutdown close whose bound elapsed
+returned `EngineAck` — false success over a backend release known not
+to have settled, while the engine remained live and serving. The
+documentary "ack means release completed or the bound elapsed"
+framing was itself the error: a deadline is a failure to confirm
+release, not a completed release, and the repository's explicit-error
+rule applies through the existing taxonomy (`_guard` already
+serializes any throw as `EngineError`; `operation: 'close'` names the
+request) — no new protocol variant was ever needed, and the earlier
+"background release genuinely completes later" claim was unfounded
+(the backend can stay wedged forever). Fix: starter and duplicate
+closes await the tracked retirement under the shared bound and, on a
+timeout, answer a typed `RemoteFileException` (kind `other`, operation
+`close`) — while the retirement STAYS tracked, so closes racing a
+still-pending release keep reporting the same truthful failure, and
+the eventual settlement (whenever it comes) drops the entry through
+the existing self-removal listener, restoring the idempotent-ack
+path. Only the shutdown drain keeps bounded abandonment semantics:
+its ack precedes the isolate's death, a different operation. Closes
+racing shutdown report the timeout failure too while the retirement
+stays tracked — the engine is still serving until the shutdown ack (a
+close arriving after the drain itself abandons the entry acks with
+the drain, as before). Regression-first: the supervisor's
+repro (`supervisor_close_timeout_test.dart`, gated backend, 200 ms
+bound, engine proven live by a concurrent open) was red on merged
+`0ced8ef` (`tasks/task18-logs/close-timeout-before.log`, exit 1 —
+`[EngineAck, EngineAck]`) and passes; the prior round's two
+bounded-close tests were rewritten to the truthful contract with new
+coverage for a close while still pending (typed failure), eventual
+release (idempotent ack after settlement — failure did not prevent
+cleanup), and closes racing shutdown (typed failure for the closes,
+EngineAck only for the shutdown's own drain). All earlier race
+regressions (duplicate sharing, drain-window duplicates, retire-loop
+race, open gating, never-settling drain bound) pass unchanged.
+
+## M3: Windows watched-directory loss (2026-09-13)
+
+The Windows backend combines non-recursive root and parent subscriptions.
+Parent rename/removal loses the binding even if another directory already
+occupies the old path. An asynchronous root-type check after setup and child
+events detects delete-pending roots when Dart drops a synchronous native
+read failure. Checks coalesce with a trailing check for intervening events;
+cancellation retires both subscriptions and waits for outstanding metadata.
+Sibling events are ignored. No timer, recursive scan, new VFS, or protocol
+change. Chapter 03 §7.5 records the backend contract and corrects its earlier
+blanket claim that Windows empty-root deletion cannot signal.
+
+Regression baseline: Windows [job 103720537033](
+https://github.com/L-K-M/Poltergeist/actions/runs/34756069942/job/103720537033)
+at `58bd488` timed out waiting for populated-root loss; empty-root deletion
+passed. Linux and macOS passed both. This supports the SDK's distinction
+between [silent synchronous read failures](
+https://github.com/dart-lang/sdk/blob/3.13.3/runtime/bin/eventhandler_win.cc)
+and [reported asynchronous deletion errors](
+https://github.com/dart-lang/sdk/issues/62193). Parent watching alone is
+insufficient because [Windows retains delete-pending entries](
+https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-removedirectoryw).
+Local validation: core and app analysis, the import/protocol guards, 21
+deterministic backend tests, the core suite (730 passed, 16 fixture skips),
+and all 496 app tests passed. [CI 34756562117](
+https://github.com/L-K-M/Poltergeist/actions/runs/34756562117), attempt 2 at
+`4ef9a03`, passed: all five client builds, real SSH fixtures, tooling, and
+native packages (Linux 730/16 skipped; macOS 729/13; Windows 705/37).
+All four deletion/rename cases ran on every desktop. Attempt 1 passed the
+watch cases but failed the unchanged Windows incident-store test; its job
+passed on retry (item 19). Higher-ancestor renames remain item 19; Linux
+overflow remains item 14. M3 stays open.
+
+Review round 1 found no confirmed important defect. Two minor suggestions
+were applied: an internal absolute-path assertion (test failed before it)
+and positive event-fidelity coverage. Symlink-root failure was refuted:
+the engine resolves links before subscribing; an added native link-path
+test pins that boundary. Transient retry was declined under 03 §7.5:
+Dart type lookup collapses lookup errors to `notFound`, so the proposed
+exception-code retry cannot classify them. The proposed deletion flag
+assertion was refuted against Dart's API: `isDirectory` is always false
+for `FileSystemDeleteEvent`. PR #92 records each disposition with evidence.
+
+Original engine code; PORTS.md checked, no affected port or upstream change.
+The Séance pin and dependencies are unchanged. The subscription tools are
+unavailable; PR #92 uses GitHub polling and an hourly Paseo heartbeat, deleted
+on completion.
 
 ## Open items
 
@@ -3473,26 +3619,19 @@ M0 measurements remain dispatch-only. M3 remains open.
     claims overflow detection on Linux. (The 2026-09-13 repair below
     corrected this item's earlier "every other §7.5 failure mode is
     surfaced" claim: Windows root removal is its own gap, item 16.)
-16. **2026-09-13 — M3: Windows root-removal is unobservable through
-    dart:io (opened by the task18 post-merge verification).** Deleting a
-    watched directory on Windows defers while the watch holds its handle
-    (delete-pending), so `ReadDirectoryChangesW` delivers no error, no
-    close, and no root event — no `lost` signal can exist. A non-empty
-    watched directory still surfaces its children's removal as the
-    debounced `changed` (the rescan path catches the loss), but an EMPTY
-    — or already-emptied — watched directory yields nothing observable
-    at all: the pane's rescan never triggers, so 03 §7.5's "a pane never
-    shows a listing it silently stopped watching" does not hold for that
-    case on Windows. The root-loss logic itself is covered cross-platform
-    by the injected-backend adapter suite; the real-OS vanish test skips
-    Windows with this reason (a focused, documented skip — not a global
-    one). Compatible adapter, no speculative multi-platform FFI needed:
-    a Windows `LocalWatchBackend` variant that additionally watches the
-    watched directory's PARENT non-recursively and maps a parent-reported
-    removal of the watched name into the `lost` signal (the parent's own
-    handle sees the child go) — event-based, local-only, behind the same
-    seam. Owner gate: this is an M3 blocker for pane wiring, not
-    completed QA; item 15's Linux overflow stays its own gap.
+16. **2026-09-13: M3 Windows watched-root loss (closed by PR #92).**
+    The dated section above replaces the original diagnosis with native
+    failing-first evidence: populated deletion timed out; empty deletion
+    already signalled. The Windows backend now adds parent notifications
+    for root renames and event-driven metadata checks for delete-pending
+    roots. Native tests cover populated, empty, already-emptied, and
+    rename/recreate cases. No skip hides Windows root deletion. Higher
+    ancestor renames remain item 19; Linux overflow remains item 15.
+    **History (the pre-#92 diagnosis, superseded):** empty-directory
+    root removal was believed unobservable through dart:io
+    (delete-pending deferral); the native evidence in #92 showed the
+    empty case already signalled and the populated case needed the
+    metadata check, not a parent-watch redesign.
 
 17. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
@@ -3502,7 +3641,7 @@ M0 measurements remain dispatch-only. M3 remains open.
     encapsulated in core rather than exposing a pre-folded-string API before
     the consumer and measurements establish the required contract.
 
-17. **2026-09-13: M3 view preference composition (#89 review).** Before
+18. **2026-09-13: M3 view preference composition (#89 review).** Before
     pane wiring, measure recency-only writes with 500 saved locations against
     the browse budgets. Reads currently persist touches immediately through
     the asynchronous atomic writer; the future recents debounce/quit-flush
@@ -3512,6 +3651,25 @@ M0 measurements remain dispatch-only. M3 remains open.
     and require deliberate reset rather than silently replacing malformed
     or newer schemas. The store currently reports `FormatException` without
     changing the section; `reset(location)` cannot bypass that validation.
+
+19. **2026-09-13: M3 Windows ancestor rename detection (#92).** The backend
+    watches the shown directory and its immediate parent. Renaming a higher
+    ancestor can leave both handles following the moved tree without an
+    event; metadata checks run only on setup and qualifying events. Before
+    pane wiring, close this remaining invalidation gap without recursive
+    subtree watches or remote polling. Direct root deletion/rename coverage
+    does not establish higher-ancestor detection.
+
+20. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
+    `a declined incident survives a real store round-trip on disk` failed
+    on [job 103721821421](
+    https://github.com/L-K-M/Poltergeist/actions/runs/34756562117/job/103721821421)
+    at `4ef9a03`: disk retained only the first incident until the five-second
+    deadline. The same job passed on retry. This test uses the pool directly,
+    before the watch tests run; its code is unchanged by #92. A concurrent
+    Windows read/replace sharing failure is a hypothesis, not a confirmed
+    diagnosis. If it recurs, capture `first.incidentStoreErrors` before
+    changing the timeout or persistence behavior.
 
 ## Independent audit
 
