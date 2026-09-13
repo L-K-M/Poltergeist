@@ -2012,11 +2012,11 @@ the logical watch. Parent watching alone cannot detect delete-pending roots:
 Windows may retain the directory entry while its child watch holds a handle.
 Dart also drops a synchronous `ReadDirectoryChangesW` failure when re-arming
 after child events. Therefore the backend checks root type asynchronously
-after subscribing and after events from the child watch. A non-directory
-result or check failure loses the watch. Checks run one at a time; events
-during a check require a trailing check, and cancellation waits for both
-subscriptions and the outstanding check. This is event-driven metadata
-validation, with no timer, recursive scan, or remote polling. The check after
+after subscribing, after child-watch events, and after qualifying parent-watch
+events. A non-directory result or check failure loses the watch. Checks run
+one at a time; events during a check require a trailing check. Cancellation
+waits for both subscriptions and the outstanding check. This is event-driven
+metadata validation, with no timer, recursive scan, or remote polling. The check after
 subscription covers disappearance during native watch setup. The old blanket
 claim that empty-root removal never signals is incorrect: Windows can report
 it as an asynchronous watch error. Native regression tests cover both empty

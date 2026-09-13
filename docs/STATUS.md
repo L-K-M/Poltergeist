@@ -2968,9 +2968,9 @@ https://github.com/L-K-M/Poltergeist/actions/runs/34763389767), Windows job
 `103740002147`, and candidate `6366437`, [CI 34763626749](
 https://github.com/L-K-M/Poltergeist/actions/runs/34763626749), job
 `103740628858`, isolate a live-handle restriction on the tested runner/SDK.
-No watcher permits root/parent/higher/reparent/case-only moves. Root-only,
-root+parent, and full-chain layouts permit root rename but refuse ancestor
-moves; every refusal succeeds after cancellation on the same fixture.
+With no watches, all five moves succeed. With live root-only, root+parent,
+or full-chain handles, root rename succeeds but the tested ancestor moves
+are refused; every refusal succeeds after cancellation on the same fixture.
 Both runs retain the three rename-denied failures. This is not evidence
 that all Windows filesystems or move mechanisms prevent ancestor moves.
 

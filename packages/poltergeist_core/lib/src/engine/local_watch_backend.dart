@@ -14,8 +14,9 @@ abstract interface class LocalWatchBackend {
   Stream<FileSystemEvent> watch(String directory);
 }
 
-/// Non-recursive native events suffice on Linux and macOS, except for
-/// dart:io's documented Linux overflow gap (STATUS item 14).
+/// Non-recursive native events cover watched-directory self-loss on
+/// Linux/macOS. Permitted ancestor renames can go undetected (STATUS item 18);
+/// Linux inotify queue overflow also remains unreported (item 14).
 final class DartIoWatchBackend implements LocalWatchBackend {
   const DartIoWatchBackend();
 
