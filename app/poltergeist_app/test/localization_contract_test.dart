@@ -205,7 +205,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'connect'",
     "'open'",
     "'list'",
-    "'fault:\$fault'",
+    "'fault:\${fault.name}'",
   },
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).

@@ -21,6 +21,10 @@ void main() {
     expect(paneParentPath(r'\\server\share\docs'), r'\\server\share');
     // Only \\server\share is a listable root; \\server is not a directory.
     expect(paneParentPath(r'\\server\share'), r'\\server\share');
+    // A trailing-separator spelling stays a strict no-op (the input
+    // returns verbatim, not the trimmed form).
+    expect(paneParentPath(r'\\server\'), r'\\server\');
+    expect(paneParentPath(r'\\server\share\'), r'\\server\share\');
   });
 
   test('a backslash inside a POSIX name never flips the separator', () {
@@ -53,8 +57,8 @@ void main() {
     // paneParentPath augments a bare drive to its root ('C:' → 'C:\'),
     // which is longer than the input — the label must not RangeError.
     expect(paneLastSegment('C:'), 'C:');
-    // A root carrying a trailing separator labels itself, not ''.
-    expect(paneLastSegment(r'\\server\share\'), r'\\server\share');
+    // A root carrying a trailing separator labels itself, not '' —
+    expect(paneLastSegment(r'\\server\share\'), r'\\server\share\');
     expect(paneLastSegment(r'C:\foo\'), 'foo');
   });
 }

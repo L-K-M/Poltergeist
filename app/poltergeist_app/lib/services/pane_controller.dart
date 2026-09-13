@@ -45,8 +45,11 @@ enum PaneFault { connectionOpen, localOpen, listFolder }
 /// machine sentinel (never rendered); [fault] carries the renderable
 /// identity for the view's localized diagnostic line.
 class PaneFaultException extends RemoteFileException {
-  const PaneFaultException(this.fault, {required super.operation})
-    : super(kind: RemoteFileErrorKind.other, message: 'fault:$fault');
+  PaneFaultException(this.fault, {required super.operation})
+    : super(
+        kind: RemoteFileErrorKind.other,
+        message: 'fault:${fault.name}',
+      );
 
   final PaneFault fault;
 }
@@ -159,9 +162,16 @@ class PaneController extends ChangeNotifier {
   /// navigates to the bookmark's path ('/' meaning the canonical home).
   /// [initialPath] overrides the landing directory — retry after a
   /// severed transport uses it to return the user where they were.
+  /// The intended landing directory for the pending remote bind: set
+  /// by every remote bind, consumed on the first SUCCESSFUL navigation,
+  /// and cleared on unbind — so a reconnect that fails and is retried
+  /// still returns the user where they were, not the bookmark root.
+  String? _pendingRemotePath;
+
   Future<void> connectRemote(Bookmark bookmark, {String? initialPath}) async {
     if (_disposed || _lanes == null) return;
     _pendingRemote = bookmark;
+    _pendingRemotePath = initialPath ?? _pendingRemotePath;
     await _bind(
       connectingPhase: PanePhase.connectingRemote,
       operation: 'connect',
@@ -188,6 +198,13 @@ class PaneController extends ChangeNotifier {
                 _connectionStatus = null;
                 notifyListeners();
               },
+              onDone: () {
+                if (_disposed || attempt != _bindAttempt) return;
+                // A lane that closes cleanly must not pin the banner
+                // on its last state either (same rule as a dead lane).
+                _connectionStatus = null;
+                notifyListeners();
+              },
             );
         final channel = await lanes.openBrowseChannel(
           serverId: bookmark.id,
@@ -202,7 +219,9 @@ class PaneController extends ChangeNotifier {
         _phase = PanePhase.browsing;
         notifyListeners();
 
-        final remotePath = initialPath ?? bookmark.remotePath;
+        final remotePath = initialPath ??
+            _pendingRemotePath ??
+            bookmark.remotePath;
         final target =
             remotePath == null || remotePath == '/'
                 ? channel.homePath
@@ -212,6 +231,8 @@ class PaneController extends ChangeNotifier {
           target,
           channel,
         );
+        // The landing directory is consumed by the bind that used it.
+        _pendingRemotePath = null;
       },
     );
   }
@@ -291,7 +312,10 @@ class PaneController extends ChangeNotifier {
     if (_phase == PanePhase.connectingRemote && _error != null) {
       final bookmark = _pendingRemote;
       if (bookmark != null) {
-        await connectRemote(bookmark);
+        await connectRemote(
+          bookmark,
+          initialPath: _pendingRemotePath,
+        );
         return;
       }
     }
@@ -379,6 +403,7 @@ class PaneController extends ChangeNotifier {
     _cursorIndex = null;
     _connectionStatus = null;
     _pendingRemote = null;
+    _pendingRemotePath = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
     notifyListeners();
@@ -476,6 +501,7 @@ class PaneController extends ChangeNotifier {
 
   Future<void> openLocalHome() async {
     _pendingRemote = null;
+    _pendingRemotePath = null;
     await _bind(
       connectingPhase: PanePhase.openingLocal,
       operation: 'open',

@@ -96,6 +96,10 @@ class FakePaneChannel implements AppBrowseChannel {
   int closeCalls = 0;
   Completer<void>? holdNext;
 
+  /// When set, every listing throws this non-VFS error (drives the
+  /// typed PaneFault list path).
+  Object? listingFailure;
+
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     listCalls.add(path);
@@ -104,6 +108,8 @@ class FakePaneChannel implements AppBrowseChannel {
       holdNext = null;
       await hold.future;
     }
+    final fault = listingFailure;
+    if (fault != null) throw fault;
     final entries = listings[path];
     if (entries == null) {
       throw RemoteFileException(

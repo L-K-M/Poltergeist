@@ -535,7 +535,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(left.error, isNull,
           reason: 'Esc retried the failed navigation');
-      expect(find.text('back.txt'), findsOneWidget);    } finally {
+      expect(find.text('back.txt'), findsOneWidget);
+    } finally {
       semantics.dispose();
       debugDefaultTargetPlatformOverride = null;
     }
@@ -635,6 +636,68 @@ void main() {
       find.text('The local file browser could not be opened.'),
       findsOneWidget,
     );
+    expect(find.textContaining('fault:'), findsNothing);
+  });
+
+  testWidgets('every fault variant renders its ARB sentence, never the sentinel', (
+    tester,
+  ) async {
+    // Drive each fault through its real path: a non-VFS remote open
+    // failure (connectionOpen) and a non-VFS listing failure
+    // (listFolder). The localOpen variant is covered above. A
+    // regression back to error.message would ship the sentinel with
+    // no test failing otherwise.
+    final lanes = controller_test.FakePaneLanes()
+      ..remoteOpenFailure = StateError('boom');
+    final controller = PaneController(
+      paneTabId: 'pane.left',
+      lanes: lanes,
+      onError: (_, _) {},
+    );
+    final otherPane = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final workspace = WorkspaceController(left: controller, right: otherPane);
+    addTearDown(workspace.dispose);
+
+    Future<void> pumpPane() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: PaneView(
+              controller: controller,
+              workspace: workspace,
+              focusNode: leftNode,
+              onSwapFocus: () {},
+              onCancelRecovery: () {},
+              clock: clock,
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    await controller.connectRemote(_bookmark('srv-9'));
+    expect(controller.error, isA<PaneFaultException>());
+    await pumpPane();
+    expect(
+      find.text('The connection to this server could not be opened.'),
+      findsOneWidget,
+    );
+
+    // listFolder: a successful bind, then a listing that throws a
+    // non-VFS error.
+    lanes.remoteOpenFailure = null;
+    final listing = controller_test.FakePaneChannel('/home/tester');
+    listing.listingFailure = StateError('io exploded');
+    lanes.nextLocalChannel = listing;
+    await controller.openLocalHome();
+    await tester.pump();
+    expect(controller.error, isA<PaneFaultException>());
+    await pumpPane();
+    expect(find.text('This folder could not be listed.'), findsOneWidget);
+
     expect(find.textContaining('fault:'), findsNothing);
   });
 

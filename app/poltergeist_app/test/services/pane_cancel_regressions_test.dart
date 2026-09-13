@@ -260,6 +260,54 @@ void registerRound15Tests() {
     controller.dispose();
   });
 
+  test('a failed reconnect still preserves the user directory on the next retry', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('root.txt')];
+    lanes.nextRemoteChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await _settle();
+
+    // Transport severs; the first retry reconnects but the server is
+    // STILL unreachable — the reconnect bind itself fails.
+    channel.failure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'list',
+      message: 'Connection closed.',
+    );
+    controller.navigate('/srv/www');
+    await _settle();
+    expect(controller.error?.kind, RemoteFileErrorKind.disconnected);
+
+    lanes.remoteOpenFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'connect',
+      message: 'unreachable',
+    );
+    await controller.retry(); // reconnect attempt fails
+    await _settle();
+    expect(controller.phase, PanePhase.connectingRemote);
+    expect(controller.error, isNotNull);
+
+    // The server comes back; the NEXT retry must land the user where
+    // they were (/srv/www), not on the bookmark root.
+    lanes.remoteOpenFailure = null;
+    final healed = FakePaneChannel('/srv/home');
+    healed.listings['/srv/www'] = [_entry('index.html')];
+    lanes.nextRemoteChannel = healed;
+    await controller.retry();
+    await _settle();
+
+    expect(healed.listCalls, ['/srv/www'],
+        reason: 'the preserved directory survives a failed reconnect');
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/www'),
+    );
+    controller.dispose();
+  });
+
   test('a dead status lane cannot latch the connection-lost banner', () async {
     final lanes = FakePaneLanes();
     final channel = FakePaneChannel('/srv/home');
@@ -284,6 +332,31 @@ void registerRound15Tests() {
     await _settle();
 
     // A dead lane must not leave the banner pinned on its last state.
+    expect(controller.connectionLost, isFalse);
+    controller.dispose();
+  });
+
+  test('a cleanly closed status lane cannot latch the connection-lost banner', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = const [];
+    lanes.nextRemoteChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await _settle();
+
+    // The lane reports reconnecting, then closes cleanly (no error).
+    lanes.emitState(
+      'srv-1',
+      const ServerStatus(ServerConnectionState.reconnecting),
+    );
+    await _settle();
+    expect(controller.connectionLost, isTrue);
+    await lanes.statesControllers['srv-1']!.close();
+    await _settle();
+
+    // A cleanly-ended lane must not leave the banner pinned either
+    // (same rule as an errored lane).
     expect(controller.connectionLost, isFalse);
     controller.dispose();
   });

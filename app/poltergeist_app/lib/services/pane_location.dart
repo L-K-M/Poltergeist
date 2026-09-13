@@ -102,12 +102,14 @@ String paneParentPath(String path) {
   // A bare UNC server ('\\server') has no listable share: it is its
   // own parent — '\' would be the CURRENT DRIVE's root, jumping
   // drives. (Checked BEFORE lastSlash: '\\server' has its second
-  // backslash at index 1, so lastSlash is never 0 for it.)
+  // backslash at index 1, so lastSlash is never 0 for it.) Returns
+  // the INPUT verbatim so a trailing-separator spelling ('\\server\\')
+  // is a strict no-op, not a location change to the trimmed form.
   if (separator == '\\' &&
       trimmed.startsWith('\\\\') &&
       trimmed.length > 2 &&
       !trimmed.substring(2).contains(separator)) {
-    return trimmed;
+    return path;
   }
   final lastSlash = trimmed.lastIndexOf(separator);
   if (lastSlash < 0) {
@@ -132,12 +134,13 @@ String paneParentPath(String path) {
   // Windows: the parent of 'C:\x' is 'C:\', not 'C:'.
   if (parent.length == 2 && parent[1] == ':') return '$parent\\';
   // Windows UNC: '\\server\share' is itself a root — never climb to
-  // '\\server', which no file API can list.
+  // '\\server', which no file API can list. Returns the INPUT
+  // verbatim so trailing-separator spellings stay strict no-ops.
   if (separator == '\\' &&
       parent.length > 2 &&
       parent.startsWith('\\\\') &&
       !parent.substring(2).contains('\\')) {
-    return trimmed;
+    return path;
   }
   return parent;
 }
