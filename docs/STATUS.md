@@ -33,8 +33,8 @@ pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 Next milestone: M3 (panes v1, 07 §3.4). The pure listing-state reducer
-Next milestone: M3 (panes v1, 07 §3.4). The pure listing-state reducer
-and metadata-only listing sort are implemented below. PaneController
+and metadata-only listing sort are implemented below, alongside Quick
+Select's pure matching and selection model. PaneController
 wiring needs cancellable listings through the pinned VFS and engine
 protocol (open item 12). The local browse-channel seam is available
 (item 11, closed), as is the engine-side local directory watch seam
@@ -2624,6 +2624,35 @@ documented skip, not a global one). Production semantics unchanged;
 the adapter's doc records the per-backend loss shapes. App re-verified on the rebased tree (barrel changed):
 analyze clean, 433 tests pass. On the final tree the full core suite
 is 611 pass +16 skips.
+
+## M3: Quick Select matching and selection model (2026-09-13)
+
+`QuickSelectQuery` matches decoded basenames using the pinned Unicode simple
+fold: literal fragments, or whole-name globs with `*` as the only wildcard.
+It reserves anchored ends and searches interior segments in order, without
+regex backtracking. `QuickSelectState<Key>` captures immutable row-name and
+selection snapshots, recomputes Add/Remove previews from the opening
+selection, confirms the current preview, and restores the baseline on cancel.
+Terminal states ignore late callbacks. Row keys are independent of names;
+manually selected rows excluded from name matching remain selected.
+
+02 §2.5 specifies wildcard grammar, case handling, empty queries, baseline
+recomputation, and session invalidation. The pane must cancel before replacing
+the listing or visibility policy, then prune the restored selection. Item 13
+still gates production exclusion of flagged names; a valid literal U+FFFD is
+never treated as evidence of invalid encoding.
+
+Validation: 71 matcher cases and 13 selection tests, with initial missing-API
+failures observed. Independent review caught the initial rejection of manually
+selected flagged rows; its regression failed before the repair. An independent
+temporary dynamic-programming oracle agreed on 278,715 short pattern/name
+pairs. Core analysis and 685 tests pass (16 existing fixture/platform skips);
+Flutter analysis and 446 tests pass; the dependency guard passes.
+
+One ungated M3 model slice. The field, command, keyboard integration, selection
+pruning on actual pane changes, and widget tests remain with pane wiring.
+No widget or D12 rendering surface, persistence, dependency/pin change, or
+source port; PORTS.md is unchanged. M3 remains open.
 
 ## Open items
 
