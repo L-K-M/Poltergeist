@@ -2950,12 +2950,10 @@ on completion.
 
 ## M3: ancestor-rename invalidation (2026-09-13)
 
-Every desktop backend now owns one non-recursive native watch per path
-component above the watched directory, up to the filesystem root: no OS
-reports an ancestor's rename to the moved tree's own watchers (inotify
-delivers `IN_MOVE_SELF` only to the renamed directory's own watch;
-FSEvents and `ReadDirectoryChangesW` report it only through the renamed
-entry's parent). Each chain level maps a removal or rename of the next
+PR #93's candidate gives every desktop backend one non-recursive native
+watch per path component above the watched directory. Linux/macOS native
+baselines missed ancestor-loss signals; Windows refused the moves instead.
+Each chain level maps a removal or rename of the next
 component down to the uniform root-loss shape — a replacement at the old
 pathname cannot mask it — and sibling events stay filtered. The chain walk
 terminates at any `dirname` fixed point (`/`, `C:\`, `\\server\\share`), a
@@ -2980,9 +2978,31 @@ After the fix: 32 fake backend tests, the full core suite (745 passed,
 16 fixture skips), analyze, and the protocol scan all pass locally on
 Linux. Candidate head `677ca68`, CI `34762377645`, passes Linux/macOS;
 Windows job `103737343673` retains all three rename-denied failures
-(717 passed, 37 skipped). A bounded native handle-layout matrix is pending
-CI to distinguish fixture permissions from live-handle restrictions.
-Native Windows acceptance remains blocked, not green.
+(717 passed, 37 skipped).
+
+Native investigation at `cb059e7`, [CI 34763389767](
+https://github.com/L-K-M/Poltergeist/actions/runs/34763389767), Windows job
+`103740002147`: all 20 operation probes pass. Without watches, root,
+parent, higher-ancestor, reparent, and case-only moves succeed. With
+root-only, #92 root+parent, or full-chain handles, root rename succeeds
+but all ancestor moves fail with errno 5. Every refused operation succeeds
+on the same fixture after cancellation. This isolates a live descendant
+watch-handle restriction, not a fixture ACL or missing notification.
+The three untouched loss tests still fail at rename (737 passed,
+37 skipped, 3 failed overall). No permitted native ancestor move reproduced
+the required Windows gap; acceptance remains blocked.
+
+Cross-platform scope barrier: a Linux UID-1000 probe under an owned,
+traverse-only ancestor (mode 0111) receives real events with the old
+leaf-only watch but fails EACCES with the candidate chain. Retaining this
+expansion regresses working locations; silently degrading coverage would
+violate the task's fail-closed requirement. No such policy change is made.
+The review's Linux FD-multiplication premise is false: one and two logical
+chains both use one inotify FD, consistent with Dart's multiplexing and
+inode-watch reuse. macOS root-stream traffic remains an unmeasured cost.
+Raw native/probe sources, logs and exits are retained externally under
+`tasks/task20-recovery/`. The candidate is preserved for scope resolution,
+not approved for merge.
 03 §7.5's backend-precision paragraph and protocol.dart's watch docs now
 describe the chain (and drop the stale claim that Windows root deletion
 yields nothing observable — PR #92 closed item 16).
@@ -3557,10 +3577,12 @@ yields nothing observable — PR #92 closed item 16).
 18. **2026-09-13: M3 ancestor rename detection (OPEN, PR #93).** Native
     Windows baseline and candidate tests both fail at rename with access
     denied, not missing loss. Required permitted-ancestor-move red/green
-    evidence remains unresolved. A native matrix compares no watcher,
-    root-only, #92 root+parent, and full-chain handles before further fixes.
-    Linux/macOS missing-loss evidence does not prove the Windows defect;
-    their candidate expansion also needs permission/resource review.
+    evidence remains unresolved. Native CI `34763389767` isolates a live
+    descendant-handle restriction: unwatched and post-cancel ancestor moves
+    succeed, while root-only, #92 root+parent, and full-chain moves fail.
+    Linux/macOS missing-loss evidence does not prove the Windows defect.
+    The candidate expansion also regresses Linux watches under traverse-only
+    ancestors. Resolving that policy/scope conflict is required before merge.
     Preserve #92's root-loss and cancellation contracts. Linux inotify
     overflow remains item 14.
 

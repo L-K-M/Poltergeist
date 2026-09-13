@@ -2007,12 +2007,9 @@ surfaces it through the same seam.
 *Backend precision (2026-09-13):* one logical pane watcher owns one
 non-recursive native subscription per path component above the shown
 directory — the immediate parent first, up to the filesystem root — plus
-the shown directory itself (only one at a volume root). No desktop OS
-reports an ancestor's rename to the moved tree's own watchers: inotify
-delivers `IN_MOVE_SELF` only to the renamed directory's own watch, while
-FSEvents and `ReadDirectoryChangesW` report a rename only through the
-renamed entry's parent, so each chain level watches for the removal or
-rename of the next component down and maps it to the uniform root-loss
+the shown directory itself (only one at a volume root). Linux/macOS
+ancestor-loss gaps motivate watching each chain level for removal or
+rename of the next component down and mapping it to the uniform root-loss
 shape; sibling events never refresh the pane. The chain walk terminates
 at any `dirname` fixed point — `/`, a drive root (`C:\`), or a UNC share
 root (`\\server\\share`) — so traversal never climbs past a volume. Cost:
@@ -2033,9 +2030,12 @@ old blanket claim that empty-root removal never signals is incorrect:
 Windows can report it as an asynchronous watch error. Native regression
 tests cover empty and populated deletion. Ancestor-rename notification
 assertions require a successful native rename: an OS refusal is not a
-missing notification. Windows live-handle restrictions must be distinguished
-from notification gaps; STATUS records unresolved native acceptance and
-permission/resource validation of the cross-platform chain.
+missing notification. With the supported Windows dart:io mechanism, a live
+descendant watch can prevent ancestor moves even though handles share
+`FILE_SHARE_DELETE`; adding ancestor watches does not remove that restriction.
+Do not claim loss of a binding when the attempted move was refused. STATUS
+records native evidence and unresolved acceptance, including the chain's
+additional ancestor-permission requirement and cross-platform scope barrier.
 
 ## 8. Code-sharing mechanics (D2)
 
