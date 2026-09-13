@@ -2617,11 +2617,14 @@ that fixture-setup backlog past the debounce before staging the
 events they assert on; and Windows produces no root-deletion loss
 signal at all — the OS defers removing a directory an open handle
 watches (delete-pending), so the children-removal `changed` and its
-rescan are the observable path there (the root-loss logic itself is
-covered cross-platform by the injected-backend adapter suite, and the
-real-OS vanish test skips Windows with that reason — a focused,
-documented skip, not a global one). Production semantics unchanged;
-the adapter's doc records the per-backend loss shapes. App re-verified on the rebased tree (barrel changed):
+rescan are the observable path there for a NON-EMPTY directory (the
+root-loss logic itself is covered cross-platform by the injected-backend
+adapter suite, and the real-OS vanish test skips Windows with that
+reason — a focused, documented skip, not a global one). Production
+semantics unchanged; the adapter's doc records the per-backend loss
+shapes. (The 2026-09-13 post-merge repair below sharpened this: an
+empty watched directory yields nothing observable on Windows — open
+item 15.) App re-verified on the rebased tree (barrel changed):
 analyze clean, 433 tests pass. On the final tree the full core suite
 is 611 pass +16 skips.
 
@@ -2657,6 +2660,59 @@ One ungated M3 model slice. The field, command, keyboard integration, selection
 pruning on actual pane changes, and widget tests remain with pane wiring.
 No widget or D12 rendering surface, persistence, dependency/pin change, or
 source port; PORTS.md is unchanged. M3 remains open.
+
+## M3 — watch-seam lifetime repair (2026-09-13, post-merge on #82)
+
+Supervisor verification of merged #82 reproduced a confirmed lifecycle
+race the review rounds missed: `WatchLocalDirectoryRequest` then
+`UnwatchLocalDirectoryRequest` issued back-to-back before the watch's
+canonicalize/stat awaits resume — the unwatch acked, then the older
+validation resumed and installed the watch anyway (the fake backend
+kept a live listener). Root cause: the channel checked only `_closed`
+after its awaits; nothing invalidated an in-flight validation against
+later watch-control requests, and the watcher's epoch starts too late
+(only at retarget) to protect the validation window.
+
+Fix, at the channel request lifetime boundary:
+- `_LocalPaneChannel` gains a watch generation. Every watch-control
+  request (watch, unwatch, close) bumps it; a watch captures it at entry
+  and rechecks after its awaits — superseded validations answer the
+  typed `cancelled` refusal ("superseded by a later watch or unwatch")
+  and install nothing, so last request wins regardless of which I/O
+  resumes first, and an acknowledged unwatch can never be undone by an
+  older, slower watch. A close still wins with the typed `disconnected`
+  refusal (checked before and after the awaits). Invalid-target
+  validations still leave an installed watch untouched, deliberately.
+- The adapter's release is now a completion-tracked tail: every backend
+  cancellation issued is chained in order, `stop()`/`dispose()` complete
+  only when the whole tail has, and errors are contained per link. An
+  acknowledged unwatch/close/shutdown therefore means the backend
+  subscription really is gone, not merely scheduled to go — epoch
+  suppression is signal routing, not resource release. `retarget`'s ack
+  still means establishment (the replaced watch's teardown rides the
+  tail; its callbacks are dead synchronously).
+
+Also opened honestly (not silently deferred): Windows root-removal is
+unobservable through dart:io including the empty-directory case where
+even the children-removal `changed` never fires — open item 15, with a
+compatible parent-watch adapter proposal; item 14's overstated "every
+other failure mode is surfaced" sentence corrected; the protocol,
+adapter, and chapter docs now carry the empty-directory nuance.
+
+Validation (regression-first, delayed completion — no timing guesses):
+the supervisor's repro (kept verbatim in
+`test/engine/watch_supersession_test.dart`) observed red on merged
+e009b1f (`tasks/task18-logs/postmerge-race-before.log`, exit 1 — a
+live listener after the acknowledged unwatch) and passes after; new
+regressions cover the typed `cancelled` refusal with no backend touch,
+reordered watch/watch (only the newer installs, whichever I/O resumes
+first), shutdown superseding a validating watch (`disconnected`), and
+release completion gated on explicit completer-held backend cancels —
+including the finding that a broadcast controller's `cancel()` does NOT
+gate on `onCancel`'s future while `Stream.multi` (dart:io's watch-stream
+shape) does, which is why the gated fakes use `Stream.multi` and why
+the production guarantee is real. Full core suite, protocol repo scan,
+and guards green; native CI on the repair PR.
 
 ## Open items
 
@@ -3188,14 +3244,35 @@ source port; PORTS.md is unchanged. M3 remains open.
     SDK's event routing, and its decoded mask is 0 — nothing reaches a
     Dart listener, so a Linux overflow silently drops events with no
     signal (verified against Dart 3.13.3
-    `runtime/bin/file_system_watcher_linux.cc`; every other §7.5
-    failure mode is surfaced). The continuous subscription drains the
-    kernel queue promptly, which is the available mitigation. Full
-    coverage needs a compatible FFI inotify backend that surfaces
-    `IN_Q_OVERFLOW` as the watch backend's error, behind the same
+    `runtime/bin/file_system_watcher_linux.cc`). The continuous
+    subscription drains the kernel queue promptly, which is the available
+    mitigation. Full coverage needs a compatible FFI inotify backend that
+    surfaces `IN_Q_OVERFLOW` as the watch backend's error, behind the same
     `LocalWatchBackend` seam — an additive, reversible swap when wanted;
     until then the seam honestly reports `changed`/`lost` only and never
-    claims overflow detection on Linux.
+    claims overflow detection on Linux. (The 2026-09-13 repair below
+    corrected this item's earlier "every other §7.5 failure mode is
+    surfaced" claim: Windows root removal is its own gap, item 15.)
+15. **2026-09-13 — M3: Windows root-removal is unobservable through
+    dart:io (opened by the task18 post-merge verification).** Deleting a
+    watched directory on Windows defers while the watch holds its handle
+    (delete-pending), so `ReadDirectoryChangesW` delivers no error, no
+    close, and no root event — no `lost` signal can exist. A non-empty
+    watched directory still surfaces its children's removal as the
+    debounced `changed` (the rescan path catches the loss), but an EMPTY
+    — or already-emptied — watched directory yields nothing observable
+    at all: the pane's rescan never triggers, so 03 §7.5's "a pane never
+    shows a listing it silently stopped watching" does not hold for that
+    case on Windows. The root-loss logic itself is covered cross-platform
+    by the injected-backend adapter suite; the real-OS vanish test skips
+    Windows with this reason (a focused, documented skip — not a global
+    one). Compatible adapter, no speculative multi-platform FFI needed:
+    a Windows `LocalWatchBackend` variant that additionally watches the
+    watched directory's PARENT non-recursively and maps a parent-reported
+    removal of the watched name into the `lost` signal (the parent's own
+    handle sees the child go) — event-based, local-only, behind the same
+    seam. Owner gate: this is an M3 blocker for pane wiring, not
+    completed QA; item 14's Linux overflow stays its own gap.
 
 15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode

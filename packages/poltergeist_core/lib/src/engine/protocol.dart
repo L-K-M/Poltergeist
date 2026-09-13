@@ -208,8 +208,11 @@ enum DirectoryWatchSignal {
   /// retarget; more signals for this path will not arrive without a new
   /// [WatchLocalDirectoryRequest]. One backend exception: on Windows,
   /// removing the watched directory itself defers (delete-pending while
-  /// the watch holds its handle) and yields no lost signal — only
-  /// [DirectoryWatchSignal.changed] and its rescan are observable there.
+  /// the watch holds its handle) and yields no lost signal — a non-empty
+  /// directory's children-removal [DirectoryWatchSignal.changed] and its
+  /// rescan are the observable path there, but an empty (or
+  /// already-emptied) watched directory yields nothing observable
+  /// (STATUS open item 15).
   lost,
 }
 
@@ -451,10 +454,16 @@ final class ListDirectoryRequest extends EngineRequest {
 /// immediately and releases the watch — never as a silent stop; the one
 /// backend exception is Windows, where removing the watched directory
 /// itself defers (delete-pending while the watch holds its handle) and
-/// yields no loss signal — the children-removal
+/// yields no loss signal — a non-empty directory's children-removal
 /// [DirectoryWatchSignal.changed] and its rescan are the observable path
-/// there. A second watch on the same channel replaces the first: stale
-/// callbacks from the replaced watch cannot invalidate the new binding.
+/// there, but an empty (or already-emptied) watched directory yields
+/// nothing observable (STATUS open item 15). A second watch on the same
+/// channel replaces the first: stale
+/// callbacks from the replaced watch cannot invalidate the new binding,
+/// and a watch superseded (by a later watch or unwatch) before it finished
+/// validating answers the typed `cancelled` refusal, while a close
+/// superseding it answers the channel-closed `disconnected` refusal —
+/// clients treat both as last-request-wins, not a failure.
 final class WatchLocalDirectoryRequest extends EngineRequest {
   final int channelId;
   final String path;
