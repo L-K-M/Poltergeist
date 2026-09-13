@@ -22,6 +22,19 @@ RemoteFileEntry _entry(String name, {String parent = '/home/tester'}) =>
       size: 10,
     );
 
+class _HeldListingChannel extends session_test.FakeAppBrowseChannel {
+  _HeldListingChannel() : super(homePath: '/home/tester');
+
+  Completer<List<RemoteFileEntry>>? nextListing;
+
+  @override
+  Future<List<RemoteFileEntry>> listDirectory(String path) {
+    final held = nextListing;
+    nextListing = null;
+    return held?.future ?? super.listDirectory(path);
+  }
+}
+
 void main() {
   final connectionsButton = find.byKey(
     const ValueKey('command.view.connections'),
@@ -91,6 +104,65 @@ void main() {
     expect(engine.localChannelRoots, ['~', '~']);
     expect(find.text('left.txt'), findsOneWidget);
     expect(find.text('right.txt'), findsOneWidget);
+  });
+
+  testWidgets('toolbar refresh becomes available after initial binding', (tester) async {
+    await pumpApp(tester);
+    await tester.pumpAndSettle();
+
+    final refresh = find.byKey(const ValueKey('command.$kViewRefreshCommandId'));
+    expect(tester.widget<TextButton>(refresh).onPressed, isNotNull);
+    await tester.tap(refresh);
+    await tester.pumpAndSettle();
+    expect(engine.localChannels[0].listCalls, ['/home/tester', '/home/tester']);
+    expect(engine.localChannels[1].listCalls, ['/home/tester']);
+  });
+
+  testWidgets('toolbar open follows cursor and active pane changes', (tester) async {
+    engine.localChannels[0].listings['/home/tester'] = [
+      const RemoteFileEntry(path: '/home/tester/docs', name: 'docs', type: RemoteFileType.directory),
+    ];
+    await pumpApp(tester);
+    await tester.pumpAndSettle();
+    final open = find.byKey(const ValueKey('command.$kGoOpenCommandId'));
+    expect(tester.widget<TextButton>(open).onPressed, isNull);
+
+    await tester.tap(find.byKey(const ValueKey('command.$kPaneFocusLeftCommandId')));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(tester.widget<TextButton>(open).onPressed, isNotNull);
+    await tester.tap(find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')));
+    await tester.pump();
+    expect(tester.widget<TextButton>(open).onPressed, isNull);
+    await tester.tap(find.byKey(const ValueKey('command.$kPaneFocusLeftCommandId')));
+    await tester.pump();
+    expect(tester.widget<TextButton>(open).onPressed, isNotNull);
+
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    expect(engine.localChannels[0].listCalls, ['/home/tester', '/home/tester/docs']);
+    expect(engine.localChannels[1].listCalls, ['/home/tester']);
+    expect(tester.widget<TextButton>(open).onPressed, isNull);
+  });
+
+  testWidgets('toolbar parent tracks pending and completed listings', (tester) async {
+    final channel = _HeldListingChannel();
+    engine.localChannels[0] = channel;
+    await pumpApp(tester);
+    await tester.pumpAndSettle();
+    final parent = find.byKey(const ValueKey('command.$kGoEnclosingCommandId'));
+    expect(tester.widget<TextButton>(parent).onPressed, isNotNull);
+
+    final held = Completer<List<RemoteFileEntry>>();
+    channel.nextListing = held;
+    await tester.tap(find.byKey(const ValueKey('command.$kViewRefreshCommandId')));
+    await tester.pump();
+    expect(tester.widget<TextButton>(parent).onPressed, isNull);
+    held.complete([_entry('fresh.txt')]);
+    await tester.pumpAndSettle();
+    expect(find.text('fresh.txt'), findsOneWidget);
+    expect(tester.widget<TextButton>(parent).onPressed, isNotNull);
   });
 
   testWidgets('placeholder panes are gone; the demo command is retired', (

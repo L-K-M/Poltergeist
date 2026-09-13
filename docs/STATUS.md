@@ -2608,7 +2608,26 @@ The mixed-owner r17 run is excluded.
 The five inherited `tasks/run3-task15-captures/` images were inspected:
 Ahem glyphs and transparent backgrounds limit them to widget geometry;
 they do not establish text legibility, native rendering, or install QA.
-Readable-font captures and native desktop/install QA remain unverified.
+Native desktop/install QA remains unverified. Recovery4 adds readable-font
+widget captures of the production shell through fake engine lanes, not native
+QA. The isolated harness loads installed Roboto/MaterialIcons and substitutes
+Roboto Mono for the requested monospace family; product fonts are unchanged.
+
+Those captures exposed stale toolbar enablement after binding, selection,
+and focus changes. Three runtime regressions failed before a toolbar-only
+listener repair and pass afterward. Pending-listing transitions also update
+the controls without rebuilding pane listings. Full app analyze and 551 tests
+pass; bounded logs/exits and before/after captures are retained under
+`tasks/run3-task15-logs/recovery4/`. The initial capture harness compile error
+and premature tap assertion are harness failures, not product red evidence.
+
+The latest route review premise was refuted against pinned Flutter 3.47.2:
+`isActive` reads entry presence, not navigator attachment. Isolated runtime
+checks prove opening during animated pop before disposal, veto/local-history
+refusal, and covering-route safety across the await. A correctly sequenced
+fake also proves the superseded channel closes once without closing its
+replacement. These checks add no product changes; the existing route guard
+stays. Fresh exact-head CI/review after the toolbar repair remain PR gates.
 No full-M3, watch-wiring, probe-driver restoration, or release claim.
 
 ## M3 — pane listing-state transitions (2026-09-12)

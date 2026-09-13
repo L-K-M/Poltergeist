@@ -237,10 +237,20 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           commands: commands,
           child: Column(
             children: [
-              _Toolbar(
-                title: strings.appTitle,
-                commands: commands,
-                onRun: _runCommand,
+              // Re-evaluate enablement without rebuilding the pane listings.
+              ListenableBuilder(
+                listenable: Listenable.merge([
+                  if (workspace != null) ...[
+                    workspace,
+                    workspace.left,
+                    workspace.right,
+                  ],
+                ]),
+                builder: (context, child) => _Toolbar(
+                  title: strings.appTitle,
+                  commands: commands,
+                  onRun: _runCommand,
+                ),
               ),
               Divider(height: 1, color: colors.outlineVariant),
               Expanded(
