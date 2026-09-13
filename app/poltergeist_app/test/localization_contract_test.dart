@@ -199,6 +199,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // ('fault:<kind>', never rendered — the view maps the typed fault to
   // ARB copy per D20).
   'lib/services/pane_controller.dart': {
+    // Loss uses a localized banner; the typed error has no raw diagnostic.
+    "''",
+    "'reconnect'",
     "'~'",
     "'.'",
     "'/'",
@@ -238,6 +241,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.error.retry'",
     "'pane.banner'",
     "'pane.banner.cancel'",
+    "'pane.banner.retry'",
     r"'${controller.paneTabId}.path'",
     r"'${controller.paneTabId}.cancel'",
     r"'${controller.paneTabId}.progress'",

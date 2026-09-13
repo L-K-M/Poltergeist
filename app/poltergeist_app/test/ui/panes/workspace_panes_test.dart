@@ -23,7 +23,7 @@ RemoteFileEntry _entry(String name, {String parent = '/home/tester'}) =>
     );
 
 class _HeldListingChannel extends session_test.FakeAppBrowseChannel {
-  _HeldListingChannel() : super(homePath: '/home/tester');
+  _HeldListingChannel({super.homePath = '/home/tester'});
 
   Completer<List<RemoteFileEntry>>? nextListing;
 
@@ -365,7 +365,7 @@ void main() {
       ),
     ]);
 
-    final remote = session_test.FakeAppBrowseChannel(homePath: '/srv/home');
+    final remote = _HeldListingChannel(homePath: '/srv/home');
     remote.listings['/srv/home'] = [
       _entry('from-remote.txt', parent: '/srv/home'),
     ];
@@ -384,5 +384,33 @@ void main() {
     // The left pane (active by default) now browses the remote listing.
     expect(find.text('from-remote.txt'), findsOneWidget);
     expect(engine.openCalls.map((c) => c.serverId), ['srv-9']);
+
+    final refresh = find.byKey(const ValueKey('command.$kViewRefreshCommandId'));
+    final parent = find.byKey(const ValueKey('command.$kGoEnclosingCommandId'));
+    expect(tester.widget<TextButton>(refresh).onPressed, isNotNull);
+    engine.statesControllers['srv-9']!.add(
+      const ServerStatus(ServerConnectionState.reconnecting),
+    );
+    await tester.pump();
+    expect(tester.widget<TextButton>(refresh).onPressed, isNull);
+    expect(tester.widget<TextButton>(parent).onPressed, isNull);
+    expect(find.text('from-remote.txt'), findsOneWidget);
+
+    final listing = Completer<List<RemoteFileEntry>>();
+    remote.nextListing = listing;
+    engine.statesControllers['srv-9']!.add(
+      const ServerStatus(ServerConnectionState.connected),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const ValueKey('pane.banner')), findsOneWidget);
+    expect(tester.widget<TextButton>(refresh).onPressed, isNull);
+    listing.complete([_entry('healed.txt', parent: '/srv/home')]);
+    await tester.pumpAndSettle();
+    expect(find.text('healed.txt'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pane.banner')), findsNothing);
+    expect(tester.widget<TextButton>(refresh).onPressed, isNotNull);
+    expect(engine.localChannels[1].listCalls, ['/home/tester']);
+    expect(find.text('right.txt'), findsOneWidget);
   });
 }
