@@ -177,9 +177,10 @@ class _PaneViewState extends State<PaneView> {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
-    // Only the listing node's own focus drives the pane key table — a
-    // focused descendant (path segment, cancel button) keeps its keys.
-    if (!identical(node, widget.focusNode)) {
+    // onKeyEvent fires for this node even when a descendant (path
+    // segment, cancel button) holds primary focus — gate on primary
+    // focus, so a focused descendant keeps its keys.
+    if (!widget.focusNode.hasPrimaryFocus) {
       return KeyEventResult.ignored;
     }
     final controller = widget.controller;
