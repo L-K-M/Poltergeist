@@ -531,15 +531,6 @@ void main() {
         expect(event.path, channel.homePath);
         expect(event.detail, isNotNull);
       },
-      // Windows defers deleting a watched directory (delete-pending while
-      // the watch holds its handle), so the OS produces no loss signal at
-      // all there; the root-loss logic itself is covered cross-platform by
-      // the injected-backend adapter suite.
-      skip: Platform.isWindows
-          ? 'Windows defers removing a watched directory; no loss signal '
-              'exists there — the children-removal changed and its rescan '
-              'are the observable path'
-          : false,
     );
 
     test(

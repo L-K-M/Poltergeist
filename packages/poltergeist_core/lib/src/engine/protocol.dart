@@ -199,23 +199,22 @@ final class IncidentRecordRemovedEvent extends IncidentStoreEvent {
 /// Why a watched local directory invalidated (03 §7.5).
 enum DirectoryWatchSignal {
   /// An ordinary change in the watched directory — coalesced (debounced
-  /// 300 ms) engine-side. The consumer rescans the directory. On Windows a
-  /// rescan answering `notFound` must be handled as an implicit loss
-  /// (see the [lost] variant): the OS reports a removed root only through
-  /// its children's removal, never as a lost signal.
+  /// 300 ms) engine-side. The consumer rescans the directory. A rescan
+  /// answering `notFound` must be handled as an implicit loss (see the
+  /// [lost] variant): children's removals surface this way before a
+  /// removal's [lost] crosses, and a consumer that never rescans between
+  /// signals can meet a directory that is already gone.
   changed,
 
   /// The watch is gone: the watched directory was removed or renamed away,
   /// or the watcher backend failed or closed. Delivered immediately, never
   /// silently, and the watch is released — a consumer must rescan or
   /// retarget; more signals for this path will not arrive without a new
-  /// [WatchLocalDirectoryRequest]. One backend exception: on Windows,
-  /// removing the watched directory itself defers (delete-pending while
-  /// the watch holds its handle) and yields no lost signal — a non-empty
-  /// directory's children-removal [DirectoryWatchSignal.changed] and its
-  /// rescan are the observable path there, but an empty (or
-  /// already-emptied) watched directory yields nothing observable
-  /// (STATUS open item 16).
+  /// [WatchLocalDirectoryRequest]. The production Windows backend wraps
+  /// the plain dart:io watch with a parent watch so a rename-away of the
+  /// watched directory — unobservable through the target watch's own
+  /// handle, which silently follows the rename — surfaces as this same
+  /// signal (native CI evidence, PR #91); removals surface either way.
   lost,
 }
 
@@ -455,12 +454,9 @@ final class ListDirectoryRequest extends EngineRequest {
 /// or a non-directory target. A watch that dies after establishment
 /// surfaces as a [DirectoryWatchEvent] with [DirectoryWatchSignal.lost]
 /// immediately and releases the watch — never as a silent stop; the one
-/// backend exception is Windows, where removing the watched directory
-/// itself defers (delete-pending while the watch holds its handle) and
-/// yields no loss signal — a non-empty directory's children-removal
-/// [DirectoryWatchSignal.changed] and its rescan are the observable path
-/// there, but an empty (or already-emptied) watched directory yields
-/// nothing observable (STATUS open item 16). A second watch on the same
+/// gap (a watched directory's rename-away on Windows is unobservable
+/// through its own watch handle) is closed by the production Windows
+/// backend's parent watch (STATUS item 16). A second watch on the same
 /// channel replaces the first: stale
 /// callbacks from the replaced watch cannot invalidate the new binding,
 /// and a watch superseded (by a later watch or unwatch) before it finished

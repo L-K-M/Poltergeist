@@ -72,18 +72,19 @@ final class LocalWatchSignal {
 ///
 /// Verified dart:io backend guarantees this adapter is built on (Dart
 /// 3.13, `runtime/bin/file_system_watcher_{linux,macos,win}.cc` plus the
-/// Dart-side patch): Linux and macOS report a removed/renamed watched
-/// directory as a delete event naming the watched path itself, then close
-/// the stream; Windows surfaces `ReadDirectoryChangesW` buffer overflow
-/// and unexpected closure as stream errors — but not root deletion:
-/// the OS defers removing a directory an open handle watches
-/// (delete-pending), so no loss signal exists there; when the watched
-/// directory still has children their removal surfaces as `changed`
-/// (the rescan path), but an empty — or already-emptied — watched
-/// directory yields nothing observable at all (STATUS open item 16
-/// tracks the gap and the compatible parent-watch adapter); macOS
-/// FSEvents already
-/// depth-filters non-recursive watches to direct children in the C++
+/// Dart-side patch, and PR #91's native CI run): Linux and macOS report a
+/// removed/renamed watched directory as a delete event naming the watched
+/// path itself, then close the stream; Windows surfaces
+/// `ReadDirectoryChangesW` buffer overflow and unexpected closure as
+/// stream errors, delivers a watched directory's REMOVAL natively (the
+/// delete-pending mark still ends in a loss signal — verified by the
+/// empty-root vanish test on Windows), but NOT its rename-away: the watch
+/// handle silently follows the renamed directory and no event or error
+/// fires (native CI evidence). The production Windows backend therefore
+/// wraps the plain watch with [WindowsRootWatchBackend], whose
+/// parent-reported rename/remove of the watched name becomes the uniform
+/// root-loss shape; macOS
+/// FSEvents already depth-filters non-recursive watches to direct children in the C++
 /// layer, so the child filter below is defense in depth (it also covers a
 /// future backend that reports subtrees). FSEvents' documented quirks —
 /// changes made shortly before the watch started may still appear, and

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:seance_core/seance_core.dart';
@@ -13,6 +14,7 @@ import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
 import 'local_directory_watcher.dart';
 import 'protocol.dart';
+import 'windows_root_watch_backend.dart';
 
 /// The drain's own abandon-signal: thrown by the timeout wrapper, never
 /// by a retirement — so `settled` classification cannot conflate a
@@ -90,8 +92,12 @@ class EngineHost {
 
   /// [openTransport], [prober], and [hostKeyStore] are test seams — the
   /// production defaults need real sockets; tests inject socket-free fakes.
-  /// [localWatch] is the same for 03 §7.5's directory watchers: the default
-  /// is dart:io's `Directory.watch`; tests inject deterministic backends.
+  /// [localWatch] is the same for 03 §7.5's directory watchers: the
+  /// production default is dart:io's `Directory.watch`, wrapped on Windows
+  /// by the root-loss adapter that also watches the parent (a rename-away
+  /// of the watched directory is unobservable through the target watch
+  /// alone there — native CI evidence, PR #91); tests inject
+  /// deterministic backends.
   factory EngineHost({
     required EngineConfig config,
     required SendPort events,
@@ -102,7 +108,14 @@ class EngineHost {
     Duration? shutdownDrainTimeout,
   }) {
     final host = EngineHost._(events);
-    host._localWatch = localWatch ?? const DartIoWatchBackend();
+    // One selection point for the production watch backend (03 §7.5):
+    // Windows gets the parent-watch root-loss adapter; Linux and macOS
+    // keep the plain dart:io watch, whose native delete-self loss needs
+    // no adapter.
+    host._localWatch = localWatch ??
+        (Platform.isWindows
+            ? const WindowsRootWatchBackend()
+            : const DartIoWatchBackend());
     host._shutdownDrainTimeout = shutdownDrainTimeout ?? _defaultDrainTimeout;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
