@@ -2884,8 +2884,10 @@ the eventual settlement (whenever it comes) drops the entry through
 the existing self-removal listener, restoring the idempotent-ack
 path. Only the shutdown drain keeps bounded abandonment semantics:
 its ack precedes the isolate's death, a different operation. Closes
-racing shutdown report the timeout failure too — the engine is still
-serving until the shutdown ack. Regression-first: the supervisor's
+racing shutdown report the timeout failure too while the retirement
+stays tracked — the engine is still serving until the shutdown ack (a
+close arriving after the drain itself abandons the entry acks with
+the drain, as before). Regression-first: the supervisor's
 repro (`supervisor_close_timeout_test.dart`, gated backend, 200 ms
 bound, engine proven live by a concurrent open) was red on merged
 `0ced8ef` (`tasks/task18-logs/close-timeout-before.log`, exit 1 —

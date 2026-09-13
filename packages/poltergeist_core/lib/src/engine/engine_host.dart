@@ -364,13 +364,13 @@ class EngineHost {
       // same thing — teardown finished.
       final pending = _pendingCloses[channelId];
       if (pending != null) {
-        await _awaitCloseRelease(pending);
+        await _awaitCloseRelease(channelId, pending);
       }
       return const EngineAck();
     }
 
     final retirement = _retireChannel(channelId, channel);
-    await _awaitCloseRelease(retirement);
+    await _awaitCloseRelease(channelId, retirement);
     return const EngineAck();
   }
 
@@ -383,18 +383,21 @@ class EngineHost {
   /// comes) restores the idempotent-ack path through the self-removal
   /// listener. Only the shutdown drain may abandon silently — its
   /// isolate dies with the ack.
-  Future<void> _awaitCloseRelease(Future<void> retirement) async {
-    try {
-      await retirement.timeout(_shutdownDrainTimeout);
-    } on TimeoutException {
-      throw RemoteFileException(
+  Future<void> _awaitCloseRelease(int channelId, Future<void> retirement) {
+    // Throwing from onTimeout (not catching TimeoutException) keeps the
+    // classification honest: only a genuine bound miss produces the
+    // typed error, while a retirement that completes with its own
+    // TimeoutException — or any other error — propagates unchanged.
+    return retirement.timeout(
+      _shutdownDrainTimeout,
+      onTimeout: () => throw RemoteFileException(
         kind: RemoteFileErrorKind.other,
         operation: 'close',
-        message: 'The backend release did not settle within its bound; '
-            'the channel resource remains live and the retirement stays '
-            'tracked until it settles.',
-      );
-    }
+        message: 'The backend release for channel $channelId did not '
+            'settle within its bound; the resource remains live and the '
+            'retirement stays tracked until it settles.',
+      ),
+    );
   }
 
   /// Retires [channel] and tracks the retirement so duplicate closes and
