@@ -285,6 +285,10 @@ void main() {
       // working, not a cancellation failure. The boundedness property
       // above is what this test pins.
     } finally {
+      // The body can fail before its cancel runs (delivered timeout, a
+      // failed premise): close the watcher here so the helper cannot
+      // outlive the test. A second cancel returns the first's future.
+      unawaited(subscription.cancel());
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigterm);
       }
