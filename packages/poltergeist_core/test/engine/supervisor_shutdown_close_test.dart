@@ -40,5 +40,4 @@ void main() {
     final acks = await Future.wait([first, second, shuttingDown]);
     expect(acks, everyElement(isA<EngineAck>()));
   });
-
 }

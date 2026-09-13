@@ -205,6 +205,9 @@ void main() {
       requestId: id, channelId: channelA.channelId, path: channelA.homePath,
     ));
     final gateA = backend.gates[channelA.homePath]!;
+    addTearDown(() {
+      if (!gateA.isCompleted) gateA.complete();
+    });
 
     // Park the drain on A's tracked retirement.
     final closingA = h.call((id) => CloseBrowseChannelRequest(
@@ -230,7 +233,6 @@ void main() {
     ));
     final gateC = backend.gates[opened.homePath]!;
     addTearDown(() {
-      if (!gateA.isCompleted) gateA.complete();
       if (!gateC.isCompleted) gateC.complete();
     });
 
@@ -241,7 +243,7 @@ void main() {
       await pumpEventQueue();
     }
     expect(shutdownAcked, isFalse,
-        reason: 'shutdown acked while an never-closed channel\'s watch '
+        reason: 'shutdown acked while a never-closed channel\'s watch '
             'was still live');
 
     gateC.complete();
