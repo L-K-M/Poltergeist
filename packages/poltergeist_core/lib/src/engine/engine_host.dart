@@ -360,7 +360,22 @@ class EngineHost {
       // that retirement's completion so both acknowledgements mean the
       // same thing — teardown finished.
       final pending = _pendingCloses[channelId];
-      if (pending != null) await pending;
+      if (pending != null) {
+        // Same bound as the starter close: a wedged retirement (or one
+        // the starter/shutdown drain abandoned) cannot hang a duplicate's
+        // ack — removing the map entry never completes the captured
+        // future, so an unbounded await here would park forever.
+        var abandoned = false;
+        await pending.timeout(_shutdownDrainTimeout, onTimeout: () {
+          abandoned = true;
+        });
+        if (abandoned) {
+          // Mirror the starter's abandonment so later closes ack
+          // idempotently; removal no-ops if the starter already dropped
+          // it.
+          unawaited(_pendingCloses.remove(channelId));
+        }
+      }
       return const EngineAck();
     }
 

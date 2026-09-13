@@ -322,6 +322,86 @@ void main() {
         reason: 'nothing was ever watched on the aborted open');
   });
 
+  test('a duplicate close does not hang on a never-settling retirement',
+      () async {
+    final root = Directory.systemTemp.createTempSync('dup-bound-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(
+      localWatch: backend,
+      shutdownDrainTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    final gate = backend.gates[channel.homePath]!;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+
+    // The starter close and a duplicate both park on the gated (never
+    // settling within the bound) retirement. Both must ack within the
+    // bound — the starter by its own timeout, the duplicate by its own —
+    // never hang on the raw future after the entry is dropped.
+    final starter = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+    await pumpEventQueue();
+    final duplicate = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+
+    final acks = await Future.wait([
+      starter.timeout(const Duration(seconds: 5)),
+      duplicate.timeout(const Duration(seconds: 5)),
+    ]);
+    expect(acks, everyElement(isA<EngineAck>()));
+
+    // Post-abandonment: a later close finds no entry and acks
+    // idempotently, not hanging on anything.
+    final later = await h
+        .call((id) => CloseBrowseChannelRequest(
+          requestId: id, channelId: channel.channelId,
+        ))
+        .timeout(const Duration(seconds: 5));
+    expect(later, isA<EngineAck>());
+  });
+
+  test('a duplicate close survives shutdown-drain abandonment', () async {
+    final root = Directory.systemTemp.createTempSync('dup-drain-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(
+      localWatch: backend,
+      shutdownDrainTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(h.dispose);
+    final channel = await h.openLocal(root.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channel.channelId, path: channel.homePath,
+    ));
+    // The gate is never completed within the bound: the drain will
+    // abandon the retirement.
+
+    final starter = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    await pumpEventQueue();
+    final duplicate = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channel.channelId,
+    ));
+
+    final results = await Future.wait([
+      starter.timeout(const Duration(seconds: 5)),
+      duplicate.timeout(const Duration(seconds: 5)),
+      shuttingDown.timeout(const Duration(seconds: 5)),
+    ]);
+    expect(results, everyElement(isA<EngineAck>()));
+  });
+
   test('closing a fully retired channel stays idempotent', () async {
     final root = Directory.systemTemp.createTempSync('retired-close-');
     addTearDown(() => root.deleteSync(recursive: true));
