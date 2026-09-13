@@ -383,7 +383,12 @@ void main() {
       requestId: id, channelId: channel.channelId, path: channel.homePath,
     ));
     // The gate is never completed within the bound: the drain will
-    // abandon the retirement.
+    // abandon the retirement. The LIFO teardown still releases it so
+    // h.dispose cannot hang past the injected bound.
+    final gate = backend.gates[channel.homePath]!;
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
 
     final starter = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channel.channelId,
