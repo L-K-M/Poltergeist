@@ -482,6 +482,14 @@ final class _LocalPaneChannel implements PaneChannel {
   final LocalDirectoryWatcher _watcher;
   bool _closed = false;
 
+  /// The generation of the newest watch-control request (watch, unwatch,
+  /// close). Watch validation awaits real I/O; a request that resumes with
+  /// a stale generation must not install — the newest request already
+  /// decided the channel's watch state, and an older validation
+  /// resurrecting a watch would undo an acknowledged unwatch (or a newer
+  /// watch's binding).
+  int _watchGeneration = 0;
+
   @override
   final String homePath;
 
@@ -499,14 +507,17 @@ final class _LocalPaneChannel implements PaneChannel {
   /// Validation fails loud and typed before any backend is touched: an
   /// empty path is a caller bug, a missing root answers the local funnel's
   /// `notFound` (operation `inspect`, like the open seam's `resolve`), and
-  /// a non-directory target is refused. The validation awaits real I/O,
-  /// so a channel close processed mid-validation leaves the watcher
-  /// disposed — rechecked after the awaits, the watch answers the typed
-  /// channel-closed refusal instead of acking a watch nothing will serve
-  /// (a disposed watcher would otherwise silently no-op the retarget).
+  /// a non-directory target is refused (deliberately leaving any installed
+  /// watch untouched). Last request wins: every watch-control request on
+  /// this channel bumps the generation, and a validation that resumes
+  /// superseded answers typed `cancelled` instead of installing — an
+  /// acknowledged unwatch can never be undone by an older, slower watch.
+  /// A close processed mid-validation still answers the typed
+  /// channel-closed refusal (checked before and after the awaits).
   /// The race after validation — the root vanishing before the backend
   /// arms — degrades to an immediate `lost` signal, never a silent stop.
   Future<EngineAck> watch(String path) async {
+    final generation = ++_watchGeneration;
     // Fails fast before the validation I/O; the post-await recheck below
     // covers a close racing the awaits.
     if (_closed) {
@@ -532,6 +543,14 @@ final class _LocalPaneChannel implements PaneChannel {
         message: 'The browse channel is closed.',
       );
     }
+    if (_watchGeneration != generation) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.cancelled,
+        operation: 'watch',
+        message: 'The watch request was superseded by a later watch or '
+            'unwatch on this channel.',
+      );
+    }
     if (entry.type != RemoteFileType.directory) {
       throw RemoteFileException(
         kind: RemoteFileErrorKind.other,
@@ -544,13 +563,19 @@ final class _LocalPaneChannel implements PaneChannel {
     return const EngineAck();
   }
 
-  /// Releases the watch without a signal; idempotent.
-  Future<void> unwatch() => _watcher.stop();
+  /// Releases the watch without a signal; idempotent, and the newest
+  /// word on the channel's watch state — an in-flight older watch
+  /// validation is superseded by the generation bump here.
+  Future<void> unwatch() {
+    _watchGeneration++;
+    return _watcher.stop();
+  }
 
   @override
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _watchGeneration++;
     await _watcher.dispose();
   }
 

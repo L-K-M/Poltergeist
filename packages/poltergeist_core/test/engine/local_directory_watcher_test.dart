@@ -65,6 +65,34 @@ void finish(FakeAsync async, LocalDirectoryWatcher watcher) {
   async.flushMicrotasks();
 }
 
+/// One fixed stream for every watched path — for tests that gate the
+/// single subscription's cancellation.
+class _SingleStreamBackend implements LocalWatchBackend {
+  _SingleStreamBackend(this._stream);
+
+  final Stream<FileSystemEvent> _stream;
+
+  @override
+  Stream<FileSystemEvent> watch(String directory) => _stream;
+}
+
+/// One `Stream.multi` per path; the first path's cancellation parks on a
+/// caller-held gate, later paths release immediately.
+class _GatedFirstPathBackend implements LocalWatchBackend {
+  _GatedFirstPathBackend(this._gatedPath);
+
+  final String _gatedPath;
+  final gate = Completer<void>();
+
+  @override
+  Stream<FileSystemEvent> watch(String directory) {
+    return Stream<FileSystemEvent>.multi((controller) {
+      controller.onCancel = () =>
+          directory == _gatedPath ? gate.future : Future.value();
+    });
+  }
+}
+
 void main() {
   test('an ordinary change signals changed after the 300 ms debounce', () {
     fakeAsync((async) {
@@ -500,6 +528,83 @@ void main() {
 
     await done.future;
     expect(backend.cancelled, [_root]);
+  });
+
+  test('stop completes only when the backend cancellation completes',
+      () async {
+    // A gated backend: the subscription's cancel future parks on the
+    // gate, so release completion is driven by explicit delayed
+    // completion, never by timing.
+    final gate = Completer<void>();
+    var cancelIssued = false;
+    final stream = Stream<FileSystemEvent>.multi((controller) {
+      controller.onCancel = () {
+        cancelIssued = true;
+        return gate.future;
+      };
+    });
+    final watcher = LocalDirectoryWatcher(
+      backend: _SingleStreamBackend(stream),
+    );
+
+    await watcher.retarget(_root);
+
+    final stopped = watcher.stop();
+    var completed = false;
+    unawaited(stopped.then((_) => completed = true));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    // The cancellation was issued synchronously, but the acknowledged stop
+    // must wait out its completion — epoch suppression is not release.
+    expect(cancelIssued, isTrue);
+    expect(completed, isFalse);
+
+    gate.complete();
+    await stopped;
+    expect(completed, isTrue);
+  });
+
+  test('dispose waits the release tail before closing signals', () async {
+    final gate = Completer<void>();
+    final stream = Stream<FileSystemEvent>.multi(
+      (controller) => controller.onCancel = () => gate.future,
+    );
+    final watcher = LocalDirectoryWatcher(
+      backend: _SingleStreamBackend(stream),
+    );
+
+    final done = Completer<void>();
+    watcher.signals.listen(
+      (_) {},
+      onDone: done.complete,
+    );
+    await watcher.retarget(_root);
+
+    final disposed = watcher.dispose();
+    var closed = false;
+    unawaited(done.future.then((_) => closed = true));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(closed, isFalse,
+        reason: 'signals must not close before the backend released');
+
+    gate.complete();
+    await disposed;
+    await done.future;
+  });
+
+  test('a retarget ack does not wait the replaced watchs release', () async {
+    final backend = _GatedFirstPathBackend(_root);
+    final watcher = LocalDirectoryWatcher(backend: backend);
+
+    await watcher.retarget(_root);
+    // The replaced watch's cancellation parks; the retarget ack must not
+    // wait it — the new watch is listening, and stop()/dispose() own the
+    // wait.
+    await watcher.retarget(_other);
+
+    expect(backend.gate.isCompleted, isFalse);
+    backend.gate.complete();
+    await watcher.dispose();
   });
 
   test('a second watch after a lost watch still signals', () {
