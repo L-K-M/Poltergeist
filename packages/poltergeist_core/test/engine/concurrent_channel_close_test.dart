@@ -153,6 +153,12 @@ void main() {
     final closingA = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channelA.channelId,
     ));
+    // Probes for all three in-flight futures: a regression that strands
+    // or errors any of them fails its checkpoint, not just the final
+    // awaits.
+    closingA
+        .then((_) {}, onError: (Object _) {})
+        .ignore();
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();

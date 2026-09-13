@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:poltergeist_core/poltergeist_core.dart';

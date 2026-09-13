@@ -79,9 +79,10 @@ class EngineHost {
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   late final LocalWatchBackend _localWatch;
 
-  /// Bound per retirement during the shutdown drain — the bounded-
-  /// teardown convention (a wedged backend cancel must not hang the
-  /// shutdown ack forever). Injectable for tests.
+  /// Bound per retirement await — used by the shutdown drain AND by
+  /// request-level closes (a wedged backend cancel must not hang either
+  /// the shutdown ack or a close ack forever; the bounded-teardown
+  /// convention). Injectable for tests.
   late final Duration _shutdownDrainTimeout;
   static const _defaultDrainTimeout = Duration(seconds: 30);
   int _nextChannelId = 1;
@@ -344,10 +345,11 @@ class EngineHost {
   /// ids are never reused and duplicates await rather than create, so
   /// each tracked retirement is the only one its id will ever have. A
   /// retirement that fails surfaces its error to every close sharing it;
-  /// only after settlement does closing the id become the idempotent ack
-  /// (exception: a retirement the shutdown drain abandoned after its
-  /// timeout is gone from both maps, so closes for it ack idempotently
-  /// even though the backend release never settled).
+  /// closing the id becomes the idempotent ack only after settlement —
+  /// or when either abandonment path dropped the wedged entry: the
+  /// shutdown drain's bound, or this close's own bound elapsing (both
+  /// remove the entry, so later closes ack idempotently over a release
+  /// that never settled within its bound).
   Future<EngineResult> _closeChannel(
     CloseBrowseChannelRequest request,
   ) async {
