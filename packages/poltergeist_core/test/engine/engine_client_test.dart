@@ -615,6 +615,61 @@ void main() {
       expect(event.signal, DirectoryWatchSignal.changed);
     });
 
+    test('renaming the watched directory\'s parent loses the watch', () async {
+      final (_, channel, root) = await localFixture('pg-watch-parent-rename');
+      final aPath = '${channel.homePath}${Platform.pathSeparator}a';
+      final watchedPath = '$aPath${Platform.pathSeparator}b';
+      Directory('${root.path}/a/b').createSync(recursive: true);
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+
+      // Windows notifies a directory's rename only through a watch on its
+      // parent: the root and parent handles follow the moved tree silently.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/a').renameSync('${root.path}/a-moved');
+      expect((await lost).path, watchedPath);
+    });
+
+    test('renaming a higher ancestor loses the watch', () async {
+      final (_, channel, root) = await localFixture('pg-watch-ancestor-rename');
+      final watchedPath =
+          '${channel.homePath}${Platform.pathSeparator}x'
+          '${Platform.pathSeparator}a${Platform.pathSeparator}b';
+      Directory('${root.path}/x/a/b').createSync(recursive: true);
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+
+      // The renamed ancestor is two levels above the watched directory's
+      // parent; only the ancestor chain can carry the move event.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/x').renameSync('${root.path}/x-moved');
+      expect((await lost).path, watchedPath);
+    });
+
+    test('an ancestor rename and recreate still loses the old binding', () async {
+      final (_, channel, root) = await localFixture(
+        'pg-watch-ancestor-recreate',
+      );
+      final aPath = '${channel.homePath}${Platform.pathSeparator}a';
+      final watchedPath = '$aPath${Platform.pathSeparator}b';
+      Directory('${root.path}/a/b').createSync(recursive: true);
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+
+      // A replacement directory at the old ancestor path must not mask the
+      // original binding's loss with healthy metadata on the new tree.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/a').renameSync('${root.path}/a-moved');
+      Directory('${root.path}/a').createSync();
+      expect((await lost).path, watchedPath);
+    });
+
     test('unwatchDirectory releases the engine-side watch', () async {
       final (_, channel, root) = await localFixture('pg-watch-release');
 
