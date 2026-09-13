@@ -344,12 +344,15 @@ class EngineHost {
   /// unknown, fully retired channel stays idempotent and acks. Channel
   /// ids are never reused and duplicates await rather than create, so
   /// each tracked retirement is the only one its id will ever have. A
-  /// retirement that fails surfaces its error to every close sharing it;
-  /// closing the id becomes the idempotent ack only after settlement —
-  /// or when either abandonment path dropped the wedged entry: the
-  /// shutdown drain's bound, or this close's own bound elapsing (both
-  /// remove the entry, so later closes ack idempotently over a release
-  /// that never settled within its bound).
+  /// retirement that fails surfaces its error to every close sharing
+  /// it. A close whose bound elapses — the backend release did not
+  /// settle in time — answers the typed timeout error below, NEVER an
+  /// ack: the engine is still live, the resource is still held, and a
+  /// deadline is not a completed release (the repository's
+  /// no-false-success rule). The retirement stays tracked, so later
+  /// closes keep sharing it until it settles — then, and only then (or
+  /// when the shutdown drain abandons it as the isolate dies), does
+  /// closing the id become the idempotent ack.
   Future<EngineResult> _closeChannel(
     CloseBrowseChannelRequest request,
   ) async {
@@ -361,41 +364,37 @@ class EngineHost {
       // same thing — teardown finished.
       final pending = _pendingCloses[channelId];
       if (pending != null) {
-        // Same bound as the starter close: a wedged retirement (or one
-        // the starter/shutdown drain abandoned) cannot hang a duplicate's
-        // ack — removing the map entry never completes the captured
-        // future, so an unbounded await here would park forever.
-        var abandoned = false;
-        await pending.timeout(_shutdownDrainTimeout, onTimeout: () {
-          abandoned = true;
-        });
-        if (abandoned) {
-          // Mirror the starter's abandonment so later closes ack
-          // idempotently; removal no-ops if the starter already dropped
-          // it.
-          unawaited(_pendingCloses.remove(channelId));
-        }
+        await _awaitCloseRelease(pending);
       }
       return const EngineAck();
     }
 
     final retirement = _retireChannel(channelId, channel);
-    // Mirror the drain's bound: a wedged release (or one a shutdown drain
-    // abandoned) cannot hang the close ack — the ack lands when the
-    // bound elapses while the release keeps settling in the background
-    // (its own bookkeeping handles the eventual outcome).
-    var abandoned = false;
-    await retirement.timeout(_shutdownDrainTimeout, onTimeout: () {
-      abandoned = true;
-    });
-    if (abandoned) {
-      // Mirror drain abandonment: later closes for this id ack
-      // idempotently instead of parking on the wedged retirement. The
-      // removed value is the wedged (still-pending) retirement; its own
-      // bookkeeping handles the eventual outcome.
-      unawaited(_pendingCloses.remove(channelId));
-    }
+    await _awaitCloseRelease(retirement);
     return const EngineAck();
+  }
+
+  /// Awaits a close's backend release under the shared bound. A release
+  /// that settles — by value or error — completes normally or
+  /// propagates its error to every sharing close. A bound elapsing is
+  /// an explicit failure to confirm release, reported through the
+  /// existing typed taxonomy (no new protocol shape): the resource
+  /// remains live and tracked, and the eventual settlement (whenever it
+  /// comes) restores the idempotent-ack path through the self-removal
+  /// listener. Only the shutdown drain may abandon silently — its
+  /// isolate dies with the ack.
+  Future<void> _awaitCloseRelease(Future<void> retirement) async {
+    try {
+      await retirement.timeout(_shutdownDrainTimeout);
+    } on TimeoutException {
+      throw RemoteFileException(
+        kind: RemoteFileErrorKind.other,
+        operation: 'close',
+        message: 'The backend release did not settle within its bound; '
+            'the channel resource remains live and the retirement stays '
+            'tracked until it settles.',
+      );
+    }
   }
 
   /// Retires [channel] and tracks the retirement so duplicate closes and

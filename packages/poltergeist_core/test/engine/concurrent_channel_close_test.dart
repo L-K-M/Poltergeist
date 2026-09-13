@@ -322,7 +322,7 @@ void main() {
         reason: 'nothing was ever watched on the aborted open');
   });
 
-  test('a duplicate close does not hang on a never-settling retirement',
+  test('close timeout reports failure while the release stays tracked',
       () async {
     final root = Directory.systemTemp.createTempSync('dup-bound-');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -342,9 +342,9 @@ void main() {
     });
 
     // The starter close and a duplicate both park on the gated (never
-    // settling within the bound) retirement. Both must ack within the
-    // bound — the starter by its own timeout, the duplicate by its own —
-    // never hang on the raw future after the entry is dropped.
+    // settling within the bound) retirement. Neither may hang, and
+    // neither may report success: a deadline miss is a failure to
+    // confirm release, not a completed release.
     final starter = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channel.channelId,
     ));
@@ -353,20 +353,39 @@ void main() {
       requestId: id, channelId: channel.channelId,
     ));
 
-    final acks = await Future.wait([
+    final firstResults = await Future.wait([
       starter.timeout(const Duration(seconds: 5)),
       duplicate.timeout(const Duration(seconds: 5)),
     ]);
-    expect(acks, everyElement(isA<EngineAck>()));
+    expect(firstResults, everyElement(isA<EngineError>()));
+    for (final result in firstResults) {
+      final error = result as EngineError;
+      expect(error.operation, 'close');
+      expect(error.message, contains('did not settle'));
+    }
+    expect(gate.isCompleted, isFalse);
 
-    // Post-abandonment: a later close finds no entry and acks
-    // idempotently, not hanging on anything.
-    final later = await h
+    // A later close while the release is STILL pending shares it and
+    // reports the same typed timeout failure — never an idempotent ack
+    // over a live resource.
+    final whilePending = await h
         .call((id) => CloseBrowseChannelRequest(
           requestId: id, channelId: channel.channelId,
         ))
         .timeout(const Duration(seconds: 5));
-    expect(later, isA<EngineAck>());
+    expect(whilePending, isA<EngineError>());
+
+    // Eventual release: once the gate completes, the retirement settles,
+    // its self-removal drops the entry, and closing the id becomes the
+    // truthful idempotent ack — failure did not prevent cleanup.
+    gate.complete();
+    await pumpEventQueue();
+    final settled = await h
+        .call((id) => CloseBrowseChannelRequest(
+          requestId: id, channelId: channel.channelId,
+        ))
+        .timeout(const Duration(seconds: 5));
+    expect(settled, isA<EngineAck>());
   });
 
   test('a duplicate close survives shutdown-drain abandonment', () async {
@@ -404,7 +423,14 @@ void main() {
       duplicate.timeout(const Duration(seconds: 5)),
       shuttingDown.timeout(const Duration(seconds: 5)),
     ]);
-    expect(results, everyElement(isA<EngineAck>()));
+    // The closes raced a wedged release: both report the typed timeout
+    // failure (a deadline is not a completed release, even mid-shutdown
+    // — the engine is still serving until the ack). The shutdown itself
+    // keeps its documented abandonment semantics: its ack follows the
+    // drain's bounded abandonment, and the isolate dies with it.
+    expect(results[0], isA<EngineError>());
+    expect(results[1], isA<EngineError>());
+    expect(results[2], isA<EngineAck>());
   });
 
   test('closing a fully retired channel stays idempotent', () async {
