@@ -657,7 +657,7 @@ void main() {
     // the retarget acked without it.
     final disposed = watcher.dispose();
     var disposeDone = false;
-    unawaited(disposed.then((_) => disposeDone = true));
+    disposed.then((_) => disposeDone = true).ignore();
     await pumpEventQueue();
     expect(disposeDone, isFalse,
         reason: 'dispose must await the replaced watch release');
