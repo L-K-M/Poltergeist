@@ -2862,6 +2862,42 @@ finding plus four minors and one info finding (zero inline/actionable
 count). Those summary findings are fully dispositioned in that PR's
 corrected body, and this repair applies all of them.
 
+## M3 — close-timeout truthfulness repair (2026-09-13, post-merge on #88)
+
+Supervisor verification of merged #88 reproduced the final defect in
+the close-lifetime chain: a non-shutdown close whose bound elapsed
+returned `EngineAck` — false success over a backend release known not
+to have settled, while the engine remained live and serving. The
+documentary "ack means release completed or the bound elapsed"
+framing was itself the error: a deadline is a failure to confirm
+release, not a completed release, and the repository's explicit-error
+rule applies through the existing taxonomy (`_guard` already
+serializes any throw as `EngineError`; `operation: 'close'` names the
+request) — no new protocol variant was ever needed, and the earlier
+"background release genuinely completes later" claim was unfounded
+(the backend can stay wedged forever). Fix: starter and duplicate
+closes await the tracked retirement under the shared bound and, on a
+timeout, answer a typed `RemoteFileException` (kind `other`, operation
+`close`) — while the retirement STAYS tracked, so closes racing a
+still-pending release keep reporting the same truthful failure, and
+the eventual settlement (whenever it comes) drops the entry through
+the existing self-removal listener, restoring the idempotent-ack
+path. Only the shutdown drain keeps bounded abandonment semantics:
+its ack precedes the isolate's death, a different operation. Closes
+racing shutdown report the timeout failure too — the engine is still
+serving until the shutdown ack. Regression-first: the supervisor's
+repro (`supervisor_close_timeout_test.dart`, gated backend, 200 ms
+bound, engine proven live by a concurrent open) was red on merged
+`0ced8ef` (`tasks/task18-logs/close-timeout-before.log`, exit 1 —
+`[EngineAck, EngineAck]`) and passes; the prior round's two
+bounded-close tests were rewritten to the truthful contract with new
+coverage for a close while still pending (typed failure), eventual
+release (idempotent ack after settlement — failure did not prevent
+cleanup), and closes racing shutdown (typed failure for the closes,
+EngineAck only for the shutdown's own drain). All earlier race
+regressions (duplicate sharing, drain-window duplicates, retire-loop
+race, open gating, never-settling drain bound) pass unchanged.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
