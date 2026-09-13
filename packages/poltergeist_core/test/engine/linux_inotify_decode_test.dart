@@ -200,6 +200,38 @@ void main() {
       expect(flushed.single.path, p.join(watched, 'only'));
     });
 
+    test('a flushed half is consumed: no re-emission, no late pairing', () {
+      final matcher = InotifyMoveMatcher();
+      expect(
+        matcher.match(
+          mask: inotifyMovedFrom,
+          cookie: 9,
+          name: 'old',
+          watchedPath: watched,
+        ),
+        isNull,
+      );
+      expect(matcher.flush(watched), hasLength(1));
+
+      // A second flush must be empty — the phantom half is gone.
+      expect(matcher.flush(watched), isEmpty);
+
+      // A late opposite half must not resurrect the flushed one as a
+      // move: the rename was already reported as delete(old).
+      expect(
+        matcher.match(
+          mask: inotifyMovedTo,
+          cookie: 9,
+          name: 'new',
+          watchedPath: watched,
+        ),
+        isNull,
+      );
+      final flushed = matcher.flush(watched);
+      expect(flushed.single, isA<FileSystemCreateEvent>());
+      expect(flushed.single.path, p.join(watched, 'new'));
+    });
+
     test('an unmatched moved-to flushes as a create', () {
       final matcher = InotifyMoveMatcher();
       expect(

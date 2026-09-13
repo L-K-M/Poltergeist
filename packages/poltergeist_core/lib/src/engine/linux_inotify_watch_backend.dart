@@ -249,12 +249,18 @@ final class InotifyMoveMatcher {
   }
 
   /// Emits every still-unmatched half as dart:io's flush does: a parked
-  /// moved-to becomes a create, a moved-from a delete. Called when a read
+  /// moved-to becomes a create, a moved-from a delete — and the parked
+  /// entries are consumed, so a flushed half can neither re-emit on a
+  /// later batch nor pair with a late opposite half. Called when a read
   /// batch ends, so a rename split across reads still refreshes.
-  List<FileSystemEvent> flush(String watchedPath) => [
-    for (final (:mask, :name) in _unmatched.values)
-      _unpaired(mask, name, watchedPath)!,
+  List<FileSystemEvent> flush(String watchedPath) {
+    final flushed = [
+      for (final (:mask, :name) in _unmatched.values)
+        _unpaired(mask, name, watchedPath)!,
     ];
+    _unmatched.clear();
+    return flushed;
+  }
 
   FileSystemEvent? _unpaired(int mask, String name, String watchedPath) {
     final path = _pathOf(name, watchedPath);
@@ -568,13 +574,17 @@ final class _LinuxInotifyWatch {
           );
       if (mapped != null) _events.add(mapped);
 
-      // dart:io's Linux loss shape: the root-loss delete is the last
-      // event, then the stream closes (the adapter collapses the done
-      // into the same lost). Unmatched moves flush first, as dart:io
-      // does. The kernel has already removed the watch.
+      // dart:io's Linux loss shape: unmatched moves flush first, then
+      // the root-loss delete is the last event and the stream closes (the
+      // adapter collapses the done into the same lost). The kernel has
+      // already removed the watch.
       if (record.mask &
             (inotifyDeleteSelf | inotifyMoveSelf | inotifyUnmount) !=
           0) {
+        for (final event in _moves.flush(_path)) {
+          if (_failed || _releaseFuture != null) return;
+          _events.add(event);
+        }
         _endStream();
         return;
       }

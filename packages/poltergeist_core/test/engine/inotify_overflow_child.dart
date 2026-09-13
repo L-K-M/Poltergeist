@@ -10,10 +10,11 @@ import 'package:poltergeist_core/src/engine/protocol.dart'
 /// its own process so the fixture can be suspended at the process level.
 ///
 /// Protocol (one flushed stdout line per stage):
-///   WATCHING      the production-selected backend watch is installed
-///   MARKER        a real create was observed through the production stack
+///   WATCHING        the production-selected backend watch is installed
+///   MARKER          a real create was observed through the production stack
 ///   `LOST <detail>` the watch signalled loss (exit 0)
-///   TIMEOUT       no loss arrived within the bound (exit 3)
+///   TIMEOUT         no loss arrived within the bound (exit 3)
+///   MARKER_TIMEOUT  the marker create was never observed (exit 4)
 ///
 /// Exit 3 is the expected shape on a backend that cannot see the kernel's
 /// queue overflow: the watch stays silently installed.
@@ -33,7 +34,12 @@ Future<void> main(List<String> args) async {
   await watcher.retarget(args.first);
   await _emit('WATCHING');
 
-  await marked.future.timeout(const Duration(seconds: 30));
+  try {
+    await marked.future.timeout(const Duration(seconds: 30));
+  } on TimeoutException {
+    await _emit('MARKER_TIMEOUT');
+    exit(4);
+  }
   await _emit('MARKER');
 
   final String detail;

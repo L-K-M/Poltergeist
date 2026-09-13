@@ -41,16 +41,17 @@ void main() {
       var exited = false;
       try {
         await stdoutLines.takeLine(
-          'WATCHING',
+          RegExp('^WATCHING\$'),
           const Duration(seconds: 30),
           () => 'stdout: ${stdoutLines.lines}\nstderr: ${stderrLines.lines}',
         );
 
         // A real create seen through the production stack proves the watch
-        // is installed before the child can be suspended.
+        // is installed before the child can be suspended. Anchored so a
+        // MARKER_TIMEOUT stage cannot read as success.
         File(p.join(fixture.path, 'marker')).writeAsStringSync('ready');
         await stdoutLines.takeLine(
-          'MARKER',
+          RegExp('^MARKER\$'),
           const Duration(seconds: 30),
           () => 'stdout: ${stdoutLines.lines}\nstderr: ${stderrLines.lines}',
         );
