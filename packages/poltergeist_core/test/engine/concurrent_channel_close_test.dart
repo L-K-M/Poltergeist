@@ -158,8 +158,9 @@ void main() {
         rootPath: rootA.parent.path,
       ),
     );
-    final channelC = (openedC as BrowseChannelOpened).channelId;
-    final canonicalC = (openedC).homePath;
+    final opened = openedC as BrowseChannelOpened;
+    final channelC = opened.channelId;
+    final canonicalC = opened.homePath;
     await h.call((id) => WatchLocalDirectoryRequest(
       requestId: id, channelId: channelC, path: canonicalC,
     ));
@@ -190,6 +191,62 @@ void main() {
     expect(await shuttingDown, isA<EngineAck>());
     expect(await closingC, isA<EngineAck>());
     expect(await closingA, isA<EngineAck>());
+  });
+
+  test('a channel opened during shutdown is retired before the ack',
+      () async {
+    final rootA = Directory.systemTemp.createTempSync('drain-open-a-');
+    addTearDown(() => rootA.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+    final channelA = await h.openLocal(rootA.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channelA.channelId, path: channelA.homePath,
+    ));
+    final gateA = backend.gates[channelA.homePath]!;
+
+    // Park the drain on A's tracked retirement.
+    final closingA = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelA.channelId,
+    ));
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+
+    // Open and WATCH a channel during the drain, then never close it —
+    // no retirement exists for the drain to await, so only the retire
+    // loop can keep this watch from outliving the shutdown ack.
+    final openedC = await h.call(
+      (id) => OpenLocalBrowseChannelRequest(
+        requestId: id,
+        rootPath: rootA.parent.path,
+      ),
+    );
+    final opened = openedC as BrowseChannelOpened;
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: opened.channelId, path: opened.homePath,
+    ));
+    final gateC = backend.gates[opened.homePath]!;
+    addTearDown(() {
+      if (!gateA.isCompleted) gateA.complete();
+      if (!gateC.isCompleted) gateC.complete();
+    });
+
+    gateA.complete();
+    var shutdownAcked = false;
+    unawaited(shuttingDown.then((_) => shutdownAcked = true));
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+    expect(shutdownAcked, isFalse,
+        reason: 'shutdown acked while an never-closed channel\'s watch '
+            'was still live');
+
+    gateC.complete();
+    expect(await shuttingDown, isA<EngineAck>());
+    await closingA;
   });
 
   test('closing a fully retired channel stays idempotent', () async {

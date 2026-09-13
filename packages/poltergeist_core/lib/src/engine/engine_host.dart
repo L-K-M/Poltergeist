@@ -336,18 +336,26 @@ class EngineHost {
       return const EngineAck();
     }
 
+    final retirement = _retireChannel(channelId, channel);
+    await retirement;
+    return const EngineAck();
+  }
+
+  /// Retires [channel] and tracks the retirement so duplicate closes and
+  /// shutdown share its completion (same bookkeeping as [_closeChannel],
+  /// which routes request-level closes through here).
+  Future<void> _retireChannel(int channelId, PaneChannel channel) {
     final retirement = channel.close();
     _pendingCloses[channelId] = retirement;
     // Bounded bookkeeping: drop the entry once this retirement settles.
     // The guard swallows the outcome for cleanup only — the awaiting
-    // callers still see it (the handler awaits `retirement` itself).
+    // callers still see it (the handler awaits the returned retirement).
     unawaited(
       retirement.catchError((Object _) {}).then((_) {
         _pendingCloses.remove(channelId);
       }),
     );
-    await retirement;
-    return const EngineAck();
+    return retirement;
   }
 
   Future<EngineResult> _listDirectory(ListDirectoryRequest request) async {
@@ -491,57 +499,65 @@ class EngineHost {
     _watches.clear();
 
     // Local channels bind no pool, so disconnectServer never saw them:
-    // close them directly — which also releases each channel's directory
-    // watch (03 §7.5) and its debounce timer. Pool bindings were closed by
-    // disconnectServer above. Channels already removed from the map but
-    // still closing (a close request in flight) are in _pendingCloses —
-    // shutdown waits those too, so it can never ack over a live backend
-    // watch it stopped tracking in the map. The loop awaits, so a close
-    // request processed mid-loop can mutate _channels — snapshot first
-    // (a channel closed by such a request is retired through its own
-    // memoized close; this loop re-awaits the same future, never a
-    // double teardown).
-    for (final channel in List.of(_channels.values)) {
-      if (channel is _LocalPaneChannel) await channel.close();
-    }
-    // Drain until the map empties rather than snapshotting once:
-    // entries self-remove on settlement, and a retirement created while
-    // this drain is parked (a channel opened during shutdown, closed by
-    // its own request) must still be awaited before shutdown acks — a
-    // one-shot snapshot would miss it and reopen the early-ack window
-    // this map exists to close.
-    while (_pendingCloses.isNotEmpty) {
-      final retirement = _pendingCloses.values.first;
-      try {
-        await retirement;
-      } on Object {
-        // Shutdown must complete even if one retirement is broken.
+    // retire them — which also releases each channel's directory watch
+    // (03 §7.5) and its debounce timer, tracked so duplicate closes and
+    // this shutdown share the completion. Pool bindings were closed by
+    // disconnectServer above. Fixed-point: channels OPENED while shutdown
+    // awaits (requests are still routed) were in no snapshot, so only
+    // re-retiring until both maps empty guarantees no watch outlives the
+    // shutdown ack.
+    while (_channels.isNotEmpty || _pendingCloses.isNotEmpty) {
+      final entries = List.of(_channels.entries);
+      _channels.clear();
+      for (final entry in entries) {
+        if (entry.value is _LocalPaneChannel) {
+          unawaited(_retireChannel(entry.key, entry.value));
+        }
       }
-      // The self-removal listener is registered at close-request time,
-      // earlier than this await, so it runs first. If a settled future
-      // ever stays in the map, the loop would busy-spin on microtasks
-      // and starve the isolate — fail loud in debug instead.
-      assert(
-        _pendingCloses.isEmpty ||
-            !identical(_pendingCloses.values.first, retirement),
-        'A settled retirement did not self-remove from _pendingCloses; '
-        'the shutdown drain would spin forever.',
-      );
+      // Drain until the map empties rather than snapshotting once:
+      // entries self-remove on settlement, and a retirement created
+      // while this drain is parked (a close racing shutdown) must still
+      // be awaited before the next fixed-point check — a one-shot
+      // snapshot would miss it and reopen the early-ack window this map
+      // exists to close.
+      while (_pendingCloses.isNotEmpty) {
+        final retirement = _pendingCloses.values.first;
+        try {
+          await retirement;
+        } on Object {
+          // Shutdown must complete even if one retirement is broken.
+        }
+        // The self-removal listener is registered at retirement time,
+        // earlier than this await, so it runs first. If a settled future
+        // ever stays in the map, the loop would busy-spin on microtasks
+        // and starve the isolate — fail loud in debug, and force
+        // progress in release builds (removal matches the idempotent-ack
+        // semantics for a settled retirement).
+        final stuck = _pendingCloses.isNotEmpty &&
+            identical(_pendingCloses.values.first, retirement);
+        assert(!stuck, 'A settled retirement did not self-remove from '
+            '_pendingCloses; the shutdown drain would spin forever.');
+        if (stuck) {
+          // The removed value is the already-settled retirement; discard
+          // its (already-completed) future explicitly.
+          unawaited(_pendingCloses.remove(_pendingCloses.keys.first));
+        }
+      }
     }
 
     // Intake invariant, verified structurally: no await sits between
-    // the drain's final emptiness check and the ack's send (the clears
-    // are synchronous and _guard's response rides one microtask), and
-    // request handlers run on event-loop turns — they cannot interleave
-    // that microtask boundary. A close arriving after the check is
-    // therefore processed after the ack, against an engine the client
-    // is already tearing down; its own ack then either reports the real
-    // teardown or never arrives (engine death) — it cannot lie.
+    // the final fixed-point check (both maps empty) and the ack's send
+    // (the server-map clear is synchronous and _guard's response rides
+    // one microtask), and request handlers run on event-loop turns —
+    // they cannot interleave that microtask boundary. A close arriving
+    // after the check is therefore processed after the ack, against an
+    // engine the client is already tearing down; its own ack then
+    // either reports the real teardown or never arrives (engine death)
+    // — it cannot lie.
 
-    // disconnectServer already closed every pane binding (03 §3.5); these
-    // maps are state hygiene so a post-shutdown host answers cleanly
-    // instead of vending dead channels.
-    _channels.clear();
+    // disconnectServer already closed every pane binding (03 §3.5); the
+    // server map is state hygiene so a post-shutdown host answers
+    // cleanly instead of vending dead channels.
     _servers.clear();
     return const EngineAck();
   }
