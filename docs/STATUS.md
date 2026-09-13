@@ -2831,8 +2831,10 @@ documented at the drain. The supervisor's repro
 (verbatim
 in `test/engine/supervisor_shutdown_close_test.dart`) was red on merged
 `0289922` (`tasks/task18-logs/shutdown-drain-before.log`, exit 1) and
-passes; the during-drain-creation regression was observed red on this
-repair's first head and passes with the loop drain. The suite now pins
+passes; the during-drain-creation regression was observed red on the
+repair's first head `e6fa3c3` (batched-drain commit `9e3b2f3`'s parent;
+mutation-verified: `Expected false, Actual true` against the one-shot
+drain) and passes with the loop drain. The suite now pins
 the interleavings: pre-shutdown duplicate closes (both-acks-gated),
 drain-window duplicates (this repro), the retire-loop race (a close
 racing the loop shares the tracked retirement), open rejection once

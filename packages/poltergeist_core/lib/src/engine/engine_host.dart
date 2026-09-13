@@ -655,7 +655,16 @@ class EngineHost {
     // server-map clear and _guard's response are synchronous/microtask —
     // and request handlers run on event-loop turns, so they cannot
     // interleave that boundary. Inserting an await between the check and
-    // the return would reopen the intake window this loop closes.
+    // the return would reopen the intake window this loop closes. The
+    // assert guards that structural claim: the loop exits only when the
+    // channel map is empty, so reaching here with entries means the
+    // condition and the body diverged.
+    assert(
+      _channels.isEmpty,
+      'Drain loop exited with ${_channels.length} channel(s) still '
+      'registered; the fixed-point check and the channel drain have '
+      'diverged, or an intake path interleaved the shutdown boundary.',
+    );
 
     // disconnectServer already closed every pane binding (03 §3.5); the
     // server map is state hygiene so a post-shutdown host answers

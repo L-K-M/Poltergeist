@@ -28,6 +28,7 @@ void main() {
     final first = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channel.channelId,
     ));
+    first.then((_) {}, onError: (Object _) {}).ignore();
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
     shuttingDown.ignore();
     // Match the sibling suite's park-the-drain strength (its for-loop

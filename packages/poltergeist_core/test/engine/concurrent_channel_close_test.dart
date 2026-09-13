@@ -160,6 +160,7 @@ void main() {
         .then((_) {}, onError: (Object _) {})
         .ignore();
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    shuttingDown.ignore();
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
@@ -231,6 +232,7 @@ void main() {
     ));
     parkedClose.ignore();
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    shuttingDown.ignore();
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
