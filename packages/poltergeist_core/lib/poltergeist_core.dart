@@ -66,6 +66,7 @@ export 'package:seance_core/seance_core.dart'
 
 export 'src/browse/file_entry_sort.dart'
     show sortFileEntries, FileSortKey, FileSortDirection, DirectoryGrouping;
+export 'src/browse/quick_select_query.dart' show QuickSelectQuery;
 export 'src/connection/connection_manager.dart'
     show
         ConnectionManager,
