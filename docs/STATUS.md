@@ -4,8 +4,8 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-12. **M2 is closed; M3 is open** (first M3
-slice below) — v0.2.0 published as a
+_Last updated: 2026-09-13. **M2 is closed; M3 is open** (first M3
+slices below) — v0.2.0 published as a
 pre-release 2026-09-11
 ([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
 D23-recovery dispatch run
@@ -35,9 +35,11 @@ items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
 landed 2026-09-12 (dated section below; open item 12 tracks the
 location type's move into core); the next M3 slices are recorded
-there. The pure listing-state reducer and metadata-only listing sort
-from the sibling slices are implemented below and feed the pane
-controller's transitions.
+there. The sibling slices' pure models — the listing-state reducer,
+the metadata-only sort, Quick Select's matching and selection — are
+implemented below and feed the pane controller's transitions, as does
+the engine-side local directory watch seam (pane refresh wiring
+itself remains open).
 
 ## Done
 
@@ -2618,6 +2620,141 @@ This is an ungated M3 model slice. PaneController, widgets, and D12 rendering
 benchmarks remain with their slices. Listing cancellation remains item 12;
 the raw-name prerequisite discovered here is item 13. No milestone close.
 
+## M3 — engine-owned local directory watch seam (2026-09-13)
+
+03 §7.5's engine prerequisite (the task-18 seam): the engine protocol
+(v8) gains `WatchLocalDirectoryRequest` / `UnwatchLocalDirectoryRequest`
+and the typed `DirectoryWatchEvent` (`DirectoryWatchSignal.changed` /
+`.lost`). `EngineBrowseChannel` (both open paths return it) exposes
+`directoryChanges` (broadcast, per channel, closes on channel close and
+engine death), `watchDirectory(path)` (retargets; the engine canonicalizes
+the target through the channel's `LocalFileSystem`), and
+`unwatchDirectory()`. The engine owns the resources (D8): a private
+`LocalDirectoryWatcher` adapter (`lib/src/engine/local_directory_watcher.dart`,
+not barrel-exported; tests import it by path) drives one non-recursive
+watch per local channel behind an injectable `LocalWatchBackend` seam
+(production: dart:io `Directory.watch`). Contract: no implicit watch on
+channel open/list alone; ordinary changes coalesce into `changed` 300 ms
+after the last event (burst = one refresh; a sustained stream defers the
+refresh until quiet by design); root removal/rename, backend error, and
+backend close emit `lost` immediately and release the watch — never a
+silent stop; retarget replaces atomically (release-then-subscribe with no
+await between, plus an epoch guard) so stale callbacks from a replaced
+watch cannot invalidate the new binding; events carry the canonical
+watched path so a consumer can drop signals for a directory it no longer
+shows. Pool channels answer an explicit typed `unsupported` refusal for
+both watch and unwatch — watching a remote directory would be a polling
+feature the engine deliberately lacks. Typed request failures: empty
+path (`other`), missing root (the local funnel's `notFound`, operation
+`inspect` — the open seam's `resolve` precedent), non-directory target
+(`other`). Release paths: unwatch, channel close, and host shutdown all
+cancel the backend subscription and the pending debounce timer.
+
+Backend guarantees were verified against the Dart SDK sources before
+implementation (3.13.3, `runtime/bin/file_system_watcher_{linux,macos,win}.cc`
+plus the Dart-side `_WatchedPath` patch): Linux and macOS report a
+removed/renamed watched directory as a delete event naming the watched
+path itself and then close the stream (the adapter emits one `lost`, the
+epoch guard swallowing the duplicate); Windows surfaces
+`ReadDirectoryChangesW` buffer overflow and unexpected closure as stream
+errors; macOS FSEvents already depth-filters non-recursive watches to
+direct children in the C++ layer (events whose relative path contains a
+separator are dropped), so the adapter's own child filter is defense in
+depth — it also covers a future subtree-reporting backend and makes the
+macOS constraint testable everywhere. Move events qualify on source or
+destination. Two implementation findings worth recording: dart:io
+emits no event a Dart consumer can see for Linux inotify queue overflow
+(see open item 14), and a broadcast subscription's `cancel()` future
+completes on the event loop — under `fake_async` it never completes — so
+the adapter's release is fully synchronous (epoch bump, timer cancel,
+cancel issued unawaited); correctness rests on the epoch, never on the
+cancel's completion.
+
+Validation (failing-first: all four suites failed to load before the
+implementation landed — `tasks/task18-logs/failing-first.txt`, not
+committed): 20 fake-clock adapter tests over an injected backend (debounce
+edge, burst collapse, grandchild/sibling filtering both separators aside,
+move-destination qualification, root-self modify, immediate lost for
+root delete/rename/backend error/backend close/throwing backend, the
+Linux delete-then-close shape collapsing to one lost, lost cancelling a
+pending debounce, stop/after-stop, retarget release + stale-event races,
+dispose, re-watch after loss); 11 host tests over the in-process harness
+with the backend injected (canonicalization + forwarding, immediate root
+loss, retarget replacement with stale events never crossing, the pool
+refusal, missing-root/file/empty-path/unknown-channel typed failures,
+idempotent unwatch with release observed, close and shutdown release);
+7 real-isolate client tests over real temp directories and the real
+dart:io backend (a real change crossing the boundary debounced, no
+grandchild/sibling noise, safe retarget, real root deletion → lost,
+unwatch and channel-close release with no late events and the mirrored
+stream closing, engine death closing the stream); protocol v8
+round-trips through a spawned isolate for both requests and the event's
+both signals. Full core suite 587 pass (+16 Docker-fixture skips — the
+#81 Ubuntu baseline of 549 + 38 new); core analyze clean; protocol
+guard (51) and import guard (92 + repo scan) green. The engine barrel's
+existing protocol `show` list gained the four new public names (the
+app must be able to name the event type through the barrel; no new
+export lines). No app/UI change — pane refresh is NOT wired: the pane
+slice that consumes this seam (activation-driven watch/unwatch,
+navigation retarget, launcher/remote drop — 03 §7.5's pane policy)
+remains open and now depends on this seam. No source port (original
+code — PORTS.md unchanged), no pin/lock change, no milestone-close
+claim.
+
+The first native CI round (run 34719413261) produced three platform
+findings, all repaired on the PR head: the protocol-boundary repo
+scan (not just its test suite — the CLI check is part of validation)
+rejects function-typed fields in engine sources, so the backend seam
+became an interface class (`DartIoWatchBackend` default; test fakes
+implement it) and the local channel exposes a `signals` getter
+instead of a callback field — no guard allowlist widening; macOS
+FSEvents delivered changes made shortly before the watch started
+(dart:io's documented limitation), so the real-backend tests drain
+that fixture-setup backlog past the debounce before staging the
+events they assert on; and Windows produces no root-deletion loss
+signal at all — the OS defers removing a directory an open handle
+watches (delete-pending), so the children-removal `changed` and its
+rescan are the observable path there (the root-loss logic itself is
+covered cross-platform by the injected-backend adapter suite, and the
+real-OS vanish test skips Windows with that reason — a focused,
+documented skip, not a global one). Production semantics unchanged;
+the adapter's doc records the per-backend loss shapes. App re-verified on the rebased tree (barrel changed):
+analyze clean, 433 tests pass. On the final tree the full core suite
+is 611 pass +16 skips.
+
+## M3: Quick Select matching and selection model (2026-09-13)
+
+`QuickSelectQuery` matches decoded basenames using the pinned Unicode simple
+fold: literal fragments, or whole-name globs with `*` as the only wildcard.
+It reserves anchored ends and searches interior segments in order, without
+regex backtracking. `QuickSelectState<Key>` captures immutable row-name and
+selection snapshots, recomputes Add/Remove previews from the opening
+selection, confirms the current preview, and restores the baseline on cancel.
+Terminal states ignore late callbacks. Row keys are independent of names;
+manually selected rows excluded from name matching remain selected.
+
+02 §2.5 specifies wildcard grammar, case handling, empty queries, baseline
+recomputation, and session invalidation. The pane must cancel before replacing
+the listing or visibility policy, then prune the restored selection. Item 13
+still gates production exclusion of flagged names; a valid literal U+FFFD is
+never treated as evidence of invalid encoding.
+
+Validation: 71 matcher cases and 13 selection tests, with initial missing-API
+failures observed. Independent review caught the initial rejection of manually
+selected flagged rows; its regression failed before the repair. An independent
+temporary dynamic-programming oracle agreed on 278,715 short pattern/name
+pairs. Core analysis and 685 tests pass (16 existing fixture/platform skips);
+Flutter analysis and 446 tests pass; the dependency guard passes.
+PR #85's first CI run passes all three core hosts, app tests, SSH integration,
+and all five client builds. Automated review found no correctness issue;
+its empty-query documentation suggestion was applied, and repeated name
+folding is deferred to pane-wiring measurement (item 15).
+
+One ungated M3 model slice. The field, command, keyboard integration, selection
+pruning on actual pane changes, and widget tests remain with pane wiring.
+No widget or D12 rendering surface, persistence, dependency/pin change, or
+source port; PORTS.md is unchanged. M3 remains open.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -3145,7 +3282,6 @@ the raw-name prerequisite discovered here is item 13. No milestone close.
     state on every terminal path, and keep sibling listings alive.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
-
 14. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
     The pinned `RemoteFileEntry` exposes decoded name/path only, with no
     raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
@@ -3156,6 +3292,29 @@ the raw-name prerequisite discovered here is item 13. No milestone close.
     behaviors; preserve the raw-byte tiebreak before the path fallback.
     D25 still defers byte-preserving operations. No local VFS fork or
     replacement interface is authorized by this item.
+14. **2026-09-13 — M3: Linux inotify overflow is invisible through
+    dart:io.** The watch seam's `LocalDirectoryWatcher` (dated section
+    above) cannot observe `IN_Q_OVERFLOW`: the kernel posts the overflow
+    event with watch descriptor −1, which matches no watched path in the
+    SDK's event routing, and its decoded mask is 0 — nothing reaches a
+    Dart listener, so a Linux overflow silently drops events with no
+    signal (verified against Dart 3.13.3
+    `runtime/bin/file_system_watcher_linux.cc`; every other §7.5
+    failure mode is surfaced). The continuous subscription drains the
+    kernel queue promptly, which is the available mitigation. Full
+    coverage needs a compatible FFI inotify backend that surfaces
+    `IN_Q_OVERFLOW` as the watch backend's error, behind the same
+    `LocalWatchBackend` seam — an additive, reversible swap when wanted;
+    until then the seam honestly reports `changed`/`lost` only and never
+    claims overflow detection on Linux.
+
+15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
+    Each preview folds the immutable row names again, including on mode
+    changes. Measure live input over large Unicode listings when the field
+    lands; consider caching folded names or matched keys within the session
+    if needed. This model slice introduces no UI timing surface. Keep folding
+    encapsulated in core rather than exposing a pre-folded-string API before
+    the consumer and measurements establish the required contract.
 
 ## Independent audit
 

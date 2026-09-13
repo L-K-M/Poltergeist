@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 7;
+const _expectedProtocolVersion = 8;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,
@@ -276,6 +276,41 @@ void main() {
         const IncidentRecordRemovedEvent(serverId: 'srv-1'),
       );
 
+      // The local directory-watch seam (03 §7.5): both signals, with and
+      // without lost-kind diagnostic detail.
+      await _roundTrip(
+        incoming,
+        engine,
+        const DirectoryWatchEvent(
+          channelId: 7,
+          path: '/home/user',
+          signal: DirectoryWatchSignal.changed,
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const DirectoryWatchEvent(
+          channelId: 7,
+          path: '/home/user',
+          signal: DirectoryWatchSignal.lost,
+          // Real FileSystemException text: quotes, backslashes (Windows
+          // paths), a newline, and non-ASCII — escaping must survive.
+          detail: 'watcher failed: "C:\\Users\\aoi" — gone\n(retry?)',
+        ),
+      );
+      for (final signal in DirectoryWatchSignal.values) {
+        await _roundTrip(
+          incoming,
+          engine,
+          DirectoryWatchEvent(
+            channelId: 8,
+            path: '/tmp',
+            signal: signal,
+          ),
+        );
+      }
+
       // ── Requests (every EngineRequest crosses intact). ──────────────────
       await _roundTrip(
         incoming,
@@ -291,6 +326,20 @@ void main() {
         incoming,
         engine,
         const OpenLocalBrowseChannelRequest(requestId: 20, rootPath: '/home'),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const WatchLocalDirectoryRequest(
+          requestId: 21,
+          channelId: 5,
+          path: '/home/user',
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
+        const UnwatchLocalDirectoryRequest(requestId: 22, channelId: 5),
       );
       await _roundTrip(
         incoming,
@@ -502,6 +551,11 @@ Future<void> _roundTrip(
     ):
       expect(got.serverId, sent.serverId);
       expect(got.endpoint, sent.endpoint);
+    case (final DirectoryWatchEvent sent, final DirectoryWatchEvent got):
+      expect(got.channelId, sent.channelId);
+      expect(got.path, sent.path);
+      expect(got.signal, sent.signal);
+      expect(got.detail, sent.detail);
     case (
       final OpenBrowseChannelRequest sent,
       final OpenBrowseChannelRequest got,
@@ -532,6 +586,19 @@ Future<void> _roundTrip(
       expect(got.requestId, sent.requestId);
       expect(got.channelId, sent.channelId);
       expect(got.path, sent.path);
+    case (
+      final WatchLocalDirectoryRequest sent,
+      final WatchLocalDirectoryRequest got,
+    ):
+      expect(got.requestId, sent.requestId);
+      expect(got.channelId, sent.channelId);
+      expect(got.path, sent.path);
+    case (
+      final UnwatchLocalDirectoryRequest sent,
+      final UnwatchLocalDirectoryRequest got,
+    ):
+      expect(got.requestId, sent.requestId);
+      expect(got.channelId, sent.channelId);
     case (final WatchServerRequest sent, final WatchServerRequest got):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);

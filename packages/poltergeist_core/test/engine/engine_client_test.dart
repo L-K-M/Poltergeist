@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_core/src/engine/local_directory_watcher.dart'
+    show LocalDirectoryWatcher;
 import 'package:test/test.dart';
 
 /// A port nothing listens on: connect attempts fail fast with ECONNREFUSED,
@@ -12,6 +14,14 @@ const _refusedPort = 1;
 const _connectedServerId = 'srv-2';
 const _removedServerId = 'srv-1';
 const _streamClosureTimeout = Duration(seconds: 5);
+
+/// The real watch debounce is 300 ms; the fixture events must cross the
+/// engine boundary within this bound or the test fails rather than hangs.
+const _watchCrossingTimeout = Duration(seconds: 5);
+
+/// A window comfortably past the debounce in which nothing may arrive —
+/// derived from the production constant, not a restated millisecond value.
+final _watchQuietWindow = LocalDirectoryWatcher.debounceInterval * 3;
 
 /// A declined changed-key record, as the engine's incident store mirrors it
 /// to the app for persistence (owner decision 2a).
@@ -384,6 +394,203 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('local directory watches', () {
+    /// Spawns a real engine and opens a local channel on a temp fixture:
+    /// `a.txt` plus an empty `sub` directory, both deleted at teardown.
+    Future<(EngineClient, EngineBrowseChannel, Directory)> localFixture(
+      String name,
+    ) async {
+      // The tree cleanup registers BEFORE the engine shutdown so LIFO
+      // teardown releases the engine's watch handles first — deleting a
+      // watched tree out from under a live engine defers on Windows (the
+      // vanish test's own skip reason documents the trap).
+      final root = Directory.systemTemp.createTempSync(name);
+      addTearDown(() {
+        if (root.existsSync()) root.deleteSync(recursive: true);
+      });
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+      File('${root.path}/a.txt').writeAsStringSync('alpha');
+      Directory('${root.path}/sub').createSync();
+      final channel = await client.openLocalChannel(rootPath: root.path);
+      return (client, channel, root);
+    }
+
+    /// macOS FSEvents may deliver changes made shortly before a watch
+    /// started — a documented dart:io limitation. Real-backend tests
+    /// drain that fixture-setup backlog past the debounce before staging
+    /// the events they actually assert on.
+    Future<void> drainSetupBacklog() =>
+        Future<void>.delayed(_watchQuietWindow);
+
+    test(
+      'a real local change crosses the engine boundary, debounced',
+      () async {
+        final (_, channel, root) = await localFixture('pg-watch-real');
+
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        File('${root.path}/created.txt').writeAsStringSync('new');
+
+        final event = await channel.directoryChanges.first.timeout(
+          _watchCrossingTimeout,
+        );
+        expect(event.signal, DirectoryWatchSignal.changed);
+        expect(event.path, channel.homePath);
+        expect(event.channelId, channel.channelId);
+      },
+    );
+
+    test('grandchild and sibling mutations make no noise', () async {
+      final (_, channel, root) = await localFixture('pg-watch-noise');
+
+      final changes = <DirectoryWatchEvent>[];
+      channel.directoryChanges.listen(changes.add);
+      await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
+      changes.clear();
+
+      // A grandchild edit and a sibling-of-root edit: neither is a direct
+      // child of the watched directory on any of the three backends.
+      File('${root.path}/sub/deep.txt').writeAsStringSync('deep');
+      final sibling = Directory.systemTemp.createTempSync(
+        'pg-watch-sibling',
+      );
+      addTearDown(() => sibling.deleteSync(recursive: true));
+      File('${sibling.path}/x.txt').writeAsStringSync('x');
+
+      // Past the debounce window with nothing delivered.
+      await Future<void>.delayed(_watchQuietWindow);
+      expect(changes, isEmpty);
+
+      // Positive control: the watch is alive, so the silence above was
+      // real filtering and not a dead watch passing vacuously.
+      File('${root.path}/direct.txt').writeAsStringSync('direct');
+      final control = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(control.path, channel.homePath);
+      expect(control.signal, DirectoryWatchSignal.changed);
+    });
+
+    test('retarget switches the watched directory safely', () async {
+      final (_, channel, root) = await localFixture('pg-watch-retarget');
+
+      await channel.watchDirectory(channel.homePath);
+      final subPath = await channel
+          .listDirectory(channel.homePath)
+          .then(
+            (entries) =>
+                entries.singleWhere((e) => e.name == 'sub').path,
+          );
+      await channel.watchDirectory(subPath);
+      await drainSetupBacklog();
+
+      // The old binding's change cannot invalidate the new one.
+      File('${root.path}/stale.txt').writeAsStringSync('stale');
+      File('$subPath/fresh.txt').writeAsStringSync('fresh');
+
+      final event = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(event.path, subPath);
+      expect(event.signal, DirectoryWatchSignal.changed);
+    });
+
+    test(
+      'deleting the watched directory signals lost immediately',
+      () async {
+        final (_, channel, root) = await localFixture('pg-watch-vanish');
+
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        root.deleteSync(recursive: true);
+
+        // Windows delivers the children's removal events first, so a
+        // debounced changed may legitimately precede the loss; the contract
+        // is that the loss arrives and nothing was swallowed.
+        final event = await channel.directoryChanges
+            .firstWhere((e) => e.signal == DirectoryWatchSignal.lost)
+            .timeout(_watchCrossingTimeout);
+        expect(event.path, channel.homePath);
+        expect(event.detail, isNotNull);
+      },
+      // Windows defers deleting a watched directory (delete-pending while
+      // the watch holds its handle), so the OS produces no loss signal at
+      // all there; the root-loss logic itself is covered cross-platform by
+      // the injected-backend adapter suite.
+      skip: Platform.isWindows
+          ? 'Windows defers removing a watched directory; no loss signal '
+              'exists there — the children-removal changed and its rescan '
+              'are the observable path'
+          : false,
+    );
+
+    test('unwatchDirectory releases the engine-side watch', () async {
+      final (_, channel, root) = await localFixture('pg-watch-release');
+
+      final changes = <DirectoryWatchEvent>[];
+      channel.directoryChanges.listen(changes.add);
+      await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
+      changes.clear();
+
+      // Positive control: the watch is live before the release, so the
+      // silence below cannot pass vacuously (the noise test's trap).
+      File('${root.path}/before-unwatch.txt').writeAsStringSync('early');
+      final control = await channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      expect(control.signal, DirectoryWatchSignal.changed);
+      changes.clear();
+
+      await channel.unwatchDirectory();
+      File('${root.path}/after-unwatch.txt').writeAsStringSync('late');
+
+      await Future<void>.delayed(_watchQuietWindow);
+      expect(changes, isEmpty);
+    });
+
+    test(
+      'closing the channel closes directoryChanges',
+      () async {
+        final (_, channel, _) = await localFixture('pg-watch-close');
+
+        final done = Completer<void>();
+        channel.directoryChanges.listen(
+          (_) {},
+          onDone: done.complete,
+        );
+        await channel.watchDirectory(channel.homePath);
+        await drainSetupBacklog();
+        await channel.close();
+
+        await done.future.timeout(_watchCrossingTimeout);
+        // The engine-side release is pinned by the host test observing the
+        // backend cancel; here, post-close access must yield the same
+        // closed stream, not a fresh never-completing one.
+        await channel.directoryChanges
+            .drain<void>()
+            .timeout(_watchCrossingTimeout);
+      },
+    );
+
+    test('engine death closes directoryChanges', () async {
+      final (client, channel, _) =
+          await localFixture('pg-watch-engine-death');
+
+      final done = Completer<void>();
+      channel.directoryChanges.listen(
+        (_) {},
+        onDone: done.complete,
+      );
+      await channel.watchDirectory(channel.homePath);
+
+      await client.shutdown();
+      await done.future.timeout(_watchCrossingTimeout);
     });
   });
 
