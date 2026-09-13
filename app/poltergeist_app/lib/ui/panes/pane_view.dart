@@ -499,6 +499,10 @@ class _PaneSurface extends StatelessWidget {
 
   Widget _listing(BuildContext context, AppLocalizations l10n) {
     if (controller.entries.isEmpty) {
+      // Never claim emptiness while a load is in flight (02 §2.8's
+      // nothing-before-grace rule): the first listing of an empty
+      // folder would otherwise flash "Empty folder" before arrival.
+      if (controller.loading) return const SizedBox.shrink();
       return Center(child: Text(l10n.paneEmptyFolder));
     }
 
