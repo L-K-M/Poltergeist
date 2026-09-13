@@ -140,6 +140,9 @@ void main() {
     }
     final gateA = backend.gates[channelA.homePath]!;
     final gateB = backend.gates[channelB.homePath]!;
+    // addTearDown runs LIFO: registered after h.dispose so the gates are
+    // completed before the harness tears down (which may await the
+    // drain).
     addTearDown(() {
       if (!gateA.isCompleted) gateA.complete();
       if (!gateB.isCompleted) gateB.complete();
@@ -194,16 +197,21 @@ void main() {
       requestId: id, channelId: channel.channelId, path: channel.homePath,
     ));
     final gate = backend.gates[channel.homePath]!;
+    // addTearDown runs LIFO: registered after h.dispose so the gate is
+    // completed before the harness tears down.
     addTearDown(() {
       if (!gate.isCompleted) gate.complete();
     });
 
     // Park shutdown in the drain; a local open racing it is the only
     // intake that could mint an unretirable channel. The close is fired
-    // without awaiting — its ack parks on the gate.
-    unawaited(h.call((id) => CloseBrowseChannelRequest(
+    // without awaiting — its ack parks on the gate — and held for
+    // consumption below so a regression that strands it fails loudly
+    // here rather than as a silent unhandled future.
+    final parkedClose = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channel.channelId,
-    )));
+    ));
+    parkedClose.ignore();
     final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
@@ -222,6 +230,7 @@ void main() {
 
     gate.complete();
     expect(await shuttingDown, isA<EngineAck>());
+    await parkedClose;
   });
 
   test('a never-settling retirement cannot hang the shutdown ack',

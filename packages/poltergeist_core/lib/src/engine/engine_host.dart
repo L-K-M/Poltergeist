@@ -432,7 +432,12 @@ class EngineHost {
   /// nothing it holds outlives the shutdown that already completed.
   void _rejectMintAfterShutdown(PaneChannel channel) {
     if (!_shuttingDown) return;
-    unawaited(channel.close().catchError((Object _) {}));
+    unawaited(
+      channel
+          .close()
+          .timeout(_shutdownDrainTimeout, onTimeout: () {})
+          .catchError((Object _) {}),
+    );
     _rejectIfShuttingDown();
   }
 
@@ -586,6 +591,9 @@ class EngineHost {
         // wedged retirements cost one timeout window, not N sequential
         // windows, and slow-but-settling releases drain in parallel.
         final batch = List.of(_pendingCloses.values);
+        // Identity semantics: futures compare by identity, and the set
+        // keeps the drop linear per entry.
+        final inBatch = Set.identity()..addAll(batch);
         final settled = await Future.wait(
           batch.map(
             (retirement) => retirement
@@ -615,7 +623,9 @@ class EngineHost {
         // entries, whose later self-removal no-ops on the missing key.
         // Entries minted by a racing close during the batch await are
         // caught by the next loop iteration.
-        _pendingCloses.removeWhere((_, retirement) => batch.contains(retirement));
+        _pendingCloses.removeWhere(
+          (_, retirement) => inBatch.contains(retirement),
+        );
       }
     }
 

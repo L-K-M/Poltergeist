@@ -43,7 +43,11 @@ void main() {
     var firstAcked = false;
     var secondAcked = false;
     first.then((_) => firstAcked = true).ignore();
-    second.then((_) => secondAcked = true).ignore();
+    // Records any completion — success or error — so a wrongly-early
+    // error ack trips the checkpoint too, not just a late Future.wait.
+    second
+        .then((_) => secondAcked = true, onError: (_) => secondAcked = true)
+        .ignore();
     await pumpEventQueue();
     // Precondition check: the drain really is parked at the backend gate
     // (the first close reached the backend — not merely that its ack

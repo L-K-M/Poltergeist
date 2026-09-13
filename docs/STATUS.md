@@ -2729,8 +2729,10 @@ are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
 drains the map and never clears it (so it cannot ack over a
-still-closing channel; the 2026-09-13 shutdown-drain repair below
-removed the erroneous pre-drain clear),
+still-closing channel that settles — a never-settling one is
+abandoned at the drain's bound, its release dying with the isolate;
+the 2026-09-13 shutdown-drain repair below removed the erroneous
+pre-drain clear),
 and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
 idempotent. The Windows root-removal gap's STATUS entry was also
@@ -2817,7 +2819,8 @@ pending entry and acked early, exactly the early-ack shape #87 exists
 to close. Fix: the clear is gone and the drain loops until the map
 empties — entries already self-remove on settlement, so a drain-window
 duplicate still finds and awaits its retirement, and a retirement
-created during the drain (a channel opened during shutdown, closed by
+created during the drain (a channel opened in the window before the
+shutting-down gate starts rejecting opens, then closed by
 its own request — the one-shot snapshot's blind spot, found by #88's
 review) is awaited too before shutdown acks — arrivals after the
 drain's final emptiness check cannot interleave the check-to-ack
