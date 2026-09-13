@@ -199,7 +199,10 @@ final class IncidentRecordRemovedEvent extends IncidentStoreEvent {
 /// Why a watched local directory invalidated (03 §7.5).
 enum DirectoryWatchSignal {
   /// An ordinary change in the watched directory — coalesced (debounced
-  /// 300 ms) engine-side. The consumer rescans the directory.
+  /// 300 ms) engine-side. The consumer rescans the directory. On Windows a
+  /// rescan answering `notFound` must be handled as an implicit loss
+  /// (see the [lost] variant): the OS reports a removed root only through
+  /// its children's removal, never as a lost signal.
   changed,
 
   /// The watch is gone: the watched directory was removed or renamed away,
@@ -212,7 +215,7 @@ enum DirectoryWatchSignal {
   /// directory's children-removal [DirectoryWatchSignal.changed] and its
   /// rescan are the observable path there, but an empty (or
   /// already-emptied) watched directory yields nothing observable
-  /// (STATUS open item 15).
+  /// (STATUS open item 16).
   lost,
 }
 
@@ -457,13 +460,17 @@ final class ListDirectoryRequest extends EngineRequest {
 /// yields no loss signal — a non-empty directory's children-removal
 /// [DirectoryWatchSignal.changed] and its rescan are the observable path
 /// there, but an empty (or already-emptied) watched directory yields
-/// nothing observable (STATUS open item 15). A second watch on the same
+/// nothing observable (STATUS open item 16). A second watch on the same
 /// channel replaces the first: stale
 /// callbacks from the replaced watch cannot invalidate the new binding,
 /// and a watch superseded (by a later watch or unwatch) before it finished
 /// validating answers the typed `cancelled` refusal, while a close
 /// superseding it answers the channel-closed `disconnected` refusal —
-/// clients treat both as last-request-wins, not a failure.
+/// clients treat both as last-request-wins, not a failure. Any later
+/// watch-control request — including one that itself fails validation —
+/// supersedes in-flight validations, so a failed watch can leave the
+/// channel unwatched; an already-installed watch is left untouched by a
+/// failed validation.
 final class WatchLocalDirectoryRequest extends EngineRequest {
   final int channelId;
   final String path;

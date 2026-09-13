@@ -2003,7 +2003,7 @@ limitation is recorded in STATUS (open item 14): Linux's inotify queue
 overflow is invisible through dart:io, so the `IN_Q_OVERFLOW` clause
 rests on the drain-promptly mitigation until a compatible FFI backend
 surfaces it through the same seam. A second backend limitation, opened
-by the 2026-09-13 post-merge repair, is STATUS open item 15: on Windows
+by the 2026-09-13 post-merge repair, is STATUS open item 16: on Windows
 a watched directory's removal is unobservable (delete-pending while the
 watch holds its handle — an empty watched directory yields nothing at
 all), with a compatible parent-watch adapter proposed there; both gaps
