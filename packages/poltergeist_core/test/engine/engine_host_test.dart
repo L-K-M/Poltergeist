@@ -1647,6 +1647,10 @@ void main() {
         );
 
         final error = await expectError(watch);
+        // Mark the close future's outcome handled up front so a failing
+        // assertion below cannot strand a throwing close as unhandled
+        // async noise; the later await still observes it.
+        closed.ignore();
         expect(error.kind, RemoteFileErrorKind.disconnected);
         expect(error.operation, 'watch');
         // Consume the close future deterministically — after the primary

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -36,9 +35,17 @@ void main() {
     final second = h.call((id) => CloseBrowseChannelRequest(
       requestId: id, channelId: channel.channelId,
     ));
+    var firstAcked = false;
     var secondAcked = false;
-    unawaited(second.then((_) => secondAcked = true));
+    first.then((_) => firstAcked = true).ignore();
+    second.then((_) => secondAcked = true).ignore();
     await pumpEventQueue();
+    // Precondition check: the drain really is parked at the backend gate
+    // (the first close's ack is held until release) — otherwise the
+    // second-close assertion below could pass merely because nothing was
+    // dispatched yet.
+    expect(firstAcked, isFalse,
+      reason: 'drain not parked at the backend gate; precondition unmet');
     expect(secondAcked, isFalse,
       reason: 'second close acknowledged before backend cancellation completed');
     gate.complete();

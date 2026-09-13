@@ -554,37 +554,33 @@ class EngineHost {
       // snapshot would miss it and reopen the early-ack window this map
       // exists to close.
       while (_pendingCloses.isNotEmpty) {
-        final retirement = _pendingCloses.values.first;
-        var settled = true;
-        try {
-          // Bounded: a retirement that never settles must not hang the
-          // shutdown ack (the timeout lands below; the stuck branch then
-          // abandons the entry).
-          await retirement.timeout(_shutdownDrainTimeout);
-        } on TimeoutException {
-          settled = false;
-        } on Object {
-          // Threw: settled-with-error — the cleanup listener still ran.
-        }
-        // The self-removal listener is registered at retirement time,
-        // earlier than this await, so it runs first for any retirement
-        // that settles. An entry still sitting here after a SETTLED
-        // await is an invariant break (it would spin the drain) — fail
-        // loud in debug; an unsettled (timed-out) one is legitimately
-        // abandoned, its release dying with the isolate. Release builds
-        // force progress either way.
-        final stuck = _pendingCloses.isNotEmpty &&
-            identical(_pendingCloses.values.first, retirement);
+        // Await the whole outstanding batch under one shared bound: N
+        // wedged retirements cost one timeout window, not N sequential
+        // windows, and slow-but-settling releases drain in parallel.
+        final batch = List.of(_pendingCloses.values);
+        final settled = await Future.wait(
+          batch.map(
+            (retirement) => retirement.timeout(_shutdownDrainTimeout).then(
+              (_) => true,
+              // A thrown retirement still settled — its self-removal
+              // listener ran; only a timeout means unsettled.
+              onError: (Object error) => error is! TimeoutException,
+            ),
+          ),
+        );
         assert(
-          !stuck || !settled,
+          ![
+            for (var i = 0; i < batch.length; i++)
+              if (settled[i]) batch[i],
+          ].any(_pendingCloses.values.contains),
           'A settled retirement did not self-remove from _pendingCloses; '
           'the shutdown drain would spin forever.',
         );
-        if (stuck) {
-          // The removed value is the abandoned retirement; discard its
-          // future explicitly.
-          unawaited(_pendingCloses.remove(_pendingCloses.keys.first));
-        }
+        // Drop the awaited batch — including any timed-out (abandoned)
+        // entries, whose later self-removal no-ops on the missing key.
+        // Entries minted by a racing close during the batch await are
+        // caught by the next loop iteration.
+        _pendingCloses.removeWhere((_, retirement) => batch.contains(retirement));
       }
     }
 
