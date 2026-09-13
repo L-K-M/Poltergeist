@@ -203,6 +203,85 @@ void main() {
     );
   });
 
+  test('cancellation completes while the kernel queue stays busy', () async {
+    // Raw rename loops in owned processes reproduce the starvation shape:
+    // production outpaces the helper's drain, so the kernel queue never
+    // reports empty and a drain-until-EAGAIN loop never revisits the stop
+    // pipe. In-process Dart producers lose that race and cannot pin it.
+    final root = await (Directory('/dev/shm').existsSync()
+            ? Directory('/dev/shm').createTemp('pg-busy-cancel-')
+            : Directory.systemTemp.createTemp('pg-busy-cancel-'));
+    addTearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+
+    final delivered = Completer<void>();
+    final errors = <Object>[];
+    final subscription = LocalWatchBackend.platform()
+        .watch(root.path)
+        .listen((event) {
+          if (!delivered.isCompleted) delivered.complete();
+        }, onError: errors.add);
+
+    const producerCount = 4;
+    final producers = <Process>[];
+    final terminated = <int>{};
+    final producerDiagnostics = <String>[];
+    for (var index = 0; index < producerCount; index++) {
+      final producer = await Process.start('python3', [
+        '-c',
+        _renameProducerScript,
+        root.path,
+        '$index',
+      ]);
+      producers.add(producer);
+      unawaited(
+        producer.exitCode.then((_) => terminated.add(producer.pid)),
+      );
+      unawaited(producer.stdout.drain<void>());
+      producer.stderr.transform(systemEncoding.decoder).listen(
+        producerDiagnostics.add,
+      );
+    }
+    bool allRunning() => terminated.length < producerCount;
+
+    var cancellation = Future<void>.value();
+    try {
+      await delivered.future.timeout(deadline);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(allRunning(), isTrue, reason: 'producers must still be running');
+
+      // The property: cancellation is bounded by the helper's own poll
+      // cycle, never by filesystem quiescence.
+      cancellation = subscription.cancel();
+      await cancellation.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => fail(
+          'cancellation starved while producers still run: '
+          '${producerDiagnostics.join()} $errors',
+        ),
+      );
+      expect(
+        allRunning(),
+        isTrue,
+        reason: 'released while producers still run',
+      );
+      // Deliberate saturation legitimately overruns the kernel queue, so
+      // an overflow error may surface here — that is #94's loss signal
+      // working, not a cancellation failure. The boundedness property
+      // above is what this test pins.
+    } finally {
+      for (final producer in producers) {
+        producer.kill(ProcessSignal.sigterm);
+      }
+      await cancellation.timeout(const Duration(seconds: 30));
+      for (final producer in producers) {
+        producer.kill(ProcessSignal.sigkill);
+      }
+      await Future.wait(producers.map((producer) => producer.exitCode));
+    }
+  });
+
   test('repeated retarget and stop cycles on one adapter release cleanly',
       () async {
     final parent = await tempFixture('pg-inotify-retarget');
@@ -254,6 +333,22 @@ Future<int> _descriptorFloor() async {
 }
 
 int _min(int a, int b) => a < b ? a : b;
+
+/// Owned rename pressure: the probe-proven shape. Two 249-byte names per
+/// pair (legal filesystem bytes, malformed UTF-8), tight os.rename turns,
+/// self-terminating after 12 s as a runaway backstop.
+const String _renameProducerScript = r'''
+import os, sys, time
+root = os.fsencode(sys.argv[1]) + b'/' + sys.argv[2].encode()
+a = root + b'\xff' * 249
+b = root + b'\xfe' * 249
+open(a, 'w').close()
+end = time.monotonic() + 12
+while time.monotonic() < end:
+    for _ in range(1000):
+        os.rename(a, b)
+        os.rename(b, a)
+''';
 
 Future<void> _waitFor(
   bool Function() condition,

@@ -3278,6 +3278,27 @@ protocol scan and import guard clean. New direct dependency: `ffi ^2.2.0`
 the workspace lock itself is unchanged). PORTS.md unchanged (original
 code, no port). M3 stays open; item 18 (ancestor invalidation,
 Linux/macOS) remains the open watch follow-up.
+
+*Cancellation fairness repair (2026-09-13, companion PR):* supervisor
+verification of merged `48d7c5c` reproduced a confirmed cancellation
+defect: the helper's drain ran until EAGAIN, so four owned rename
+producers keeping the kernel queue non-empty prevented the stop pipe
+from ever being revisited — cancellation stayed pending for as long as
+producers ran and only finished after they stopped (probe: pending at
+5002 ms, done by 5067 ms; committed regression
+`cancellation completes while the kernel queue stays busy` red on the
+merged content). The drain is now bounded to
+`maxReadBatchesPerPoll` read batches before `poll` is re-armed, and
+`poll` checks the stop pipe first, so stop latency is capped at one
+drain's decode/send work — cancellation is bounded by the helper's own
+cycle, never by filesystem quiescence. After the repair the unchanged
+5 s probe releases at `elapsedMs=0` with all four producers alive, and
+the committed regression is green. Overflow, move pairing, root loss,
+repeated cancel, partial setup, and sibling semantics unchanged; the
+cancellation doc records the precise control flow (engine suite 235,
+external lifetime proofs 18, overflow harness, full core 777 + 16
+skips, analyze/protocol/import guards green;
+`tasks/task21-logs/*cancel-fix*`).
 ## M3 — pane listing uses the core natural sorter (2026-09-13)
 
 PaneController's placeholder comparator (lowercase lexical) is replaced by
