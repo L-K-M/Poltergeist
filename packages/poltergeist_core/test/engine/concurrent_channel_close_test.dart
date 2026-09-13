@@ -174,16 +174,26 @@ void main() {
     expect(backend.cancelled, containsAll([channelA.homePath, channelB.homePath]));
 
     // A settles first; B's release is still gated — neither B's close nor
-    // shutdown may ack over it.
+    // shutdown may ack over it. The shutdown probe records any completion
+    // so an early error ack trips this checkpoint too, not just the
+    // final await.
+    final shutdownProbe = shuttingDown;
+    var shutdownAcked = false;
+    shutdownProbe
+        .then((_) => shutdownAcked = true,
+            onError: (_) => shutdownAcked = true)
+        .ignore();
     gateA.complete();
     for (var i = 0; i < 20; i++) {
       await pumpEventQueue();
     }
     expect(bAcked, isFalse,
         reason: 'close B must await its own backend release');
+    expect(shutdownAcked, isFalse,
+        reason: 'shutdown must await B\'s backend release');
 
     gateB.complete();
-    expect(await shuttingDown, isA<EngineAck>());
+    expect(await shutdownProbe, isA<EngineAck>());
     expect(await closingB, isA<EngineAck>());
     await closingA;
   });
@@ -264,8 +274,10 @@ void main() {
         .call((id) => ShutdownRequest(requestId: id))
         .timeout(const Duration(seconds: 5));
     expect(result, isA<EngineAck>());
-    // Prove the drain actually reached the gated cancellation (and timed
-    // out on it) rather than acking from an empty drain.
+    // Prove the drain actually reached the gated cancellation — it
+    // entered the await that the bound later abandoned — rather than
+    // acking from an empty drain. `cancelled` records entry into
+    // cancellation synchronously, so this cannot race the timeout.
     expect(backend.cancelled, contains(channel.homePath),
         reason: 'drain never reached the gated backend cancellation');
   });

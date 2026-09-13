@@ -42,6 +42,7 @@ void main() {
     ));
     var firstAcked = false;
     var secondAcked = false;
+    var shutdownAcked = false;
     first
         .then((_) => firstAcked = true, onError: (_) => firstAcked = true)
         .ignore();
@@ -49,6 +50,9 @@ void main() {
     // error ack trips the checkpoint too, not just a late Future.wait.
     second
         .then((_) => secondAcked = true, onError: (_) => secondAcked = true)
+        .ignore();
+    shuttingDown
+        .then((_) => shutdownAcked = true, onError: (_) => shutdownAcked = true)
         .ignore();
     await pumpEventQueue();
     // Precondition check: the drain really is parked at the backend gate
@@ -60,6 +64,9 @@ void main() {
       reason: 'first close never reached the backend gate');
     expect(firstAcked, isFalse,
       reason: 'drain not parked at the backend gate; precondition unmet');
+    expect(shutdownAcked, isFalse,
+      reason: 'shutdown acknowledged before backend cancellation '
+          'completed');
     expect(secondAcked, isFalse,
       reason: 'second close acknowledged before backend cancellation completed');
     gate.complete();

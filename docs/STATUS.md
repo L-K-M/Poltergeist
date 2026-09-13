@@ -2729,10 +2729,11 @@ are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
 drains the map without clearing it, so shutdown cannot ack over a
-still-closing channel that settles; a never-settling retirement is
-abandoned at the drain's bound and its release dies with the isolate
-(the 2026-09-13 shutdown-drain repair below removed the erroneous
-pre-drain clear),
+still-closing channel that settles (corrected 2026-09-13 by the
+shutdown-drain repair below — #87 as merged cleared the map
+pre-drain and could ack early on a drain-window duplicate); a
+never-settling retirement is abandoned at the drain's bound and
+its release dies with the isolate,
 and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
 idempotent. The Windows root-removal gap's STATUS entry was also

@@ -367,7 +367,17 @@ class EngineHost {
     // abandoned) cannot hang the close ack — the ack lands when the
     // bound elapses while the release keeps settling in the background
     // (its own bookkeeping handles the eventual outcome).
-    await retirement.timeout(_shutdownDrainTimeout, onTimeout: () {});
+    var abandoned = false;
+    await retirement.timeout(_shutdownDrainTimeout, onTimeout: () {
+      abandoned = true;
+    });
+    if (abandoned) {
+      // Mirror drain abandonment: later closes for this id ack
+      // idempotently instead of parking on the wedged retirement. The
+      // removed value is the wedged (still-pending) retirement; its own
+      // bookkeeping handles the eventual outcome.
+      unawaited(_pendingCloses.remove(channelId));
+    }
     return const EngineAck();
   }
 
@@ -439,7 +449,13 @@ class EngineHost {
   /// insertions only leave a stale entry in a dying host.
   void _rejectMintAfterShutdown(PaneChannel channel) {
     if (!_shuttingDown) return;
-    unawaited(_retireChannel(_nextChannelId++, channel));
+    // The catchError only suppresses the unhandled-error report for the
+    // windows where no drain batch listener exists yet (minted mid-batch
+    // or after the drain exited); the drain still observes failures
+    // through its own listener on the same underlying future.
+    unawaited(
+      _retireChannel(_nextChannelId++, channel).catchError((Object _) {}),
+    );
     _rejectIfShuttingDown();
   }
 
@@ -618,8 +634,9 @@ class EngineHost {
             for (var i = 0; i < batch.length; i++)
               if (settled[i]) batch[i],
           ].any(_pendingCloses.values.contains),
-          'A settled retirement did not self-remove from _pendingCloses; '
-          'the shutdown drain would spin forever.',
+          'A settled batch retirement is still present in _pendingCloses; '
+          'verify _retireChannel self-removal and that duplicate closes '
+          'do not re-register settled retirements.',
         );
         // Drop the awaited batch — including any timed-out (abandoned)
         // entries, whose later self-removal no-ops on the missing key.
@@ -631,15 +648,12 @@ class EngineHost {
       }
     }
 
-    // Intake invariant, verified structurally: no await sits between
-    // the final fixed-point check (both maps empty) and the ack's send
-    // (the server-map clear is synchronous and _guard's response rides
-    // one microtask), and request handlers run on event-loop turns —
-    // they cannot interleave that microtask boundary. A close arriving
-    // after the check is therefore processed after the ack, against an
-    // engine the client is already tearing down; its own ack then
-    // either reports the real teardown or never arrives (engine death)
-    // — it cannot lie.
+    // Intake invariant, verified structurally: no await sits between the
+    // final fixed-point check (both maps empty) and the ack's send — the
+    // server-map clear and _guard's response are synchronous/microtask —
+    // and request handlers run on event-loop turns, so they cannot
+    // interleave that boundary. Inserting an await between the check and
+    // the return would reopen the intake window this loop closes.
 
     // disconnectServer already closed every pane binding (03 §3.5); the
     // server map is state hygiene so a post-shutdown host answers
