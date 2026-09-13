@@ -2900,14 +2900,37 @@ EngineAck only for the shutdown's own drain). All earlier race
 regressions (duplicate sharing, drain-window duplicates, retire-loop
 race, open gating, never-settling drain bound) pass unchanged.
 
-## M3: Windows watched-directory loss (2026-09-13, in progress)
+## M3: Windows watched-directory loss (2026-09-13)
 
-Item 16's regression now requires empty and populated watched directories
-to report `lost` through the real engine on Windows too. Native CI must
-establish the failing baseline before the backend changes. The suggested
-parent watch remains unverified: Windows can defer removing the parent's
-child entry until the watched child's last handle closes. No fix or
-milestone completion is claimed yet.
+The Windows backend combines non-recursive root and parent subscriptions.
+Parent rename/removal loses the binding even if another directory already
+occupies the old path. An asynchronous root-type check after setup and child
+events detects delete-pending roots when Dart drops a synchronous native
+read failure. Checks coalesce with a trailing check for intervening events;
+cancellation retires both subscriptions and waits for outstanding metadata.
+Sibling events are ignored. No timer, recursive scan, new VFS, or protocol
+change. Chapter 03 §7.5 records the backend contract and corrects its earlier
+blanket claim that Windows empty-root deletion cannot signal.
+
+Regression baseline: Windows [job 103720537033](
+https://github.com/L-K-M/Poltergeist/actions/runs/34756069942/job/103720537033)
+at `58bd488` timed out waiting for populated-root loss; empty-root deletion
+passed. Linux and macOS passed both. This supports the SDK's distinction
+between [silent synchronous read failures](
+https://github.com/dart-lang/sdk/blob/3.13.3/runtime/bin/eventhandler_win.cc)
+and [reported asynchronous deletion errors](
+https://github.com/dart-lang/sdk/issues/62193). Parent watching alone is
+insufficient because [Windows retains delete-pending entries](
+https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-removedirectoryw).
+Local validation: core and app analysis, the import/protocol guards, 21
+deterministic backend tests, the core suite (730 passed, 16 fixture skips),
+and all 496 app tests passed. Repaired Windows CI is pending. Higher-ancestor
+renames remain item 18; Linux overflow remains item 14. M3 stays open.
+
+Original engine code; PORTS.md checked, no affected port or upstream change.
+The Séance pin and dependencies are unchanged. The subscription tools are
+unavailable; PR #92 uses GitHub polling and an hourly Paseo heartbeat, deleted
+on completion.
 
 ## Open items
 
@@ -3448,26 +3471,14 @@ milestone completion is claimed yet.
     claims overflow detection on Linux. (The 2026-09-13 repair below
     corrected this item's earlier "every other §7.5 failure mode is
     surfaced" claim: Windows root removal is its own gap, item 16.)
-16. **2026-09-13 — M3: Windows root-removal is unobservable through
-    dart:io (opened by the task18 post-merge verification).** Deleting a
-    watched directory on Windows defers while the watch holds its handle
-    (delete-pending), so `ReadDirectoryChangesW` delivers no error, no
-    close, and no root event — no `lost` signal can exist. A non-empty
-    watched directory still surfaces its children's removal as the
-    debounced `changed` (the rescan path catches the loss), but an EMPTY
-    — or already-emptied — watched directory yields nothing observable
-    at all: the pane's rescan never triggers, so 03 §7.5's "a pane never
-    shows a listing it silently stopped watching" does not hold for that
-    case on Windows. The root-loss logic itself is covered cross-platform
-    by the injected-backend adapter suite; the real-OS vanish test skips
-    Windows with this reason (a focused, documented skip — not a global
-    one). Compatible adapter, no speculative multi-platform FFI needed:
-    a Windows `LocalWatchBackend` variant that additionally watches the
-    watched directory's PARENT non-recursively and maps a parent-reported
-    removal of the watched name into the `lost` signal (the parent's own
-    handle sees the child go) — event-based, local-only, behind the same
-    seam. Owner gate: this is an M3 blocker for pane wiring, not
-    completed QA; item 14's Linux overflow stays its own gap.
+16. **2026-09-13: M3 Windows watched-root loss (PR #92, validation pending).**
+    The dated section above replaces the original diagnosis with native
+    failing-first evidence: populated deletion timed out; empty deletion
+    already signalled. The Windows backend now adds parent notifications
+    for root renames and event-driven metadata checks for delete-pending
+    roots. Native tests cover populated, empty, already-emptied, and
+    rename/recreate cases. No skip hides Windows root deletion. Higher
+    ancestor renames remain item 18; Linux overflow remains item 14.
 
 15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
@@ -3487,6 +3498,14 @@ milestone completion is claimed yet.
     and require deliberate reset rather than silently replacing malformed
     or newer schemas. The store currently reports `FormatException` without
     changing the section; `reset(location)` cannot bypass that validation.
+
+18. **2026-09-13: M3 Windows ancestor rename detection (#92).** The backend
+    watches the shown directory and its immediate parent. Renaming a higher
+    ancestor can leave both handles following the moved tree without an
+    event; metadata checks run only on setup and qualifying events. Before
+    pane wiring, close this remaining invalidation gap without recursive
+    subtree watches or remote polling. Direct root deletion/rename coverage
+    does not establish higher-ancestor detection.
 
 ## Independent audit
 

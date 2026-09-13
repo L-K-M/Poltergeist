@@ -91,7 +91,7 @@ class EngineHost {
   /// [openTransport], [prober], and [hostKeyStore] are test seams — the
   /// production defaults need real sockets; tests inject socket-free fakes.
   /// [localWatch] is the same for 03 §7.5's directory watchers: the default
-  /// is dart:io's `Directory.watch`; tests inject deterministic backends.
+  /// selects the native platform backend; tests inject deterministic backends.
   factory EngineHost({
     required EngineConfig config,
     required SendPort events,
@@ -102,7 +102,7 @@ class EngineHost {
     Duration? shutdownDrainTimeout,
   }) {
     final host = EngineHost._(events);
-    host._localWatch = localWatch ?? const DartIoWatchBackend();
+    host._localWatch = localWatch ?? LocalWatchBackend.platform();
     host._shutdownDrainTimeout = shutdownDrainTimeout ?? _defaultDrainTimeout;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(

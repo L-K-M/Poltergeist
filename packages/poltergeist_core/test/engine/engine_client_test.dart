@@ -405,8 +405,7 @@ void main() {
     ) async {
       // The tree cleanup registers BEFORE the engine shutdown so LIFO
       // teardown releases the engine's watch handles first — deleting a
-      // watched tree out from under a live engine defers on Windows (the
-      // vanish test's own skip reason documents the trap).
+      // watched tree can defer on Windows until its handles close.
       final root = Directory.systemTemp.createTempSync(name);
       addTearDown(() {
         if (root.existsSync()) root.deleteSync(recursive: true);
@@ -546,6 +545,51 @@ void main() {
       final event = await lost;
       expect(event.path, emptyPath);
       expect(event.detail, isNotNull);
+    });
+
+    test('deleting an already-emptied watched directory signals lost', () async {
+      final (_, channel, root) = await localFixture('pg-watch-drained-vanish');
+      await channel.watchDirectory(channel.homePath);
+      await drainSetupBacklog();
+
+      final emptied = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.changed)
+          .timeout(_watchCrossingTimeout);
+      File('${root.path}/a.txt').deleteSync();
+      Directory('${root.path}/sub').deleteSync();
+      await emptied;
+
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      root.deleteSync();
+      expect((await lost).path, channel.homePath);
+    });
+
+    test('renaming and recreating a watched path loses its old binding', () async {
+      final (_, channel, root) = await localFixture('pg-watch-renamed-root');
+      final watchedPath = '${channel.homePath}${Platform.pathSeparator}sub';
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+
+      // A type check alone would see the replacement directory and miss
+      // that the native subscription still follows the renamed one.
+      final lost = channel.directoryChanges
+          .firstWhere((event) => event.signal == DirectoryWatchSignal.lost)
+          .timeout(_watchCrossingTimeout);
+      Directory('${root.path}/sub').renameSync('${root.path}/renamed');
+      Directory('${root.path}/sub').createSync();
+      expect((await lost).path, watchedPath);
+
+      await channel.watchDirectory(watchedPath);
+      await drainSetupBacklog();
+      final changed = channel.directoryChanges.first.timeout(
+        _watchCrossingTimeout,
+      );
+      File('${root.path}/sub/new.txt').writeAsStringSync('new binding');
+      final event = await changed;
+      expect(event.path, watchedPath);
+      expect(event.signal, DirectoryWatchSignal.changed);
     });
 
     test('unwatchDirectory releases the engine-side watch', () async {
