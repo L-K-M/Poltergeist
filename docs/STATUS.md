@@ -2728,9 +2728,10 @@ second request. Fix at the host request boundary: retirements in flight
 are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
-drains the map (never acking over a still-closing channel it stopped
-tracking; corrected by the 2026-09-13 shutdown-drain repair below —
-the original "and clears" was itself the next defect), and routing still retires synchronously so no stale
+drains the map without clearing it first (never acking over a
+still-closing channel it stopped tracking; the 2026-09-13
+shutdown-drain repair below removed the erroneous pre-drain clear),
+and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
 idempotent. The Windows root-removal gap's STATUS entry was also
 renumbered 15 → 16 (it collided with #85's Quick Select item 15) with
@@ -2809,12 +2810,18 @@ Supervisor verification of merged #87 found the next lifetime window:
 awaiting the drain — so a duplicate `CloseBrowseChannelRequest`
 processed while shutdown was parked on a gated retirement found no
 pending entry and acked early, exactly the early-ack shape #87 exists
-to close. Fix: the clear is gone — entries already self-remove on
-settlement, so the drain retains the map and a drain-window duplicate
-still finds and awaits its retirement. The supervisor's repro (verbatim
+to close. Fix: the clear is gone and the drain loops until the map
+empties — entries already self-remove on settlement, so a drain-window
+duplicate still finds and awaits its retirement, and a retirement
+created during the drain (a channel opened during shutdown, closed by
+its own request — the one-shot snapshot's blind spot, found by #88's
+review) is awaited too before shutdown acks. The supervisor's repro
+(verbatim
 in `test/engine/supervisor_shutdown_close_test.dart`) was red on merged
 `0289922` (`tasks/task18-logs/shutdown-drain-before.log`, exit 1) and
-passes. The suite now pins all three interleavings: pre-shutdown
+passes; the during-drain-creation regression was observed red on this
+repair's first head and passes with the loop drain. The suite now pins
+all three interleavings: pre-shutdown
 duplicate closes (both-acks-gated), drain-window duplicates (this
 repro), and the shutdown/channel-loop race — whose mid-loop mutation is
 now deterministic (a pump between issuing the racing close and

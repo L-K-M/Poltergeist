@@ -122,6 +122,76 @@ void main() {
     await closingB;
   });
 
+  test('a first close arriving during the drain is awaited by shutdown',
+      () async {
+    final rootA = Directory.systemTemp.createTempSync('drain-new-a-');
+    addTearDown(() => rootA.deleteSync(recursive: true));
+    final backend = GatedWatchBackend();
+    final h = HostHarness(localWatch: backend);
+    addTearDown(h.dispose);
+    final channelA = await h.openLocal(rootA.path);
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channelA.channelId, path: channelA.homePath,
+    ));
+    final gateA = backend.gates[channelA.homePath]!;
+    addTearDown(() {
+      if (!gateA.isCompleted) gateA.complete();
+    });
+
+    // Park the drain on A's tracked retirement: A is closed by request
+    // (so the channel loop has nothing to close) and shutdown's drain
+    // snapshot holds exactly A.
+    final closingA = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelA.channelId,
+    ));
+    final shuttingDown = h.call((id) => ShutdownRequest(requestId: id));
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+
+    // A channel OPENED during shutdown is not in the channel loop's
+    // snapshot, so only its own close request retires it — during the
+    // drain, creating an entry after the drain's one-shot snapshot.
+    final openedC = await h.call(
+      (id) => OpenLocalBrowseChannelRequest(
+        requestId: id,
+        rootPath: rootA.parent.path,
+      ),
+    );
+    final channelC = (openedC as BrowseChannelOpened).channelId;
+    final canonicalC = (openedC).homePath;
+    await h.call((id) => WatchLocalDirectoryRequest(
+      requestId: id, channelId: channelC, path: canonicalC,
+    ));
+    final gateC = backend.gates[canonicalC]!;
+    addTearDown(() {
+      if (!gateC.isCompleted) gateC.complete();
+    });
+    final closingC = h.call((id) => CloseBrowseChannelRequest(
+      requestId: id, channelId: channelC,
+    ));
+    var shutdownAcked = false;
+    unawaited(shuttingDown.then((_) => shutdownAcked = true));
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+    expect(backend.cancelled, containsAll([channelA.homePath, canonicalC]));
+
+    // A's release completes; C's is still gated. Shutdown must NOT ack
+    // over C's in-flight retirement.
+    gateA.complete();
+    for (var i = 0; i < 20; i++) {
+      await pumpEventQueue();
+    }
+    expect(shutdownAcked, isFalse,
+        reason: 'shutdown acked over a retirement created during the drain');
+
+    gateC.complete();
+    expect(await shuttingDown, isA<EngineAck>());
+    expect(await closingC, isA<EngineAck>());
+    expect(await closingA, isA<EngineAck>());
+  });
+
   test('closing a fully retired channel stays idempotent', () async {
     final root = Directory.systemTemp.createTempSync('retired-close-');
     addTearDown(() => root.deleteSync(recursive: true));

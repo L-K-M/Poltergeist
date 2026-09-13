@@ -504,13 +504,14 @@ class EngineHost {
     for (final channel in List.of(_channels.values)) {
       if (channel is _LocalPaneChannel) await channel.close();
     }
-    // No clear before the drain: entries self-remove on settlement, and
-    // a duplicate close processed while shutdown is parked awaiting one
-    // of these retirements must still find its pending entry and await
-    // it — clearing here would reopen the exact early-ack window this
-    // map exists to close.
-    final pendingCloses = List.of(_pendingCloses.values);
-    for (final retirement in pendingCloses) {
+    // Drain until the map empties rather than snapshotting once:
+    // entries self-remove on settlement, and a retirement created while
+    // this drain is parked (a channel opened during shutdown, closed by
+    // its own request) must still be awaited before shutdown acks — a
+    // one-shot snapshot would miss it and reopen the early-ack window
+    // this map exists to close.
+    while (_pendingCloses.isNotEmpty) {
+      final retirement = _pendingCloses.values.first;
       try {
         await retirement;
       } on Object {
