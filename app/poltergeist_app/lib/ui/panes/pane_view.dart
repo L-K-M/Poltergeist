@@ -249,10 +249,12 @@ class _PaneViewState extends State<PaneView> {
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.backspace:
-        // Parent-folder key on Windows/Linux (§8.3); plain presses only.
+        // Parent-folder key on Windows/Linux (§8.3). Key repeats never
+        // re-ascend — holding Backspace must not race up the tree
+        // (mirrors the Enter repeat guard above).
         if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
-          if (plainKey) controller.goUp();
+          if (event is! KeyRepeatEvent) controller.goUp();
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
@@ -263,6 +265,10 @@ class _PaneViewState extends State<PaneView> {
           // failed operation (the overlay's Retry is otherwise
           // mouse-only in this keyboard-first surface).
           unawaited(controller.retry());
+        } else {
+          // Idle: nothing to cancel here — let Esc reach ancestor
+          // handlers (app shortcuts) instead of swallowing it.
+          return KeyEventResult.ignored;
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.tab:

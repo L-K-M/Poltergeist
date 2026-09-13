@@ -381,11 +381,13 @@ class PaneController extends ChangeNotifier {
       await connect(lanes, attempt);
     } on RemoteFileException catch (error) {
       if (_disposed || attempt != _bindAttempt) return;
+      _dropStatusWatch();
       _error = error;
       notifyListeners();
     } on Object catch (error, stackTrace) {
       if (_disposed || attempt != _bindAttempt) return;
       _report(error, stackTrace);
+      _dropStatusWatch();
       _error = RemoteFileException(
         kind: RemoteFileErrorKind.other,
         operation: operation,
@@ -393,6 +395,14 @@ class PaneController extends ChangeNotifier {
       );
       notifyListeners();
     }
+  }
+
+  /// A failed bind keeps no server watch: the subscription is inert
+  /// (the attempt guard drops its events) but it pins the engine's
+  /// per-server stream open until the next bind replaces it.
+  void _dropStatusWatch() {
+    unawaited(_statusWatch?.cancel());
+    _statusWatch = null;
   }
 
   bool _loadingActive() =>
