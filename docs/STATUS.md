@@ -2815,7 +2815,11 @@ empties — entries already self-remove on settlement, so a drain-window
 duplicate still finds and awaits its retirement, and a retirement
 created during the drain (a channel opened during shutdown, closed by
 its own request — the one-shot snapshot's blind spot, found by #88's
-review) is awaited too before shutdown acks. The supervisor's repro
+review) is awaited too before shutdown acks — arrivals after the
+drain's final emptiness check cannot interleave the check-to-ack
+microtask boundary (no await between them; request handlers run on
+event-loop turns), so the window is structurally closed and
+documented at the drain. The supervisor's repro
 (verbatim
 in `test/engine/supervisor_shutdown_close_test.dart`) was red on merged
 `0289922` (`tasks/task18-logs/shutdown-drain-before.log`, exit 1) and

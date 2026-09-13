@@ -517,7 +517,26 @@ class EngineHost {
       } on Object {
         // Shutdown must complete even if one retirement is broken.
       }
+      // The self-removal listener is registered at close-request time,
+      // earlier than this await, so it runs first. If a settled future
+      // ever stays in the map, the loop would busy-spin on microtasks
+      // and starve the isolate — fail loud in debug instead.
+      assert(
+        _pendingCloses.isEmpty ||
+            !identical(_pendingCloses.values.first, retirement),
+        'A settled retirement did not self-remove from _pendingCloses; '
+        'the shutdown drain would spin forever.',
+      );
     }
+
+    // Intake invariant, verified structurally: no await sits between
+    // the drain's final emptiness check and the ack's send (the clears
+    // are synchronous and _guard's response rides one microtask), and
+    // request handlers run on event-loop turns — they cannot interleave
+    // that microtask boundary. A close arriving after the check is
+    // therefore processed after the ack, against an engine the client
+    // is already tearing down; its own ack then either reports the real
+    // teardown or never arrives (engine death) — it cannot lie.
 
     // disconnectServer already closed every pane binding (03 §3.5); these
     // maps are state hygiene so a post-shutdown host answers cleanly
