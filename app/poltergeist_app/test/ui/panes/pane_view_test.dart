@@ -447,6 +447,48 @@ void main() {
     expect(find.text('back.txt'), findsOneWidget);
   });
 
+  testWidgets('Enter is inert on stale entries during connection-lost', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      localChannelWithEntries();
+      final remoteChannel = controller_test.FakePaneChannel('/srv/home');
+      remoteChannel.listings['/srv/home'] = [
+        _entry('docs', type: RemoteFileType.directory),
+      ];
+      remoteChannel.listings['/srv/home/docs'] = [_entry('child.txt')];
+      lanes.nextRemoteChannel = remoteChannel;
+      await right.connectRemote(_bookmark('srv-1'));
+      await pumpShell(tester);
+      rightNode.requestFocus();
+      await tester.pump();
+
+      // Cursor onto the directory, then the transport drops.
+      right.moveCursorBy(1);
+      await tester.pump();
+      lanes.emitState(
+        'srv-1',
+        const ServerStatus(ServerConnectionState.reconnecting),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(right.connectionLost, isTrue);
+
+      // Enter on the highlighted stale row must not navigate: the
+      // keyboard is as inert as the absorbed pointer.
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(remoteChannel.listCalls, ['/srv/home']);
+      expect(
+        right.location,
+        const RemotePaneLocation('srv-1', '/srv/home'),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('remote connect renders the connecting state until it lands', (
     tester,
   ) async {

@@ -37,10 +37,11 @@ landed 2026-09-12 (dated section below; open item 12 tracks the
 location type's move into core); the next M3 slices are recorded
 there. The sibling slices' pure models — the listing-state reducer,
 the metadata-only sort, Quick Select's matching and selection, and
-the per-location view-pref persistence — are implemented below and
-feed the pane controller's transitions, as does the engine-side
-local directory watch seam (pane refresh wiring itself remains
-open).
+the per-location view-pref persistence — are implemented below; the
+pane foundation implements 02 §2.8's machine inline, and each
+model's wiring (comparator, selection, prefs) rides its owning
+slice, as does the engine-side local directory watch seam (pane
+refresh wiring itself remains open).
 ## Done
 
 | Area | State |
@@ -3434,7 +3435,7 @@ M0 measurements remain dispatch-only. M3 remains open.
     behaviors; preserve the raw-byte tiebreak before the path fallback.
     D25 still defers byte-preserving operations. No local VFS fork or
     replacement interface is authorized by this item.
-14. **2026-09-13 — M3: Linux inotify overflow is invisible through
+15. **2026-09-13 — M3: Linux inotify overflow is invisible through
     dart:io.** The watch seam's `LocalDirectoryWatcher` (dated section
     above) cannot observe `IN_Q_OVERFLOW`: the kernel posts the overflow
     event with watch descriptor −1, which matches no watched path in the
@@ -3469,9 +3470,9 @@ M0 measurements remain dispatch-only. M3 remains open.
     removal of the watched name into the `lost` signal (the parent's own
     handle sees the child go) — event-based, local-only, behind the same
     seam. Owner gate: this is an M3 blocker for pane wiring, not
-    completed QA; item 14's Linux overflow stays its own gap.
+    completed QA; item 15's Linux overflow stays its own gap.
 
-15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
+17. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
     changes. Measure live input over large Unicode listings when the field
     lands; consider caching folded names or matched keys within the session

@@ -308,6 +308,14 @@ class PaneController extends ChangeNotifier {
     final lanes = _lanes;
     final serverId = _pendingRemote?.id;
     if (_disposed || lanes == null || serverId == null) return;
+    if (_phase == PanePhase.connectingRemote) {
+      // A cancelled server must not re-bind through the in-flight
+      // connect: detach invalidates the attempt (the stale open's
+      // completion then closes its own channel and drops itself) and
+      // resets the binding before the server reference drops.
+      await detachRemote();
+      if (_disposed) return;
+    }
     try {
       await lanes.disconnectServer(serverId);
     } on Object catch (error, stackTrace) {
@@ -399,10 +407,14 @@ class PaneController extends ChangeNotifier {
 
   /// A failed bind keeps no server watch: the subscription is inert
   /// (the attempt guard drops its events) but it pins the engine's
-  /// per-server stream open until the next bind replaces it.
+  /// per-server stream open until the next bind replaces it — and the
+  /// last observed status (e.g. a `reconnecting` that will never update
+  /// again) must not keep the connection-lost banner alive over the
+  /// terminal error surface.
   void _dropStatusWatch() {
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
+    _connectionStatus = null;
   }
 
   bool _loadingActive() =>

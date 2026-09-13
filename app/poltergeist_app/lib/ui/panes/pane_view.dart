@@ -194,9 +194,12 @@ class _PaneViewState extends State<PaneView> {
         !HardwareKeyboard.instance.isAltPressed;
 
     // 02 §2.8: once the grace passes, the pane's OWN keys are inert —
-    // the entries under the dim are stale. Unowned keys fall through to
-    // ancestors (app shortcuts stay live during slow loads); Esc and
-    // Tab reach the switch below and stay live.
+    // the entries under the dim are stale; the connection-lost scrim
+    // declares the same inertness (pointer and semantics are already
+    // blocked there — the keyboard must not be the one live path onto
+    // stale entries). Unowned keys fall through to ancestors (app
+    // shortcuts stay live during slow loads); Esc and Tab reach the
+    // switch below and stay live.
     final ownedKey =
         key == LogicalKeyboardKey.arrowDown ||
         key == LogicalKeyboardKey.arrowUp ||
@@ -204,7 +207,9 @@ class _PaneViewState extends State<PaneView> {
         key == LogicalKeyboardKey.end ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.backspace;
-    if (_graceBusy() && _pastGrace && ownedKey && plainKey) {
+    if ((controller.connectionLost || (_graceBusy() && _pastGrace)) &&
+        ownedKey &&
+        plainKey) {
       return KeyEventResult.handled;
     }
     // Modified chords (Ctrl+Enter, Alt+Home, …) belong to whoever binds
