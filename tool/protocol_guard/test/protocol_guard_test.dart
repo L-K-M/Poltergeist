@@ -339,16 +339,22 @@ mixin Hooks { final callback = () {}; }
     await expectLater(fixture._check(), throwsA(isA<FileSystemException>()));
   });
 
-  test('CLI exits distinguish clean, violations, and scan failures', () async {
-    await fixture._expectExit(0);
-    await fixture._write(
-      '$_engine/data.dart',
-      'class Data { final callback = () {}; }',
-    );
-    await fixture._expectExit(1, 'Data.callback');
-    await fixture._write('$_engine/data.dart', 'class Unfinished {');
-    await fixture._expectExit(2, 'protocol scan failed');
-  });
+  test(
+    'CLI exits distinguish clean, violations, and scan failures',
+    () async {
+      await fixture._expectExit(0);
+      await fixture._write(
+        '$_engine/data.dart',
+        'class Data { final callback = () {}; }',
+      );
+      await fixture._expectExit(1, 'Data.callback');
+      await fixture._write('$_engine/data.dart', 'class Unfinished {');
+      await fixture._expectExit(2, 'protocol scan failed');
+    },
+    // Three cold `dart run` starts sit near the 30 s default on loaded
+    // runners; the assertion is about exit codes, not startup speed.
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 class _Fixture {
