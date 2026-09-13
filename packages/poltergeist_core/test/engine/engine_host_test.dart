@@ -143,6 +143,7 @@ class HostHarness {
     EngineConfig config = const EngineConfig(),
     FakeTransportOpener? opener,
     LocalWatchBackend? localWatch,
+    Duration? shutdownDrainTimeout,
   }) : opener = opener ?? FakeTransportOpener() {
     this.opener.transportFsBuilder = (_) => fs;
     _port.listen((message) {
@@ -159,6 +160,7 @@ class HostHarness {
       openTransport: this.opener.opener,
       prober: prober,
       localWatch: localWatch,
+      shutdownDrainTimeout: shutdownDrainTimeout,
     );
   }
 
@@ -1645,12 +1647,16 @@ void main() {
         );
 
         final error = await expectError(watch);
-        // Consume both in-flight futures deterministically — a throwing
-        // close must not strand the already-errored watch future as an
-        // unhandled async error.
-        await closed;
+        // Mark the close future's outcome handled up front so a failing
+        // assertion below cannot strand a throwing close as unhandled
+        // async noise; the later await still observes it.
+        closed.ignore();
         expect(error.kind, RemoteFileErrorKind.disconnected);
         expect(error.operation, 'watch');
+        // Consume the close future deterministically — after the primary
+        // expectations, so a throwing or hanging close cannot mask the
+        // watch-contract assertions.
+        await closed;
         // The close won: nothing was ever watched.
         expect(backend.controllers, isEmpty);
       },

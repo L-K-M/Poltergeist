@@ -2728,8 +2728,13 @@ second request. Fix at the host request boundary: retirements in flight
 are tracked per channel id (`_pendingCloses`, bounded — entries
 self-remove on settlement, ids never reused, duplicates await rather
 than create), duplicate closes share the pending completion, shutdown
-drains and clears the map (never acking over a still-closing channel it
-stopped tracking), and routing still retires synchronously so no stale
+drains the map without clearing it, so shutdown cannot ack over a
+still-closing channel that settles (corrected 2026-09-13 by the
+shutdown-drain repair below — #87 as merged cleared the map
+pre-drain and could ack early on a drain-window duplicate); a
+never-settling retirement is abandoned at the drain's bound and
+its release dies with the isolate,
+and routing still retires synchronously so no stale
 events or requests leak; closing a fully retired channel stays
 idempotent. The Windows root-removal gap's STATUS entry was also
 renumbered 15 → 16 (it collided with #85's Quick Select item 15) with
@@ -2801,6 +2806,61 @@ entry. [CI 34742129311](https://github.com/L-K-M/Poltergeist/actions/runs/347421
 at `57faa73` passed the app checks, all five client builds, three native Dart
 suites, and tooling checks. SSH fixtures were skipped by scope detection;
 M0 measurements remain dispatch-only. M3 remains open.
+
+## M3 — shutdown-drain repair (2026-09-13, post-merge on #87; PR #88)
+
+Engine and test changes: this PR (#88) carries them — the red
+baseline is anchored at `0289922`
+(`tasks/task18-logs/shutdown-drain-before.log`, exit 1).
+Supervisor verification of merged #87 found the next lifetime window:
+`_shutdown` snapshotted `_pendingCloses` and then CLEARED the map before
+awaiting the drain — so a duplicate `CloseBrowseChannelRequest`
+processed while shutdown was parked on a gated retirement found no
+pending entry and acked early, exactly the early-ack shape #87 exists
+to close. Fix: the clear is gone and the drain loops until the map
+empties — entries already self-remove on settlement, so a drain-window
+duplicate still finds and awaits its retirement, and a retirement
+created during the drain (a channel opened in the window before the
+shutting-down gate starts rejecting opens, then closed by
+its own request — the one-shot snapshot's blind spot, found by #88's
+review) is awaited too before shutdown acks — arrivals after the
+drain's final emptiness check cannot interleave the check-to-ack
+microtask boundary (no await between them; request handlers run on
+event-loop turns), so the window is structurally closed and
+documented at the drain. The supervisor's repro
+(verbatim
+in `test/engine/supervisor_shutdown_close_test.dart`) was red on merged
+`0289922` (`tasks/task18-logs/shutdown-drain-before.log`, exit 1) and
+passes; the during-drain-creation regression was observed red on the
+repair's first head `e6fa3c3` (batched-drain commit `9e3b2f3`'s parent;
+mutation-verified: `Expected false, Actual true` against the one-shot
+drain) and passes with the loop drain. The suite now pins
+the interleavings: pre-shutdown duplicate closes (both-acks-gated),
+drain-window duplicates (this repro), the retire-loop race (a close
+racing the loop shares the tracked retirement), open rejection once
+shutting down, and the never-settling retirement bound (an injectable
+drain timeout keeps the ack bounded; gating opens once shutting
+down closes off both the fixed point's leak and the starvation
+premise). The mid-loop
+mutation is
+now deterministic (a pump between issuing the racing close and
+releasing the gates guarantees the map mutation lands inside the loop's
+iteration; without it the microtask-resumed loop could finish first and
+the regression pass vacuously). Review-surfaced hardening in the same
+PR: the debounce-coalescing test awaits its first emission via the
+proven timeout before the quiet window (loaded runners can no longer
+flake `hasLength(1)`), the close-race test asserts the watch contract
+before consuming the close future (a throwing close can no longer mask
+the assertions), the pumped negative assertions document why
+`pumpEventQueue` suffices (the watcher's only nonzero timer — the
+debounce — is cancelled synchronously on release), and `_closeChannel`'s
+doc states the failure-sharing asymmetry (a failed retirement surfaces
+its error to every sharing close; only post-settlement closes ack
+idempotently). PR #87's final review round was initially misreported
+as "no findings": its edited summary actually carried this exact major
+finding plus four minors and one info finding (zero inline/actionable
+count). Those summary findings are fully dispositioned in that PR's
+corrected body, and this repair applies all of them.
 
 ## Open items
 

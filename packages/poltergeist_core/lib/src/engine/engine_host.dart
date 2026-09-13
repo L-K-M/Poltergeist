@@ -14,6 +14,14 @@ import 'engine_probes.dart';
 import 'local_directory_watcher.dart';
 import 'protocol.dart';
 
+/// The drain's own abandon-signal: thrown by the timeout wrapper, never
+/// by a retirement — so `settled` classification cannot conflate a
+/// retirement that rejects with its own TimeoutException with the drain
+/// abandoning it.
+class _DrainAbandoned implements Exception {
+  const _DrainAbandoned();
+}
+
 /// Boots the engine isolate (the `Isolate.spawn` entrypoint).
 ///
 /// Handshake: the caller spawns with its event port as the spawn message;
@@ -70,6 +78,13 @@ class EngineHost {
   final Map<int, Future<void>> _pendingCloses = {};
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   late final LocalWatchBackend _localWatch;
+
+  /// Bound per retirement await — used by the shutdown drain AND by
+  /// request-level closes (a wedged backend cancel must not hang either
+  /// the shutdown ack or a close ack forever; the bounded-teardown
+  /// convention). Injectable for tests.
+  late final Duration _shutdownDrainTimeout;
+  static const _defaultDrainTimeout = Duration(seconds: 30);
   int _nextChannelId = 1;
   bool _shuttingDown = false;
 
@@ -84,9 +99,11 @@ class EngineHost {
     Prober prober = const TcpBannerProber(),
     HostKeyStore? hostKeyStore,
     LocalWatchBackend? localWatch,
+    Duration? shutdownDrainTimeout,
   }) {
     final host = EngineHost._(events);
     host._localWatch = localWatch ?? const DartIoWatchBackend();
+    host._shutdownDrainTimeout = shutdownDrainTimeout ?? _defaultDrainTimeout;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
       resolveServer: host._resolveKnownServer,
@@ -176,11 +193,13 @@ class EngineHost {
     switch (message) {
       case final OpenBrowseChannelRequest request:
         _guard(request.requestId, () async {
+          _rejectIfShuttingDown();
           _servers[request.serverId] = request.config;
           final channel = await _manager.openBrowseChannel(
             request.serverId,
             paneTabId: request.paneTabId,
           );
+          _rejectMintAfterShutdown(channel);
           final channelId = _nextChannelId++;
           _channels[channelId] = channel;
           return BrowseChannelOpened(
@@ -190,6 +209,7 @@ class EngineHost {
         });
       case final OpenLocalBrowseChannelRequest request:
         _guard(request.requestId, () async {
+          _rejectIfShuttingDown();
           final fs = LocalFileSystem();
           // 03 §2.2: canonicalize never fails for a missing path, so the
           // open succeeds and an unresolvable root surfaces through the
@@ -198,6 +218,10 @@ class EngineHost {
           final channelId = _nextChannelId++;
           final watcher = LocalDirectoryWatcher(backend: _localWatch);
           final channel = _LocalPaneChannel(fs, homePath, watcher);
+          // Mint-time gate: shutdown may have drained and acked while this
+          // handler was parked on canonicalize — a channel registered now
+          // would be invisible to the fixed point and never retired.
+          _rejectMintAfterShutdown(channel);
           // The host owns the forwarding subscription; the channel owns
           // the watcher. dispose() closes the signal stream, which ends
           // this subscription — no separate cancel bookkeeping.
@@ -319,7 +343,13 @@ class EngineHost {
   /// than acking against a channel map entry already removed. Closing an
   /// unknown, fully retired channel stays idempotent and acks. Channel
   /// ids are never reused and duplicates await rather than create, so
-  /// each tracked retirement is the only one its id will ever have.
+  /// each tracked retirement is the only one its id will ever have. A
+  /// retirement that fails surfaces its error to every close sharing it;
+  /// closing the id becomes the idempotent ack only after settlement —
+  /// or when either abandonment path dropped the wedged entry: the
+  /// shutdown drain's bound, or this close's own bound elapsing (both
+  /// remove the entry, so later closes ack idempotently over a release
+  /// that never settled within its bound).
   Future<EngineResult> _closeChannel(
     CloseBrowseChannelRequest request,
   ) async {
@@ -330,22 +360,59 @@ class EngineHost {
       // that retirement's completion so both acknowledgements mean the
       // same thing — teardown finished.
       final pending = _pendingCloses[channelId];
-      if (pending != null) await pending;
+      if (pending != null) {
+        // Same bound as the starter close: a wedged retirement (or one
+        // the starter/shutdown drain abandoned) cannot hang a duplicate's
+        // ack — removing the map entry never completes the captured
+        // future, so an unbounded await here would park forever.
+        var abandoned = false;
+        await pending.timeout(_shutdownDrainTimeout, onTimeout: () {
+          abandoned = true;
+        });
+        if (abandoned) {
+          // Mirror the starter's abandonment so later closes ack
+          // idempotently; removal no-ops if the starter already dropped
+          // it.
+          unawaited(_pendingCloses.remove(channelId));
+        }
+      }
       return const EngineAck();
     }
 
+    final retirement = _retireChannel(channelId, channel);
+    // Mirror the drain's bound: a wedged release (or one a shutdown drain
+    // abandoned) cannot hang the close ack — the ack lands when the
+    // bound elapses while the release keeps settling in the background
+    // (its own bookkeeping handles the eventual outcome).
+    var abandoned = false;
+    await retirement.timeout(_shutdownDrainTimeout, onTimeout: () {
+      abandoned = true;
+    });
+    if (abandoned) {
+      // Mirror drain abandonment: later closes for this id ack
+      // idempotently instead of parking on the wedged retirement. The
+      // removed value is the wedged (still-pending) retirement; its own
+      // bookkeeping handles the eventual outcome.
+      unawaited(_pendingCloses.remove(channelId));
+    }
+    return const EngineAck();
+  }
+
+  /// Retires [channel] and tracks the retirement so duplicate closes and
+  /// shutdown share its completion (same bookkeeping as [_closeChannel],
+  /// which routes request-level closes through here).
+  Future<void> _retireChannel(int channelId, PaneChannel channel) {
     final retirement = channel.close();
     _pendingCloses[channelId] = retirement;
     // Bounded bookkeeping: drop the entry once this retirement settles.
     // The guard swallows the outcome for cleanup only — the awaiting
-    // callers still see it (the handler awaits `retirement` itself).
+    // callers still see it (the handler awaits the returned retirement).
     unawaited(
       retirement.catchError((Object _) {}).then((_) {
         _pendingCloses.remove(channelId);
       }),
     );
-    await retirement;
-    return const EngineAck();
+    return retirement;
   }
 
   Future<EngineResult> _listDirectory(ListDirectoryRequest request) async {
@@ -370,6 +437,43 @@ class EngineHost {
       channel.reportFailure(fs, error);
       rethrow;
     }
+  }
+
+  /// Opens are the only requests that mint new channels, so they are
+  /// the only intake shutdown must gate: once draining, a new channel
+  /// could neither join the retirement fixed point (opened after the
+  /// final check) nor be bounded by it (sustained opens would starve the
+  /// drain forever). Everything else is bounded already — duplicate
+  /// closes share an existing retirement, and closes for retired
+  /// channels ack idempotently. Enforced at entry AND at mint time (an
+  /// open parked on its awaits across shutdown's completion registers
+  /// nothing — see [_rejectMintAfterShutdown]).
+  void _rejectIfShuttingDown() {
+    if (!_shuttingDown) return;
+    throw const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'open',
+      message: 'The engine is shutting down.',
+    );
+  }
+
+  /// The open gate's mint-time half: an open that passed the entry check
+  /// can still be parked on its awaits when shutdown engages — re-check
+  /// before registering, retiring the freshly built channel under a
+  /// fresh internal id (the open failed, so no client ever learns it) so
+  /// a still-running drain awaits this release under the shared bound
+  /// instead of acking past an untracked live backend channel. Post-ack
+  /// insertions only leave a stale entry in a dying host.
+  void _rejectMintAfterShutdown(PaneChannel channel) {
+    if (!_shuttingDown) return;
+    // The catchError only suppresses the unhandled-error report for the
+    // windows where no drain batch listener exists yet (minted mid-batch
+    // or after the drain exited); the drain still observes failures
+    // through its own listener on the same underlying future.
+    unawaited(
+      _retireChannel(_nextChannelId++, channel).catchError((Object _) {}),
+    );
+    _rejectIfShuttingDown();
   }
 
   Future<EngineResult> _watchLocalDirectory(
@@ -489,33 +593,97 @@ class EngineHost {
     _watches.clear();
 
     // Local channels bind no pool, so disconnectServer never saw them:
-    // close them directly — which also releases each channel's directory
-    // watch (03 §7.5) and its debounce timer. Pool bindings were closed by
-    // disconnectServer above. Channels already removed from the map but
-    // still closing (a close request in flight) are in _pendingCloses —
-    // shutdown waits those too, so it can never ack over a live backend
-    // watch it stopped tracking in the map. The loop awaits, so a close
-    // request processed mid-loop can mutate _channels — snapshot first
-    // (a channel closed by such a request is retired through its own
-    // memoized close; this loop re-awaits the same future, never a
-    // double teardown).
-    for (final channel in List.of(_channels.values)) {
-      if (channel is _LocalPaneChannel) await channel.close();
-    }
-    final pendingCloses = List.of(_pendingCloses.values);
-    _pendingCloses.clear();
-    for (final retirement in pendingCloses) {
-      try {
-        await retirement;
-      } on Object {
-        // Shutdown must complete even if one retirement is broken.
+    // retire them — which also releases each channel's directory watch
+    // (03 §7.5) and its debounce timer, tracked so duplicate closes and
+    // this shutdown share the completion. Pool bindings were closed by
+    // disconnectServer above (they hold no directory watch — watching is
+    // local-only — and are dropped here exactly as the pre-repair final
+    // clear dropped them). Fixed-point: channels opened while shutdown
+    // awaits are retired on the next iteration, so re-retiring until
+    // both maps empty guarantees no watch outlives the shutdown ack.
+    // Bounded: opens are rejected once shutting down, each channel can
+    // mint at most one tracked retirement, duplicate closes share it,
+    // and closes for retired channels ack idempotently — no client
+    // traffic can starve the fixed point. The loop clears _channels per
+    // iteration and exits only when empty, so the post-loop map is
+    // empty on every path (the hygiene the old final clear provided).
+    while (_channels.isNotEmpty || _pendingCloses.isNotEmpty) {
+      final entries = List.of(_channels.entries);
+      _channels.clear();
+      for (final entry in entries) {
+        if (entry.value is _LocalPaneChannel) {
+          unawaited(_retireChannel(entry.key, entry.value));
+        }
+      }
+      // Drain until the map empties rather than snapshotting once:
+      // entries self-remove on settlement, and a retirement created
+      // while this drain is parked (a close racing shutdown) must still
+      // be awaited before the next fixed-point check — a one-shot
+      // snapshot would miss it and reopen the early-ack window this map
+      // exists to close.
+      while (_pendingCloses.isNotEmpty) {
+        // Await the whole outstanding batch under one shared bound: N
+        // wedged retirements cost one timeout window, not N sequential
+        // windows, and slow-but-settling releases drain in parallel.
+        final batch = List.of(_pendingCloses.values);
+        // Identity semantics: futures compare by identity, and the set
+        // keeps the drop linear per entry.
+        final inBatch = Set.identity()..addAll(batch);
+        final settled = await Future.wait(
+          batch.map(
+            (retirement) => retirement
+                .timeout(
+                  _shutdownDrainTimeout,
+                  onTimeout: () => throw const _DrainAbandoned(),
+                )
+                .then(
+                  (_) => true,
+                  // A thrown retirement still settled — its self-removal
+                  // listener ran; only the drain's own abandon-signal
+                  // means unsettled (a retirement rejecting with its own
+                  // TimeoutException still settled).
+                  onError: (Object error) => error is! _DrainAbandoned,
+                ),
+          ),
+        );
+        assert(
+          ![
+            for (var i = 0; i < batch.length; i++)
+              if (settled[i]) batch[i],
+          ].any(_pendingCloses.values.contains),
+          'A settled batch retirement is still present in _pendingCloses; '
+          'verify _retireChannel self-removal and that duplicate closes '
+          'do not re-register settled retirements.',
+        );
+        // Drop the awaited batch — including any timed-out (abandoned)
+        // entries, whose later self-removal no-ops on the missing key.
+        // Entries minted by a racing close during the batch await are
+        // caught by the next loop iteration.
+        _pendingCloses.removeWhere(
+          (_, retirement) => inBatch.contains(retirement),
+        );
       }
     }
 
-    // disconnectServer already closed every pane binding (03 §3.5); these
-    // maps are state hygiene so a post-shutdown host answers cleanly
-    // instead of vending dead channels.
-    _channels.clear();
+    // Intake invariant, verified structurally: no await sits between the
+    // final fixed-point check (both maps empty) and the ack's send — the
+    // server-map clear and _guard's response are synchronous/microtask —
+    // and request handlers run on event-loop turns, so they cannot
+    // interleave that boundary. Inserting an await between the check and
+    // the return would reopen the intake window this loop closes. The
+    // assert guards that structural claim: the loop exits only when the
+    // channel map is empty, so reaching here with entries means the
+    // condition and the body diverged.
+    assert(
+      _channels.isEmpty,
+      'Drain loop exited with ${_channels.length} channel(s) still '
+      'registered; the fixed-point check and the channel drain have '
+      'diverged, or an intake path interleaved the shutdown boundary.',
+    );
+
+    // disconnectServer already closed every pane binding (03 §3.5); the
+    // server map is state hygiene so a post-shutdown host answers
+    // cleanly instead of vending dead channels.
     _servers.clear();
     return const EngineAck();
   }
