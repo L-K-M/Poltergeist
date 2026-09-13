@@ -2630,6 +2630,45 @@ replacement. These checks add no product changes; the existing route guard
 stays. Fresh exact-head CI/review after the toolbar repair remain PR gates.
 No full-M3, watch-wiring, probe-driver restoration, or release claim.
 
+### Post-merge reconnect truth repair (2026-09-13, #84 follow-up)
+
+Independent runtime verification found two gaps after #84: a status-only
+transport loss left cached verbs enabled, and `connected` dismissed the
+banner before a healed listing. The preceding green suites did not cover
+these cases. The unchanged supervisor tests fail on the merged foundation;
+this companion repair does not close M3 or count as another foundation slice.
+
+The production engine rebinds healthy pane channels before emitting connected;
+a failed pane binding can still retain a permanent recovery error. The pane
+now latches loss, invalidates old listings, and re-lists its existing channel
+on connected. Only the accepted healed listing restores verbs and removes
+the banner. Failed healing keeps cached rows and offers localized Retry;
+Retry awaits old-channel release before reopening this pane, retaining the
+cache meanwhile. Cancel/detach invalidate pending healing and respect newer
+same-id binds and healthy siblings. Recovery after a cancelled first listing
+uses the bound channel's home when no location remains. A failed/ended status
+watch clears its stale status but retains retryable loss, not false healing.
+
+The loss banner owns one dim layer, never a stacked loading/error overlay.
+It reserves space above cached rows rather than covering the first rows.
+Refresh and cached-entry actions stay disabled until listing proof arrives.
+The public `canRetryRecovery` getter supplies only the existing Retry action's
+availability; binding/recovery modes and engine mechanics remain private.
+
+Validation: the two supervisor failures, stacked error overlay, and covered
+first-row layout were observed red before repair. Fourteen controller cases
+cover status-only recovery, delayed/failed healing, stale results, explicit
+retry, release waits, cancellation, same-id replacement, siblings, and the
+cancelled-first-listing boundary. Pane/session widget coverage verifies toolbar
+state and single-overlay rendering. Three status-watch runtime reds corrected
+the old assumption that EOF/error could dismiss unhealed loss. Full app 566
+tests and analysis pass.
+Bounded logs/exits and seven inspected readable widget captures live under
+`tasks/run3-task15-logs/reconnect/`; fonts remain harness-only substitutes,
+not native/install QA. No core/backend/protocol, pin, port, or stable open-item
+ID change. #84's route refutation, toolbar fix, and historical review gaps
+remain valid. Exact companion-head CI/review are recorded in its PR.
+
 ## M3 — pane listing-state transitions (2026-09-12)
 
 `ListingState<Location>` implements 02 §2.8's pure transitions in the app

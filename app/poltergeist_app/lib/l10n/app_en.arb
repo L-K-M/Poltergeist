@@ -511,6 +511,13 @@
       "label": {"type": "String"}
     }
   },
+  "paneConnectionRecoveryFailed": "Connection to {label} could not be restored.",
+  "@paneConnectionRecoveryFailed": {
+    "description": "A pane could not obtain a usable listing after transport recovery.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
   "paneConnectionLostCancel": "Cancel",
   "@paneConnectionLostCancel": {
     "description": "The connection-lost banner's cancel action (stops reconnection)."

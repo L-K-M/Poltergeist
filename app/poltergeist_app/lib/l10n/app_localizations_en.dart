@@ -398,6 +398,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String paneConnectionRecoveryFailed(String label) {
+    return 'Connection to $label could not be restored.';
+  }
+
+  @override
   String get paneConnectionLostCancel => 'Cancel';
 
   @override

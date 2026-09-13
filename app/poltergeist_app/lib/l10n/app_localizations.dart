@@ -736,6 +736,12 @@ abstract class AppLocalizations {
   /// **'Connection to {label} lost — reconnecting…'**
   String paneConnectionLost(String label);
 
+  /// A pane could not obtain a usable listing after transport recovery.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection to {label} could not be restored.'**
+  String paneConnectionRecoveryFailed(String label);
+
   /// The connection-lost banner's cancel action (stops reconnection).
   ///
   /// In en, this message translates to:

@@ -426,11 +426,14 @@ class _PaneSurface extends StatelessWidget {
         _PathBar(
           controller: controller,
           active: active,
-          loadingVisible: graceVisible,
+          loadingVisible: graceVisible && !controller.connectionLost,
           onCancel: onCancelNavigation,
         ),
         Expanded(child: _body(context, l10n)),
-        _PaneFooter(controller: controller, graceVisible: graceVisible),
+        _PaneFooter(
+          controller: controller,
+          graceVisible: graceVisible && !controller.connectionLost,
+        ),
       ],
     );
   }
@@ -440,7 +443,7 @@ class _PaneSurface extends StatelessWidget {
       return _Centered(l10n.paneNoEngine);
     }
 
-    return Stack(
+    final content = Stack(
       children: [
         // While the connection-lost banner owns the pane — or the
         // post-grace dim declares the listing inert — the stale listing
@@ -452,17 +455,19 @@ class _PaneSurface extends StatelessWidget {
                 controller.connectionLost ||
                 controller.error != null ||
                 (controller.loading && graceVisible),
-            child: switch (controller.phase) {
-              PanePhase.unbound => _Centered(l10n.paneNoLocation),
-              PanePhase.openingLocal ||
-              PanePhase.connectingRemote => _connectingBody(context, l10n),
-              PanePhase.browsing => _listing(context, l10n),
-            },
+            child: controller.connectionLost
+                ? _listing(context, l10n)
+                : switch (controller.phase) {
+                    PanePhase.unbound => _Centered(l10n.paneNoLocation),
+                    PanePhase.openingLocal ||
+                    PanePhase.connectingRemote => _connectingBody(context, l10n),
+                    PanePhase.browsing => _listing(context, l10n),
+                  },
           ),
         ),
         // 02 §2.8: the old listing stays visible, dimmed, past the grace —
         // and inert while the navigation it belongs to is still in flight.
-        if (controller.loading && graceVisible)
+        if (controller.loading && graceVisible && !controller.connectionLost)
           Positioned.fill(
             child: AbsorbPointer(
               child: ColoredBox(
@@ -472,18 +477,20 @@ class _PaneSurface extends StatelessWidget {
               ),
             ),
           ),
-        if (controller.connectionLost)
-          Positioned.fill(
-            child: _LostConnectionBanner(
-              label: controller.remoteBookmark?.label ?? '',
-              onCancel: onCancelRecovery,
-            ),
-          ),
-        if (controller.error != null)
+        if (controller.error != null && !controller.connectionLost)
           Positioned.fill(
             child: _ErrorOverlay(error: controller.error!, onRetry: onRetry),
           ),
       ],
+    );
+    if (!controller.connectionLost) return content;
+
+    // Reserve banner space so even a short cached listing remains visible.
+    return _LostConnectionBanner(
+      label: controller.remoteBookmark?.label ?? '',
+      onCancel: onCancelRecovery,
+      onRetry: controller.canRetryRecovery ? onRetry : null,
+      child: content,
     );
   }
 
@@ -518,7 +525,9 @@ class _PaneSurface extends StatelessWidget {
       // Never claim emptiness while a load is in flight (02 §2.8's
       // nothing-before-grace rule): the first listing of an empty
       // folder would otherwise flash "Empty folder" before arrival.
-      if (controller.loading) return const SizedBox.shrink();
+      if (controller.loading || controller.connectionLost) {
+        return const SizedBox.shrink();
+      }
       return Center(child: Text(l10n.paneEmptyFolder));
     }
 
@@ -956,10 +965,14 @@ class _LostConnectionBanner extends StatelessWidget {
   const _LostConnectionBanner({
     required this.label,
     required this.onCancel,
+    required this.child,
+    this.onRetry,
   });
 
   final String label;
   final VoidCallback onCancel;
+  final Widget child;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -991,13 +1004,21 @@ class _LostConnectionBanner extends StatelessWidget {
                 child: Semantics(
                   liveRegion: true,
                   child: Text(
-                    l10n.paneConnectionLost(label),
+                    onRetry == null
+                        ? l10n.paneConnectionLost(label)
+                        : l10n.paneConnectionRecoveryFailed(label),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: colors.onErrorContainer,
                     ),
                   ),
                 ),
               ),
+              if (onRetry != null)
+                TextButton(
+                  key: const ValueKey('pane.banner.retry'),
+                  onPressed: onRetry,
+                  child: Text(l10n.connectionRetry),
+                ),
               TextButton(
                 key: const ValueKey('pane.banner.cancel'),
                 onPressed: onCancel,
@@ -1013,10 +1034,17 @@ class _LostConnectionBanner extends StatelessWidget {
           // Absorb, not ignore: the stale listing under the scrim must
           // not take interactions while the transport is down (the
           // banner above the scrim stays reachable).
-          child: AbsorbPointer(
-            child: ColoredBox(
-              color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
-            ),
+          child: Stack(
+            children: [
+              Positioned.fill(child: child),
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],

@@ -88,7 +88,12 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.keyR, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.keyR, control: true)],
       ),
-      enabled: () => activePane()?.phase == PanePhase.browsing,
+      enabled: () {
+        final pane = activePane();
+        return pane != null &&
+            pane.phase == PanePhase.browsing &&
+            !pane.connectionLost;
+      },
       run: (_) async {
         activePane()?.refresh();
       },
