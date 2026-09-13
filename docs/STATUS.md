@@ -33,7 +33,7 @@ pre-release publish, deterministic release versions, the D23
 direct-publish pipeline #15, and 05's two dated precision items); open
 items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
 Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
-landed 2026-09-12 (dated section below; open item 12 tracks the
+is implemented in PR #84 (dated section below; open item 20 tracks the
 location type's move into core); the next M3 slices are recorded
 there. The sibling slices' pure models — the listing-state reducer,
 the metadata-only sort, Quick Select's matching and selection, and
@@ -41,7 +41,9 @@ the per-location view-pref persistence — are implemented below; the
 pane foundation implements 02 §2.8's machine inline, and each
 model's wiring (comparator, selection, prefs) rides its owning
 slice, as does the engine-side local directory watch seam (pane
-refresh wiring itself remains open).
+refresh wiring itself remains open). Upstream listing cancellation remains
+open item 12: this foundation cancels presentation, not in-flight VFS I/O.
+
 ## Done
 
 | Area | State |
@@ -2471,7 +2473,7 @@ channel open (live streams keep no replay) and open the pool channel at
 the bookmark's `remotePath` ('/' = canonical home), reusing the session's
 one engine. The sealed `PaneLocation` (Local/Remote, value equality,
 02 §2) is app-side this slice — core is closed to it — recorded as open
-item 12 with the NFC/case-fold keying rule.
+item 20 with the NFC/case-fold keying rule.
 
 The `PaneView` renders the foundation surface: clickable ancestor path
 segments (focused pane accent per 02 §2.1, location glyph), fixed-extent
@@ -2570,6 +2572,44 @@ deleted sftp_demo_view_test's behaviors by successor):
   PaneController equivalents are the bind-attempt invalidation, the
   cancel-during-connect invalidation, and the failed-bind watch drop —
   each pinned in pane_controller_test/pane_cancel_regressions.
+
+### Foundation recovery verification (2026-09-13, PR #84)
+
+The preceding validation counts are historical, not final-head proof.
+Recovery retains main #93's watch contracts and stable open-item IDs;
+#78 and #83 are closed, unmerged predecessors of this one task.
+Their two 90-minute review cancellations and truncated GitHub summaries
+remain evidence gaps, not approval. The PR preserves earlier dispositions;
+later runtime evidence supersedes incorrect declines explicitly.
+
+Fresh red-first tests reproduce a failed bookmark's landing path leaking
+into another bookmark, cancellation disconnecting a replacement bind, and
+open-in-pane callbacks opening after a pop veto or popping a covering route.
+The fixes stay in the owning controller/row. `maybePop`'s boolean is never
+used as proof of a pop. The alleged post-await landing-path race does not
+reproduce: HEAD issues navigation synchronously. A parked old listing,
+newer failed bind, old completion, and retry still land on the newer path;
+successful retries clear the error.
+
+`pane_session_lifetime_test` exercises two pending pane opens through one
+production session/coordinator, FIFO trust prompts, separate channel
+releases, sibling refresh after detach, and exactly-once engine shutdown.
+It also replaces a session with a listing outstanding and proves the old
+answer cannot repaint either replacement pane. Its first harness runs
+stalled by awaiting a fake-zone shutdown future in real teardown; the
+corrected harness awaits and asserts shutdown within each widget test.
+
+Local recovery checks: app analyze and 548 tests pass; core analyze and
+749 tests pass with 16 platform/fixture skips; import scan, protocol scan,
+and 51 protocol-guard tests pass. All exit 0. Full bounded logs and explicit
+exits live in `tasks/run3-task15-logs/recovery3/`. Final-head CI/review are
+recorded on PR #84, not inferred from earlier green runs.
+The mixed-owner r17 run is excluded.
+The five inherited `tasks/run3-task15-captures/` images were inspected:
+Ahem glyphs and transparent backgrounds limit them to widget geometry;
+they do not establish text legibility, native rendering, or install QA.
+Readable-font captures and native desktop/install QA remain unverified.
+No full-M3, watch-wiring, probe-driver restoration, or release claim.
 
 ## M3 — pane listing-state transitions (2026-09-12)
 
@@ -3048,7 +3088,7 @@ https://github.com/L-K-M/Poltergeist/actions/runs/34756562117), attempt 2 at
 native packages (Linux 730/16 skipped; macOS 729/13; Windows 705/37).
 All four deletion/rename cases ran on every desktop. Attempt 1 passed the
 watch cases but failed the unchanged Windows incident-store test; its job
-passed on retry (item 19). Higher-ancestor renames remain item 19; Linux
+passed on retry (item 19). Ancestor invalidation remains item 18; Linux
 overflow remains item 14. M3 stays open.
 
 Review round 1 found no confirmed important defect. Two minor suggestions
@@ -3065,6 +3105,54 @@ Original engine code; PORTS.md checked, no affected port or upstream change.
 The Séance pin and dependencies are unchanged. The subscription tools are
 unavailable; PR #92 uses GitHub polling and an hourly Paseo heartbeat, deleted
 on completion.
+
+## M3: ancestor-watch evidence correction (2026-09-13)
+
+PR #93 is redirected to contracts/tests, not a Windows loss fix. Production
+behavior remains #92's root+parent Windows watches and leaf-only Linux/macOS
+watches. Host close deadlines, shared release futures, immediate loss, and
+probe/cancellation ownership are unchanged. M3 and item 18 remain open.
+
+The test-only baseline `7afbefc`, [CI 34762015179](
+https://github.com/L-K-M/Poltergeist/actions/runs/34762015179), did NOT
+reproduce Windows missing loss: all three native ancestor cases failed at
+`Directory.rename` with access denied (errno 5), before awaiting loss.
+Five fake failures were separate evidence, not a native reproduction.
+Linux/macOS did reproduce missing ancestor signals; their tests and raw logs
+remain in the archived candidate and external `tasks/task20-logs/`.
+
+Native operation probes at `cb059e7`, [CI 34763389767](
+https://github.com/L-K-M/Poltergeist/actions/runs/34763389767), Windows job
+`103740002147`, and candidate `6366437`, [CI 34763626749](
+https://github.com/L-K-M/Poltergeist/actions/runs/34763626749), job
+`103740628858`, isolate a live-handle restriction on the tested runner/SDK.
+With no watches, all five moves succeed. With live root-only, root+parent,
+or full-chain handles, root rename succeeds but the tested ancestor moves
+are refused; every refusal succeeds after cancellation on the same fixture.
+Both runs retain the three rename-denied failures. This is not evidence
+that all Windows filesystems or move mechanisms prevent ancestor moves.
+
+The unsupported loss assertions and their chain-only fake tests are removed,
+not skipped. Fifteen native operation probes retain the unwatched and existing
+production handle layouts, with parent-first Windows installation and explicit
+post-cancel success. They record native outcomes, not a repaired loss signal.
+A Linux regression test requires real leaf events beneath an owned traverse-only
+ancestor (mode 0111). It fails with candidate EACCES and passes with #92 behavior.
+No global permissions, fallback policy, registry, FFI, or polling changes.
+
+Candidate `6366437cf715a0b51995b9ddd5f2f089a020bc59` is preserved as
+`archive/task20-ancestor-candidate-6366437` and an external Git bundle.
+Raw baseline/candidate/native logs, permission red/green logs, sources,
+review summaries and dispositions are retained in `tasks/task20-recovery/`.
+The chain's ancestor-permission regression rules out retaining it as-is;
+Linux/macOS ancestor detection needs a separate justified task (item 18).
+Protocol/03 comments also remove the stale Windows empty-root-loss claim:
+#92 already closed item 16. No source port or dependency change.
+
+Redirect validation on Linux: 15 native operation probes plus the permission
+regression, 23 unchanged Windows-backend fake tests, 207 engine tests, and
+749 core tests pass (16 fixture skips); core analysis and the protocol scan
+pass. Final-head native CI and review are recorded on PR #93.
 
 ## Open items
 
@@ -3567,19 +3655,7 @@ on completion.
     **Closed 2026-09-11** (its own dated section above, the engine-side
     local browse seam of 2026-09-11 — not the panes section of
     2026-09-12 that follows the resume).
-12. **2026-09-12 — M3: `PaneLocation`'s home is `poltergeist_core` (02
-    §2), not the app.** The panes-v1-foundation slice defined the sealed
-    location type app-side (`lib/services/pane_location.dart`) because
-    core is closed to app-driven slices and no core consumer exists yet.
-    Move it with the first cross-package consumer — the per-location
-    view-prefs keying (02 §2.4) or recents — which also lands 02 §2's
-    canonicalization rule (NFC normalization; case-folding on
-    case-insensitive volumes) ahead of `==`/hashCode. Today the type
-    compares raw paths; every navigation path arrives canonical from
-    the VFS's listings, so no same-volume spelling variants occur in
-    practice.
-
-13. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
+12. **2026-09-12 — M3: cancellable listings require an upstream VFS change.**
     The pin (`2e6d1f1`) defines `RemoteFileSystem.listDirectory(String path)`
     without a cancellation token; its SFTP implementation awaits
     `SftpClient.listdir`. `EngineBrowseChannel.listDirectory` also has no
@@ -3593,7 +3669,7 @@ on completion.
     state on every terminal path, and keep sibling listings alive.
     The ungated pure listing-state reducer landed first; it does not claim
     to cancel I/O. No upstream PR has been opened for this follow-up.
-14. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
+13. **2026-09-12: M3 raw-name metadata before pane browsing ships.**
     The pinned `RemoteFileEntry` exposes decoded name/path only, with no
     raw bytes or invalid-UTF-8 flag. This blocks 02 §13's collision ordering,
     escaped-name disambiguation, and disabled operations on flagged rows.
@@ -3603,7 +3679,7 @@ on completion.
     behaviors; preserve the raw-byte tiebreak before the path fallback.
     D25 still defers byte-preserving operations. No local VFS fork or
     replacement interface is authorized by this item.
-15. **2026-09-13 — M3: Linux inotify overflow is invisible through
+14. **2026-09-13 — M3: Linux inotify overflow is invisible through
     dart:io.** The watch seam's `LocalDirectoryWatcher` (dated section
     above) cannot observe `IN_Q_OVERFLOW`: the kernel posts the overflow
     event with watch descriptor −1, which matches no watched path in the
@@ -3626,14 +3702,14 @@ on completion.
     for root renames and event-driven metadata checks for delete-pending
     roots. Native tests cover populated, empty, already-emptied, and
     rename/recreate cases. No skip hides Windows root deletion. Higher
-    ancestor renames remain item 19; Linux overflow remains item 15.
+    ancestor invalidation remains item 18; Linux overflow remains item 14.
     **History (the pre-#92 diagnosis, superseded):** empty-directory
     root removal was believed unobservable through dart:io
     (delete-pending deferral); the native evidence in #92 showed the
     empty case already signalled and the populated case needed the
     metadata check, not a parent-watch redesign.
 
-17. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
+15. **2026-09-13: M3 Quick Select performance at pane wiring (#85 review).**
     Each preview folds the immutable row names again, including on mode
     changes. Measure live input over large Unicode listings when the field
     lands; consider caching folded names or matched keys within the session
@@ -3641,7 +3717,7 @@ on completion.
     encapsulated in core rather than exposing a pre-folded-string API before
     the consumer and measurements establish the required contract.
 
-18. **2026-09-13: M3 view preference composition (#89 review).** Before
+17. **2026-09-13: M3 view preference composition (#89 review).** Before
     pane wiring, measure recency-only writes with 500 saved locations against
     the browse budgets. Reads currently persist touches immediately through
     the asynchronous atomic writer; the future recents debounce/quit-flush
@@ -3652,15 +3728,20 @@ on completion.
     or newer schemas. The store currently reports `FormatException` without
     changing the section; `reset(location)` cannot bypass that validation.
 
-19. **2026-09-13: M3 Windows ancestor rename detection (#92).** The backend
-    watches the shown directory and its immediate parent. Renaming a higher
-    ancestor can leave both handles following the moved tree without an
-    event; metadata checks run only on setup and qualifying events. Before
-    pane wiring, close this remaining invalidation gap without recursive
-    subtree watches or remote polling. Direct root deletion/rename coverage
-    does not establish higher-ancestor detection.
+18. **2026-09-13: M3 ancestor invalidation follow-up (OPEN).** PR #93
+    corrects an unsupported Windows premise without changing production.
+    Native ancestor moves on the tested Windows runner/SDK are refused while
+    descendant watches remain live; another supported mechanism would need
+    its own permitted-move reproducer before a loss fix is justified.
+    **Separate Linux/macOS follow-up:** baseline `7afbefc`, CI `34762015179`,
+    misses loss after permitted ancestor renames. Preserve those regressions
+    from `archive/task20-ancestor-candidate-6366437` and `tasks/task20-logs/`;
+    the recreate case must recreate the full watched path to test masking.
+    Address detection without regressing traverse-only ancestor access or
+    silently increasing watch resources. No fix or closure is claimed here.
+    Keep #92's root-loss/cancellation behavior; Linux overflow remains item 14.
 
-20. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
+19. **2026-09-13: Windows incident-store test intermittency (#92 CI).**
     `a declined incident survives a real store round-trip on disk` failed
     on [job 103721821421](
     https://github.com/L-K-M/Poltergeist/actions/runs/34756562117/job/103721821421)
@@ -3670,6 +3751,14 @@ on completion.
     Windows read/replace sharing failure is a hypothesis, not a confirmed
     diagnosis. If it recurs, capture `first.incidentStoreErrors` before
     changing the timeout or persistence behavior.
+
+20. **2026-09-12: M3 pane location identity remains app-side.**
+    `lib/services/pane_location.dart` belongs in core (02 §2), but this
+    bounded app slice adds no core consumer. Move it when composing view
+    preferences or recents; apply NFC and volume-aware case folding before
+    equality/keying. Paths currently compare raw strings. Bookmark landing
+    paths can contain spelling variants; VFS-derived paths alone do not
+    establish canonical equality.
 
 ## Independent audit
 

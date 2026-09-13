@@ -10,7 +10,7 @@ import '../../support/fake_connection_state_bridge.dart';
 
 // Observed-behavior tests for the open-in-pane row action's pop/open
 // ordering: rapid double-tap and pop-race semantics against the real
-// Navigator (no PopScope on this route, so maybePop always pops).
+// Navigator, including vetoed pops and stale callbacks under another route.
 void main() {
   late FakeBookmarkStore store;
   late FakeConnectionStateBridge bridge;
@@ -44,7 +44,11 @@ void main() {
     );
   }
 
-  Future<void> pumpRoute(WidgetTester tester, List<String> opened) async {
+  Future<void> pumpRoute(
+    WidgetTester tester,
+    List<String> opened, {
+    Widget Function(Widget)? wrapRoute,
+  }) async {
     tester.view.physicalSize = const Size(1180, 760);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -68,10 +72,13 @@ void main() {
                 onPressed: () {
                   Navigator.of(context, rootNavigator: true).push<void>(
                     MaterialPageRoute<void>(
-                      builder: (_) => ConnectionsView(
-                        controller,
-                        onOpenInPane: (server) => opened.add(server.serverId),
-                      ),
+                      builder: (_) {
+                        final view = ConnectionsView(
+                          controller,
+                          onOpenInPane: (server) => opened.add(server.serverId),
+                        );
+                        return wrapRoute?.call(view) ?? view;
+                      },
                     ),
                   );
                 },
@@ -126,6 +133,35 @@ void main() {
     expect(opened, ['a']);
     // And the shell route underneath must survive both taps.
     expect(find.byKey(const ValueKey('shell.marker')), findsOneWidget);
+  });
+
+  testWidgets('a vetoed pop does not open a pane behind Connections', (tester) async {
+    final opened = <String>[];
+    await pumpRoute(
+      tester,
+      opened,
+      wrapRoute: (child) => PopScope(canPop: false, child: child),
+    );
+    await tester.tap(find.byKey(const ValueKey('connection.open.a')));
+    await tester.pumpAndSettle();
+    expect(find.text('web'), findsOneWidget);
+    expect(opened, isEmpty);
+  });
+
+  testWidgets('a stale row callback cannot pop a covering route', (tester) async {
+    final opened = <String>[];
+    await pumpRoute(tester, opened);
+    final button = find.byKey(const ValueKey('connection.open.a'));
+    final callback = tester.widget<IconButton>(button).onPressed!;
+    final navigator = Navigator.of(tester.element(button));
+    navigator.push<void>(MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('covering route')),
+    ));
+    await tester.pumpAndSettle();
+    callback();
+    await tester.pumpAndSettle();
+    expect(find.text('covering route'), findsOneWidget);
+    expect(opened, isEmpty);
   });
 
   testWidgets('a single tap pops the connections route and opens the pane',

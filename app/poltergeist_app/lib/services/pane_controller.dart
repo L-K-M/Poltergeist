@@ -170,6 +170,9 @@ class PaneController extends ChangeNotifier {
 
   Future<void> connectRemote(Bookmark bookmark, {String? initialPath}) async {
     if (_disposed || _lanes == null) return;
+
+    // Preserve retries, but never carry one bookmark's path into another.
+    if (bookmark.id != _pendingRemote?.id) _pendingRemotePath = null;
     _pendingRemote = bookmark;
     _pendingRemotePath = initialPath ?? _pendingRemotePath;
     await _bind(
@@ -374,8 +377,10 @@ class PaneController extends ChangeNotifier {
       // connect: detach invalidates the attempt (the stale open's
       // completion then closes its own channel and drops itself) and
       // resets the binding before the server reference drops.
+      final detachedAttempt = _bindAttempt + 1;
       await detachRemote();
-      if (_disposed) return;
+      // Detach claims one attempt; a later bind owns any newer reference.
+      if (_disposed || _bindAttempt != detachedAttempt) return;
     }
     try {
       await lanes.disconnectServer(serverId);

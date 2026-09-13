@@ -240,12 +240,13 @@ class _ConnectionRow extends StatelessWidget {
               key: ValueKey('connection.open.${server.serverId}'),
               tooltip: l10n.connectionsOpenInPane,
               onPressed: () async {
-                // Pop before the open runs: maybePop only pops after
-                // awaiting willPop (a microtask later), so a synchronous
-                // push from the open (e.g. the changed-key review) would
-                // otherwise become the pop's target instead of this
-                // route, and the session guard releases with the pop.
+                final route = ModalRoute.of(context);
+                if (route == null || !route.isCurrent) return;
+
+                // Pop this route before a connect can raise a prompt.
+                // maybePop's true also includes vetoes; inspect ownership.
                 await Navigator.of(context, rootNavigator: true).maybePop();
+                if (route.isActive) return;
                 onOpenInPane?.call(server);
               },
               icon: const Icon(Icons.open_in_new_outlined, size: 18),

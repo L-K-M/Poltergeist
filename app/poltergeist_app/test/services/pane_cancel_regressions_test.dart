@@ -49,6 +49,35 @@ void main() {
     controller.dispose();
   });
 
+  test('cancelRecovery cannot disconnect a replacement bind', () async {
+    final lanes = FakePaneLanes();
+    final heldOpen = Completer<void>();
+    lanes.holdRemoteOpen = heldOpen;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    addTearDown(controller.dispose);
+    addTearDown(() {
+      if (!heldOpen.isCompleted) heldOpen.complete();
+    });
+    final oldBind = controller.connectRemote(_remoteBookmark());
+    await _settle();
+    expect(controller.phase, PanePhase.connectingRemote);
+
+    // Cancellation yields after detaching. A replacement now owns the id.
+    final cancelling = controller.cancelRecovery();
+    final replacement = FakePaneChannel('/replacement');
+    lanes.nextRemoteChannel = replacement;
+    final newBind = controller.connectRemote(_remoteBookmark());
+    await Future.wait([cancelling, newBind]);
+    await _settle();
+    expect(replacement.listCalls, ['/replacement']);
+    expect(lanes.disconnects, isEmpty);
+
+    heldOpen.complete();
+    await oldBind;
+    expect(controller.location, const RemotePaneLocation('srv-1', '/replacement'));
+    expect(replacement.closeCalls, 0);
+  });
+
   test('a failed bind clears the stale connection-lost banner', () async {
     final lanes = FakePaneLanes();
     lanes.remoteOpenFailure = const RemoteFileException(
@@ -89,15 +118,15 @@ RemoteFileEntry _entry(String name) => RemoteFileEntry(
   type: RemoteFileType.file,
 );
 
-Bookmark _remoteBookmark() {
+Bookmark _remoteBookmark({String id = 'srv-1', String host = 'web.example.com'}) {
   final now = DateTime.utc(2026, 9, 12);
   return Bookmark(
-    id: 'srv-1',
+    id: id,
     kind: BookmarkKind.remotePath,
-    label: 'web.example.com',
+    label: host,
     server: BookmarkServerRef(
       identity: EmbeddedHostIdentity(
-        host: 'web.example.com',
+        host: host,
         port: 22,
         username: 'tester',
         authMethod: AuthMethod.password,
@@ -190,12 +219,15 @@ class FakePaneChannel implements AppBrowseChannel {
   /// When set, every listing answers this typed failure (a severed
   /// transport) instead of table data.
   RemoteFileException? failure;
+  Completer<List<RemoteFileEntry>>? heldListing;
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     listCalls.add(path);
     final failure = this.failure;
     if (failure != null) throw failure;
+    final held = heldListing;
+    if (held != null) return held.future;
     return listings[path] ?? const [];
   }
 
@@ -305,7 +337,103 @@ void registerRound15Tests() {
       controller.location,
       const RemotePaneLocation('srv-1', '/srv/www'),
     );
+    // A successful retry fully clears the failed attempt's error: the
+    // pane must not browse with a stale error surface underneath.
+    expect(controller.error, isNull);
     controller.dispose();
+  });
+
+  // ── round-17 regressions ──────────────────────────────────────────────
+
+  test('a stale pending path never leaks into another bookmark', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('root.txt')];
+    lanes.nextRemoteChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await _settle();
+
+    // Transport severs mid-navigation; retry captures /srv/www as the
+    // pending path, but the reconnect bind itself fails.
+    channel.failure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'list',
+      message: 'Connection closed.',
+    );
+    controller.navigate('/srv/www');
+    await _settle();
+    expect(controller.error?.kind, RemoteFileErrorKind.disconnected);
+
+    lanes.remoteOpenFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'connect',
+      message: 'unreachable',
+    );
+    await controller.retry(); // the reconnect bind fails; /srv/www stays pending
+    await _settle();
+    expect(controller.phase, PanePhase.connectingRemote);
+    expect(controller.error, isNotNull);
+
+    // The user gives up on srv-1 and opens a DIFFERENT server: its bind
+    // must land on its own home, not on srv-1's pending directory.
+    lanes.remoteOpenFailure = null;
+    final other = FakePaneChannel('/srv/other/home');
+    other.listings['/srv/other/home'] = [_entry('readme.txt')];
+    lanes.nextRemoteChannel = other;
+    await controller.connectRemote(
+      _remoteBookmark(id: 'srv-2', host: 'other.example.com'),
+    );
+    await _settle();
+
+    expect(other.listCalls, ['/srv/other/home'],
+        reason: 'a pending path from srv-1 must not leak into srv-2');
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-2', '/srv/other/home'),
+    );
+    controller.dispose();
+  });
+
+  test('an old listing cannot consume a newer failed bind landing path', () async {
+    final lanes = FakePaneLanes();
+    final oldListing = Completer<List<RemoteFileEntry>>();
+    final oldChannel = FakePaneChannel('/old/home')..heldListing = oldListing;
+    lanes.nextRemoteChannel = oldChannel;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    addTearDown(controller.dispose);
+    addTearDown(() {
+      if (!oldListing.isCompleted) oldListing.complete([]);
+    });
+
+    await controller.connectRemote(_remoteBookmark(), initialPath: '/old/path');
+    expect(oldChannel.listCalls, ['/old/path']);
+    expect(controller.loading, isTrue);
+    expect(oldListing.isCompleted, isFalse);
+
+    // The same bookmark's newer landing must survive the old listing.
+    lanes.remoteOpenFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'connect',
+      message: 'unreachable',
+    );
+    await controller.connectRemote(_remoteBookmark(), initialPath: '/new/path');
+    expect(controller.phase, PanePhase.connectingRemote);
+    expect(controller.error?.kind, RemoteFileErrorKind.disconnected);
+    expect(oldChannel.closeCalls, 1);
+
+    oldListing.complete([_entry('stale.txt')]);
+    await _settle();
+    expect(controller.entries, isEmpty);
+    expect(controller.error?.kind, RemoteFileErrorKind.disconnected);
+
+    final healed = FakePaneChannel('/new/home');
+    lanes.nextRemoteChannel = healed;
+    await controller.retry();
+    await _settle();
+    expect(healed.listCalls, ['/new/path']);
+    expect(controller.location, const RemotePaneLocation('srv-1', '/new/path'));
+    expect(controller.error, isNull);
   });
 
   test('a dead status lane cannot latch the connection-lost banner', () async {

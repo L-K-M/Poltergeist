@@ -504,9 +504,18 @@ void main() {
     testWidgets('a row can open its bookmark in a pane', (tester) async {
       store.bookmarks = [_server('a')];
       final opened = <ConnectionServer>[];
-      await pumpView(tester, onOpenInPane: opened.add);
+      await pumpView(tester);
+      final controller = ConnectionStatusController(bookmarks: store, bridge: bridge);
+      addTearDown(controller.dispose);
+      final navigator = Navigator.of(tester.element(find.byType(ConnectionsView)));
+      navigator.push<void>(MaterialPageRoute<void>(
+        builder: (_) => ConnectionsView(controller, onOpenInPane: opened.add),
+      ));
+      await controller.loadServers();
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('connection.open.a')));
+      await tester.pumpAndSettle();
 
       expect(opened.single.serverId, 'a');
     });

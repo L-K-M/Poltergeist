@@ -199,23 +199,19 @@ final class IncidentRecordRemovedEvent extends IncidentStoreEvent {
 /// Why a watched local directory invalidated (03 §7.5).
 enum DirectoryWatchSignal {
   /// An ordinary change in the watched directory — coalesced (debounced
-  /// 300 ms) engine-side. The consumer rescans the directory. On Windows a
-  /// rescan answering `notFound` must be handled as an implicit loss
-  /// (see the [lost] variant): the OS reports a removed root only through
-  /// its children's removal, never as a lost signal.
+  /// 300 ms) engine-side. The consumer rescans the directory. A rescan
+  /// answering `notFound` must still be handled as an implicit loss (see
+  /// the [lost] variant): dropped native events (Linux's inotify queue
+  /// overflow, STATUS item 14) can leave the path gone before any lost
+  /// signal arrives.
   changed,
 
-  /// The watch is gone: the watched directory was removed or renamed away,
-  /// or the watcher backend failed or closed. Delivered immediately, never
-  /// silently, and the watch is released — a consumer must rescan or
-  /// retarget; more signals for this path will not arrive without a new
-  /// [WatchLocalDirectoryRequest]. One backend exception: on Windows,
-  /// removing the watched directory itself defers (delete-pending while
-  /// the watch holds its handle) and yields no lost signal — a non-empty
-  /// directory's children-removal [DirectoryWatchSignal.changed] and its
-  /// rescan are the observable path there, but an empty (or
-  /// already-emptied) watched directory yields nothing observable
-  /// (STATUS open item 16).
+  /// The backend reported root loss, failure, or closure. Delivered
+  /// immediately; the watch is released, so the consumer must rescan or
+  /// retarget. More signals require a new [WatchLocalDirectoryRequest].
+  /// Windows event-driven checks also detect delete-pending roots whose
+  /// loss dart:io may omit. Ancestor-move detection remains platform-dependent
+  /// (STATUS item 18); a refused filesystem mutation does not imply loss.
   lost,
 }
 
@@ -454,13 +450,10 @@ final class ListDirectoryRequest extends EngineRequest {
 /// typed for an empty path, a missing root (the local funnel's `notFound`),
 /// or a non-directory target. A watch that dies after establishment
 /// surfaces as a [DirectoryWatchEvent] with [DirectoryWatchSignal.lost]
-/// immediately and releases the watch — never as a silent stop; the one
-/// backend exception is Windows, where removing the watched directory
-/// itself defers (delete-pending while the watch holds its handle) and
-/// yields no loss signal — a non-empty directory's children-removal
-/// [DirectoryWatchSignal.changed] and its rescan are the observable path
-/// there, but an empty (or already-emptied) watched directory yields
-/// nothing observable (STATUS open item 16). A second watch on the same
+/// immediately and releases the watch. Windows event-driven checks cover
+/// delete-pending root loss; ancestor-move delivery remains platform-dependent
+/// (STATUS item 18). A refused rename is not a watch-loss event.
+/// A second watch on the same
 /// channel replaces the first: stale
 /// callbacks from the replaced watch cannot invalidate the new binding,
 /// and a watch superseded (by a later watch or unwatch) before it finished
