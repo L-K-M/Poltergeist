@@ -23,6 +23,20 @@ bool _pendingRemoteConnect(PaneController controller) =>
     controller.phase == PanePhase.connectingRemote &&
     controller.remoteBookmark != null;
 
+/// 02 §2.5's type-ahead input filter: the pane's printable text for a
+/// key event, or null when the key produces none. Space never
+/// accumulates — it is reserved for file.preview (§2.6), so names
+/// containing spaces match by their non-space prefix — and neither do
+/// control characters (C0 range and DEL).
+String? _typeAheadCharacter(KeyEvent event) {
+  final character = event.character;
+  if (character == null || character.isEmpty) return null;
+  for (final rune in character.runes) {
+    if (rune <= 0x20 || (rune >= 0x7f && rune <= 0x9f)) return null;
+  }
+  return character;
+}
+
 /// 02 §11's comfortable row density (28 px), scaled by the active text
 /// scale so scaled text never clips (D20). Recomputed per build, which
 /// preserves the fixed-extent virtualization. One definition, shared by
@@ -243,20 +257,23 @@ class _PaneViewState extends State<PaneView> {
     // the entries under the dim are stale; the connection-lost scrim
     // declares the same inertness (pointer and semantics are already
     // blocked there — the keyboard must not be the one live path onto
-    // stale entries). Unowned keys fall through to ancestors (app
-    // shortcuts stay live during slow loads); Esc and Tab reach the
-    // switch below and stay live.
+    // stale entries). Type-ahead input is inert for the same reason:
+    // matching a stale listing would jump a cursor onto disowned rows.
+    // Unowned keys fall through to ancestors (app shortcuts stay live
+    // during slow loads); Esc and Tab reach the switch below and stay
+    // live.
     final ownedKey =
         key == LogicalKeyboardKey.arrowDown ||
         key == LogicalKeyboardKey.arrowUp ||
         key == LogicalKeyboardKey.home ||
         key == LogicalKeyboardKey.end ||
         key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.backspace;
+        key == LogicalKeyboardKey.backspace ||
+        key == LogicalKeyboardKey.space;
     if ((controller.connectionLost ||
             controller.error != null ||
             (_graceBusy() && _pastGrace)) &&
-        ownedKey &&
+        (ownedKey || _typeAheadCharacter(event) != null) &&
         plainKey) {
       return KeyEventResult.handled;
     }
@@ -333,6 +350,10 @@ class _PaneViewState extends State<PaneView> {
             return KeyEventResult.handled;
           }
           widget.onCancelRecovery();
+        } else if (controller.typeAheadActive) {
+          // 02 §8.2's Esc order: a pending type-ahead buffer clears
+          // below navigation-cancel and above deselect.
+          controller.clearTypeAhead();
         } else {
           // Idle: nothing to cancel here — let Esc reach ancestor
           // handlers (app shortcuts) instead of swallowing it.
@@ -352,7 +373,19 @@ class _PaneViewState extends State<PaneView> {
         widget.onSwapFocus();
         return KeyEventResult.handled;
       default:
-        return KeyEventResult.ignored;
+        // 02 §2.5: any other printable key joins the type-ahead buffer —
+        // the first case/diacritic-insensitive prefix match becomes the
+        // cursor and scrolls visible. Space and control characters fall
+        // through to ancestors (Space is reserved for file.preview, §2.6).
+        final character = _typeAheadCharacter(event);
+        if (character == null) return KeyEventResult.ignored;
+        controller.typeAhead(character);
+        _revealCursor();
+        // Only consume what actually accumulated: an empty pane owns no
+        // printable keys, so they still reach app-level handlers.
+        return controller.typeAheadActive
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
     }
   }
 
@@ -605,6 +638,18 @@ class _PaneSurface extends StatelessWidget {
           Positioned.fill(
             child: _ErrorOverlay(error: controller.error!, onRetry: onRetry),
           ),
+        // 02 §2.5: the type-ahead badge floats over the listing for the
+        // buffer's lifetime — transient by construction, it unmounts the
+        // moment the 1 s reset clears the buffer.
+        if (controller.typeAheadActive)
+          PositionedDirectional(
+            start: 0,
+            end: 0,
+            bottom: 8,
+            child: Center(
+              child: _TypeAheadBadge(buffer: controller.typeAheadBuffer),
+            ),
+          ),
       ],
     );
     if (!controller.connectionLost) return content;
@@ -680,6 +725,52 @@ class _PaneSurface extends StatelessWidget {
         clock: clock,
         onTap: (modifiers) => onActivateRow(index, modifiers),
         onDoubleTap: () => onOpenRow(index),
+      ),
+    );
+  }
+}
+
+/// 02 §2.5's transient typing badge: shows the accumulated prefix while
+/// the buffer lives and announces it politely — a live region, so the
+/// announcement is assertive-free and an AT joins the queue rather than
+/// interrupting. The visible text stays out of the semantics tree: the
+/// label already carries the whole announcement.
+class _TypeAheadBadge extends StatelessWidget {
+  const _TypeAheadBadge({required this.buffer});
+
+  final String buffer;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      key: const ValueKey('pane.typeAhead'),
+      // A semantic boundary of its own: without the container the
+      // announcement merges into the pane's label and no AT hears a
+      // standalone live-region update.
+      container: true,
+      liveRegion: true,
+      label: l10n.paneTypeAheadBadge(buffer),
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsetsDirectional.symmetric(
+            horizontal: 10,
+            vertical: 5,
+          ),
+          decoration: BoxDecoration(
+            // The inverse pair is M3's tooltip contrast — ≥4.5:1 at any
+            // theme seed (02 §13's contrast floor for a transient label).
+            color: colors.inverseSurface,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            buffer,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: colors.onInverseSurface,
+            ),
+          ),
+        ),
       ),
     );
   }

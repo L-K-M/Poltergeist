@@ -4049,6 +4049,54 @@ unavailable on this host, so the real-fixture measurement command is
 documented in benchmark/README, not locally claimed — the CI bench job
 owns the first real run.
 
+## M3 — pane type-ahead buffer (2026-09-14)
+
+02 §2.5's type-ahead is live on the pane focus node: printable keys
+accumulate into a per-pane buffer, 1 s of inactivity resets it (every
+keystroke re-arms), and the first row whose decoded basename matches
+the buffer as a prefix becomes the cursor and scrolls visible — no
+match is a no-op. Space never accumulates (reserved for §2.6's
+file.preview), so space-bearing names match by their non-space prefix;
+control characters and modified chords never reach the buffer. The
+matcher is deliberately NOT Quick Select's: Quick Select keeps §2.3's
+simple case fold with substring/glob shapes, while type-ahead folds
+through canonical decomposition + mark removal + case folding —
+two specified semantics, two matchers. The fold ships as a generated
+Unicode 17.0.0 table
+(`lib/services/unicode_diacritic_fold_data.dart`, built by
+`tool/unicode/generate.dart` from hash-pinned `UnicodeData` and
+`CaseFolding` fixtures), covering recursive decompositions and the
+Hangul jamo formula. §8.2 ordering is preserved: type-ahead is inert
+while any text field holds primary focus (the Quick Select field, an
+outside field — the `hasPrimaryFocus` gate covers all descendants and
+non-descendants alike), while a stale listing is dimmed, or under the
+connection-lost scrim; Esc clears a pending buffer below
+navigation-cancel and above deselect; a listing replacement drops the
+buffer with the rows it matched. The buffer renders as a transient
+bottom-center badge that unmounts on reset and announces through its
+own live-region semantics node (`paneTypeAheadBadge`, ARB-authored).
+Hidden policy runs before matching because the matcher only ever sees
+the accepted listing; flagged (U+FFFD) names stay excluded from
+by-name matching — the same caller-side stand-in as Quick Select until
+item 13 lands real flag metadata — while remaining selectable by
+cursor and click.
+
+Validation: fold unit tests cover ASCII, composed/decomposed
+diacritics, recursive decompositions, simple-fold-only letters, Hangul
+jamo equivalence, spacing-mark survival, and table-wide idempotence;
+controller tests under a fake clock pin accumulation, the exact 1 s
+reset with per-keystroke re-arm, case/diacritic prefix matching,
+first-match and no-match no-op, flagged exclusion with continued
+selectability, hidden-before-match, basename-only matching, buffer
+drop on listing replacement, and the Esc-tier clear; widget tests pin
+key dispatch, badge visibility + live-region semantics + the exact
+announcement, space exclusion, scroll-reveal on jump, field and
+outside-field suppression, Esc ordering, flagged-row tap
+selectability, dot-key behavior, and modified-chord exclusion.
+Real-font captures (DejaVu + MaterialIcons) of the idle pane, the
+pending badge, and the post-reset state are under
+`tasks/run3-task32/`. Full app suite and analyze green.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

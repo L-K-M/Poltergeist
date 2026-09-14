@@ -468,6 +468,13 @@
   "@paneConnectCancel": {
     "description": "The pending remote connection's cancel action, shown past the anti-flash grace (abandons the in-flight connect)."
   },
+  "paneTypeAheadBadge": "Names starting with \"{buffer}\"",
+  "@paneTypeAheadBadge": {
+    "description": "Screen-reader announcement for the transient type-ahead badge: the prefix accumulated so far while the 1-second buffer lives.",
+    "placeholders": {
+      "buffer": {"type": "String"}
+    }
+  },
   "paneErrorNotFound": "The folder could not be found.",
   "@paneErrorNotFound": {
     "description": "Inline error sentence for the notFound taxonomy kind."
