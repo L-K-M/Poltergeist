@@ -141,6 +141,7 @@ void main() {
   testWidgets('the badge announces the prefix through a live region', (
     tester,
   ) async {
+    final semantics = tester.ensureSemantics();
     listLeft([_entry('readme.md'), _entry('report.txt')]);
     await left.openLocalHome();
     await pumpShell(tester);
@@ -156,6 +157,7 @@ void main() {
     );
     expect(node.label, 'Names starting with "re"');
     expect(node.flagsCollection.isLiveRegion, isTrue);
+    semantics.dispose();
     await tester.pump(const Duration(seconds: 2));
   });
 

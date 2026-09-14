@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/unicode_diacritic_fold.dart';
 
@@ -9,7 +12,7 @@ void main() {
   test('composed and decomposed diacritics fold to the same base', () {
     expect(typeAheadFold('Éclair'), 'eclair');
     // NFD form (macOS listings arrive decomposed): e + combining acute.
-    expect(typeAheadFold('Ećlair'), 'eclair');
+    expect(typeAheadFold('E\u{301}clair'), 'eclair');
     expect(typeAheadFold('Œuvre'), 'œuvre');
     expect(typeAheadFold('ñaño'), 'nano');
   });
@@ -25,6 +28,9 @@ void main() {
     // Long s and final sigma fold under C+S but never lowercase.
     expect(typeAheadFold('ſ'), 's');
     expect(typeAheadFold('ς'), 'σ');
+    // The chained fold resolves at generation: lunate sigma reaches
+    // the same final sigma in one table hop.
+    expect(typeAheadFold('Ϲ'), 'ϲ');
   });
 
   test('letters without canonical decompositions stay distinct', () {
@@ -38,12 +44,31 @@ void main() {
   test('spacing marks survive — they carry text, not decoration', () {
     // The Devanagari vowel sign ि (Mc) must not strip: folding would
     // otherwise conflate कल and किल.
-    expect(typeAheadFold('किल'), isNot(typeAheadFold('कल')));
+    expect(typeAheadFold('\u{0915}\u{093F}\u{0932}'), isNot(typeAheadFold('\u{0915}\u{0932}')));
   });
 
   test('combining marks alone strip to nothing', () {
-    expect(typeAheadFold('́'), '');
-    expect(typeAheadFold('é'), 'e');
+    expect(typeAheadFold('\u{301}'), '');
+    expect(typeAheadFold('é'), 'e');
+  });
+
+  test('status-T and status-F mappings never apply', () {
+    // Turkic 'I' folds to dotless-ı under T; the default (C) fold is i.
+    expect(typeAheadFold('I'), 'i');
+    // ß expands only under F (full folding); the simple fold keeps it.
+    expect(typeAheadFold('ß'), 'ß');
+    // ΐ (0390) likewise expands only under F, but its canonical
+    // decomposition strips the marks and leaves the iota.
+    expect(typeAheadFold('ΐ'), 'ι');
+  });
+
+  test('Cherokee folds follow the official small-to-capital direction', () {
+    // Unicode's case fold maps the later-added SMALL Cherokee letters
+    // (AB70–ABBF) to the original block (13A0–13EF); the capital block
+    // itself has no fold. Pinned so the vendored table's direction is
+    // never "corrected" by mistake.
+    expect(typeAheadFold('ꭰ'), 'Ꭰ');
+    expect(typeAheadFold('Ꭰ'), 'Ꭰ');
   });
 
   test('Hangul syllables decompose to conjoining jamos', () {
@@ -61,11 +86,27 @@ void main() {
     // Spot-check idempotence plus the identity path: folding twice can
     // never drift (a mark once stripped stays stripped).
     for (final sample in [
-      'Élan Œuf ḗİ ſeaς כָּל 📁',
+      'Élan Œuf ḗİ ſeaς כ\u{5B8}\u{5BC}ל 📁',
       'plain-ascii_123',
       '각.txt',
     ]) {
       expect(typeAheadFold(typeAheadFold(sample)), typeAheadFold(sample));
+    }
+  });
+
+  test('vendored UCD fixtures match their pinned hashes', () {
+    // Offline equivalent of an upstream diff: a hand-edited or truncated
+    // fixture fails here before the generator ever consumes it.
+    for (final (name, expected) in [
+      ('UnicodeData-17.0.0.txt',
+          '2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c'),
+      ('CaseFolding-17.0.0.txt',
+          'ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183'),
+    ]) {
+      final file = File('tool/unicode/$name');
+      expect(file.existsSync(), isTrue, reason: '$name must stay vendored');
+      expect(sha256.convert(file.readAsBytesSync()).toString(), expected,
+          reason: '$name must stay byte-identical to the pinned release');
     }
   });
 }

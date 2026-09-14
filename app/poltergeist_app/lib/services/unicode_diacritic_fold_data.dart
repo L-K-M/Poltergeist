@@ -3,7 +3,7 @@
 //          https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt
 // SHA-256: 2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c (UnicodeData)
 // SHA-256: ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183 (CaseFolding)
-// Copyright © 2025 Unicode, Inc. License: tool/unicode/LICENSE.txt
+// Copyright © 1991-2026 Unicode, Inc. License: tool/unicode/LICENSE.txt
 
 part of 'unicode_diacritic_fold.dart';
 

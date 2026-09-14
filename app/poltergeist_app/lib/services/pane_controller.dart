@@ -165,6 +165,13 @@ class PaneController extends ChangeNotifier {
   String _typeAheadBuffer = '';
   Timer? _typeAheadReset;
 
+  /// Folded basenames per accepted listing, built once at apply time —
+  /// type-ahead scans cached strings instead of re-folding every name
+  /// per keystroke (a large listing would otherwise allocate O(rows)
+  /// buffers per key). Null marks a flagged (U+FFFD) name excluded
+  /// from matching.
+  List<String?> _foldedNames = const [];
+
   /// Binds and rebinds are serialized by this attempt counter: a stale
   /// bind's completions (open, teardown, watch events) drop themselves.
   int _bindAttempt = 0;
@@ -531,12 +538,16 @@ class PaneController extends ChangeNotifier {
     _typeAheadBuffer += character;
     _armTypeAheadReset();
     final prefix = typeAheadFold(_typeAheadBuffer);
-    for (var i = 0; i < _entries.length; i++) {
-      final name = _entries[i].name;
-      if (name.contains('\uFFFD')) continue;
-      if (typeAheadFold(name).startsWith(prefix)) {
-        setCursorIndex(i);
-        break;
+    // A buffer of combining marks alone (a lone dead-key press) folds
+    // to the empty string and every name startsWith('') — keep the
+    // badge, skip the jump.
+    if (prefix.isNotEmpty) {
+      for (var i = 0; i < _foldedNames.length; i++) {
+        final folded = _foldedNames[i];
+        if (folded != null && folded.startsWith(prefix)) {
+          setCursorIndex(i);
+          break;
+        }
       }
     }
     notifyListeners();
@@ -962,6 +973,10 @@ class PaneController extends ChangeNotifier {
     // accumulated prefix was matched against rows that no longer stand.
     clearTypeAhead();
     _entries = entries;
+    _foldedNames = List.generate(entries.length, (i) {
+      final name = entries[i].name;
+      return name.contains('\uFFFD') ? null : typeAheadFold(name);
+    });
     _rowKeys = List.unmodifiable(_keysFor(entries));
     _rowKeyIndex = {for (var i = 0; i < _rowKeys.length; i++) _rowKeys[i]: i};
     _selection = _selection.withRows(_rowKeys);

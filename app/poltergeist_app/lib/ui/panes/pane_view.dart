@@ -32,7 +32,7 @@ String? _typeAheadCharacter(KeyEvent event) {
   final character = event.character;
   if (character == null || character.isEmpty) return null;
   for (final rune in character.runes) {
-    if (rune <= 0x20 || rune == 0x7f) return null;
+    if (rune <= 0x20 || (rune >= 0x7f && rune <= 0x9f)) return null;
   }
   return character;
 }

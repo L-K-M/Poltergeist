@@ -123,6 +123,11 @@ void main() {
       expect(controller.entries[controller.cursorIndex!].name, 'Étude.doc');
 
       controller.clearTypeAhead();
+      controller.typeAhead('E');
+      expect(controller.entries[controller.cursorIndex!].name, 'Étude.doc',
+          reason: 'an uppercase keystroke folds and still matches');
+
+      controller.clearTypeAhead();
       controller.typeAhead('é');
       controller.typeAhead('t');
       expect(controller.entries[controller.cursorIndex!].name, 'Étude.doc',
@@ -200,10 +205,11 @@ void main() {
         _entry('visible.txt'),
       ]);
 
-      controller.typeAhead('h');
-      expect(controller.cursorIndex, isNull,
+      expect(controller.entries.map((e) => e.name), ['visible.txt'],
           reason: 'dotfiles are filtered at listing accept — they never '
               'reach the matcher');
+      controller.typeAhead('h');
+      expect(controller.cursorIndex, isNull);
       controller.clearTypeAhead();
       controller.typeAhead('v');
       expect(controller.entries[controller.cursorIndex!].name, 'visible.txt');
@@ -279,7 +285,29 @@ void main() {
           reason: 'Esc clears the pending buffer, not the jumped cursor');
 
       // The cleared buffer leaves no pending reset timer.
+      expect(async.pendingTimers, isEmpty,
+          reason: 'clearTypeAhead cancels the pending reset');
       async.elapse(const Duration(seconds: 2));
+      controller.dispose();
+      async.flushMicrotasks();
+    });
+  });
+
+  test('a marks-only buffer shows the badge but never jumps', () {
+    fakeAsync((async) {
+      final lanes = FakePaneLanes();
+      final controller = openBrowsing(async, lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.setCursorIndex(1);
+
+      // A lone dead-key press delivers a combining mark; it folds to
+      // nothing and must not slam the cursor onto the first row.
+      controller.typeAhead('\u{301}');
+      expect(controller.typeAheadActive, isTrue);
+      expect(controller.cursorIndex, 1);
+
       controller.dispose();
       async.flushMicrotasks();
     });
