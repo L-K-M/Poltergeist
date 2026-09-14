@@ -137,8 +137,8 @@ ArgParser _parser() => ArgParser()
 
 String _usage(ArgParser parser) =>
     'Usage:\n'
-    '  dart run bin/package_source.dart start --output <path> --shard <id>\n'
-    '  dart run bin/package_source.dart finish --output <path> '
+    '  dart run benchmark/package_source.dart start --output <path> --shard <id>\n'
+    '  dart run benchmark/package_source.dart finish --output <path> '
     '--exit-status <code> --rows <path> --attempts <path>\n'
     '${parser.usage}';
 

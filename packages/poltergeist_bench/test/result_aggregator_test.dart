@@ -291,48 +291,42 @@ void main() {
     },
   );
 
-  test(
-    'aggregates evidence measured on superseded dependency pins',
-    () async {
-      final fixture = await _EvidenceFixture.create(
-        dartssh2Version: _supersededDartssh2,
-        seanceRevision: _supersededSeance,
-      );
-      addTearDown(fixture.delete);
+  test('aggregates evidence measured on superseded dependency pins', () async {
+    final fixture = await _EvidenceFixture.create(
+      dartssh2Version: _supersededDartssh2,
+      seanceRevision: _supersededSeance,
+    );
+    addTearDown(fixture.delete);
 
-      final bundle = await fixture.aggregate(
-        expectedDartssh2Version: _supersededDartssh2,
-        expectedSeanceRevision: _supersededSeance,
-      );
+    final bundle = await fixture.aggregate(
+      expectedDartssh2Version: _supersededDartssh2,
+      expectedSeanceRevision: _supersededSeance,
+    );
 
-      final dependencies = (bundle.identity['dependencies']! as Map)
-          .cast<String, Object?>();
-      expect(dependencies['dartssh2Version'], _supersededDartssh2);
-      expect(dependencies['seanceRevision'], _supersededSeance);
-    },
-  );
+    final dependencies = (bundle.identity['dependencies']! as Map)
+        .cast<String, Object?>();
+    expect(dependencies['dartssh2Version'], _supersededDartssh2);
+    expect(dependencies['seanceRevision'], _supersededSeance);
+  });
 
-  test(
-    'rejects evidence whose pins differ from the expected pins',
-    () async {
-      final fixture = await _EvidenceFixture.create(
-        dartssh2Version: _supersededDartssh2,
-        seanceRevision: _supersededSeance,
-      );
-      addTearDown(fixture.delete);
+  test('rejects evidence whose pins differ from the expected pins', () async {
+    final fixture = await _EvidenceFixture.create(
+      dartssh2Version: _supersededDartssh2,
+      seanceRevision: _supersededSeance,
+    );
+    addTearDown(fixture.delete);
 
-      await expectLater(
-        fixture.aggregate(),
-        throwsA(
-          isA<ResultAggregationException>().having(
-            (error) => error.message,
-            'message',
-            contains('unexpected dependency pins'),
-          ),
+    await expectLater(
+      fixture.aggregate(),
+      throwsA(
+        isA<ResultAggregationException>().having(
+          (error) => error.message,
+          'message',
+          contains('unexpected dependency pins'),
         ),
-      );
-    },
-  );
+      ),
+    );
+  });
 
   test('rejects rows whose pins differ from the expected pins', () async {
     final fixture = await _EvidenceFixture.create(
@@ -393,7 +387,7 @@ void main() {
 
     final result = await Process.run(Platform.resolvedExecutable, [
       'run',
-      'bin/aggregate.dart',
+      'benchmark/aggregate.dart',
       '--input-root',
       fixture.input.path,
       '--output-dir',
@@ -416,8 +410,8 @@ void main() {
 
 String get _packageRoot {
   final current = Directory.current.path;
-  if (File('$current/tool/bench/pubspec.yaml').existsSync()) {
-    return '$current/tool/bench';
+  if (File('$current/packages/poltergeist_bench/pubspec.yaml').existsSync()) {
+    return '$current/packages/poltergeist_bench';
   }
 
   return current;

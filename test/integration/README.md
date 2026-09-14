@@ -34,10 +34,12 @@ environment. Use Docker Compose and the Dart SDK to run the command above.
 `sshd-legacy/Dockerfile` records how the public GHCR artifact was built. CI
 never rebuilds it, so an archive or package-index change cannot alter M0.
 
-Run a benchmark inside the same lifecycle owner:
+Run a benchmark inside the same lifecycle owner (the harness lives at
+`packages/poltergeist_bench`; the old `tool/bench/run.sh` still works and
+forwards to it):
 
 ```bash
-test/integration/run.sh --lifecycle-only -- tool/bench/run.sh
+test/integration/run.sh --lifecycle-only -- packages/poltergeist_bench/run.sh
 ```
 
 Benchmark defaults:

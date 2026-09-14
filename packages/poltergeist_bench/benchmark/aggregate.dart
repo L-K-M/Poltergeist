@@ -71,7 +71,7 @@ ArgParser _parser() => ArgParser()
   ..addOption('git-sha');
 
 String _usage(ArgParser parser) =>
-    'Usage: dart run bin/aggregate.dart --input-root <path> '
+    'Usage: dart run benchmark/aggregate.dart --input-root <path> '
     '--output-dir <path> --run-id <id> --run-attempt <number> '
     '--git-sha <sha>\n${parser.usage}';
 

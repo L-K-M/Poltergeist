@@ -220,7 +220,7 @@ dependency_overrides: {"dartssh2": any}
     },
   );
 
-  test('excludes generated trees and the M0 harness', () async {
+  test('excludes generated trees and the retired tool/ harness', () async {
     for (final directory in ['build', '.dart_tool', '.symlinks', 'ephemeral']) {
       await fixture.write(
         '$_core/$directory/bad.dart',
@@ -233,6 +233,41 @@ dependency_overrides: {"dartssh2": any}
     );
     await fixture.expectExit(0);
   });
+
+  test(
+    'accepts the harness dartssh2 consumer through its own resolution',
+    () async {
+      await fixture.writeBenchHarness(
+        pubspec: 'name: poltergeist_m0_bench\ndependencies: {dartssh2: any}\n',
+        source: "import 'package:dartssh2/dartssh2.dart';",
+      );
+      await fixture.expectExit(0);
+    },
+  );
+
+  test('fails closed without the harness standalone resolution', () async {
+    await fixture.writeBenchHarness(
+      pubspec: 'name: poltergeist_m0_bench\n',
+      source: '// no imports\n',
+      writeStandaloneConfig: false,
+    );
+    await fixture.expectExit(2, 'run dart pub get there');
+  });
+
+  test(
+    'rejects a harness Flutter dependency through its own resolution',
+    () async {
+      await fixture.writeBenchHarness(
+        pubspec:
+            'name: poltergeist_m0_bench\ndependencies: {native_paths: any}\n',
+        source: "import 'package:native_paths/native_paths.dart';",
+        standaloneDependencies: {
+          'native_paths': 'flutter: {plugin: {platforms: {}}}',
+        },
+      );
+      await fixture.expectExit(1, 'native_paths');
+    },
+  );
 
   for (final platform in ['ios', 'macos']) {
     test('excludes generated $platform CocoaPods links', () async {
@@ -414,6 +449,50 @@ class _Fixture {
     final path = 'resolved/$name';
     await write('$path/pubspec.yaml', 'name: $name\n$fields\n');
     await _register(name, path);
+  }
+
+  /// Writes the relocated M0 harness with its own standalone package config,
+  /// mirroring how the real package resolves outside the workspace lock.
+  Future<void> writeBenchHarness({
+    required String pubspec,
+    required String source,
+    bool writeStandaloneConfig = true,
+    Map<String, String> standaloneDependencies = const {},
+  }) async {
+    const bench = 'packages/poltergeist_bench';
+    await write('$bench/pubspec.yaml', pubspec);
+    await write('$bench/lib/ssh.dart', source);
+    if (!writeStandaloneConfig) return;
+
+    final entries = <Map<String, Object?>>[
+      {
+        'name': 'poltergeist_m0_bench',
+        'rootUri': Directory(p.join(root.path, bench)).uri.toString(),
+        'packageUri': 'lib/',
+        'languageVersion': '3.12',
+      },
+    ];
+    for (final entry in standaloneDependencies.entries) {
+      final name = entry.key;
+      final path = 'resolved/$name';
+      await write('$path/pubspec.yaml', 'name: $name\n${entry.value}\n');
+      entries.add({
+        'name': name,
+        'rootUri': Directory(p.join(root.path, path)).uri.toString(),
+        'packageUri': 'lib/',
+        'languageVersion': '3.12',
+      });
+    }
+    for (final entry
+        in (_config['packages'] as List).cast<Map<String, dynamic>>()) {
+      if (entry['name'] == 'dartssh2') {
+        entries.add(Map<String, Object?>.from(entry));
+      }
+    }
+    await write(
+      '$bench/.dart_tool/package_config.json',
+      jsonEncode({'configVersion': 2, 'packages': entries}),
+    );
   }
 
   Future<void> _register(String name, String path) async {

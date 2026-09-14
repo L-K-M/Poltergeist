@@ -79,7 +79,8 @@ class BenchConfig {
       endpoint: BenchEndpoint(identityFile: identityFile),
       remoteRoot: defaultRemoteRoot,
       identityFile: identityFile,
-      outputFile: '${repositoryRoot.path}/tool/bench/bench-results.json',
+      outputFile:
+          '${repositoryRoot.path}/packages/poltergeist_bench/bench-results.json',
       linkName: linkName,
       fixtureRoot: '${repositoryRoot.path}/test/integration/runtime/data',
       uploadRoot: '${repositoryRoot.path}/test/integration/runtime/uploads',

@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-13. **M2 is closed; M3 is open** (first M3
+_Last updated: 2026-09-14. **M2 is closed; M3 is open** (first M3
 slices below) — v0.2.0 published as a
 pre-release 2026-09-11
 ([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
@@ -3342,6 +3342,49 @@ and protocol guards pass. Bounded logs and exits:
 tasks/task22-logs/ (red-phase, green-phase, suites, guards). No widget
 captures: layout is unchanged and order is proven programmatically.
 
+## M3 — bench harness relocated to packages/poltergeist_bench (2026-09-14)
+
+The 07 §3.4 relocation: the M0 SSH fitness harness moved wholesale from
+`tool/bench/` to `packages/poltergeist_bench/` (git mv; package name
+`poltergeist_m0_bench` and every import unchanged; the frozen standalone
+resolution — dartssh2 3.0.2, Séance `2e6d1f1` — stays outside the workspace
+lock, byte-identical lockfile). Entrypoints now live under its `benchmark/`
+directory per 08 §6 (`bench`, `aggregate`, `package_source`,
+`validate_bundle`); the CLI body is exposed as `benchMain` in
+`lib/bench_cli.dart` so both locations run identical code. `tool/bench/` is
+reduced to a thin compatibility entrypoint (a `run.sh` exec forwarder, a
+`bin/bench.dart` forwarder, and a `poltergeist_m0_bench_compat` pubspec that
+path-depends on the package), so the legacy documented invocations still
+work and results land beside the harness. Default CLI output moved from
+`tool/bench/bench-results.json` to `packages/poltergeist_bench/` (run.sh
+always passed `--output` explicitly, so CI/local results move with it;
+fixture roots and path discovery are unchanged). New repo-root
+`test/benchmarks/` contract tests prove the legacy entrypoints forward with
+identical help/error output, exit codes, and exact run.sh shard routing via
+the existing fake-driver hooks. ci.yml/release.yml point at the new
+location (working directories, benchmark/ entrypoint names, artifact
+paths); the `m0_bench` dispatch legs keep their shard topology and
+envelopes. The import guard now verifies the harness through its own
+package config and scopes the sanctioned dartssh2 carve-out to it; the
+bundle validator's measurement-affecting path list still binds the frozen
+M0 evidence to the tree that was measured, so committed evidence and the
+v0.2.0 tag are untouched.
+
+Validation: bench package analyze clean, 79 tests + 1 fixture skip from the
+new location (identical to the pre-move baseline); check_config contract
+suite 64/64 against the new paths; new forwarding contracts green; live
+import guard, protocol guard, release-version lockstep (now 4 pubspecs
+including the moved one), and `benchmark/validate_bundle.dart` on the
+committed M0 bundle all pass. Docker/SSH-backed runs (integration suite,
+lifecycle-backed `run.sh`, dispatch-only `m0_bench` measurements) were not
+exercised locally — no Docker on this host; exact-head CI covers them. CI
+trigger surface shifts slightly: `packages/**` path filters now match the
+harness, so bench changes trigger the integration and pin-audit jobs.
+This slice gives the M3 D12 benchmarks their planned home; it adds no
+benchmark, budget, checker, or enforcement — the tier-A entrypoints,
+`test/benchmarks/check.dart` + `budgets.json`, the bench CI job, and
+`BENCH_ENFORCE_A` remain open M3 work (open item 21).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -3947,6 +3990,14 @@ captures: layout is unchanged and order is proven programmatically.
     equality/keying. Paths currently compare raw strings. Bookmark landing
     paths can contain spelling variants; VFS-derived paths alone do not
     establish canonical equality.
+21. **2026-09-14: M3 D12 benchmark jobs remain open.** The relocation gave
+    the harness its planned home; the D12 work itself is unbuilt: tier-A
+    entrypoints for P3 (and later P5/P7) under `packages/*/benchmark/`,
+    `test/benchmarks/check.dart` + `budgets.json`, the ci.yml `bench` job
+    reusing run.sh's `--lifecycle-only` mode, `BENCH_ENFORCE_A` from the
+    milestone that introduces each surface, and the tier-B xvfb suites
+    (P1/P2/P4/P6, trend-only until M9). No baseline calibration has run;
+    budgets gate nothing yet.
 
 ## Independent audit
 

@@ -435,7 +435,7 @@ Future<ProcessResult> _runPackageSource(
   Map<String, String> environment,
 ) => Process.run(
   Platform.resolvedExecutable,
-  ['run', 'bin/package_source.dart', ...arguments],
+  ['run', 'benchmark/package_source.dart', ...arguments],
   workingDirectory: _packageRoot,
   environment: environment,
   includeParentEnvironment: false,
@@ -443,8 +443,8 @@ Future<ProcessResult> _runPackageSource(
 
 String get _packageRoot {
   final current = Directory.current.path;
-  if (File('$current/tool/bench/pubspec.yaml').existsSync()) {
-    return '$current/tool/bench';
+  if (File('$current/packages/poltergeist_bench/pubspec.yaml').existsSync()) {
+    return '$current/packages/poltergeist_bench';
   }
 
   return current;

@@ -184,8 +184,8 @@ jobs:
           dart run tool/release_version/bin/release_version.dart \
             "${order_arguments[@]}"
       - name: Resolve M0 benchmark harness
-        if: hashFiles('tool/bench/pubspec.yaml') != ''
-        working-directory: tool/bench
+        if: hashFiles('packages/poltergeist_bench/pubspec.yaml') != ''
+        working-directory: packages/poltergeist_bench
         run: dart pub get
       - name: Analyze
         run: dart analyze $(ls -d packages/*)
@@ -194,7 +194,7 @@ jobs:
       - name: Analyze release version tool
         run: dart analyze tool/release_version
       - name: Analyze M0 benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart analyze
       - name: Test
         run: |
@@ -211,7 +211,7 @@ jobs:
       - name: Test release version tool
         run: dart test tool/release_version/test
       - name: Test M0 benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart test test
 
   # The app, once per client platform. `flutter build` is host-locked
@@ -332,7 +332,7 @@ jobs:
       - name: Resolve workspace
         run: dart pub get
       - name: Resolve M0 benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart pub get
       - name: Resolve app dependencies
         working-directory: app/poltergeist_app
