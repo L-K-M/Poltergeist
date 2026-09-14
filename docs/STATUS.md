@@ -3993,6 +3993,62 @@ so the real-fixture measurement command is documented in
 benchmark/README, not locally claimed — the CI bench job owns the first
 real run.
 
+## M3 — D12 P5 drop→start collector (2026-09-14)
+
+Third tier-A collector in
+`packages/poltergeist_core/benchmark/p5_drop_to_start.dart`, a pure-Dart
+entrypoint following the accepted P3 (#112) and P7 (#115) patterns: it
+measures 02 §12's P5 "drop → transfer starts (no upfront tree stat)",
+`lessThan 500` ms, as **the time from a drop event until the first
+payload byte of the first transfer item arrives** — the measurement
+surface for the M4 transfer queue's drop→start leg. The queue itself is
+M4 work and deliberately not implemented here; the collector models the
+leg over the existing seams: the retained browse channel classifies the
+drop (one stat) and descends to the first regular file by listings only
+(symlinks never followed), then each leg leases a transfer channel via
+the production `leaseTransferChannel` and times the download to the
+first byte through a counting `StreamSink` that cancels on arrival — the
+lease acquire/release pair is inside the measured window because
+queue-less drop→start includes it.
+
+The structural half of the budget is a falsifiable contract, not prose:
+the drop→start path issues exactly one stat plus listing-only descent,
+and the deterministic test counts stat calls through a fake filesystem
+at 1k and 50k entries and requires identical counts ("O(first file), not
+O(tree)" — a path that stated the tree upfront would grow with it).
+Every row carries `statCalls`/`listingCalls`/`firstFile`/
+`firstChunkBytes`/`legSettledMs` provenance, and a per-leg change in
+either count fails the run as an identity change alongside the frozen
+kind/root-listing/first-file axes. Warmups (≥1) are discarded; ≥5
+measured drops are enforced (stricter than budgets.json's generic
+P5 floor of 3). Rows emit `scenario: 'P5'`, `unit: 'ms'` in the shared
+`poltergeist-d12-results-1` document with a P5-specific
+`scenarioConfig`, so one results file carries P3, P5, and P7 rows.
+First-byte semantics are honest in both directions: the collector's own
+post-byte cancellation settles the leg cleanly, a cancellation or
+failure before any byte is a leg failure, and an empty first file fails
+("unobservable") rather than reporting full-download time as "start".
+
+Scope held: no app files, no production transfer-queue or engine
+changes (the lease/sink seams already existed), no fixture changes, no
+CI job or `BENCH_*` enforcement, no calibration values — P5 stays
+`landed: false` and P1–P7 all unlanded; open item 21 still owns the
+bench job, calibration, and the landed flip. Validation:
+`packages/poltergeist_core/test/benchmark/p5_drop_to_start_test.dart`
+adds 45 tests (the 1k-vs-50k flat-stat structural assertion,
+listing-only descent, file/symlink/empty-tree drop shapes, warmup
+discard, deadline/timeout attribution incl. the in-flight-await probe,
+mid-run identity changes with frozen partial-row configs, owned-temp
+collision and symlink safety, per-leg lease and channel cleanup, CLI
+subprocess contracts, and the real `check.dart` CLI evaluating
+collector output — including a one-file P3+P5+P7 run under `--tiers a`
+with all scenarios unlanded, exit 0, all reported). `dart analyze
+packages/poltergeist_core` clean; `dart compile exe` of the exact
+source verified (logs and exits under `tasks/run3-task33/`). Docker is
+unavailable on this host, so the real-fixture measurement command is
+documented in benchmark/README, not locally claimed — the CI bench job
+owns the first real run.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -4601,9 +4657,9 @@ real run.
 21. **2026-09-14: M3 D12 benchmark jobs remain open.** The relocation gave
     the harness its planned home, and the offline checker PR (dated
     section above) landed `test/benchmarks/check.dart` + `budgets.json`
-    with all P1–P7 still unlanded. The P3 and P7 tier-A collectors have
-    since landed under `packages/poltergeist_core/benchmark/` (dated
-    sections above). Still open: the P5 tier-A entrypoint, the ci.yml
+    with all P1–P7 still unlanded. The P3, P5, and P7 tier-A collectors
+    have since landed under `packages/poltergeist_core/benchmark/` (dated
+    sections above). Still open: the ci.yml
     `bench` job reusing run.sh's
     `--lifecycle-only` mode and the documented drift-state artifact
     handoff, real calibration (tier-A calibratedFingerprint + tier-B
