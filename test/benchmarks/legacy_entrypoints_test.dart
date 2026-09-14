@@ -44,6 +44,43 @@ void main() {
   });
 
   test(
+    'legacy aggregate entrypoint forwards help and error contracts',
+    () async {
+      final canonical = await _runAggregate(
+        ['--help'],
+        workingDirectory: _benchPackageDir,
+        entrypoint: _canonicalAggregateEntrypoint,
+      );
+      final legacy = await _runAggregate(
+        ['--help'],
+        workingDirectory: _legacyDir,
+        entrypoint: _legacyAggregateEntrypoint,
+      );
+
+      expect(canonical.exitCode, 0, reason: canonical.stderr);
+      expect(canonical.stdout, contains('--input-root'));
+      expect(legacy.exitCode, canonical.exitCode);
+      // The forwarded entrypoint prints the canonical usage text verbatim.
+      expect(legacy.stdout, canonical.stdout);
+
+      final canonicalUnknown = await _runAggregate(
+        ['--no-such-option'],
+        workingDirectory: _benchPackageDir,
+        entrypoint: _canonicalAggregateEntrypoint,
+      );
+      final legacyUnknown = await _runAggregate(
+        ['--no-such-option'],
+        workingDirectory: _legacyDir,
+        entrypoint: _legacyAggregateEntrypoint,
+      );
+
+      expect(canonicalUnknown.exitCode, 64);
+      expect(legacyUnknown.exitCode, canonicalUnknown.exitCode);
+      expect(legacyUnknown.stderr, canonicalUnknown.stderr);
+    },
+  );
+
+  test(
     'legacy run.sh forwards shards with identical routing',
     // run.sh needs a POSIX shell and chmod; CI runs this suite on Ubuntu.
     skip: Platform.isWindows ? 'run.sh requires a POSIX shell' : false,
@@ -67,6 +104,8 @@ const _legacyDir = 'tool/bench';
 const _benchPackageDir = 'packages/poltergeist_bench';
 const _legacyEntrypoint = 'bin/bench.dart';
 const _canonicalEntrypoint = 'benchmark/bench.dart';
+const _legacyAggregateEntrypoint = 'bin/aggregate.dart';
+const _canonicalAggregateEntrypoint = 'benchmark/aggregate.dart';
 const _commandLogVariable = 'POLTERGEIST_M0_COMMAND_LOG';
 const _sourceFileVariable = 'POLTERGEIST_M0_SOURCE_FILE';
 
@@ -82,6 +121,24 @@ class _BenchRun {
 }
 
 Future<_BenchRun> _runBench(
+  List<String> arguments, {
+  required String workingDirectory,
+  required String entrypoint,
+}) async {
+  final result = await Process.run(Platform.resolvedExecutable, [
+    'run',
+    entrypoint,
+    ...arguments,
+  ], workingDirectory: workingDirectory);
+
+  return _BenchRun(
+    result.exitCode,
+    result.stdout as String,
+    result.stderr as String,
+  );
+}
+
+Future<_BenchRun> _runAggregate(
   List<String> arguments, {
   required String workingDirectory,
   required String entrypoint,
