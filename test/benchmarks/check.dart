@@ -46,6 +46,12 @@ const gradedFailureExitCode = 1;
 /// impossible; the bound exists only to fail closed).
 const tempNameAttempts = 5;
 
+/// POSIX EEXIST: the only errno that means "name already claimed" for an
+/// exclusive create. The suite's hosts (dart_tools Ubuntu, Linux dev)
+/// are POSIX; a mismatched code rethrows and surfaces rather than
+/// silently retrying, which is the safe direction.
+const fileExistsErrorCode = 17;
+
 const _usageText =
     '''
 Usage: dart run test/benchmarks/check.dart --results <path> --tiers a|b|ab
@@ -408,7 +414,14 @@ Future<void> _writeDriftState(
     // tempNameAttempts tries.
     try {
       await temporary.create(exclusive: true);
-    } on FileSystemException {
+    } on FileSystemException catch (error) {
+      // EEXIST means the name is claimed — retry with the next owned
+      // name. Anything else (EACCES, ENOENT, ENOSPC, ...) is a
+      // persistent condition that a different timestamped name cannot
+      // fix, so it surfaces with its errno instead of being retried.
+      if (error.osError?.errorCode != fileExistsErrorCode) {
+        rethrow;
+      }
       continue;
     }
     try {

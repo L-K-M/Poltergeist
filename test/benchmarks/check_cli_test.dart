@@ -154,8 +154,15 @@ void main() {
     // returning non-zero.
     skip: Platform.isWindows ? 'chmod is absent on Windows' : false,
     () async {
-      final chmod = await Process.run('chmod', ['--version']);
-      if (chmod.exitCode != 0) {
+      // An absent chmod binary throws ProcessException rather than
+      // returning a non-zero exit (minimal containers, non-POSIX hosts).
+      var chmodWorks = false;
+      try {
+        chmodWorks = (await Process.run('chmod', ['--version'])).exitCode == 0;
+      } on ProcessException {
+        chmodWorks = false;
+      }
+      if (!chmodWorks) {
         markTestSkipped('chmod is unavailable on this host');
         return;
       }
