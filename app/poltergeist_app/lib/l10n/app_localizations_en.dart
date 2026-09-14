@@ -360,6 +360,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneCancelLoading => 'Cancel loading';
 
   @override
+  String get paneConnectCancel => 'Cancel';
+
+  @override
   String get paneErrorNotFound => 'The folder could not be found.';
 
   @override

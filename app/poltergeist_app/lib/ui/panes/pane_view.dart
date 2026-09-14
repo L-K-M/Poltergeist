@@ -14,6 +14,13 @@ import 'pane_format.dart';
 /// affordance before this, so fast navigations never flash.
 const _antiFlashGrace = Duration(milliseconds: 150);
 
+/// Whether a remote bind is in flight for this pane — the single
+/// definition shared by the Esc key path and the post-grace Cancel
+/// action, so the two affordances can never drift apart.
+bool _pendingRemoteConnect(PaneController controller) =>
+    controller.phase == PanePhase.connectingRemote &&
+    controller.remoteBookmark != null;
+
 /// 02 §11's comfortable row density (28 px), scaled by the active text
 /// scale so scaled text never clips (D20). Recomputed per build, which
 /// preserves the fixed-extent virtualization. One definition, shared by
@@ -274,6 +281,16 @@ class _PaneViewState extends State<PaneView> {
           // failed operation (the overlay's Retry is otherwise
           // mouse-only in this keyboard-first surface).
           unawaited(controller.retry());
+        } else if (_pendingRemoteConnect(controller)) {
+          // A pending remote bind is not `loading` (no generation is
+          // issued yet), so it cancels through the shell's
+          // sibling-aware path — detach when a sibling still browses
+          // the server, never a shared disconnect. A held key's
+          // repeats must not cancel a replacement binding.
+          if (event is KeyRepeatEvent) {
+            return KeyEventResult.handled;
+          }
+          widget.onCancelRecovery();
         } else {
           // Idle: nothing to cancel here — let Esc reach ancestor
           // handlers (app shortcuts) instead of swallowing it.
@@ -515,6 +532,17 @@ class _PaneSurface extends StatelessWidget {
           Text(
             label == null ? l10n.paneOpeningHome : l10n.paneConnectingTo(label),
           ),
+          // Only a REMOTE connect offers cancel (the shell's
+          // sibling-aware detach): a local home open has no shared
+          // server reference to drop.
+          if (_pendingRemoteConnect(controller)) ...[
+            const SizedBox(height: 10),
+            TextButton(
+              key: const ValueKey('pane.connect.cancel'),
+              onPressed: onCancelRecovery,
+              child: Text(l10n.paneConnectCancel),
+            ),
+          ],
         ],
       ),
     );

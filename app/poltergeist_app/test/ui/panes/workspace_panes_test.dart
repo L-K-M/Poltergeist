@@ -8,7 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
+import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/engine_session_test.dart' as session_test;
@@ -32,6 +34,54 @@ class _HeldListingChannel extends session_test.FakeAppBrowseChannel {
     final held = nextListing;
     nextListing = null;
     return held?.future ?? super.listDirectory(path);
+  }
+}
+
+Bookmark _remoteBookmark(String id) => Bookmark(
+  id: id,
+  kind: BookmarkKind.remotePath,
+  label: '$id.example.com',
+  server: BookmarkServerRef(
+    identity: EmbeddedHostIdentity(
+      host: '$id.example.com',
+      port: 22,
+      username: 'tester',
+      authMethod: AuthMethod.password,
+    ),
+  ),
+  remotePath: '/',
+  sortKey: id,
+  createdAt: DateTime.utc(2026, 9, 12),
+  updatedAt: DateTime.utc(2026, 9, 12),
+);
+
+/// A pending remote open parks per pane tab, so two panes can share one
+/// server while only one of their binds is still in flight.
+class _HeldConnectEngine extends session_test.FakeAppEngine {
+  final heldOpens = <String, Completer<void>>{};
+  final paneChannels = <String, session_test.FakeAppBrowseChannel>{};
+
+  @override
+  Future<AppBrowseChannel> openBrowseChannel({
+    required String serverId,
+    required String paneTabId,
+    required ServerConfig config,
+  }) async {
+    openCalls.add((serverId: serverId, paneTabId: paneTabId, config: config));
+    statesControllers
+        .putIfAbsent(
+          serverId,
+          () => StreamController<ServerStatus>.broadcast(sync: true),
+        )
+        .add(const ServerStatus(ServerConnectionState.connecting));
+    final hold = heldOpens[paneTabId];
+    if (hold != null) await hold.future;
+    final channel = paneChannels[paneTabId];
+    if (channel == null) throw StateError('no browse channel scripted');
+    statesControllers[serverId]!.add(
+      const ServerStatus(ServerConnectionState.connected),
+    );
+    return channel;
   }
 }
 
@@ -413,4 +463,118 @@ void main() {
     expect(engine.localChannels[1].listCalls, ['/home/tester']);
     expect(find.text('right.txt'), findsOneWidget);
   });
+
+  _HeldConnectEngine heldConnectEngine() {
+    final held = _HeldConnectEngine();
+    for (final name in ['left.txt', 'right.txt']) {
+      held.localChannels.add(
+        session_test.FakeAppBrowseChannel(homePath: '/home/tester')
+          ..listings['/home/tester'] = [_entry(name)],
+      );
+    }
+    return held;
+  }
+
+  (PaneController, PaneController) paneControllers(WidgetTester tester) {
+    final panes = tester.widgetList<PaneView>(find.byType(PaneView)).toList();
+    return (panes[0].controller, panes[1].controller);
+  }
+
+  testWidgets(
+    'Esc cancels a pending remote bind without severing a same-server sibling',
+    (tester) async {
+      final held = heldConnectEngine();
+      final sibling = session_test.FakeAppBrowseChannel(homePath: '/srv/home')
+        ..listings['/srv/home'] = [
+          _entry('sibling.txt', parent: '/srv/home'),
+        ];
+      final lateLeft = session_test.FakeAppBrowseChannel(homePath: '/srv/home')
+        ..listings['/srv/home'] = [_entry('late.txt', parent: '/srv/home')];
+      held.paneChannels['pane.right'] = sibling;
+      held.paneChannels['pane.left'] = lateLeft;
+      held.heldOpens['pane.left'] = Completer<void>();
+      engine = held;
+
+      await pumpApp(tester);
+      final (left, right) = paneControllers(tester);
+      final rightConnect = right.connectRemote(_remoteBookmark('srv-1'));
+      final leftConnect = left.connectRemote(_remoteBookmark('srv-1'));
+      await rightConnect;
+      // Bounded pumps only: the connecting pane's spinner animates, so
+      // pumpAndSettle would never settle while the bind is pending.
+      await tester.pump();
+      expect(find.text('sibling.txt'), findsOneWidget);
+      expect(left.phase, PanePhase.connectingRemote);
+
+      // Focus the connecting pane through the production focus command,
+      // then cancel the pending bind with plain Esc.
+      await tester.tap(
+        find.byKey(const ValueKey('command.$kPaneFocusLeftCommandId')),
+      );
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(left.phase, PanePhase.unbound);
+      expect(left.remoteBookmark, isNull);
+      expect(
+        held.disconnectIds,
+        isEmpty,
+        reason: 'the sibling still browses srv-1 — only the pane detaches',
+      );
+      expect(right.phase, PanePhase.browsing);
+      expect(find.text('sibling.txt'), findsOneWidget);
+
+      // The late open's orphaned channel is retired; it never repaints.
+      held.heldOpens['pane.left']!.complete();
+      await leftConnect;
+      await tester.pumpAndSettle();
+      expect(lateLeft.closeCalls, 1);
+      expect(lateLeft.listCalls, isEmpty);
+      expect(find.text('late.txt'), findsNothing);
+      expect(right.phase, PanePhase.browsing);
+    },
+  );
+
+  testWidgets(
+    'the connecting Cancel action drops the server reference when alone',
+    (tester) async {
+      final held = heldConnectEngine();
+      final lateLeft = session_test.FakeAppBrowseChannel(homePath: '/srv/home')
+        ..listings['/srv/home'] = [_entry('late.txt', parent: '/srv/home')];
+      held.paneChannels['pane.left'] = lateLeft;
+      held.heldOpens['pane.left'] = Completer<void>();
+      engine = held;
+
+      await pumpApp(tester);
+      final (left, _) = paneControllers(tester);
+      final leftConnect = left.connectRemote(_remoteBookmark('srv-1'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(left.phase, PanePhase.connectingRemote);
+
+      // The post-grace cancel affordance rides the same sibling-aware
+      // path as Esc — here no sibling shares the server, so its
+      // reference is dropped.
+      final cancel = find.descendant(
+        of: find.byType(PaneView).first,
+        matching: find.byKey(const ValueKey('pane.connect.cancel')),
+      );
+      expect(cancel, findsOneWidget);
+      await tester.tap(cancel);
+      await tester.pumpAndSettle();
+
+      expect(left.phase, PanePhase.unbound);
+      expect(left.remoteBookmark, isNull);
+      expect(held.disconnectIds, ['srv-1']);
+
+      held.heldOpens['pane.left']!.complete();
+      await leftConnect;
+      await tester.pumpAndSettle();
+      expect(lateLeft.closeCalls, 1);
+      expect(lateLeft.listCalls, isEmpty);
+      expect(find.text('late.txt'), findsNothing);
+      expect(find.text('right.txt'), findsOneWidget);
+    },
+  );
 }
