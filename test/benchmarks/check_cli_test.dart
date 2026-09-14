@@ -1778,6 +1778,306 @@ void main() {
     expect(await unrelated.readAsString(), 'keep me');
   });
 
+  group('per-scenario scenarioConfig axis (schema migration)', () {
+    test(
+      'unlanded P3+P7 with distinct configs in one results file both '
+      'report and exit 0',
+      () async {
+        final budgets = await writeFixture('budgets.json', _budgetsJson());
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              // P3 and P7 each carry their own config — exactly what two
+              // collectors writing the one planned results file emit.
+              for (var i = 0; i < 5; i++)
+                _rowJson(repetition: i, value: 40),
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P7',
+                  repetition: i,
+                  value: 1200,
+                  unit: 'entries/s',
+                ),
+            ],
+          ),
+        );
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a', '--budgets', budgets],
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(
+            RegExp(r'^P3\s+a\s.*reported \(unlanded\)$', multiLine: true),
+          ),
+        );
+        expect(
+          stdoutText,
+          contains(
+            RegExp(r'^P7\s+a\s.*reported \(unlanded\)$', multiLine: true),
+          ),
+        );
+      },
+    );
+
+    test(
+      'repetitions of one scenario with differing configs exit 65',
+      () async {
+        final budgets = await writeFixture('budgets.json', _budgetsJson());
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              _rowJson(repetition: 0, scenarioConfig: 'p3/v1;a'),
+              _rowJson(repetition: 1, scenarioConfig: 'p3/v1;b'),
+            ],
+          ),
+        );
+        final (exitCodeValue, _, stderrText) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a', '--budgets', budgets],
+        );
+        expect(exitCodeValue, 65);
+        expect(stderrText, contains('conflicting scenarioConfig'));
+        expect(stderrText, contains('p3/v1;a'));
+        expect(stderrText, contains('p3/v1;b'));
+      },
+    );
+
+    test(
+      'two landed tier-A scenarios each compare against their own '
+      'calibrated config',
+      () async {
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(
+            calibrated: _fingerprintJson(),
+            landedIds: {'P3', 'P7'},
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 5; i++)
+                _rowJson(repetition: i, value: 40),
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P7',
+                  repetition: i,
+                  value: 1200,
+                  unit: 'entries/s',
+                ),
+            ],
+          ),
+        );
+        // Enforced: both must genuinely compare and pass, not drift-skip.
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a', '--budgets', budgets],
+          environment: {'BENCH_ENFORCE_A': '1'},
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(RegExp(r'^P3\s+a\s.*\spass$', multiLine: true)),
+        );
+        expect(
+          stdoutText,
+          contains(RegExp(r'^P7\s+a\s.*\spass$', multiLine: true)),
+        );
+        expect(stdoutText, isNot(contains('skipped: hardware drift')));
+      },
+    );
+
+    test(
+      'a scenario-specific config drift skips only that scenario',
+      () async {
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(
+            calibrated: _fingerprintJson(),
+            landedIds: {'P3', 'P7'},
+            // P7's calibration records a different config than the run
+            // carries; P3's own calibration is untouched.
+            calibratedConfigs: {'P7': 'p7/v1-drifted;tree=20000'},
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 5; i++)
+                _rowJson(repetition: i, value: 40),
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P7',
+                  repetition: i,
+                  value: 1200,
+                  unit: 'entries/s',
+                ),
+            ],
+          ),
+        );
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a', '--budgets', budgets],
+          environment: {'BENCH_ENFORCE_A': '1'},
+        );
+        // Tier-A drift never reddens, in any mode.
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(RegExp(r'^P3\s+a\s.*\spass$', multiLine: true)),
+        );
+        expect(stdoutText, contains('skipped: hardware drift'));
+        expect(
+          stdoutText,
+          contains(
+            'controlled axis scenarioConfig (p7/v1-drifted;tree=20000 != '
+            '${_tierATestConfigs['P7']})',
+          ),
+        );
+        expect(stdoutText, contains('baseline-refresh PR'));
+      },
+    );
+
+    test(
+      'legacy budgets schema-1 still calibrates and prints its '
+      'deprecation notice',
+      () async {
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(
+            schema: budgetsSchemaId,
+            calibrated: _fingerprintJson(
+              scenarioConfig: _tierATestConfigs['P3'],
+            ),
+            landedIds: {'P3'},
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(rows: [for (var i = 0; i < 5; i++) _rowJson(repetition: i)]),
+        );
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a', '--budgets', budgets],
+          environment: {'BENCH_ENFORCE_A': '1'},
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(RegExp(r'^P3\s+a\s.*\spass$', multiLine: true)),
+        );
+        expect(stdoutText, contains('deprecated schema $budgetsSchemaId'));
+      },
+    );
+
+    test('mixed and invalid schema forms fail explicitly (exit 65)', () async {
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(rows: [for (var i = 0; i < 5; i++) _rowJson(repetition: i)]),
+      );
+
+      // Schema-2 with a landed tier-A scenario but no per-scenario
+      // calibrated config.
+      final missingConfig = await writeFixture(
+        'missing-config.json',
+        _budgetsJson(
+          calibrated: _fingerprintJson(),
+          landedIds: {'P3'},
+          omitCalibratedConfigs: true,
+        ),
+      );
+      var (exitCodeValue, _, stderrText) = await runChecker(
+        arguments: [
+          '--results', results, '--tiers', 'a', '--budgets', missingConfig,
+        ],
+      );
+      expect(exitCodeValue, 65);
+      expect(stderrText, contains('requires a calibratedScenarioConfig'));
+
+      // Schema-2 whose calibration claims a job-wide config.
+      final jobWideConfig = await writeFixture(
+        'job-wide-config.json',
+        _budgetsJson(
+          calibrated: _fingerprintJson(scenarioConfig: 'p3/v1;singular'),
+          landedIds: {'P3'},
+        ),
+      );
+      (exitCodeValue, _, stderrText) = await runChecker(
+        arguments: [
+          '--results', results, '--tiers', 'a', '--budgets', jobWideConfig,
+        ],
+      );
+      expect(exitCodeValue, 65);
+      expect(stderrText, contains('calibratedFingerprint.scenarioConfig'));
+
+      // Schema-1 carrying the schema-2 per-scenario field.
+      final mixed = jsonDecode(jsonEncode(
+        _budgetsJson(
+          schema: budgetsSchemaId,
+          calibrated: _fingerprintJson(),
+          landedIds: {'P3'},
+        ),
+      )) as Map<String, Object?>;
+      (mixed['scenarios'] as List)
+          .cast<Map<String, Object?>>()
+          .firstWhere((s) => s['id'] == 'P3')['calibratedScenarioConfig'] =
+          _tierATestConfigs['P3'];
+      final mixedPath = await writeFixture('mixed.json', mixed);
+      (exitCodeValue, _, stderrText) = await runChecker(
+        arguments: ['--results', results, '--tiers', 'a', '--budgets', mixedPath],
+      );
+      expect(exitCodeValue, 65);
+      expect(
+        stderrText,
+        contains('calibratedScenarioConfig requires schema '
+            '$budgetsSchemaV2Id'),
+      );
+    });
+
+    test(
+      'a tier-B baseline claiming a job-wide scenarioConfig exits 65',
+      () async {
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P1'}),
+        );
+        // _baselineJson's fingerprint carries no config; inject one to
+        // build the rejected form.
+        final claimed = jsonDecode(jsonEncode(_baselineJson()))
+            as Map<String, Object?>;
+        (claimed['fingerprint'] as Map<String, Object?>)['scenarioConfig'] =
+            'p1/v1;claimed-job-wide';
+        final claimedPath = await writeFixture('claimed.json', claimed);
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P1',
+                  repetition: i,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(mode: 'profile'),
+                ),
+            ],
+          ),
+        );
+        final (exitCodeValue, _, stderrText) = await runChecker(
+          arguments: [
+            '--results', results, '--tiers', 'b', '--budgets', budgets,
+            '--baseline', claimedPath,
+          ],
+        );
+        expect(exitCodeValue, 65);
+        expect(
+          stderrText,
+          contains('tier-B baseline: fingerprint.scenarioConfig must be null'),
+        );
+      },
+    );
+  });
+
   group('subprocess contract', () {
     // A small battery of true process runs pins the outermost wiring:
     // argument parsing, stdout/stderr, and the real exit status.
@@ -1917,11 +2217,24 @@ class MemorySink implements IOSink {
   Future<void> flush() => Future.value();
 }
 
+/// Tier-A fixture configs shared by the row and catalog helpers, so a
+/// landed scenario's default rows and its default calibration agree
+/// (each scenario against its own config, never a shared one).
+const _tierATestConfigs = {
+  'P3': 'p3/v1-test;target=/t;control=/c;target-entries=10000;warmups=2'
+      ';repetitions=5',
+  'P5': 'p5/v1-test;tree=1000;repetitions=3',
+  'P7': 'p7/v1-test;tree=50000;workers=4;repetitions=3',
+};
+
 Map<String, Object?> _budgetsJson({
   Object? calibrated,
   Set<String> landedIds = const {},
+  String schema = budgetsSchemaV2Id,
+  Map<String, String> calibratedConfigs = const {},
+  bool omitCalibratedConfigs = false,
 }) => {
-  'schema': budgetsSchemaId,
+  'schema': schema,
   'calibratedFingerprint': calibrated,
   'scenarios': [
     for (final id in ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'])
@@ -1950,6 +2263,15 @@ Map<String, Object?> _budgetsJson({
           },
           'minimumRepetitions': id == 'P3' ? 5 : 3,
           'landed': landedIds.contains(id),
+          // Schema-2 calibrates each tier-A scenario's config
+          // individually; omitCalibratedConfigs builds the invalid
+          // landed-without-config form.
+          if (schema == budgetsSchemaV2Id &&
+              !omitCalibratedConfigs &&
+              landedIds.contains(id) &&
+              !tierBSceanrio.contains(id))
+            'calibratedScenarioConfig':
+                calibratedConfigs[id] ?? _tierATestConfigs[id]!,
         };
       }(),
   ],
@@ -1966,13 +2288,21 @@ Map<String, Object?> _rowJson({
   String unit = 'ms',
   String? error,
   Map<String, Object?>? fingerprint,
+  String? scenarioConfig,
 }) => {
   'scenario': scenario,
   'repetition': repetition,
   'status': status,
   if (status == 'ok') ...{'value': value, 'unit': unit},
   if (error != null) 'error': error,
-  'fingerprint': fingerprint ?? _fingerprintJson(),
+  // Rows default to their scenario's tier-A fixture config (null for
+  // tier B) so plain fixtures stay self-consistent with the catalog
+  // helper's default per-scenario calibration.
+  'fingerprint':
+      fingerprint ??
+      _fingerprintJson(
+        scenarioConfig: scenarioConfig ?? _tierATestConfigs[scenario],
+      ),
 };
 
 Map<String, Object?> _baselineJson({
@@ -1995,6 +2325,7 @@ Map<String, Object?> _fingerprintJson({
   String runnerImage = 'image-2026',
   String mode = 'aot',
   String cpuModel = 'test-cpu',
+  String? scenarioConfig,
 }) => {
   'runnerImage': runnerImage,
   'arch': 'x64',
@@ -2002,5 +2333,5 @@ Map<String, Object?> _fingerprintJson({
   'flutterVersion': null,
   'mode': mode,
   'cpuModel': cpuModel,
-  'scenarioConfig': null,
+  'scenarioConfig': scenarioConfig,
 };

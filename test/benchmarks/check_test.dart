@@ -135,12 +135,16 @@ void main() {
       );
     });
 
-    test('optional axes participate (empty vs value)', () {
+    test('scenarioConfig is not a job-wide controlled axis', () {
+      // Per-scenario config: distinct scenarios in one job may carry
+      // distinct configs (08 §6's one results file), so the axis is
+      // compared per scenario against that scenario's own calibration,
+      // never across rows or against another scenario's config.
       expect(
         _fingerprint(
-          scenarioConfig: 'p3-v1',
+          scenarioConfig: 'p3/v1',
         ).controlledMismatches(_fingerprint()),
-        containsPair('scenarioConfig', ('p3-v1', '')),
+        isEmpty,
       );
     });
   });
@@ -284,6 +288,148 @@ void main() {
       );
     });
 
+    test(
+      'schema-2 rejects a landed tier-A scenario without its own '
+      'calibrated config',
+      () {
+        expect(
+          () => BudgetCatalog.fromJson({
+            'schema': budgetsSchemaV2Id,
+            'calibratedFingerprint': _fingerprintJson(),
+            'scenarios': [_scenarioJson(landed: true)],
+          }),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains(
+                'landed tier-A scenario P3 requires a calibratedScenarioConfig',
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'schema-2 rejects a calibration that claims a job-wide config',
+      () {
+        expect(
+          () => BudgetCatalog.fromJson({
+            'schema': budgetsSchemaV2Id,
+            'calibratedFingerprint': _fingerprintJson(
+              scenarioConfig: 'p3/v1;singular',
+            ),
+            'scenarios': [
+              _scenarioJson(landed: true, calibratedConfig: 'p3/v1;a'),
+            ],
+          }),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains(
+                'calibratedFingerprint.scenarioConfig is per-scenario in '
+                'schema $budgetsSchemaV2Id',
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'a tier-B scenario row carrying a calibrated config is rejected',
+      () {
+        expect(
+          () => BudgetCatalog.fromJson({
+            'schema': budgetsSchemaV2Id,
+            'scenarios': [
+              _scenarioJson(
+                id: 'P1',
+                tier: 'b',
+                calibratedConfig: 'p1/v1;dead-data',
+              ),
+            ],
+          }),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('tier-B trend scenarios carry no config'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'schema-1 rejects the per-scenario calibrated config (mixed form)',
+      () {
+        expect(
+          () => BudgetCatalog.fromJson({
+            'schema': budgetsSchemaId,
+            'scenarios': [
+              _scenarioJson(calibratedConfig: 'p3/v1;a'),
+            ],
+          }),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('calibratedScenarioConfig requires schema '
+                  '$budgetsSchemaV2Id'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'schema-1 decomposes a singular calibrated config onto every '
+      'tier-A scenario',
+      () {
+        final catalog = BudgetCatalog.fromJson({
+          'schema': budgetsSchemaId,
+          'calibratedFingerprint': _fingerprintJson(
+            scenarioConfig: 'p3/v1;singular',
+          ),
+          'scenarios': [
+            _scenarioJson(landed: true),
+            _scenarioJson(id: 'P7', landed: true),
+            _scenarioJson(id: 'P1', tier: 'b', landed: true),
+          ],
+        });
+        catalog.validateCatalog();
+        expect(catalog.schemaId, budgetsSchemaId);
+        // The legacy singular config becomes each tier-A scenario's own
+        // calibrated config (tier B never carries one).
+        expect(
+          catalog.scenarios['P3']!.calibratedScenarioConfig,
+          'p3/v1;singular',
+        );
+        expect(
+          catalog.scenarios['P7']!.calibratedScenarioConfig,
+          'p3/v1;singular',
+        );
+        expect(catalog.scenarios['P1']!.calibratedScenarioConfig, isNull);
+      },
+    );
+
+    test('schema-2 parses per-scenario calibrated configs', () {
+      final catalog = BudgetCatalog.fromJson({
+        'schema': budgetsSchemaV2Id,
+        'calibratedFingerprint': _fingerprintJson(),
+        'scenarios': [
+          _scenarioJson(landed: true, calibratedConfig: 'p3/v1;a'),
+          _scenarioJson(id: 'P7', landed: true, calibratedConfig: 'p7/v1;b'),
+        ],
+      });
+      catalog.validateCatalog();
+      expect(catalog.scenarios['P3']!.calibratedScenarioConfig, 'p3/v1;a');
+      expect(catalog.scenarios['P7']!.calibratedScenarioConfig, 'p7/v1;b');
+    });
+
     test('a landed tier-A scenario with calibration validates', () {
       final catalog = BudgetCatalog.fromJson({
         'schema': budgetsSchemaId,
@@ -413,6 +559,98 @@ void main() {
       );
     });
 
+    test(
+      'a job-wide axis difference across two scenarios is still rejected',
+      () {
+        final catalog = BudgetCatalog.fromJson({
+          'schema': budgetsSchemaId,
+          'scenarios': [_scenarioJson(), _scenarioJson(id: 'P5')],
+        });
+        expect(
+          () => ResultsFile.fromJson(
+            _resultsJson(
+              rows: [
+                _rowJson(repetition: 0),
+                _rowJson(
+                  scenario: 'P5',
+                  repetition: 0,
+                  fingerprint: _fingerprintJson(runnerImage: 'other-image'),
+                ),
+              ],
+            ),
+            catalog,
+          ),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('different environment fingerprint'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'repetitions of one scenario with differing configs are rejected',
+      () {
+        expect(
+          () => ResultsFile.fromJson(
+            _resultsJson(
+              rows: [
+                _rowJson(
+                  repetition: 0,
+                  fingerprint: _fingerprintJson(scenarioConfig: 'p3/v1;a'),
+                ),
+                _rowJson(
+                  repetition: 1,
+                  fingerprint: _fingerprintJson(scenarioConfig: 'p3/v1;b'),
+                ),
+              ],
+            ),
+            _catalog(),
+          ),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('conflicting scenarioConfig'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'distinct configs across scenarios parse into one results file',
+      () {
+        final catalog = BudgetCatalog.fromJson({
+          'schema': budgetsSchemaId,
+          'scenarios': [
+            _scenarioJson(),
+            _scenarioJson(id: 'P5'),
+          ],
+        });
+        final results = ResultsFile.fromJson(
+          _resultsJson(
+            rows: [
+              _rowJson(
+                repetition: 0,
+                fingerprint: _fingerprintJson(scenarioConfig: 'p3/v1;a'),
+              ),
+              _rowJson(
+                scenario: 'P5',
+                repetition: 0,
+                fingerprint: _fingerprintJson(scenarioConfig: 'p5/v1;b'),
+              ),
+            ],
+          ),
+          catalog,
+        );
+        expect(results.rows, hasLength(2));
+      },
+    );
+
     test('rejects an errored row that also carries a value', () {
       expect(
         () => ResultsFile.fromJson(
@@ -500,6 +738,33 @@ void main() {
         throwsA(isA<CheckDataException>()),
       );
     });
+
+    test(
+      'rejects a baseline that claims a job-wide scenarioConfig',
+      () {
+        expect(
+          () => TierBBaseline.fromJson({
+            'schema': baselineSchemaId,
+            'fingerprint': _fingerprintJson(
+              mode: 'profile',
+              scenarioConfig: 'p1/v1;claimed-job-wide',
+            ),
+            'scenarios': {
+              'P1': {'median': 95, 'unit': 'ms', 'repetitions': 3},
+            },
+          }, _catalog()),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains(
+                'tier-B baseline: fingerprint.scenarioConfig must be null',
+              ),
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('drift-state parsing', () {
@@ -586,6 +851,9 @@ void main() {
     test('parses and carries P1-P7 unlanded with no calibration', () {
       final catalog = _committedCatalog();
       catalog.validateCatalog();
+      // The committed catalog uses the canonical per-scenario-config
+      // schema; the legacy -1 form stays readable for old files.
+      expect(catalog.schemaId, budgetsSchemaV2Id);
       expect(catalog.calibratedFingerprint, isNull);
       expect(catalog.scenarios.keys, [
         'P1',
@@ -668,6 +936,7 @@ Map<String, Object?> _scenarioJson({
   String tier = 'a',
   String operator = 'lessThan',
   bool landed = false,
+  String? calibratedConfig,
 }) => {
   'id': id,
   'tier': tier,
@@ -677,6 +946,8 @@ Map<String, Object?> _scenarioJson({
   'unit': 'ms',
   'minimumRepetitions': 2,
   'landed': landed,
+  if (calibratedConfig != null)
+    'calibratedScenarioConfig': calibratedConfig,
 };
 
 BudgetCatalog _catalog() => BudgetCatalog.fromJson({

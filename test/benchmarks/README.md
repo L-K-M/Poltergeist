@@ -39,10 +39,18 @@ per-scenario `tier`, `operator` (`lessThan`/`atMost`/`atLeast` — the
 exact boundary operators of 02 §12), `value`, `unit`,
 `minimumRepetitions` (P3: 5 per 07 §3.4's median-of-≥5 warm runs; all
 other scenarios: 3 per 08 §6's in-job repetition floor), `landed`, plus
-the tier-A `calibratedFingerprint` (controlled axes the tier-A budgets
-were calibrated under; `null` until a real calibration run records it —
-a landed tier-A scenario with a null calibration is rejected, because no
-honest comparison would ever be possible).
+the tier-A calibration. Scenario config is a **per-scenario** axis: in
+schema `poltergeist-d12-budgets-2` (the committed canonical form) each
+tier-A scenario carries its own `calibratedScenarioConfig` — required
+when landed, because a budget measured under an unrecorded config could
+never be honestly compared — and the singular `calibratedFingerprint`
+records only the common controlled axes (null until a real calibration
+run records it; a landed tier-A scenario with a null calibration is
+rejected). The legacy schema `-1` (a singular
+calibratedFingerprint.scenarioConfig) remains readable: its config,
+when present, calibrates every tier-A scenario, with a loud deprecation
+notice; a `-1` file carrying `calibratedScenarioConfig` (or a `-2`
+calibration claiming a job-wide config) is rejected as a mixed form.
 
 **bench-results.json** — one job's observations: rows of
 `{scenario, repetition, status, value?, unit?, error?, fingerprint}`.
@@ -55,22 +63,31 @@ failure line; successful siblings cannot hide it. An empty `rows` list
 is a valid, fully unobserved job (no fingerprint is fabricated for it):
 it yields the honest no-budgets-evaluated outcome when nothing is
 landed, and explicit missing-scenario failures when something is. All
-rows must share one environment fingerprint (except `mode`, which
-differs per tier by design: tier A runs AOT, tier B runs profile, and
-one `--tiers ab` job writes both into this file — `mode` is instead
-validated per store: row eligibility filters non-AOT/non-profile rows as
-ineligible with a loud notice, and the calibration/baseline must record
-their tier's mode). Controlled axes: `runnerImage`, `arch`,
-`dartVersion`, `flutterVersion`, `scenarioConfig`; uncontrolled:
-`cpuModel`.
+rows must share one job-wide environment fingerprint — the controlled
+axes `runnerImage`, `arch`, `dartVersion`, `flutterVersion` plus the
+uncontrolled-but-row-checked `cpuModel` (two CPUs in one job are two
+environments). `mode` differs per tier by design: tier A runs AOT, tier
+B runs profile, and one `--tiers ab` job writes both into this file —
+`mode` is instead validated per store: row eligibility filters
+non-AOT/non-profile rows as ineligible with a loud notice, and the
+calibration/baseline must record their tier's mode. `scenarioConfig` is
+agreed **per scenario**: one scenario's repetitions must share one
+config (conflicting configs are a malformed measurement set, exit 65),
+while distinct scenarios may carry distinct configs in the one results
+file — each landed tier-A scenario is compared against its own
+calibrated config, never another scenario's, so two config-carrying
+scenarios coexist in one file and both still compare.
 
 **tier-B baseline** (`tier-b-baseline.json`, absent until a real
 calibration commits it) — committed per-scenario medians under one
-fingerprint. Tier-B comparisons fail on a median regressing strictly
-more than 25 % against the baseline median once enforced. A declared
-tier whose baseline file is absent prints a loud non-enforced notice and
-exits zero while soft, non-zero once `BENCH_ENFORCE_B` is set (the M3
-spike window).
+fingerprint; the fingerprint's `scenarioConfig` must be null (configs
+are per-scenario; no tier-B scenario carries one yet, and the baseline
+schema grows per-scenario configs with the first config-carrying
+tier-B collector). Tier-B comparisons fail on a median regressing
+strictly more than 25 % against the baseline median once enforced. A
+declared tier whose baseline file is absent prints a loud non-enforced
+notice and exits zero while soft, non-zero once `BENCH_ENFORCE_B` is
+set (the M3 spike window).
 
 **drift state** — the small store time-boxing drift skips
 (`consecutiveMainRuns` per drift-notice key, tier-B keys only: tier-A
