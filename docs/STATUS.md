@@ -4186,9 +4186,11 @@ Decomposition — every scenario lands on the same floor:
   pair at ~35 ms; the target legs price it at ~44–46 ms — consistent
   once each big reply's ~100 server-side lstats and ~15 KB payload are
   accounted for. M0's own evidence independently corroborates the
-  floor: `pipeline-readdir-1-lan` ran 800 entries in 1 659 ms (~52 ms
-  per sequential listing round trip) on the same runner+fixture stack
-  (run 33563514640), versus 220 ms at depth 8.
+  floor: `pipeline-readdir-1-lan` listed the eight 100-entry sibling
+  directories serially in 1 659 ms on the same runner+fixture stack
+  (run 33563514640) — ~32–40 sequential request/response pairs (~4–5
+  per directory: OPENDIR, the 100-entry-capped READDIR replies, EOF,
+  CLOSE), i.e. ~41–52 ms per pair — versus 220 ms at depth 8.
 - P5's measured window is confirmed correct: the leg's stat, scan
   listing, transfer-channel lease, and first-byte read are all inside
   the drop→first-byte interval, and the VFS listing is all-or-nothing —

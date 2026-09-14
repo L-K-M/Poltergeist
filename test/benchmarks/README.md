@@ -153,8 +153,10 @@ awaits each batch before requesting the next, so one 10 000-entry
 `listDirectory` is ~104 strictly sequential request/response pairs. On
 this job's path — loopback to a Docker-published port on a shared
 `ubuntu-latest` runner, with no netem shaping applied — one such pair
-costs ~35–50 ms (P3's 4-request control leg prices it at ~35 ms; M0's
-`pipeline-readdir-1-lan` measured ~52 ms on the same stack). P5's leg
+costs ~35–52 ms (P3's 4-request control leg prices it at ~35 ms; M0's
+`pipeline-readdir-1-lan` priced it at ~41–52 ms on the same stack — its
+800 entries are 8 sibling directories listed serially, ~4–5 round trips
+each). P5's leg
 contains that same root listing plus a stat, a transfer-channel lease,
 and the first-byte read; P7's critical path is the same serialized
 10 000-entry stream, so its passing rate is the bottleneck's ceiling,
