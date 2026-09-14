@@ -1166,6 +1166,10 @@ class PaneController extends ChangeNotifier {
   /// [_loweredNames] — no per-row allocation per keystroke.
   List<RemoteFileEntry> _filteredListing() {
     if (_filterQuery.isEmpty) return _listing;
+    assert(
+      _loweredNames.length == _listing.length,
+      '_loweredNames out of sync with _listing — assign via _setListing',
+    );
     final folded = ListingFilter(_filterQuery).foldedQuery;
     return List.unmodifiable([
       for (var i = 0; i < _listing.length; i++)
