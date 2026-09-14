@@ -246,7 +246,7 @@ void main() {
     // failure the finally cancels itself so the await below always
     // covers an actual release.
     Future<void>? cancellation;
-    var cancellationStalled = false;
+    var cancellationFailed = false;
     try {
       for (var index = 0; index < producerCount; index++) {
         final producer = await Process.start('python3', [
@@ -300,7 +300,7 @@ void main() {
       try {
         pending = cancellation ?? subscription.cancel();
       } catch (error, stackTrace) {
-        cancellationStalled = true;
+        cancellationFailed = true;
         printOnFailure(
           'cancellation threw before returning its cleanup future: '
           '$error\n$stackTrace',
@@ -316,14 +316,15 @@ void main() {
           await pending.timeout(
             cleanupDeadline,
             onTimeout: () {
-              cancellationStalled = true;
+              cancellationFailed = true;
               printOnFailure(
-                'cancellation outlived the $cleanupDeadline cleanup bound',
+                'cancellation outlived the '
+                '${cleanupDeadline.inSeconds}s cleanup bound',
               );
             },
           );
         } catch (error, stackTrace) {
-          cancellationStalled = true;
+          cancellationFailed = true;
           printOnFailure(
             'cancellation errored during cleanup: $error\n$stackTrace',
           );
@@ -335,13 +336,13 @@ void main() {
       await Future.wait(producers.map((producer) => producer.exitCode));
     }
 
-    // After the try/finally: a stall fails a green body, while an
+    // After the try/finally: a cleanup failure fails a green body, while an
     // original body failure propagates untouched instead of being
     // displaced by this assertion.
     expect(
-      cancellationStalled,
+      cancellationFailed,
       isFalse,
-      reason: 'cancellation outlived the cleanup bound',
+      reason: 'cancellation cleanup failed',
     );
   });
 
