@@ -41,6 +41,10 @@ void main() {
     lanes = controller_test.FakePaneLanes();
   });
 
+  // tearDown disposes `controller` directly: setUp/tearDown semantics
+  // already guarantee the assignment ran for every constructible test
+  // failure — each test's first statement is the assignment, and a
+  // failing setUp skips its tearDown entirely.
   tearDown(() {
     controller.dispose();
   });
@@ -134,11 +138,14 @@ void main() {
       controller = openWithListing([_entry('a'), _entry('b'), _entry('c')]);
       await openHome(controller);
 
+      // A cursor exists before select-all: the preservation assertion
+      // must be able to fail.
+      controller.setCursorIndex(1);
       controller.selectAll();
       expect(selectedIndices(controller), {0, 1, 2});
       expect(
         controller.cursorIndex,
-        isNull,
+        1,
         reason: 'select-all keeps the cursor where it was',
       );
 

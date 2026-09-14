@@ -336,17 +336,23 @@ class _PaneViewState extends State<PaneView> {
     controller.openEntry(controller.entries[cursor]);
   }
 
-  /// Resolves a pointer tap's selection gesture from the live keyboard
-  /// modifiers and the platform (02 §2.5): plain click singles, meta on
-  /// macOS / control elsewhere toggles, shift extends the anchored
-  /// range. Shift wins the modifier race on every platform so a
-  /// ctrl/⌘+shift click keeps one predictable range meaning.
-  SelectionUpdate _pointerSelectionUpdate(TargetPlatform platform) {
-    final keyboard = HardwareKeyboard.instance;
-    if (keyboard.isShiftPressed) return SelectionUpdate.range;
+  /// Resolves a row tap's selection gesture from the modifiers captured
+  /// at POINTER-DOWN and the platform (02 §2.5): plain click singles,
+  /// meta on macOS / control elsewhere toggles, shift extends the
+  /// anchored range. Shift wins the modifier race on every platform so
+  /// a ctrl/⌘+shift click keeps one predictable range meaning. The
+  /// modifiers come from the row's pointer-down listener — a tap
+  /// commits up to kDoubleTapTimeout later (onTap coexists with
+  /// onDoubleTap), so reading HardwareKeyboard at commit time would
+  /// miss a modifier released inside that window.
+  SelectionUpdate _selectionUpdateFor(
+    _PointerModifiers? modifiers,
+    TargetPlatform platform,
+  ) {
+    if (modifiers != null && modifiers.shift) return SelectionUpdate.range;
     final toggle = platform == TargetPlatform.macOS
-        ? keyboard.isMetaPressed
-        : keyboard.isControlPressed;
+        ? (modifiers?.meta ?? false)
+        : (modifiers?.control ?? false);
     return toggle ? SelectionUpdate.toggle : SelectionUpdate.single;
   }
 
@@ -419,10 +425,13 @@ class _PaneViewState extends State<PaneView> {
                 onCancelNavigation: widget.controller.cancelNavigation,
                 onRetry: () => unawaited(widget.controller.retry()),
                 onCancelRecovery: widget.onCancelRecovery,
-                onActivateRow: (index) {
+                onActivateRow: (index, modifiers) {
                   widget.controller.setCursorIndex(
                     index,
-                    update: _pointerSelectionUpdate(Theme.of(context).platform),
+                    update: _selectionUpdateFor(
+                      modifiers,
+                      Theme.of(context).platform,
+                    ),
                   );
                   widget.focusNode.requestFocus();
                 },
@@ -463,8 +472,8 @@ class _PaneSurface extends StatelessWidget {
   final VoidCallback onCancelNavigation;
   final VoidCallback onRetry;
   final VoidCallback onCancelRecovery;
-  final ValueChanged<int> onActivateRow;
   final ValueChanged<int> onOpenRow;
+  final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
 
   @override
   Widget build(BuildContext context) {
@@ -498,20 +507,29 @@ class _PaneSurface extends StatelessWidget {
         // post-grace dim declares the listing inert — the stale listing
         // leaves the semantics tree too: a reachable-but-inert row
         // would read as broken (AT activation bypasses hit testing).
+        // The inline error makes the stale listing's POINTERS inert as
+        // well (the error card never covers the whole listing, and a
+        // stray click on an uncovered stale row would change selection
+        // over data the pane has disowned) — scoped to this subtree,
+        // never a Stack sibling, so chrome added to this Stack later
+        // stays clickable.
         Positioned.fill(
-          child: ExcludeSemantics(
-            excluding:
-                controller.connectionLost ||
-                controller.error != null ||
-                (controller.loading && graceVisible),
-            child: controller.connectionLost
-                ? _listing(context, l10n)
-                : switch (controller.phase) {
-                    PanePhase.unbound => _Centered(l10n.paneNoLocation),
-                    PanePhase.openingLocal || PanePhase.connectingRemote =>
-                      _connectingBody(context, l10n),
-                    PanePhase.browsing => _listing(context, l10n),
-                  },
+          child: IgnorePointer(
+            ignoring: controller.error != null && !controller.connectionLost,
+            child: ExcludeSemantics(
+              excluding:
+                  controller.connectionLost ||
+                  controller.error != null ||
+                  (controller.loading && graceVisible),
+              child: controller.connectionLost
+                  ? _listing(context, l10n)
+                  : switch (controller.phase) {
+                      PanePhase.unbound => _Centered(l10n.paneNoLocation),
+                      PanePhase.openingLocal || PanePhase.connectingRemote =>
+                        _connectingBody(context, l10n),
+                      PanePhase.browsing => _listing(context, l10n),
+                    },
+            ),
           ),
         ),
         // 02 §2.8: the old listing stays visible, dimmed, past the grace —
@@ -526,12 +544,6 @@ class _PaneSurface extends StatelessWidget {
               ),
             ),
           ),
-        // 02 §2.8: the stale rows under the error overlay are as
-        // inert for pointers as they are for keys and semantics — the
-        // overlay card never covers the whole listing, so an explicit
-        // shield behind it owns the stray clicks.
-        if (controller.error != null && !controller.connectionLost)
-          Positioned.fill(child: AbsorbPointer(child: const SizedBox.expand())),
         if (controller.error != null && !controller.connectionLost)
           Positioned.fill(
             child: _ErrorOverlay(error: controller.error!, onRetry: onRetry),
@@ -609,7 +621,7 @@ class _PaneSurface extends StatelessWidget {
         selected: controller.isRowSelected(index),
         active: active,
         clock: clock,
-        onTap: () => onActivateRow(index),
+        onTap: (modifiers) => onActivateRow(index, modifiers),
         onDoubleTap: () => onOpenRow(index),
       ),
     );
@@ -779,7 +791,25 @@ class _PathBarState extends State<_PathBar> {
   }
 }
 
-class _PaneRow extends StatelessWidget {
+/// The pointer modifiers of one row tap, captured at POINTER-DOWN: a
+/// tap commits up to kDoubleTapTimeout later (rows carry both onTap
+/// and onDoubleTap), so reading HardwareKeyboard at commit time would
+/// miss a modifier released inside that window and silently downgrade
+/// a range or toggle gesture to a plain single-select.
+@immutable
+class _PointerModifiers {
+  const _PointerModifiers({
+    required this.shift,
+    required this.meta,
+    required this.control,
+  });
+
+  final bool shift;
+  final bool meta;
+  final bool control;
+}
+
+class _PaneRow extends StatefulWidget {
   const _PaneRow({
     required this.entry,
     required this.highlighted,
@@ -800,22 +830,30 @@ class _PaneRow extends StatelessWidget {
 
   final bool active;
   final DateTime Function() clock;
-  final VoidCallback onTap;
+  final ValueChanged<_PointerModifiers?> onTap;
   final VoidCallback onDoubleTap;
 
   @override
+  State<_PaneRow> createState() => _PaneRowState();
+}
+
+class _PaneRowState extends State<_PaneRow> {
+  _PointerModifiers? _downModifiers;
+
+  @override
   Widget build(BuildContext context) {
+    final widget = this.widget;
     final l10n = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
     final platform = Theme.of(context).platform;
 
     final size = formatPaneSize(
-      entry.type == RemoteFileType.directory ? null : entry.size,
+      widget.entry.type == RemoteFileType.directory ? null : widget.entry.size,
       platform: platform,
     );
     final modified = formatPaneModified(
-      entry.modifiedAt,
-      now: clock(),
+      widget.entry.modifiedAt,
+      now: widget.clock(),
       localeName: Localizations.localeOf(context).toString(),
       today: l10n.paneDateToday,
       yesterday: l10n.paneDateYesterday,
@@ -825,15 +863,19 @@ class _PaneRow extends StatelessWidget {
     // neutral tone. Selected rows keep a quieter tint than the cursor
     // row so the cursor stays identifiable inside a multi-selection
     // (02 §2.5's visible-selection rule).
-    final Color? rowColor = highlighted
-        ? (active ? colors.primaryContainer : colors.surfaceContainerHighest)
-        : selected
-        ? (active ? colors.secondaryContainer : colors.surfaceContainerHigh)
+    final Color? rowColor = widget.highlighted
+        ? (widget.active
+              ? colors.primaryContainer
+              : colors.surfaceContainerHighest)
+        : widget.selected
+        ? (widget.active
+              ? colors.secondaryContainer
+              : colors.surfaceContainerHigh)
         : null;
 
     // 02 §13: the row's kind is part of the announced label
     // (Name-Kind-Size-Date order); the icon carries it only visually.
-    final kind = switch (entry.type) {
+    final kind = switch (widget.entry.type) {
       RemoteFileType.file => l10n.paneRowKindFile,
       RemoteFileType.directory => l10n.paneRowKindDirectory,
       RemoteFileType.symbolicLink => l10n.paneRowKindSymbolicLink,
@@ -841,7 +883,7 @@ class _PaneRow extends StatelessWidget {
     };
 
     return Semantics(
-      label: l10n.paneRowSemantics(entry.name, kind, size, modified),
+      label: l10n.paneRowSemantics(widget.entry.name, kind, size, modified),
       // The composed label replaces the child text's own semantics —
       // without this, screen readers announce the name twice. The
       // excluded child no longer provides the tap action either, so
@@ -850,87 +892,102 @@ class _PaneRow extends StatelessWidget {
       // AT activation opens the row: a screen reader's activate gesture
       // is the row's primary verb here (the cursor-set single click is
       // a sighted-user convention; Enter covers it for keyboards).
-      onTap: onDoubleTap,
-      // The cursor row's highlight and the selection both announce
-      // (02 §13: selected state rides the merged row label).
-      selected: highlighted || selected,
+      onTap: widget.onDoubleTap,
+      // Announced membership follows the actual selection (02 §13),
+      // never the cursor: a plain move single-selects its row, so the
+      // cursor is announced selected except in the one state where it
+      // is not selected — a toggled-off row.
+      selected: widget.selected,
       child: Material(
         // The row owns its surface so ink feedback paints above the
         // row color (an opaque ColoredBox inside the InkWell would
         // cover the splash entirely).
         color: rowColor ?? colors.surface,
-        child: InkWell(
-          onTap: onTap,
-          onDoubleTap: onDoubleTap,
-          child: Stack(
-            children: [
-              Padding(
-                padding: const EdgeInsetsDirectional.only(
-                  start: 8 + _cursorBarWidth,
-                  end: 8,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      switch (entry.type) {
-                        RemoteFileType.directory => Icons.folder_outlined,
-                        RemoteFileType.symbolicLink => Icons.shortcut_outlined,
-                        _ => Icons.insert_drive_file_outlined,
-                      },
-                      size: 16,
-                      color: colors.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        entry.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
+        child: Listener(
+          // Capture the gesture's modifiers at pointer-down: the tap
+          // callback commits after the double-tap window.
+          onPointerDown: (event) {
+            final keyboard = HardwareKeyboard.instance;
+            _downModifiers = _PointerModifiers(
+              shift: keyboard.isShiftPressed,
+              meta: keyboard.isMetaPressed,
+              control: keyboard.isControlPressed,
+            );
+          },
+          child: InkWell(
+            onTap: () => widget.onTap(_downModifiers),
+            onDoubleTap: widget.onDoubleTap,
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                    start: 8 + _cursorBarWidth,
+                    end: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        switch (widget.entry.type) {
+                          RemoteFileType.directory => Icons.folder_outlined,
+                          RemoteFileType.symbolicLink =>
+                            Icons.shortcut_outlined,
+                          _ => Icons.insert_drive_file_outlined,
+                        },
+                        size: 16,
+                        color: colors.onSurfaceVariant,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: MediaQuery.textScalerOf(context).scale(64),
-                      child: Text(
-                        size,
-                        textAlign: TextAlign.end,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          widget.entry.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: MediaQuery.textScalerOf(context).scale(120),
-                      child: Text(
-                        modified,
-                        textAlign: TextAlign.end,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colors.onSurfaceVariant,
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: MediaQuery.textScalerOf(context).scale(64),
+                        child: Text(
+                          size,
+                          textAlign: TextAlign.end,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              // The cursor's shape marker, on the row's leading edge in
-              // both the active and the unfocused pane's tones.
-              if (highlighted)
-                PositionedDirectional(
-                  start: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: _cursorBarWidth,
-                  child: ColoredBox(
-                    color: active ? colors.primary : colors.onSurfaceVariant,
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: MediaQuery.textScalerOf(context).scale(120),
+                        child: Text(
+                          modified,
+                          textAlign: TextAlign.end,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.onSurfaceVariant),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-            ],
+                // The cursor's shape marker, on the row's leading edge in
+                // both the active and the unfocused pane's tones.
+                if (widget.highlighted)
+                  PositionedDirectional(
+                    start: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: _cursorBarWidth,
+                    child: ColoredBox(
+                      color: widget.active
+                          ? colors.primary
+                          : colors.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

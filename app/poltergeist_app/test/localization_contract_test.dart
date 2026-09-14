@@ -210,6 +210,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/pane_controller.dart': {
     // Loss uses a localized banner; the typed error has no raw diagnostic.
     "''",
+    "'row keys out of sync with entries'",
     "'reconnect'",
     "'~'",
     "'.'",

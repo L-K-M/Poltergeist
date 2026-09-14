@@ -165,6 +165,31 @@ void main() {
     return selected;
   }
 
+  testWidgets('shift-click keeps the range when Shift is released inside '
+      'the double-tap window', (tester) async {
+    await openFiveRows();
+    await pumpPanes(tester);
+
+    // Plain-select the first row.
+    await tapRow(tester, find.text('alpha'));
+    expect(selectedOf(left), {0});
+
+    // Shift-click m.txt, releasing Shift BEFORE the tap commits (rows
+    // carry both onTap and onDoubleTap, so the single tap waits out
+    // kDoubleTapTimeout): the gesture must still extend the range —
+    // sampling modifiers at commit time would collapse it to a single.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('m.txt')),
+    );
+    await gesture.up();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(selectedOf(left), {0, 1, 2, 3});
+    expect(left.cursorIndex, 3);
+  });
+
   testWidgets('a plain click single-selects the clicked row', (tester) async {
     await openFiveRows();
     await pumpPanes(tester);
@@ -470,7 +495,26 @@ void main() {
           )
           .getSemanticsData();
       expect(unselectedData.flagsCollection.isSelected, ui.Tristate.isFalse);
+
+      // A toggled-off row keeps the cursor but is no longer selected:
+      // the announced flag follows the selection, never the cursor.
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tapRow(tester, find.text('a.txt'));
+      await tapRow(tester, find.text('a.txt'));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(left.cursorIndex, 2);
+      expect(left.isRowSelected(2), isFalse);
+
+      final toggledOff = tester
+          .getSemantics(
+            find.bySemanticsLabel(RegExp(r'^a\.txt, file, 10 B, —$')),
+          )
+          .getSemanticsData();
+      expect(toggledOff.flagsCollection.isSelected, ui.Tristate.isFalse);
     } finally {
+      debugDefaultTargetPlatformOverride = null;
       semantics.dispose();
     }
   });
@@ -515,6 +559,14 @@ void main() {
           'the stale selection must not '
           'change while the overlay owns the pane',
     );
+
+    // The error shield is scoped to the listing subtree: the path bar
+    // stays the keyboard-adjacent recovery path while the error shows.
+    channel.listingFailure = null;
+    await tester.tap(find.text('tester'));
+    await tester.pumpAndSettle();
+    expect(left.error, isNull, reason: 'the path segment navigated away');
+    expect(find.text('m.txt'), findsOneWidget);
   });
 
   testWidgets('selection is inert while connection-lost', (tester) async {
@@ -627,9 +679,8 @@ void main() {
     }
   });
 
-  testWidgets('select-all keeps acting on the active pane from the toolbar', (
-    tester,
-  ) async {
+  testWidgets('Ctrl+A keeps acting on the active pane when the right '
+      'pane is active', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.linux;
     try {
       await openFiveRows();
@@ -639,7 +690,8 @@ void main() {
       await tester.pump();
       expect(workspace.activePane, right);
 
-      // The chord resolves the ACTIVE pane even with focus elsewhere.
+      // The chord resolves the ACTIVE pane — here the right one — from
+      // the workspace, regardless of which pane last took focus.
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);

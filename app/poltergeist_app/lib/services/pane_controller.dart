@@ -443,6 +443,13 @@ class PaneController extends ChangeNotifier {
     SelectionUpdate update = SelectionUpdate.single,
   }) {
     if (_disposed || _entries.isEmpty) return;
+    // Internal invariant: row identity mirrors the accepted listing.
+    // A future listing mutation that bypasses _applyEntries must fail
+    // loudly here, not activate the wrong row.
+    assert(
+      _rowKeys.length == _entries.length,
+      'row keys out of sync with entries',
+    );
     final clamped = index.clamp(0, _entries.length - 1);
     final before = _selection;
     _selection = _selection.activate(_rowKeys[clamped], update);

@@ -3617,23 +3617,27 @@ location change and binding replacement/detach; a same-location
 refresh (or a recovery re-list) keeps surviving identities and prunes
 on acceptance, and a healed recovery listing prunes without reviving
 stale-generation results. Esc-cancel restores the snapshot's selection
-with its entries. Selected rows render a quieter container tint than
-the cursor row and carry a leading 3 px cursor bar — the bar is the
+with its entries. Selected rows render a quieter container tint; the
+cursor row additionally carries a leading 3 px bar — the bar is the
 cursor's shape cue (M3's `primaryContainer`/`secondaryContainer` are
 visually too close to carry it alone, confirmed by capture review);
 the unfocused pane drops both to neutral tones (02 §2.1). Row semantics
 announce selected state (02 §13). The stale rows under an inline error
-are now pointer-inert too (an explicit shield behind the error card,
-matching the key and semantics gates). Esc's deselect tier, the
+are now pointer-inert too (an `IgnorePointer` scoped to the listing
+subtree behind the error card, matching the key and semantics gates). Esc's deselect tier, the
 context-menu select-on-right-click, Quick Select hand-off wiring, and
 type-ahead remain with their owning slices; no Quick Select/filter/
 type-ahead surface or file operation was added.
 
 Validation: regression-first — the new controller and widget tests
 failed to compile against the pre-slice API (missing methods/params,
-the new-feature red; logs under `tasks/run3-task29/`), and one real
+the new-feature red; logs under `tasks/run3-task29/`), one real
 regression was caught by the existing suite during development (Esc
-restore briefly dropped the snapshot error; repaired before commit).
+restore briefly dropped the snapshot error; repaired before commit),
+and review round 1's confirmed modifier race was reproduced red first
+(Shift released inside the double-tap window collapsed a range click
+to a single; modifiers are now captured at pointer-down, in the row,
+before the delayed tap commits) before its repair.
 New coverage: controller-level gesture semantics (single/toggle/range
 grow+shrink both directions, adopted-anchor stability across pruning,
 select-all/invert incl. empty listings), same-location refresh
