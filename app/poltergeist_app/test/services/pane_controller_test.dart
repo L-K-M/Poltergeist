@@ -93,12 +93,16 @@ class FakePaneChannel implements AppBrowseChannel {
 
   final listings = <String, List<RemoteFileEntry>>{};
   final listCalls = <String>[];
+  final watchEvents = StreamController<DirectoryWatchEvent>.broadcast();
   int closeCalls = 0;
   Completer<void>? holdNext;
 
   /// When set, every listing throws this non-VFS error (drives the
   /// typed PaneFault list path).
   Object? listingFailure;
+
+  @override
+  Stream<DirectoryWatchEvent> get directoryChanges => watchEvents.stream;
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
@@ -123,8 +127,15 @@ class FakePaneChannel implements AppBrowseChannel {
   }
 
   @override
+  Future<void> watchDirectory(String path) async {}
+
+  @override
+  Future<void> unwatchDirectory() async {}
+
+  @override
   Future<void> close() async {
     closeCalls++;
+    if (!watchEvents.isClosed) await watchEvents.close();
   }
 }
 
@@ -342,11 +353,13 @@ void main() {
     lanes.nextLocalChannel = channel;
     final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
     await controller.openLocalHome();
+    await settle();
 
     // Hold the listing for a, then navigate away to b before it answers.
     final hold = Completer<void>();
     channel.holdNext = hold;
     controller.navigate('/home/tester/a');
+    await settle();
     controller.navigate('/home/tester/b');
     await Future<void>.delayed(Duration.zero);
 
@@ -422,6 +435,7 @@ void main() {
     final hold = Completer<void>();
     channel.holdNext = hold;
     controller.navigate('/home/tester/slow');
+    await settle();
     controller.cancelNavigation();
 
     expect(controller.loading, isFalse);
@@ -640,6 +654,7 @@ void main() {
     await settle();
 
     controller.dispose();
+    await settle();
 
     expect(channel.closeCalls, 1);
   });

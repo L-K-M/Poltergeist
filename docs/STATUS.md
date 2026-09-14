@@ -41,8 +41,8 @@ the per-location view-pref persistence — are implemented below; the
 pane foundation implements 02 §2.8's machine inline, and each
 model's wiring (comparator, selection, prefs) rides its owning
 slice, as does the engine-side local directory watch seam (pane
-refresh wiring itself remains open). Upstream listing cancellation remains
-open item 12: this foundation cancels presentation, not in-flight VFS I/O.
+refresh wiring is recorded below). Upstream listing cancellation remains open
+item 12: this foundation cancels presentation, not in-flight VFS I/O.
 
 ## Done
 
@@ -3842,6 +3842,34 @@ controller), and workspace shell — 161 green
 app analyze clean; full app suite 631 green
 (`sibling-race-full-app-final.log`). Core, benchmark, pins, and
 dependencies untouched.
+
+## M3 — active-pane directory watch wiring (2026-09-14)
+
+The app now consumes 03 §7.5's engine watch seam. `AppBrowseChannel` mirrors
+the typed stream and controls. A local pane subscribes before its first watch,
+arms the current path before the authoritative listing, keeps a live watch
+across same-path refreshes, and retargets on navigation. `changed` re-lists
+once; `lost` clears the old watch and immediately re-arms plus re-lists. A
+watched refresh returning `notFound` or `LocalPathTypeChangedException` drops
+the watch. Remote panes never subscribe or request polling.
+
+Watch intent uses explicit idle/installing/live state plus bind, navigation,
+watch-generation, channel, path, activity, and disposal guards. Esc restores
+the prior watch. Background tabs unwatch and refresh when activated; current
+one-tab panes default active. Rebind and disposal await engine unwatch, issue
+UI-stream cancellation, then close the channel. UI cancellation does not gate
+rebinding because its broadcast future completes on the event loop; the guards
+already reject late callbacks.
+
+Thirteen controller regressions cover ordering, ordinary/lost refresh, early
+loss, stale paths and late completions, navigation/cancel, watch errors,
+vanished roots, remote exclusion, tab activity, rebind, and disposal. The
+pre-wiring run failed 7/8 initial cases; the strengthened 13-case suite passes.
+App analysis is clean and all 644 tests pass. Core analysis and 809 tests pass
+(16 fixture skips); import and protocol guards pass. No visual, dependency,
+benchmark, source-port, or PORTS change. Exact event-path matching still
+assumes VFS-derived canonical paths (item 20); Linux/macOS ancestor loss remains
+item 18. M3 remains open.
 
 ## Open items
 

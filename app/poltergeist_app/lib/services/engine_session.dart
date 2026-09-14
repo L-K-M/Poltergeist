@@ -65,7 +65,14 @@ abstract interface class AppEngine implements PromptBridge, ProbeBridge, PaneEng
 abstract interface class AppBrowseChannel {
   String get homePath;
 
+  /// Live invalidations for the one local directory this channel watches.
+  Stream<DirectoryWatchEvent> get directoryChanges;
+
   Future<List<RemoteFileEntry>> listDirectory(String path);
+
+  Future<void> watchDirectory(String path);
+
+  Future<void> unwatchDirectory();
 
   Future<void> close();
 }
@@ -181,8 +188,7 @@ final class _EngineClientAppEngine implements AppEngine {
   Future<void> shutdown() => _client.shutdown();
 }
 
-/// [EngineClient]'s channel behind the app composition's seam (the same
-/// three members; interfaces stay nominal across the port).
+/// [EngineClient]'s channel behind the app composition's nominal seam.
 final class _EngineClientChannel implements AppBrowseChannel {
   _EngineClientChannel(this._channel);
 
@@ -192,8 +198,18 @@ final class _EngineClientChannel implements AppBrowseChannel {
   String get homePath => _channel.homePath;
 
   @override
+  Stream<DirectoryWatchEvent> get directoryChanges =>
+      _channel.directoryChanges;
+
+  @override
   Future<List<RemoteFileEntry>> listDirectory(String path) =>
       _channel.listDirectory(path);
+
+  @override
+  Future<void> watchDirectory(String path) => _channel.watchDirectory(path);
+
+  @override
+  Future<void> unwatchDirectory() => _channel.unwatchDirectory();
 
   @override
   Future<void> close() => _channel.close();
