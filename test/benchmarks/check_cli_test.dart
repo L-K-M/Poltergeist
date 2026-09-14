@@ -54,6 +54,23 @@ void main() {
     return (exitCode, out.text, err.text);
   }
 
+  /// The drift fixture shared by the drift-state battery: three P1
+  /// repetitions in profile mode on a mismatching CPU model.
+  Future<String> writeDriftResults() => writeFixture(
+    'results.json',
+    _resultsJson(
+      rows: [
+        for (var i = 0; i < 3; i++)
+          _rowJson(
+            scenario: 'P1',
+            repetition: i,
+            unit: 'ms',
+            fingerprint: _fingerprintJson(mode: 'profile', cpuModel: 'new-cpu'),
+          ),
+      ],
+    ),
+  );
+
   test('usage errors exit 64 with the usage text on stderr', () async {
     final (exitCodeValue, stdoutText, stderrText) = await runChecker(
       arguments: ['--tiers', 'a'],
@@ -79,6 +96,185 @@ void main() {
       expect(stderrText, contains('BENCH_ENFORCE_A must be 0/1/true/false'));
     },
   );
+
+  test(
+    'a results file with invalid UTF-8 bytes exits 65, not a crash',
+    () async {
+      final budgets = await writeFixture('budgets.json', _budgetsJson());
+      final binary = File(pathOf('results.json'));
+      await binary.writeAsBytes([0x7b, 0x22, 0x61, 0xff, 0xfe, 0x7d]);
+      final (exitCodeValue, _, stderrText) = await runChecker(
+        arguments: [
+          '--results',
+          binary.path,
+          '--tiers',
+          'a',
+          '--budgets',
+          budgets,
+        ],
+      );
+      expect(exitCodeValue, 65, reason: stderrText);
+      expect(stderrText, contains('not valid UTF-8 or JSON'));
+    },
+  );
+
+  test(
+    'an unreadable existing drift-state file counts as unknown history',
+    () async {
+      final chmod = await Process.run('chmod', ['--version']);
+      if (chmod.exitCode != 0) {
+        // dart_tools (Ubuntu) and Linux dev hosts always have chmod; skip
+        // elsewhere rather than fake the read failure.
+        return;
+      }
+      final budgets = await writeFixture(
+        'budgets.json',
+        _budgetsJson(landedIds: {'P1'}),
+      );
+      final baseline = await writeFixture(
+        'baseline.json',
+        _baselineJson(cpuModel: 'baseline-cpu'),
+      );
+      final results = await writeDriftResults();
+      // Exists but unreadable (EACCES): history loss, not an exit-74 abort —
+      // the usage text promises "missing/unreadable means unknown history".
+      final locked = File(pathOf('locked-state.json'));
+      await locked.writeAsString(
+        jsonEncode(const DriftState({}).toJson('2026-09-14T00:00:00Z')),
+      );
+      final lock = await Process.run('chmod', ['000', locked.path]);
+      expect(lock.exitCode, 0, reason: lock.stderr as String);
+      try {
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+            '--drift-state',
+            locked.path,
+          ],
+          environment: {'BENCH_ENFORCE_B': '1'},
+        );
+        expect(exitCodeValue, 1, reason: 'conservative counting reddens');
+        expect(stdoutText, contains('drift history unknown'));
+      } finally {
+        await Process.run('chmod', ['644', locked.path]);
+      }
+    },
+  );
+
+  test('an unknown-history state still prints its notice when no drift '
+      'fires this run', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    final baseline = await writeFixture('baseline.json', _baselineJson());
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(mode: 'profile'),
+            ),
+        ],
+      ),
+    );
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+        '--drift-state',
+        pathOf('never-existed.json'),
+      ],
+    );
+    expect(exitCodeValue, 0);
+    expect(stdoutText, contains('drift history unknown'));
+  });
+
+  test('a tier-B controlled-axis mismatch fails once per axis, not once '
+      'per scenario', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1', 'P4'}),
+    );
+    final baseline = await writeFixture(
+      'baseline.json',
+      _baselineJson(
+        runnerImage: 'image-2026',
+        scenarios: {
+          'P1': {'median': 100, 'unit': 'ms', 'repetitions': 3},
+          'P4': {'median': 80, 'unit': 'ms', 'repetitions': 3},
+        },
+      ),
+    );
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(
+                mode: 'profile',
+                runnerImage: 'image-2027',
+              ),
+            ),
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P4',
+              repetition: i,
+              value: 80,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(
+                mode: 'profile',
+                runnerImage: 'image-2027',
+              ),
+            ),
+        ],
+      ),
+    );
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+      environment: {'BENCH_ENFORCE_B': '1'},
+    );
+    expect(exitCodeValue, 1);
+    final failureLines = stdoutText
+        .split('\n')
+        .where((line) => line.startsWith('FAIL: tier-B baseline'))
+        .toList();
+    expect(
+      failureLines,
+      hasLength(1),
+      reason: 'one failure per mismatching axis, not per scenario',
+    );
+  });
 
   test('malformed budgets exit 65; unreadable files exit 74', () async {
     final results = await writeFixture(
@@ -141,7 +337,10 @@ void main() {
         environment: {'BENCH_ENFORCE_A': '1'},
       );
       expect(exitCodeValue, 0, reason: stdoutText);
-      expect(stdoutText, contains('pass'));
+      expect(
+        stdoutText,
+        contains(RegExp(r'^P3\s+a\s.*\spass$', multiLine: true)),
+      );
       // The median of 40..44 is 42.
       expect(stdoutText, contains('42 ms (median of 5)'));
     },
@@ -474,7 +673,10 @@ void main() {
         environment: {'BENCH_ENFORCE_B': '1'},
       );
       expect(exitCodeValue, 0, reason: stdoutText);
-      expect(stdoutText, contains('pass'));
+      expect(
+        stdoutText,
+        contains(RegExp(r'^P1\s+b\s.*\spass$', multiLine: true)),
+      );
 
       final over = await writeFixture(
         'over.json',
@@ -656,23 +858,7 @@ void main() {
         'baseline.json',
         _baselineJson(cpuModel: 'baseline-cpu'),
       );
-      final results = await writeFixture(
-        'results.json',
-        _resultsJson(
-          rows: [
-            for (var i = 0; i < 3; i++)
-              _rowJson(
-                scenario: 'P1',
-                repetition: i,
-                unit: 'ms',
-                fingerprint: _fingerprintJson(
-                  mode: 'profile',
-                  cpuModel: 'new-cpu',
-                ),
-              ),
-          ],
-        ),
-      );
+      final results = await writeDriftResults();
       final statePath = pathOf('drift-state.json');
       // A prior clean main run's state: the progression below then counts
       // 1..6 on known history (a missing state would count conservatively
@@ -786,23 +972,7 @@ void main() {
         'baseline.json',
         _baselineJson(cpuModel: 'baseline-cpu'),
       );
-      final results = await writeFixture(
-        'results.json',
-        _resultsJson(
-          rows: [
-            for (var i = 0; i < 3; i++)
-              _rowJson(
-                scenario: 'P1',
-                repetition: i,
-                unit: 'ms',
-                fingerprint: _fingerprintJson(
-                  mode: 'profile',
-                  cpuModel: 'new-cpu',
-                ),
-              ),
-          ],
-        ),
-      );
+      final results = await writeDriftResults();
       final statePath = pathOf('drift-state.json');
       await File(statePath).writeAsString(
         jsonEncode(const DriftState({}).toJson('2026-09-14T00:00:00Z')),
@@ -842,23 +1012,7 @@ void main() {
         'baseline.json',
         _baselineJson(cpuModel: 'baseline-cpu'),
       );
-      final results = await writeFixture(
-        'results.json',
-        _resultsJson(
-          rows: [
-            for (var i = 0; i < 3; i++)
-              _rowJson(
-                scenario: 'P1',
-                repetition: i,
-                unit: 'ms',
-                fingerprint: _fingerprintJson(
-                  mode: 'profile',
-                  cpuModel: 'new-cpu',
-                ),
-              ),
-          ],
-        ),
-      );
+      final results = await writeDriftResults();
       final statePath = pathOf('drift-state.json');
       await runChecker(
         arguments: [
@@ -1063,6 +1217,11 @@ void main() {
           rows: [for (var i = 0; i < 5; i++) _rowJson(repetition: i)],
         ),
       );
+      // Scrub ambient enforcement variables so the soft expectation does
+      // not depend on the host environment.
+      final environment = Map<String, String>.of(Platform.environment)
+        ..remove('BENCH_ENFORCE_A')
+        ..remove('BENCH_ENFORCE_B');
       final result = await Process.run(Platform.resolvedExecutable, [
         'run',
         'test/benchmarks/check.dart',
@@ -1072,9 +1231,12 @@ void main() {
         'a',
         '--budgets',
         budgets,
-      ]);
+      ], environment: environment);
       expect(result.exitCode, 0, reason: result.stderr as String);
-      expect(result.stdout as String, contains('pass'));
+      expect(
+        result.stdout as String,
+        contains(RegExp(r'^P3\s+a\s.*\spass$', multiLine: true)),
+      );
     });
 
     test('a missing expected scenario exits 1 in a real process', () async {
@@ -1132,8 +1294,12 @@ class MemorySink implements IOSink {
   @override
   void add(List<int> data) => _buffer.write(utf8.decode(data));
 
+  /// Recorded so a test can prove the CLI never routed output through
+  /// the error path (a silently-discarded addError would pass vacuously).
+  final errors = <Object>[];
+
   @override
-  void addError(Object error, [StackTrace? stackTrace]) {}
+  void addError(Object error, [StackTrace? stackTrace]) => errors.add(error);
 
   @override
   void writeAll(Iterable<Object?> objects, [String separator = '']) =>
@@ -1149,7 +1315,11 @@ class MemorySink implements IOSink {
   set encoding(Encoding encoding) {}
 
   @override
-  Future<void> addStream(Stream<List<int>> stream) => Future.value();
+  Future<void> addStream(Stream<List<int>> stream) async {
+    await for (final chunk in stream) {
+      add(chunk);
+    }
+  }
 
   @override
   Future<void> close() => Future.value();
@@ -1222,6 +1392,9 @@ Map<String, Object?> _rowJson({
 Map<String, Object?> _baselineJson({
   String runnerImage = 'image-2026',
   String cpuModel = 'test-cpu',
+  Map<String, Object?> scenarios = const {
+    'P1': {'median': 100, 'unit': 'ms', 'repetitions': 3},
+  },
 }) => {
   'schema': baselineSchemaId,
   'fingerprint': _fingerprintJson(
@@ -1229,9 +1402,7 @@ Map<String, Object?> _baselineJson({
     runnerImage: runnerImage,
     cpuModel: cpuModel,
   ),
-  'scenarios': {
-    'P1': {'median': 100, 'unit': 'ms', 'repetitions': 3},
-  },
+  'scenarios': scenarios,
 };
 
 Map<String, Object?> _fingerprintJson({

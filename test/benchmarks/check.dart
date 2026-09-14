@@ -132,6 +132,9 @@ Future<void> checkMain(
     return;
   }
 
+  // One timestamp per run: evaluation and any state write share it, so
+  // the persisted instant can never drift past the evaluation instant.
+  final nowUtc = DateTime.now().toUtc().toIso8601String();
   try {
     final catalog = BudgetCatalog.fromJson(
       await _readJsonDocument(cli.budgets, 'budgets.json'),
@@ -162,9 +165,12 @@ Future<void> checkMain(
           );
           stateUnknown = false;
         } on CheckDataException {
-          // Unreadable/undecodable state is history loss, not a data
-          // error: counting continues conservatively (08 §6), never a
-          // reset.
+          // Undecodable state is history loss, not a data error:
+          // counting continues conservatively (08 §6), never a reset.
+        } on FileSystemException {
+          // So is an unreadable file (EACCES, vanished between exists()
+          // and read): the usage text promises "missing/unreadable means
+          // unknown history", not an exit-74 abort.
         }
       }
     }
@@ -180,7 +186,7 @@ Future<void> checkMain(
       stateConfigured: driftStatePath != null,
       enforceA: enforceA,
       enforceB: enforceB,
-      nowUtc: DateTime.now().toUtc().toIso8601String(),
+      nowUtc: nowUtc,
     );
 
     _printReport(
@@ -192,7 +198,7 @@ Future<void> checkMain(
     );
 
     if (report.newState != null && updateDriftState) {
-      await _writeDriftState(driftStatePath!, report.newState!);
+      await _writeDriftState(driftStatePath!, report.newState!, nowUtc);
     }
 
     exitCode = report.exitCode;
@@ -200,7 +206,12 @@ Future<void> checkMain(
     _fail(stderrSink, '$error', dataExitCode);
     return;
   } on FileSystemException catch (error) {
-    _fail(stderrSink, error.message, ioExitCode);
+    _fail(
+      stderrSink,
+      'I/O error${error.path == null ? '' : ' (${error.path})'}: '
+      '${error.message}',
+      ioExitCode,
+    );
     return;
   }
 }
@@ -318,12 +329,16 @@ bool? _parseEnforceFlag(String? raw) {
 }
 
 Future<Object?> _readJsonDocument(String path, String source) async {
-  final content = await File(path).readAsString();
+  // Read raw bytes first: a genuine IO failure (missing/unreadable file)
+  // must stay an IO exit (74), while a decode failure below is malformed
+  // input (65). File.readAsString would conflate the two — it wraps its
+  // UTF-8 decode errors in a FileSystemException.
+  final bytes = await File(path).readAsBytes();
   try {
-    return jsonDecode(content);
+    return jsonDecode(utf8.decode(bytes));
   } on FormatException catch (error) {
     throw CheckDataException(
-      '$source ($path) is not valid JSON: ${error.message}',
+      '$source ($path) is not valid UTF-8 or JSON: ${error.message}',
     );
   }
 }
@@ -361,13 +376,17 @@ void _printReport(
 /// Atomic temp-file + rename, mirroring the harness's result store: a torn
 /// write must never leave a valid-looking state behind, and an unrelated
 /// file is never touched (only `<path>` and `<path>.tmp` are written).
-Future<void> _writeDriftState(String path, DriftState state) async {
+Future<void> _writeDriftState(
+  String path,
+  DriftState state,
+  String nowUtc,
+) async {
   final target = File(path).absolute;
   await target.parent.create(recursive: true);
   final encoder = JsonEncoder.withIndent('  ');
   final temporary = File('${target.path}.tmp');
   await temporary.writeAsString(
-    '${encoder.convert(state.toJson(DateTime.now().toUtc().toIso8601String()))}\n',
+    '${encoder.convert(state.toJson(nowUtc))}\n',
     flush: true,
   );
   await temporary.rename(target.path);

@@ -3428,16 +3428,38 @@ and tier-B profile rows into one file), so mode is validated per store
 (row eligibility, calibration/baseline mode checks) instead — pinned by
 tests. Drift-state writes are atomic temp+rename and touch nothing else.
 
+Review round 1 (all findings triaged in the PR description; every
+behavioral fix's regression failed before its repair): invalid UTF-8 in
+an input document now exits 65 instead of surfacing as an IO error
+(bytes are read raw, then decoded inside the malformed-input guard); an
+existing-but-unreadable drift-state file counts as unknown history
+instead of aborting with 74; negative baseline medians keep the
+regression sign (magnitude division); a hand-built ResultsFile with an
+uncatalogued scenario is rejected explicitly instead of hitting a
+null-check; tier-B fingerprint drift is evaluated once per run, so
+enforced controlled-axis failures and notices appear once per
+mismatching axis, not once per landed scenario; the unknown-history
+notice prints whenever the state was unreadable, not only when drift
+fired. Minor hardening applied alongside: single-run timestamp shared
+by evaluation and the state write, IO errors name the offending path,
+fromJson always returns a validated catalog, eligible-mode literals
+single-sourced, ambient BENCH_ENFORCE_* scrubbed from soft-mode tests,
+pass-row assertions anchored on the table row, and the drift fixture
+deduplicated. Declined: renaming calibratedFingerprint (documented,
+versioned schema — churn), and skipping the state write on an
+unknown-history clean run (the plan's clean-run reset is run-scoped;
+skipping would leave enforcement hair-triggered after state loss).
+
 Validation: `dart analyze test/benchmarks` clean; `dart test
-test/benchmarks` 75/75 (72 new: pure arithmetic/validation incl. the
+test/benchmarks` 81/81 (78 new: pure arithmetic/validation incl. the
 committed-catalog mirror of 02 §12, CLI-level fixtures in temp dirs
 covering scoped expectations, repetition floors, soft/enforced
 combinations, both drift axes, drift progression/reset/PR-read-only,
-and three real-subprocess runs pinning process exits; plus the 3
-pre-existing relocation contracts). Logs:
-tasks/run3-task25/. No CI wiring needed: the dart_tools job already
-analyzes/tests `test/benchmarks`. Scope is the checker only — no
-collectors, scenarios, bench CI job, calibration, or enforcement
+conservative unknown history, dedup, and three real-subprocess runs
+pinning process exits; plus the 3 pre-existing relocation contracts).
+Logs: tasks/run3-task25/. No CI wiring needed: the dart_tools job
+already analyzes/tests `test/benchmarks`. Scope is the checker only —
+no collectors, scenarios, bench CI job, calibration, or enforcement
 activation; item 21 stays open for those.
 
 ## Open items

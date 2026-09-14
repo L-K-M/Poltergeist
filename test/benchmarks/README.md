@@ -19,7 +19,9 @@ dart run test/benchmarks/check.dart --results <bench-results.json> \
 Exit codes: `0` success (including soft overruns and drift skips that 08
 §6 keeps non-failing), `1` graded failure (missing/errored expected
 scenario in every mode; overruns/drift once the tier's enforcement flag
-is set), `64` usage, `65` malformed input documents, `74` IO errors.
+is set — and a declared tier whose baseline file is absent once that
+tier is enforced), `64` usage, `65` malformed input documents (including
+files that are not valid UTF-8), `74` IO errors.
 
 `BENCH_ENFORCE_A` / `BENCH_ENFORCE_B` (environment) carry the two tiers'
 separate enforcement semantics (08 §6). Accepted values are
@@ -82,12 +84,13 @@ CPU-model axis skips with a notice and never auto-reddens on its own.
 The bench job planned in 08 §8 will: write `bench-results.json` for the
 tiers it ran; pass `--tiers ab` on main/dispatch and `--tiers a` on PR
 runs; fetch the drift state from the latest main-branch bench job's
-artifact (the state rides inside `bench-results.json` or its own
-always-uploaded artifact; an `actions/cache` entry keyed on the
-fingerprint is the documented alternative single state store) and pass
-it via `--drift-state`; add `--update-drift-state` on main-branch runs
-only; and run this checker with `if: always()` so partial results are
-graded. None of that wiring exists in this offline checker.
+artifact and pass it via `--drift-state` (the checker's drift state is
+its own standalone JSON file; the job uploads it as an always-present
+artifact — or keeps it in an `actions/cache` entry keyed on the
+fingerprint, the documented alternative single state store); add
+`--update-drift-state` on main-branch runs only; and run this checker
+with `if: always()` so partial results are graded. None of that wiring
+exists in this offline checker.
 
 ## Tests
 

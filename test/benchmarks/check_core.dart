@@ -232,7 +232,7 @@ class BudgetCatalog {
       scenarios[budget.id] = budget;
     }
     final calibrated = map['calibratedFingerprint'];
-    return BudgetCatalog(
+    final catalog = BudgetCatalog(
       calibrated == null
           ? null
           : BenchFingerprint.fromJson(
@@ -241,6 +241,11 @@ class BudgetCatalog {
             ),
       scenarios,
     );
+    // Parse always yields a validated catalog: the landed-tier-A and
+    // calibration-mode invariants must not depend on every caller
+    // remembering the separate validateCatalog() call.
+    catalog.validateCatalog();
+    return catalog;
   }
 
   /// A landed tier-A scenario without a committed calibration could never
@@ -250,9 +255,11 @@ class BudgetCatalog {
   /// mode is a miscalibration.
   void validateCatalog() {
     final calibrationMode = calibratedFingerprint?.mode;
-    if (calibratedFingerprint != null && calibrationMode != 'aot') {
+    if (calibratedFingerprint != null &&
+        calibrationMode != eligibleModeByTier[BenchTier.a]) {
       throw CheckDataException(
-        'budgets.json: calibratedFingerprint.mode must be "aot" for '
+        'budgets.json: calibratedFingerprint.mode must be '
+        '"${eligibleModeByTier[BenchTier.a]}" for '
         'tier-A budgets (got "$calibrationMode")',
       );
     }
@@ -497,9 +504,10 @@ class TierBBaseline {
       map['fingerprint'],
       'tier-B baseline: fingerprint',
     );
-    if (fingerprint.mode != 'profile') {
+    if (fingerprint.mode != eligibleModeByTier[BenchTier.b]) {
       throw CheckDataException(
-        'tier-B baseline: fingerprint.mode must be "profile" for tier-B '
+        'tier-B baseline: fingerprint.mode must be '
+        '"${eligibleModeByTier[BenchTier.b]}" for tier-B '
         'measurements (got "${fingerprint.mode}")',
       );
     }
@@ -681,9 +689,10 @@ double regressionFraction(
     }
     return current < 0 ? double.infinity : 0;
   }
-  return isLowerBetter
-      ? (current - baseline) / baseline
-      : (baseline - current) / baseline;
+  // Divide by the magnitude: a schema-valid but negative baseline must
+  // keep the regression sign instead of silently flipping it.
+  final delta = isLowerBetter ? current - baseline : baseline - current;
+  return delta / baseline.abs();
 }
 
 /// Median of [values]; an even count averages the two central values.
@@ -751,6 +760,59 @@ CheckReport evaluate({
   var comparisonsHappened = false;
   final rowsByScenario = _rowsByScenario(results);
 
+  assert(
+    !stateConfigured || stateUnknown || priorState != null,
+    'stateConfigured requires priorState or stateUnknown',
+  );
+
+  // Tier-B drift is a property of the baseline vs the run, not of any
+  // single scenario: evaluate it once per run so failures and notices
+  // appear once per mismatching axis, never once per scenario.
+  var tierBDrifted = false;
+  if (tiers.contains(BenchTier.b) && baseline != null) {
+    final controlled = baseline.fingerprint.controlledMismatches(
+      results.fingerprint,
+    );
+    if (controlled.isNotEmpty) {
+      tierBDrifted = true;
+      for (final entry in controlled.entries) {
+        firedDriftKeys.add('tier-b/controlled/${entry.key}');
+        final mismatch =
+            'controlled axis ${entry.key} '
+            '(${entry.value.$1} != ${entry.value.$2})';
+        if (enforceB) {
+          failures.add(
+            'tier-B baseline $mismatch while BENCH_ENFORCE_B is set — '
+            'refresh the baseline via a dedicated baseline-refresh PR '
+            '(08 §6)',
+          );
+        } else {
+          notices.add(
+            'NOTICE: hardware drift — recalibrate: tier-B $mismatch; '
+            'baseline comparison skipped (soft mode)',
+          );
+        }
+      }
+      notices.add(
+        'NOTICE: hardware drift — recalibrate: tier-B controlled-axis '
+        'mismatch against the committed baseline at '
+        '${baselinePath ?? '<unspecified>'}; comparison skipped, never '
+        'cross-compared',
+      );
+      _printRefreshProcedure(notices);
+    } else if (baseline.fingerprint.cpuModel != results.fingerprint.cpuModel) {
+      tierBDrifted = true;
+      firedDriftKeys.add('tier-b/cpu');
+      notices.add(
+        'NOTICE: hardware drift — refresh the baseline: tier-B CPU model '
+        'mismatch (${baseline.fingerprint.cpuModel} != '
+        '${results.fingerprint.cpuModel}); comparison skipped, never '
+        'cross-compared and never auto-reddened on its own',
+      );
+      _printRefreshProcedure(notices);
+    }
+  }
+
   void tableRow(
     String scenario,
     BenchTier tier,
@@ -766,8 +828,17 @@ CheckReport evaluate({
 
   // Scope rule: expectations come only from the declared tiers' landed
   // scenarios (08 §6). Rows for other tiers are printed, not judged.
+  // ResultsFile.fromJson rejects unknown ids at parse; a hand-built
+  // ResultsFile (public constructor) gets the same explicit rejection
+  // here rather than a null-check crash further down.
   for (final row in rowsByScenario.entries) {
-    final budget = catalog.scenarios[row.key]!;
+    final budget = catalog.scenarios[row.key];
+    if (budget == null) {
+      throw CheckDataException(
+        'results file: unknown scenario id ${row.key} — budgets.json '
+        'must carry every scenario the harness reports (landed or not)',
+      );
+    }
     if (!tiers.contains(budget.tier)) {
       final measured = row.value.any((r) => r.isOk)
           ? '${row.value.length} row(s) present'
@@ -822,7 +893,7 @@ CheckReport evaluate({
       );
     }
 
-    if (eligible.length < budget.minimumRepetitions) {
+    if (eligible.isEmpty || eligible.length < budget.minimumRepetitions) {
       // Missing, errored, or invalid observations of an expected scenario
       // fail in every mode: soft mode softens overruns only.
       String reason;
@@ -878,9 +949,8 @@ CheckReport evaluate({
         measured: measured,
         baseline: baseline,
         baselinePath: baselinePath,
-        results: results,
         enforceB: enforceB,
-        firedDriftKeys: firedDriftKeys,
+        drifted: tierBDrifted,
         table: table,
         notices: notices,
         failures: failures,
@@ -934,7 +1004,7 @@ CheckReport evaluate({
   // loud but never redden, in every mode, per 08 §6).
   DriftState? newState;
   if (stateConfigured) {
-    if (priorState == null && stateUnknown && firedDriftKeys.isNotEmpty) {
+    if (priorState == null && stateUnknown) {
       notices.add(
         'NOTICE: drift history unknown (state missing or unreadable): '
         'counting conservatively at the escalation threshold, never as a '
@@ -1076,17 +1146,17 @@ void _evaluateTierB({
   required String measured,
   required TierBBaseline? baseline,
   required String? baselinePath,
-  required ResultsFile results,
   required bool enforceB,
-  required Set<String> firedDriftKeys,
+  required bool drifted,
   required List<String> table,
   required List<String> notices,
   required List<String> failures,
   required void Function(String, BenchTier, String, String, String) tableRow,
 }) {
-  void driftSkip(String reason) {
-    notices.add(reason);
-    _printRefreshProcedure(notices);
+  // Fingerprint drift against the baseline was evaluated once per run by
+  // the caller (notices/failures/streak keys already emitted); here it
+  // only marks the per-scenario rows.
+  if (drifted) {
     tableRow(
       budget.id,
       budget.tier,
@@ -1094,6 +1164,7 @@ void _evaluateTierB({
       'baseline trend',
       'skipped: hardware drift',
     );
+    return;
   }
 
   if (baseline == null) {
@@ -1105,46 +1176,6 @@ void _evaluateTierB({
       measured,
       'baseline trend',
       'skipped: no committed baseline',
-    );
-    return;
-  }
-  final controlled = baseline.fingerprint.controlledMismatches(
-    results.fingerprint,
-  );
-  if (controlled.isNotEmpty) {
-    for (final entry in controlled.entries) {
-      firedDriftKeys.add('tier-b/controlled/${entry.key}');
-      final mismatch =
-          'controlled axis ${entry.key} '
-          '(${entry.value.$1} != ${entry.value.$2})';
-      if (enforceB) {
-        failures.add(
-          'tier-B baseline $mismatch while BENCH_ENFORCE_B is set — '
-          'refresh the baseline via a dedicated baseline-refresh PR '
-          '(08 §6)',
-        );
-      } else {
-        notices.add(
-          'NOTICE: hardware drift — recalibrate: tier-B $mismatch; '
-          'baseline comparison skipped (soft mode)',
-        );
-      }
-    }
-    driftSkip(
-      'NOTICE: hardware drift — recalibrate: tier-B controlled-axis '
-      'mismatch against the committed baseline at '
-      '${baselinePath ?? '<unspecified>'}; comparison skipped, never '
-      'cross-compared',
-    );
-    return;
-  }
-  if (baseline.fingerprint.cpuModel != results.fingerprint.cpuModel) {
-    firedDriftKeys.add('tier-b/cpu');
-    driftSkip(
-      'NOTICE: hardware drift — refresh the baseline: tier-B CPU model '
-      'mismatch (${baseline.fingerprint.cpuModel} != '
-      '${results.fingerprint.cpuModel}); comparison skipped, never '
-      'cross-compared and never auto-reddened on its own',
     );
     return;
   }

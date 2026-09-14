@@ -1,5 +1,7 @@
 // Unit tests for the D12 checker's pure arithmetic and validation
-// (08 §1 principle 2: pure logic tested without any IO).
+// (08 §1 principle 2: the checker's logic is pure and exercised here
+// without the CLI's IO; the suite's single file access is the committed
+// budgets.json fixture read at the bottom of this file).
 library;
 
 import 'dart:convert';
@@ -68,6 +70,16 @@ void main() {
       const upper = BudgetOperator.atLeast;
       expect(regressionFraction(upper, 0, 0), 0);
       expect(regressionFraction(upper, -1, 0), double.infinity);
+    });
+
+    test('a negative baseline keeps the regression sign', () {
+      const op = BudgetOperator.lessThan;
+      // Baseline -10, current -5: -5 is worse for a lower-is-better
+      // metric, so the fraction must be positive (a regression), not the
+      // sign-flipped -0.5 the raw division produces.
+      expect(regressionFraction(op, -5, -10), closeTo(0.5, 1e-9));
+      // Current -15 is better: negative fraction (an improvement).
+      expect(regressionFraction(op, -15, -10), closeTo(-0.5, 1e-9));
     });
 
     test('exactly 25% is not a regression (fail on > 25%)', () {
@@ -474,9 +486,51 @@ void main() {
     });
   });
 
+  test('evaluate rejects results rows absent from the catalog', () {
+    // ResultsFile.fromJson already rejects unknown ids at parse; this
+    // pins the same contract for a hand-built ResultsFile (the public
+    // constructor), so no path can reach a null-check crash instead.
+    final catalog = _catalog();
+    const row = ResultRow(
+      scenario: 'P99',
+      repetition: 0,
+      isOk: true,
+      value: 1,
+      unit: 'ms',
+      fingerprint: BenchFingerprint(
+        runnerImage: 'r',
+        arch: 'x64',
+        dartVersion: '3',
+        flutterVersion: null,
+        mode: 'aot',
+        cpuModel: 'c',
+        scenarioConfig: null,
+      ),
+    );
+    final results = ResultsFile(const [row], row.fingerprint);
+    expect(
+      () => evaluate(
+        catalog: catalog,
+        results: results,
+        tiers: const {BenchTier.a},
+        stateConfigured: false,
+        enforceA: false,
+        enforceB: false,
+        nowUtc: '2026-09-14T00:00:00Z',
+      ),
+      throwsA(
+        isA<CheckDataException>().having(
+          (error) => '$error',
+          'message',
+          contains('unknown scenario id P99'),
+        ),
+      ),
+    );
+  });
+
   group('the committed budgets catalog mirrors 02 §12', () {
     test('parses and carries P1-P7 unlanded with no calibration', () {
-      final catalog = BudgetCatalog.fromJson(jsonDecode(_committedBudgetsJson));
+      final catalog = _committedCatalog();
       catalog.validateCatalog();
       expect(catalog.calibratedFingerprint, isNull);
       expect(catalog.scenarios.keys, [
@@ -512,9 +566,7 @@ void main() {
       'P7': ('a', 'atLeast', 1000.0, 'entries/s', 3),
     }.entries) {
       test('${entry.key} mirrors 02 §12', () {
-        final catalog = BudgetCatalog.fromJson(
-          jsonDecode(_committedBudgetsJson),
-        );
+        final catalog = _committedCatalog();
         final budget = catalog.scenarios[entry.key]!;
         final (tier, operator, value, unit, minReps) = entry.value;
         expect(budget.tier.name, tier);
@@ -602,3 +654,7 @@ Map<String, Object?> _rowJson({
 final _committedBudgetsJson = File(
   'test/benchmarks/budgets.json',
 ).readAsStringSync();
+
+BudgetCatalog? _cachedCommittedCatalog;
+BudgetCatalog _committedCatalog() => _cachedCommittedCatalog ??=
+    BudgetCatalog.fromJson(jsonDecode(_committedBudgetsJson));
