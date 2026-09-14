@@ -3568,6 +3568,21 @@ constructor drops its never-used `const` instead; `invert`'s no-op guard now
 states the only satisfiable case (empty rows) rather than a disjointness
 equality.
 
+**Post-merge anchor-stability repair (2026-09-14, companion PR).**
+Supervisor verification caught a runtime regression the review rounds and
+my own tests missed: after row replacement pruned the explicit anchor, a
+sequence of range activations re-derived its fallback endpoint from the
+(moving) cursor each time, so select 2 → range 5 → prune 2 → range 3 →
+range 4 selected {3,4} instead of {4,5} — violating this slice's own
+stable extension/shrink invariant (probe: `pr106-anchor-probe.dart`, exit
+255). The implicit-fallback documentation in the merged revision did not
+preserve that behavior. A range with no anchor now adopts the cursor as
+the recorded anchor, so the whole range sequence keeps one stable
+endpoint; an adopted anchor is pruned by later row replacement exactly
+like an explicit one. The regression (repeated forward/backward extension
+and shrink around an adopted anchor, second pruning, degenerate
+no-cursor case) failed before the one-line fix and passes after.
+
 One ungated M3 model slice. Selection UI, keyboard/field wiring, controller
 adoption, and pruning on actual pane changes remain with pane wiring; item
 13 still gates raw-name metadata. No widget, D12 surface, persistence,

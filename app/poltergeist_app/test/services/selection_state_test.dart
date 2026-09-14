@@ -97,7 +97,7 @@ void main() {
     expect(state.anchorKey, 3);
   });
 
-  test('range without an anchor falls back to the cursor, then to single', () {
+  test('range without an anchor adopts the cursor, then degenerates to single', () {
     // Cursor without anchor: an anchored range whose anchor row disappears.
     final cursorOnly = _begin()
         .activate(2, SelectionUpdate.single)
@@ -109,13 +109,56 @@ void main() {
     final fromCursor = cursorOnly.activate(3, SelectionUpdate.range);
     expect(fromCursor.selectedKeys, {3, 4, 5});
     expect(fromCursor.cursorKey, 3);
-    expect(fromCursor.anchorKey, isNull);
+    expect(fromCursor.anchorKey, 5);
 
     // No anchor and no cursor: the range degenerates to the target row.
     final fromNothing = _begin().activate(4, SelectionUpdate.range);
     expect(fromNothing.selectedKeys, {4});
     expect(fromNothing.cursorKey, 4);
     expect(fromNothing.anchorKey, 4);
+  });
+
+  test('an adopted anchor stays stable across repeated ranges', () {
+    // Regression (supervisor probe): the first range after anchor pruning
+    // must keep one stable endpoint for the whole range sequence — the
+    // adopted cursor, not whichever row the cursor last moved to.
+    final cursorOnly = _begin()
+        .activate(2, SelectionUpdate.single)
+        .activate(5, SelectionUpdate.range)
+        .withRows(const [1, 3, 4, 5]);
+
+    final extended = cursorOnly.activate(3, SelectionUpdate.range);
+    final shrunk = extended.activate(4, SelectionUpdate.range);
+    final regrown = shrunk.activate(3, SelectionUpdate.range);
+    final backward = regrown.activate(5, SelectionUpdate.range);
+
+    expect(extended.selectedKeys, {3, 4, 5});
+    expect(shrunk.selectedKeys, {4, 5});
+    expect(regrown.selectedKeys, {3, 4, 5});
+    expect(backward.selectedKeys, {5});
+    for (final state in [extended, shrunk, regrown, backward]) {
+      expect(state.anchorKey, 5);
+    }
+  });
+
+  test('pruning an adopted anchor drops it like an explicit one', () {
+    final adopted = _begin()
+        .activate(2, SelectionUpdate.single)
+        .activate(5, SelectionUpdate.range)
+        .withRows(const [1, 3, 4, 5])
+        .activate(3, SelectionUpdate.range)
+        .withRows(const [1, 3, 4]);
+
+    // Anchor 5 and cursor 3 both survived; a second pruning of the anchor
+    // leaves the cursor alone again, ready to adopt on the next range.
+    expect(adopted.selectedKeys, {3, 4});
+    expect(adopted.cursorKey, 3);
+    expect(adopted.anchorKey, isNull);
+    expect(adopted.activate(4, SelectionUpdate.range).selectedKeys, {3, 4});
+
+    final prunedCursor = adopted.withRows(const [1, 4]);
+    expect(prunedCursor.cursorKey, isNull);
+    expect(prunedCursor.activate(4, SelectionUpdate.range).selectedKeys, {4});
   });
 
   test('select all and invert complement within rows, keeping position', () {
