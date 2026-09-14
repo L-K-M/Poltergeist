@@ -274,6 +274,17 @@ class _PaneViewState extends State<PaneView> {
           // failed operation (the overlay's Retry is otherwise
           // mouse-only in this keyboard-first surface).
           unawaited(controller.retry());
+        } else if (controller.phase == PanePhase.connectingRemote &&
+            controller.remoteBookmark != null) {
+          // A pending remote bind is not `loading` (no generation is
+          // issued yet), so it cancels through the shell's
+          // sibling-aware path — detach when a sibling still browses
+          // the server, never a shared disconnect. A held key's
+          // repeats must not cancel a replacement binding.
+          if (event is KeyRepeatEvent) {
+            return KeyEventResult.handled;
+          }
+          widget.onCancelRecovery();
         } else {
           // Idle: nothing to cancel here — let Esc reach ancestor
           // handlers (app shortcuts) instead of swallowing it.
@@ -515,6 +526,18 @@ class _PaneSurface extends StatelessWidget {
           Text(
             label == null ? l10n.paneOpeningHome : l10n.paneConnectingTo(label),
           ),
+          // Only a REMOTE connect offers cancel (the shell's
+          // sibling-aware detach): a local home open has no shared
+          // server reference to drop.
+          if (controller.phase == PanePhase.connectingRemote &&
+              controller.remoteBookmark != null) ...[
+            const SizedBox(height: 10),
+            TextButton(
+              key: const ValueKey('pane.connect.cancel'),
+              onPressed: onCancelRecovery,
+              child: Text(l10n.paneConnectCancel),
+            ),
+          ],
         ],
       ),
     );

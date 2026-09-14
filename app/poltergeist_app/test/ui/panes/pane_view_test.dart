@@ -789,6 +789,162 @@ void main() {
     expect(find.text('Connecting to web.example.com…'), findsNothing);
   });
 
+  testWidgets('Esc abandons a pending remote connect before the grace', (
+    tester,
+  ) async {
+    final open = Completer<void>();
+    final channel = controller_test.FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('late.txt')];
+    lanes.nextRemoteChannel = channel;
+    lanes.holdRemoteOpen = open;
+    final connecting = right.connectRemote(_bookmark('srv-1'));
+    await pumpShell(tester);
+    rightNode.requestFocus();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Still inside the anti-flash grace (02 §2.8): no spinner, no cancel
+    // affordance — but Esc must already cancel the pending bind.
+    expect(right.phase, PanePhase.connectingRemote);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byKey(const ValueKey('pane.connect.cancel')), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    expect(right.phase, PanePhase.unbound);
+    expect(right.remoteBookmark, isNull);
+    expect(lanes.disconnects, ['srv-1']);
+
+    // The late open must not repaint the cancelled pane: its orphaned
+    // channel is retired without ever listing.
+    open.complete();
+    await connecting;
+    await tester.pumpAndSettle();
+    expect(channel.closeCalls, 1);
+    expect(channel.listCalls, isEmpty);
+    expect(find.text('late.txt'), findsNothing);
+  });
+
+  testWidgets('Esc abandons a pending remote connect past the grace', (
+    tester,
+  ) async {
+    localChannelWithEntries();
+    await left.openLocalHome();
+    final open = Completer<void>();
+    final channel = controller_test.FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('late.txt')];
+    lanes.nextRemoteChannel = channel;
+    lanes.holdRemoteOpen = open;
+    final connecting = right.connectRemote(_bookmark('srv-1'));
+    await pumpShell(tester);
+    leftNode.requestFocus();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(right.phase, PanePhase.connectingRemote);
+    expect(find.text('Connecting to web.example.com…'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pane.connect.cancel')), findsOneWidget);
+
+    // The UNFOCUSED pane's pending bind is never cancelled by Esc.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(right.phase, PanePhase.connectingRemote);
+
+    rightNode.requestFocus();
+    await tester.pump();
+
+    // A modified chord is not the pane's plain Esc (02 §8.2).
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(right.phase, PanePhase.connectingRemote);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(right.phase, PanePhase.unbound);
+    expect(right.remoteBookmark, isNull);
+
+    open.complete();
+    await connecting;
+    await tester.pumpAndSettle();
+    expect(channel.closeCalls, 1);
+    expect(channel.listCalls, isEmpty);
+    expect(find.text('late.txt'), findsNothing);
+    // The sibling's own listing is untouched by the cancel.
+    expect(find.text('report.txt'), findsOneWidget);
+  });
+
+  testWidgets('the connecting Cancel action abandons the pending remote bind', (
+    tester,
+  ) async {
+    final open = Completer<void>();
+    final channel = controller_test.FakePaneChannel('/srv/home');
+    channel.listings['/srv/home'] = [_entry('late.txt')];
+    lanes.nextRemoteChannel = channel;
+    lanes.holdRemoteOpen = open;
+    final connecting = right.connectRemote(_bookmark('srv-1'));
+    await pumpShell(tester);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    final cancel = find.byKey(const ValueKey('pane.connect.cancel'));
+    expect(cancel, findsOneWidget);
+    await tester.tap(cancel);
+    await tester.pump();
+
+    expect(right.phase, PanePhase.unbound);
+    expect(right.remoteBookmark, isNull);
+    expect(lanes.disconnects, ['srv-1']);
+
+    open.complete();
+    await connecting;
+    await tester.pumpAndSettle();
+    expect(channel.closeCalls, 1);
+    expect(channel.listCalls, isEmpty);
+    expect(find.text('late.txt'), findsNothing);
+  });
+
+  testWidgets('a held Esc repeat cannot cancel a replacement remote bind', (
+    tester,
+  ) async {
+    final firstOpen = Completer<void>();
+    lanes.holdRemoteOpen = firstOpen;
+    final first = right.connectRemote(_bookmark('srv-1'));
+    await pumpShell(tester);
+    rightNode.requestFocus();
+    await tester.pump();
+    expect(right.phase, PanePhase.connectingRemote);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(right.phase, PanePhase.unbound);
+    firstOpen.complete();
+    await first;
+
+    // A replacement bind owns the pane now; a key still repeating from
+    // the held Esc must not cancel it.
+    final secondOpen = Completer<void>();
+    lanes.holdRemoteOpen = secondOpen;
+    final secondChannel = controller_test.FakePaneChannel('/srv/home');
+    secondChannel.listings['/srv/home'] = [_entry('second.txt')];
+    lanes.nextRemoteChannel = secondChannel;
+    final second = right.connectRemote(_bookmark('srv-1'));
+    await tester.pump();
+    expect(right.phase, PanePhase.connectingRemote);
+
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(
+      right.phase,
+      PanePhase.connectingRemote,
+      reason: 'an Esc repeat must not cancel the replacement binding',
+    );
+
+    secondOpen.complete();
+    await second;
+    await tester.pumpAndSettle();
+    expect(find.text('second.txt'), findsOneWidget);
+  });
+
   testWidgets('reconnecting renders the connection-lost banner with Cancel', (
     tester,
   ) async {

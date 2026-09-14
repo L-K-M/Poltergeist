@@ -3499,6 +3499,36 @@ release-version, and pin-audit guards green. Bounded logs and exits:
 `tasks/task23-logs/` in the worker's evidence area. Semantics assertions
 prove the contract; no native screen-reader QA is claimed.
 
+## M3 — pending remote-connect cancellation (2026-09-14)
+
+A pending remote bind (`PanePhase.connectingRemote`, `loading` still
+false) is now cancellable from the pane: plain Esc on the focused pane
+abandons the in-flight connect at any point — including inside the
+150 ms anti-flash grace — and past the grace the connecting body shows
+a `Cancel` action (`pane.connect.cancel`, new `paneConnectCancel` ARB
+string). Both reach the shell's existing sibling-aware
+`_cancelPaneRecovery`: `detachRemote` when a sibling still browses the
+server, `cancelRecovery` (which drops the server reference) when this
+pane is alone. Cancellation invalidates the bind attempt, so a late
+channel completion closes instead of binding or repainting. Esc
+repeats are consumed without cancelling a replacement binding;
+modified chords, unfocused panes, the loading/error Esc branches, and
+`openingLocal` are unchanged. UI cancellation stays a presentation
+abandon — no new engine API, no immediate physical-IO retirement
+(open item 12's uncancellable VFS listing IO is unaffected).
+
+Validation: six new widget tests failed before the change — four in
+`pane_view_test.dart` (Esc before and after the grace, the post-grace
+Cancel action, an Esc repeat over a replacement bind) and two in
+`workspace_panes_test.dart` driving the production shell callback
+(same-server sibling stays live with zero `disconnectServer` calls;
+alone, only the pane's own reference is dropped) — all pass after.
+App analyze clean; controller, cancel-regression, reconnect,
+session-lifetime, localization-contract, and shell suites green.
+Widget-render captures (labeled as such; rootless container, no
+native capture): `tasks/run3-task26/connecting-{pre,post}-grace.png`
+in the worker's evidence area.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
