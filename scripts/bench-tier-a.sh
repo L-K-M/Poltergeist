@@ -9,8 +9,9 @@
 # per-scenario document is merged into the single bench-results.json the
 # job hands to test/benchmarks/check.dart. Every collector runs even
 # after a sibling fails — a failed collector still publishes its partial
-# rows plus an error row — and the script exits non-zero if any did, so
-# the job reddens honestly instead of grading a silent subset.
+# rows plus an error row, and a failed compile is isolated the same way
+# via the missing-results check — and the script exits non-zero if any
+# did, so the job reddens honestly instead of grading a silent subset.
 set -euo pipefail
 
 readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,17 +35,22 @@ rm -f -- "$repo_root"/bench-results.json "$repo_root"/bench-results-*.json
 
 command -v "$dart_binary" >/dev/null
 
-"$dart_binary" compile exe \
-  "$core_dir/benchmark/p3_listing_overhead.dart" -o "$bin_dir/p3"
-"$dart_binary" compile exe \
-  "$core_dir/benchmark/p5_drop_to_start.dart" -o "$bin_dir/p5"
-"$dart_binary" compile exe \
-  "$core_dir/benchmark/p7_scan_rate.dart" -o "$bin_dir/p7"
-
 status=0
+compile_collector() {
+  local scenario="$1" source="$2"
+  "$dart_binary" compile exe "$source" -o "$bin_dir/$scenario" \
+    || status="$?"
+}
+compile_collector p3 "$core_dir/benchmark/p3_listing_overhead.dart"
+compile_collector p5 "$core_dir/benchmark/p5_drop_to_start.dart"
+compile_collector p7 "$core_dir/benchmark/p7_scan_rate.dart"
+
 run_collector() {
   local scenario="$1"
   shift
+  # A failed compile must not abort the siblings under set -e; the missing
+  # results file is flagged by the gather loop below.
+  [[ -x "$bin_dir/$scenario" ]] || return 0
   "$bin_dir/$scenario" --output "$repo_root/bench-results-$scenario.json" "$@" \
     || status="$?"
 }
