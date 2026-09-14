@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
+import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -154,7 +155,7 @@ void main() {
   /// gesture arena.
   Future<void> tapRow(WidgetTester tester, Finder finder) async {
     await tester.tap(finder);
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
   }
 
   Set<int> selectedOf(PaneController pane) {
@@ -184,9 +185,33 @@ void main() {
     );
     await gesture.up();
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
 
     expect(selectedOf(left), {0, 1, 2, 3});
+    expect(left.cursorIndex, 3);
+  });
+
+  testWidgets('a Shift pressed only after pointer-down single-selects', (
+    tester,
+  ) async {
+    await openFiveRows();
+    await pumpPanes(tester);
+    await tapRow(tester, find.text('alpha'));
+    expect(selectedOf(left), {0});
+
+    // Press Shift AFTER pointer-down but before the tap commits: the
+    // gesture's modifiers were captured at down, so this is a plain
+    // single-select — never a range (commit-time sampling would extend).
+    final lateShift = await tester.startGesture(
+      tester.getCenter(find.text('m.txt')),
+    );
+    await lateShift.up();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+
+    expect(selectedOf(left), {3});
     expect(left.cursorIndex, 3);
   });
 

@@ -144,6 +144,30 @@ void main() {
     final workspace = WorkspaceController(left: left, right: right);
     addTearDown(workspace.dispose);
 
+    // Negative enablement first: right is the active pane and has no
+    // listing yet, so its verbs are disabled — the command must report
+    // disabled even once the inactive pane would be verb-enabled.
+    workspace.setActivePane(right);
+    final earlyCommands = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    );
+    expect(
+      earlyCommands
+          .firstWhere((c) => c.id == kEditSelectAllCommandId)
+          .enabled(),
+      isFalse,
+      reason: 'enablement follows the ACTIVE pane, not any pane',
+    );
+    expect(
+      earlyCommands
+          .firstWhere((c) => c.id == kEditInvertSelectionCommandId)
+          .enabled(),
+      isFalse,
+    );
+
     lanes.nextLocalChannel = leftChannel;
     await left.openLocalHome();
     lanes.nextLocalChannel = rightChannel;
@@ -197,6 +221,22 @@ void main() {
     await tester.pump();
     expect(left.selectedCount, 2);
     expect(right.selectedCount, 0, reason: 'the inactive pane never changes');
+
+    // The distinguishing case: the ACTIVE pane's verbs fail while the
+    // inactive pane stays verb-enabled — an any-pane OR gate would
+    // still report enabled here.
+    leftChannel.listingFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.permissionDenied,
+      operation: 'list',
+      message: 'Denied',
+    );
+    left.refresh();
+    await tester.pump();
+    expect(workspace.activePane, left);
+    expect(left.verbsEnabled, isFalse);
+    expect(right.verbsEnabled, isTrue);
+    expect(selectAll.enabled(), isFalse);
+    expect(invert.enabled(), isFalse);
   });
 }
 
