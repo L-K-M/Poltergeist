@@ -4159,6 +4159,66 @@ packages/poltergeist_core` clean; the P3 file runs 39 tests green;
 unchanged); `dart test test/benchmarks` 110/110 after the standalone
 pub gets (logs and exits under `tasks/run3-task36/`).
 
+## M3 — P3/P5 bench medians explained (2026-09-14)
+
+Investigation of the first fixture-backed tier-A results: explain why
+P7 passes while P3/P5 miss 02 §12's budgets by ~90×/~10× before any
+`landed` flip. Evidence: the merged and per-scenario `bench-results`
+artifacts of main runs 34895640926 (`44cf810`) and 34900409596
+(`7086503`) plus PR runs 34894693487 and 34893060698 — all
+`ubuntu-latest@20260907.300.1`, AOT, AMD EPYC 7763.
+
+Medians across the four runs: P3 4 340–4 554 ms (control ~140–147 ms,
+target ~4 482–4 719 ms per leg), P5 4 676–4 884 ms (1 stat + 1 listing
+call per drop), P7 2 228–2 331 entries/s (10 813 entries / 10
+directories). Within-run spread < 2 %: stable, not noisy.
+
+Decomposition — every scenario lands on the same floor:
+
+- OpenSSH sftp-server caps one `READDIR` reply at 100 entries
+  (`sftp-server.c`: "send up to 100 entries in one message"), each entry
+  `lstat`'d server-side; dartssh2 3.0.2's `listdir` awaits each batch
+  before requesting the next (no pipelining), and the pinned
+  `RemoteFileSystem.listDirectory` is an all-or-nothing Future over it.
+  A 10 000-entry listing is therefore ~104 strictly sequential
+  request/response pairs (OPENDIR + ~101 batches + EOF + CLOSE).
+- The control leg (4 round trips, ~140–147 ms) prices one sequential
+  pair at ~35 ms; the target legs price it at ~44–46 ms — consistent
+  once each big reply's ~100 server-side lstats and ~15 KB payload are
+  accounted for. M0's own evidence independently corroborates the
+  floor: `pipeline-readdir-1-lan` ran 800 entries in 1 659 ms (~52 ms
+  per sequential listing round trip) on the same runner+fixture stack
+  (run 33563514640), versus 220 ms at depth 8.
+- P5's measured window is confirmed correct: the leg's stat, scan
+  listing, transfer-channel lease, and first-byte read are all inside
+  the drop→first-byte interval, and the VFS listing is all-or-nothing —
+  the "lazy scan to the first file" still pays the full ~104-round-trip
+  root listing. `legSettledMs` ≈ value + ~0.2 ms cancel unwind.
+- P7's critical path is the same serialized 10 000-entry stream; the
+  nine remaining directory listings pipeline under it at depth 8, so a
+  scan ends at ~4.6–4.8 s ≈ 10 813 entries / ~2 300 entries·s⁻¹ — the
+  identical bottleneck's ceiling (≈44 ms per 100-entry batch).
+- No netem shaping is involved: `run.sh` never invokes
+  `netem-profile` and the fixture entrypoint installs but does not
+  apply it. The ~35–52 ms per-request cost is the environment itself —
+  loopback to a Docker-published port (userspace forwarding) on a
+  shared-runner vCPU plus sshd per-request work — not a true sub-ms
+  loopback.
+
+Defect audit: no population/setup leak (channel open, canonicalization,
+and both warmups precede the measured legs), no cold-channel first
+repetition (repetition 0 is not elevated), minimal control (2 entries),
+correct interval boundaries, unclipped honest values, stable tree
+identity enforced per run. The measurement plumbing is correct; the
+numbers are runner/fixture reality — no code change was made.
+
+Consequence for landing: P3's < 50 ms is unreachable by construction on
+this environment (~104 sequential pairs would need < 0.5 ms each; even
+a true ~1 ms LAN yields ~100+ ms). Open item 22 records the owner
+decision this needs before any `landed` flip; see also the
+"First fixture-backed observations" note in `test/benchmarks/README.md`.
+No `landed` flips, `budgets.json`, or workflow changes here.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -4779,6 +4839,22 @@ pub gets (logs and exits under `tasks/run3-task36/`).
     including `b`), and the tier-B xvfb suites (P1/P2/P4/P6, trend-only
     until M9). No baseline calibration has run; budgets gate nothing
     yet.
+22. **2026-09-14: M3 D12 P3/P5 budgets unreachable on the CI fixture as
+    specified.** The bench job's first real medians (P3 ≈ 4.3–4.6 s,
+    P5 ≈ 4.7–4.9 s — the dated analysis section above) are runner/
+    fixture reality: ~104 serialized READDIR round trips at ~35–52 ms
+    each on the shared-runner Docker-published loopback. 02 §12's
+    absolute values (< 50 ms / < 500 ms) assume LAN-class sub-ms round
+    trips and cannot be met by construction on this environment — and
+    likely not even on a genuine ~1 ms LAN while the VFS listing stays
+    sequential (dartssh2 awaits each 100-entry READDIR batch serially;
+    OpenSSH's 100-entry reply cap bounds entries per round trip).
+    Before any `landed` flip on P3/P5: owner decision between
+    recalibrating the budget values against the CI fingerprint (a
+    02 §12 plan-level change), reshaping the scenario/config, or an
+    upstream pipelined-READDIR change (D2-gated). P7's pass is the same
+    bottleneck's ceiling, not health — do not read it as evidence the
+    budgets are calibrated.
 
 ## Independent audit
 
