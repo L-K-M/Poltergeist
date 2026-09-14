@@ -7,6 +7,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
+import '../../services/selection_state.dart';
 import '../../services/workspace_controller.dart';
 import 'pane_format.dart';
 
@@ -26,6 +27,13 @@ bool _pendingRemoteConnect(PaneController controller) =>
 /// preserves the fixed-extent virtualization. One definition, shared by
 /// the row extent and the cursor-reveal scroll arithmetic.
 const _comfortableRowExtent = 28.0;
+
+/// Width of the leading cursor bar: the cursor row must stay
+/// identifiable inside a multi-selection by shape, not tint alone —
+/// M3's container tints are too close for that (02 §13's focus-visible
+/// principle applied to the listing cursor). Every row reserves the
+/// space so the cursor never shifts row content as it moves.
+const _cursorBarWidth = 3.0;
 
 double scaledPaneRowExtent(BuildContext context) =>
     MediaQuery.textScalerOf(context).scale(_comfortableRowExtent);
@@ -99,10 +107,7 @@ class _PaneViewState extends State<PaneView> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
         !identical(oldWidget.workspace, widget.workspace)) {
-      _listenable = Listenable.merge([
-        widget.controller,
-        widget.workspace,
-      ]);
+      _listenable = Listenable.merge([widget.controller, widget.workspace]);
     }
     if (!identical(oldWidget.controller, widget.controller)) {
       // The old controller's grace/reveal bookkeeping must not leak
@@ -194,9 +199,16 @@ class _PaneViewState extends State<PaneView> {
     final platform = Theme.of(context).platform;
     final key = event.logicalKey;
 
+    // 02 §2.5: shift + a cursor key extends the anchored selection
+    // instead of single-selecting the target row.
+    final cursorUpdate = HardwareKeyboard.instance.isShiftPressed
+        ? SelectionUpdate.range
+        : SelectionUpdate.single;
+
     // The pane's single keys are PLAIN keys: modified chords (Ctrl+Enter,
     // Alt+Backspace, …) belong to whoever binds them, not this table.
-    final bool plainKey = !HardwareKeyboard.instance.isControlPressed &&
+    final bool plainKey =
+        !HardwareKeyboard.instance.isControlPressed &&
         !HardwareKeyboard.instance.isMetaPressed &&
         !HardwareKeyboard.instance.isAltPressed;
 
@@ -229,22 +241,25 @@ class _PaneViewState extends State<PaneView> {
 
     switch (key) {
       case LogicalKeyboardKey.arrowDown:
-        controller.moveCursorBy(1);
+        controller.moveCursorBy(1, update: cursorUpdate);
         _revealCursor();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowUp:
-        controller.moveCursorBy(-1);
+        controller.moveCursorBy(-1, update: cursorUpdate);
         _revealCursor();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.home:
         if (controller.entries.isNotEmpty) {
-          controller.setCursorIndex(0);
+          controller.setCursorIndex(0, update: cursorUpdate);
           _revealCursor();
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.end:
         if (controller.entries.isNotEmpty) {
-          controller.setCursorIndex(controller.entries.length - 1);
+          controller.setCursorIndex(
+            controller.entries.length - 1,
+            update: cursorUpdate,
+          );
           _revealCursor();
         }
         return KeyEventResult.handled;
@@ -321,6 +336,20 @@ class _PaneViewState extends State<PaneView> {
     controller.openEntry(controller.entries[cursor]);
   }
 
+  /// Resolves a pointer tap's selection gesture from the live keyboard
+  /// modifiers and the platform (02 §2.5): plain click singles, meta on
+  /// macOS / control elsewhere toggles, shift extends the anchored
+  /// range. Shift wins the modifier race on every platform so a
+  /// ctrl/⌘+shift click keeps one predictable range meaning.
+  SelectionUpdate _pointerSelectionUpdate(TargetPlatform platform) {
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isShiftPressed) return SelectionUpdate.range;
+    final toggle = platform == TargetPlatform.macOS
+        ? keyboard.isMetaPressed
+        : keyboard.isControlPressed;
+    return toggle ? SelectionUpdate.toggle : SelectionUpdate.single;
+  }
+
   void _syncGrace(bool loading) {
     if (!loading) {
       if (_pastGrace || _graceTimer != null) {
@@ -391,7 +420,10 @@ class _PaneViewState extends State<PaneView> {
                 onRetry: () => unawaited(widget.controller.retry()),
                 onCancelRecovery: widget.onCancelRecovery,
                 onActivateRow: (index) {
-                  widget.controller.setCursorIndex(index);
+                  widget.controller.setCursorIndex(
+                    index,
+                    update: _pointerSelectionUpdate(Theme.of(context).platform),
+                  );
                   widget.focusNode.requestFocus();
                 },
                 onOpenRow: (index) {
@@ -476,8 +508,8 @@ class _PaneSurface extends StatelessWidget {
                 ? _listing(context, l10n)
                 : switch (controller.phase) {
                     PanePhase.unbound => _Centered(l10n.paneNoLocation),
-                    PanePhase.openingLocal ||
-                    PanePhase.connectingRemote => _connectingBody(context, l10n),
+                    PanePhase.openingLocal || PanePhase.connectingRemote =>
+                      _connectingBody(context, l10n),
                     PanePhase.browsing => _listing(context, l10n),
                   },
           ),
@@ -494,6 +526,12 @@ class _PaneSurface extends StatelessWidget {
               ),
             ),
           ),
+        // 02 §2.8: the stale rows under the error overlay are as
+        // inert for pointers as they are for keys and semantics — the
+        // overlay card never covers the whole listing, so an explicit
+        // shield behind it owns the stray clicks.
+        if (controller.error != null && !controller.connectionLost)
+          Positioned.fill(child: AbsorbPointer(child: const SizedBox.expand())),
         if (controller.error != null && !controller.connectionLost)
           Positioned.fill(
             child: _ErrorOverlay(error: controller.error!, onRetry: onRetry),
@@ -568,6 +606,7 @@ class _PaneSurface extends StatelessWidget {
       itemBuilder: (context, index) => _PaneRow(
         entry: controller.entries[index],
         highlighted: controller.cursorIndex == index,
+        selected: controller.isRowSelected(index),
         active: active,
         clock: clock,
         onTap: () => onActivateRow(index),
@@ -647,7 +686,9 @@ class _PathBarState extends State<_PathBar> {
 
     // 02 §2.1: the focused pane's segments render in the accent color so
     // the transfer-deciding side is always visible.
-    final segmentColor = widget.active ? colors.primary : colors.onSurfaceVariant;
+    final segmentColor = widget.active
+        ? colors.primary
+        : colors.onSurfaceVariant;
 
     return Column(
       children: [
@@ -684,11 +725,8 @@ class _PathBarState extends State<_PathBar> {
                             ),
                             child: Text(
                               label,
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodySmall?.copyWith(
-                                color: segmentColor,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: segmentColor),
                             ),
                           ),
                         ),
@@ -745,6 +783,7 @@ class _PaneRow extends StatelessWidget {
   const _PaneRow({
     required this.entry,
     required this.highlighted,
+    required this.selected,
     required this.active,
     required this.clock,
     required this.onTap,
@@ -752,7 +791,13 @@ class _PaneRow extends StatelessWidget {
   });
 
   final RemoteFileEntry entry;
+
+  /// Whether the cursor is on this row.
   final bool highlighted;
+
+  /// Whether this row is in the selection (02 §2.5).
+  final bool selected;
+
   final bool active;
   final DateTime Function() clock;
   final VoidCallback onTap;
@@ -777,9 +822,13 @@ class _PaneRow extends StatelessWidget {
     );
 
     // 02 §2.1: the unfocused pane's selection highlight drops to a
-    // neutral tone.
-    final rowColor = highlighted
+    // neutral tone. Selected rows keep a quieter tint than the cursor
+    // row so the cursor stays identifiable inside a multi-selection
+    // (02 §2.5's visible-selection rule).
+    final Color? rowColor = highlighted
         ? (active ? colors.primaryContainer : colors.surfaceContainerHighest)
+        : selected
+        ? (active ? colors.secondaryContainer : colors.surfaceContainerHigh)
         : null;
 
     // 02 §13: the row's kind is part of the announced label
@@ -802,8 +851,9 @@ class _PaneRow extends StatelessWidget {
       // is the row's primary verb here (the cursor-set single click is
       // a sighted-user convention; Enter covers it for keyboards).
       onTap: onDoubleTap,
-      // The cursor row's highlight gets its accessibility equivalent.
-      selected: highlighted,
+      // The cursor row's highlight and the selection both announce
+      // (02 §13: selected state rides the merged row label).
+      selected: highlighted || selected,
       child: Material(
         // The row owns its surface so ink feedback paints above the
         // row color (an opaque ColoredBox inside the InkWell would
@@ -812,56 +862,75 @@ class _PaneRow extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           onDoubleTap: onDoubleTap,
-          child: Padding(
-            padding: const EdgeInsetsDirectional.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                Icon(
-                  switch (entry.type) {
-                    RemoteFileType.directory => Icons.folder_outlined,
-                    RemoteFileType.symbolicLink => Icons.shortcut_outlined,
-                    _ => Icons.insert_drive_file_outlined,
-                  },
-                  size: 16,
-                  color: colors.onSurfaceVariant,
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  start: 8 + _cursorBarWidth,
+                  end: 8,
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    entry.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: MediaQuery.textScalerOf(context).scale(64),
-                  child: Text(
-                    size,
-                    textAlign: TextAlign.end,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                child: Row(
+                  children: [
+                    Icon(
+                      switch (entry.type) {
+                        RemoteFileType.directory => Icons.folder_outlined,
+                        RemoteFileType.symbolicLink => Icons.shortcut_outlined,
+                        _ => Icons.insert_drive_file_outlined,
+                      },
+                      size: 16,
                       color: colors.onSurfaceVariant,
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: MediaQuery.textScalerOf(context).scale(120),
-                  child: Text(
-                    modified,
-                    textAlign: TextAlign.end,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.onSurfaceVariant,
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        entry.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: MediaQuery.textScalerOf(context).scale(64),
+                      child: Text(
+                        size,
+                        textAlign: TextAlign.end,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: MediaQuery.textScalerOf(context).scale(120),
+                      child: Text(
+                        modified,
+                        textAlign: TextAlign.end,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // The cursor's shape marker, on the row's leading edge in
+              // both the active and the unfocused pane's tones.
+              if (highlighted)
+                PositionedDirectional(
+                  start: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: _cursorBarWidth,
+                  child: ColoredBox(
+                    color: active ? colors.primary : colors.onSurfaceVariant,
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -881,8 +950,7 @@ class _PaneFooter extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     // 02 §2.8/§2.9: the footer doubles as the loading line, behind the
     // same anti-flash grace as the dim.
-    final String text =
-        controller.loading && graceVisible
+    final String text = controller.loading && graceVisible
         ? l10n.paneLoadingFolder(paneLastSegment(controller.location?.path))
         : l10n.paneItemCount(controller.entries.length);
 
@@ -932,61 +1000,63 @@ class _ErrorOverlay extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-            Row(
-              children: [
-                Icon(Icons.error_outline, size: 18, color: colors.error),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    // D20: the taxonomy sentence is ARB-authored; the
-                    // engine's message rides below as the diagnostic line.
-                    switch (error.kind) {
-                      RemoteFileErrorKind.notFound => l10n.paneErrorNotFound,
-                      RemoteFileErrorKind.permissionDenied =>
-                        l10n.paneErrorPermissionDenied,
-                      RemoteFileErrorKind.unsupported =>
-                        l10n.paneErrorUnsupported,
-                      RemoteFileErrorKind.disconnected =>
-                        l10n.paneErrorDisconnected,
-                      RemoteFileErrorKind.conflict => l10n.paneErrorConflict,
-                      RemoteFileErrorKind.cancelled =>
-                        l10n.paneErrorCancelled,
-                      RemoteFileErrorKind.other => l10n.paneErrorOther,
+                Row(
+                  children: [
+                    Icon(Icons.error_outline, size: 18, color: colors.error),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        // D20: the taxonomy sentence is ARB-authored; the
+                        // engine's message rides below as the diagnostic line.
+                        switch (error.kind) {
+                          RemoteFileErrorKind.notFound =>
+                            l10n.paneErrorNotFound,
+                          RemoteFileErrorKind.permissionDenied =>
+                            l10n.paneErrorPermissionDenied,
+                          RemoteFileErrorKind.unsupported =>
+                            l10n.paneErrorUnsupported,
+                          RemoteFileErrorKind.disconnected =>
+                            l10n.paneErrorDisconnected,
+                          RemoteFileErrorKind.conflict =>
+                            l10n.paneErrorConflict,
+                          RemoteFileErrorKind.cancelled =>
+                            l10n.paneErrorCancelled,
+                          RemoteFileErrorKind.other => l10n.paneErrorOther,
+                        },
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  // Non-VFS faults carry no engine-authored diagnostic —
+                  // the view maps the typed fault to an ARB sentence (D20);
+                  // every other error keeps the engine's message line.
+                  switch (error) {
+                    PaneFaultException(:final fault) => switch (fault) {
+                      PaneFault.connectionOpen => l10n.paneFaultConnectionOpen,
+                      PaneFault.localOpen => l10n.paneFaultLocalOpen,
+                      PaneFault.listFolder => l10n.paneFaultListFolder,
                     },
-                    style: Theme.of(context).textTheme.bodyMedium,
+                    _ => error.message,
+                  },
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              // Non-VFS faults carry no engine-authored diagnostic —
-              // the view maps the typed fault to an ARB sentence (D20);
-              // every other error keeps the engine's message line.
-              switch (error) {
-                PaneFaultException(:final fault) => switch (fault) {
-                  PaneFault.connectionOpen => l10n.paneFaultConnectionOpen,
-                  PaneFault.localOpen => l10n.paneFaultLocalOpen,
-                  PaneFault.listFolder => l10n.paneFaultListFolder,
-                },
-                _ => error.message,
-              },
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: FilledButton.tonalIcon(
-                key: const ValueKey('pane.error.retry'),
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh, size: 16),
-                label: Text(l10n.connectionRetry),
-              ),
-            ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: FilledButton.tonalIcon(
+                    key: const ValueKey('pane.error.retry'),
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: Text(l10n.connectionRetry),
+                  ),
+                ),
               ],
             ),
           ),

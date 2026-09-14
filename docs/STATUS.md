@@ -3588,6 +3588,71 @@ adoption, and pruning on actual pane changes remain with pane wiring; item
 13 still gates raw-name metadata. No widget, D12 surface, persistence,
 dependency/pin change, or source port; PORTS.md unchanged. M3 remains open.
 
+## M3 — pane row selection wiring (2026-09-14)
+
+The pane-row-selection slice: `PaneController` now owns the selection
+through the 02 §2.5 model (`SelectionState` over stable row
+identities) and the pane view and command registry drive it. Row
+identity is explicit per listing — the entry's full path plus an
+occurrence ordinal disambiguating decoded-name collisions (two raw
+byte names decoding to the same string share a path string; the
+ordinal keeps every row distinct without inventing a name heuristic,
+and two colliding rows may swap ordinals across a reorder — item 13's
+gap stays open, unsolved here). Pointer gestures follow the platform:
+plain click singles, ⌘-click toggles on macOS / Ctrl-click elsewhere,
+shift-click extends or shrinks the anchored range (shift wins the
+modifier race on every platform). Arrows single-select on plain moves
+and extend under shift; Home/End keep their plain behavior and extend
+under shift; PageUp/PageDown are untouched (still unbound in this
+surface). `edit.selectAll` (⌘A/Ctrl+A) and `edit.invertSelection`
+(⇧⌘I/Ctrl+Shift+I) are registered commands with dual macOS/Ctrl
+chords, ARB labels, `verbsEnabled` gating, and active-pane resolution
+at invocation; the chord layer never fires while a covering route's
+text field holds focus (asserted against a real TextField's own
+Ctrl+A). Cursor compatibility is preserved: `cursorIndex`,
+`setCursorIndex`, and `moveCursorBy` keep their contracts, with the
+cursor now derived from the selection state's identity (an optional
+`update` parameter carries the gesture). Reset happens on actual
+location change and binding replacement/detach; a same-location
+refresh (or a recovery re-list) keeps surviving identities and prunes
+on acceptance, and a healed recovery listing prunes without reviving
+stale-generation results. Esc-cancel restores the snapshot's selection
+with its entries. Selected rows render a quieter container tint than
+the cursor row and carry a leading 3 px cursor bar — the bar is the
+cursor's shape cue (M3's `primaryContainer`/`secondaryContainer` are
+visually too close to carry it alone, confirmed by capture review);
+the unfocused pane drops both to neutral tones (02 §2.1). Row semantics
+announce selected state (02 §13). The stale rows under an inline error
+are now pointer-inert too (an explicit shield behind the error card,
+matching the key and semantics gates). Esc's deselect tier, the
+context-menu select-on-right-click, Quick Select hand-off wiring, and
+type-ahead remain with their owning slices; no Quick Select/filter/
+type-ahead surface or file operation was added.
+
+Validation: regression-first — the new controller and widget tests
+failed to compile against the pre-slice API (missing methods/params,
+the new-feature red; logs under `tasks/run3-task29/`), and one real
+regression was caught by the existing suite during development (Esc
+restore briefly dropped the snapshot error; repaired before commit).
+New coverage: controller-level gesture semantics (single/toggle/range
+grow+shrink both directions, adopted-anchor stability across pruning,
+select-all/invert incl. empty listings), same-location refresh
+prune/reorder with identity survival, new-location reset, cancel/restore
+with selection, stale delayed listings, remote detach and recovery
+pruning; widget-level wiring (plain/meta/control/shift clicks per
+platform with the negative macOS-Ctrl case, plain/shift arrows,
+Home/End with shift, keyboard repeats, distinct cursor/selected/plain
+surfaces plus the cursor-bar shape assertion, selected semantics
+flags, inert keys/taps under error and connection-loss, chords on both
+platforms, active-pane-only scope incl. toolbar focus, covering
+TextField/route suppression). App analyze clean, 627 tests pass;
+core re-verified untouched (analyze clean, 777 tests, 16 fixture
+skips); localization contract updated with the new command ids.
+Readable opaque widget captures with real fonts (inspected, not just
+generated): `tasks/run3-task29/selection-{active,inactive}-readable.png`.
+Native screen-reader QA remains distinct and unclaimed. No core,
+pin, benchmark, dependency, or PORTS change; M3 remains open.
+
 ## M3 — D12 checker policy repairs (2026-09-14)
 
 Supervisor verification blocked task25 after #102 merged: six independent

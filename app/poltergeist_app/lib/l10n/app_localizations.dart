@@ -837,6 +837,18 @@ abstract class AppLocalizations {
   /// **'Swap Pane Focus'**
   String get paneSwapFocusLabel;
 
+  /// Command label: select every row of the focused pane's listing (edit.selectAll, 02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Select All'**
+  String get editSelectAllLabel;
+
+  /// Command label: replace the focused pane's selection with its complement (edit.invertSelection, 02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Invert Selection'**
+  String get editInvertSelectionLabel;
+
   /// Tooltip of the Connections row action that opens the bookmark in the active pane.
   ///
   /// In en, this message translates to:

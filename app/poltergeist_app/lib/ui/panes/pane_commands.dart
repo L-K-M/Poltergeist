@@ -13,6 +13,8 @@ const kViewRefreshCommandId = 'view.refresh';
 const kPaneFocusLeftCommandId = 'pane.focusLeft';
 const kPaneFocusRightCommandId = 'pane.focusRight';
 const kPaneSwapFocusCommandId = 'pane.swapFocus';
+const kEditSelectAllCommandId = 'edit.selectAll';
+const kEditInvertSelectionCommandId = 'edit.invertSelection';
 
 /// The pane-command registry slice (D21): every pane action this
 /// foundation ships is a registered command. Commands resolve the
@@ -159,6 +161,40 @@ List<RegisteredCommand> buildPaneCommands({
       activators: (_) => const [SingleActivator(LogicalKeyboardKey.tab)],
       run: (_) async {
         swapFocus();
+      },
+    ),
+    RegisteredCommand(
+      id: kEditSelectAllCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.editSelectAllLabel,
+      icon: Icons.select_all,
+      // ⌘A / Ctrl+A (02 §8.3's table), dual macOS/Ctrl registration.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyA, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyA, control: true)],
+      ),
+      enabled: () => activePane()?.verbsEnabled ?? false,
+      run: (_) async {
+        activePane()?.selectAll();
+      },
+    ),
+    RegisteredCommand(
+      id: kEditInvertSelectionCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.editInvertSelectionLabel,
+      icon: Icons.flip,
+      // ⇧⌘I / Ctrl+Shift+I (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyI, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyI, control: true, shift: true),
+        ],
+      ),
+      enabled: () => activePane()?.verbsEnabled ?? false,
+      run: (_) async {
+        activePane()?.invertSelection();
       },
     ),
   ];

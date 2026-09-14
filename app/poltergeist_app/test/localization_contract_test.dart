@@ -242,6 +242,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.focusLeft'",
     "'pane.focusRight'",
     "'pane.swapFocus'",
+    "'edit.selectAll'",
+    "'edit.invertSelection'",
     r"'Duplicate shortcut activator $activator: later command wins'",
   },
   'lib/ui/panes/pane_view.dart': {
