@@ -1365,6 +1365,274 @@ void main() {
       expect(leftNode.hasFocus, isTrue);
     });
   });
+
+  group('filter field', () {
+    final field = find.byKey(const ValueKey('pane.left.filter.field'));
+    final clear = find.byKey(const ValueKey('pane.left.filter.clear'));
+
+    bool fieldHasFocus(WidgetTester tester) =>
+        tester.binding.focusManager.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<EditableText>() !=
+        null;
+
+    testWidgets('view.filter opens the strip, filters live, Enter keeps', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+      expect(field, findsNothing);
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+
+      // 02 §2.5: the strip drops in below the path bar and the field
+      // owns primary focus.
+      expect(field, findsOneWidget);
+      expect(
+        tester.getTopLeft(field).dy,
+        greaterThanOrEqualTo(
+          tester
+              .getBottomLeft(find.byKey(const ValueKey('pane.left.path')))
+              .dy,
+        ),
+        reason: 'the field must sit below the path bar',
+      );
+      expect(fieldHasFocus(tester), isTrue);
+
+      await tester.enterText(field, 'r');
+      await tester.pump();
+      expect(left.entries.map((e) => e.name), ['report.txt']);
+      // The `12 of 348` helper: visible of total.
+      expect(find.text('1 of 3'), findsOneWidget);
+
+      // Enter keeps the active filter and returns focus to the listing;
+      // the strip stays mounted so the lens is visibly on.
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(field, findsOneWidget);
+      expect(left.filterActive, isTrue);
+      expect(leftNode.hasFocus, isTrue);
+      expect(find.text('1 of 3'), findsOneWidget);
+    });
+
+    testWidgets('Esc in the field is the field tier: clear and close', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'report');
+      await tester.pump();
+      expect(left.entries.map((e) => e.name), ['report.txt']);
+      expect(fieldHasFocus(tester), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(field, findsNothing);
+      expect(left.filterActive, isFalse);
+      expect(left.entries.length, 3);
+      expect(leftNode.hasFocus, isTrue);
+    });
+
+    testWidgets('Esc on the listing is the below-navigation tier: an '
+        'active unfocused filter clears', (tester) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'report');
+      await tester.pump();
+      // Commit: filter stays, focus returns to the listing.
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(leftNode.hasFocus, isTrue);
+      expect(left.filterActive, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(left.filterActive, isFalse);
+      expect(field, findsNothing);
+      expect(left.entries.length, 3);
+    });
+
+    testWidgets('navigation-cancel still outranks the filter tier', (
+      tester,
+    ) async {
+      final channel = localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'report');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(left.filterActive, isTrue);
+
+      // A held listing keeps the navigation in flight: §8.2's first Esc
+      // cancels the load, never the filter.
+      final hold = Completer<void>();
+      channel.holdNext = hold;
+      left.navigate('/home/tester/docs');
+      await tester.pump(const Duration(milliseconds: 300));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(left.loading, isFalse);
+      expect(left.filterActive, isTrue,
+          reason: 'the navigation tier owns this Esc — the filter tier '
+              'never sees it');
+      expect(left.location, const LocalPaneLocation('/home/tester'));
+      expect(left.entries.map((e) => e.name), ['report.txt']);
+      hold.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('filtered-to-nothing renders the dedicated empty state', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'zzz');
+      await tester.pump();
+
+      // 02 §2.7: the dedicated message and Clear affordance — never a
+      // blank pane.
+      expect(find.text('No items match "zzz"'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('pane.filter.emptyClear')),
+        findsOneWidget,
+      );
+      expect(find.text('This folder is empty.'), findsNothing,
+          reason: 'the listing is not empty — the FILTER is');
+
+      await tester.tap(find.byKey(const ValueKey('pane.filter.emptyClear')));
+      await tester.pump();
+      expect(left.filterActive, isFalse);
+      expect(left.entries.length, 3);
+    });
+
+    testWidgets('the strip Clear affordance clears from anywhere', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'report');
+      await tester.pump();
+
+      await tester.tap(clear);
+      await tester.pump();
+      expect(left.filterActive, isFalse);
+      expect(field, findsNothing);
+      expect(left.entries.length, 3);
+      expect(leftNode.hasFocus, isTrue);
+    });
+
+    testWidgets('listing keys and type-ahead stay inert while the field '
+        'holds focus', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        localChannelWithEntries();
+        await left.openLocalHome();
+        final rightChannel =
+            controller_test.FakePaneChannel('/home/tester');
+        rightChannel.listings['/home/tester'] = const [];
+        lanes.nextLocalChannel = rightChannel;
+        await right.openLocalHome();
+        await pumpShell(tester);
+        leftNode.requestFocus();
+        await tester.pump();
+
+        left.openFilter();
+        await tester.pump();
+        await tester.pump();
+        expect(fieldHasFocus(tester), isTrue);
+
+        // 02 §8.2: every pane-owned single key is inert under a focused
+        // text surface — no cursor move, no Tab swap, no type-ahead.
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.pump();
+        expect(left.cursorIndex, isNull);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.pump();
+        expect(left.typeAheadBuffer, '',
+            reason: 'type-ahead must not accumulate under a text field');
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(rightNode.hasFocus, isFalse);
+        expect(workspace.activePane, left);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('a re-invocation of view.filter re-focuses the mounted '
+        'field', (tester) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'report');
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(leftNode.hasFocus, isTrue);
+      expect(fieldHasFocus(tester), isFalse);
+
+      // ⌘F over a live filter must reopen editing, not no-op.
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      expect(fieldHasFocus(tester), isTrue);
+      expect(
+        find.widgetWithText(TextField, 'report'),
+        findsOneWidget,
+        reason: 'the live query stays for editing',
+      );
+    });
+  });
 }
 
 /// The pane stays browsable — a typing mishap must not have navigated.
