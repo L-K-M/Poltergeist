@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -483,6 +484,28 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get quickSelectRemoveLabel => 'Remove';
+
+  @override
+  String get viewFilterLabel => 'Filter';
+
+  @override
+  String get paneFilterFieldLabel => 'Filter';
+
+  @override
+  String get paneFilterFieldHint => 'name contains';
+
+  @override
+  String paneFilterCount(int visible, int total) {
+    return '$visible of $total';
+  }
+
+  @override
+  String get paneFilterClear => 'Clear';
+
+  @override
+  String paneFilterNoMatch(String query) {
+    return 'No items match \"$query\"';
+  }
 
   @override
   String get connectionsOpenInPane => 'Open in Pane';

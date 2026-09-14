@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'engine_session.dart';
+import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
 import 'quick_select_state.dart';
@@ -42,17 +43,19 @@ const _connectionLostError = RemoteFileException(
 /// The last quiescent state, captured on every not-loading → loading
 /// transition (02 §2.8): Esc-cancel restores exactly this, never a
 /// transient mid-navigation state. The selection is immutable, so the
-/// snapshot shares it without copying.
+/// snapshot shares it without copying. [listing] is the full accepted
+/// listing (pre-filter): the filter is a lens on whatever listing is
+/// current, so the restore re-applies the query that is active NOW.
 class _QuiescentSnapshot {
   const _QuiescentSnapshot(
     this.location,
-    this.entries,
+    this.listing,
     this.error,
     this.selection,
   );
 
   final PaneLocation? location;
-  final List<RemoteFileEntry> entries;
+  final List<RemoteFileEntry> listing;
   final RemoteFileException? error;
   final SelectionState<_RowKey> selection;
 }
@@ -128,6 +131,20 @@ class PaneController extends ChangeNotifier {
 
   PanePhase _phase = PanePhase.unbound;
   PaneLocation? _location;
+
+  /// The accepted listing after the hidden-file policy and the §2.3
+  /// sort, BEFORE the §2.5 name filter — [_entries] is this list seen
+  /// through the active filter. Keeping the pre-filter listing is what
+  /// lets clearing or widening a query re-show rows without a re-list.
+  /// Written only through [_setListing], which rebuilds the lowercased
+  /// basename cache in lockstep.
+  List<RemoteFileEntry> _listing = const [];
+
+  /// Lowercased basenames parallel to [_listing] — the §2.5 filter scans
+  /// cached strings instead of re-lowercasing every name per keystroke,
+  /// the same per-keystroke allocation rationale as [_foldedNames].
+  /// Plain `toLowerCase`, NOT `typeAheadFold` (no diacritic stripping).
+  List<String> _loweredNames = const [];
   List<RemoteFileEntry> _entries = const [];
   RemoteFileException? _error;
   int _issuedGeneration = 0;
@@ -165,6 +182,29 @@ class PaneController extends ChangeNotifier {
   String _typeAheadBuffer = '';
   Timer? _typeAheadReset;
 
+  /// 02 §2.5's Filter (`view.filter`): a case-insensitive substring lens
+  /// over the current listing. Per-tab and transient BY CONSTRUCTION —
+  /// it never reaches a persistence surface (not ViewPreferences, not §3
+  /// workspace snapshots or session restore: a forgotten filter reads as
+  /// data loss, which is why the plan forbids persisting it). The query
+  /// survives navigation and refresh within the binding — §8.2's Esc
+  /// order requires a filter to outlive an in-flight navigation — but a
+  /// replaced binding or a detach drops it: a stale query silently
+  /// hiding rows on a freshly connected server is the same data-loss
+  /// read.
+  String _filterQuery = '';
+
+  /// Whether the filter strip is open for editing. The strip stays
+  /// mounted while a query is active even after the field yields focus —
+  /// its `12 of 348` helper text is the only surface showing the lens is
+  /// on.
+  bool _filterFieldOpen = false;
+
+  /// Bumped by every `view.filter` invocation: the view re-focuses the
+  /// field on a change, so ⌘F re-opens editing over a live filter
+  /// instead of no-oping against the already-mounted strip.
+  int _filterFocusGeneration = 0;
+
   /// Folded basenames per accepted listing, built once at apply time —
   /// type-ahead scans cached strings instead of re-folding every name
   /// per keystroke (a large listing would otherwise allocate O(rows)
@@ -185,8 +225,9 @@ class PaneController extends ChangeNotifier {
   bool get hasEngine => _lanes != null;
 
   /// The visible listing: sorted (directories first, then name), dotfiles
-  /// hidden by default, an unmodifiable copy written only when a listing
-  /// is accepted or Esc restores a snapshot.
+  /// hidden by default, and filtered by the active §2.5 filter — an
+  /// unmodifiable copy written only when a listing is accepted, the
+  /// filter changes, or Esc restores a snapshot.
   List<RemoteFileEntry> get entries => _entries;
 
   /// The typed error of the pane's current surface: the listing taxonomy
@@ -396,7 +437,8 @@ class PaneController extends ChangeNotifier {
     _error = snapshot?.error;
     _selection =
         snapshot?.selection ?? SelectionState<_RowKey>.begin(rows: const []);
-    _applyEntries(snapshot?.entries ?? const []);
+    _setListing(snapshot?.listing ?? const []);
+    _applyEntries(_filteredListing());
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
@@ -510,6 +552,67 @@ class PaneController extends ChangeNotifier {
   /// The session's Add/Remove mode; [QuickSelectMode.add] while closed.
   QuickSelectMode get quickSelectMode =>
       _quickSelect?.mode ?? QuickSelectMode.add;
+
+  /// The active filter's raw query (02 §2.5); empty while no filter
+  /// applies. The field edits it live through [changeFilterQuery].
+  String get filterQuery => _filterQuery;
+
+  /// Whether a query currently prunes the visible listing — drives the
+  /// strip's `visible of total` helper, the filtered-to-nothing empty
+  /// state (02 §2.7), and the below-navigation Esc tier (02 §8.2).
+  bool get filterActive => _filterQuery.isNotEmpty;
+
+  /// Whether the filter strip is mounted for editing. The view also
+  /// keeps it up while [filterActive] holds after the field yields
+  /// focus — a hidden strip would leave the lens invisible.
+  bool get filterFieldOpen => _filterFieldOpen;
+
+  /// The `view.filter` focus-request counter: each invocation bumps it
+  /// so the view re-focuses the field even when the strip is already
+  /// mounted.
+  int get filterFocusGeneration => _filterFocusGeneration;
+
+  /// The pre-filter listing size — the "of N" half of the strip's
+  /// `12 of 348` helper ([entries] carries the visible half).
+  int get unfilteredCount => _listing.length;
+
+  /// `view.filter` (02 §2.5, ⌘F/Ctrl+F): opens the filter strip over the
+  /// current listing and asks the view to focus its field — including
+  /// re-invocations over an already-open strip, which bump the focus
+  /// generation instead of no-oping.
+  void openFilter() {
+    if (_disposed || !verbsEnabled) return;
+    _filterFieldOpen = true;
+    _filterFocusGeneration++;
+    notifyListeners();
+  }
+
+  /// The field's live query: every change re-filters the accepted
+  /// listing in place (02 §2.5). A replacement listing of rows ends any
+  /// open Quick Select session BEFORE the restored baseline prunes
+  /// against the filtered rows — the same invalidation seam a navigation
+  /// or refresh uses (02 §2.5); a pending type-ahead buffer drops with
+  /// the rows it matched.
+  void changeFilterQuery(String query) {
+    if (_disposed || !_filterFieldOpen || query == _filterQuery) return;
+    _filterQuery = query;
+    _applyEntries(_filteredListing());
+    notifyListeners();
+  }
+
+  /// Clears the query AND closes the strip — the field tier's Esc while
+  /// the field is focused, the below-navigation tier's Esc once the
+  /// filter outlives focus, and the strip's Clear affordance all land
+  /// here (02 §8.2's two slots are the same "filter off" act).
+  void clearFilter() {
+    if (_disposed || (!_filterFieldOpen && _filterQuery.isEmpty)) return;
+    _filterFieldOpen = false;
+    if (_filterQuery.isNotEmpty) {
+      _filterQuery = '';
+      _applyEntries(_filteredListing());
+    }
+    notifyListeners();
+  }
 
   /// 02 §2.5's accumulated type-ahead buffer — the transient badge's
   /// content while typing. Empty while inactive.
@@ -700,6 +803,9 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
+    _setListing(const []);
+    _filterQuery = '';
+    _filterFieldOpen = false;
     _applyEntries(const []);
     _error = null;
     _snapshot = null;
@@ -840,6 +946,11 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     if (presentation == _BindingPresentation.replace) {
       _location = null;
+      _setListing(const []);
+      // A replaced binding drops the filter with its listing — the
+      // transient lens is scoped to the browsing session it was set in.
+      _filterQuery = '';
+      _filterFieldOpen = false;
       _applyEntries(const []);
       _error = null;
       _recovery = _RecoveryPhase.none;
@@ -903,7 +1014,8 @@ class PaneController extends ChangeNotifier {
     // and the new listing prunes it (02 §2.5).
     _endQuickSelectSession();
     if (!_loadingActive()) {
-      _snapshot = _QuiescentSnapshot(_location, _entries, _error, _selection);
+      _snapshot =
+          _QuiescentSnapshot(_location, _listing, _error, _selection);
     }
     if (_location != target) {
       // The old entries stay visible (dimmed) during the load, but the
@@ -930,7 +1042,8 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
-      _applyEntries(_visibleSorted(listed));
+      _setListing(_visibleSorted(listed));
+      _applyEntries(_filteredListing());
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
       _error = null;
@@ -959,15 +1072,17 @@ class PaneController extends ChangeNotifier {
     }
   }
 
-  /// Adopts [entries] as the pane's accepted listing and prunes the
-  /// selection against the new row identities (02 §2.5): surviving keys
-  /// keep their selection, cursor, and anchor; missing keys drop out
-  /// instead of re-targeting a moved index.
+  /// Adopts [entries] as the pane's VISIBLE rows (already through the
+  /// §2.5 filter where one is active) and prunes the selection against
+  /// the new row identities: surviving keys keep their selection,
+  /// cursor, and anchor; missing keys drop out instead of re-targeting
+  /// a moved index.
   void _applyEntries(List<RemoteFileEntry> entries) {
-    // Any listing replacement — refresh accept, snapshot restore, bind
-    // reset, detach — ends an open Quick Select session before pruning:
-    // the baseline is restored against the OLD row identities, then
-    // withRows drops what the new listing no longer has.
+    // Any row-set replacement — refresh accept, snapshot restore, bind
+    // reset, detach, or a filter edit — ends an open Quick Select
+    // session before pruning: the baseline is restored against the OLD
+    // row identities, then withRows drops what the new listing no
+    // longer has.
     _endQuickSelectSession();
     // A replaced listing also drops a pending type-ahead buffer — the
     // accumulated prefix was matched against rows that no longer stand.
@@ -1031,6 +1146,37 @@ class PaneController extends ChangeNotifier {
         .where((entry) => !entry.name.startsWith('.'))
         .toList(growable: false);
     return sortFileEntries(visible);
+  }
+
+  /// Assigns the accepted listing and rebuilds the lowercased-name cache
+  /// in lockstep — the filter's per-keystroke scan never re-lowercases
+  /// rows.
+  void _setListing(List<RemoteFileEntry> listing) {
+    _listing = listing;
+    _loweredNames = List.generate(
+      listing.length,
+      (i) => listing[i].name.toLowerCase(),
+    );
+  }
+
+  /// The accepted listing seen through the §2.5 filter: an empty query
+  /// passes [_listing] through unchanged; an active one keeps only
+  /// case-insensitive substring matches, as an unmodifiable copy so
+  /// [entries] keeps its immutable contract. Matching scans the cached
+  /// [_loweredNames] — no per-row allocation per keystroke.
+  List<RemoteFileEntry> _filteredListing() {
+    // The invariant guards every read, not just filtered ones — a
+    // desynced cache is wrong even when no query is active.
+    assert(
+      _loweredNames.length == _listing.length,
+      '_loweredNames out of sync with _listing — assign via _setListing',
+    );
+    if (_filterQuery.isEmpty) return _listing;
+    final folded = ListingFilter(_filterQuery).foldedQuery;
+    return List.unmodifiable([
+      for (var i = 0; i < _listing.length; i++)
+        if (_loweredNames[i].contains(folded)) _listing[i],
+    ]);
   }
 
   void _report(Object error, StackTrace stackTrace) {

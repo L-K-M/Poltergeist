@@ -16,6 +16,7 @@ const kPaneSwapFocusCommandId = 'pane.swapFocus';
 const kEditSelectAllCommandId = 'edit.selectAll';
 const kEditInvertSelectionCommandId = 'edit.invertSelection';
 const kSelectionQuickSelectCommandId = 'selection.quickSelect';
+const kViewFilterCommandId = 'view.filter';
 
 /// The pane-command registry slice (D21): every pane action this
 /// foundation ships is a registered command. Commands resolve the
@@ -211,6 +212,21 @@ List<RegisteredCommand> buildPaneCommands({
       enabled: () => activePane()?.verbsEnabled ?? false,
       run: (_) async {
         activePane()?.openQuickSelect();
+      },
+    ),
+    RegisteredCommand(
+      id: kViewFilterCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.viewFilterLabel,
+      icon: Icons.filter_list_outlined,
+      // ⌘F / Ctrl+F (02 §8.3's table), dual macOS/Ctrl registration.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyF, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyF, control: true)],
+      ),
+      enabled: () => activePane()?.verbsEnabled ?? false,
+      run: (_) async {
+        activePane()?.openFilter();
       },
     ),
   ];

@@ -222,6 +222,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The U+FFFD flagged-name signal Quick Select excludes from matching
     // — a byte-level literal, never rendered (02 §13).
     r"'\uFFFD'",
+    // Debug-only invariant messages — never rendered.
+    "'_loweredNames out of sync with _listing — assign via _setListing'",
   },
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).
@@ -249,6 +251,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'edit.selectAll'",
     "'edit.invertSelection'",
     "'selection.quickSelect'",
+    "'view.filter'",
     r"'Duplicate shortcut activator $activator: later command wins'",
   },
   'lib/ui/panes/pane_view.dart': {
@@ -264,6 +267,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${controller.paneTabId}.cancel'",
     r"'${controller.paneTabId}.progress'",
     r"'${widget.controller.paneTabId}.quickSelect.field'",
+    r"'${widget.controller.paneTabId}.filter.field'",
+    r"'${widget.controller.paneTabId}.filter.clear'",
+    r"'${controller.paneTabId}.filter.emptyClear'",
     "''",
     "'/'",
     "'\\\\'",

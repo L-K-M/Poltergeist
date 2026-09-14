@@ -4159,6 +4159,59 @@ packages/poltergeist_core` clean; the P3 file runs 39 tests green;
 unchanged); `dart test test/benchmarks` 110/110 after the standalone
 pub gets (logs and exits under `tasks/run3-task36/`).
 
+## M3 — Filter field: view.filter (2026-09-14)
+
+`view.filter` (⌘F/Ctrl+F, 02 §2.5) is live: the command is registered
+pane-scoped and resolves the active pane at invocation, and
+`PaneController` owns the strip's open state plus a transient query
+that lenses the accepted listing in place — the pre-filter listing is
+retained (`_listing`) so clearing or widening re-shows rows without a
+re-list, and the query survives navigation and refresh within the
+binding (§8.2's Esc order requires it to outlive an in-flight load)
+while a replaced binding or a detach drops it with the rows it hid.
+Matching is a third, separate matcher — `ListingFilter`, a plain
+case-insensitive substring — deliberately NOT type-ahead's diacritic
+fold (§2.5 never extends folding to Filter: `e` does not match
+`Étude`) and NOT Quick Select's glob query (`*` is an ordinary
+character). The strip drops in below the path bar with a live
+`visible of total` helper and a Clear affordance, stays mounted while
+a query is active after the field yields focus (the helper is the only
+visible proof the lens is on), and a re-invocation re-focuses the
+mounted field through a focus-generation counter. Esc follows §8.2's
+tiers: the field's own Focus clears at the field tier while focused;
+once unfocused, the pane's Esc chain clears the filter below
+navigation-cancel and above the type-ahead buffer. Filtering to zero
+renders §2.7's dedicated `No items match "q"` state with a Clear
+button — never a blank pane. Every `changeFilterQuery` replacement
+ends an open Quick Select session BEFORE the restored baseline prunes
+against the filtered rows (the #114 invalidation seam), drops any
+pending type-ahead buffer, and re-folds the visible names so
+type-ahead matches the filtered listing; pane keys and type-ahead stay
+inert while the field holds focus, and registered chords keep the
+command layer's field-first guard. Filter state is per-tab and
+transient by construction — it never reaches ViewPreferences, §3
+workspace snapshots, or session restore (a forgotten filter reads as
+data loss); the decision is stated where persistence lives in
+`view_preferences.dart` and pinned by a toJson key-set test.
+
+Validation: matcher unit tests cover case-insensitive substring both
+directions, the no-fold contract against `Étude`, literal `*`,
+basename-only matching, and the empty-query pass-through; controller
+tests cover apply/clear, visible-of-total counts, verbs gating and the
+closed-field edit guard, Quick Select end-before-prune ordering,
+type-ahead over filtered rows, buffer drop on edit, survival across
+navigation/refresh, Esc-cancel snapshot restore re-applying the query,
+rebind and remote-detach drops, and the no-persistence pin; widget
+tests cover strip placement and focus, live filtering with the count
+helper, Enter-keeps/Esc-clears at both tiers, navigation-cancel
+outranking the filter tier, the filtered-empty state and its Clear,
+key and type-ahead suppression under field focus, and re-invocation
+refocus; the command test covers registration, scope, per-platform
+activators, and active-pane re-resolution. Real-font captures (DejaVu
++ MaterialIcons) of the closed strip, the active filter with helper,
+the filtered-empty state, and the post-Esc clear are under
+`tasks/run3-task35/`. Full app suite and analyze green.
+
 ## M3 — P3/P5 bench medians explained (2026-09-14)
 
 Investigation of the first fixture-backed tier-A results: explain why

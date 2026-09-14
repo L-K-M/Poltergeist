@@ -116,6 +116,13 @@ class _PaneViewState extends State<PaneView> {
   bool _disposed = false;
   bool _quickSelectWasActive = false;
   final _quickSelectFieldKey = GlobalKey();
+  // The filter field's focus node lives here (not inside the strip's
+  // state) so `view.filter` can re-focus an already-mounted strip — the
+  // controller's focus-generation bump is the request signal.
+  final _filterFocusNode = FocusNode();
+  final _filterStripKey = GlobalKey();
+  int _filterFocusSeen = 0;
+  bool _filterStripWasVisible = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
 
@@ -135,6 +142,10 @@ class _PaneViewState extends State<PaneView> {
       _graceTimer = null;
       _pastGrace = false;
       _quickSelectWasActive = false;
+      // Adopt the incoming controller's generation without treating it
+      // as a fresh focus request, and leave the visibility latch alone
+      // so a rebind-driven strip unmount is still seen as `justClosed`.
+      _filterFocusSeen = widget.controller.filterFocusGeneration;
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
@@ -145,6 +156,7 @@ class _PaneViewState extends State<PaneView> {
     _disposed = true;
     _graceTimer?.cancel();
     _scrollController.dispose();
+    _filterFocusNode.dispose();
     super.dispose();
   }
 
@@ -217,6 +229,38 @@ class _PaneViewState extends State<PaneView> {
           primary.context == null ||
           identical(primary, FocusManager.instance.rootScope)) {
         widget.focusNode.requestFocus();
+      }
+    });
+  }
+
+  /// The filter strip's two focus chores. A `view.filter` invocation
+  /// bumps the controller's focus generation — including over an
+  /// already-mounted strip — so the field re-claims primary focus on a
+  /// change. And when the strip unmounts under a still-focused field —
+  /// a Clear click, a controller-side clear, a rebind — primary focus
+  /// strands at the root; return it to the listing unless a deliberate
+  /// target already claimed it (same rule as Quick Select's close).
+  void _syncFilterFocus() {
+    final controller = widget.controller;
+    final stripVisible = controller.filterFieldOpen || controller.filterActive;
+    final focusRequest = controller.filterFocusGeneration != _filterFocusSeen;
+    _filterFocusSeen = controller.filterFocusGeneration;
+    final justClosed = _filterStripWasVisible && !stripVisible;
+    _filterStripWasVisible = stripVisible;
+    if (!focusRequest && !justClosed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      if (focusRequest && stripVisible) {
+        _filterFocusNode.requestFocus();
+        return;
+      }
+      if (justClosed) {
+        final primary = FocusManager.instance.primaryFocus;
+        if (primary == null ||
+            primary.context == null ||
+            identical(primary, FocusManager.instance.rootScope)) {
+          widget.focusNode.requestFocus();
+        }
       }
     });
   }
@@ -350,6 +394,13 @@ class _PaneViewState extends State<PaneView> {
             return KeyEventResult.handled;
           }
           widget.onCancelRecovery();
+        } else if (controller.filterActive || controller.filterFieldOpen) {
+          // 02 §8.2's Esc order: an active-but-unfocused filter clears
+          // below navigation-cancel (a filtered loading pane's first
+          // Esc still cancels the load) and above the type-ahead
+          // buffer. The field-focused Esc never reaches here — the
+          // strip's own Focus handles it at the field tier.
+          controller.clearFilter();
         } else if (controller.typeAheadActive) {
           // 02 §8.2's Esc order: a pending type-ahead buffer clears
           // below navigation-cancel and above deselect.
@@ -455,6 +506,7 @@ class _PaneViewState extends State<PaneView> {
         _syncGrace(_graceBusy());
         _syncReveal();
         _syncQuickSelectFocus();
+        _syncFilterFocus();
         final active = identical(
           widget.workspace.activePane,
           widget.controller,
@@ -477,18 +529,20 @@ class _PaneViewState extends State<PaneView> {
               // recognizer would join the arena against the row InkWells
               // and both would lose.
               onPointerDown: (event) {
-                // The Quick Select field keeps its own clicks: a pointer
-                // down inside its strip must not bounce focus to the
-                // listing before the field's own tap handler runs.
-                final fieldBox =
-                    _quickSelectFieldKey.currentContext?.findRenderObject()
-                        as RenderBox?;
-                if (fieldBox != null &&
-                    fieldBox.hasSize &&
-                    fieldBox.size.contains(
-                      fieldBox.globalToLocal(event.position),
-                    )) {
-                  return;
+                // The pane's field strips keep their own clicks: a
+                // pointer down inside the Quick Select or filter strip
+                // must not bounce focus to the listing before the
+                // field's own tap handler runs.
+                for (final key in [_quickSelectFieldKey, _filterStripKey]) {
+                  final fieldBox =
+                      key.currentContext?.findRenderObject() as RenderBox?;
+                  if (fieldBox != null &&
+                      fieldBox.hasSize &&
+                      fieldBox.size.contains(
+                        fieldBox.globalToLocal(event.position),
+                      )) {
+                    return;
+                  }
                 }
                 widget.focusNode.requestFocus();
               },
@@ -503,6 +557,9 @@ class _PaneViewState extends State<PaneView> {
                 onCancelRecovery: widget.onCancelRecovery,
                 onQuickSelectClosed: () => widget.focusNode.requestFocus(),
                 quickSelectFieldKey: _quickSelectFieldKey,
+                filterStripKey: _filterStripKey,
+                filterFocusNode: _filterFocusNode,
+                onFilterClosed: () => widget.focusNode.requestFocus(),
                 onActivateRow: (index, modifiers) {
                   widget.controller.setCursorIndex(
                     index,
@@ -540,6 +597,9 @@ class _PaneSurface extends StatelessWidget {
     required this.onCancelRecovery,
     required this.onQuickSelectClosed,
     required this.quickSelectFieldKey,
+    required this.filterStripKey,
+    required this.filterFocusNode,
+    required this.onFilterClosed,
     required this.onActivateRow,
     required this.onOpenRow,
   });
@@ -554,6 +614,17 @@ class _PaneSurface extends StatelessWidget {
   final VoidCallback onCancelRecovery;
   final VoidCallback onQuickSelectClosed;
   final GlobalKey quickSelectFieldKey;
+
+  /// The filter strip's hit-test boundary for the pane's pointer-down
+  /// listener (clicks inside it must not bounce focus to the listing).
+  final GlobalKey filterStripKey;
+
+  /// The filter field's focus node, owned by the pane state so a
+  /// `view.filter` re-invocation can re-focus the mounted field.
+  final FocusNode filterFocusNode;
+
+  /// Returns focus to the listing after the field's own Enter/Esc.
+  final VoidCallback onFilterClosed;
   final ValueChanged<int> onOpenRow;
   final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
 
@@ -576,6 +647,17 @@ class _PaneSurface extends StatelessWidget {
             key: quickSelectFieldKey,
             controller: controller,
             onClosed: onQuickSelectClosed,
+          ),
+        // The filter strip: open for editing on `view.filter`, and held
+        // mounted while a query stays active after the field yields
+        // focus — its helper text is the only visible proof the lens is
+        // on (02 §2.5).
+        if (controller.filterFieldOpen || controller.filterActive)
+          _FilterField(
+            key: filterStripKey,
+            controller: controller,
+            focusNode: filterFocusNode,
+            onClosed: onFilterClosed,
           ),
         Expanded(child: _body(context, l10n)),
         _PaneFooter(
@@ -707,6 +789,11 @@ class _PaneSurface extends StatelessWidget {
       // folder would otherwise flash "Empty folder" before arrival.
       if (controller.loading || controller.connectionLost) {
         return const SizedBox.shrink();
+      }
+      // 02 §2.7's filtered-to-nothing state: the dedicated message plus
+      // the Clear affordance — never a blank pane.
+      if (controller.filterActive) {
+        return _FilteredEmpty(controller: controller);
       }
       return Center(child: Text(l10n.paneEmptyFolder));
     }
@@ -1502,6 +1589,199 @@ class _QuickSelectFieldState extends State<_QuickSelectField> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 02 §2.5's Filter strip (`view.filter`): a small field below the path
+/// bar that re-filters the visible listing live as a case-insensitive
+/// substring, plus the `visible of total` helper while a query is active
+/// and a Clear affordance. Esc is the field tier of §8.2's order —
+/// clearing the filter and closing the strip; Enter keeps the filter
+/// and returns focus to the listing.
+class _FilterField extends StatefulWidget {
+  const _FilterField({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.onClosed,
+  });
+
+  final PaneController controller;
+
+  /// Owned by the pane state so `view.filter` re-invocations can
+  /// re-focus the field while the strip stays mounted.
+  final FocusNode focusNode;
+
+  /// Returns focus to the listing after Enter commits or Esc clears.
+  final VoidCallback onClosed;
+
+  @override
+  State<_FilterField> createState() => _FilterFieldState();
+}
+
+class _FilterFieldState extends State<_FilterField> {
+  late final TextEditingController _query = TextEditingController(
+    text: widget.controller.filterQuery,
+  );
+
+  @override
+  void didUpdateWidget(_FilterField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The field is the query's only editor; if the controller's query
+    // ever differs from the field's text (a controller-side change that
+    // left the strip mounted), the controller wins.
+    if (widget.controller.filterQuery != _query.text) {
+      _query.text = widget.controller.filterQuery;
+    }
+  }
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  void _clear() {
+    widget.controller.clearFilter();
+    widget.onClosed();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final controller = widget.controller;
+    return Focus(
+      // Esc clears from anywhere inside the strip — the field tier of
+      // §8.2's order. This node sits in the focus ancestry above the
+      // field and sees only keys the focused child did not consume.
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent ||
+            event.logicalKey != LogicalKeyboardKey.escape) {
+          return KeyEventResult.ignored;
+        }
+        _clear();
+        return KeyEventResult.handled;
+      },
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(
+            bottom: BorderSide(color: colors.outlineVariant),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 6),
+                child: Icon(
+                  Icons.filter_list_outlined,
+                  size: 18,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              Expanded(
+                // A floated label cannot fit this strip's height; the
+                // field's accessible name rides Semantics instead and
+                // the hint states the match shape (02 §2.5's plain
+                // substring — no glob, no diacritic folding).
+                child: Semantics(
+                  label: l10n.paneFilterFieldLabel,
+                  child: TextField(
+                    key: ValueKey(
+                      '${widget.controller.paneTabId}.filter.field',
+                    ),
+                    controller: _query,
+                    focusNode: widget.focusNode,
+                    autofocus: true,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      hintText: l10n.paneFilterFieldHint,
+                    ),
+                    onChanged: controller.changeFilterQuery,
+                    // Enter keeps the active filter and returns focus to
+                    // the listing — the strip stays mounted while a
+                    // query is live so the helper text remains visible.
+                    // An empty query has nothing to keep: close the
+                    // strip instead of leaving an inert field mounted.
+                    onSubmitted: (_) {
+                      if (_query.text.isEmpty) {
+                        _clear();
+                      } else {
+                        widget.onClosed();
+                      }
+                    },
+                  ),
+                ),
+              ),
+              if (controller.filterActive) ...[
+                const SizedBox(width: 8),
+                Text(
+                  // 02 §2.5's `12 of 348` helper: visible of total.
+                  l10n.paneFilterCount(
+                    controller.entries.length,
+                    controller.unfilteredCount,
+                  ),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              IconButton(
+                key: ValueKey(
+                  '${widget.controller.paneTabId}.filter.clear',
+                ),
+                tooltip: l10n.paneFilterClear,
+                onPressed: _clear,
+                icon: const Icon(Icons.close, size: 16),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 02 §2.7's filtered-to-nothing empty state: the dedicated
+/// `No items match "q"` message with the Clear button — never a blank
+/// pane while a filter hides every row.
+class _FilteredEmpty extends StatelessWidget {
+  const _FilteredEmpty({required this.controller});
+
+  final PaneController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            l10n.paneFilterNoMatch(controller.filterQuery),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.tonal(
+            key: ValueKey('${controller.paneTabId}.filter.emptyClear'),
+            onPressed: controller.clearFilter,
+            child: Text(l10n.paneFilterClear),
+          ),
+        ],
       ),
     );
   }

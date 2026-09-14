@@ -885,6 +885,42 @@ abstract class AppLocalizations {
   /// **'Remove'**
   String get quickSelectRemoveLabel;
 
+  /// Command label: open the filter field over the focused pane's listing (view.filter, 02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get viewFilterLabel;
+
+  /// Accessible label of the pane's filter text field (02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter'**
+  String get paneFilterFieldLabel;
+
+  /// Hint inside the pane filter field stating its match shape: a case-insensitive substring of the name — no glob, no diacritic folding (02 §2.5). Keep it terse — it is placeholder text, not documentation.
+  ///
+  /// In en, this message translates to:
+  /// **'name contains'**
+  String get paneFilterFieldHint;
+
+  /// Helper text beside the pane filter field while a query is active: visible row count of the listing's total (02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'{visible} of {total}'**
+  String paneFilterCount(int visible, int total);
+
+  /// Clears the pane's active name filter (button and tooltip, 02 §2.5/§2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get paneFilterClear;
+
+  /// Filtered-to-nothing empty state of a pane listing (02 §2.7): names the active filter query.
+  ///
+  /// In en, this message translates to:
+  /// **'No items match \"{query}\"'**
+  String paneFilterNoMatch(String query);
+
   /// Tooltip of the Connections row action that opens the bookmark in the active pane.
   ///
   /// In en, this message translates to:
