@@ -59,7 +59,15 @@ Future<int> mergeMain(List<String> arguments) async {
   }
 
   final rows = <Object?>[];
+  final seenInputs = <String>{};
   for (final path in inputs) {
+    // Reject a repeated input outright: the same document listed twice
+    // (a glob plus an explicit name, say) would double its rows, and the
+    // checker would grade the inflated sample with no error anywhere.
+    if (!seenInputs.add(File(path).absolute.path)) {
+      stderr.writeln('duplicate input file: $path');
+      return usageExitCode;
+    }
     final Object? document;
     try {
       // Raw bytes first, like check.dart: a genuine I/O failure stays a
