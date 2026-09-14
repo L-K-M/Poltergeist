@@ -82,8 +82,9 @@ for a PR, and only an actual main run can reach the escalation
 threshold. The same tier-B drift notice firing on ≥ 7 consecutive main
 runs reddens with `baseline stale — refresh required` once
 `BENCH_ENFORCE_B` is set. Only a genuinely clean main run — no graded
-failures, no fresh drift, and at least one tier-B comparison actually
-observed — may reset prior counts; failed, missing, or unobserved tier-B
+failures, no fresh drift, and every expected tier-B comparison actually
+observed (at least one) — may reset prior counts; failed, missing, or
+unobserved tier-B
 comparisons preserve them (though drift that genuinely fired still
 counts even when other gates fail: measurement validity, drift, and
 budget failures are distinct). A run with nothing to record leaves the
