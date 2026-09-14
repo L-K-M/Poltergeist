@@ -15,6 +15,7 @@ import 'package:test/test.dart';
 /// reproduction lives in `linux_inotify_overflow_test.dart`.
 void main() {
   const deadline = Duration(seconds: 10);
+  const cleanupDeadline = Duration(seconds: 30);
 
   Future<Directory> tempFixture(String name) async {
     final directory = await Directory.systemTemp.createTemp(name);
@@ -245,7 +246,7 @@ void main() {
     // failure the finally cancels itself so the await below always
     // covers an actual release.
     Future<void>? cancellation;
-    var cancellationStalled = false;
+    var cancellationFailed = false;
     try {
       for (var index = 0; index < producerCount; index++) {
         final producer = await Process.start('python3', [
@@ -295,22 +296,39 @@ void main() {
       // own path; on an early failure (or a mid-loop spawn throw) cancel
       // here so the await below covers an actual release. A second
       // cancel returns the first future.
-      final pending = cancellation ?? subscription.cancel();
+      Future<void>? pending;
+      try {
+        pending = cancellation ?? subscription.cancel();
+      } catch (error, stackTrace) {
+        cancellationFailed = true;
+        printOnFailure(
+          'cancellation threw before returning its cleanup future: '
+          '$error\n$stackTrace',
+        );
+      }
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigterm);
       }
-      // Never let a stalled or errored cancellation displace the original
-      // failure or skip the kill/reap below — record the stall so a
-      // helper that stopped acknowledging cannot hide behind a green
-      // body; a cancel error on the green path already surfaced when the
-      // body awaited the same future.
-      try {
-        await pending.timeout(
-          const Duration(seconds: 30),
-          onTimeout: () => cancellationStalled = true,
-        );
-      } catch (_) {
-        cancellationStalled = true;
+      // Preserve a primary body failure while retaining enough detail to
+      // distinguish a stalled release from an errored one.
+      if (pending != null) {
+        try {
+          await pending.timeout(
+            cleanupDeadline,
+            onTimeout: () {
+              cancellationFailed = true;
+              printOnFailure(
+                'cancellation outlived the '
+                '${cleanupDeadline.inSeconds}s cleanup bound',
+              );
+            },
+          );
+        } catch (error, stackTrace) {
+          cancellationFailed = true;
+          printOnFailure(
+            'cancellation errored during cleanup: $error\n$stackTrace',
+          );
+        }
       }
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigkill);
@@ -318,13 +336,13 @@ void main() {
       await Future.wait(producers.map((producer) => producer.exitCode));
     }
 
-    // After the try/finally: a stall fails a green body, while an
+    // After the try/finally: a cleanup failure fails a green body, while an
     // original body failure propagates untouched instead of being
     // displaced by this assertion.
     expect(
-      cancellationStalled,
+      cancellationFailed,
       isFalse,
-      reason: 'cancellation outlived the cleanup bound',
+      reason: 'cancellation cleanup failed',
     );
   });
 

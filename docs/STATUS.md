@@ -3312,6 +3312,12 @@ placeholder. Verified: absent python3 and a nonzero `python3
 unchanged supervisor probe (released at `elapsedMs=0`), engine suite,
 core suite, and guards stay green (`tasks/task21-logs/*fixture-fix*`,
 `no-python-repro-after.log`, `nonzero-python-repro-after.log`).
+
+Review follow-up: cancellation timeouts and errors now emit distinct
+failure-only diagnostics with stacks, and a synchronous `cancel()` throw
+stays inside the producer-reap guard. The focused backend suite (8), engine
+suite (235), and core analysis pass on the follow-up head.
+
 ## M3 — pane listing uses the core natural sorter (2026-09-13)
 
 PaneController's placeholder comparator (lowercase lexical) is replaced by
