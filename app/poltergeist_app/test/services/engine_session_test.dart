@@ -245,7 +245,11 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
   final listings = <String, List<RemoteFileEntry>>{};
 
   final listCalls = <String>[];
+  final watchEvents = StreamController<DirectoryWatchEvent>.broadcast();
   int closeCalls = 0;
+
+  @override
+  Stream<DirectoryWatchEvent> get directoryChanges => watchEvents.stream;
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
@@ -254,8 +258,15 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
   }
 
   @override
+  Future<void> watchDirectory(String path) async {}
+
+  @override
+  Future<void> unwatchDirectory() async {}
+
+  @override
   Future<void> close() async {
     closeCalls++;
+    if (!watchEvents.isClosed) unawaited(watchEvents.close());
   }
 }
 

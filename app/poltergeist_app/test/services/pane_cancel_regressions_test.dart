@@ -214,12 +214,16 @@ class FakePaneChannel implements AppBrowseChannel {
 
   final listings = <String, List<RemoteFileEntry>>{};
   final listCalls = <String>[];
+  final watchEvents = StreamController<DirectoryWatchEvent>.broadcast();
   int closeCalls = 0;
 
   /// When set, every listing answers this typed failure (a severed
   /// transport) instead of table data.
   RemoteFileException? failure;
   Completer<List<RemoteFileEntry>>? heldListing;
+
+  @override
+  Stream<DirectoryWatchEvent> get directoryChanges => watchEvents.stream;
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
@@ -232,8 +236,15 @@ class FakePaneChannel implements AppBrowseChannel {
   }
 
   @override
+  Future<void> watchDirectory(String path) async {}
+
+  @override
+  Future<void> unwatchDirectory() async {}
+
+  @override
   Future<void> close() async {
     closeCalls++;
+    if (!watchEvents.isClosed) await watchEvents.close();
   }
 }
 

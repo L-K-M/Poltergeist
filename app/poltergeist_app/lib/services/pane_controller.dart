@@ -26,9 +26,14 @@ enum PanePhase {
   browsing,
 }
 
+/// Whether this pane tab is visible and may consume local watch resources.
+enum PaneTabActivity { active, background }
+
 enum _RecoveryPhase { none, waiting, listing, failed, reopening }
 
 enum _BindingPresentation { replace, retainCache }
+
+enum _DirectoryWatchPhase { idle, installing, live }
 
 // Connection loss is rendered by the localized banner, not a raw diagnostic.
 const _connectionLostError = RemoteFileException(
@@ -107,8 +112,12 @@ class PaneController extends ChangeNotifier {
   PaneController({
     required this.paneTabId,
     PaneEngineLanes? lanes,
+    PaneTabActivity tabActivity = PaneTabActivity.active,
     void Function(Object error, StackTrace stackTrace)? onError,
-  }) : // Keep the lanes seam private to the pane.
+  }) : // Keep the activity seam public for the future tab owner.
+       // ignore: prefer_initializing_formals
+       _tabActivity = tabActivity,
+       // Keep the lanes seam private to the pane.
        // ignore: prefer_initializing_formals
        _lanes = lanes,
        // Keep the reporter private while allowing test-only injection.
@@ -132,10 +141,16 @@ class PaneController extends ChangeNotifier {
   int _answeredGeneration = 0;
   _QuiescentSnapshot? _snapshot;
   AppBrowseChannel? _channel;
+  AppBrowseChannel? _localChannel;
+  StreamSubscription<DirectoryWatchEvent>? _directoryWatch;
+  String? _watchPath;
+  _DirectoryWatchPhase _watchPhase = _DirectoryWatchPhase.idle;
+  int _watchGeneration = 0;
   StreamSubscription<ServerStatus>? _statusWatch;
   ServerStatus? _connectionStatus;
   _RecoveryPhase _recovery = _RecoveryPhase.none;
   Bookmark? _pendingRemote;
+  PaneTabActivity _tabActivity;
   bool _disposed = false;
 
   // Row identity and selection (02 §2.5): keys mirror [_entries] and the
@@ -213,6 +228,21 @@ class PaneController extends ChangeNotifier {
       index >= 0 &&
       index < _rowKeys.length &&
       _selection.selectedKeys.contains(_rowKeys[index]);
+
+  /// Background tabs release local watches; activation refreshes safely.
+  void setTabActivity(PaneTabActivity activity) {
+    if (_disposed || activity == _tabActivity) return;
+    _tabActivity = activity;
+
+    final channel = _localChannel;
+    if (channel == null) return;
+    if (activity == PaneTabActivity.background) {
+      _dropDirectoryWatch(channel);
+      return;
+    }
+
+    refresh();
+  }
 
   /// Binds the pane to a remote bookmark: closes any previous channel,
   /// subscribes to the server's state lane BEFORE connecting (live
@@ -368,6 +398,8 @@ class PaneController extends ChangeNotifier {
     if (_disposed || connectionLost || !_loadingActive()) return;
 
     final snapshot = _snapshot;
+    final localChannel = _localChannel;
+    if (localChannel != null) _dropDirectoryWatch(localChannel);
     _location = snapshot?.location;
     _error = snapshot?.error;
     _selection =
@@ -377,6 +409,13 @@ class PaneController extends ChangeNotifier {
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
     notifyListeners();
+
+    final restored = snapshot?.location;
+    if (localChannel != null && restored is LocalPaneLocation) {
+      unawaited(
+        _restoreDirectoryWatch(restored.path, localChannel, _issuedGeneration),
+      );
+    }
   }
 
   /// Retries whatever failed: a failed connect reopens the channel, a
@@ -699,6 +738,8 @@ class PaneController extends ChangeNotifier {
           return;
         }
         _channel = channel;
+        _localChannel = channel;
+        _subscribeToDirectoryChanges(channel, attempt);
         _phase = PanePhase.browsing;
         notifyListeners();
         _issueNavigation(
@@ -729,6 +770,7 @@ class PaneController extends ChangeNotifier {
       // The old entries stay visible (dimmed) during the load, but the
       // selection belongs to the old listing — the cursor convention.
       _selection = SelectionState<_RowKey>.begin(rows: const []);
+      _dropDirectoryWatch(channel);
     }
     _location = target;
     _issuedGeneration++;
@@ -744,6 +786,12 @@ class PaneController extends ChangeNotifier {
     int generation,
   ) async {
     try {
+      if (identical(channel, _localChannel) &&
+          _tabActivity == PaneTabActivity.active &&
+          !await _ensureDirectoryWatch(path, channel, generation)) {
+        return;
+      }
+
       final listed = await channel.listDirectory(path);
       if (_disposed ||
           generation != _issuedGeneration ||
@@ -760,6 +808,11 @@ class PaneController extends ChangeNotifier {
           generation != _issuedGeneration ||
           !identical(channel, _channel)) {
         return;
+      }
+      if (identical(channel, _localChannel) &&
+          (error.kind == RemoteFileErrorKind.notFound ||
+              error is LocalPathTypeChangedException)) {
+        _dropDirectoryWatch(channel);
       }
       _answeredGeneration = generation;
       if (connectionLost) _recovery = _RecoveryPhase.failed;
@@ -809,14 +862,209 @@ class PaneController extends ChangeNotifier {
   Future<void> _releaseBinding() async {
     final channel = _channel;
     _channel = null;
+
+    final localChannel = _localChannel;
+    final hadDirectoryWatch = _watchPhase != _DirectoryWatchPhase.idle;
+    _localChannel = null;
+    _watchPath = null;
+    _watchPhase = _DirectoryWatchPhase.idle;
+    _watchGeneration++;
+
+    final directoryWatch = _directoryWatch;
+    _directoryWatch = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
+
+    if (localChannel != null && hadDirectoryWatch) {
+      try {
+        await localChannel.unwatchDirectory();
+      } on Object catch (error, stackTrace) {
+        _report(error, stackTrace);
+      }
+    }
+
+    if (directoryWatch != null) {
+      // The engine watch is gone. Do not hold rebinding on the UI
+      // broadcast stream's event-loop cancellation tail.
+      unawaited(_cancelDirectoryWatch(directoryWatch));
+    }
+
     if (channel != null) {
       try {
         await channel.close();
       } on Object catch (error, stackTrace) {
         _report(error, stackTrace);
       }
+    }
+  }
+
+  Future<void> _cancelDirectoryWatch(
+    StreamSubscription<DirectoryWatchEvent> subscription,
+  ) async {
+    try {
+      await subscription.cancel();
+    } on Object catch (error, stackTrace) {
+      _report(error, stackTrace);
+    }
+  }
+
+  void _subscribeToDirectoryChanges(AppBrowseChannel channel, int attempt) {
+    _directoryWatch = channel.directoryChanges.listen(
+      (event) => _acceptDirectoryChange(channel, attempt, event),
+      onError: (Object error, StackTrace stackTrace) {
+        if (!_ownsLocalWatch(channel, attempt)) return;
+        _report(error, stackTrace);
+        _loseDirectoryWatch(channel);
+      },
+      onDone: () {
+        if (!_ownsLocalWatch(channel, attempt)) return;
+        _loseDirectoryWatch(channel);
+      },
+    );
+  }
+
+  bool _ownsLocalWatch(AppBrowseChannel channel, int attempt) =>
+      !_disposed &&
+      _tabActivity == PaneTabActivity.active &&
+      attempt == _bindAttempt &&
+      identical(channel, _localChannel) &&
+      identical(channel, _channel);
+
+  void _acceptDirectoryChange(
+    AppBrowseChannel channel,
+    int attempt,
+    DirectoryWatchEvent event,
+  ) {
+    if (!_ownsLocalWatch(channel, attempt)) return;
+    if (_watchPath != event.path || _location?.path != event.path) return;
+
+    if (event.signal == DirectoryWatchSignal.lost) {
+      _clearDirectoryWatchState();
+    }
+    refresh();
+  }
+
+  void _loseDirectoryWatch(AppBrowseChannel channel) {
+    if (!identical(channel, _localChannel)) return;
+    _clearDirectoryWatchState();
+    refresh();
+  }
+
+  void _dropDirectoryWatch(AppBrowseChannel channel) {
+    if (!identical(channel, _localChannel) ||
+        _watchPhase == _DirectoryWatchPhase.idle) {
+      return;
+    }
+
+    _clearDirectoryWatchState();
+    unawaited(_unwatchDirectory(channel));
+  }
+
+  void _clearDirectoryWatchState() {
+    _watchPath = null;
+    _watchPhase = _DirectoryWatchPhase.idle;
+    _watchGeneration++;
+  }
+
+  Future<void> _unwatchDirectory(AppBrowseChannel channel) async {
+    try {
+      await channel.unwatchDirectory();
+    } on Object catch (error, stackTrace) {
+      if (_disposed || !identical(channel, _localChannel)) return;
+      _report(error, stackTrace);
+    }
+  }
+
+  Future<bool> _ensureDirectoryWatch(
+    String path,
+    AppBrowseChannel channel,
+    int navigationGeneration,
+  ) async {
+    if (_disposed ||
+        _tabActivity != PaneTabActivity.active ||
+        navigationGeneration != _issuedGeneration ||
+        !identical(channel, _localChannel) ||
+        !identical(channel, _channel) ||
+        _location?.path != path) {
+      return false;
+    }
+    if (_watchPhase == _DirectoryWatchPhase.live && _watchPath == path) {
+      return true;
+    }
+
+    final watchGeneration = ++_watchGeneration;
+    _watchPath = path;
+    _watchPhase = _DirectoryWatchPhase.installing;
+
+    try {
+      await channel.watchDirectory(path);
+    } on Object {
+      if (!_watchIntentStillCurrent(
+        path,
+        channel,
+        navigationGeneration,
+        watchGeneration,
+      )) {
+        return false;
+      }
+      _clearDirectoryWatchState();
+      rethrow;
+    }
+
+    if (!_watchIntentStillCurrent(
+      path,
+      channel,
+      navigationGeneration,
+      watchGeneration,
+    )) {
+      return false;
+    }
+
+    _watchPhase = _DirectoryWatchPhase.live;
+    return true;
+  }
+
+  bool _watchIntentStillCurrent(
+    String path,
+    AppBrowseChannel channel,
+    int navigationGeneration,
+    int watchGeneration,
+  ) =>
+      !_disposed &&
+      _tabActivity == PaneTabActivity.active &&
+      navigationGeneration == _issuedGeneration &&
+      watchGeneration == _watchGeneration &&
+      identical(channel, _localChannel) &&
+      identical(channel, _channel) &&
+      _watchPath == path &&
+      _location?.path == path;
+
+  Future<void> _restoreDirectoryWatch(
+    String path,
+    AppBrowseChannel channel,
+    int navigationGeneration,
+  ) async {
+    try {
+      await _ensureDirectoryWatch(path, channel, navigationGeneration);
+    } on RemoteFileException catch (error) {
+      if (_disposed ||
+          navigationGeneration != _issuedGeneration ||
+          !identical(channel, _channel) ||
+          _location?.path != path) {
+        return;
+      }
+      _error = error;
+      notifyListeners();
+    } on Object catch (error, stackTrace) {
+      if (_disposed ||
+          navigationGeneration != _issuedGeneration ||
+          !identical(channel, _channel) ||
+          _location?.path != path) {
+        return;
+      }
+      _report(error, stackTrace);
+      _error = PaneFaultException(PaneFault.listFolder, operation: 'watch');
+      notifyListeners();
     }
   }
 

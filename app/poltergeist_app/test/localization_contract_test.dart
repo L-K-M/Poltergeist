@@ -218,6 +218,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'connect'",
     "'open'",
     "'list'",
+    "'watch'",
     "'fault:\${fault.name}'",
   },
   // The location type's value semantics: toString output for debugging
