@@ -205,6 +205,7 @@ void main() {
       // the budget caps every await, and expiry is attributed as a run-
       // budget overrun, never as a per-listing timeout.
       final elapsed = Stopwatch()..start();
+      const listingTimeout = Duration(seconds: 5);
       final outcome = await collectScanRateSamples(
         listDirectory: (path) async {
           await Future<void>.delayed(const Duration(seconds: 2));
@@ -213,7 +214,7 @@ void main() {
         rootPath: '/root',
         warmups: 1,
         repetitions: 5,
-        listingTimeout: const Duration(seconds: 5),
+        listingTimeout: listingTimeout,
         deadline: const Duration(milliseconds: 50),
       );
       elapsed.stop();
@@ -229,7 +230,7 @@ void main() {
       expect(outcome.failureMessage, contains('run deadline exceeded'));
       expect(
         outcome.failureMessage,
-        isNot(contains('timed out after ${5 * 1000} ms')),
+        isNot(contains('timed out after ${listingTimeout.inMilliseconds} ms')),
       );
     });
 
@@ -366,11 +367,46 @@ void main() {
         expect(outcome.failureMessage, contains('a broke'));
       },
     );
+
+    test('a zero in-flight bound is rejected as an argument error', () async {
+      await expectLater(
+        collectScanRateSamples(
+          listDirectory: (path) async => const [],
+          rootPath: '/root',
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(minutes: 1),
+          maxInFlightListings: 0,
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
+
+    test('a zero-elapsed sample cannot produce a rate', () {
+      expect(
+        () => const P7ScanSample(
+          entries: 10,
+          directories: 2,
+          elapsed: Duration.zero,
+        ).entriesPerSecond,
+        throwsStateError,
+      );
+      expect(
+        const P7ScanSample(
+          entries: 1000,
+          directories: 2,
+          elapsed: Duration(milliseconds: 500),
+        ).entriesPerSecond,
+        2000.0,
+      );
+    });
   });
 
   group('runP7Collection over a fake channel', () {
     late FakeScanChannel channel;
     late List<String> events;
+    late List<FakeScanChannel> opens;
 
     FakeScanChannel buildChannel({Map<String, List<RemoteFileEntry>>? tree}) {
       channel = FakeScanChannel(
@@ -397,8 +433,7 @@ void main() {
         cpuModel: 'test-cpu',
       ),
     }) async {
-      final opens = <FakeScanChannel>[];
-      final releases = <void>[];
+      opens = <FakeScanChannel>[];
       return runP7Collection(
         config: P7CollectorConfig(
           targetPath: '/remote/tree',
@@ -419,9 +454,7 @@ void main() {
           opens.add(opened);
           return opened;
         },
-        releaseServer: () async {
-          releases.add(null);
-        },
+        releaseServer: () async {},
       );
     }
 
@@ -430,6 +463,11 @@ void main() {
       final result = await run(outputPath: output);
 
       expect(result.exitCode, 0, reason: result.stderr);
+      expect(
+        opens,
+        hasLength(1),
+        reason: 'the collector must retain one channel for every scan',
+      );
       // One channel, one fs; every scan lists root + each directory.
       expect(channel.fs.calls, isNotEmpty);
       for (final path in channel.fs.calls) {
@@ -473,7 +511,10 @@ void main() {
         final fingerprint = row['fingerprint']! as Map<String, Object?>;
         expect(fingerprint['mode'], 'aot');
         expect(fingerprint['scenarioConfig'], contains('/remote/tree'));
-        expect(fingerprint['scenarioConfig'], contains('readdir-depth=8'));
+        expect(
+          fingerprint['scenarioConfig'],
+          contains('readdir-depth=$p7ReaddirDepth'),
+        );
       }
       expect(result.stdout, contains('P7'));
       expect(result.stdout, contains('median'));
@@ -515,6 +556,47 @@ void main() {
       expect(row['status'], 'error');
       final error = row['error']! as String;
       expect(error, contains('timed out'));
+      // The budget message reports the configured timeout in
+      // milliseconds, not a truncated seconds figure.
+      expect(error, contains('timed out after 50 ms'));
+      expect(result.released, isTrue);
+    });
+
+    test('setup time is charged against the whole-run deadline', () async {
+      // A channel open slower than the whole-run budget must fail the
+      // run with a run-budget error row — setup is not free time.
+      final output = '${tempDir.path}/results.json';
+      final result = await runP7Collection(
+        config: P7CollectorConfig(
+          targetPath: '/remote/tree',
+          outputPath: output,
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(milliseconds: 30),
+          channelOpenTimeout: const Duration(seconds: 5),
+        ),
+        fingerprint: const P7FingerprintFields(
+          runnerImage: 'test-image',
+          arch: 'x64test',
+          dartVersion: 'test-dart',
+          flutterVersion: null,
+          mode: 'aot',
+          cpuModel: 'test-cpu',
+        ),
+        openChannel: () async {
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          return buildChannel();
+        },
+        releaseServer: () async {},
+      );
+
+      expect(result.exitCode, 1);
+      final document =
+          jsonDecode(await File(output).readAsString()) as Map<String, Object?>;
+      final row = (document['rows']! as List).single! as Map<String, Object?>;
+      expect(row['status'], 'error');
+      expect(row['error'], contains('run deadline exceeded'));
       expect(result.released, isTrue);
     });
 
@@ -804,6 +886,50 @@ void main() {
     );
   });
 
+  group('P7CollectorConfig.parse', () {
+    test('a repeated flag is rejected instead of silently first-wins', () {
+      expect(
+        () => P7CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--repetitions',
+          '5',
+          '--repetitions',
+          '20',
+          '--target',
+          '/t',
+        ]),
+        throwsA(isA<P7UsageException>()),
+      );
+    });
+
+    test('a flag token swallowed as a value is rejected', () {
+      expect(
+        () => P7CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--target',
+          '--warmups',
+          '3',
+        ]),
+        throwsA(isA<P7UsageException>()),
+      );
+    });
+
+    test('a normal invocation still parses', () {
+      final config = P7CollectorConfig.parse([
+        '--output',
+        'a.json',
+        '--target',
+        '/t',
+        '--repetitions',
+        '7',
+      ]);
+      expect(config.repetitions, 7);
+      expect(config.targetPath, '/t');
+    });
+  });
+
   group('CLI contract (subprocess)', () {
     late String packageDir;
     late String collectorPath;
@@ -1023,8 +1149,13 @@ void main() {
       // calibratedScenarioConfig, never a job-wide fingerprint claim.
       final emitted =
           jsonDecode(await File(output).readAsString()) as Map<String, Object?>;
-      final firstRow =
-          (emitted['rows']! as List).first! as Map<String, Object?>;
+      final emittedRows = emitted['rows']! as List;
+      expect(
+        emittedRows,
+        isNotEmpty,
+        reason: 'collector must emit rows for calibration to be derived',
+      );
+      final firstRow = emittedRows.first! as Map<String, Object?>;
       final rowFingerprint = firstRow['fingerprint']! as Map<String, Object?>;
       final calibration = {...rowFingerprint}..remove('scenarioConfig');
       final budgets = {
@@ -1148,6 +1279,11 @@ void main() {
             jsonDecode(await File(output).readAsString())
                 as Map<String, Object?>;
         final p7Rows = emitted['rows']! as List<Object?>;
+        expect(
+          p7Rows,
+          isNotEmpty,
+          reason: 'collector must emit rows for the mixed-file check',
+        );
         final p7Fingerprint =
             (p7Rows.first! as Map<String, Object?>)['fingerprint']!
                 as Map<String, Object?>;
@@ -1248,6 +1384,11 @@ Map<String, List<RemoteFileEntry>> scanTreeSpec({
   int dirFiles = 1,
   int directoryCount = 3,
 }) {
+  assert(
+    directoryCount >= 3,
+    'directoryCount below 3 is unsupported: the base tree always '
+    'contains a/, b/, and a/c/',
+  );
   final tree = <String, List<RemoteFileEntry>>{};
   void putDir(String path, int fileCount) {
     tree[path] = [
@@ -1405,7 +1546,7 @@ class FakeScanVfs implements RemoteFileSystem {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
-    'FakeScanVfs only implements canonicalize/listDirectory, got '
-    '${invocation.memberName}.',
+    'FakeScanVfs does not implement ${invocation.memberName}; it only '
+    'fakes the Vfs methods used by this benchmark.',
   );
 }

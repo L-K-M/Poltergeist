@@ -155,9 +155,11 @@ row    =  value = entries / elapsed seconds (unclipped)
   payload files, ≈ 10 800 entries across ≈ 10 directories). The scan
   reads every directory once per scan.
 - Row `scenario` is `P7`, `unit` is `entries/s`, `operator`-compatible
-  with budgets.json's `atLeast 1000`; `minimumRepetitions` there is 3
-  but the collector enforces ≥ 5 measured scans to match P3's protocol
-  floor.
+  with budgets.json's `atLeast 1000`. The catalog's
+  `minimumRepetitions` for P7 is 3 — the generic 08 §6 floor the
+  catalog mirrors (P3's row carries 5 because 07 §3.4 names that
+  protocol explicitly; M8 names no P7 floor). The collector enforces
+  the stricter ≥ 5 measured scans regardless, matching P3's protocol.
 
 ## P7 real-fixture invocation
 
@@ -178,6 +180,13 @@ test/integration/run.sh --lifecycle-only -- bash -c '
 The environment contract (`POLTERGEIST_SSHD*` exports, the pre-seeded
 committed host key, the loopback-only guard, the optional
 `POLTERGEIST_BENCH_*` fingerprint overrides) is identical to P3's above.
+
+## P7 local iteration
+
+`dart run benchmark/p7_scan_rate.dart --help` from this package works
+without the fixture (usage/argument contracts only); every measurement
+attempt without the fixture env exits 2 naming what is missing. Local
+numbers are JIT and must never be quoted against a budget.
 
 ## P7 validation status
 

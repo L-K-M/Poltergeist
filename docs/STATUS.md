@@ -3914,8 +3914,9 @@ with at most 8 outstanding `listDirectory` calls — 05 §3's pipelined
 readdir at D9's frozen `readdirDepth` — counting every entry (symlinks
 counted, never descended) and dividing by unclipped elapsed seconds.
 Warmups (≥1, default 2) are discarded; ≥5 measured scans are enforced by
-the collector even though budgets.json's generic P7 floor is 3, matching
-P3's protocol floor. Rows emit `scenario: 'P7'`, `unit: 'entries/s'` in
+the collector — stricter than budgets.json's spec-mirrored P7 floor of 3
+(08 §6's generic floor; M8 names none, while P3's 5 comes from 07 §3.4's
+explicit median criterion). Rows emit `scenario: 'P7'`, `unit: 'entries/s'` in
 the shared `poltergeist-d12-results-1` document with a P7-specific
 `scenarioConfig` (canonical root, entry count, readdir depth, warmups,
 repetitions) on the per-scenario axis #112 established, so one results
@@ -3940,7 +3941,7 @@ changes, no CI job or `BENCH_*` enforcement, no calibration values — P7
 stays `landed: false` and P1–P7 all unlanded; open item 21 still owns
 the bench job, calibration, and the landed flip. Validation:
 `packages/poltergeist_core/test/benchmark/p7_scan_rate_test.dart` adds
-33 tests (pipelined-walk ordering and depth bound, warmup discard,
+39 tests (pipelined-walk ordering and depth bound, warmup discard,
 symlink non-descent, mid-run count-change guard incl. frozen partial-row
 configs, deadline/timeout attribution, owned-temp collision and symlink
 safety, channel cleanup on every path, CLI subprocess contracts, and the

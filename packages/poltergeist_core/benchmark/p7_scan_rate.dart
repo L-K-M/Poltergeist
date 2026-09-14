@@ -145,8 +145,15 @@ final class P7ScanSample {
     required this.elapsed,
   });
 
-  double get entriesPerSecond =>
-      entries * Duration.microsecondsPerSecond / elapsed.inMicroseconds;
+  double get entriesPerSecond {
+    final micros = elapsed.inMicroseconds;
+    if (micros <= 0) {
+      throw StateError(
+        'P7ScanSample.elapsed must be positive to compute a rate',
+      );
+    }
+    return entries * Duration.microsecondsPerSecond / micros;
+  }
 }
 
 /// What a collection run observed. [failedRepetition] is null on success;
@@ -201,10 +208,20 @@ final class P7CollectorConfig {
     String? flagValue(String flag) {
       final index = arguments.indexOf(flag);
       if (index == -1) return null;
+      if (arguments.lastIndexOf(flag) != index) {
+        throw P7UsageException('$flag was passed more than once.');
+      }
       if (index + 1 >= arguments.length) {
         throw P7UsageException('$flag requires a value.');
       }
-      return arguments[index + 1];
+      final value = arguments[index + 1];
+      if (value.startsWith('-')) {
+        throw P7UsageException(
+          '$flag requires a value; "$value" looks like an option; '
+          'see --help.',
+        );
+      }
+      return value;
     }
 
     if (arguments.any((argument) => argument == '-h' || argument == '--help')) {
@@ -329,6 +346,13 @@ Future<P7RunOutcome> collectScanRateSamples({
   required Duration deadline,
   int maxInFlightListings = p7ReaddirDepth,
 }) async {
+  if (maxInFlightListings < 1) {
+    throw ArgumentError.value(
+      maxInFlightListings,
+      'maxInFlightListings',
+      'must allow at least one listing in flight',
+    );
+  }
   final runClock = Stopwatch()..start();
   final samples = <P7ScanSample>[];
   int? observedEntries;
@@ -619,12 +643,17 @@ Future<P7RunResult> runP7Collection({
       return 1;
     }
 
+    // The stated whole-run budget covers setup too: channel open and
+    // canonicalize are bounded by their own timeouts AND charged against
+    // config.deadline, so a slow setup cannot push the run past it.
+    final setupWatch = Stopwatch()..start();
+
     final PaneChannel openedChannel;
     try {
       openedChannel = await openChannel().timeout(
         config.channelOpenTimeout,
         onTimeout: () => throw TimeoutException(
-          'timed out after ${config.channelOpenTimeout.inSeconds} s',
+          'timed out after ${config.channelOpenTimeout.inMilliseconds} ms',
           config.channelOpenTimeout,
         ),
       );
@@ -644,11 +673,15 @@ Future<P7RunResult> runP7Collection({
 
     final outcome = await collectScanRateSamples(
       listDirectory: openedChannel.fs.listDirectory,
+      // The scan walks the requested path while the fingerprint axis
+      // carries canonicalTarget — the P3 pairing: rows describe the
+      // canonical identity, the measurement surface is what the
+      // operator named.
       rootPath: config.targetPath,
       warmups: config.warmups,
       repetitions: config.repetitions,
       listingTimeout: config.listingTimeout,
-      deadline: config.deadline,
+      deadline: config.deadline - setupWatch.elapsed,
     );
 
     final rows = <Map<String, Object?>>[
@@ -718,9 +751,16 @@ Future<P7RunResult> runP7Collection({
     return 1;
   }
 
-  final int exitCode;
+  var exitCode = 1;
   try {
     exitCode = await collect();
+  } catch (error, stackTrace) {
+    // Keep buffered diagnostics (including the teardown warnings the
+    // finally block below writes) reachable: p7Main cannot flush these
+    // buffers on its unexpected-failure path.
+    stderrBuffer
+      ..writeln('unexpected P7 collection failure: $error')
+      ..writeln('$stackTrace');
   } finally {
     // Bounded cleanup on every path; teardown problems are reported, not
     // swallowed, but never mask the measurement outcome.
@@ -1120,11 +1160,12 @@ Future<int> p7Main(
       writeStderr('connect transcript tail:\n  ${transcript.join('\n  ')}');
     }
     return result.exitCode;
-  } catch (error) {
+  } catch (error, stackTrace) {
     // runP7Collection catches its own error paths; anything reaching here
-    // is an unexpected failure that still deserves the transcript tail
-    // and a structured nonzero exit instead of an uncaught crash.
+    // is an unexpected failure that still deserves the stack trace and
+    // transcript tail alongside a structured nonzero exit.
     writeStderr('P7 collection failed unexpectedly: $error');
+    writeStderr('$stackTrace');
     if (transcript.isNotEmpty) {
       writeStderr('connect transcript tail:\n  ${transcript.join('\n  ')}');
     }
