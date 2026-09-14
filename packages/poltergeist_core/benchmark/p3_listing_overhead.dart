@@ -53,7 +53,9 @@ const p3DefaultMeasuredRepetitions = 5;
 
 /// Bounds for the untimed phases; the measured pairs additionally respect
 /// [P3CollectorConfig.deadline] as a whole-run budget (no unbounded retry,
-/// no unbounded wait).
+/// no unbounded wait). The budget caps each listing await; it stops the
+/// wait, not the underlying VFS IO (no cancellation exists in the pinned
+/// interface — open item 12), and cleanup retires the channel boundedly.
 const p3OpenChannelTimeout = Duration(seconds: 60);
 const p3TeardownTimeout = Duration(seconds: 30);
 const p3DefaultListingTimeout = Duration(seconds: 30);
@@ -308,9 +310,23 @@ final class P3RunResult {
 
 // --- Sampler ---------------------------------------------------------------
 
+/// Whole-run-budget expiry inside a listing await — distinct from a
+/// per-listing [TimeoutException] so failures attribute honestly.
+class _RunBudgetExceeded implements Exception {
+  final String message;
+
+  const _RunBudgetExceeded(this.message);
+
+  @override
+  String toString() => message;
+}
+
 /// Runs the fixed warmup/measured protocol over the two listing closures
 /// and returns the raw pairs plus an honest failure report. No retry: the
-/// first failing listing ends the run at its repetition index.
+/// first failing listing ends the run at its repetition index. The
+/// whole-run deadline caps every listing await at the lesser of the
+/// per-listing timeout and the remaining budget, and expiry is attributed
+/// as a run-budget overrun, never as a per-listing timeout.
 Future<P3RunOutcome> collectListingOverheadPairs({
   required Future<int> Function() listControl,
   required Future<int> Function() listTarget,
@@ -341,20 +357,58 @@ Future<P3RunOutcome> collectListingOverheadPairs({
     targetEntries: targetEntries,
   );
 
-  Future<P3PairTimings> runPair() async {
-    final controlWatch = Stopwatch()..start();
-    controlEntries = await listControl().timeout(
-      listingTimeout,
-      onTimeout: () =>
-          throw TimeoutException('control listing', listingTimeout),
+  // The whole-run budget must bound every await, not just the gaps
+  // between pairs: Future.timeout stops the WAIT, never the underlying
+  // VFS IO (the pinned interface offers no cancellation — open item 12),
+  // so expiry means the collector reports, stops waiting, and tears the
+  // channel down inside the bounded cleanup while the wedged listing's
+  // IO may still finish engine-side.
+  Duration remainingBudget() => deadline - runClock.elapsed;
+
+  Future<int> boundedListing(
+    Future<int> Function() listing,
+    String leg,
+    String label,
+  ) {
+    final remaining = remainingBudget();
+    if (remaining <= Duration.zero) {
+      throw _RunBudgetExceeded(
+        'run deadline exceeded before the $leg listing of $label',
+      );
+    }
+    final cap = listingTimeout < remaining ? listingTimeout : remaining;
+    final runBudgetBinds = remaining <= listingTimeout;
+    return listing().timeout(
+      cap,
+      onTimeout: () {
+        if (runBudgetBinds) {
+          throw _RunBudgetExceeded(
+            'run deadline exceeded during the $leg listing of $label '
+            '(${runClock.elapsed.inMilliseconds} ms elapsed of a '
+            '${deadline.inMilliseconds} ms whole-run budget)',
+          );
+        }
+        throw TimeoutException('$leg listing', listingTimeout);
+      },
     );
+  }
+
+  Future<P3PairTimings> runPair(String label) async {
+    final controlWatch = Stopwatch()..start();
+    controlEntries = await boundedListing(listControl, 'control', label);
     final control = controlWatch.elapsed;
 
+    // Between legs: a control listing that consumed the whole budget must
+    // never be followed by a target start.
+    if (remainingBudget() <= Duration.zero) {
+      throw _RunBudgetExceeded(
+        'run deadline exceeded after the control listing of $label — '
+        'target listing not started',
+      );
+    }
+
     final targetWatch = Stopwatch()..start();
-    targetEntries = await listTarget().timeout(
-      listingTimeout,
-      onTimeout: () => throw TimeoutException('target listing', listingTimeout),
-    );
+    targetEntries = await boundedListing(listTarget, 'target', label);
     final target = targetWatch.elapsed;
 
     // The results schema requires every row to carry one fingerprint, and
@@ -383,7 +437,9 @@ Future<P3RunOutcome> collectListingOverheadPairs({
       return fail(0, 'run deadline exceeded before warmup pair $warmup');
     }
     try {
-      await runPair();
+      await runPair('warmup pair $warmup');
+    } on _RunBudgetExceeded catch (error) {
+      return fail(0, error.message);
     } on TimeoutException catch (error) {
       return fail(
         0,
@@ -410,7 +466,9 @@ Future<P3RunOutcome> collectListingOverheadPairs({
       );
     }
     try {
-      pairs.add(await runPair());
+      pairs.add(await runPair('repetition $repetition'));
+    } on _RunBudgetExceeded catch (error) {
+      return fail(repetition, error.message);
     } on TimeoutException catch (error) {
       return fail(
         repetition,
@@ -488,6 +546,11 @@ Future<P3RunResult> runP3Collection({
   required P3FingerprintFields fingerprint,
   required Future<PaneChannel> Function() openChannel,
   required Future<void> Function() releaseServer,
+
+  /// Test seam for temp-name ownership: builds the owned-temporary
+  /// candidate for a 1-based attempt. Production leaves it null and uses
+  /// the default candidate builder; tests inject colliding names.
+  String Function(int attempt)? tempCandidateName,
 }) async {
   final stdoutBuffer = StringBuffer();
   final stderrBuffer = StringBuffer();
@@ -505,6 +568,7 @@ Future<P3RunResult> runP3Collection({
       await _writeResultsOrReport(
         config,
         stderrBuffer,
+        tempCandidateName: tempCandidateName,
         buildResultsDocument(
           fingerprint: fingerprint,
           targetPath: config.targetPath,
@@ -608,6 +672,7 @@ Future<P3RunResult> runP3Collection({
     final writeError = await _writeResultsOrReport(
       config,
       stderrBuffer,
+      tempCandidateName: tempCandidateName,
       buildResultsDocument(
         fingerprint: fingerprint,
         targetPath: canonicalTarget,
@@ -792,33 +857,76 @@ Map<String, Object?> _errorRowJson({
   ),
 };
 
+/// Upper bound on owned-temp acquisition attempts. Each default name
+/// embeds the pid, a microsecond timestamp, and the attempt, so
+/// collisions are practically impossible; the bound exists only to fail
+/// closed instead of looping when a test seam (or an adversarial local
+/// actor) keeps claiming names.
+const p3TempNameAttempts = 5;
+
+/// Platform "name already exists" codes for an exclusive create: POSIX
+/// EEXIST plus Windows ERROR_FILE_EXISTS (80), which File.create's
+/// exclusive CREATE_NEW surfaces (183 is kept defensively for other
+/// Windows create paths). Any other code rethrows and surfaces rather than
+/// silently retrying, which is the safe direction (EACCES, ENOENT, ENOSPC
+/// are persistent conditions a different timestamped name cannot fix).
+const p3NameExistsErrorCodes = {17, 80, 183};
+
 /// Atomic write through an owned unique temp file; returns null on
 /// success or the IO error for the caller to report (never a silent skip).
+///
+/// The temp name is CLAIMED with an exclusive create before any write:
+/// writeAsString truncates a preexisting file and follows a planted
+/// symlink — concrete data loss (the ownership class #105 repaired for
+/// the checker's drift state). A claimed-but-taken name just moves to the
+/// next candidate; a foreign resource at a candidate name is never
+/// written, followed, or deleted. [tempCandidateName] is the test seam
+/// for deterministic collisions.
 Future<Object?> _writeResultsOrReport(
   P3CollectorConfig config,
   StringBuffer stderrBuffer,
-  Map<String, Object?> document,
-) async {
-  File? temp;
+  Map<String, Object?> document, {
+  String Function(int attempt)? tempCandidateName,
+}) async {
+  File? ownedTemp;
   try {
-    temp = File(
-      '${config.outputPath}.p3-$pid-${DateTime.now().microsecondsSinceEpoch}'
-      '.tmp',
+    for (var attempt = 1; attempt <= p3TempNameAttempts; attempt++) {
+      final candidate =
+          tempCandidateName?.call(attempt) ??
+          '${config.outputPath}.p3-$pid-${DateTime.now().microsecondsSinceEpoch}'
+              '-$attempt.tmp';
+      final temporary = File(candidate);
+      try {
+        // O_CREAT|O_EXCL semantics: exists()-then-write has a check-to-
+        // write gap, and exists() follows symlinks, so a name planted in
+        // the gap would be followed.
+        await temporary.create(exclusive: true);
+      } on FileSystemException catch (error) {
+        if (!p3NameExistsErrorCodes.contains(error.osError?.errorCode)) {
+          rethrow;
+        }
+        continue; // The name is foreign-held; never touch it, try the next.
+      }
+      ownedTemp = temporary;
+      await temporary.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(document),
+      );
+      await temporary.rename(config.outputPath);
+      return null;
+    }
+    throw FileSystemException(
+      'could not acquire an owned temporary file after '
+      '$p3TempNameAttempts name collisions beside',
+      config.outputPath,
     );
-    await temp.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(document),
-    );
-    await temp.rename(config.outputPath);
-    return null;
   } catch (error) {
     stderrBuffer.writeln(
       'error: cannot write results to ${config.outputPath}: $error',
     );
-    // Best-effort cleanup: a failed write must not leave its temp file
-    // behind for artifact globs to pick up; cleanup failures stay quiet so
-    // the write error above remains the reported outcome.
+    // Cleanup deletes only the temp this run claimed; cleanup failures
+    // stay quiet so the write error above remains the reported outcome.
     try {
-      await temp?.delete();
+      await ownedTemp?.delete();
     } catch (_) {
       // Intentionally ignored: the reported failure is the write error.
     }

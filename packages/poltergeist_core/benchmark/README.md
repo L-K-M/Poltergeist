@@ -26,7 +26,11 @@ row    =  value = target − control (ms, unclipped: negative stays negative)
   exit 2 with an actionable message and write nothing.
 - The collector never writes to the server: only `listDirectory` and
   `canonicalize` are issued against the two caller-supplied existing
-  directories. No retries; per-listing and whole-run deadlines bound it.
+  directories. No retries; per-listing and whole-run deadlines bound
+  every listing **wait** at the lesser of the two limits — the pinned VFS
+  offers no IO cancellation (open item 12), so expiry means the collector
+  reports, stops waiting, and retires the channel inside the bounded
+  cleanup while the wedged listing's IO may still finish engine-side.
 - Rows match the `poltergeist-d12-results-1` schema consumed by
   `test/benchmarks/check.dart`; the per-row fingerprint carries
   `scenarioConfig` (canonical paths, entry counts, warmups, repetitions)
