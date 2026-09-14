@@ -729,8 +729,10 @@ void main() {
       heldRightOpen.complete();
       await rightConnect;
       await tester.pumpAndSettle();
-      // Re-assert after settle: a disconnect deferred behind a timer or
-      // an extra await hop would slip the earlier bounded-window check.
+      // Re-assert after settle PLUS an explicit time step: pumpAndSettle
+      // stops once frames settle, so a disconnect deferred behind a
+      // timer that schedules no frame never fires under it alone.
+      await tester.pump(const Duration(seconds: 1));
       expect(held.disconnectIds, isEmpty);
       expect(right.phase, PanePhase.browsing);
       expect(find.text('late-open.txt'), findsOneWidget);
