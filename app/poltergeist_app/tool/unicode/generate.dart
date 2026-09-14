@@ -96,6 +96,16 @@ void main() {
       while (folding.containsKey(value)) {
         value = folding[value]!;
       }
+      // A survivor that still decomposes means the compose-fold
+      // pipeline stopped short of its fixed point — subsumed by the
+      // post-build finality check (any decomposable point is a table
+      // key), but asserted here so the failure lands at the point of
+      // composition.
+      assert(
+        !decompositions.containsKey(value),
+        'folded value U+${value.toRadixString(16)} still has a '
+        'decomposition; resolve the full pipeline to a fixed point',
+      );
       if (!marks.contains(value)) folded.add(value);
     }
     return folded;
