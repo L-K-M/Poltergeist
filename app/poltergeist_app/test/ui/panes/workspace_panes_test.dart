@@ -729,6 +729,9 @@ void main() {
       heldRightOpen.complete();
       await rightConnect;
       await tester.pumpAndSettle();
+      // Re-assert after settle: a disconnect deferred behind a timer or
+      // an extra await hop would slip the earlier bounded-window check.
+      expect(held.disconnectIds, isEmpty);
       expect(right.phase, PanePhase.browsing);
       expect(find.text('late-open.txt'), findsOneWidget);
       expect(left.phase, PanePhase.unbound);

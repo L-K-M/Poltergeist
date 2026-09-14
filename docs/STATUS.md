@@ -3833,9 +3833,12 @@ bound and listable, and the alone-pane drop test still passes
 (`sibling-race-green.log`, exit 0). Review round 1's claimed mid-flight
 hole was refuted with the sibling's open parked at the engine boundary:
 the late check sees the pending bind and the parked open completes
-undisturbed (`pr111-midflight-refutation2.log`, exit 0). Focused pane
+undisturbed (`pr111-midflight-refutation2.log`, exit 0; its teeth were proven by
+mutating the late check back to the unconditional drop and observing
+the test fail — `pr111-midflight-teeth.log`, exit 1). Focused pane
 suites — panes, cancel-regressions, reconnect, selection (state and
-controller), and workspace shell — 160 green (`sibling-race-focused.log`);
+controller), and workspace shell — 161 green
+(`sibling-race-focused-final.log`);
 app analyze clean; full app suite 631 green
 (`sibling-race-full-app-final.log`). Core, benchmark, pins, and
 dependencies untouched.
