@@ -812,6 +812,67 @@ void main() {
     );
   });
 
+  group('P3CollectorConfig.parse', () {
+    test('a repeated flag is rejected instead of silently first-wins', () {
+      expect(
+        () => P3CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--repetitions',
+          '5',
+          '--repetitions',
+          '20',
+          '--target',
+          '/t',
+          '--control',
+          '/c',
+        ]),
+        throwsA(
+          isA<P3UsageException>().having(
+            (error) => error.message,
+            'message',
+            contains('--repetitions'),
+          ),
+        ),
+      );
+    });
+
+    test('a flag token swallowed as a value is rejected', () {
+      expect(
+        () => P3CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--target',
+          '--control',
+          '/c',
+        ]),
+        throwsA(
+          isA<P3UsageException>().having(
+            (error) => error.message,
+            'message',
+            contains('--target'),
+          ),
+        ),
+      );
+    });
+
+    test('a normal invocation still parses', () {
+      final config = P3CollectorConfig.parse([
+        '--output',
+        'a.json',
+        '--target',
+        '/t',
+        '--control',
+        '/c',
+        '--repetitions',
+        '7',
+      ]);
+      expect(config.repetitions, 7);
+      expect(config.targetPath, '/t');
+      expect(config.controlPath, '/c');
+    });
+  });
+
   group('CLI contract (subprocess)', () {
     late String packageDir;
     late String collectorPath;
@@ -970,6 +1031,37 @@ void main() {
       expect(result.exitCode, 2);
       expect(result.stderr as String, contains('--repetition'));
       expect(result.stderr as String, contains('unknown option'));
+    });
+
+    test('a duplicated flag is rejected naming the flag', () async {
+      final result = await runCollector([
+        '--output',
+        '${tempDir.path}/results.json',
+        '--target',
+        '/a',
+        '--control',
+        '/b',
+        '--repetitions',
+        '5',
+        '--repetitions',
+        '7',
+      ]);
+      expect(result.exitCode, 2);
+      expect(result.stderr as String, contains('more than once'));
+      expect(result.stderr as String, contains('--repetitions'));
+    });
+
+    test('a flag token where a value belongs is rejected', () async {
+      final result = await runCollector([
+        '--output',
+        '${tempDir.path}/results.json',
+        '--target',
+        '--control',
+        '/b',
+      ]);
+      expect(result.exitCode, 2);
+      expect(result.stderr as String, contains('looks like an option'));
+      expect(result.stderr as String, contains('--target'));
     });
 
     test(
