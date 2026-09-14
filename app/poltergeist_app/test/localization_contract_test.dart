@@ -222,6 +222,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The U+FFFD flagged-name signal Quick Select excludes from matching
     // — a byte-level literal, never rendered (02 §13).
     r"'\uFFFD'",
+    // Debug-only invariant messages — never rendered.
+    "'_loweredNames out of sync with _listing — assign via _setListing'",
   },
   // The location type's value semantics: toString output for debugging
   // and the path-separator arithmetic (POSIX and Windows forms).
