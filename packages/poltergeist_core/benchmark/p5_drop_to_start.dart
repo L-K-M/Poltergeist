@@ -384,8 +384,12 @@ final class _FirstByteSink implements StreamSink<List<int>> {
 
   @override
   void addError(Object error, [StackTrace? stackTrace]) {
-    sinkError ??= error;
-    sinkStackTrace ??= stackTrace;
+    // Record the error and its stack trace as an atomic pair — pairing
+    // the first error with a later call's trace would mislead diagnosis.
+    if (sinkError == null) {
+      sinkError = error;
+      sinkStackTrace = stackTrace;
+    }
   }
 
   @override
