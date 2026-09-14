@@ -64,7 +64,16 @@ Future<int> mergeMain(List<String> arguments) async {
     // Reject a repeated input outright: the same document listed twice
     // (a glob plus an explicit name, say) would double its rows, and the
     // checker would grade the inflated sample with no error anywhere.
-    if (!seenInputs.add(File(path).absolute.path)) {
+    // Compare resolved identities — File.absolute stays lexical, so a
+    // symlink or `dir/../file` spelling would otherwise slip through.
+    var identity = File(path).absolute.path;
+    try {
+      identity = File(path).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // Not on disk (yet): keep the lexical path; the read below still
+      // reports a missing input as the documented I/O failure.
+    }
+    if (!seenInputs.add(identity)) {
       stderr.writeln('duplicate input file: $path');
       return usageExitCode;
     }
