@@ -3651,6 +3651,62 @@ re-verified and resolved via GraphQL, two misattached replies corrected,
 and the four final suggestions dispositioned; the PR body's false
 resolution/count claims were corrected in place.
 
+## M3 — D12 P3 listing-overhead collector (2026-09-14)
+
+The first tier-A scenario collector (07 §3.4 / 08 §6): 
+`packages/poltergeist_core/benchmark/p3_listing_overhead.dart`, a pure-Dart
+CLI over the production pool — a `PooledConnectionManager` browse channel,
+private-key credentials from `POLTERGEIST_SSHD_KEY`, and the 08 §5
+pre-seeded committed fixture pin (a healthy fixture never prompts; an
+unexpected host-key review aborts instead of benchmarking an unverified
+server). The protocol is fixed in code and tests: one retained channel
+serves every pair; each pair times a minimal control listing and then the
+target listing; stated warmup pairs are discarded before ≥ 5 measured
+pairs; every row carries the raw pair timings, the unclipped
+target-minus-control difference (negatives preserved), and a
+detected-mode fingerprint — `dart compile exe` output reports aot,
+source/kernel runs report jit, so a JIT process can never label itself
+AOT. Rows match `poltergeist-d12-results-1`; the per-row scenarioConfig
+axis records canonical paths, observed entry counts, warmups, and
+repetitions; a tree that changes size mid-run fails the run at the
+changing pair (error row, nonzero exit) instead of smearing one count
+across the rows. Honest failure paths: a failed listing or
+deadline writes the completed rows plus one error row and exits 1;
+missing flags/env or aliasing paths exit 2 with actionable messages and
+write nothing; channel close and server release are bounded and run on
+every exit path. The collector issues only `listDirectory` and
+`canonicalize` against caller-supplied existing distinct directories
+(canonical aliasing rejected) — no writes to the fixture trees, no
+retries. `dart run` lifecycle ownership stays with
+`test/integration/run.sh --lifecycle-only` (documented real-fixture
+command in benchmark/README).
+
+Validation: tests written first (the missing-API compile failure is the
+feature red); one real defect surfaced red before its fix — the result
+captured `released` before the finally-bound cleanup ran, so every
+failure path reported no release; the restructure made cleanup precede
+the result and the regression went green. Twenty deterministic tests
+(`test/benchmark/p3_listing_overhead_test.dart`): sampler
+pairing/ordering, warmup discard, negative differences, repetition
+identities, timeout/deadline/warmup failures, one-channel + cleanup
+contracts over a fake `PaneChannel` (the production interface, no
+sockets), usage validation, CLI subprocess contracts (help, missing
+--output, missing env naming each variable, raw-identity pre-connect
+rejection, sub-floor repetitions), the mode-detection rule table, and
+the real `test/benchmarks/check.dart` CLI evaluating collector output
+against a test-owned catalog whose calibration is derived from the
+emitted fingerprint (pass exits 0; an enforced 120 ms overrun exits 1).
+Core analyze clean; 797 core tests pass (16 fixture skips unchanged);
+`test/benchmarks` 93/93; import and protocol guards green; `dart compile
+exe` of the exact final source verified, with the binary's help/usage
+contracts exercised. Docker is absent on this host: the fixture-backed
+measurement did not run, and no number is claimed — the documented
+real-fixture command awaits the CI bench job. Scope held: P3 stays
+unlanded in budgets.json, calibratedFingerprint stays null, no CI
+workflow, no enforcement activation — item 21 remains open for the
+bench job, calibration, and the landed flip; P3's functional
+cancellation gate (open item 12) is untouched.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
