@@ -309,6 +309,11 @@ class CommandChordScope extends StatelessWidget {
       canRequestFocus: false,
       skipTraversal: true,
       onKeyEvent: (node, event) {
+        // Keep CallbackShortcuts' event contract: bindings fire on
+        // down/repeat only — never on key-up.
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+          return KeyEventResult.ignored;
+        }
         // Field-first precedence (02 §8.2): with a text surface focused,
         // chords belong to its editing shortcuts — returning ignored
         // keeps the event propagating upward to them, where a consumed

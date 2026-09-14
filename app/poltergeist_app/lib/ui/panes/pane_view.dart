@@ -200,6 +200,7 @@ class _PaneViewState extends State<PaneView> {
       if (_disposed || !mounted) return;
       final primary = FocusManager.instance.primaryFocus;
       if (primary == null ||
+          primary.context == null ||
           identical(primary, FocusManager.instance.rootScope)) {
         widget.focusNode.requestFocus();
       }
