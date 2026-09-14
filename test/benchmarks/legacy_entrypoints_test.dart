@@ -43,15 +43,24 @@ void main() {
     expect(legacyUnknown.stderr, canonicalUnknown.stderr);
   });
 
-  test('legacy run.sh forwards shards with identical routing', () async {
-    final canonicalLog = await _routeShardThrough(_canonicalRunShard);
-    final legacyLog = await _routeShardThrough(_legacyRunShard);
+  test(
+    'legacy run.sh forwards shards with identical routing',
+    // run.sh needs a POSIX shell and chmod; CI runs this suite on Ubuntu.
+    skip: Platform.isWindows ? 'run.sh requires a POSIX shell' : false,
+    () async {
+      final canonicalLog = await _routeShardThrough(_canonicalRunShard);
+      final legacyLog = await _routeShardThrough(_legacyRunShard);
 
-    expect(canonicalLog.exitCode, 0, reason: canonicalLog.stderr);
-    expect(legacyLog.exitCode, 0, reason: legacyLog.stderr);
-    expect(legacyLog.commands, canonicalLog.commands, reason: 'shard routing');
-    expect(legacyLog.commands, contains(contains('bench throughput')));
-  });
+      expect(canonicalLog.exitCode, 0, reason: canonicalLog.stderr);
+      expect(legacyLog.exitCode, 0, reason: legacyLog.stderr);
+      expect(
+        legacyLog.commands,
+        canonicalLog.commands,
+        reason: 'shard routing',
+      );
+      expect(legacyLog.commands, contains(contains('bench throughput')));
+    },
+  );
 }
 
 const _legacyDir = 'tool/bench';

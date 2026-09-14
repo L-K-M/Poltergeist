@@ -204,8 +204,8 @@ jobs:
           for p in packages/*; do
             [ -d "$p/test" ] || continue
             if [ "$p" = "packages/poltergeist_bench" ]; then
-              # The harness resolves through its own package config.
-              (cd "$p" && dart test test)
+              # The dedicated "Test M0 benchmark harness" step below runs
+              # the suite through its own package config; skip it here.
               ran=1
               continue
             fi

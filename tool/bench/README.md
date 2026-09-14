@@ -12,5 +12,8 @@ cd tool/bench && dart run bin/bench.dart --help
 ```
 
 `run.sh` and `bin/bench.dart` execute the relocated package's code directly
-(same flags, same exit codes); results are written under
-`packages/poltergeist_bench/`.
+(same flags, same exit codes). Results now land in
+`packages/poltergeist_bench/bench-results.json` (plus
+`.attempts.json`), regardless of the invoking directory — previously
+`tool/bench/bench-results.json`; update artifact globs and consumers
+accordingly. Pass `--output` to write elsewhere.
