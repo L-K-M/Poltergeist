@@ -1,5 +1,8 @@
-name: poltergeist_m0_bench
-description: Reproducible M0 SSH fitness measurements for Poltergeist.
+name: poltergeist_m0_bench_compat
+description: >-
+  Legacy compatibility entrypoint for the M0 bench harness. The harness
+  itself lives at packages/poltergeist_bench since the M3 relocation
+  (07 §3.4); everything here forwards to it.
 publish_to: none
 version: 0.2.0
 
@@ -7,16 +10,9 @@ environment:
   sdk: ^3.12.0
 
 dependencies:
-  args: ^2.7.0
-  crypto: ^3.0.7
-  dartssh2: 3.0.2
-  seance_core:
-    git:
-      url: https://github.com/L-K-M/Seance.git
-      ref: 2e6d1f138f1704e683870f75e11262bf50e37379
-      path: packages/seance_core
-
-dev_dependencies:
-  lints: ^5.0.0
-  test: ^1.25.0
-  yaml: ^3.1.3
+  # Path dependency: the bench package keeps its own frozen resolution
+  # (dartssh2 3.0.2, seance_core 2e6d1f1) outside the root workspace.
+  # Keep this shim out of any root pub workspace so that frozen git-pinned
+  # resolution is never merged into the root solver.
+  poltergeist_m0_bench:
+    path: ../../packages/poltergeist_bench

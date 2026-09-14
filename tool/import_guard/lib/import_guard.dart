@@ -19,12 +19,21 @@ const _connectionDirectory = '$_coreDirectory/lib/src/connection';
 
 enum _Area { packages, app }
 
-/// Checks product code only; M0's tool/ harness is a sanctioned SSH consumer.
+/// The M0 SSH fitness harness is the sanctioned dartssh2 consumer outside
+/// poltergeist_core (07 §3.4 relocated it from tool/bench into packages/).
+/// It keeps a standalone frozen resolution — dartssh2 3.0.2 and the Séance
+/// rev pinned outside the workspace lock — so it resolves through its own
+/// package config, verified like any other scanned package.
+const _benchPackage = 'packages/poltergeist_bench';
+
+/// Checks product code only; the relocated M0 harness is a sanctioned SSH
+/// consumer with its own resolution.
 Future<List<String>> checkImports(String rootPath) async {
   final root = p.normalize(p.absolute(rootPath));
   final graph = await DependencyGraph.load(
     File(p.join(root, '.dart_tool/package_config.json')),
   );
+  final benchGraph = await _loadStandaloneGraph(p.join(root, _benchPackage));
   final violations = <String>[];
   var purePackageCount = 0;
 
@@ -50,13 +59,26 @@ Future<List<String>> checkImports(String rootPath) async {
       if (entity is! Directory) continue;
 
       final relative = _relative(entity.path, root);
-      violations.addAll(await _checkPackage(entity, relative, graph, area));
+      violations.addAll(
+        await _checkPackage(
+          entity,
+          relative,
+          _graphFor(relative, graph, benchGraph),
+          area,
+        ),
+      );
       if (area == _Area.packages) purePackageCount++;
     }
 
     await for (final file in _sources(directory, root)) {
+      final relative = _relative(file.path, root);
       violations.addAll(
-        await _checkSource(file, _relative(file.path, root), graph, area),
+        await _checkSource(
+          file,
+          relative,
+          _graphFor(relative, graph, benchGraph),
+          area,
+        ),
       );
     }
   }
@@ -65,6 +87,37 @@ Future<List<String>> checkImports(String rootPath) async {
     throw const FormatException('No pure-Dart packages found');
   }
   return violations;
+}
+
+/// Resolves [relative] against the workspace graph, except the harness's
+/// standalone package which resolves through its own frozen config.
+DependencyGraph _graphFor(
+  String relative,
+  DependencyGraph workspace,
+  DependencyGraph? standalone,
+) {
+  if (relative != _benchPackage && !p.posix.isWithin(_benchPackage, relative)) {
+    return workspace;
+  }
+  if (standalone == null) {
+    throw FormatException(
+      'Missing $_benchPackage resolution; run dart pub get there',
+    );
+  }
+  return standalone;
+}
+
+Future<DependencyGraph?> _loadStandaloneGraph(String packagePath) async {
+  final directory = Directory(packagePath);
+  if (!directory.existsSync()) return null;
+
+  final config = File(p.join(packagePath, '.dart_tool/package_config.json'));
+  if (!config.existsSync()) {
+    throw FormatException(
+      'Missing $_benchPackage resolution; run dart pub get there',
+    );
+  }
+  return DependencyGraph.load(config);
 }
 
 Future<List<String>> _checkPackage(
@@ -93,7 +146,11 @@ Future<List<String>> _checkPackage(
 
   for (final manifest in manifests) {
     final dependencies = dependencyNames(manifest, dependencySections).toSet();
-    if (relative != _coreDirectory && dependencies.contains('dartssh2')) {
+    // The harness measures dartssh2 against OpenSSH, so its dependency is
+    // sanctioned; every other package outside core's connection layer is not.
+    if (relative != _coreDirectory &&
+        relative != _benchPackage &&
+        dependencies.contains('dartssh2')) {
       violations.add('$relative: dartssh2 dependency outside poltergeist_core');
     }
     if (area != _Area.packages) continue;
@@ -147,7 +204,8 @@ Future<List<String>> _checkSource(
       }
       final package = uri.scheme == 'package' ? uri.pathSegments.first : null;
       if (package == 'dartssh2' &&
-          !p.posix.isWithin(_connectionDirectory, relative)) {
+          !p.posix.isWithin(_connectionDirectory, relative) &&
+          !p.posix.isWithin(_benchPackage, relative)) {
         violations.add(
           '$relative: dartssh2 import/export outside $_connectionDirectory',
         );

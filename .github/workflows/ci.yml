@@ -43,6 +43,11 @@ jobs:
           sdk: stable
       - name: Resolve workspace
         run: dart pub get
+      # The harness resolves standalone (frozen pins outside the workspace
+      # lock), so its loop entries below need their own package config.
+      - name: Resolve M0 benchmark harness
+        working-directory: packages/poltergeist_bench
+        run: dart pub get
       # Discover packages, but keep every analyze/test path explicit.
       - name: Analyze
         run: |
@@ -57,6 +62,12 @@ jobs:
           dirs=()
           for package in packages/*; do
             [[ -d "$package/test" ]] || continue
+            # The harness suite is Linux-bound (monotonic evidence reads
+            # /proc/uptime), so dart_tools (Ubuntu) owns its tests; this
+            # multi-OS loop runs the host-neutral package suites.
+            if [[ "$package" == 'packages/poltergeist_bench' ]]; then
+              continue
+            fi
             dirs+=("$package")
           done
           if [[ ${#dirs[@]} -eq 0 ]]; then
@@ -79,6 +90,9 @@ jobs:
       - name: Resolve workspace
         run: dart pub get
       - name: Resolve M0 benchmark harness
+        working-directory: packages/poltergeist_bench
+        run: dart pub get
+      - name: Resolve legacy bench entrypoint
         working-directory: tool/bench
         run: dart pub get
       - name: Analyze dependency guard
@@ -103,8 +117,10 @@ jobs:
       - name: Analyze Séance pin audit
         run: dart analyze tool/seance_pin_audit
       - name: Analyze M0 benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart analyze
+      - name: Analyze benchmark contract tests
+        run: dart analyze test/benchmarks
       - name: Analyze integration fixture tools
         run: dart analyze test/integration
       - name: Test release gate
@@ -116,15 +132,17 @@ jobs:
       - name: Test Séance pin audit
         run: dart test tool/seance_pin_audit/test
       - name: Test M0 benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart test test
       - name: Validate committed M0 evidence
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: >-
-          dart run bin/validate_bundle.dart
+          dart run benchmark/validate_bundle.dart
           --bundle ../../docs/evidence/m0
           --report ../../docs/M0-DARTSSH2-REPORT.md
           --repo ../..
+      - name: Test benchmark contract tests
+        run: dart test test/benchmarks
       - name: Test integration fixture tools
         run: dart test test/integration
       - name: Validate rendered integration fixture
@@ -274,10 +292,10 @@ jobs:
         with:
           sdk: stable
       - name: Resolve benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart pub get
       - name: Start M0 source evidence
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: |
           readonly microseconds_per_second=1000000
           read -r monotonic_seconds _ < /proc/uptime
@@ -295,13 +313,13 @@ jobs:
             "POLTERGEIST_M0_STARTED_AT_EPOCH_MS=$POLTERGEIST_M0_STARTED_AT_EPOCH_MS" \
             "POLTERGEIST_M0_STARTED_AT_MONOTONIC_US=$POLTERGEIST_M0_STARTED_AT_MONOTONIC_US" \
             >> "$GITHUB_ENV"
-          dart run bin/package_source.dart start \
+          dart run benchmark/package_source.dart start \
             --output bench-shard.json \
             --shard "${{ matrix.shard }}"
       - name: Run fixture and measurements
         id: measurements
         timeout-minutes: 330
-        run: tool/bench/run-ci-shard.sh "${{ matrix.shard }}"
+        run: packages/poltergeist_bench/run-ci-shard.sh "${{ matrix.shard }}"
       # JSON evidence contains no Séance code or executable artifact (D30).
       - uses: actions/upload-artifact@v4
         id: upload_shard
@@ -309,7 +327,7 @@ jobs:
         continue-on-error: true
         with:
           name: m0-bench-source-${{ matrix.shard }}
-          path: tool/bench/bench-shard.json
+          path: packages/poltergeist_bench/bench-shard.json
           if-no-files-found: error
           overwrite: true
           retention-days: 14
@@ -318,7 +336,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: m0-bench-source-${{ matrix.shard }}
-          path: tool/bench/bench-shard.json
+          path: packages/poltergeist_bench/bench-shard.json
           if-no-files-found: error
           overwrite: true
           retention-days: 14
@@ -338,18 +356,18 @@ jobs:
         with:
           sdk: stable
       - name: Resolve benchmark harness
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: dart pub get
       - name: Download M0 source evidence
         uses: actions/download-artifact@v4
         with:
           pattern: m0-bench-source-*
-          path: tool/bench/shards
+          path: packages/poltergeist_bench/shards
           merge-multiple: false
       - name: Aggregate M0 measurements
-        working-directory: tool/bench
+        working-directory: packages/poltergeist_bench
         run: |
-          dart run bin/aggregate.dart \
+          dart run benchmark/aggregate.dart \
             --input-root shards \
             --output-dir evidence \
             --run-id "${{ github.run_id }}" \
@@ -361,7 +379,7 @@ jobs:
         continue-on-error: true
         with:
           name: m0-bench-results
-          path: tool/bench/evidence
+          path: packages/poltergeist_bench/evidence
           if-no-files-found: error
           overwrite: true
           retention-days: 14
@@ -370,7 +388,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: m0-bench-results
-          path: tool/bench/evidence
+          path: packages/poltergeist_bench/evidence
           if-no-files-found: error
           overwrite: true
           retention-days: 14

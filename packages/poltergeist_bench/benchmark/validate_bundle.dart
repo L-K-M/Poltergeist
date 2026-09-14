@@ -53,7 +53,7 @@ ArgParser _parser() => ArgParser()
   ..addOption('repo');
 
 String _usage(ArgParser parser) =>
-    'Usage: dart run bin/validate_bundle.dart --bundle <path> '
+    'Usage: dart run benchmark/validate_bundle.dart --bundle <path> '
     '--report <path> --repo <path>\n${parser.usage}';
 
 void _fail(String message, int code) {

@@ -29,4 +29,4 @@ if [[ -n "$package_command" ]]; then
 fi
 
 cd "$bench_dir"
-"$dart_binary" run bin/package_source.dart "${arguments[@]}"
+"$dart_binary" run benchmark/package_source.dart "${arguments[@]}"

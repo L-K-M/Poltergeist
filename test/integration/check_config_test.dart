@@ -27,8 +27,8 @@ const _m0ShardNames = [
 ];
 const _m0SourceArtifactPrefix = 'm0-bench-source';
 const _m0CanonicalArtifact = 'm0-bench-results';
-const _m0ShardPath = 'tool/bench/bench-shard.json';
-const _m0EvidencePath = 'tool/bench/evidence';
+const _m0ShardPath = 'packages/poltergeist_bench/bench-shard.json';
+const _m0EvidencePath = 'packages/poltergeist_bench/evidence';
 const _m0CommittedEvidencePath = 'docs/evidence/m0';
 const _m0ReportPath = 'docs/M0-DARTSSH2-REPORT.md';
 const _checkoutAction = 'actions/checkout@v4';
@@ -233,7 +233,7 @@ void main() {
     final sourceStart = _stepNamed(steps, 'Start M0 source evidence');
     final measurement = _stepNamed(steps, 'Run fixture and measurements');
     expect(steps.indexOf(sourceStart), lessThan(steps.indexOf(measurement)));
-    expect(sourceStart['working-directory'], 'tool/bench');
+    expect(sourceStart['working-directory'], 'packages/poltergeist_bench');
     final sourceStartCommand = '${sourceStart['run']}'
         .replaceAll('\\\n', ' ')
         .replaceAll(RegExp(r'\s+'), ' ');
@@ -265,7 +265,7 @@ void main() {
     expect(
       sourceStartCommand,
       contains(
-        'dart run bin/package_source.dart start '
+        'dart run benchmark/package_source.dart start '
         '--output bench-shard.json --shard "\${{ matrix.shard }}"',
       ),
     );
@@ -276,7 +276,9 @@ void main() {
         .replaceAll(RegExp(r'\s+'), ' ');
     expect(
       measurementCommand,
-      contains(r'tool/bench/run-ci-shard.sh "${{ matrix.shard }}"'),
+      contains(
+        r'packages/poltergeist_bench/run-ci-shard.sh "${{ matrix.shard }}"',
+      ),
     );
 
     final uploads = _expectRetriedArtifactUpload(
@@ -311,18 +313,18 @@ void main() {
     final downloadOptions = download['with'] as YamlMap;
     expect(download['uses'], 'actions/download-artifact@v4');
     expect(downloadOptions['pattern'], '$_m0SourceArtifactPrefix-*');
-    expect(downloadOptions['path'], 'tool/bench/shards');
+    expect(downloadOptions['path'], 'packages/poltergeist_bench/shards');
     expect(downloadOptions['merge-multiple'], isFalse);
 
     final aggregation = _stepNamed(steps, 'Aggregate M0 measurements');
     final command = '${aggregation['run']}'
         .replaceAll('\\\n', ' ')
         .replaceAll(RegExp(r'\s+'), ' ');
-    expect(aggregation['working-directory'], 'tool/bench');
+    expect(aggregation['working-directory'], 'packages/poltergeist_bench');
     expect(
       command,
       contains(
-        'dart run bin/aggregate.dart '
+        'dart run benchmark/aggregate.dart '
         '--input-root shards '
         '--output-dir evidence '
         '--run-id "\${{ github.run_id }}" '
@@ -359,11 +361,11 @@ void main() {
     final command = '${validation['run']}'.replaceAll(RegExp(r'\s+'), ' ');
 
     expect((checkout['with'] as YamlMap)['fetch-depth'], 0);
-    expect(validation['working-directory'], 'tool/bench');
+    expect(validation['working-directory'], 'packages/poltergeist_bench');
     expect(
       command,
       contains(
-        'dart run bin/validate_bundle.dart '
+        'dart run benchmark/validate_bundle.dart '
         '--bundle ../../$_m0CommittedEvidencePath '
         '--report ../../$_m0ReportPath --repo ../..',
       ),
@@ -401,7 +403,7 @@ void main() {
     for (final entry in _expectedCiShardCommands.entries) {
       await commandLog.writeAsString('');
       final result = await Process.run(
-        'tool/bench/run.sh',
+        'packages/poltergeist_bench/run.sh',
         [entry.key],
         environment: {
           _m0CommandLogVariable: commandLog.path,
@@ -432,7 +434,7 @@ void main() {
     await _writeExecutable(packageCommand, _fakePackageCommand);
 
     final result = await Process.run(
-      'tool/bench/run.sh',
+      'packages/poltergeist_bench/run.sh',
       ['full'],
       environment: {
         _m0CommandLogVariable: commandLog.path,
@@ -462,7 +464,7 @@ void main() {
     await _writeExecutable(packageCommand, _fakePackageCommand);
 
     final result = await Process.run(
-      'tool/bench/run.sh',
+      'packages/poltergeist_bench/run.sh',
       ['standard'],
       environment: {
         _m0CommandLogVariable: commandLog.path,
@@ -497,7 +499,7 @@ void main() {
     await _writeExecutable(packageCommand, _fakePackageCommand);
 
     final result = await Process.run(
-      'tool/bench/run.sh',
+      'packages/poltergeist_bench/run.sh',
       ['standard'],
       environment: {
         _m0CommandLogVariable: commandLog.path,
@@ -530,7 +532,7 @@ void main() {
     await _writeExecutable(packageCommand, _fakeFailingPackageCommand);
 
     final result = await Process.run(
-      'tool/bench/run.sh',
+      'packages/poltergeist_bench/run.sh',
       ['rtt100-1gb-upload-dart-hash-on-r1'],
       environment: {
         _m0CommandLogVariable: commandLog.path,
@@ -569,7 +571,7 @@ void main() {
     for (final lifecycleStatus in [0, _benchFailureExitCode]) {
       await commandLog.writeAsString('');
       final result = await Process.run(
-        'tool/bench/run-ci-shard.sh',
+        'packages/poltergeist_bench/run-ci-shard.sh',
         ['standard'],
         environment: {
           _m0CommandLogVariable: commandLog.path,
@@ -619,21 +621,23 @@ void main() {
       Platform.resolvedExecutable,
       [
         'run',
-        'bin/package_source.dart',
+        'benchmark/package_source.dart',
         'start',
         '--output',
         sourceFile.path,
         '--shard',
         'rtt100-1gb-download-dart-hash-on-r1',
       ],
-      workingDirectory: 'tool/bench',
+      workingDirectory: 'packages/poltergeist_bench',
       environment: environment,
     );
     expect(started.exitCode, 0, reason: '${started.stderr}');
 
-    final result = await Process.run('tool/bench/run-ci-shard.sh', [
-      'rtt100-1gb-download-dart-hash-on-r1',
-    ], environment: environment);
+    final result = await Process.run(
+      'packages/poltergeist_bench/run-ci-shard.sh',
+      ['rtt100-1gb-download-dart-hash-on-r1'],
+      environment: environment,
+    );
 
     expect(result.exitCode, _cleanupFailureExitCode);
     final envelope = jsonDecode(await sourceFile.readAsString()) as Map;
@@ -657,7 +661,7 @@ void main() {
     await _writeExecutable(packageCommand, _fakePackageCommand);
 
     final result = await Process.run(
-      'tool/bench/run-ci-shard.sh',
+      'packages/poltergeist_bench/run-ci-shard.sh',
       ['standard'],
       environment: {
         _m0CommandLogVariable: commandLog.path,
@@ -675,7 +679,9 @@ void main() {
   });
 
   test('rejects an unknown M0 shard', () async {
-    final result = await Process.run('tool/bench/run.sh', ['unknown']);
+    final result = await Process.run('packages/poltergeist_bench/run.sh', [
+      'unknown',
+    ]);
 
     expect(result.exitCode, _usageExitCode);
     expect('${result.stderr}', contains('usage: run.sh'));
@@ -685,9 +691,11 @@ void main() {
 final _repositoryRoot = Directory.current.absolute.path;
 final _fixtureRoot = '$_repositoryRoot/test/integration/runtime/data';
 final _uploadRoot = '$_repositoryRoot/test/integration/runtime/uploads';
-final _benchOutput = '$_repositoryRoot/tool/bench/bench-results.json';
+final _benchOutput =
+    '$_repositoryRoot/packages/poltergeist_bench/bench-results.json';
 final _benchAttempts = '$_benchOutput.attempts.json';
-final _benchSource = '$_repositoryRoot/tool/bench/bench-shard.json';
+final _benchSource =
+    '$_repositoryRoot/packages/poltergeist_bench/bench-shard.json';
 
 final _expectedCiShardCommands = <String, List<String>>{
   'standard': [

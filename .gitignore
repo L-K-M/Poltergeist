@@ -8,11 +8,11 @@ dist/
 .pub-cache/
 .pub/
 pubspec_overrides.yaml
-tool/bench/bench-results.json
-tool/bench/bench-shard.json
-tool/bench/bench-results.json.attempts.json
-tool/bench/shards/
-tool/bench/evidence/
+packages/poltergeist_bench/bench-results.json
+packages/poltergeist_bench/bench-shard.json
+packages/poltergeist_bench/bench-results.json.attempts.json
+packages/poltergeist_bench/shards/
+packages/poltergeist_bench/evidence/
 
 # Generated SFTP integration payloads and ephemeral user credentials.
 test/integration/runtime/
