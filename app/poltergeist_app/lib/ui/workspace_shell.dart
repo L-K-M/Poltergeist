@@ -300,7 +300,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// the engine keys pool references by serverId, so a plain disconnect
   /// would kill a sibling pane browsing the same server. Detach only the
   /// cancelling pane when the server is shared; drop the reference — and
-  /// with it the pool's recovery — when this pane is its last user.
+  /// with it the pool's recovery — when this pane is its last user. The
+  /// alone decision is re-checked after the detach's awaited release:
+  /// a sibling may bind the server while that release is in flight, and
+  /// its fresh reference must not be dropped out from under it.
   Future<void> _cancelPaneRecovery(
     WorkspaceController workspace,
     PaneController pane,
@@ -317,7 +320,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (siblingShares) {
         await pane.detachRemote();
       } else {
-        await pane.cancelRecovery();
+        // Two panes are the workspace's fixed shape (the product is a
+        // two-pane transfer client), so this single sibling IS every
+        // other pane — revisit both checks before any multi-pane shape.
+        await pane.cancelRecovery(
+          serverStillUnshared: () => sibling.remoteBookmark?.id != serverId,
+        );
       }
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);

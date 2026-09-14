@@ -3799,6 +3799,50 @@ interface — open item 12); the docs state this and the bounded cleanup
 retires the channel. No retry was added and no ownership pattern was
 shared with the checker (mirrored, not refactored).
 
+## M3 — sibling cancel-race repair (2026-09-14)
+
+The fusion review's source-only finding, reproduced: the banner cancel
+decided sibling sharing synchronously, but `cancelRecovery`'s detached
+reference drop ran after the pane's awaited channel close — a sibling
+binding the same server during that await re-registered the serverId's
+pool reference, and the late `disconnectServer` removed whatever
+reference was current (the engine keys by serverId), severing the
+sibling's fresh binding. `PaneController.cancelRecovery` now takes a
+`serverStillUnshared` predicate evaluated after the detach's awaited
+release and the bind-attempt recheck; the shell — the sibling-knowledge
+owner — passes it from `_cancelPaneRecovery`, so the controller learns
+no sibling state and no engine layer grows UI knowledge. The predicate
+and the engine send are atomic in the app isolate and same-port sends
+are FIFO, so a sibling binding after the check reconnects on a fresh
+reference instead of being severed — that ordering holds while bind
+and disconnect messages share one engine port, a required invariant
+of this fix. A sibling whose bind merely STARTED is also covered:
+connectRemote publishes the pending binding synchronously before its
+first await, so the predicate sees even an unsettled sibling connect
+(pinned by the mid-flight regression). Alone-pane cancellation (the
+reference still drops), the shared-server detach-only path, Esc and the
+post-grace Cancel affordance, late-channel retirement, and replacement
+binds during the await are unchanged.
+
+Validation: red-first — a new `workspace_panes_test` regression parks
+pane A's channel close on a held completer, binds pane B to the same
+bookmark inside the window, then releases A; on the pre-fix code the
+late `disconnectServer` fired (log `tasks/run3-task29/sibling-race-red.log`,
+exit 1) and after the repair the shared reference stays, B remains
+bound and listable, and the alone-pane drop test still passes
+(`sibling-race-green.log`, exit 0). Review round 1's claimed mid-flight
+hole was refuted with the sibling's open parked at the engine boundary:
+the late check sees the pending bind and the parked open completes
+undisturbed (`pr111-midflight-refutation2.log`, exit 0; its teeth were proven by
+mutating the late check back to the unconditional drop and observing
+the test fail — `pr111-midflight-teeth.log`, exit 1). Focused pane
+suites — panes, cancel-regressions, reconnect, selection (state and
+controller), and workspace shell — 161 green
+(`sibling-race-focused-final.log`);
+app analyze clean; full app suite 631 green
+(`sibling-race-full-app-final.log`). Core, benchmark, pins, and
+dependencies untouched.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
