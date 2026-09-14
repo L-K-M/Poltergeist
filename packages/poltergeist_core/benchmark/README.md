@@ -1,4 +1,16 @@
-# P3 — remote listing overhead collector (D12 tier A)
+# D12 tier-A collectors
+
+Two pure-Dart tier-A entrypoints live here: `p3_listing_overhead.dart`
+(P3, listing overhead) and `p7_scan_rate.dart` (P7, scan rate). Both run
+against the §5 Docker fixture on loopback under
+`test/integration/run.sh --lifecycle-only`, emit the shared
+`poltergeist-d12-results-1` document with their own per-scenario
+`scenarioConfig` axis, and stay unlanded in `test/benchmarks/budgets.json`
+until the CI bench job and calibration land (open item 21). Both
+collectors are read-only against the fixture: `canonicalize` plus
+`listDirectory` only, never a write.
+
+## P3 — remote listing overhead
 
 `p3_listing_overhead.dart` is the tier-A entrypoint for scenario P3 of
 02 §12 ("remote listing overhead over network time", < 50 ms), measured
@@ -6,7 +18,7 @@ per 07 §3.4's exit criterion: the **median of ≥ 5 warm paired runs of the
 target listing minus a control listing over the same retained browse
 channel** — never a single-run absolute wall clock.
 
-## Measurement protocol
+## P3 measurement protocol
 
 ```
 connect (untimed)  →  canonicalize target + control (untimed, must differ)
@@ -45,7 +57,7 @@ row    =  value = target − control (ms, unclipped: negative stays negative)
   the measurements were taken under, and the changed observation is
   reported only in the error row's text (`10000->9999`).
 
-## Truthful run mode
+## P3 truthful run mode
 
 The fingerprint's `mode` axis is detected, never declared: `dart compile
 exe` output reports `aot`, and anything running from Dart/kernel sources
@@ -53,7 +65,7 @@ reports `jit` (including product-mode JIT). The checker only counts `aot`
 rows toward the tier-A repetition floor (08 §6), so `dart run` numbers
 can never gate a budget.
 
-## Real-fixture invocation
+## P3 real-fixture invocation
 
 Docker on this host is unavailable, so this command is documented, not
 locally verified (CI's bench job owns the first real run — open item 21):
@@ -90,14 +102,14 @@ test/integration/run.sh --lifecycle-only -- bash -c '
   fixture never prompts; an unexpected host-key review aborts the run
   instead of benchmarking against an unverified server.
 
-## Local iteration
+## P3 local iteration
 
 `dart run benchmark/p3_listing_overhead.dart --help` from this package
 works without the fixture (usage/argument contracts only); every
 measurement attempt without the fixture env exits 2 naming what is
 missing. Local numbers are JIT and must never be quoted against a budget.
 
-## Validation status
+## P3 validation status
 
 - Deterministic contract tests:
   `test/benchmark/p3_listing_overhead_test.dart` (sampler pairing,
@@ -105,6 +117,78 @@ missing. Local numbers are JIT and must never be quoted against a budget.
   failure/partial output, cleanup, mode detection, CLI subprocess
   contracts, and the real `check.dart` CLI evaluating collector output
   against a test-owned catalog).
+- AOT compile of the exact source is verified locally
+  (`dart compile exe`); the fixture-backed measurement itself was not run
+  on this host (no Docker) and remains open item 21's CI job.
+
+## P7 — sync scan rate
+
+`p7_scan_rate.dart` is the tier-A entrypoint for scenario P7 of 02 §12
+("sync scan rate, LAN", ≥ 1 000 remote entries/s): **sustained bulk
+listing throughput of a fixture tree over one retained browse channel** —
+the measurement substrate of 05 §3's `TreeScanner` (which lands with the
+sync engine; the scenario itself gates at M8 per 07 §3.4).
+
+## P7 measurement protocol
+
+```
+connect (untimed)  →  canonicalize target root (untimed)
+      →  W warmup scans (discarded)  →  R measured scans (rows)
+scan   =  recursive breadth-first walk of the target tree with at most 8
+          outstanding listDirectory calls (05 §3's pipelined readdir at
+          D9's frozen depth); symlinks are counted, never descended
+row    =  value = entries / elapsed seconds (unclipped)
+         + raw entries/directories/elapsedMs + environment fingerprint
+```
+
+- The same one-channel, warmup-discard, honest-failure, and owned
+  exclusive-temp publication contracts as P3 hold (the temp publication
+  is a faithful mirror of the `p3TempNameAttempts` pattern, the same
+  ownership class the checker's drift state carries).
+- Whole-run deadline and per-listing timeout bound every listing await
+  — issued calls are capped at issue AND the pipeline drain is capped at
+  the remaining budget, so a listing issued early is never waited out
+  past the deadline.
+- `--target` is the tree root; the suggested real-fixture target is
+  `/home/poltergeist/bench/fixtures` (the committed fixture tree:
+  `entries-10000` plus the eight `readdir-*` sibling directories and the
+  payload files, ≈ 10 800 entries across ≈ 10 directories). The scan
+  reads every directory once per scan.
+- Row `scenario` is `P7`, `unit` is `entries/s`, `operator`-compatible
+  with budgets.json's `atLeast 1000`; `minimumRepetitions` there is 3
+  but the collector enforces ≥ 5 measured scans to match P3's protocol
+  floor.
+
+## P7 real-fixture invocation
+
+Docker on this host is unavailable, so this command is documented, not
+locally verified (CI's bench job owns the first real run — open item 21):
+
+```bash
+test/integration/run.sh --lifecycle-only -- bash -c '
+  set -e
+  cd packages/poltergeist_core
+  dart compile exe benchmark/p7_scan_rate.dart -o /tmp/p7-collector
+  /tmp/p7-collector \
+    --output bench-results.json \
+    --target /home/poltergeist/bench/fixtures
+'
+```
+
+The environment contract (`POLTERGEIST_SSHD*` exports, the pre-seeded
+committed host key, the loopback-only guard, the optional
+`POLTERGEIST_BENCH_*` fingerprint overrides) is identical to P3's above.
+
+## P7 validation status
+
+- Deterministic contract tests:
+  `test/benchmark/p7_scan_rate_test.dart` (pipelined-walk ordering and
+  depth bound, warmup discard, symlink non-descent, entry-count identity
+  guard with frozen partial-row configs, deadline/timeout attribution,
+  owned-temp collision and symlink safety, cleanup contracts, CLI
+  subprocess contracts, and the real `check.dart` CLI evaluating
+  collector output — including the one-file P3+P7 mixed-config shape the
+  bench job will emit).
 - AOT compile of the exact source is verified locally
   (`dart compile exe`); the fixture-backed measurement itself was not run
   on this host (no Docker) and remains open item 21's CI job.
