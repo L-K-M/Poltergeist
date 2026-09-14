@@ -89,6 +89,9 @@ Options:
                        root; test/integration/run.sh cds there)
   -h, --help           print this usage
 
+A value starting with "-" is rejected as a likely mistyped option; if a
+path legitimately begins with "-", pass it absolute or prefix "./".
+
 Environment (exported by test/integration/run.sh --lifecycle-only):
   POLTERGEIST_SSHD            fixture host (must be IPv4 loopback)
   POLTERGEIST_SSHD_MODERN     sshd-modern port

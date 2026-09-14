@@ -1049,6 +1049,11 @@ void main() {
       expect(result.exitCode, 2);
       expect(result.stderr as String, contains('more than once'));
       expect(result.stderr as String, contains('--repetitions'));
+      expect(
+        await File('${tempDir.path}/results.json').exists(),
+        isFalse,
+        reason: 'usage errors must not create the results file',
+      );
     });
 
     test('a flag token where a value belongs is rejected', () async {
@@ -1062,6 +1067,11 @@ void main() {
       expect(result.exitCode, 2);
       expect(result.stderr as String, contains('looks like an option'));
       expect(result.stderr as String, contains('--target'));
+      expect(
+        await File('${tempDir.path}/results.json').exists(),
+        isFalse,
+        reason: 'usage errors must not create the results file',
+      );
     });
 
     test(
