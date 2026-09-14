@@ -612,14 +612,23 @@ void main() {
         final output = '${tempDir.path}/results.json';
         final foreign = File('${tempDir.path}/foreign');
         await foreign.writeAsString('foreign payload');
+        var attemptsSeen = 0;
 
         final result = await runWithCandidates(output, (attempt) {
+          attemptsSeen++;
           // The first candidate collides with a foreign regular file; the
           // second must be a fresh, claimable name.
           return attempt == 1 ? foreign.path : '$output.owned-$attempt.tmp';
         });
 
         expect(result.exitCode, 0, reason: result.stderr);
+        expect(
+          attemptsSeen,
+          greaterThanOrEqualTo(2),
+          reason:
+              'the foreign-name collision and retry must be exercised, '
+              'not assumed through the attempt numbering',
+        );
         expect(
           await foreign.readAsString(),
           'foreign payload',
@@ -669,12 +678,19 @@ void main() {
         await sentinel.writeAsString('sentinel payload');
         final planted = Link('${tempDir.path}/planted.tmp');
         await planted.create(sentinel.path);
+        var attemptsSeen = 0;
 
         final result = await runWithCandidates(output, (attempt) {
+          attemptsSeen++;
           return attempt == 1 ? planted.path : '$output.owned-$attempt.tmp';
         });
 
         expect(result.exitCode, 0, reason: result.stderr);
+        expect(
+          attemptsSeen,
+          greaterThanOrEqualTo(2),
+          reason: 'the planted-symlink collision and retry must be exercised',
+        );
         expect(
           await sentinel.readAsString(),
           'sentinel payload',
