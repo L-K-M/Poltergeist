@@ -3473,6 +3473,32 @@ already analyzes/tests `test/benchmarks`. Scope is the checker only —
 no collectors, scenarios, bench CI job, calibration, or enforcement
 activation; item 21 stays open for those.
 
+## M3 — pane rows announce entry kind (2026-09-14)
+
+`_PaneRow`'s semantics label gains the entry kind: `paneRowSemantics` is now
+`{name}, {kind}, {size}, {modified}` with four localized kind words
+(file / folder / symbolic link / item) mapped exhaustively from the pinned
+`RemoteFileType`; `other` announces "item", never "file". This restores the
+Name-Kind-Size-Date contract of 02 §13 / 08 §7 — the missing-row-type
+finding recorded in #94's inherited-UI review summary and confirmed on
+current main; lane B's #94 disposition carried no UI edits, so the fix
+lands here. Visual layout, icons, natural sorting, keyboard behavior,
+selected state, activation, and the exclusion of stale/inert rows under
+loss/loading/error are unchanged. Richer kind descriptions (MIME/extension
+text like 02 §13's "PDF document" example) remain explicit future scope;
+this slice ships only the existing `RemoteFileType` metadata.
+
+Validation: a new widget test asserting the anchored per-field order on
+each row's own semantics node — directory, file, symbolic link, and
+`other`, including that `other` is never announced as a regular file —
+failed before the change and passes after; the existing name–size–date
+announcement test and the inert-rows-under-overlay regression are
+preserved. App analyze clean, 571 tests; core untouched (analyze clean,
+777 tests, 16 fixture skips); import, protocol, license-gate,
+release-version, and pin-audit guards green. Bounded logs and exits:
+`tasks/task23-logs/` in the worker's evidence area. Semantics assertions
+prove the contract; no native screen-reader QA is claimed.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

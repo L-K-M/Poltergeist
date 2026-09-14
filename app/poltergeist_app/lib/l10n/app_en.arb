@@ -536,14 +536,31 @@
       "time": {"type": "String"}
     }
   },
-  "paneRowSemantics": "{name}, {size}, {modified}",
+  "paneRowSemantics": "{name}, {kind}, {size}, {modified}",
   "@paneRowSemantics": {
-    "description": "Screen-reader label of one listing row: announced name–size–date (D20).",
+    "description": "Screen-reader label of one listing row: announced name–kind–size–date in that order regardless of visual column order (D20, 02 §13).",
     "placeholders": {
       "name": {"type": "String"},
+      "kind": {"type": "String"},
       "size": {"type": "String"},
       "modified": {"type": "String"}
     }
+  },
+  "paneRowKindFile": "file",
+  "@paneRowKindFile": {
+    "description": "Screen-reader kind word for a regular file row (RemoteFileType.file)."
+  },
+  "paneRowKindDirectory": "folder",
+  "@paneRowKindDirectory": {
+    "description": "Screen-reader kind word for a directory row (RemoteFileType.directory)."
+  },
+  "paneRowKindSymbolicLink": "symbolic link",
+  "@paneRowKindSymbolicLink": {
+    "description": "Screen-reader kind word for a symbolic-link row (RemoteFileType.symbolicLink)."
+  },
+  "paneRowKindOther": "item",
+  "@paneRowKindOther": {
+    "description": "Screen-reader kind word for an entry that is none of file, directory, or symbolic link (RemoteFileType.other). Must not claim the entry is a regular file."
   },
   "goEnclosingLabel": "Parent Folder",
   "@goEnclosingLabel": {

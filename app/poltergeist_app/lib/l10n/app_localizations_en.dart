@@ -416,9 +416,26 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String paneRowSemantics(String name, String size, String modified) {
-    return '$name, $size, $modified';
+  String paneRowSemantics(
+    String name,
+    String kind,
+    String size,
+    String modified,
+  ) {
+    return '$name, $kind, $size, $modified';
   }
+
+  @override
+  String get paneRowKindFile => 'file';
+
+  @override
+  String get paneRowKindDirectory => 'folder';
+
+  @override
+  String get paneRowKindSymbolicLink => 'symbolic link';
+
+  @override
+  String get paneRowKindOther => 'item';
 
   @override
   String get goEnclosingLabel => 'Parent Folder';

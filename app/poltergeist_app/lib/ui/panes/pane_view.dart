@@ -754,8 +754,17 @@ class _PaneRow extends StatelessWidget {
         ? (active ? colors.primaryContainer : colors.surfaceContainerHighest)
         : null;
 
+    // 02 §13: the row's kind is part of the announced label
+    // (Name-Kind-Size-Date order); the icon carries it only visually.
+    final kind = switch (entry.type) {
+      RemoteFileType.file => l10n.paneRowKindFile,
+      RemoteFileType.directory => l10n.paneRowKindDirectory,
+      RemoteFileType.symbolicLink => l10n.paneRowKindSymbolicLink,
+      RemoteFileType.other => l10n.paneRowKindOther,
+    };
+
     return Semantics(
-      label: l10n.paneRowSemantics(entry.name, size, modified),
+      label: l10n.paneRowSemantics(entry.name, kind, size, modified),
       // The composed label replaces the child text's own semantics —
       // without this, screen readers announce the name twice. The
       // excluded child no longer provides the tap action either, so
