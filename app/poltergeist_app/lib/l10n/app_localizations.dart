@@ -760,11 +760,40 @@ abstract class AppLocalizations {
   /// **'Yesterday at {time}'**
   String paneDateYesterday(String time);
 
-  /// Screen-reader label of one listing row: announced name–size–date (D20).
+  /// Screen-reader label of one listing row: announced name–kind–size–date in that order regardless of visual column order (D20, 02 §13).
   ///
   /// In en, this message translates to:
-  /// **'{name}, {size}, {modified}'**
-  String paneRowSemantics(String name, String size, String modified);
+  /// **'{name}, {kind}, {size}, {modified}'**
+  String paneRowSemantics(
+    String name,
+    String kind,
+    String size,
+    String modified,
+  );
+
+  /// Screen-reader kind word for a regular file row (RemoteFileType.file).
+  ///
+  /// In en, this message translates to:
+  /// **'file'**
+  String get paneRowKindFile;
+
+  /// Screen-reader kind word for a directory row (RemoteFileType.directory).
+  ///
+  /// In en, this message translates to:
+  /// **'folder'**
+  String get paneRowKindDirectory;
+
+  /// Screen-reader kind word for a symbolic-link row (RemoteFileType.symbolicLink).
+  ///
+  /// In en, this message translates to:
+  /// **'symbolic link'**
+  String get paneRowKindSymbolicLink;
+
+  /// Screen-reader kind word for an entry that is none of file, directory, or symbolic link (RemoteFileType.other). Must not claim the entry is a regular file.
+  ///
+  /// In en, this message translates to:
+  /// **'item'**
+  String get paneRowKindOther;
 
   /// Command label: navigate to the parent folder.
   ///

@@ -944,6 +944,67 @@ void main() {
     );
   });
 
+  testWidgets('rows announce name, kind, size, and date in that order', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry(
+          'docs',
+          type: RemoteFileType.directory,
+          modified: DateTime(2026, 9, 10, 14, 32),
+        ),
+        _entry(
+          'report.txt',
+          size: 2048,
+          modified: DateTime(2026, 9, 11, 9, 5),
+        ),
+        _entry('link', type: RemoteFileType.symbolicLink),
+        _entry('socket', type: RemoteFileType.other),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      // 02 §13 / 08 §7: one merged node per row announcing the fields in
+      // Name-Kind-Size-Date order — anchored field-by-field on each row's
+      // own label, never substring presence in unrelated widgets.
+      expect(
+        find.bySemanticsLabel(RegExp(r'^docs, folder, —, 9/10/2026')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'^report\.txt, file, 2 KB, 9/11/2026')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'^link, symbolic link, —, —$')),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'^socket, item, —, —$')),
+        findsOneWidget,
+        reason: 'a non-file non-directory entry still announces its kind',
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(r'^socket, file,')),
+        findsNothing,
+        reason: 'RemoteFileType.other must not announce as a regular file',
+      );
+
+      // The merged label replaces the children: the name is announced
+      // exactly once, on the row node itself.
+      expect(
+        find.bySemanticsLabel(RegExp('report.txt')),
+        findsOneWidget,
+      );
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('a null lanes pane renders the no-engine state', (tester) async {
     final engineless = PaneController(paneTabId: 'pane.left');
     final enginelessRight = PaneController(paneTabId: 'pane.right');
