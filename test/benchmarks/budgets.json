@@ -1,0 +1,76 @@
+{
+  "schema": "poltergeist-d12-budgets-1",
+  "calibratedFingerprint": null,
+  "scenarios": [
+    {
+      "id": "P1",
+      "tier": "b",
+      "summary": "First paint, 10k-entry local directory",
+      "operator": "lessThan",
+      "value": 150,
+      "unit": "ms",
+      "minimumRepetitions": 3,
+      "landed": false
+    },
+    {
+      "id": "P2",
+      "tier": "b",
+      "summary": "First paint, 100k entries (virtualized)",
+      "operator": "lessThan",
+      "value": 1000,
+      "unit": "ms",
+      "minimumRepetitions": 3,
+      "landed": false
+    },
+    {
+      "id": "P3",
+      "tier": "a",
+      "summary": "Remote listing overhead over network time",
+      "operator": "lessThan",
+      "value": 50,
+      "unit": "ms",
+      "minimumRepetitions": 5,
+      "landed": false
+    },
+    {
+      "id": "P4",
+      "tier": "b",
+      "summary": "Tab switch",
+      "operator": "lessThan",
+      "value": 100,
+      "unit": "ms",
+      "minimumRepetitions": 3,
+      "landed": false
+    },
+    {
+      "id": "P5",
+      "tier": "a",
+      "summary": "Drop to transfer start (no upfront tree stat)",
+      "operator": "lessThan",
+      "value": 500,
+      "unit": "ms",
+      "minimumRepetitions": 3,
+      "landed": false
+    },
+    {
+      "id": "P6",
+      "tier": "b",
+      "summary": "Scrolling a large listing: frames over deadline",
+      "operator": "atMost",
+      "value": 0.2,
+      "unit": "%",
+      "minimumRepetitions": 3,
+      "landed": false
+    },
+    {
+      "id": "P7",
+      "tier": "a",
+      "summary": "Sync scan rate, LAN",
+      "operator": "atLeast",
+      "value": 1000,
+      "unit": "entries/s",
+      "minimumRepetitions": 3,
+      "landed": false
+    }
+  ]
+}
