@@ -49,9 +49,15 @@ honest comparison would ever be possible).
 The repetition index is part of the aggregation key: duplicates are
 rejected, and the tier comparison uses the median of the per-repetition
 values. `status: "error"` rows are kept and reported, never silently
-dropped. All rows must share one environment fingerprint (except `mode`,
-which differs per tier by design: tier A runs AOT, tier B runs profile,
-and one `--tiers ab` job writes both into this file — `mode` is instead
+dropped — and an errored repetition of an expected scenario fails the
+run in every mode, with the repetition and message attributed in the
+failure line; successful siblings cannot hide it. An empty `rows` list
+is a valid, fully unobserved job (no fingerprint is fabricated for it):
+it yields the honest no-budgets-evaluated outcome when nothing is
+landed, and explicit missing-scenario failures when something is. All
+rows must share one environment fingerprint (except `mode`, which
+differs per tier by design: tier A runs AOT, tier B runs profile, and
+one `--tiers ab` job writes both into this file — `mode` is instead
 validated per store: row eligibility filters non-AOT/non-profile rows as
 ineligible with a loud notice, and the calibration/baseline must record
 their tier's mode). Controlled axes: `runnerImage`, `arch`,
@@ -69,15 +75,29 @@ spike window).
 **drift state** — the small store time-boxing drift skips
 (`consecutiveMainRuns` per drift-notice key, tier-B keys only: tier-A
 drift skips never redden in any mode). Main-branch runs pass
-`--update-drift-state`; PR invocations never mutate it. The same tier-B
-drift notice firing on ≥ 7 consecutive main runs reddens with
-`baseline stale — refresh required` once `BENCH_ENFORCE_B` is set; any
-intervening clean main run resets the count. A missing or unreadable
-state means history is unknown: fired notices count conservatively at
-the escalation threshold, never as a fresh count (08 §6's "never a
-reset"). Controlled-axis mismatch against the baseline is a hard
-non-zero exit once enforced but a loud exit-zero notice while soft; the
-CPU-model axis skips with a notice and never auto-reddens on its own.
+`--update-drift-state` (a `DriftRunKind.mainRun` in the evaluator); PR
+invocations are read-only: they may inspect persisted history but never
+grade a hypothetical next main count — six actual main runs stay six
+for a PR, and only an actual main run can reach the escalation
+threshold. The same tier-B drift notice firing on ≥ 7 consecutive main
+runs reddens with `baseline stale — refresh required` once
+`BENCH_ENFORCE_B` is set. Only a genuinely clean main run — no graded
+failures, no fresh drift, and every expected tier-B comparison actually
+observed (at least one) — may reset prior counts; failed, missing, or
+unobserved tier-B
+comparisons preserve them (though drift that genuinely fired still
+counts even when other gates fail: measurement validity, drift, and
+budget failures are distinct). A run with nothing to record leaves the
+store byte-identical. A missing or unreadable state means history is
+unknown: fired notices count conservatively at the escalation
+threshold, never as a fresh count (08 §6's "never a reset").
+Controlled-axis mismatch against the baseline is a hard non-zero exit
+once enforced but a loud exit-zero notice while soft; the CPU-model axis
+skips with a notice and never auto-reddens on its own. State
+publication is atomic through an owned, uniquely named temporary file
+(`<state>.checker-<pid>-<seq>.tmp`) on the target filesystem: a
+pre-existing `<state>.tmp` file or symlink is never overwritten or
+followed, and cleanup removes only the temp this run created.
 
 ## Future CI artifact handoff (documentation only)
 

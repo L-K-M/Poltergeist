@@ -41,6 +41,17 @@ const dataExitCode = 65;
 const ioExitCode = 74;
 const gradedFailureExitCode = 1;
 
+/// Upper bound on owned-temp acquisition attempts (each name embeds the
+/// pid and a microsecond timestamp, so collisions are practically
+/// impossible; the bound exists only to fail closed).
+const tempNameAttempts = 5;
+
+/// POSIX EEXIST: the only errno that means "name already claimed" for an
+/// exclusive create. The suite's hosts (dart_tools Ubuntu, Linux dev)
+/// are POSIX; a mismatched code rethrows and surfaces rather than
+/// silently retrying, which is the safe direction.
+const fileExistsErrorCode = 17;
+
 const _usageText =
     '''
 Usage: dart run test/benchmarks/check.dart --results <path> --tiers a|b|ab
@@ -184,6 +195,7 @@ Future<void> checkMain(
       priorState: priorState,
       stateUnknown: stateUnknown,
       stateConfigured: driftStatePath != null,
+      runKind: updateDriftState ? DriftRunKind.mainRun : DriftRunKind.readOnly,
       enforceA: enforceA,
       enforceB: enforceB,
       nowUtc: nowUtc,
@@ -373,9 +385,14 @@ void _printReport(
   }
 }
 
-/// Atomic temp-file + rename, mirroring the harness's result store: a torn
-/// write must never leave a valid-looking state behind, and an unrelated
-/// file is never touched (only `<path>` and `<path>.tmp` are written).
+/// Atomic publication of the drift state. The temporary storage is
+/// owned and uniquely named: a fixed `<state>.tmp` name would overwrite
+/// an unrelated file (or follow a symlink planted there — concrete data
+/// loss), so each write acquires its own
+/// `<state>.checker-<pid>-<seq>.tmp` on the target filesystem, publishes
+/// with rename, and cleans up only the file it created. A torn write
+/// therefore never leaves a valid-looking state behind and never touches
+/// anything it does not own.
 Future<void> _writeDriftState(
   String path,
   DriftState state,
@@ -383,13 +400,51 @@ Future<void> _writeDriftState(
 ) async {
   final target = File(path).absolute;
   await target.parent.create(recursive: true);
-  final encoder = JsonEncoder.withIndent('  ');
-  final temporary = File('${target.path}.tmp');
-  await temporary.writeAsString(
-    '${encoder.convert(state.toJson(nowUtc))}\n',
-    flush: true,
+  final payload =
+      '${JsonEncoder.withIndent('  ').convert(state.toJson(nowUtc))}\n';
+  for (var attempt = 1; attempt <= tempNameAttempts; attempt++) {
+    final temporary = File(
+      '${target.path}.checker-$pid-${DateTime.now().microsecondsSinceEpoch}'
+      '-$attempt.tmp',
+    );
+    // Claim the name atomically (O_CREAT|O_EXCL): exists()-then-write
+    // has a check-to-write gap, and File.exists follows symlinks, so a
+    // name planted in the gap would be followed. A claimed name just
+    // moves to the next attempt; the loop fails closed after
+    // tempNameAttempts tries.
+    try {
+      await temporary.create(exclusive: true);
+    } on FileSystemException catch (error) {
+      // EEXIST means the name is claimed — retry with the next owned
+      // name. Anything else (EACCES, ENOENT, ENOSPC, ...) is a
+      // persistent condition that a different timestamped name cannot
+      // fix, so it surfaces with its errno instead of being retried.
+      if (error.osError?.errorCode != fileExistsErrorCode) {
+        rethrow;
+      }
+      continue;
+    }
+    try {
+      await temporary.writeAsString(payload, flush: true);
+      await temporary.rename(target.path);
+      return;
+    } catch (_) {
+      // Cleanup only our own temp, then surface the original IO failure
+      // (best-effort: a failing cleanup must never mask it).
+      try {
+        if (await temporary.exists()) {
+          await temporary.delete();
+        }
+      } catch (_) {
+        // Best-effort cleanup; the original error is rethrown below.
+      }
+      rethrow;
+    }
+  }
+  throw FileSystemException(
+    'could not acquire an owned temporary file beside',
+    target.path,
   );
-  await temporary.rename(target.path);
 }
 
 void _fail(IOSink sink, String message, int code) {

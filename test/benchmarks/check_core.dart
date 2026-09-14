@@ -85,6 +85,13 @@ enum BenchTier { a, b }
 
 enum BudgetOperator { lessThan, atMost, atLeast }
 
+/// What kind of invocation is being evaluated. A main run updates the
+/// drift-state store and escalates on the count it advances to; a
+/// read-only call (a PR) may inspect persisted history but never grades
+/// a hypothetical next main count — six actual main runs stay six for
+/// it, and only an actual main run can reach the escalation threshold.
+enum DriftRunKind { mainRun, readOnly }
+
 /// The measurement mode eligible per tier. A debug/JIT number must never
 /// masquerade as an eligible AOT/profile measurement (08 §6), so rows in
 /// any other mode are not counted toward the repetition minimum.
@@ -354,7 +361,10 @@ class ResultsFile {
 
   /// All rows must share one fingerprint: a mid-job environment change is
   /// not a comparable sample (08 §6 compares the job, not a mixture).
-  final BenchFingerprint fingerprint;
+  /// Null exactly when [rows] is empty — an empty job observed nothing,
+  /// and no fingerprint is fabricated for it (fingerprint-dependent
+  /// paths treat an empty file as unobserved, never as a comparison).
+  final BenchFingerprint? fingerprint;
 
   const ResultsFile(this.rows, this.fingerprint);
 
@@ -394,9 +404,10 @@ class ResultsFile {
       }
       parsed.add(parsedRow);
     }
-    if (fingerprint == null) {
-      throw CheckDataException('results file: rows must not be empty');
-    }
+    // An empty row list is a valid, fully unobserved job — the expected
+    // set decides what that means (honest no-budgets-evaluated when
+    // nothing is landed; explicit missing-scenario failures when
+    // something is).
     return ResultsFile(parsed, fingerprint);
   }
 
@@ -637,14 +648,17 @@ class DriftNoticeState {
 
 /// Advances the drift state for one main-branch run. Keys that fired this
 /// run count up (unknown prior history counts conservatively at the
-/// escalation threshold — a missing state is never a reset); keys that did
-/// not fire are dropped, so an intervening clean run clears the streak.
+/// escalation threshold — a missing state is never a reset). Keys that
+/// did not fire are dropped only when [mayReset] holds — a clean run
+/// that actually observed a tier-B comparison; otherwise prior streaks
+/// are preserved verbatim until a genuinely clean main observation.
 DriftState advanceDriftState(
   DriftState? prior,
   bool priorUnknown,
   Set<String> firedKeys,
-  String nowUtc,
-) {
+  String nowUtc, {
+  required bool mayReset,
+}) {
   final next = <String, DriftNoticeState>{};
   for (final key in firedKeys) {
     final previous = prior?.notices[key];
@@ -656,7 +670,35 @@ DriftState advanceDriftState(
       lastSeenUtc: nowUtc,
     );
   }
+  if (!mayReset) {
+    for (final entry
+        in prior?.notices.entries ??
+            const <MapEntry<String, DriftNoticeState>>[]) {
+      next.putIfAbsent(entry.key, () => entry.value);
+    }
+  }
   return DriftState(next);
+}
+
+/// What a read-only call may grade: the persisted streaks exactly as
+/// they are. Unknown history stays conservative (fired keys count at
+/// the threshold), but a known count of six stays six — the seventh
+/// belongs to an actual main run.
+Map<String, DriftNoticeState> _readOnlyStreaks(
+  DriftState? prior,
+  bool priorUnknown,
+  Set<String> firedDriftKeys,
+) {
+  if (!priorUnknown) {
+    return prior?.notices ?? const {};
+  }
+  return {
+    for (final key in firedDriftKeys)
+      key: const DriftNoticeState(
+        consecutiveMainRuns: driftStaleThreshold,
+        lastSeenUtc: 'unknown',
+      ),
+  };
 }
 
 /// Whether the scenario's measured median satisfies its budget, with the
@@ -749,6 +791,7 @@ CheckReport evaluate({
   DriftState? priorState,
   bool stateUnknown = false,
   bool stateConfigured = true,
+  required DriftRunKind runKind,
   required bool enforceA,
   required bool enforceB,
   required String nowUtc,
@@ -767,11 +810,27 @@ CheckReport evaluate({
 
   // Tier-B drift is a property of the baseline vs the run, not of any
   // single scenario: evaluate it once per run so failures and notices
-  // appear once per mismatching axis, never once per scenario.
+  // appear once per mismatching axis, never once per scenario. An empty
+  // results file observed nothing, so no fingerprint is ever compared
+  // (or fabricated) for it.
+  final runFingerprint = results.fingerprint;
+  if (results.rows.isEmpty) {
+    notices.add(
+      'NOTICE: results file contained no rows — nothing was observed '
+      'this run',
+    );
+  }
   var tierBDrifted = false;
-  if (tiers.contains(BenchTier.b) && baseline != null) {
+  // Every expected tier-B scenario that reached comparison must actually
+  // compare for the run to count as a clean observation: a single
+  // skipped comparison (e.g. a missing baseline entry) vetoes the reset.
+  var tierBExpected = 0;
+  var tierBCompared = 0;
+  if (tiers.contains(BenchTier.b) &&
+      baseline != null &&
+      runFingerprint != null) {
     final controlled = baseline.fingerprint.controlledMismatches(
-      results.fingerprint,
+      runFingerprint,
     );
     if (controlled.isNotEmpty) {
       tierBDrifted = true;
@@ -800,13 +859,13 @@ CheckReport evaluate({
         'cross-compared',
       );
       _printRefreshProcedure(notices);
-    } else if (baseline.fingerprint.cpuModel != results.fingerprint.cpuModel) {
+    } else if (baseline.fingerprint.cpuModel != runFingerprint.cpuModel) {
       tierBDrifted = true;
       firedDriftKeys.add('tier-b/cpu');
       notices.add(
         'NOTICE: hardware drift — refresh the baseline: tier-B CPU model '
         'mismatch (${baseline.fingerprint.cpuModel} != '
-        '${results.fingerprint.cpuModel}); comparison skipped, never '
+        '${runFingerprint.cpuModel}); comparison skipped, never '
         'cross-compared and never auto-reddened on its own',
       );
       _printRefreshProcedure(notices);
@@ -878,12 +937,6 @@ CheckReport evaluate({
         )
         .toList();
 
-    for (final row in errored) {
-      notices.add(
-        'NOTICE: scenario ${budget.id} repetition ${row.repetition} '
-        'errored: ${row.error}',
-      );
-    }
     for (final row in ineligibleMode) {
       notices.add(
         'NOTICE: scenario ${budget.id} repetition ${row.repetition} '
@@ -891,6 +944,31 @@ CheckReport evaluate({
         '${budget.tier.name} requires '
         '"${eligibleModeByTier[budget.tier]}"; value not compared',
       );
+    }
+
+    if (errored.isNotEmpty) {
+      // A failed repetition of an expected scenario fails the run in
+      // every mode: enough successful siblings cannot hide it, and the
+      // scenario's measurement set is incomplete, so no budget or trend
+      // comparison runs for it either (08 §6: soft mode softens
+      // overruns only, never errored observations).
+      for (final row in errored) {
+        failures.add(
+          'expected scenario ${budget.id} (tier ${budget.tier.name}) '
+          'repetition ${row.repetition} errored: ${row.error}',
+        );
+      }
+      tableRow(
+        budget.id,
+        budget.tier,
+        eligible.isEmpty
+            ? '—'
+            : '${eligible.length} eligible row(s), '
+                  '${errored.length} errored',
+        budget.tier == BenchTier.a ? budget.describeLimit() : 'baseline trend',
+        'errored (fail)',
+      );
+      continue;
     }
 
     if (eligible.isEmpty || eligible.length < budget.minimumRepetitions) {
@@ -930,12 +1008,18 @@ CheckReport evaluate({
         '(median of ${eligible.length})';
 
     if (budget.tier == BenchTier.a) {
+      // Non-empty `eligible` implies non-empty rows implies a parsed
+      // fingerprint; promote it explicitly instead of asserting `!`.
+      final tierARunFingerprint = runFingerprint;
+      if (tierARunFingerprint == null) {
+        throw StateError('eligible rows imply a parsed fingerprint');
+      }
       _evaluateTierA(
         budget: budget,
         medianValue: medianValue,
         measured: measured,
         catalog: catalog,
-        results: results,
+        runFingerprint: tierARunFingerprint,
         enforceA: enforceA,
         table: table,
         notices: notices,
@@ -943,7 +1027,8 @@ CheckReport evaluate({
         tableRow: tableRow,
       );
     } else {
-      _evaluateTierB(
+      tierBExpected++;
+      if (_evaluateTierB(
         budget: budget,
         medianValue: medianValue,
         measured: measured,
@@ -955,7 +1040,9 @@ CheckReport evaluate({
         notices: notices,
         failures: failures,
         tableRow: tableRow,
-      );
+      )) {
+        tierBCompared++;
+      }
     }
   }
 
@@ -1001,7 +1088,10 @@ CheckReport evaluate({
   }
 
   // Drift-state time-boxing (tier-B notices only; tier-A drift skips are
-  // loud but never redden, in every mode, per 08 §6).
+  // loud but never redden, in every mode, per 08 §6). Grading follows
+  // the run kind: a main run escalates on the streaks it advances to,
+  // while a read-only call grades only the persisted streaks — it never
+  // counts a hypothetical next main run.
   DriftState? newState;
   if (stateConfigured) {
     if (priorState == null && stateUnknown) {
@@ -1011,13 +1101,42 @@ CheckReport evaluate({
         'fresh count',
       );
     }
-    newState = advanceDriftState(
-      stateUnknown ? null : priorState,
-      stateUnknown,
-      firedDriftKeys,
-      nowUtc,
-    );
-    final stale = newState.notices.entries
+    // Reset eligibility: only a fully clean run that actually observed a
+    // tier-B comparison may clear prior streaks. A run with failures,
+    // skipped/unobserved comparisons, or fresh drift preserves them —
+    // and any drift that did fire still counts even when other gates
+    // failed (measurement validity, drift, and budget failures are
+    // distinct).
+    final mayReset =
+        failures.isEmpty &&
+        firedDriftKeys.isEmpty &&
+        tierBCompared > 0 &&
+        tierBCompared == tierBExpected;
+    // A main run persists something only when it has news: drift that
+    // fired, or a genuinely clean observation that clears streaks. A
+    // failed/unobserved run with no drift records nothing — rewriting
+    // the store (even with byte-identical counts under a new updatedUtc)
+    // would misrepresent when the streaks were last actually observed.
+    // A clean run against a known-empty store has nothing to publish
+    // either: the write exists to record drift or to clear streaks (or
+    // to resolve unknown history), not to churn updatedUtc.
+    final hasNews =
+        firedDriftKeys.isNotEmpty ||
+        (mayReset &&
+            (stateUnknown || (priorState?.notices.isNotEmpty ?? false)));
+    if (runKind == DriftRunKind.mainRun && hasNews) {
+      newState = advanceDriftState(
+        stateUnknown ? null : priorState,
+        stateUnknown,
+        firedDriftKeys,
+        nowUtc,
+        mayReset: mayReset,
+      );
+    }
+    final graded = runKind == DriftRunKind.mainRun
+        ? newState?.notices ?? priorState?.notices ?? const {}
+        : _readOnlyStreaks(priorState, stateUnknown, firedDriftKeys);
+    final stale = graded.entries
         .where(
           (entry) => entry.value.consecutiveMainRuns >= driftStaleThreshold,
         )
@@ -1059,7 +1178,7 @@ void _evaluateTierA({
   required double medianValue,
   required String measured,
   required BudgetCatalog catalog,
-  required ResultsFile results,
+  required BenchFingerprint runFingerprint,
   required bool enforceA,
   required List<String> table,
   required List<String> notices,
@@ -1088,7 +1207,7 @@ void _evaluateTierA({
     );
     return;
   }
-  final mismatches = calibrated.controlledMismatches(results.fingerprint);
+  final mismatches = calibrated.controlledMismatches(runFingerprint);
   if (mismatches.isNotEmpty) {
     for (final entry in mismatches.entries) {
       notices.add(
@@ -1140,7 +1259,10 @@ void _evaluateTierA({
   }
 }
 
-void _evaluateTierB({
+/// Returns whether a real trend comparison executed (true only when the
+/// baseline entry existed and the fingerprint matched — the observation
+/// that can prove a clean main run).
+bool _evaluateTierB({
   required ScenarioBudget budget,
   required double medianValue,
   required String measured,
@@ -1164,7 +1286,7 @@ void _evaluateTierB({
       'baseline trend',
       'skipped: hardware drift',
     );
-    return;
+    return false;
   }
 
   if (baseline == null) {
@@ -1177,7 +1299,7 @@ void _evaluateTierB({
       'baseline trend',
       'skipped: no committed baseline',
     );
-    return;
+    return false;
   }
   final entry = baseline.scenarios[budget.id];
   if (entry == null) {
@@ -1198,7 +1320,7 @@ void _evaluateTierB({
       'baseline trend',
       'skipped: no baseline entry',
     );
-    return;
+    return false;
   }
   final limit =
       'baseline ${_formatNumber(entry.median)} ${budget.unit} '
@@ -1210,7 +1332,7 @@ void _evaluateTierB({
   );
   if (fraction <= tierBRegressionFraction) {
     tableRow(budget.id, budget.tier, measured, limit, 'pass');
-    return;
+    return true;
   }
   if (enforceB) {
     failures.add(
@@ -1241,6 +1363,7 @@ void _evaluateTierB({
       'regression (notice: not enforced)',
     );
   }
+  return true;
 }
 
 void _printRefreshProcedure(List<String> notices) {
