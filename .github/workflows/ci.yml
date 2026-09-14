@@ -43,6 +43,11 @@ jobs:
           sdk: stable
       - name: Resolve workspace
         run: dart pub get
+      # The harness resolves standalone (frozen pins outside the workspace
+      # lock), so its loop entries below need their own package config.
+      - name: Resolve M0 benchmark harness
+        working-directory: packages/poltergeist_bench
+        run: dart pub get
       # Discover packages, but keep every analyze/test path explicit.
       - name: Analyze
         run: |
@@ -55,14 +60,25 @@ jobs:
         run: |
           set -euo pipefail
           dirs=()
+          ran=0
           for package in packages/*; do
             [[ -d "$package/test" ]] || continue
+            if [[ "$package" == 'packages/poltergeist_bench' ]]; then
+              # The harness resolves through its own package config, so its
+              # suite must run from inside the package.
+              (cd "$package" && dart test --reporter expanded test)
+              ran=1
+              continue
+            fi
             dirs+=("$package")
           done
-          if [[ ${#dirs[@]} -eq 0 ]]; then
+          if [[ ${#dirs[@]} -gt 0 ]]; then
+            dart test --reporter expanded "${dirs[@]}"
+            ran=1
+          fi
+          if [[ "$ran" -ne 1 ]]; then
             echo "no package has a test/ directory yet"; exit 1
           fi
-          dart test --reporter expanded "${dirs[@]}"
 
   # These guards use POSIX tools, Docker, or GNU timeout, not native contracts.
   dart_tools:

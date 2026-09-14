@@ -198,14 +198,26 @@ jobs:
         run: dart analyze
       - name: Test
         run: |
+          set -euo pipefail
           dirs=""
+          ran=0
           for p in packages/*; do
-            [ -d "$p/test" ] && dirs="$dirs $p"
+            [ -d "$p/test" ] || continue
+            if [ "$p" = "packages/poltergeist_bench" ]; then
+              # The harness resolves through its own package config.
+              (cd "$p" && dart test test)
+              ran=1
+              continue
+            fi
+            dirs="$dirs $p"
           done
-          if [ -z "$dirs" ]; then
+          if [ -n "$dirs" ]; then
+            dart test $dirs
+            ran=1
+          fi
+          if [ "$ran" -ne 1 ]; then
             echo "no package has a test/ directory yet"; exit 1
           fi
-          dart test $dirs
       - name: Test release gate
         run: dart test tool/license_gate/test
       - name: Test release version tool
