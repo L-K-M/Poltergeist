@@ -56,6 +56,33 @@ void main() {
     return (exitCode, out.text, err.text);
   }
 
+  /// A clean tier-B observation set: landed P1, matching baseline
+  /// fingerprint, three in-budget repetitions — a run that legitimately
+  /// clears drift streaks.
+  Future<({String budgets, String baseline, String results})>
+  writeCleanTierBFixtures() async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    final baseline = await writeFixture('baseline.json', _baselineJson());
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(mode: 'profile'),
+            ),
+        ],
+      ),
+    );
+    return (budgets: budgets, baseline: baseline, results: results);
+  }
+
   /// The drift fixture shared by the drift-state battery: three P1
   /// repetitions in profile mode on a mismatching CPU model.
   Future<String> writeDriftResults() => writeFixture(
@@ -129,6 +156,7 @@ void main() {
     () async {
       final chmod = await Process.run('chmod', ['--version']);
       if (chmod.exitCode != 0) {
+        markTestSkipped('chmod is unavailable on this host');
         return;
       }
       final budgets = await writeFixture(
@@ -152,13 +180,14 @@ void main() {
         await locked.readAsString();
         await Process.run('chmod', ['644', locked.path]);
         // A privileged reader (root) bypasses mode bits, so the EACCES
-        // path is untestable in this environment — record it as a skip,
-        // not a silent pass (markTestSkipped's Skip is not caught by the
-        // FileSystemException clause below).
+        // path is untestable in this environment. markTestSkipped only
+        // MARKS the test skipped — it neither throws nor returns, so
+        // execution continues and must leave the test explicitly.
         markTestSkipped(
           'reader is privileged (root bypasses mode bits); EACCES '
           'untestable',
         );
+        return;
       } on FileSystemException {
         // Expected: the mode change denies the read.
       }
@@ -463,7 +492,7 @@ void main() {
         arguments: ['--results', errored, '--tiers', 'a', '--budgets', budgets],
       );
       expect(exitCodeValue, 1);
-      expect(stdoutText, contains('all errored'));
+      expect(stdoutText, contains('FAIL: expected scenario P3'));
       expect(stdoutText, contains('repetition 0 errored: fixture died'));
 
       // Only 2 of the required 5 repetitions.
@@ -1152,6 +1181,387 @@ void main() {
         ),
       );
     });
+  });
+
+  test('an errored repetition of an expected scenario fails even while '
+      'soft', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    final baseline = await writeFixture('baseline.json', _baselineJson());
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(mode: 'profile'),
+            ),
+          _rowJson(
+            scenario: 'P1',
+            repetition: 3,
+            status: 'error',
+            error: 'synthetic collector failed',
+            fingerprint: _fingerprintJson(mode: 'profile'),
+          ),
+        ],
+      ),
+    );
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+    );
+    expect(
+      exitCodeValue,
+      1,
+      reason: 'a failed repetition cannot hide behind successful ones',
+    );
+    expect(stdoutText, contains('FAIL: expected scenario P1'));
+    expect(
+      stdoutText,
+      contains('repetition 3 errored: synthetic collector failed'),
+    );
+  });
+
+  test(
+    'a read-only call does not grade a hypothetical next main run',
+    () async {
+      final budgets = await writeFixture(
+        'budgets.json',
+        _budgetsJson(landedIds: {'P1'}),
+      );
+      final baseline = await writeFixture(
+        'baseline.json',
+        _baselineJson(cpuModel: 'baseline-cpu'),
+      );
+      final results = await writeDriftResults();
+      final statePath = pathOf('state.json');
+      // Six actual main drift runs are six for this PR too; the seventh
+      // escalation belongs to an actual main run, not a read-only call.
+      final six = const DriftState({
+        'tier-b/cpu': DriftNoticeState(
+          consecutiveMainRuns: 6,
+          lastSeenUtc: '2026-09-14T00:00:00Z',
+        ),
+      }).toJson('2026-09-14T00:00:00Z');
+      await File(statePath).writeAsString(jsonEncode(six));
+      final before = await File(statePath).readAsString();
+
+      final (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: [
+          '--results',
+          results,
+          '--tiers',
+          'b',
+          '--budgets',
+          budgets,
+          '--baseline',
+          baseline,
+          '--drift-state',
+          statePath,
+        ],
+        environment: {'BENCH_ENFORCE_B': '1'},
+      );
+      expect(exitCodeValue, 0, reason: stdoutText);
+      expect(stdoutText, isNot(contains('baseline stale')));
+      expect(
+        await File(statePath).readAsString(),
+        before,
+        reason: 'a PR never writes state',
+      );
+    },
+  );
+
+  test(
+    'the state write never touches a pre-existing unrelated temp file',
+    () async {
+      final fixtures = await writeCleanTierBFixtures();
+      final unrelated = File(pathOf('state.json.tmp'));
+      await unrelated.writeAsString('unrelated sentinel\n');
+      await runChecker(
+        arguments: [
+          '--results',
+          fixtures.results,
+          '--tiers',
+          'b',
+          '--budgets',
+          fixtures.budgets,
+          '--baseline',
+          fixtures.baseline,
+          '--drift-state',
+          pathOf('state.json'),
+          '--update-drift-state',
+        ],
+      );
+      expect(await unrelated.readAsString(), 'unrelated sentinel\n');
+      final state = DriftState.fromJson(
+        jsonDecode(await File(pathOf('state.json')).readAsString()),
+      );
+      expect(state.notices, isEmpty, reason: 'a clean run clears streaks');
+      expect(
+        Directory(
+          tempDir.path,
+        ).listSync().where((entry) => entry.path.contains('.checker-')),
+        isEmpty,
+        reason: 'no owned temp may linger after publication',
+      );
+    },
+  );
+
+  test('the state write never follows a pre-existing temp symlink', () async {
+    final fixtures = await writeCleanTierBFixtures();
+    final victim = File(pathOf('victim.txt'));
+    await victim.writeAsString('unrelated sentinel\n');
+    await Link(pathOf('state.json.tmp')).create(victim.path);
+    await runChecker(
+      arguments: [
+        '--results',
+        fixtures.results,
+        '--tiers',
+        'b',
+        '--budgets',
+        fixtures.budgets,
+        '--baseline',
+        fixtures.baseline,
+        '--drift-state',
+        pathOf('state.json'),
+        '--update-drift-state',
+      ],
+    );
+    expect(await victim.readAsString(), 'unrelated sentinel\n');
+    expect(
+      await File(pathOf('state.json')).exists(),
+      isTrue,
+      reason: 'the state is still published',
+    );
+    expect(
+      Directory(
+        tempDir.path,
+      ).listSync().where((entry) => entry.path.contains('.checker-')),
+      isEmpty,
+    );
+  });
+
+  test('a failed main write cleans only its own temp and preserves the '
+      'original', () async {
+    final fixtures = await writeCleanTierBFixtures();
+    // A directory at the target path makes the final rename fail; the
+    // owned temp must be cleaned up and the original left untouched.
+    final blocked = Directory(pathOf('state.json'));
+    await blocked.create();
+    final (exitCodeValue, _, stderrText) = await runChecker(
+      arguments: [
+        '--results',
+        fixtures.results,
+        '--tiers',
+        'b',
+        '--budgets',
+        fixtures.budgets,
+        '--baseline',
+        fixtures.baseline,
+        '--drift-state',
+        blocked.path,
+        '--update-drift-state',
+      ],
+    );
+    expect(exitCodeValue, 74, reason: stderrText);
+    expect(await blocked.exists(), isTrue);
+    // Exactly the three fixtures and the blocked directory: no temp of
+    // any name may linger after a failed publish.
+    expect(
+      Directory(
+        tempDir.path,
+      ).listSync().map((entry) => entry.path.split('/').last).toSet(),
+      {'budgets.json', 'results.json', 'baseline.json', 'state.json'},
+    );
+  });
+
+  test('a failed main run preserves prior drift history', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    // The row's fingerprint matches the baseline, so no drift fires;
+    // P1 is landed and missing, so the run fails without observing any
+    // tier-B comparison — the prior count of six must survive it.
+    final baseline = await writeFixture('baseline.json', _baselineJson());
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          _rowJson(
+            scenario: 'P2',
+            repetition: 0,
+            unit: 'ms',
+            fingerprint: _fingerprintJson(mode: 'profile'),
+          ),
+        ],
+      ),
+    );
+    final statePath = pathOf('state.json');
+    final six = const DriftState({
+      'tier-b/cpu': DriftNoticeState(
+        consecutiveMainRuns: 6,
+        lastSeenUtc: '2026-09-14T00:00:00Z',
+      ),
+    }).toJson('2026-09-14T00:00:00Z');
+    await File(statePath).writeAsString(jsonEncode(six));
+    final before = await File(statePath).readAsString();
+
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+        '--drift-state',
+        statePath,
+        '--update-drift-state',
+      ],
+      environment: {'BENCH_ENFORCE_B': '1'},
+    );
+    expect(exitCodeValue, 1, reason: 'P1 is missing');
+    expect(stdoutText, contains('FAIL: expected scenario P1'));
+    expect(
+      await File(statePath).readAsString(),
+      before,
+      reason: 'a run with nothing to record leaves the store untouched',
+    );
+    final state = DriftState.fromJson(jsonDecode(before));
+    expect(
+      state.notices['tier-b/cpu']!.consecutiveMainRuns,
+      6,
+      reason: 'a failed run cannot prove a clean main observation',
+    );
+  });
+
+  test('a real drift still counts when another gate fails', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    // Same failing shape, but the observed environment genuinely moved:
+    // the CPU axis counts even though P1's comparison never ran —
+    // measurement validity, drift, and budget failures are distinct.
+    final baseline = await writeFixture(
+      'baseline.json',
+      _baselineJson(cpuModel: 'baseline-cpu'),
+    );
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          _rowJson(
+            scenario: 'P2',
+            repetition: 0,
+            unit: 'ms',
+            fingerprint: _fingerprintJson(mode: 'profile'),
+          ),
+        ],
+      ),
+    );
+    final statePath = pathOf('state.json');
+    final six = const DriftState({
+      'tier-b/cpu': DriftNoticeState(
+        consecutiveMainRuns: 6,
+        lastSeenUtc: '2026-09-14T00:00:00Z',
+      ),
+    }).toJson('2026-09-14T00:00:00Z');
+    await File(statePath).writeAsString(jsonEncode(six));
+
+    final (exitCodeValue, _, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+        '--drift-state',
+        statePath,
+        '--update-drift-state',
+      ],
+      environment: {'BENCH_ENFORCE_B': '1'},
+    );
+    expect(exitCodeValue, 1);
+    final state = DriftState.fromJson(
+      jsonDecode(await File(statePath).readAsString()),
+    );
+    expect(
+      state.notices['tier-b/cpu']!.consecutiveMainRuns,
+      7,
+      reason: 'an observed environment drift must keep counting',
+    );
+  });
+
+  test(
+    'empty results with no landed scenarios are honest in soft mode',
+    () async {
+      final budgets = await writeFixture('budgets.json', _budgetsJson());
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(rows: const []),
+      );
+      final (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: [
+          '--results',
+          results,
+          '--tiers',
+          'b',
+          '--budgets',
+          budgets,
+          '--baseline',
+          pathOf('absent-baseline.json'),
+        ],
+      );
+      expect(exitCodeValue, 0, reason: stdoutText);
+      expect(stdoutText, contains('no budgets were evaluated'));
+    },
+  );
+
+  test('empty results still fail when landed scenarios are expected', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    final baseline = await writeFixture('baseline.json', _baselineJson());
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(rows: const []),
+    );
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+    );
+    expect(exitCodeValue, 1);
+    expect(stdoutText, contains('FAIL: expected scenario P1'));
+    expect(stdoutText, contains('is missing from the results file'));
   });
 
   test('the state write is atomic and touches nothing else', () async {

@@ -147,7 +147,13 @@ void main() {
 
   group('advanceDriftState', () {
     test('unknown history counts conservatively at the threshold, not 1', () {
-      final next = advanceDriftState(null, true, {'tier-b/cpu'}, 'now');
+      final next = advanceDriftState(
+        null,
+        true,
+        {'tier-b/cpu'},
+        'now',
+        mayReset: false,
+      );
       expect(
         next.notices['tier-b/cpu']!.consecutiveMainRuns,
         driftStaleThreshold,
@@ -161,14 +167,24 @@ void main() {
           lastSeenUtc: 'earlier',
         ),
       });
-      final next = advanceDriftState(prior, false, {'tier-b/cpu'}, 'now');
+      final next = advanceDriftState(
+        prior,
+        false,
+        {'tier-b/cpu'},
+        'now',
+        mayReset: false,
+      );
       expect(next.notices['tier-b/cpu']!.consecutiveMainRuns, 7);
     });
 
     test('a new key starts at 1 when history is known', () {
-      final next = advanceDriftState(const DriftState({}), false, {
-        'tier-b/controlled/runnerImage',
-      }, 'now');
+      final next = advanceDriftState(
+        const DriftState({}),
+        false,
+        {'tier-b/controlled/runnerImage'},
+        'now',
+        mayReset: false,
+      );
       expect(
         next.notices['tier-b/controlled/runnerImage']!.consecutiveMainRuns,
         1,
@@ -182,7 +198,13 @@ void main() {
           lastSeenUtc: 'earlier',
         ),
       });
-      final next = advanceDriftState(prior, false, {'other-key'}, 'now');
+      final next = advanceDriftState(
+        prior,
+        false,
+        {'other-key'},
+        'now',
+        mayReset: true,
+      );
       expect(next.notices.containsKey('tier-b/cpu'), isFalse);
     });
 
@@ -193,8 +215,29 @@ void main() {
           lastSeenUtc: 'earlier',
         ),
       });
-      final next = advanceDriftState(prior, false, const {}, 'now');
+      final next = advanceDriftState(
+        prior,
+        false,
+        const {},
+        'now',
+        mayReset: true,
+      );
       expect(next.notices, isEmpty);
+
+      // Without reset eligibility the prior streak survives verbatim:
+      // only a clean, observed main run may clear it.
+      final preserved = advanceDriftState(
+        prior,
+        false,
+        const {},
+        'now',
+        mayReset: false,
+      );
+      expect(
+        preserved.notices['tier-b/cpu']!.consecutiveMainRuns,
+        3,
+        reason: 'a non-clean run preserves prior streaks',
+      );
     });
   });
 
@@ -524,6 +567,7 @@ void main() {
         results: results,
         tiers: const {BenchTier.a},
         stateConfigured: false,
+        runKind: DriftRunKind.readOnly,
         enforceA: false,
         enforceB: false,
         nowUtc: '2026-09-14T00:00:00Z',

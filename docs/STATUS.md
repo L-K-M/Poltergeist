@@ -3499,6 +3499,50 @@ release-version, and pin-audit guards green. Bounded logs and exits:
 `tasks/task23-logs/` in the worker's evidence area. Semantics assertions
 prove the contract; no native screen-reader QA is claimed.
 
+## M3 — D12 checker policy repairs (2026-09-14)
+
+Supervisor verification blocked task25 after #102 merged: six independent
+contract/data-loss defects plus the privileged-reader skip fall-through
+survived 81 green tests, exact-head CI, and four review rounds; the PR's
+"14 resolved" thread claim was also false (replies, not closure). This
+companion PR repairs them on a branch from main; the review history of
+the four completed rounds carries over (confirmed important findings
+reset the minor-only streak).
+
+Repairs, each with a failing regression observed first (red/green logs
+and the independent probe's before/after under tasks/run3-task25-repair/):
+an errored repetition of an expected scenario now fails the run in every
+mode with the repetition and message attributed — successful siblings
+cannot hide it, and no budget/trend comparison runs for the incomplete
+measurement; a read-only (PR) call no longer grades a hypothetical next
+main count — evaluation now takes an explicit DriftRunKind (mainRun
+advances and escalates on what it advances to; readOnly grades the
+persisted streaks as-is, so six actual main runs stay six); drift-state
+publication acquires an owned uniquely named temporary on the target
+filesystem (`.checker-<pid>-<seq>.tmp`) — a pre-existing `<state>.tmp`
+file or symlink is never overwritten or followed (that was concrete data
+loss), and a failed publish cleans only the temp this run created; a
+failed or unobserved main run no longer clears prior drift history —
+reset requires a genuinely clean, observed tier-B comparison, a
+no-news run leaves the store byte-identical, and genuinely fired drift
+still counts when other gates fail; a valid empty results file is no
+longer rejected — with no landed scenarios it prints the honest
+no-budgets-evaluated outcome in soft mode (no fabricated fingerprint),
+and with landed expectations it still fails explicitly; and the
+privileged-reader guard in the unreadable-state test now returns after
+marking the skip (markTestSkipped neither throws nor returns — #102
+round 3 had accepted reviewer guidance to the contrary without
+exercising the branch; the chmod-unavailable guard got the same fix).
+
+Validation: analyzer clean; `dart test test/benchmarks` 90/90 (8 new
+regressions plus the split drift-preservation cases); the supervisor's
+independent policy probe passes 7/7 (before: 6 failures) and the scoped
+chmod-shim run reports a real skip (before: fall-through failure).
+Thread debt also repaired on #102: all 18 review threads individually
+re-verified and resolved via GraphQL, two misattached replies corrected,
+and the four final suggestions dispositioned; the PR body's false
+resolution/count claims were corrected in place.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
