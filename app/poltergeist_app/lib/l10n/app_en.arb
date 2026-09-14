@@ -598,6 +598,26 @@
   "@editInvertSelectionLabel": {
     "description": "Command label: replace the focused pane's selection with its complement (edit.invertSelection, 02 §2.5)."
   },
+  "selectionQuickSelectLabel": "Quick Select",
+  "@selectionQuickSelectLabel": {
+    "description": "Command label: open the Quick Select field over the focused pane's listing (selection.quickSelect, 02 §2.5)."
+  },
+  "quickSelectFieldLabel": "Quick Select",
+  "@quickSelectFieldLabel": {
+    "description": "Label of the Quick Select text field that drops below the path bar (02 §2.5)."
+  },
+  "quickSelectFieldHint": "name fragment or *.ext",
+  "@quickSelectFieldHint": {
+    "description": "Hint inside the Quick Select field describing its two match shapes: a literal name fragment, or a whole-name glob with * wildcards (02 §2.5). Keep it terse — it is placeholder text, not documentation."
+  },
+  "quickSelectAddLabel": "Add",
+  "@quickSelectAddLabel": {
+    "description": "Segmented-toggle segment: matching rows are added to the current selection (02 §2.5)."
+  },
+  "quickSelectRemoveLabel": "Remove",
+  "@quickSelectRemoveLabel": {
+    "description": "Segmented-toggle segment: matching rows are removed from the current selection (02 §2.5)."
+  },
   "connectionsOpenInPane": "Open in Pane",
   "@connectionsOpenInPane": {
     "description": "Tooltip of the Connections row action that opens the bookmark in the active pane."

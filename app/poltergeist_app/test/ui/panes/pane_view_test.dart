@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
+import 'package:poltergeist_app/services/quick_select_state.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -1193,4 +1194,179 @@ void main() {
 
     expect(find.textContaining('Browsing is unavailable'), findsOneWidget);
   });
+
+  group('quick select field', () {
+    final field = find.byKey(const ValueKey('pane.left.quickSelect.field'));
+
+    int rowOf(String name) => left.entries.indexWhere((e) => e.name == name);
+
+    testWidgets('drops below the path bar, previews live, Enter keeps', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+      expect(field, findsNothing);
+
+      left.openQuickSelect();
+      await tester.pump();
+
+      // 02 §2.5: the field drops in below the path bar.
+      expect(field, findsOneWidget);
+      expect(
+        tester.getTopLeft(field).dy,
+        greaterThanOrEqualTo(
+          tester
+              .getBottomLeft(find.byKey(const ValueKey('pane.left.path')))
+              .dy,
+        ),
+        reason: 'the field must sit below the path bar',
+      );
+
+      // The Add/Remove segmented toggle starts on Add.
+      expect(
+        find.byType(SegmentedButton<QuickSelectMode>),
+        findsOneWidget,
+      );
+      expect(find.text('Add'), findsOneWidget);
+      expect(find.text('Remove'), findsOneWidget);
+      expect(left.quickSelectMode, QuickSelectMode.add);
+
+      // The field took focus on open; a fragment preview selects live.
+      expect(
+        tester.binding.focusManager.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<EditableText>(),
+        isNotNull,
+        reason: 'the field must own primary focus while open',
+      );
+      await tester.enterText(field, '.txt');
+      await tester.pump();
+      expect(left.isRowSelected(rowOf('report.txt')), isTrue);
+      expect(left.isRowSelected(rowOf('docs')), isFalse);
+
+      // Enter keeps the preview, closes the field, returns focus. The
+      // submission travels the text-input action channel (as the
+      // embedder sends it for a single-line field), not a raw key.
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(field, findsNothing);
+      expect(left.quickSelectActive, isFalse);
+      expect(left.isRowSelected(rowOf('report.txt')), isTrue);
+      expect(leftNode.hasFocus, isTrue);
+    });
+
+    testWidgets('Esc cancels: field closes, opening selection restored', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.setCursorIndex(rowOf('docs')); // the opening selection
+      left.openQuickSelect();
+      await tester.pump();
+      await tester.enterText(field, '*');
+      await tester.pump();
+      expect(left.selectedCount, 3);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(field, findsNothing);
+      expect(left.selectedCount, 1);
+      expect(left.isRowSelected(rowOf('docs')), isTrue);
+      expect(leftNode.hasFocus, isTrue);
+    });
+
+    testWidgets('the Remove segment recomputes the preview live', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.selectAll();
+      left.openQuickSelect();
+      await tester.pump();
+      await tester.enterText(field, '.txt');
+      await tester.pump();
+
+      await tester.tap(find.text('Remove'));
+      await tester.pump();
+
+      expect(left.quickSelectMode, QuickSelectMode.remove);
+      expect(left.isRowSelected(rowOf('report.txt')), isFalse);
+      expect(left.isRowSelected(rowOf('docs')), isTrue);
+    });
+
+    testWidgets('listing keys stay inert while the field holds focus', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        localChannelWithEntries();
+        await left.openLocalHome();
+        final rightChannel =
+            controller_test.FakePaneChannel('/home/tester');
+        rightChannel.listings['/home/tester'] = const [];
+        lanes.nextLocalChannel = rightChannel;
+        await right.openLocalHome();
+        await pumpShell(tester);
+        leftNode.requestFocus();
+        await tester.pump();
+
+        left.openQuickSelect();
+        await tester.pump();
+
+        // 02 §8.2: every pane-owned single key is inert under a focused
+        // text surface — no cursor move, no Enter-open, no Tab swap.
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.pump();
+        expect(left.cursorIndex, isNull);
+        expect(channelStillOpen(left), isTrue);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(rightNode.hasFocus, isFalse);
+        expect(workspace.activePane, left);
+        expect(left.quickSelectActive, isTrue);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('a controller-side session end returns focus to the listing', (
+      tester,
+    ) async {
+      final channel = localChannelWithEntries();
+      channel.listings['/home/tester/docs'] = [_entry('nested.txt')];
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openQuickSelect();
+      await tester.pump();
+      expect(left.quickSelectActive, isTrue);
+
+      // Navigation ends the session controller-side (02 §2.5): the field
+      // unmounts under focus, and the stranded primary focus must return
+      // to the listing rather than dying at the root scope.
+      left.navigate('/home/tester/docs');
+      await tester.pumpAndSettle();
+      expect(left.quickSelectActive, isFalse);
+      expect(field, findsNothing);
+      expect(leftNode.hasFocus, isTrue);
+    });
+  });
 }
+
+/// The pane stays browsable — a typing mishap must not have navigated.
+bool channelStillOpen(PaneController pane) =>
+    pane.location != null && pane.error == null;
