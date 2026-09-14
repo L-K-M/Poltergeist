@@ -8,6 +8,7 @@ import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
 import 'quick_select_state.dart';
 import 'selection_state.dart';
+import 'unicode_diacritic_fold.dart';
 
 /// Where a pane currently stands in the binding lifecycle. Listing-level
 /// loading/error state is separate ([PaneController.loading],
@@ -155,6 +156,21 @@ class PaneController extends ChangeNotifier {
   /// rows prune the restored baseline — a stale session never restores
   /// into a listing it did not open on.
   QuickSelectState<_RowKey>? _quickSelect;
+
+  /// 02 §2.5's type-ahead buffer: printable keys accumulate over the
+  /// focused pane and 1 s of inactivity resets it. The pane view's key
+  /// dispatch owns the printable/Space filter and the field-focus
+  /// suppression; the controller owns the buffer, its reset timer, and
+  /// the prefix jump.
+  String _typeAheadBuffer = '';
+  Timer? _typeAheadReset;
+
+  /// Folded basenames per accepted listing, built once at apply time —
+  /// type-ahead scans cached strings instead of re-folding every name
+  /// per keystroke (a large listing would otherwise allocate O(rows)
+  /// buffers per key). Null marks a flagged (U+FFFD) name excluded
+  /// from matching.
+  List<String?> _foldedNames = const [];
 
   /// Binds and rebinds are serialized by this attempt counter: a stale
   /// bind's completions (open, teardown, watch events) drop themselves.
@@ -495,6 +511,69 @@ class PaneController extends ChangeNotifier {
   QuickSelectMode get quickSelectMode =>
       _quickSelect?.mode ?? QuickSelectMode.add;
 
+  /// 02 §2.5's accumulated type-ahead buffer — the transient badge's
+  /// content while typing. Empty while inactive.
+  String get typeAheadBuffer => _typeAheadBuffer;
+
+  /// Whether a type-ahead buffer is pending (drives the badge and the
+  /// buffer-clearing Esc tier, 02 §8.2).
+  bool get typeAheadActive => _typeAheadBuffer.isNotEmpty;
+
+  /// Accumulates one printable character into the buffer and jumps the
+  /// cursor to the first row whose decoded basename matches the buffer
+  /// as a case- and diacritic-insensitive prefix (02 §2.5); the pane
+  /// view scrolls it visible. No match leaves the cursor where it is —
+  /// the plan is silent on no-match, so the no-op is the tested
+  /// behavior. The matcher is deliberately NOT Quick Select's: that one
+  /// applies §2.3's simple case fold with no diacritic stripping, while
+  /// type-ahead strips marks — two specified semantics, two matchers.
+  ///
+  /// Flagged names (02 §13) are excluded from matching only — they stay
+  /// selectable through cursor/click paths; the caller-side U+FFFD
+  /// stand-in mirrors openQuickSelect until STATUS item 13 lands real
+  /// flag metadata. Hidden files never reach the matcher: the hidden
+  /// policy already ran when the listing was accepted.
+  void typeAhead(String character) {
+    if (_disposed || _entries.isEmpty || character.isEmpty) return;
+    _typeAheadBuffer += character;
+    _armTypeAheadReset();
+    final prefix = typeAheadFold(_typeAheadBuffer);
+    // A buffer of combining marks alone (a lone dead-key press) folds
+    // to the empty string and every name startsWith('') — keep the
+    // badge, skip the jump.
+    if (prefix.isNotEmpty) {
+      for (var i = 0; i < _foldedNames.length; i++) {
+        final folded = _foldedNames[i];
+        if (folded != null && folded.startsWith(prefix)) {
+          setCursorIndex(i);
+          break;
+        }
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Clears a pending buffer — the §8.2 Esc tier below navigation-cancel
+  /// and above deselect, and the timer's expiry path.
+  void clearTypeAhead() {
+    _typeAheadReset?.cancel();
+    _typeAheadReset = null;
+    if (_typeAheadBuffer.isEmpty) return;
+    _typeAheadBuffer = '';
+    notifyListeners();
+  }
+
+  /// 1 s of inactivity resets the buffer (02 §2.5); every keystroke
+  /// re-arms.
+  void _armTypeAheadReset() {
+    _typeAheadReset?.cancel();
+    _typeAheadReset = Timer(const Duration(seconds: 1), () {
+      _typeAheadReset = null;
+      if (_disposed) return;
+      clearTypeAhead();
+    });
+  }
+
   /// `selection.quickSelect` (02 §2.5, ⌘E/Ctrl+E): opens the field over
   /// the CURRENT listing — the hidden-policy filter already ran when the
   /// entries were accepted, so only visible rows reach the matcher.
@@ -641,6 +720,9 @@ class PaneController extends ChangeNotifier {
     _disposed = true;
     _bindAttempt++;
     _quickSelect = null;
+    _typeAheadReset?.cancel();
+    _typeAheadReset = null;
+    _typeAheadBuffer = '';
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
     unawaited(_releaseBinding());
@@ -887,7 +969,14 @@ class PaneController extends ChangeNotifier {
     // the baseline is restored against the OLD row identities, then
     // withRows drops what the new listing no longer has.
     _endQuickSelectSession();
+    // A replaced listing also drops a pending type-ahead buffer — the
+    // accumulated prefix was matched against rows that no longer stand.
+    clearTypeAhead();
     _entries = entries;
+    _foldedNames = List.generate(entries.length, (i) {
+      final name = entries[i].name;
+      return name.contains('\uFFFD') ? null : typeAheadFold(name);
+    });
     _rowKeys = List.unmodifiable(_keysFor(entries));
     _rowKeyIndex = {for (var i = 0; i < _rowKeys.length; i++) _rowKeys[i]: i};
     _selection = _selection.withRows(_rowKeys);

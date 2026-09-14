@@ -676,6 +676,12 @@ abstract class AppLocalizations {
   /// **'Cancel'**
   String get paneConnectCancel;
 
+  /// Screen-reader announcement for the transient type-ahead badge: the prefix accumulated so far while the 1-second buffer lives.
+  ///
+  /// In en, this message translates to:
+  /// **'Names starting with \"{buffer}\"'**
+  String paneTypeAheadBadge(String buffer);
+
   /// Inline error sentence for the notFound taxonomy kind.
   ///
   /// In en, this message translates to:
