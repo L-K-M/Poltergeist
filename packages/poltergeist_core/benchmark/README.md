@@ -59,8 +59,13 @@ test/integration/run.sh --lifecycle-only -- bash -c '
 ```
 
 - `run.sh --lifecycle-only` owns the fixture lifecycle (readiness, smoke,
-  teardown) and exports `POLTERGEIST_SSHD*`, the per-run user key, and the
-  user — the collector requires exactly those variables.
+  teardown) and exports the collector's required environment, invoking the
+  child command from the repo root (`run.sh` cds there): `POLTERGEIST_SSHD`
+  (host), `POLTERGEIST_SSHD_MODERN` (port), `POLTERGEIST_SSHD_USER`, and
+  `POLTERGEIST_SSHD_KEY` (per-run user private key path). The collector
+  treats unset and empty identically and exits 2 naming every missing
+  variable; optional overrides: `POLTERGEIST_BENCH_RUNNER_IMAGE`,
+  `POLTERGEIST_BENCH_CPU_MODEL`.
 - The suggested pair: `entries-10000` (10 000 committed fixture entries)
   as the target and `/home/poltergeist/bench` (the two-directory bench
   root) as the minimal control. Any existing, distinct directories work;

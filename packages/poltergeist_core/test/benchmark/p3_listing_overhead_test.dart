@@ -169,6 +169,41 @@ void main() {
         expect(outcome.failureMessage, contains('warmup exploded'));
       },
     );
+
+    test(
+      'a mid-run entry-count change fails instead of smearing counts',
+      () async {
+        var targetCalls = 0;
+        final outcome = await collectListingOverheadPairs(
+          listControl: () async => 2,
+          listTarget: () async {
+            targetCalls++;
+            // The tree appears to shrink after the warmup pair.
+            return targetCalls <= 1 ? 10000 : 9999;
+          },
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(minutes: 1),
+        );
+
+        // The scenarioConfig axis claims one tree size for every row, so a
+        // changed count must fail the run honestly at the changing pair.
+        expect(outcome.failedRepetition, 0);
+        expect(outcome.measuredPairs, isEmpty);
+        expect(outcome.failureMessage, contains('entry count changed'));
+        expect(outcome.failureMessage, contains('10000'));
+        expect(outcome.failureMessage, contains('9999'));
+      },
+    );
+  });
+
+  group('medianOf', () {
+    test('matches the checker median for odd and even counts', () {
+      expect(medianOf([3.0, 1.0, 2.0]), 2.0);
+      expect(medianOf([4.0, 1.0, 3.0, 2.0]), 2.5);
+      expect(medianOf([5.0]), 5.0);
+    });
   });
 
   group('detectRunMode', () {
@@ -325,6 +360,47 @@ void main() {
       expect(result.stdout, contains('median'));
     });
 
+    test('a wedged channel open writes a clean timeout error row', () async {
+      final output = '${tempDir.path}/results.json';
+      final never = Completer<FakeBrowseChannel>();
+      addTearDown(() {
+        if (!never.isCompleted) never.complete(buildChannel());
+      });
+      final result = await runP3Collection(
+        config: P3CollectorConfig(
+          targetPath: '/remote/target',
+          controlPath: '/remote/control',
+          outputPath: output,
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(minutes: 1),
+          channelOpenTimeout: const Duration(milliseconds: 50),
+        ),
+        fingerprint: const P3FingerprintFields(
+          runnerImage: 'test-image',
+          arch: 'x64test',
+          dartVersion: 'test-dart',
+          flutterVersion: null,
+          mode: 'aot',
+          cpuModel: 'test-cpu',
+        ),
+        openChannel: () => never.future,
+        releaseServer: () async {},
+      );
+
+      expect(result.exitCode, 1);
+      final document =
+          jsonDecode(await File(output).readAsString()) as Map<String, Object?>;
+      final row = (document['rows']! as List).single! as Map<String, Object?>;
+      expect(row['status'], 'error');
+      final error = row['error']! as String;
+      expect(error, contains('timed out'));
+      // The synthetic 'deadline' placeholder must not leak into the row.
+      expect(error, isNot(contains('deadline')));
+      expect(result.released, isTrue);
+    });
+
     test(
       'canonical aliasing of target and control is a usage failure',
       () async {
@@ -439,9 +515,11 @@ void main() {
     Future<ProcessResult> runCollector(
       List<String> args, {
       Map<String, String> environment = const {},
+      Set<String> absentEnvironment = const {},
     }) async {
       final env = Map<String, String>.of(Platform.environment)
-        ..addAll(environment);
+        ..addAll(environment)
+        ..removeWhere((name, _) => absentEnvironment.contains(name));
       return Process.run(
         Platform.resolvedExecutable,
         ['run', 'benchmark/p3_listing_overhead.dart', ...args],
@@ -473,11 +551,13 @@ void main() {
           '--control',
           '/remote/control',
         ],
-        environment: {
-          'POLTERGEIST_SSHD': '',
-          'POLTERGEIST_SSHD_MODERN': '',
-          'POLTERGEIST_SSHD_USER': '',
-          'POLTERGEIST_SSHD_KEY': '',
+        // Truly absent (not merely empty): the collector treats both the
+        // same, but the test claims absence, so remove the variables.
+        absentEnvironment: {
+          'POLTERGEIST_SSHD',
+          'POLTERGEIST_SSHD_MODERN',
+          'POLTERGEIST_SSHD_USER',
+          'POLTERGEIST_SSHD_KEY',
         },
       );
       expect(result.exitCode, 2);
@@ -550,6 +630,22 @@ void main() {
       expect(bad.exitCode, 2);
       expect(bad.stderr as String, contains('repetitions'));
     });
+
+    test('an unknown flag is rejected instead of silently ignored', () async {
+      final result = await runCollector([
+        '--output',
+        '${tempDir.path}/results.json',
+        '--target',
+        '/a',
+        '--control',
+        '/b',
+        '--repetition', // typo: the trailing s is missing
+        '10',
+      ]);
+      expect(result.exitCode, 2);
+      expect(result.stderr as String, contains('--repetition'));
+      expect(result.stderr as String, contains('unknown option'));
+    });
   });
 
   group('real checker CLI against collector output', () {
@@ -602,6 +698,8 @@ void main() {
         releaseServer: () async {},
       );
       expect(collection.exitCode, 0, reason: collection.stderr);
+      // The checker path closes its channel like every other path.
+      expect(events, contains('close'));
 
       // Derive the test-owned calibration from the emitted fingerprint so
       // every controlled axis matches by construction.
@@ -633,15 +731,20 @@ void main() {
         ..remove('BENCH_ENFORCE_A')
         ..remove('BENCH_ENFORCE_B');
       if (enforce) environment['BENCH_ENFORCE_A'] = '1';
-      final checker = await Process.run(Platform.resolvedExecutable, [
-        checkerPath,
-        '--results',
-        output,
-        '--tiers',
-        'a',
-        '--budgets',
-        budgetsPath,
-      ], environment: environment);
+      final checker = await Process.run(
+        Platform.resolvedExecutable,
+        [
+          checkerPath,
+          '--results',
+          output,
+          '--tiers',
+          'a',
+          '--budgets',
+          budgetsPath,
+        ],
+        workingDirectory: repoRoot,
+        environment: environment,
+      );
       return (
         checker.exitCode,
         checker.stdout as String,
@@ -672,6 +775,15 @@ void main() {
         expect(stdoutText, contains('overrun (fail: enforced)'));
       },
     );
+
+    test('a non-enforced overrun reports without failing the run', () async {
+      final (exit, stdoutText, stderrText) = await collectAndCheck(
+        targetDelay: const Duration(milliseconds: 120),
+        enforce: false,
+      );
+      expect(exit, 0, reason: stderrText);
+      expect(stdoutText, contains('overrun (notice: not enforced)'));
+    });
   });
 }
 
@@ -736,6 +848,9 @@ class FakeListingVfs implements RemoteFileSystem {
   late String controlPath;
   late int controlEntries;
   late List<String> events;
+  // Constructor-wired closures (late = a wiring bug fails loudly at first
+  // use instead of silently defaulting); the return values stay nullable —
+  // that is the optional-knob part.
   late String Function(String path)? canonicalizer;
   late Object? Function() canonicalFailureReader;
   late Duration? Function() targetDelayReader;
@@ -757,6 +872,10 @@ class FakeListingVfs implements RemoteFileSystem {
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
+    // Records every attempt (including delayed, failed, and timed-out
+    // listings); `listings` below records only successful completions.
+    // The failure threshold counts target listings from the very first
+    // warmup call, by design — one fake serves the whole run.
     events.add('list:$path');
     final delay = path == targetPath ? targetDelayReader() : null;
     if (delay != null && delay > Duration.zero) {
@@ -771,12 +890,12 @@ class FakeListingVfs implements RemoteFileSystem {
     }
     listings.add((path: path, seq: _seq++));
     final count = path == targetPath ? 10000 : controlEntries;
-    return List.generate(count, (_) => _entry(path));
+    return List.generate(count, (index) => _entry(path, index));
   }
 
-  RemoteFileEntry _entry(String parent) => RemoteFileEntry(
-    path: '$parent/entry',
-    name: 'entry',
+  RemoteFileEntry _entry(String parent, int index) => RemoteFileEntry(
+    path: '$parent/entry-$index',
+    name: 'entry-$index',
     type: RemoteFileType.file,
   );
 

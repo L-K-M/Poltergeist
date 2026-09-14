@@ -184,6 +184,7 @@ final class P3CollectorConfig {
   final int repetitions;
   final Duration listingTimeout;
   final Duration deadline;
+  final Duration channelOpenTimeout;
   final String? hostKeyPubPath;
 
   const P3CollectorConfig({
@@ -194,6 +195,7 @@ final class P3CollectorConfig {
     this.repetitions = p3DefaultMeasuredRepetitions,
     this.listingTimeout = p3DefaultListingTimeout,
     this.deadline = p3DefaultDeadline,
+    this.channelOpenTimeout = p3OpenChannelTimeout,
     this.hostKeyPubPath,
   });
 
@@ -214,6 +216,26 @@ final class P3CollectorConfig {
 
     if (arguments.any((argument) => argument == '-h' || argument == '--help')) {
       throw const P3HelpRequested();
+    }
+
+    // A measurement tool must not silently drop a mistyped flag: an
+    // operator asking for 20 repetitions must never get 5 without an
+    // error (the >= 5 floor would hide the typo).
+    const knownFlags = {
+      '--output',
+      '--target',
+      '--control',
+      '--warmups',
+      '--repetitions',
+      '--host-key-pub',
+    };
+    for (final argument in arguments) {
+      if (argument.startsWith('-') && !knownFlags.contains(argument)) {
+        throw P3UsageException(
+          'unknown option "$argument" (or a value starting with "-"); '
+          'see --help.',
+        );
+      }
     }
 
     final outputPath = flagValue('--output');
@@ -302,6 +324,11 @@ Future<P3RunOutcome> collectListingOverheadPairs({
   int? controlEntries;
   int? targetEntries;
 
+  // The tree size frozen after warmups — the identity every measured row's
+  // fingerprint claims (see the check inside runPair below).
+  int? expectedControlEntries;
+  int? expectedTargetEntries;
+
   P3RunOutcome fail(int repetition, String message) => P3RunOutcome(
     measuredPairs: pairs,
     failedRepetition: repetition,
@@ -326,6 +353,20 @@ Future<P3RunOutcome> collectListingOverheadPairs({
     );
     final target = targetWatch.elapsed;
 
+    // The results schema requires every row to carry one fingerprint, and
+    // entry counts are a fingerprint axis: a tree that changes size mid-run
+    // cannot be represented honestly, so the run fails at the changing
+    // pair instead of smearing one count across every row.
+    if (expectedControlEntries != null &&
+        (expectedControlEntries != controlEntries ||
+            expectedTargetEntries != targetEntries)) {
+      throw StateError(
+        'entry count changed mid-run: control '
+        '$expectedControlEntries->${controlEntries ?? '?'} / target '
+        '${expectedTargetEntries ?? '?'}->${targetEntries ?? '?'}',
+      );
+    }
+
     return P3PairTimings(control: control, target: target);
   }
 
@@ -345,6 +386,10 @@ Future<P3RunOutcome> collectListingOverheadPairs({
       return fail(0, 'warmup pair $warmup failed: ${_describe(error)}');
     }
   }
+
+  // Freeze the observed tree size as the run's scenario identity.
+  expectedControlEntries = controlEntries;
+  expectedTargetEntries = targetEntries;
 
   for (var repetition = 0; repetition < repetitions; repetition++) {
     if (runClock.elapsed >= deadline) {
@@ -386,6 +431,21 @@ String _describe(Object error) {
         '(kind: ${error.kind.name}, operation: ${error.operation}$path)';
   }
   return error.toString();
+}
+
+/// Median with the checker's exact definition (odd: the middle element;
+/// even: the mean of the two central values), so the stdout summary can
+/// never disagree with what test/benchmarks/check.dart computes.
+double medianOf(List<double> values) {
+  if (values.isEmpty) {
+    throw ArgumentError('median of an empty list');
+  }
+  final sorted = [...values]..sort();
+  final middle = sorted.length ~/ 2;
+  if (sorted.length.isOdd) {
+    return sorted[middle];
+  }
+  return (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 // --- Run-mode detection ----------------------------------------------------
@@ -465,15 +525,11 @@ Future<P3RunResult> runP3Collection({
     final PaneChannel openedChannel;
     try {
       openedChannel = await openChannel().timeout(
-        p3OpenChannelTimeout,
-        onTimeout: () =>
-            throw TimeoutException('browse channel open', p3OpenChannelTimeout),
-      );
-    } on TimeoutException {
-      return failBeforeListing(
-        'browse channel open timed out after '
-        '${p3OpenChannelTimeout.inSeconds} s',
-        const P3UsageException('deadline'),
+        config.channelOpenTimeout,
+        onTimeout: () => throw TimeoutException(
+          'timed out after ${config.channelOpenTimeout.inSeconds} s',
+          config.channelOpenTimeout,
+        ),
       );
     } catch (error) {
       return failBeforeListing('browse channel open', error);
@@ -558,12 +614,11 @@ Future<P3RunResult> runP3Collection({
     }
 
     if (outcome.completed) {
-      final sorted = [
+      final median = medianOf([
         for (final pair in outcome.measuredPairs) pair.differenceMs,
-      ]..sort();
-      final middle = sorted[sorted.length ~/ 2];
+      ]);
       stdoutBuffer.writeln(
-        'P3 listing overhead: median ${_formatMs(middle)} ms '
+        'P3 listing overhead: median ${_formatMs(median)} ms '
         '(target ${outcome.targetEntries} entries, control '
         '${outcome.controlEntries} entries; ${outcome.measuredPairs.length} '
         'measured pairs, ${config.warmups} warmup pairs discarded; '
@@ -734,8 +789,9 @@ Future<Object?> _writeResultsOrReport(
   StringBuffer stderrBuffer,
   Map<String, Object?> document,
 ) async {
+  File? temp;
   try {
-    final temp = File(
+    temp = File(
       '${config.outputPath}.p3-$pid-${DateTime.now().microsecondsSinceEpoch}'
       '.tmp',
     );
@@ -748,6 +804,14 @@ Future<Object?> _writeResultsOrReport(
     stderrBuffer.writeln(
       'error: cannot write results to ${config.outputPath}: $error',
     );
+    // Best-effort cleanup: a failed write must not leave its temp file
+    // behind for artifact globs to pick up; cleanup failures stay quiet so
+    // the write error above remains the reported outcome.
+    try {
+      await temp?.delete();
+    } catch (_) {
+      // Intentionally ignored: the reported failure is the write error.
+    }
     return error;
   }
 }
@@ -829,9 +893,16 @@ Future<int> p3Main(
   final hostKeyPubPath = config.hostKeyPubPath ?? p3DefaultHostKeyPubPath;
   final List<String> publicKeyFields;
   try {
-    publicKeyFields = (await File(
-      hostKeyPubPath,
-    ).readAsString()).trim().split(RegExp(r'\s+'));
+    // The first non-comment line, not the first two tokens of the file —
+    // a stray comment line must not become the pinned key type.
+    final keyLine = (await File(hostKeyPubPath).readAsString())
+        .split('\n')
+        .firstWhere(
+          (line) => line.trimLeft().startsWith('#') == false &&
+              line.trim().isNotEmpty,
+          orElse: () => '',
+        );
+    publicKeyFields = keyLine.trim().split(RegExp(r'\s+'));
   } catch (error) {
     writeStderr(
       'cannot read the fixture host public key at $hostKeyPubPath '
@@ -880,7 +951,6 @@ Future<int> p3Main(
     createdAt: 0,
     updatedAt: 0,
   );
-  String? trustFailure;
   final manager = PooledConnectionManager(
     resolveServer: (_) async => server,
     resolveCredentials: (_, _) async => ResolvedCredentials(
@@ -889,11 +959,11 @@ Future<int> p3Main(
     ),
     tofu: TofuVerifier(pinStore),
     onHostKey: (decision) async {
-      trustFailure =
-          'fixture presented an unreviewed host key '
-          '(verdict ${decision.verdict.name}) — the pre-seeded pin does not '
-          'cover this server; refusing to benchmark against it';
-      writeStderr(trustFailure!);
+      writeStderr(
+        'fixture presented an unreviewed host key '
+        '(verdict ${decision.verdict.name}) — the pre-seeded pin does not '
+        'cover this server; refusing to benchmark against it',
+      );
       return false;
     },
     policy: const PoolPolicy(),
@@ -926,6 +996,15 @@ Future<int> p3Main(
       writeStderr('connect transcript tail:\n  ${transcript.join('\n  ')}');
     }
     return result.exitCode;
+  } catch (error) {
+    // runP3Collection catches its own error paths; anything reaching here
+    // is an unexpected failure that still deserves the transcript tail
+    // and a structured nonzero exit instead of an uncaught crash.
+    writeStderr('P3 collection failed unexpectedly: $error');
+    if (transcript.isNotEmpty) {
+      writeStderr('connect transcript tail:\n  ${transcript.join('\n  ')}');
+    }
+    return 1;
   } finally {
     await transcriptSubscription.cancel();
   }
