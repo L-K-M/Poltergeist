@@ -278,6 +278,12 @@ void main() {
         const SingleActivator(LogicalKeyboardKey.keyE, control: true),
       ],
     );
+    expect(
+      quickSelect.activators!(TargetPlatform.windows),
+      [
+        const SingleActivator(LogicalKeyboardKey.keyE, control: true),
+      ],
+    );
 
     // Enablement follows the ACTIVE pane; running opens the field on
     // that pane alone.

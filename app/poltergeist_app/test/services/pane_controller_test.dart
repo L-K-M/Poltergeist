@@ -1025,6 +1025,27 @@ void main() {
       controller.dispose();
     });
 
+    test('Enter in Remove mode commits the removals', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+        _entry('gamma.md'),
+      ]);
+      controller.selectAll();
+      controller.openQuickSelect();
+      controller.changeQuickSelectMode(QuickSelectMode.remove);
+      controller.changeQuickSelectQuery('alpha');
+
+      controller.confirmQuickSelect();
+
+      expect(controller.quickSelectActive, isFalse);
+      expect(controller.isRowSelected(0), isFalse);
+      expect(controller.isRowSelected(1), isTrue);
+      expect(controller.isRowSelected(2), isTrue);
+      controller.dispose();
+    });
+
     test('an empty query is a no-op on the opening selection', () async {
       final lanes = FakePaneLanes();
       final controller = await browsing(lanes, [
