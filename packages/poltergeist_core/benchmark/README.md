@@ -1,14 +1,16 @@
 # D12 tier-A collectors
 
-Two pure-Dart tier-A entrypoints live here: `p3_listing_overhead.dart`
-(P3, listing overhead) and `p7_scan_rate.dart` (P7, scan rate). Both run
-against the §5 Docker fixture on loopback under
-`test/integration/run.sh --lifecycle-only`, emit the shared
-`poltergeist-d12-results-1` document with their own per-scenario
-`scenarioConfig` axis, and stay unlanded in `test/benchmarks/budgets.json`
-until the CI bench job and calibration land (open item 21). Both
-collectors are read-only against the fixture: `canonicalize` plus
-`listDirectory` only, never a write.
+Three pure-Dart tier-A entrypoints live here:
+`p3_listing_overhead.dart` (P3, listing overhead),
+`p5_drop_to_start.dart` (P5, drop → transfer start), and
+`p7_scan_rate.dart` (P7, scan rate). All run against the §5 Docker
+fixture on loopback under `test/integration/run.sh --lifecycle-only`,
+emit the shared `poltergeist-d12-results-1` document with their own
+per-scenario `scenarioConfig` axis, and stay unlanded in
+`test/benchmarks/budgets.json` until the CI bench job and calibration
+land (open item 21). All collectors are read-only against the fixture:
+`canonicalize`, `listDirectory`, and (P5 only) a first-byte `download`
+that cancels itself after the first chunk — never a write.
 
 ## P3 — remote listing overhead
 
@@ -198,6 +200,119 @@ numbers are JIT and must never be quoted against a budget.
   subprocess contracts, and the real `check.dart` CLI evaluating
   collector output — including the one-file P3+P7 mixed-config shape the
   bench job will emit).
+- AOT compile of the exact source is verified locally
+  (`dart compile exe`); the fixture-backed measurement itself was not run
+  on this host (no Docker) and remains open item 21's CI job.
+
+## P5 — drop to transfer start
+
+`p5_drop_to_start.dart` is the tier-A entrypoint for scenario P5 of
+02 §12 ("drop → transfer starts (no upfront tree stat)", < 500 ms):
+**the time from a drop event until the first payload byte of the first
+transfer item arrives** — the measurement surface for the M4 transfer
+queue's drop→start leg. The queue itself is M4 work and is deliberately
+not implemented here; the collector models the leg over the existing
+browse-channel/`leaseTransferChannel` seams: classify the drop, resolve
+the first transferable file, lease a transfer channel, and measure to
+the first byte through a counting `StreamSink`.
+
+## P5 measurement protocol
+
+```
+connect (untimed)  →  canonicalize target (untimed)
+      →  W warmup drops (discarded)  →  R measured drops (rows)
+drop   =  one stat of the dropped root (classification; the bare-path
+          conservative case — a pane drag arrives with its listing entry)
+       →  breadth-first listings only until the first regular file
+          (symlinks are never followed; `other` kinds are skipped)
+       →  leaseTransferChannel + download to first byte, then the
+          collector's own cancellation settles the leg
+row    =  value = drop → first byte (ms, unclipped)
+         + raw statCalls/listingCalls/firstFile/firstChunkBytes/
+           legSettledMs + environment fingerprint
+```
+
+- The structural half of the budget — "no upfront tree stat" — is
+  enforced as a falsifiable contract, not asserted in prose: the drop→
+  start path issues exactly one stat (the classification stat) plus
+  listing-only descent, and the deterministic test counts stat calls
+  through a fake filesystem at 1k and 50k entries and requires the
+  counts to be identical — "O(first file), not O(tree)". Every row also
+  carries its own `statCalls`/`listingCalls` provenance, and a per-leg
+  change in either count fails the run as an identity change.
+- The same retained-browse-channel, warmup-discard, honest-failure, and
+  owned exclusive-temp publication contracts as P3/P7 hold. Each leg
+  additionally leases a transfer channel (the production
+  `leaseTransferChannel` seam, bounded by the per-operation timeout) and
+  releases it inside the bounded leg — the lease acquire/release pair is
+  part of the measured window because queue-less drop→start includes it.
+- The first-byte boundary is a counting `StreamSink`: the sink records
+  the first chunk's size and cancels the transfer; a cancellation
+  observed after that byte ends the leg cleanly, a cancellation or
+  failure before any byte is an honest leg failure, and an empty first
+  file fails the leg ("drop→start is unobservable on an empty file")
+  rather than reporting the full-download time.
+- Whole-run deadline and per-operation timeout bound every await —
+  stat, listing, lease, and download alike — with run-budget expiry
+  attributed distinctly from per-operation timeouts.
+- `--target` is the dropped path — a directory or a single file. The
+  suggested real-fixture target is
+  `/home/poltergeist/bench/fixtures/entries-10000` (the committed
+  10 000-entry tree; its first file in listing order starts the leg). A
+  dropped *file* needs no listings at all (`kind=file` records that
+  shape in `scenarioConfig`).
+- Row `scenario` is `P5`, `unit` is `ms`, `operator`-compatible with
+  budgets.json's `lessThan 500`. The catalog's `minimumRepetitions` for
+  P5 is 3 — the generic 08 §6 floor — but the collector enforces ≥ 5
+  measured drops regardless, matching the P3/P7 protocol.
+- The P5-specific `scenarioConfig` carries the drop path, the dropped
+  kind, the frozen root-listing size (`n/a-file-drop` for file drops),
+  the frozen first-file path, warmups, repetitions, the start boundary
+  (`lease+first-byte`), and `hash=off` (the leg never pays for the VFS's
+  optional checksum). A mid-run change to any frozen axis fails the run
+  at the changing drop; completed rows and the error row keep the frozen
+  identity.
+
+## P5 real-fixture invocation
+
+Docker on this host is unavailable, so this command is documented, not
+locally verified (CI's bench job owns the first real run — open item 21):
+
+```bash
+test/integration/run.sh --lifecycle-only -- bash -c '
+  set -e
+  cd packages/poltergeist_core
+  dart compile exe benchmark/p5_drop_to_start.dart -o /tmp/p5-collector
+  /tmp/p5-collector \
+    --output bench-results.json \
+    --target /home/poltergeist/bench/fixtures/entries-10000
+'
+```
+
+The environment contract (`POLTERGEIST_SSHD*` exports, the pre-seeded
+committed host key, the loopback-only guard, the optional
+`POLTERGEIST_BENCH_*` fingerprint overrides) is identical to P3's above.
+
+## P5 local iteration
+
+`dart run benchmark/p5_drop_to_start.dart --help` from this package
+works without the fixture (usage/argument contracts only); every
+measurement attempt without the fixture env exits 2 naming what is
+missing. Local numbers are JIT and must never be quoted against a
+budget.
+
+## P5 validation status
+
+- Deterministic contract tests:
+  `test/benchmark/p5_drop_to_start_test.dart` (the two-size flat-stat
+  structural assertion at 1k vs 50k entries, listing-only descent,
+  warmup discard, file/symlink/empty-tree drop shapes, deadline/timeout
+  attribution, mid-run identity changes with frozen partial-row configs,
+  owned-temp collision and symlink safety, per-leg lease and channel
+  cleanup contracts, CLI subprocess contracts, and the real `check.dart`
+  CLI evaluating collector output — including a one-file P3+P5+P7
+  mixed-config run under `--tiers a` with all scenarios unlanded, exit
+  0, all reported).
 - AOT compile of the exact source is verified locally
   (`dart compile exe`); the fixture-backed measurement itself was not run
   on this host (no Docker) and remains open item 21's CI job.
