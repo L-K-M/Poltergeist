@@ -643,9 +643,10 @@ Future<P7RunResult> runP7Collection({
       return 1;
     }
 
-    // The stated whole-run budget covers setup too: channel open and
-    // canonicalize are bounded by their own timeouts AND charged against
-    // config.deadline, so a slow setup cannot push the run past it.
+    // The stated whole-run budget covers setup too. Channel open and
+    // canonicalize are bounded by their own timeouts and charged
+    // against config.deadline, so slow setup consumes the scan budget
+    // rather than extending it.
     final setupWatch = Stopwatch()..start();
 
     final PaneChannel openedChannel;
