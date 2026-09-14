@@ -7,6 +7,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
+import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
 import '../../services/workspace_controller.dart';
 import 'pane_format.dart';
@@ -99,6 +100,8 @@ class _PaneViewState extends State<PaneView> {
   Timer? _graceTimer;
   bool _pastGrace = false;
   bool _disposed = false;
+  bool _quickSelectWasActive = false;
+  final _quickSelectFieldKey = GlobalKey();
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
 
@@ -117,6 +120,7 @@ class _PaneViewState extends State<PaneView> {
       _graceTimer?.cancel();
       _graceTimer = null;
       _pastGrace = false;
+      _quickSelectWasActive = false;
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
@@ -181,10 +185,32 @@ class _PaneViewState extends State<PaneView> {
 
   double _rowExtent() => scaledPaneRowExtent(context);
 
+  /// When a Quick Select session ends from the controller side — a
+  /// navigation or listing replacement (02 §2.5) rather than the field's
+  /// own Enter/Esc — the field unmounts under focus and primary focus
+  /// strands at the root. Return it to the listing, but only when focus
+  /// really is stranded: a deliberate target (another field, a toolbar
+  /// control) is never yanked back.
+  void _syncQuickSelectFocus() {
+    final active = widget.controller.quickSelectActive;
+    final justClosed = _quickSelectWasActive && !active;
+    _quickSelectWasActive = active;
+    if (!justClosed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      final primary = FocusManager.instance.primaryFocus;
+      if (primary == null ||
+          identical(primary, FocusManager.instance.rootScope)) {
+        widget.focusNode.requestFocus();
+      }
+    });
+  }
+
   /// 02 §8.2's single-key table, scoped to this pane's focus node: these
-  /// keys must never fire while any text field anywhere holds focus —
-  /// inside this surface there is none, and the node itself only gains
-  /// focus from the listing, so the scope holds by construction.
+  /// keys must never fire while any text field anywhere holds focus. The
+  /// Quick Select field's focus node is a descendant of this pane's —
+  /// the [FocusNode.hasPrimaryFocus] gate below keeps the listing's keys
+  /// inert while it (or any other descendant) holds primary focus.
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
@@ -394,6 +420,7 @@ class _PaneViewState extends State<PaneView> {
       builder: (context, _) {
         _syncGrace(_graceBusy());
         _syncReveal();
+        _syncQuickSelectFocus();
         final active = identical(
           widget.workspace.activePane,
           widget.controller,
@@ -415,7 +442,22 @@ class _PaneViewState extends State<PaneView> {
               // raw pointer listener, not a gesture: a pane-level tap
               // recognizer would join the arena against the row InkWells
               // and both would lose.
-              onPointerDown: (_) => widget.focusNode.requestFocus(),
+              onPointerDown: (event) {
+                // The Quick Select field keeps its own clicks: a pointer
+                // down inside its strip must not bounce focus to the
+                // listing before the field's own tap handler runs.
+                final fieldBox =
+                    _quickSelectFieldKey.currentContext?.findRenderObject()
+                        as RenderBox?;
+                if (fieldBox != null &&
+                    fieldBox.hasSize &&
+                    fieldBox.size.contains(
+                      fieldBox.globalToLocal(event.position),
+                    )) {
+                  return;
+                }
+                widget.focusNode.requestFocus();
+              },
               child: _PaneSurface(
                 controller: widget.controller,
                 active: active,
@@ -425,6 +467,8 @@ class _PaneViewState extends State<PaneView> {
                 onCancelNavigation: widget.controller.cancelNavigation,
                 onRetry: () => unawaited(widget.controller.retry()),
                 onCancelRecovery: widget.onCancelRecovery,
+                onQuickSelectClosed: () => widget.focusNode.requestFocus(),
+                quickSelectFieldKey: _quickSelectFieldKey,
                 onActivateRow: (index, modifiers) {
                   widget.controller.setCursorIndex(
                     index,
@@ -460,6 +504,8 @@ class _PaneSurface extends StatelessWidget {
     required this.onCancelNavigation,
     required this.onRetry,
     required this.onCancelRecovery,
+    required this.onQuickSelectClosed,
+    required this.quickSelectFieldKey,
     required this.onActivateRow,
     required this.onOpenRow,
   });
@@ -472,6 +518,8 @@ class _PaneSurface extends StatelessWidget {
   final VoidCallback onCancelNavigation;
   final VoidCallback onRetry;
   final VoidCallback onCancelRecovery;
+  final VoidCallback onQuickSelectClosed;
+  final GlobalKey quickSelectFieldKey;
   final ValueChanged<int> onOpenRow;
   final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
 
@@ -487,6 +535,14 @@ class _PaneSurface extends StatelessWidget {
           loadingVisible: graceVisible && !controller.connectionLost,
           onCancel: onCancelNavigation,
         ),
+        // 02 §2.5: the Quick Select field drops in below the path bar
+        // while the controller reports an open session.
+        if (controller.quickSelectActive)
+          _QuickSelectField(
+            key: quickSelectFieldKey,
+            controller: controller,
+            onClosed: onQuickSelectClosed,
+          ),
         Expanded(child: _body(context, l10n)),
         _PaneFooter(
           controller: controller,
@@ -1212,6 +1268,149 @@ class _LostConnectionBanner extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 02 §2.5's Quick Select strip: a small field below the path bar with an
+/// Add/Remove segmented toggle. The controller owns the session — the
+/// field is pure plumbing between keystrokes and the controller's
+/// quick-select verbs, so every query or mode edit recomputes the live
+/// preview from the session's opening selection (03 §2.5).
+class _QuickSelectField extends StatefulWidget {
+  const _QuickSelectField({
+    super.key,
+    required this.controller,
+    required this.onClosed,
+  });
+
+  final PaneController controller;
+
+  /// Returns focus to the listing after Enter/Esc close the session.
+  final VoidCallback onClosed;
+
+  @override
+  State<_QuickSelectField> createState() => _QuickSelectFieldState();
+}
+
+class _QuickSelectFieldState extends State<_QuickSelectField> {
+  final _query = TextEditingController();
+  final _fieldFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // autofocus alone cannot take focus from a listing that already
+    // holds it — the field must claim primary focus explicitly on open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fieldFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _fieldFocus.dispose();
+    _query.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    widget.controller.confirmQuickSelect();
+    widget.onClosed();
+  }
+
+  void _cancel() {
+    widget.controller.cancelQuickSelect();
+    widget.onClosed();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Focus(
+      // Esc cancels from anywhere inside the strip — the field and the
+      // toggle. This node sits in the focus ancestry above both, so it
+      // sees only keys the focused child did not consume.
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent ||
+            event.logicalKey != LogicalKeyboardKey.escape) {
+          return KeyEventResult.ignored;
+        }
+        _cancel();
+        return KeyEventResult.handled;
+      },
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(
+            bottom: BorderSide(color: colors.outlineVariant),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 6),
+                child: Icon(
+                  Icons.manage_search_outlined,
+                  size: 18,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              Expanded(
+                // A floated label cannot fit this strip's height; the
+                // field's accessible name rides Semantics instead and
+                // the hint carries the two match shapes (02 §2.5).
+                child: Semantics(
+                  label: l10n.quickSelectFieldLabel,
+                  textField: true,
+                  child: TextField(
+                    key: ValueKey(
+                      '${widget.controller.paneTabId}.quickSelect.field',
+                    ),
+                    controller: _query,
+                    focusNode: _fieldFocus,
+                    autofocus: true,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      hintText: l10n.quickSelectFieldHint,
+                    ),
+                    onChanged: widget.controller.changeQuickSelectQuery,
+                    onSubmitted: (_) => _confirm(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SegmentedButton<QuickSelectMode>(
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                segments: [
+                  ButtonSegment(
+                    value: QuickSelectMode.add,
+                    label: Text(l10n.quickSelectAddLabel),
+                  ),
+                  ButtonSegment(
+                    value: QuickSelectMode.remove,
+                    label: Text(l10n.quickSelectRemoveLabel),
+                  ),
+                ],
+                selected: {widget.controller.quickSelectMode},
+                onSelectionChanged: (modes) =>
+                    widget.controller.changeQuickSelectMode(modes.first),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

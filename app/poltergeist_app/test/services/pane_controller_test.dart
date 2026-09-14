@@ -6,6 +6,7 @@ import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_engine_lanes.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
+import 'package:poltergeist_app/services/quick_select_state.dart';
 
 /// Scripted lanes recording call order so ordering assertions (subscribe
 /// before connect) can run against the fake.
@@ -921,5 +922,327 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(controller.connectionLost, isFalse);
     controller.dispose();
+  });
+
+  group('quick select', () {
+    /// A controller already browsing a scripted local listing.
+    Future<PaneController> browsing(
+      FakePaneLanes lanes,
+      List<RemoteFileEntry> entries,
+    ) async {
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = entries;
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+      return controller;
+    }
+
+    test('opens over the listing and Enter keeps the preview', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+        _entry('gamma.md'),
+      ]);
+      expect(controller.quickSelectActive, isFalse);
+
+      controller.setCursorIndex(2); // the opening selection: gamma.md
+      controller.openQuickSelect();
+      expect(controller.quickSelectActive, isTrue);
+      expect(controller.quickSelectMode, QuickSelectMode.add);
+
+      // A fragment preview adds matches to the opening selection.
+      controller.changeQuickSelectQuery('.txt');
+      expect(controller.isRowSelected(0), isTrue);
+      expect(controller.isRowSelected(1), isTrue);
+      expect(controller.isRowSelected(2), isTrue);
+
+      // Narrowing recomputes from the baseline: alpha.txt drops back out.
+      controller.changeQuickSelectQuery('beta');
+      expect(controller.isRowSelected(0), isFalse);
+      expect(controller.isRowSelected(1), isTrue);
+      expect(controller.isRowSelected(2), isTrue);
+
+      controller.confirmQuickSelect();
+      expect(controller.quickSelectActive, isFalse);
+      expect(controller.isRowSelected(1), isTrue);
+      expect(controller.isRowSelected(2), isTrue);
+
+      // Edits after close are ignored (02 §2.5's session boundary).
+      controller.changeQuickSelectQuery('alpha');
+      controller.changeQuickSelectMode(QuickSelectMode.remove);
+      expect(controller.isRowSelected(0), isFalse);
+      expect(controller.isRowSelected(1), isTrue);
+      controller.dispose();
+    });
+
+    test('Esc restores the opening selection and closes', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+        _entry('gamma.md'),
+      ]);
+      controller.setCursorIndex(2);
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('*.txt');
+      expect(controller.selectedCount, 3);
+
+      controller.cancelQuickSelect();
+
+      expect(controller.quickSelectActive, isFalse);
+      expect(controller.selectedCount, 1);
+      expect(controller.isRowSelected(2), isTrue);
+      controller.dispose();
+    });
+
+    test('Remove mode recomputes from the baseline too', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+        _entry('gamma.md'),
+      ]);
+      controller.selectAll();
+      controller.openQuickSelect();
+      controller.changeQuickSelectMode(QuickSelectMode.remove);
+      controller.changeQuickSelectQuery('.txt');
+
+      expect(controller.isRowSelected(0), isFalse);
+      expect(controller.isRowSelected(1), isFalse);
+      expect(controller.isRowSelected(2), isTrue);
+
+      // Back to Add recomputes from the baseline, so the removed rows
+      // return without a fresh query.
+      controller.changeQuickSelectMode(QuickSelectMode.add);
+      expect(controller.isRowSelected(0), isTrue);
+      expect(controller.isRowSelected(1), isTrue);
+      controller.dispose();
+    });
+
+    test('an empty query is a no-op on the opening selection', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('beta');
+      controller.changeQuickSelectQuery('');
+
+      expect(controller.isRowSelected(0), isTrue);
+      expect(controller.isRowSelected(1), isFalse);
+      controller.dispose();
+    });
+
+    test('glob characters other than * stay literal through the pane', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('a?b.txt'),
+        _entry('axb.txt'),
+        _entry('a[b.txt'),
+        _entry('zz.txt'),
+      ]);
+      int rowOf(String name) =>
+          controller.entries.indexWhere((e) => e.name == name);
+
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('a?b'); // ? is literal, not a wildcard
+      expect(controller.isRowSelected(rowOf('a?b.txt')), isTrue);
+      expect(controller.isRowSelected(rowOf('axb.txt')), isFalse);
+      expect(controller.isRowSelected(rowOf('a[b.txt')), isFalse);
+
+      controller.changeQuickSelectQuery('a[b'); // brackets literal too
+      expect(controller.isRowSelected(rowOf('a?b.txt')), isFalse);
+      expect(controller.isRowSelected(rowOf('a[b.txt')), isTrue);
+
+      // Consecutive stars match identically to one (02 §2.5): a**b.txt
+      // selects every name starting 'a' and ending 'b.txt', like a*b.txt.
+      controller.changeQuickSelectQuery('a**b.txt');
+      expect(controller.isRowSelected(rowOf('a?b.txt')), isTrue);
+      expect(controller.isRowSelected(rowOf('axb.txt')), isTrue);
+      expect(controller.isRowSelected(rowOf('a[b.txt')), isTrue);
+      expect(controller.isRowSelected(rowOf('zz.txt')), isFalse);
+      controller.dispose();
+    });
+
+    test('flagged (U+FFFD) rows never match but a preselected one survives',
+        () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('good.txt'),
+        _entry('bad\uFFFDname.txt'),
+        _entry('other.txt'),
+      ]);
+      int rowOf(String name) =>
+          controller.entries.indexWhere((e) => e.name == name);
+      final flagged = rowOf('bad\uFFFDname.txt');
+      final good = rowOf('good.txt');
+      final other = rowOf('other.txt');
+
+      // The flagged row is manually selected BEFORE the field opens.
+      controller.setCursorIndex(flagged);
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('*.txt');
+
+      expect(controller.isRowSelected(good), isTrue);
+      expect(controller.isRowSelected(flagged), isTrue,
+          reason: 'baseline survives');
+      expect(controller.isRowSelected(other), isTrue);
+
+      // Remove mode cannot touch the excluded row either.
+      controller.changeQuickSelectMode(QuickSelectMode.remove);
+      expect(controller.isRowSelected(good), isFalse);
+      expect(controller.isRowSelected(flagged), isTrue);
+      expect(controller.isRowSelected(other), isFalse);
+      controller.dispose();
+    });
+
+    test('hidden rows are filtered before matching', () async {
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('.secret.txt'),
+        _entry('visible.txt'),
+      ]);
+      // The hidden-policy filter already ran at listing accept, so the
+      // matcher's universe is exactly the visible rows.
+      expect(controller.entries.map((e) => e.name), ['visible.txt']);
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('*.txt');
+
+      expect(controller.selectedCount, 1);
+      expect(controller.isRowSelected(0), isTrue);
+      controller.dispose();
+    });
+
+    test('navigation ends the session before the listing is replaced',
+        () async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('alpha.txt'),
+        _entry('sub', type: RemoteFileType.directory),
+      ];
+      channel.listings['/parent/sub'] = [_entry('nested.txt')];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('*');
+      expect(controller.selectedCount, 2);
+
+      controller.navigate('/parent/sub');
+      expect(controller.quickSelectActive, isFalse,
+          reason: 'the session ends at navigation issue, not on arrival');
+
+      await settle();
+      // The new listing pruned the restored baseline: no stale restore.
+      expect(controller.entries.single.name, 'nested.txt');
+      expect(controller.selectedCount, 0);
+      controller.dispose();
+    });
+
+    test('a listing replacement restores the baseline before pruning',
+        () async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      controller.setCursorIndex(0); // baseline: alpha.txt only
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('*');
+      expect(controller.selectedCount, 2);
+
+      // A refresh re-lists the same directory: the row identities are
+      // stable (same paths), so the restored baseline — not the preview
+      // — is what survives pruning.
+      controller.refresh();
+      expect(controller.quickSelectActive, isFalse);
+      await settle();
+      expect(controller.selectedCount, 1);
+      expect(controller.isRowSelected(0), isTrue);
+      expect(controller.isRowSelected(1), isFalse);
+      controller.dispose();
+    });
+
+    test('a stale listing answer cannot resurrect or corrupt the session',
+        () async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [_entry('a.txt'), _entry('b.txt')];
+      channel.listings['/other'] = [_entry('x.txt')];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      controller.openQuickSelect();
+      controller.changeQuickSelectQuery('*');
+      expect(controller.selectedCount, 2);
+
+      // A held navigation ends the session synchronously; its late
+      // answer lands in a new listing with no session attached.
+      final hold = Completer<void>();
+      channel.holdNext = hold;
+      controller.navigate('/other');
+      expect(controller.quickSelectActive, isFalse);
+      hold.complete();
+      await settle();
+      expect(controller.quickSelectActive, isFalse);
+      expect(controller.entries.single.name, 'x.txt');
+      expect(controller.selectedCount, 0);
+      controller.dispose();
+    });
+
+    test('open requires verbs, and a second open never re-baselines',
+        () async {
+      // Verbs off (no binding at all): the open is a no-op.
+      final unbound = PaneController(paneTabId: 'pane.left');
+      unbound.openQuickSelect();
+      expect(unbound.quickSelectActive, isFalse);
+      unbound.dispose();
+
+      final lanes = FakePaneLanes();
+      final controller = await browsing(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.openQuickSelect();
+      controller.setCursorIndex(0); // a manual edit mid-session
+      controller.openQuickSelect(); // must not re-capture the baseline
+      controller.cancelQuickSelect();
+      expect(
+        controller.selectedCount,
+        0,
+        reason:
+            'Esc restores the FIRST baseline (empty), not the mid-session edit',
+      );
+      controller.dispose();
+    });
   });
 }

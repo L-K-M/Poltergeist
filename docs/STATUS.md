@@ -3843,6 +3843,43 @@ app analyze clean; full app suite 631 green
 (`sibling-race-full-app-final.log`). Core, benchmark, pins, and
 dependencies untouched.
 
+## M3 — Quick Select field: UI, command, controller wiring (2026-09-14)
+
+`selection.quickSelect` (⌘E/Ctrl+E, 02 §2.5) is live: the command is
+registered pane-scoped and resolves the active pane at invocation, and
+`PaneController` owns the field's visibility — `openQuickSelect`
+captures the visible listing's name map plus the current selection as
+the session baseline, the strip below the path bar carries a text field
+with an Add/Remove segmented toggle, every query or mode edit recomputes
+the preview from that baseline through `QuickSelectState`, Enter keeps
+the preview, and Esc restores the opening selection (both return focus
+to the listing). Callers keep §2.5's ordering: hidden policy is applied
+before matching because the matcher only ever sees the accepted listing,
+and names containing U+FFFD are excluded from the match map while a
+manually selected flagged row survives in the baseline under both modes
+(real flag metadata is open item 13's; the decoded-name signal is the
+documented stand-in). Sessions end before every listing or policy
+replacement — `_issueNavigation` and `_applyEntries` restore the
+baseline against the old row identities before `withRows` prunes — so a
+stale session can never restore into a new listing, and a controller-
+side session end returns stranded primary focus to the listing. The
+command layer now guards all chords field-first (02 §8.2): while any
+`EditableText` holds primary focus no registered chord fires, so the
+field's own editing shortcuts (⌘A/⌘C/⌘V/⌘X/⌘Z and the Ctrl equivalents)
+reach it, and the pane's single keys stay inert under the field.
+
+Validation: controller session tests cover open/close, baseline
+recomputation, Remove mode, flagged exclusion with preselected survival,
+hidden-before-match, empty-query no-op, Enter/Esc, late-edit ignore,
+navigation/refresh invalidation with prune ordering, stale-answer
+safety, and no re-baseline on a second open; widget tests pin the
+field-below-path-bar placement, the toggle, live preview, key
+suppression, and focus return; the command test covers registration,
+scope, per-platform activators, active-pane resolution, and the
+field-first chord guard. Real-font captures (DejaVu + MaterialIcons)
+of the closed strip, Add mode, and Remove mode are under
+`tasks/run3-task30/`. Full app suite and analyze green.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

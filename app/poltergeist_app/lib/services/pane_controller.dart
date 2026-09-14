@@ -6,6 +6,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'engine_session.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
+import 'quick_select_state.dart';
 import 'selection_state.dart';
 
 /// Where a pane currently stands in the binding lifecycle. Listing-level
@@ -147,6 +148,13 @@ class PaneController extends ChangeNotifier {
   SelectionState<_RowKey> _selection = SelectionState<_RowKey>.begin(
     rows: const [],
   );
+
+  /// The open Quick Select session (02 §2.5); null while the field is
+  /// closed. The pane owns the field's visibility and its invalidation:
+  /// every listing/selection replacement ends the session before the new
+  /// rows prune the restored baseline — a stale session never restores
+  /// into a listing it did not open on.
+  QuickSelectState<_RowKey>? _quickSelect;
 
   /// Binds and rebinds are serialized by this attempt counter: a stale
   /// bind's completions (open, teardown, watch events) drop themselves.
@@ -478,6 +486,91 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether the Quick Select field is open (02 §2.5). The controller
+  /// owns its visibility: the view renders the field on this flag, and
+  /// every navigation or listing replacement ends the session first.
+  bool get quickSelectActive => _quickSelect != null;
+
+  /// The session's Add/Remove mode; [QuickSelectMode.add] while closed.
+  QuickSelectMode get quickSelectMode =>
+      _quickSelect?.mode ?? QuickSelectMode.add;
+
+  /// `selection.quickSelect` (02 §2.5, ⌘E/Ctrl+E): opens the field over
+  /// the CURRENT listing — the hidden-policy filter already ran when the
+  /// entries were accepted, so only visible rows reach the matcher.
+  /// Flagged names (02 §13) are ineligible for by-name matching: until
+  /// STATUS item 13 lands real flag metadata, a decoded name carrying
+  /// U+FFFD is the caller-side signal — excluding it covers the flagged
+  /// row AND the ambiguous valid-name collision §13 describes. Excluded
+  /// rows still survive in the baseline selection under both modes.
+  void openQuickSelect() {
+    if (_disposed || !verbsEnabled || _quickSelect != null) return;
+    final names = <_RowKey, String>{};
+    for (var i = 0; i < _entries.length; i++) {
+      final entry = _entries[i];
+      if (entry.name.contains('\uFFFD')) continue;
+      names[_rowKeys[i]] = entry.name;
+    }
+    _quickSelect = QuickSelectState<_RowKey>.begin(
+      namesByKey: names,
+      selectedKeys: _selection.selectedKeys,
+    );
+    notifyListeners();
+  }
+
+  /// The field's live query: every change recomputes the preview from the
+  /// selection captured when the field opened, so narrowing undoes
+  /// earlier previews (02 §2.5).
+  void changeQuickSelectQuery(String query) {
+    _updateQuickSelect((session) => session.changeQuery(query));
+  }
+
+  /// The segmented Add/Remove toggle; recomputes from the baseline too.
+  void changeQuickSelectMode(QuickSelectMode mode) {
+    _updateQuickSelect((session) => session.changeMode(mode));
+  }
+
+  /// Enter: keeps the preview as the selection and closes the field.
+  void confirmQuickSelect() {
+    final session = _quickSelect;
+    if (_disposed || session == null) return;
+    _quickSelect = null;
+    _selection = _selection.withSelectedKeys(
+      session.confirm().selectedKeys,
+    );
+    notifyListeners();
+  }
+
+  /// Esc: restores the selection captured when the field opened and
+  /// closes it.
+  void cancelQuickSelect() {
+    if (_disposed || _quickSelect == null) return;
+    _endQuickSelectSession();
+    notifyListeners();
+  }
+
+  void _updateQuickSelect(
+    QuickSelectState<_RowKey> Function(QuickSelectState<_RowKey>) change,
+  ) {
+    final session = _quickSelect;
+    if (_disposed || session == null) return;
+    final next = change(session);
+    if (identical(next, session)) return;
+    _quickSelect = next;
+    _selection = _selection.withSelectedKeys(next.selectedKeys);
+    notifyListeners();
+  }
+
+  /// Ends an open session with Esc semantics: the opening selection is
+  /// restored against the rows it was captured on, THEN the caller's row
+  /// replacement prunes it — never a restore into a new listing (02 §2.5).
+  void _endQuickSelectSession() {
+    final session = _quickSelect;
+    if (session == null) return;
+    _quickSelect = null;
+    _selection = _selection.withSelectedKeys(session.cancel().selectedKeys);
+  }
+
   /// Detaches the pane and drops its server reference (02 §2.7's Cancel).
   /// Recovery stops; pending healing cannot restore the cancelled binding.
   ///
@@ -547,6 +640,7 @@ class PaneController extends ChangeNotifier {
     if (_disposed) return;
     _disposed = true;
     _bindAttempt++;
+    _quickSelect = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
     unawaited(_releaseBinding());
@@ -722,6 +816,10 @@ class PaneController extends ChangeNotifier {
     String path,
     AppBrowseChannel channel,
   ) {
+    // Quick Select ends BEFORE the navigation snapshot and the selection
+    // reset: the restored baseline is what a later Esc-cancel restores,
+    // and the new listing prunes it (02 §2.5).
+    _endQuickSelectSession();
     if (!_loadingActive()) {
       _snapshot = _QuiescentSnapshot(_location, _entries, _error, _selection);
     }
@@ -784,6 +882,11 @@ class PaneController extends ChangeNotifier {
   /// keep their selection, cursor, and anchor; missing keys drop out
   /// instead of re-targeting a moved index.
   void _applyEntries(List<RemoteFileEntry> entries) {
+    // Any listing replacement — refresh accept, snapshot restore, bind
+    // reset, detach — ends an open Quick Select session before pruning:
+    // the baseline is restored against the OLD row identities, then
+    // withRows drops what the new listing no longer has.
+    _endQuickSelectSession();
     _entries = entries;
     _rowKeys = List.unmodifiable(_keysFor(entries));
     _rowKeyIndex = {for (var i = 0; i < _rowKeys.length; i++) _rowKeys[i]: i};
