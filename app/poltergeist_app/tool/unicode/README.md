@@ -1,11 +1,16 @@
-Unicode 17.0.0 type-ahead folding combines canonical decomposition
-(`UnicodeData.txt`, field 5 mappings without a `<compat>` tag) with mark
-stripping (general categories Mn and Me; spacing marks Mc carry Indic
-vowels and are text, not decoration) and simple case folding
-(`CaseFolding.txt` statuses C and S — F expansions and T tailoring are
-excluded, unlisted code points stay unchanged). Hangul syllable
-decomposition is algorithmic (Unicode §3.12), not table-driven, so
-UnicodeData's empty Hangul fields are expected.
+Unicode 17.0.0 type-ahead folding is compatibility-level caseless
+matching: full decomposition (`UnicodeData.txt` field 5, canonical AND
+tagged mappings — ligatures, enclosed and wide/narrow forms,
+positional presentation forms, and compatibility glyphs all reach
+their spelled-out letters), mark stripping (general categories Mn and
+Me; spacing marks Mc carry Indic vowels and are text, not decoration),
+and simple case folding (`CaseFolding.txt` statuses C and S — F
+expansions and T tailoring are excluded, unlisted code points stay
+unchanged). The generator resolves each pipeline's output to a fixed
+point and throws if any emitted value remains a table key, so the runtime
+lookup is provably terminal (it still chases defensively, bounded at 8
+hops). Hangul syllable decomposition is algorithmic (Unicode §3.12),
+not table-driven, so UnicodeData's empty Hangul fields are expected.
 
 Sources, retrieved 2026-09-14:
 
