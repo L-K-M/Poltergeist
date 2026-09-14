@@ -3799,6 +3799,63 @@ interface — open item 12); the docs state this and the bounded cleanup
 retires the channel. No retry was added and no ownership pattern was
 shared with the checker (mirrored, not refactored).
 
+## M3 — D12 per-scenario config axis (2026-09-14)
+
+Fusion review of the #108/#110 merge found an independently reproduced
+D12 blocker the original task28 rounds missed: the checker treated
+`scenarioConfig` as one job-wide fingerprint axis while P3 emits a
+scenario-specific value, so a planned single P3+P7 results file exited
+65 and the singular tier-A calibration could match at most one
+scenario. Reproduced with a real CLI fixture before editing (combined
+P3+P7 file, exit 65; the same fixture exits 0 with both rows reported
+after the repair). The axis split is now explicit: job-wide controlled
+axes (runner image, arch, Dart/Flutter version; mode validated per
+store; CPU row-equality) versus per-scenario config — one config within
+a scenario's repetitions (conflicting configs are a malformed
+measurement set, exit 65), distinct configs permitted across scenarios
+in the one results file 08 §6 prescribes. Each landed tier-A scenario
+compares against its own calibrated config while common-axis drift
+handling is unchanged (tier-A skips never redden; tier-B controlled
+mismatch still fails once enforced). Migration is compatibility-safe:
+budgets schema `-2` is canonical (per-scenario `calibratedScenarioConfig`,
+required when a tier-A scenario lands; the singular calibration records
+common axes only), the legacy `-1` stays readable — its singular config,
+when present, calibrates every tier-A scenario, with a loud deprecation
+notice — and mixed forms are rejected explicitly (`-1` carrying the
+per-scenario field; `-2` calibration claiming a job-wide config;
+landed tier-A without its config; a tier-B baseline claiming a job-wide
+config). Rollback is equally explicit: on revert, `-2` catalogs and
+multi-config results files fail schema/row validation with these
+messages rather than being silently misread. No tier-B scenario carries
+a config yet; per-scenario tier-B baseline configs arrive with the first
+config-carrying tier-B collector (baseline schema unchanged until then).
+
+Same PR repairs P3's partial-evidence attribution (fusion item 2,
+regression red first): the sampler mutated the observed entry counts
+before its mid-run identity guard, so rows completed at the frozen size
+were stamped with the later changed count. The failure outcome now
+carries the frozen identity — every row, ok and error, keeps
+target-entries=10000 — and the changed observation appears only in the
+error text (10000->9999). #110's exclusive-temp and deadline semantics
+are untouched. Also added an AGENTS build note after reproducing it from
+a fresh checkout: the root benchmark tests need standalone `dart pub
+get` in `packages/poltergeist_bench` and `tool/bench` before `dart test
+test/benchmarks` (exact paths in AGENTS.md; before/after logs under
+tasks/run3-task28-scenario-config/).
+
+Scope held: no app files, no engine production behavior, no CI bench
+job, no real measurements or calibration values, P1–P7 all unlanded,
+calibratedFingerprint still null — open items 12 (cancellation gate), 21
+(bench job/calibration/landed flip), and M3 closure remain open.
+Validation: `dart test test/benchmarks` 109/109 (16 new regressions
+across schema forms, per-scenario axis, drift policy, and legacy
+compatibility), core benchmark tests 34/34 (two delayed-change
+regressions added red first, the two existing identity-guard tests
+strengthened to pin frozen counts), full core suite and analyzers green,
+import and
+protocol guards green, `dart compile exe` of the exact final P3 source
+verified.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

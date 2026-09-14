@@ -254,9 +254,41 @@ void main() {
         // changed count must fail the run honestly at the changing pair.
         expect(outcome.failedRepetition, 0);
         expect(outcome.measuredPairs, isEmpty);
+        // The outcome carries the frozen identity, not the changed
+        // observation: the changed count belongs only in the error text.
+        expect(outcome.targetEntries, 10000);
         expect(outcome.failureMessage, contains('entry count changed'));
-        expect(outcome.failureMessage, contains('10000'));
-        expect(outcome.failureMessage, contains('9999'));
+        expect(outcome.failureMessage, contains('10000->9999'));
+      },
+    );
+
+    test(
+      'a delayed count change keeps frozen counts for completed pairs',
+      () async {
+        var targetCalls = 0;
+        final outcome = await collectListingOverheadPairs(
+          listControl: () async => 2,
+          listTarget: () async {
+            targetCalls++;
+            // Warmup + two measured pairs observe 10000; the third
+            // measured pair observes a shrunk tree.
+            return targetCalls <= 3 ? 10000 : 9999;
+          },
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(minutes: 1),
+        );
+
+        expect(outcome.failedRepetition, 2);
+        expect(outcome.measuredPairs, hasLength(2));
+        // Every emitted row — including the error row — must carry the
+        // frozen identity the successful pairs were measured under;
+        // only the error text reports the observed transition.
+        expect(outcome.controlEntries, 2);
+        expect(outcome.targetEntries, 10000);
+        expect(outcome.failureMessage, contains('entry count changed'));
+        expect(outcome.failureMessage, contains('10000->9999'));
       },
     );
 
@@ -279,6 +311,9 @@ void main() {
 
       expect(outcome.failedRepetition, 1);
       expect(outcome.measuredPairs, hasLength(1));
+      // The completed pair was measured at 10000; the identity stays
+      // frozen at that size even though the failing pair saw 9999.
+      expect(outcome.targetEntries, 10000);
       expect(outcome.failureMessage, contains('entry count changed'));
     });
   });
@@ -510,6 +545,55 @@ void main() {
           isFalse,
           reason: 'a usage failure must not write measurements',
         );
+      },
+    );
+
+    test(
+      'partial rows keep the frozen scenarioConfig after a mid-run count '
+      'change',
+      () async {
+        final output = '${tempDir.path}/results.json';
+        final result = await runCollectionAgainst(
+          FakeBrowseChannel(
+            targetPath: '/remote/target',
+            controlPath: '/remote/control',
+            controlEntries: 2,
+            events: events = <String>[],
+            // Warmup + two measured pairs at 10000 entries; the third
+            // measured pair observes a shrunk tree.
+            targetCounts: (call) => call <= 3 ? 10000 : 9999,
+          ),
+          output: output,
+        );
+
+        expect(result.exitCode, 1);
+        expect(result.stderr, contains('entry count changed'));
+        final document =
+            jsonDecode(await File(output).readAsString())
+                as Map<String, Object?>;
+        final rows = document['rows']! as List<Object?>;
+        expect(rows, hasLength(3));
+        for (final row in rows.cast<Map<String, Object?>>()) {
+          final fingerprint = row['fingerprint']! as Map<String, Object?>;
+          // Every row — ok and error — carries the frozen identity the
+          // successful pairs were measured under; the changed count
+          // appears only in the error row's text.
+          expect(
+            fingerprint['scenarioConfig'],
+            contains('target-entries=10000'),
+          );
+          expect(
+            fingerprint['scenarioConfig'],
+            isNot(contains('target-entries=9999')),
+          );
+        }
+        expect(
+          document['provenance']! as Map,
+          containsPair('targetEntries', 10000),
+        );
+        final errorRow = rows.last! as Map<String, Object?>;
+        expect(errorRow['status'], 'error');
+        expect(errorRow['error'], contains('10000->9999'));
       },
     );
 
@@ -961,15 +1045,19 @@ void main() {
       expect(events, contains('close'));
 
       // Derive the test-owned calibration from the emitted fingerprint so
-      // every controlled axis matches by construction.
+      // every common controlled axis matches by construction. The config
+      // axis moves to its schema-2 home: the scenario's own
+      // calibratedScenarioConfig, never a job-wide fingerprint claim.
       final emitted =
           jsonDecode(await File(output).readAsString()) as Map<String, Object?>;
       final firstRow =
           (emitted['rows']! as List).first! as Map<String, Object?>;
       final rowFingerprint = firstRow['fingerprint']! as Map<String, Object?>;
+      final calibration = {...rowFingerprint}
+        ..remove('scenarioConfig');
       final budgets = {
-        'schema': 'poltergeist-d12-budgets-1',
-        'calibratedFingerprint': rowFingerprint,
+        'schema': 'poltergeist-d12-budgets-2',
+        'calibratedFingerprint': calibration,
         'scenarios': [
           {
             'id': 'P3',
@@ -980,6 +1068,7 @@ void main() {
             'unit': 'ms',
             'minimumRepetitions': 5,
             'landed': true,
+            'calibratedScenarioConfig': rowFingerprint['scenarioConfig'],
           },
         ],
       };
@@ -1060,6 +1149,11 @@ class FakeBrowseChannel implements PaneChannel {
   Object? targetFailure;
   Object? canonicalFailure;
 
+  /// Optional per-call (1-based, warmups included) target entry count;
+  /// null keeps the fixed 10000-entry tree. Tests use it to observe a
+  /// changed tree size mid-run (the identity-guard path).
+  int Function(int call)? targetCounts;
+
   /// 1-based target-listing call index (warmups included) on which
   /// [targetFailure] throws; 1 makes every target listing fail.
   int targetFailureCall = 1;
@@ -1072,6 +1166,7 @@ class FakeBrowseChannel implements PaneChannel {
     required this.controlEntries,
     required this.events,
     this.canonicalizer,
+    this.targetCounts,
   }) {
     fs.targetPath = targetPath;
     fs.controlPath = controlPath;
@@ -1082,6 +1177,8 @@ class FakeBrowseChannel implements PaneChannel {
     fs.targetDelayReader = () => targetDelay;
     fs.targetFailureReader = () => targetFailure;
     fs.targetFailureCallReader = () => targetFailureCall;
+    // Closes over the mutable knob so post-construction changes apply.
+    fs.targetEntryCount = (call) => targetCounts?.call(call) ?? 10000;
   }
 
   @override
@@ -1115,6 +1212,7 @@ class FakeListingVfs implements RemoteFileSystem {
   late Duration? Function() targetDelayReader;
   late Object? Function() targetFailureReader;
   late int Function() targetFailureCallReader;
+  late int Function(int call) targetEntryCount;
 
   final List<({String path, int seq})> listings = [];
   int _seq = 0;
@@ -1148,7 +1246,9 @@ class FakeListingVfs implements RemoteFileSystem {
       }
     }
     listings.add((path: path, seq: _seq++));
-    final count = path == targetPath ? 10000 : controlEntries;
+    final count = path == targetPath
+        ? targetEntryCount(_targetCalls)
+        : controlEntries;
     return List.generate(count, (index) => _entry(path, index));
   }
 

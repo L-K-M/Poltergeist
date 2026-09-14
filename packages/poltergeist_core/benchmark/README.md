@@ -33,9 +33,17 @@ row    =  value = target − control (ms, unclipped: negative stays negative)
   cleanup while the wedged listing's IO may still finish engine-side.
 - Rows match the `poltergeist-d12-results-1` schema consumed by
   `test/benchmarks/check.dart`; the per-row fingerprint carries
-  `scenarioConfig` (canonical paths, entry counts, warmups, repetitions)
-  so a changed tree surfaces as controlled-axis drift, not a silent
-  comparison.
+  `scenarioConfig` (canonical paths, entry counts, warmups, repetitions).
+  The checker treats it as a per-scenario axis — one config within a
+  scenario's repetitions, distinct configs across the job's scenarios —
+  and compares each landed tier-A scenario against its own calibrated
+  config (budgets schema -2), so a changed tree surfaces as that
+  scenario's controlled-axis drift, never a silent comparison and never
+  a rejection of the one shared results file.
+- A tree that changes size mid-run fails the run at the changing pair;
+  the completed rows (and the error row) keep the frozen entry counts
+  the measurements were taken under, and the changed observation is
+  reported only in the error row's text (`10000->9999`).
 
 ## Truthful run mode
 

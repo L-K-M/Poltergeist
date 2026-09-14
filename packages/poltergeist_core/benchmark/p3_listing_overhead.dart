@@ -353,8 +353,13 @@ Future<P3RunOutcome> collectListingOverheadPairs({
     measuredPairs: pairs,
     failedRepetition: repetition,
     failureMessage: message,
-    controlEntries: controlEntries,
-    targetEntries: targetEntries,
+    // Once the run's identity is frozen, every row — including the
+    // error row of a partial failure — carries the frozen counts: the
+    // rows describe the pairs that were measured, and a later changed
+    // observation belongs only in the error text, never in the config
+    // the completed rows claim.
+    controlEntries: identityArmed ? expectedControlEntries : controlEntries,
+    targetEntries: identityArmed ? expectedTargetEntries : targetEntries,
   );
 
   // The whole-run budget must bound every await, not just the gaps

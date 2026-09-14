@@ -9,13 +9,23 @@
 // can never be silently misread):
 //
 // * budgets.json      — the committed P1–P7 catalog mirroring 02 §12, plus
-//                       the tier-A calibrated fingerprint (null until real
-//                       calibration runs; a landed tier-A scenario with a
-//                       null calibration is rejected, because it could never
-//                       be honestly compared).
+//                       the tier-A calibration: the common controlled
+//                       axes (null until real calibration runs; a landed
+//                       tier-A scenario with a null calibration is
+//                       rejected, because it could never be honestly
+//                       compared) and, in schema -2, each tier-A
+//                       scenario's own `calibratedScenarioConfig`
+//                       (scenario config is a per-scenario axis, never a
+//                       job-wide one). The legacy -1 form (a singular
+//                       calibratedFingerprint.scenarioConfig) stays
+//                       readable with a loud deprecation notice.
 // * results file      — what a bench job's run wrote: per-repetition rows
 //                       keyed (scenario, repetition) with value/unit or an
-//                       error, all sharing one environment fingerprint.
+//                       error, all sharing one job-wide environment
+//                       fingerprint. scenarioConfig is agreed per
+//                       scenario: one config within a scenario's
+//                       repetitions, distinct configs across scenarios
+//                       (one file carries the whole job, 08 §6).
 //                       This is a D12-specific format; it deliberately does
 //                       not reuse the M0 evidence envelope (different
 //                       schema, validator, and provenance).
@@ -73,6 +83,15 @@ const driftStaleThreshold = 7;
 const allowedTiersValues = ['a', 'b', 'ab'];
 
 const budgetsSchemaId = 'poltergeist-d12-budgets-1';
+
+/// The canonical budgets form: tier-A calibration is per scenario
+/// (`calibratedScenarioConfig` on each tier-A scenario row) instead of a
+/// singular job-wide config. The legacy [budgetsSchemaId] remains
+/// readable (its singular config, when present, calibrates every tier-A
+/// scenario) with a loud deprecation notice.
+const budgetsSchemaV2Id = 'poltergeist-d12-budgets-2';
+
+const budgetsSchemaIds = {budgetsSchemaId, budgetsSchemaV2Id};
 const resultsSchemaId = 'poltergeist-d12-results-1';
 const baselineSchemaId = 'poltergeist-d12-baseline-1';
 const driftStateSchemaId = 'poltergeist-d12-drift-state-1';
@@ -97,11 +116,20 @@ enum DriftRunKind { mainRun, readOnly }
 /// any other mode are not counted toward the repetition minimum.
 const eligibleModeByTier = {BenchTier.a: 'aot', BenchTier.b: 'profile'};
 
-/// Environment fingerprint of one bench job. Split per 08 §6: controlled
-/// axes must match the calibrated/baseline fingerprint or the comparison
-/// skips (tier A: always skip; tier B: skip while soft, hard fail once
-/// enforced); the uncontrolled CPU axis skips with a notice and never
-/// auto-reddens on its own.
+/// Environment fingerprint of one bench job. Split per 08 §6 into two
+/// axis classes: **controlled axes** ([controlledAxes]: runner image,
+/// arch, Dart/Flutter version) must match the calibrated/baseline
+/// fingerprint or the comparison skips (tier A: always skip; tier B:
+/// skip while soft, hard fail once enforced); the **uncontrolled CPU
+/// axis** ([cpuModel]) skips with a notice and never auto-reddens on
+/// its own. `scenarioConfig` is neither: it is a **per-scenario** axis
+/// (each scenario's fixture identity — one config within a scenario's
+/// repetitions, distinct configs allowed across scenarios in the one
+/// results file), compared only against that scenario's own calibrated
+/// config, never across rows. `mode` is likewise not a cross-row axis:
+/// one main-branch job writes tier-A (aot) and tier-B (profile) rows
+/// into one results file, so it is validated per store (row eligibility,
+/// calibration and baseline mode checks).
 class BenchFingerprint {
   final String runnerImage;
   final String arch;
@@ -122,18 +150,15 @@ class BenchFingerprint {
   });
 
   /// Controlled axes and their values, in stable order, for drift
-  /// comparison. `mode` is deliberately absent here: one main-branch job
-  /// writes tier-A (aot) and tier-B (profile) rows into one results file,
-  /// so mode is not a cross-row axis — it is validated per store instead
-  /// (rows by tier eligibility, the calibration and the baseline at their
-  /// own parse/validate time), which keeps “AOT/profile mode” a controlled
-  /// axis of 08 §6 without rejecting the plan's own `ab` results file.
+  /// comparison. `mode` and `scenarioConfig` are deliberately absent:
+  /// mode differs per tier inside one `ab` results file (validated per
+  /// store instead), and scenarioConfig is a per-scenario axis compared
+  /// against each tier-A scenario's own calibration — never job-wide.
   Map<String, String> get controlledAxes => {
     'runnerImage': runnerImage,
     'arch': arch,
     'dartVersion': dartVersion,
     'flutterVersion': flutterVersion ?? '',
-    'scenarioConfig': scenarioConfig ?? '',
   };
 
   /// Per-axis mismatches of the controlled axes between [this] and
@@ -184,6 +209,11 @@ class ScenarioBudget {
   final int minimumRepetitions;
   final bool landed;
 
+  /// The tier-A scenario config this scenario's budget was calibrated
+  /// under. Null for tier B (trend scenarios carry no config yet) and
+  /// for tier-A scenarios without a recorded calibration.
+  final String? calibratedScenarioConfig;
+
   const ScenarioBudget({
     required this.id,
     required this.tier,
@@ -193,7 +223,21 @@ class ScenarioBudget {
     required this.unit,
     required this.minimumRepetitions,
     required this.landed,
+    this.calibratedScenarioConfig,
   });
+
+  ScenarioBudget withCalibratedScenarioConfig(String? config) =>
+      ScenarioBudget(
+        id: id,
+        tier: tier,
+        summary: summary,
+        operator: operator,
+        value: value,
+        unit: unit,
+        minimumRepetitions: minimumRepetitions,
+        landed: landed,
+        calibratedScenarioConfig: config,
+      );
 
   String describeLimit() {
     final operatorText = switch (operator) {
@@ -206,19 +250,33 @@ class ScenarioBudget {
 }
 
 class BudgetCatalog {
+  /// The schema id this catalog was read from — one of
+  /// [budgetsSchemaIds]. The legacy [budgetsSchemaId] form is accepted
+  /// with a loud deprecation notice so previously valid files keep
+  /// working (migration discipline: old files stay readable, new files
+  /// use the per-scenario form).
+  final String schemaId;
+
   /// Controlled axes the tier-A budgets were calibrated under; null until a
   /// real calibration run records them (no fabricated fingerprints).
+  /// The scenarioConfig axis is deliberately absent: it is per scenario
+  /// ([ScenarioBudget.calibratedScenarioConfig]).
   final BenchFingerprint? calibratedFingerprint;
   final Map<String, ScenarioBudget> scenarios;
 
-  const BudgetCatalog(this.calibratedFingerprint, this.scenarios);
+  const BudgetCatalog(
+    this.schemaId,
+    this.calibratedFingerprint,
+    this.scenarios,
+  );
 
   factory BudgetCatalog.fromJson(Object? json) {
     final map = _expectMap(json, 'budgets.json');
-    if (map['schema'] != budgetsSchemaId) {
+    final schemaId = map['schema'];
+    if (schemaId is! String || !budgetsSchemaIds.contains(schemaId)) {
       throw CheckDataException(
-        'budgets.json: unsupported schema ${map['schema']} '
-        '(expected $budgetsSchemaId)',
+        'budgets.json: unsupported schema $schemaId '
+        '(expected one of ${budgetsSchemaIds.join(' or ')})',
       );
     }
     final rows = map['scenarios'];
@@ -230,7 +288,7 @@ class BudgetCatalog {
     }
     final scenarios = <String, ScenarioBudget>{};
     for (final row in rows) {
-      final budget = _parseScenarioBudget(row);
+      final budget = _parseScenarioBudget(row, schemaId);
       if (scenarios.containsKey(budget.id)) {
         throw CheckDataException(
           'budgets.json: duplicate scenario id ${budget.id}',
@@ -239,15 +297,38 @@ class BudgetCatalog {
       scenarios[budget.id] = budget;
     }
     final calibrated = map['calibratedFingerprint'];
-    final catalog = BudgetCatalog(
-      calibrated == null
-          ? null
-          : BenchFingerprint.fromJson(
-              calibrated,
-              'budgets.json: calibratedFingerprint',
-            ),
-      scenarios,
-    );
+    final parsedCalibration =
+        calibrated == null
+            ? null
+            : BenchFingerprint.fromJson(
+                calibrated,
+                'budgets.json: calibratedFingerprint',
+              );
+    if (schemaId == budgetsSchemaV2Id &&
+        parsedCalibration?.scenarioConfig != null) {
+      // A job-wide config claim cannot be attributed to one scenario;
+      // rejecting beats silently ignoring a recorded axis.
+      throw CheckDataException(
+        'budgets.json: calibratedFingerprint.scenarioConfig is per-scenario '
+        'in schema $budgetsSchemaV2Id — record it as each tier-A '
+        "scenario's calibratedScenarioConfig instead",
+      );
+    }
+    if (schemaId == budgetsSchemaId) {
+      // Legacy decomposition: the singular calibrated config applies to
+      // every tier-A scenario (under -1 at most one config could ever
+      // match; scenarios running a different config drift-skip).
+      final singularConfig = parsedCalibration?.scenarioConfig;
+      if (singularConfig != null) {
+        for (final entry in scenarios.entries.toList()) {
+          if (entry.value.tier == BenchTier.a) {
+            scenarios[entry.key] = entry.value
+                .withCalibratedScenarioConfig(singularConfig);
+          }
+        }
+      }
+    }
+    final catalog = BudgetCatalog(schemaId, parsedCalibration, scenarios);
     // Parse always yields a validated catalog: the landed-tier-A and
     // calibration-mode invariants must not depend on every caller
     // remembering the separate validateCatalog() call.
@@ -259,7 +340,10 @@ class BudgetCatalog {
   /// be honestly compared, so the catalog itself is malformed. The
   /// calibration must also record the tier-A measurement mode (AOT, per
   /// 08 §6's `dart compile exe` rule) — a calibration quoted in any other
-  /// mode is a miscalibration.
+  /// mode is a miscalibration. Under schema [budgetsSchemaV2Id] a landed
+  /// tier-A scenario additionally requires its own calibrated config: a
+  /// budget measured under an unrecorded config could never be honestly
+  /// compared either.
   void validateCatalog() {
     final calibrationMode = calibratedFingerprint?.mode;
     if (calibratedFingerprint != null &&
@@ -280,12 +364,33 @@ class BudgetCatalog {
           'different axes is never compared against a budget)',
         );
       }
+      if (budget.landed &&
+          budget.tier == BenchTier.a &&
+          schemaId == budgetsSchemaV2Id &&
+          budget.calibratedScenarioConfig == null) {
+        throw CheckDataException(
+          'budgets.json: landed tier-A scenario ${budget.id} requires a '
+          'calibratedScenarioConfig under schema $budgetsSchemaV2Id '
+          '(08 §6: scenario config is a controlled axis compared per '
+          'scenario against its own calibration)',
+        );
+      }
     }
   }
 
-  static ScenarioBudget _parseScenarioBudget(Object? json) {
+  static ScenarioBudget _parseScenarioBudget(Object? json, String schemaId) {
     final map = _expectMap(json, 'budgets.json: scenario');
     final id = _expectString(map['id'], 'budgets.json: scenario.id');
+    if (schemaId == budgetsSchemaId &&
+        map.containsKey('calibratedScenarioConfig')) {
+      // Mixed form: the per-scenario field is the schema-2 contract; a
+      // -1 file carrying it would leave its meaning ambiguous.
+      throw CheckDataException(
+        'budgets.json: scenario $id calibratedScenarioConfig requires '
+        'schema $budgetsSchemaV2Id — a $budgetsSchemaId catalog calibrates '
+        'only the singular calibratedFingerprint.scenarioConfig',
+      );
+    }
     final tierText = _expectString(map['tier'], 'budgets.json: $id.tier');
     final tier = switch (tierText) {
       'a' => BenchTier.a,
@@ -330,6 +435,10 @@ class BudgetCatalog {
       unit: _expectString(map['unit'], 'budgets.json: $id.unit'),
       minimumRepetitions: minimumRepetitions,
       landed: _expectBool(map['landed'], 'budgets.json: $id.landed'),
+      calibratedScenarioConfig: _expectOptionalString(
+        map['calibratedScenarioConfig'],
+        'budgets.json: $id.calibratedScenarioConfig',
+      ),
     );
   }
 }
@@ -359,8 +468,12 @@ class ResultRow {
 class ResultsFile {
   final List<ResultRow> rows;
 
-  /// All rows must share one fingerprint: a mid-job environment change is
-  /// not a comparable sample (08 §6 compares the job, not a mixture).
+  /// All rows must share one job-wide fingerprint (controlled axes
+  /// except mode and scenarioConfig, plus the CPU model): a mid-job
+  /// environment change is not a comparable sample (08 §6 compares the
+  /// job, not a mixture). `scenarioConfig` is instead agreed per
+  /// scenario: one scenario's repetitions must share one config, while
+  /// distinct scenarios may carry distinct configs in this one file.
   /// Null exactly when [rows] is empty — an empty job observed nothing,
   /// and no fingerprint is fabricated for it (fingerprint-dependent
   /// paths treat an empty file as unobserved, never as a comparison).
@@ -382,6 +495,9 @@ class ResultsFile {
     }
     final parsed = <ResultRow>[];
     final seen = <String>{};
+    // Per-scenario config agreement: key present with a null value means
+    // the scenario's rows carry no config (itself an agreement).
+    final scenarioConfigs = <String, String?>{};
     BenchFingerprint? fingerprint;
     for (final row in rows) {
       final parsedRow = _parseResultRow(row, catalog);
@@ -393,6 +509,16 @@ class ResultsFile {
           'the repetition index is part of the aggregation key (08 §6)',
         );
       }
+      final rowConfig = parsedRow.fingerprint.scenarioConfig;
+      if (scenarioConfigs.containsKey(parsedRow.scenario) &&
+          scenarioConfigs[parsedRow.scenario] != rowConfig) {
+        throw conflictingScenarioConfig(
+          parsedRow.scenario,
+          scenarioConfigs[parsedRow.scenario],
+          rowConfig,
+        );
+      }
+      scenarioConfigs[parsedRow.scenario] = rowConfig;
       if (fingerprint == null) {
         fingerprint = parsedRow.fingerprint;
       } else if (_fingerprintsDiffer(fingerprint, parsedRow.fingerprint)) {
@@ -487,12 +613,49 @@ class ResultsFile {
   }
 
   static bool _fingerprintsDiffer(BenchFingerprint a, BenchFingerprint b) {
-    // Full-axis inequality across rows except mode (see controlledAxes):
-    // cpuModel is uncontrolled for *comparison* policy but a row-level
-    // difference still means two environments in one job, which is
-    // rejected here.
+    // Full job-wide inequality across rows except mode and
+    // scenarioConfig (see controlledAxes): cpuModel is uncontrolled for
+    // *comparison* policy but a row-level difference still means two
+    // environments in one job, which is rejected here. scenarioConfig is
+    // agreed per scenario instead (one config within a scenario's
+    // repetitions, distinct configs across scenarios).
     return a.controlledMismatches(b).isNotEmpty || a.cpuModel != b.cpuModel;
   }
+}
+
+/// The data error for a scenario whose repetitions carry differing
+/// configs: the repetition set is one scenario's comparable sample, so a
+/// config change inside it is a malformed measurement set, never a
+/// cross-config comparison (exit 65 in every mode).
+CheckDataException conflictingScenarioConfig(
+  String scenario,
+  String? first,
+  String? second,
+) => CheckDataException(
+  'results file: scenario $scenario rows carry conflicting '
+  'scenarioConfig values (${first ?? '<none>'} != ${second ?? '<none>'}) '
+  '— one scenario must run under one config; distinct configs across '
+  'scenarios are fine',
+);
+
+/// The config shared by every row of [scenario] in a validated
+/// [ResultsFile]; throws [conflictingScenarioConfig] for a hand-built
+/// file whose rows disagree (fromJson enforces the same contract).
+String? scenarioRunConfig(String scenario, List<ResultRow> rows) {
+  if (rows.isEmpty) {
+    throw StateError('scenarioRunConfig of an unobserved scenario');
+  }
+  final config = rows.first.fingerprint.scenarioConfig;
+  for (final row in rows.skip(1)) {
+    if (row.fingerprint.scenarioConfig != config) {
+      throw conflictingScenarioConfig(
+        scenario,
+        config,
+        row.fingerprint.scenarioConfig,
+      );
+    }
+  }
+  return config;
 }
 
 /// Committed tier-B baseline medians with the fingerprint they were
@@ -520,6 +683,17 @@ class TierBBaseline {
         'tier-B baseline: fingerprint.mode must be '
         '"${eligibleModeByTier[BenchTier.b]}" for tier-B '
         'measurements (got "${fingerprint.mode}")',
+      );
+    }
+    if (fingerprint.scenarioConfig != null) {
+      // scenarioConfig is per-scenario; a job-wide claim on the baseline
+      // could never be attributed to one scenario. No tier-B scenario
+      // carries a config yet — the baseline schema grows per-scenario
+      // configs with the first config-carrying tier-B collector.
+      throw CheckDataException(
+        'tier-B baseline: fingerprint.scenarioConfig must be null — '
+        'scenarioConfig is a per-scenario axis and the baseline carries '
+        'no per-scenario configs (re-measure without the job-wide claim)',
       );
     }
     final entries = _expectMap(map['scenarios'], 'tier-B baseline: scenarios');
@@ -803,6 +977,16 @@ CheckReport evaluate({
   var comparisonsHappened = false;
   final rowsByScenario = _rowsByScenario(results);
 
+  if (catalog.schemaId == budgetsSchemaId) {
+    notices.add(
+      'NOTICE: budgets.json uses the deprecated schema $budgetsSchemaId '
+      '(singular scenario calibration: its '
+      'calibratedFingerprint.scenarioConfig, when present, calibrates '
+      'every tier-A scenario); migrate to $budgetsSchemaV2Id with '
+      'per-scenario calibratedScenarioConfig',
+    );
+  }
+
   assert(
     !stateConfigured || stateUnknown || priorState != null,
     'stateConfigured requires priorState or stateUnknown',
@@ -1020,6 +1204,7 @@ CheckReport evaluate({
         measured: measured,
         catalog: catalog,
         runFingerprint: tierARunFingerprint,
+        runScenarioConfig: scenarioRunConfig(budget.id, rows),
         enforceA: enforceA,
         table: table,
         notices: notices,
@@ -1179,6 +1364,7 @@ void _evaluateTierA({
   required String measured,
   required BudgetCatalog catalog,
   required BenchFingerprint runFingerprint,
+  required String? runScenarioConfig,
   required bool enforceA,
   required List<String> table,
   required List<String> notices,
@@ -1216,6 +1402,28 @@ void _evaluateTierA({
         'comparison skipped (exit stays zero in every mode)',
       );
     }
+    _printRefreshProcedure(notices);
+    tableRow(
+      budget.id,
+      budget.tier,
+      measured,
+      budget.describeLimit(),
+      'skipped: hardware drift',
+    );
+    return;
+  }
+  // Scenario config is a controlled axis compared per scenario: this
+  // scenario's own calibrated config against the config its rows ran
+  // under — never another scenario's config. A mismatch drift-skips
+  // exactly like a common-axis mismatch (tier A never reddens on drift).
+  final calibratedConfig = budget.calibratedScenarioConfig;
+  if (calibratedConfig != runScenarioConfig) {
+    notices.add(
+      'NOTICE: hardware drift — recalibrate: tier-A controlled axis '
+      'scenarioConfig (${calibratedConfig ?? '<none>'} != '
+      '${runScenarioConfig ?? '<none>'}) for scenario ${budget.id}; '
+      'budget comparison skipped (exit stays zero in every mode)',
+    );
     _printRefreshProcedure(notices);
     tableRow(
       budget.id,

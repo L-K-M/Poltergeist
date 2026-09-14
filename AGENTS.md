@@ -47,6 +47,13 @@ dart pub get
 dart analyze packages/poltergeist_core
 dart test    packages/poltergeist_core
 
+# Root benchmark tests: two standalone entrypoints sit outside the
+# workspace, so a fresh checkout needs their own pub get first (without
+# it, legacy_entrypoints_test fails to resolve poltergeist_m0_bench)
+(cd packages/poltergeist_bench && dart pub get)
+(cd tool/bench && dart pub get)
+dart test    test/benchmarks
+
 # Flutter app
 cd app/poltergeist_app
 flutter pub get && flutter analyze && flutter test
