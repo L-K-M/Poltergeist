@@ -54,6 +54,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The empty query starts a transient selection session; it is not UI copy.
   'lib/services/quick_select_state.dart': {"''"},
+  // Selection-model validation diagnostics for programmer errors (unknown
+  // targets, duplicate row identities); never rendered UI copy.
+  'lib/services/selection_state.dart': {
+    "'selectedKeys'",
+    "'not a visible row'",
+    "'rows'",
+    "'duplicate row identities'",
+    "'key'",
+  },
   'lib/main.dart': {
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
     r"'${supportDirectory.path}${Platform.pathSeparator}bookmarks.json'",

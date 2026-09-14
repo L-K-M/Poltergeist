@@ -3529,6 +3529,50 @@ Widget-render captures (labeled as such; rootless container, no
 native capture): `tasks/run3-task26/connecting-{pre,post}-grace.png`
 in the worker's evidence area.
 
+## M3 — pane row-selection model (2026-09-14)
+
+`SelectionState<Key>` is the pure, immutable selection service for pane
+wiring (02 §2.5): single selection, toggle, anchored contiguous ranges over
+caller-supplied ordered visible row keys, select all, and invert. Row keys
+are opaque identities, never decoded names or indices. Cursor and anchor are
+tracked as identities: `withRows` (navigation, sort, filter, or hidden-policy
+replacement) prunes missing selected keys and drops a pruned cursor or anchor
+to null rather than re-targeting a moved index — reordering keeps surviving
+identities exactly. Duplicate row identities and unknown targets are
+rejected explicitly; every transition copies its inputs and exposes only
+unmodifiable snapshots. Standard file-manager anchor semantics, pinned by
+tests: the anchor is the last non-range activation and survives range
+extension/shrink (which recompute the selection as the anchor..target span,
+replacing discontiguous leftovers); a range with no anchor spans from the
+cursor (the fallback stays implicit — the recorded anchor stays null); with
+neither, it degrades to a single selection of the target. Quick Select hands
+its confirmed or restored `selectedKeys` over via `withSelectedKeys` on the
+same listing, reusing the existing session's output; `withRows` then prunes.
+No query/glob or session semantics reimplemented. PaneController still owns
+its index cursor; nothing is wired yet.
+
+Validation: 16 model tests written first (the missing-API compile failure is
+the new-feature red). The first run then exposed one real gap before the
+repair — `SelectionState.begin` did not reject duplicate rows or unknown
+selected keys — plus two test expectations that contradicted the pinned
+anchor semantics and were corrected against the documented rule. Full app
+suite 593 green; analyzer clean; the localization contract allowlists the
+model's validation diagnostics (programmer errors, never rendered).
+
+Review round 1 (applied): both bulk validation paths (`begin`,
+`withSelectedKeys`) test membership against a row set instead of O(n·m)
+scans; `rows`/`selectedKeys` memoize one unmodifiable snapshot per state —
+the reviewer's `late final` form is incompatible with a const constructor
+(analyzer `late_final_field_with_const_constructor`), so the private
+constructor drops its never-used `const` instead; `invert`'s no-op guard now
+states the only satisfiable case (empty rows) rather than a disjointness
+equality.
+
+One ungated M3 model slice. Selection UI, keyboard/field wiring, controller
+adoption, and pruning on actual pane changes remain with pane wiring; item
+13 still gates raw-name metadata. No widget, D12 surface, persistence,
+dependency/pin change, or source port; PORTS.md unchanged. M3 remains open.
+
 ## M3 — D12 checker policy repairs (2026-09-14)
 
 Supervisor verification blocked task25 after #102 merged: six independent
