@@ -464,6 +464,10 @@
   "@paneCancelLoading": {
     "description": "Tooltip of the pane's cancel affordance while loading."
   },
+  "paneConnectCancel": "Cancel",
+  "@paneConnectCancel": {
+    "description": "The pending remote connection's cancel action, shown past the anti-flash grace (abandons the in-flight connect)."
+  },
   "paneErrorNotFound": "The folder could not be found.",
   "@paneErrorNotFound": {
     "description": "Inline error sentence for the notFound taxonomy kind."

@@ -670,6 +670,12 @@ abstract class AppLocalizations {
   /// **'Cancel loading'**
   String get paneCancelLoading;
 
+  /// The pending remote connection's cancel action, shown past the anti-flash grace (abandons the in-flight connect).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get paneConnectCancel;
+
   /// Inline error sentence for the notFound taxonomy kind.
   ///
   /// In en, this message translates to:
