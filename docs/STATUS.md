@@ -3375,15 +3375,70 @@ new location (identical to the pre-move baseline); check_config contract
 suite 64/64 against the new paths; new forwarding contracts green; live
 import guard, protocol guard, release-version lockstep (now 4 pubspecs
 including the moved one), and `benchmark/validate_bundle.dart` on the
-committed M0 bundle all pass. Docker/SSH-backed runs (integration suite,
-lifecycle-backed `run.sh`, dispatch-only `m0_bench` measurements) were not
-exercised locally — no Docker on this host; exact-head CI covers them. CI
+committed M0 bundle all pass. Docker/SSH-backed runs were not exercised
+locally (no Docker on this host). Exact-head CI did cover the SSH
+integration suite and the lifecycle-backed run.sh paths; the
+**dispatch-only `m0_bench` measurements did not run there** (dispatch
+jobs are skipped on PR/push CI), so those measurements stayed
+unexercised between the relocation and the next dispatch. The restored
+legacy aggregate forwarder (#101) is covered by the forwarding contract
+tests instead. CI
 trigger surface shifts slightly: `packages/**` path filters now match the
 harness, so bench changes trigger the integration and pin-audit jobs.
-This slice gives the M3 D12 benchmarks their planned home; it adds no
-benchmark, budget, checker, or enforcement — the tier-A entrypoints,
-`test/benchmarks/check.dart` + `budgets.json`, the bench CI job, and
-`BENCH_ENFORCE_A` remain open M3 work (open item 21).
+That slice gave the M3 D12 benchmarks their planned home; it added no
+benchmark, budget, checker, or enforcement — the tier-A entrypoints
+remained open M3 work (open item 21) until the checker PR below landed
+`test/benchmarks/check.dart` + `budgets.json`; the scenario collectors,
+bench CI job, and `BENCH_ENFORCE_A` remain open.
+
+## M3 — D12 offline benchmark checker (2026-09-14)
+
+08 §6's checker only, in `test/benchmarks/`: `check.dart` (CLI, manual
+argument parsing like the other root tools — no new dependency),
+`check_core.dart` (pure evaluation: parsing/validation, aggregation,
+comparisons, drift-state transitions), `budgets.json` (the P1–P7 catalog
+mirroring 02 §12: exact operators, units, tiers per 08 §6, P3's
+median-of-≥5 warm runs per 07 §3.4, everything else ≥3 in-job
+repetitions), and a README documenting the formats and the future bench
+job's artifact handoff. All scenarios stay unlanded and the tier-A
+calibratedFingerprint stays null — no fabricated fingerprints, baselines,
+or measurements; the tier-B baseline file is deliberately absent (the
+M3 spike window notice path). Semantics implemented per 08 §6: `--tiers`
+scoping of expected (landed) scenarios with missing/errored scenarios
+failing in every mode; per-tier BENCH_ENFORCE_A/B env flags (unexpected
+values are usage errors, never silently unenforced); medians of
+in-job repetitions with per-scenario floors; exact boundary operators;
+tier-B >25 % median regression against the committed baseline (strict);
+tier-A controlled-axis drift skipping budget comparison with a loud
+recalibrate notice and exit zero in every mode; tier-B controlled-axis
+mismatch hard-failing once enforced but loud-zero while soft; the
+uncontrolled CPU axis skipping with a notice, never auto-reddening;
+drift-state time-boxing with main-run-only updates (PR runs never write,
+a tier-B-blind run with --update-drift-state is refused), ≥7-run stale
+escalation red once BENCH_ENFORCE_B, clean-main reset, and
+missing/unreadable state counting conservatively at the threshold
+(08 §6's "never a reset" — the recorded interpretation: unknown history
+is treated as already at the escalation threshold under enforcement,
+which can redden the first enforced run after state loss; recorded here
+and in the README rather than weakened silently). Debug/JIT rows are
+ineligible per tier and never satisfy a repetition floor. One design
+point the plan implies but does not spell out: `mode` cannot be a
+cross-row fingerprint axis (one `--tiers ab` job writes tier-A AOT rows
+and tier-B profile rows into one file), so mode is validated per store
+(row eligibility, calibration/baseline mode checks) instead — pinned by
+tests. Drift-state writes are atomic temp+rename and touch nothing else.
+
+Validation: `dart analyze test/benchmarks` clean; `dart test
+test/benchmarks` 75/75 (72 new: pure arithmetic/validation incl. the
+committed-catalog mirror of 02 §12, CLI-level fixtures in temp dirs
+covering scoped expectations, repetition floors, soft/enforced
+combinations, both drift axes, drift progression/reset/PR-read-only,
+and three real-subprocess runs pinning process exits; plus the 3
+pre-existing relocation contracts). Logs:
+tasks/run3-task25/. No CI wiring needed: the dart_tools job already
+analyzes/tests `test/benchmarks`. Scope is the checker only — no
+collectors, scenarios, bench CI job, calibration, or enforcement
+activation; item 21 stays open for those.
 
 ## Open items
 
@@ -3991,13 +4046,17 @@ benchmark, budget, checker, or enforcement — the tier-A entrypoints,
     paths can contain spelling variants; VFS-derived paths alone do not
     establish canonical equality.
 21. **2026-09-14: M3 D12 benchmark jobs remain open.** The relocation gave
-    the harness its planned home; the D12 work itself is unbuilt: tier-A
-    entrypoints for P3 (and later P5/P7) under `packages/*/benchmark/`,
-    `test/benchmarks/check.dart` + `budgets.json`, the ci.yml `bench` job
-    reusing run.sh's `--lifecycle-only` mode, `BENCH_ENFORCE_A` from the
-    milestone that introduces each surface, and the tier-B xvfb suites
-    (P1/P2/P4/P6, trend-only until M9). No baseline calibration has run;
-    budgets gate nothing yet.
+    the harness its planned home, and the offline checker PR (dated
+    section above) landed `test/benchmarks/check.dart` + `budgets.json`
+    with all P1–P7 still unlanded. Still open: tier-A entrypoints for P3
+    (and later P5/P7) under `packages/*/benchmark/`, scenario collectors
+    writing the D12 results file, the ci.yml `bench` job reusing run.sh's
+    `--lifecycle-only` mode and the documented drift-state artifact
+    handoff, real calibration (tier-A calibratedFingerprint + tier-B
+    baseline), landing scenarios as their surfaces arrive
+    (`BENCH_ENFORCE_A` from each introduction), and the tier-B xvfb
+    suites (P1/P2/P4/P6, trend-only until M9). No baseline calibration
+    has run; budgets gate nothing yet.
 
 ## Independent audit
 
