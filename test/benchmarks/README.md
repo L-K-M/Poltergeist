@@ -138,6 +138,36 @@ on tier-B-blind runs, so drift state only ever flows through a run that
 evaluated tier B. PR invocations stay read-only and never mutate the
 store.
 
+## First fixture-backed observations (2026-09-14)
+
+The job's first real runs produced stable medians (within-run spread
+< 2 %): P3 ≈ 4.3–4.6 s, P5 ≈ 4.7–4.9 s, P7 ≈ 2 230–2 330 entries/s.
+These miss 02 §12's P3 (< 50 ms) and P5 (< 500 ms) budgets by ~90×/~10×
+while P7 (≥ 1 000 entries/s) passes — and the gap is environment, not
+measurement error.
+
+The measured legs are dominated by serialized SFTP round trips, not
+collector overhead: OpenSSH sftp-server caps one `READDIR` reply at 100
+entries (each `lstat`'d server-side), and dartssh2 3.0.2's `listdir`
+awaits each batch before requesting the next, so one 10 000-entry
+`listDirectory` is ~104 strictly sequential request/response pairs. On
+this job's path — loopback to a Docker-published port on a shared
+`ubuntu-latest` runner, with no netem shaping applied — one such pair
+costs ~35–52 ms (P3's 4-request control leg prices it at ~35 ms; M0's
+`pipeline-readdir-1-lan` priced it at ~41–52 ms on the same stack — its
+800 entries span 8 sibling directories listed serially, ~4–5 round trips
+each). P5's leg
+contains that same root listing plus a stat, a transfer-channel lease,
+and the first-byte read; P7's critical path is the same serialized
+10 000-entry stream, so its passing rate is the bottleneck's ceiling,
+not health.
+
+Consequence: the absolute P3/P5 budgets are unreachable by construction
+on this environment (≈104 sequential round trips would need < 0.5 ms
+each). Landing them needs the 08 §6 calibration path or an owner-level
+budget/protocol decision — see the dated STATUS.md section and open
+item. Nothing here flips `landed`.
+
 ## Tests
 
 `check_test.dart` covers the pure arithmetic/validation (medians, exact
