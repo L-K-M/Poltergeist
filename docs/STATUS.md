@@ -3450,6 +3450,14 @@ versioned schema — churn), and skipping the state write on an
 unknown-history clean run (the plan's clean-run reset is run-scoped;
 skipping would leave enforcement hair-triggered after state loss).
 
+Review round 2 (minor-only, all four applied): the locked-state test
+skips on Windows (Process.run throws on a missing executable) and when
+the reader is privileged (root bypasses mode bits, so the EACCES path
+is untestable there); runChecker asserts the memory sinks never routed
+output through addError (closing the vacuous-pass gap the round-1
+recording introduced); the negative-baseline regression test covers the
+higher-is-better branch too.
+
 Validation: `dart analyze test/benchmarks` clean; `dart test
 test/benchmarks` 81/81 (78 new: pure arithmetic/validation incl. the
 committed-catalog mirror of 02 §12, CLI-level fixtures in temp dirs

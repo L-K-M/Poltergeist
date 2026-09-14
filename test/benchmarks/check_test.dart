@@ -80,6 +80,16 @@ void main() {
       expect(regressionFraction(op, -5, -10), closeTo(0.5, 1e-9));
       // Current -15 is better: negative fraction (an improvement).
       expect(regressionFraction(op, -15, -10), closeTo(-0.5, 1e-9));
+      // The higher-is-better branch divides by the magnitude too: -15
+      // misses an atLeast target of -10 (regression), -5 clears it.
+      expect(
+        regressionFraction(BudgetOperator.atLeast, -15, -10),
+        closeTo(0.5, 1e-9),
+      );
+      expect(
+        regressionFraction(BudgetOperator.atLeast, -5, -10),
+        closeTo(-0.5, 1e-9),
+      );
     });
 
     test('exactly 25% is not a regression (fail on > 25%)', () {

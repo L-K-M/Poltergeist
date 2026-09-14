@@ -51,6 +51,8 @@ void main() {
     out.clear();
     err.clear();
     await checkMain(arguments, out: out, err: err, environment: environment);
+    expect(out.errors, isEmpty, reason: 'stdout routed through addError');
+    expect(err.errors, isEmpty, reason: 'stderr routed through addError');
     return (exitCode, out.text, err.text);
   }
 
@@ -120,11 +122,13 @@ void main() {
 
   test(
     'an unreadable existing drift-state file counts as unknown history',
+    // dart_tools (Ubuntu) and Linux dev hosts have chmod; on Windows
+    // Process.run would throw on the missing executable instead of
+    // returning non-zero.
+    skip: Platform.isWindows ? 'chmod is absent on Windows' : false,
     () async {
       final chmod = await Process.run('chmod', ['--version']);
       if (chmod.exitCode != 0) {
-        // dart_tools (Ubuntu) and Linux dev hosts always have chmod; skip
-        // elsewhere rather than fake the read failure.
         return;
       }
       final budgets = await writeFixture(
@@ -144,6 +148,15 @@ void main() {
       );
       final lock = await Process.run('chmod', ['000', locked.path]);
       expect(lock.exitCode, 0, reason: lock.stderr as String);
+      try {
+        await locked.readAsString();
+        await Process.run('chmod', ['644', locked.path]);
+        // A privileged reader (root) bypasses mode bits, so the EACCES
+        // path is untestable in this environment.
+        return;
+      } on FileSystemException {
+        // Expected: the mode change denies the read.
+      }
       try {
         final (exitCodeValue, stdoutText, _) = await runChecker(
           arguments: [
