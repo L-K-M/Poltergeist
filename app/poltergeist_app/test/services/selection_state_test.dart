@@ -141,6 +141,20 @@ void main() {
     }
   });
 
+  test('a no-move range still adopts the cursor as anchor', () {
+    final cursorOnly = _begin()
+        .activate(2, SelectionUpdate.single)
+        .activate(5, SelectionUpdate.range)
+        .withRows(const [1, 3, 4, 5]);
+
+    // A range onto the cursor's own row degenerates to that row, but the
+    // cursor is still adopted: the next range extends from it.
+    final noMove = cursorOnly.activate(5, SelectionUpdate.range);
+    expect(noMove.selectedKeys, {5});
+    expect(noMove.anchorKey, 5);
+    expect(noMove.activate(3, SelectionUpdate.range).selectedKeys, {3, 4, 5});
+  });
+
   test('pruning an adopted anchor drops it like an explicit one', () {
     final adopted = _begin()
         .activate(2, SelectionUpdate.single)
