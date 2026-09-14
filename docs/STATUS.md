@@ -3559,6 +3559,15 @@ anchor semantics and were corrected against the documented rule. Full app
 suite 593 green; analyzer clean; the localization contract allowlists the
 model's validation diagnostics (programmer errors, never rendered).
 
+Review round 1 (applied): both bulk validation paths (`begin`,
+`withSelectedKeys`) test membership against a row set instead of O(n·m)
+scans; `rows`/`selectedKeys` memoize one unmodifiable snapshot per state —
+the reviewer's `late final` form is incompatible with a const constructor
+(analyzer `late_final_field_with_const_constructor`), so the private
+constructor drops its never-used `const` instead; `invert`'s no-op guard now
+states the only satisfiable case (empty rows) rather than a disjointness
+equality.
+
 One ungated M3 model slice. Selection UI, keyboard/field wiring, controller
 adoption, and pruning on actual pane changes remain with pane wiring; item
 13 still gates raw-name metadata. No widget, D12 surface, persistence,

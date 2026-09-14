@@ -45,15 +45,18 @@ final class SelectionState<Key extends Object> {
     _rejectDuplicates(rowList);
 
     final selection = Set<Key>.of(selectedKeys);
+    final rowSet = rowList.toSet();
     for (final key in selection) {
-      if (!rowList.contains(key)) {
+      if (!rowSet.contains(key)) {
         throw ArgumentError.value(key, 'selectedKeys', 'not a visible row');
       }
     }
     return SelectionState._(rows: rowList, selection: selection);
   }
 
-  const SelectionState._({
+  // Not const: fields come from runtime collections, and the memoized
+  // snapshots below need deferred initialization.
+  SelectionState._({
     required this._rows,
     required this._selection,
     this.cursorKey,
@@ -65,11 +68,13 @@ final class SelectionState<Key extends Object> {
   final Key? cursorKey;
   final Key? anchorKey;
 
-  /// The ordered visible rows, unmodifiable.
-  List<Key> get rows => List.unmodifiable(_rows);
+  // Memoized unmodifiable snapshots: one copy per state, not per access —
+  // widgets read these on every build once pane wiring adopts the model.
+  /// The ordered visible rows, unmodifiable (one snapshot per state).
+  late final List<Key> rows = List.unmodifiable(_rows);
 
-  /// The selected row identities, unmodifiable.
-  Set<Key> get selectedKeys => Set.unmodifiable(_selection);
+  /// The selected row identities, unmodifiable (one snapshot per state).
+  late final Set<Key> selectedKeys = Set.unmodifiable(_selection);
 
   /// Applies one row activation (click, toggle, or range extension).
   /// Throws [ArgumentError] if [key] is not a visible row.
@@ -145,7 +150,8 @@ final class SelectionState<Key extends Object> {
   /// the cursor and anchor keep their positions.
   SelectionState<Key> invert() {
     final selection = _rows.where((row) => !_selection.contains(row)).toSet();
-    if (selection.length == _selection.length && selection.containsAll(_selection)) {
+    // The complement equals the selection only when there are no rows.
+    if (_rows.isEmpty) {
       return this;
     }
 
@@ -165,8 +171,11 @@ final class SelectionState<Key extends Object> {
   /// Throws [ArgumentError] on unknown keys.
   SelectionState<Key> withSelectedKeys(Iterable<Key> selectedKeys) {
     final selection = Set<Key>.of(selectedKeys);
+    final rowSet = _rows.toSet();
     for (final key in selection) {
-      _indexOf(key);
+      if (!rowSet.contains(key)) {
+        throw ArgumentError.value(key, 'key', 'not a visible row');
+      }
     }
 
     return SelectionState._(
