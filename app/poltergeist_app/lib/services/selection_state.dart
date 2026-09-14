@@ -24,11 +24,14 @@ enum SelectionUpdate {
 /// on the next interaction, like the existing cursor convention).
 ///
 /// Anchor semantics (standard file-manager behavior, pinned by tests):
-/// the anchor is the last non-range activation's row; [SelectionUpdate.range]
+/// the anchor is the last non-range activation's row, or a cursor adopted
+/// by a range when pruning removed the explicit one; [SelectionUpdate.range]
 /// always preserves it while extending or shrinking the span, and recomputes
-/// the whole selection from it. A range with no anchor spans from the cursor
-/// (the fallback stays implicit — the recorded anchor stays null); with
-/// neither, it degenerates to a single selection of the target.
+/// the whole selection from it. A range with no anchor adopts the cursor as
+/// the anchor, so a sequence of ranges keeps one stable endpoint even after
+/// row replacement pruned the explicit anchor (an adopted anchor then behaves
+/// exactly like an explicit one); with neither cursor nor anchor, it
+/// degenerates to a single selection of the target.
 ///
 /// Quick Select hands its confirmed or restored selection over through
 /// [withSelectedKeys] — on the same listing, per that session's contract;
@@ -123,13 +126,13 @@ final class SelectionState<Key extends Object> {
           anchorIndex < index ? anchorIndex : index,
           anchorIndex < index ? index + 1 : anchorIndex + 1,
         );
-        // The fallback stays implicit: the recorded anchor remains the last
-        // explicit non-range activation (null until one happens).
+        // The adopted cursor becomes the recorded anchor so the next range
+        // extends or shrinks around the same endpoint, never a moved cursor.
         return SelectionState._(
           rows: _rows,
           selection: Set<Key>.of(span),
           cursorKey: key,
-          anchorKey: anchorKey,
+          anchorKey: fallback,
         );
     }
   }
