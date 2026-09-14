@@ -51,7 +51,7 @@ const _maxFoldChase = 8;
 
 /// Writes each emitted code point, chasing any that still names a table
 /// entry through it. The generator resolves fold chains to a fixed
-/// point and asserts no emitted value remains a table key, so on
+/// point and throws if any emitted value remains a table key, so on
 /// verified data every lookup below misses — the chase exists so the
 /// runtime stays correct even if the committed table regresses.
 void _writeFolded(List<int> mapped, StringBuffer out,

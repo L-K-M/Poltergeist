@@ -7,7 +7,7 @@ Me; spacing marks Mc carry Indic vowels and are text, not decoration),
 and simple case folding (`CaseFolding.txt` statuses C and S — F
 expansions and T tailoring are excluded, unlisted code points stay
 unchanged). The generator resolves each pipeline's output to a fixed
-point and asserts no emitted value remains a table key, so the runtime
+point and throws if any emitted value remains a table key, so the runtime
 lookup is provably terminal (it still chases defensively, bounded at 8
 hops). Hangul syllable decomposition is algorithmic (Unicode §3.12),
 not table-driven, so UnicodeData's empty Hangul fields are expected.
