@@ -401,7 +401,14 @@ Future<void> _writeDriftState(
       '${target.path}.checker-$pid-${DateTime.now().microsecondsSinceEpoch}'
       '-$attempt.tmp',
     );
-    if (await temporary.exists()) {
+    // Claim the name atomically (O_CREAT|O_EXCL): exists()-then-write
+    // has a check-to-write gap, and File.exists follows symlinks, so a
+    // name planted in the gap would be followed. A claimed name just
+    // moves to the next attempt; the loop fails closed after
+    // tempNameAttempts tries.
+    try {
+      await temporary.create(exclusive: true);
+    } on FileSystemException {
       continue;
     }
     try {
