@@ -363,6 +363,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneConnectCancel => 'Cancel';
 
   @override
+  String paneTypeAheadBadge(String buffer) {
+    return 'Names starting with \"$buffer\"';
+  }
+
+  @override
   String get paneErrorNotFound => 'The folder could not be found.';
 
   @override

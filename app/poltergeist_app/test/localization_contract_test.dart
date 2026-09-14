@@ -259,6 +259,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.banner.cancel'",
     "'pane.banner.retry'",
     "'pane.connect.cancel'",
+    "'pane.typeAhead'",
     r"'${controller.paneTabId}.path'",
     r"'${controller.paneTabId}.cancel'",
     r"'${controller.paneTabId}.progress'",
