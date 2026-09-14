@@ -20,18 +20,20 @@ const _hangulSCount = _hangulLCount * _hangulNCount;
 /// no normalization, no diacritic stripping. The two semantics are
 /// specified apart and stay separate implementations: sharing one
 /// matcher would silently trade prefix-jump semantics for fragment/glob
-/// selection semantics. This fold canonically decomposes each code
-/// point, drops non-spacing and enclosing marks (Mn/Me; spacing marks
-/// are text, not diacritics), then applies Unicode 17's simple fold —
+/// selection semantics. This fold runs compatibility-level matching:
+/// each code point expands through its full decomposition (canonical
+/// AND tagged — ligatures, enclosed and wide/narrow forms, positional
+/// presentation forms, and compatibility glyphs like the lunate sigma
+/// all reach their spelled-out letters), non-spacing and enclosing
+/// marks (Mn/Me) drop while spacing marks stay (Mc carry Indic vowels —
+/// text, not decoration), and Unicode 17's simple fold applies last —
 /// generated data, `tool/unicode/generate.dart`.
 String typeAheadFold(String value) {
   final result = StringBuffer();
   for (final point in value.runes) {
     final mapped = _diacriticFoldTable[point];
     if (mapped != null) {
-      for (final unit in mapped) {
-        result.writeCharCode(unit);
-      }
+      _writeFolded(mapped, result);
     } else if (point >= _hangulSBase &&
         point < _hangulSBase + _hangulSCount) {
       _decomposeHangul(point, result);
@@ -40,6 +42,28 @@ String typeAheadFold(String value) {
     }
   }
   return result.toString();
+}
+
+/// Deepest chain a verified table can hold; decompose-fold compositions
+/// are at most a couple of hops, so eight bounds any honest data while
+/// a stale or hand-edited table can never spin the chase forever.
+const _maxFoldChase = 8;
+
+/// Writes each emitted code point, chasing any that still names a table
+/// entry through it. The generator resolves fold chains to a fixed
+/// point and asserts no emitted value remains a table key, so on
+/// verified data every lookup below misses — the chase exists so the
+/// runtime stays correct even if the committed table regresses.
+void _writeFolded(List<int> mapped, StringBuffer out,
+    [int depth = 0]) {
+  for (final unit in mapped) {
+    final next = _diacriticFoldTable[unit];
+    if (next != null && depth < _maxFoldChase) {
+      _writeFolded(next, out, depth + 1);
+    } else {
+      out.writeCharCode(unit);
+    }
+  }
 }
 
 void _decomposeHangul(int syllable, StringBuffer out) {

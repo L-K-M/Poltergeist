@@ -32,11 +32,18 @@ void main() {
     // marks (Mc) carry Indic vowels and are text, not decoration.
     if (fields[2] == 'Mn' || fields[2] == 'Me') marks.add(point);
 
+    // Every decomposition counts — canonical and tagged alike. The
+    // type-ahead fold runs compatibility-level matching so ligatures,
+    // enclosed/wide/narrow forms, positional presentation forms, and
+    // compatibility glyphs (e.g. the lunate sigma, whose 03F2 <compat>
+    // 03C2 hop is what unifies Ϲ with ς) match their spelled-out
+    // letters. The tag itself is metadata, not a code point.
     final decomposition = fields[5];
-    if (decomposition.isNotEmpty && !decomposition.startsWith('<')) {
+    if (decomposition.isNotEmpty) {
       decompositions[point] = [
         for (final part in decomposition.split(' '))
-          int.parse(part, radix: 16),
+          if (!part.startsWith('<'))
+            int.parse(part, radix: 16),
       ];
     }
   }
@@ -60,7 +67,7 @@ void main() {
     );
   }
 
-  // The fold result of one code point: recursively canonically decompose
+  // The fold result of one code point: recursively decompose
   // (UnicodeData carries no Hangul syllable decompositions — the runtime
   // fold applies the Unicode §3.12 conjoining-jamo formula), drop marks,
   // then apply each survivor's simple fold.
@@ -82,9 +89,10 @@ void main() {
     for (final current in expanded) {
       if (marks.contains(current)) continue;
       var value = folding[current] ?? current;
-      // Follow fold chains to a fixed point — the runtime applies each
-      // table entry once, so a value that re-folds (e.g. a Greek sigma
-      // step) must already be resolved here.
+      // Follow fold chains to a fixed point — the runtime's own chase
+      // is a defensive bound, so a value that re-folds must already be
+      // resolved here (17.0.0 composes none, but the loop keeps the
+      // table final if a future UCD adds one).
       while (folding.containsKey(value)) {
         value = folding[value]!;
       }

@@ -28,11 +28,23 @@ void main() {
     // Long s and final sigma fold under C+S but never lowercase.
     expect(typeAheadFold('ſ'), 's');
     expect(typeAheadFold('ς'), 'σ');
-    // Lunate sigma folds within its own pair (03F9 → 03F2); the
-    // claimed 03F2 → 03C2 hop does not exist in 17.0.0's CaseFolding,
-    // so Ϲ and ς land on different code points.
-    expect(typeAheadFold('Ϲ'), 'ϲ');
-    expect(typeAheadFold('Ϲ'), isNot(typeAheadFold('ς')));
+    // Every sigma glyph folds to σ: 03F9/03F2 reach it through their
+    // <compat> decompositions (03F9 → 03A3, 03F2 → 03C2 — the path the
+    // review cluster chased is a decomposition, not a CaseFolding row),
+    // so typing any sigma variant matches the others' names.
+    expect(typeAheadFold('Ϲ'), 'σ');
+    expect(typeAheadFold('ϲ'), 'σ');
+    expect(typeAheadFold('Σ'), 'σ');
+    expect(typeAheadFold('Ϲ'), typeAheadFold('ς'));
+  });
+
+  test('compatibility glyphs fold to their spelled-out forms', () {
+    // The fold runs compatibility-level decomposition, so typographic
+    // and compatibility forms match their plain keystrokes.
+    expect(typeAheadFold('ﬁle'), 'file');
+    expect(typeAheadFold('ＦＩＬＥ'), 'file');
+    expect(typeAheadFold('²'), '2');
+    expect(typeAheadFold('Ⅳ'), 'iv');
   });
 
   test('letters without canonical decompositions stay distinct', () {
