@@ -465,5 +465,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get editInvertSelectionLabel => 'Invert Selection';
 
   @override
+  String get selectionQuickSelectLabel => 'Quick Select';
+
+  @override
+  String get quickSelectFieldLabel => 'Quick Select';
+
+  @override
+  String get quickSelectFieldHint => 'name fragment or *.ext';
+
+  @override
+  String get quickSelectAddLabel => 'Add';
+
+  @override
+  String get quickSelectRemoveLabel => 'Remove';
+
+  @override
   String get connectionsOpenInPane => 'Open in Pane';
 }

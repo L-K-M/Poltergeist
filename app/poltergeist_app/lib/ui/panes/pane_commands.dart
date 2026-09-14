@@ -15,6 +15,7 @@ const kPaneFocusRightCommandId = 'pane.focusRight';
 const kPaneSwapFocusCommandId = 'pane.swapFocus';
 const kEditSelectAllCommandId = 'edit.selectAll';
 const kEditInvertSelectionCommandId = 'edit.invertSelection';
+const kSelectionQuickSelectCommandId = 'selection.quickSelect';
 
 /// The pane-command registry slice (D21): every pane action this
 /// foundation ships is a registered command. Commands resolve the
@@ -197,6 +198,21 @@ List<RegisteredCommand> buildPaneCommands({
         activePane()?.invertSelection();
       },
     ),
+    RegisteredCommand(
+      id: kSelectionQuickSelectCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.selectionQuickSelectLabel,
+      icon: Icons.manage_search_outlined,
+      // ⌘E / Ctrl+E (02 §8.3's table), dual macOS/Ctrl registration.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyE, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyE, control: true)],
+      ),
+      enabled: () => activePane()?.verbsEnabled ?? false,
+      run: (_) async {
+        activePane()?.openQuickSelect();
+      },
+    ),
   ];
 }
 
@@ -216,9 +232,16 @@ List<ShortcutActivator> Function(TargetPlatform) _perPlatform({
 /// Single keys with no ctrl/meta/alt modifier — including shift-only
 /// combos like Shift+Tab — are deliberately excluded; they belong to the
 /// pane focus nodes (02 §8.2), so this layer can never fire Enter or Tab
-/// globally. This slice's shell contains no text surfaces; dialog routes
-/// push above the shell, so their fields never see these chords. The
-/// path-editor slice adds the explicit field-first guard with its test.
+/// globally.
+///
+/// 02 §8.2's field-first precedence: while any text surface (an
+/// [EditableText] — the Quick Select field today, the path editor and
+/// filter later) holds primary focus, NO chord fires here at all — not
+/// even a disabled command's — and the event keeps propagating to the
+/// field's own editing shortcuts (⌘A/⌘C/⌘V/⌘X/⌘Z and their Ctrl
+/// equivalents live at app scope, which this layer would otherwise
+/// intercept first). Dialog routes push above the shell, so their
+/// fields never see these chords either.
 class CommandChordScope extends StatelessWidget {
   const CommandChordScope({
     super.key,
@@ -280,6 +303,36 @@ class CommandChordScope extends StatelessWidget {
       }
     }
 
-    return CallbackShortcuts(bindings: bindings, child: child);
+    return Focus(
+      // Same posture CallbackShortcuts takes: this node only dispatches,
+      // it never takes focus or traversal itself.
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        // Keep CallbackShortcuts' event contract: bindings fire on
+        // down/repeat only — never on key-up.
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+          return KeyEventResult.ignored;
+        }
+        // Field-first precedence (02 §8.2): with a text surface focused,
+        // chords belong to its editing shortcuts — returning ignored
+        // keeps the event propagating upward to them, where a consumed
+        // command chord would have swallowed ⌘A mid-typing.
+        final primary = FocusManager.instance.primaryFocus;
+        if (primary?.context?.findAncestorWidgetOfExactType<EditableText>() !=
+            null) {
+          return KeyEventResult.ignored;
+        }
+        var result = KeyEventResult.ignored;
+        for (final activator in bindings.keys) {
+          if (activator.accepts(event, HardwareKeyboard.instance)) {
+            bindings[activator]!();
+            result = KeyEventResult.handled;
+          }
+        }
+        return result;
+      },
+      child: child,
+    );
   }
 }

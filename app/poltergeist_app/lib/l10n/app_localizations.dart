@@ -849,6 +849,36 @@ abstract class AppLocalizations {
   /// **'Invert Selection'**
   String get editInvertSelectionLabel;
 
+  /// Command label: open the Quick Select field over the focused pane's listing (selection.quickSelect, 02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Select'**
+  String get selectionQuickSelectLabel;
+
+  /// Label of the Quick Select text field that drops below the path bar (02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Select'**
+  String get quickSelectFieldLabel;
+
+  /// Hint inside the Quick Select field describing its two match shapes: a literal name fragment, or a whole-name glob with * wildcards (02 §2.5). Keep it terse — it is placeholder text, not documentation.
+  ///
+  /// In en, this message translates to:
+  /// **'name fragment or *.ext'**
+  String get quickSelectFieldHint;
+
+  /// Segmented-toggle segment: matching rows are added to the current selection (02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get quickSelectAddLabel;
+
+  /// Segmented-toggle segment: matching rows are removed from the current selection (02 §2.5).
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get quickSelectRemoveLabel;
+
   /// Tooltip of the Connections row action that opens the bookmark in the active pane.
   ///
   /// In en, this message translates to:
