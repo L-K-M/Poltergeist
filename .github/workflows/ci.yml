@@ -261,6 +261,103 @@ jobs:
       - name: Run SSH integration fixture
         run: test/integration/run.sh
 
+  detect_bench:
+    name: Detect bench-relevant changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.fixture.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: changes
+        with:
+          filters: |
+            bench:
+              - 'pubspec.yaml'
+              - 'pubspec.lock'
+              - 'packages/**/lib/**'
+              - 'packages/**/test/**'
+              - 'packages/**/benchmark/**'
+              - 'packages/**/pubspec.yaml'
+              - 'test/benchmarks/**'
+              - 'test/integration/**'
+              - 'scripts/bench-tier-a.sh'
+              - 'scripts/merge_bench_results.dart'
+              - '.github/workflows/ci.yml'
+      # Same guard as detect_integration: a matching PR, a main push, or a
+      # dispatch always runs the job; an absent fixture fails those runs
+      # loudly instead of silently disabling the benchmark. The step only
+      # executes for a bench-relevant reason, so a missing fixture is
+      # always an error here — never a silent skip.
+      - name: Require fixture when its lifecycle changes
+        id: fixture
+        if: >-
+          github.event_name != 'pull_request' ||
+          steps.changes.outputs.bench == 'true'
+        run: |
+          readonly fixture_path='test/integration/docker-compose.yml'
+          if [[ ! -f "$fixture_path" ]]; then
+            echo "::error::Missing integration fixture: $fixture_path"
+            exit 1
+          fi
+
+          echo 'run=true' >> "$GITHUB_OUTPUT"
+
+  # D12 tier-A benchmarks (08 §5/§6): the three collectors compile AOT and
+  # run against the §5 sshd fixture on loopback, merged into one
+  # bench-results.json that check.dart grades. run.sh's --lifecycle-only
+  # mode owns the fixture lifecycle — the job never forks a second one.
+  # Every scenario is still unlanded in budgets.json, so the job reports
+  # rather than gates: no BENCH_ENFORCE_* flag is set here, calibration is
+  # the dedicated baseline-refresh procedure (08 §6), and PR runs never
+  # touch drift state. Tier-B xvfb suites join this job when they land.
+  bench:
+    name: D12 tier-A benchmarks
+    needs: detect_bench
+    if: needs.detect_bench.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve workspace
+        run: dart pub get
+      # runnerImage is a controlled fingerprint axis: record the runner
+      # image so a rotation surfaces as a loud drift notice, not a silent
+      # cross-image comparison.
+      - name: Run tier-A collectors against the sshd fixture
+        run: |
+          export POLTERGEIST_BENCH_RUNNER_IMAGE="ubuntu-latest@${ImageVersion:-unreported}"
+          test/integration/run.sh --lifecycle-only -- scripts/bench-tier-a.sh
+      # if: always() so partial results flushed by a failed run are still
+      # graded; a missing results file is a check.dart I/O failure, which
+      # keeps a fixture-start failure red instead of skipping silently.
+      - name: Evaluate results
+        if: always()
+        run: >-
+          dart run test/benchmarks/check.dart
+          --results bench-results.json
+          --tiers a
+      - name: Upload bench results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            bench-results.json
+            bench-results-*.json
+          if-no-files-found: error
+          retention-days: 30
+
   # M0 measurements are expensive and historical, not a standing PR budget.
   # Dispatch a branch commit so the durable evidence keeps an ancestor SHA.
   m0_bench:

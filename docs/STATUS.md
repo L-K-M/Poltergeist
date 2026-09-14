@@ -4097,6 +4097,43 @@ Real-font captures (DejaVu + MaterialIcons) of the idle pane, the
 pending badge, and the post-reset state are under
 `tasks/run3-task32/`. Full app suite and analyze green.
 
+## M3 — D12 tier-A bench job (2026-09-14)
+
+The `bench` job in `ci.yml` runs the three tier-A collectors per 08
+§5/§6/§8: a `detect_bench` paths-filter gate (PRs touching
+`packages/**/lib|test|benchmark/**`, `packages/**/pubspec.yaml`, root
+pubspec/lock, `test/benchmarks/**`, `test/integration/**`, the two
+scripts, or `ci.yml`; always on `main`/dispatch) feeds a single
+`ubuntu-latest` job that enters `run.sh --lifecycle-only` — the shared
+§5 lifecycle, not a forked copy — and hands off to
+`scripts/bench-tier-a.sh`, which compiles each collector AOT
+(`dart compile exe`), runs P3/P5/P7 against `sshd-modern` on loopback
+with the README-documented targets, and merges the per-scenario
+documents into one `bench-results.json` via
+`scripts/merge_bench_results.dart`. The collector failures run to
+completion so partial rows and error rows still publish, and the script
+exits non-zero on any collector failure — a silently skipped benchmark
+is how budgets die. `check.dart --tiers a` grades the merged file under
+`if: always()`; `bench-results.json` plus the per-scenario documents
+upload as the always-present `bench-results` artifact (the future
+drift-state fetch's store). Every scenario stays `landed: false`, no
+`BENCH_ENFORCE_*` flag is set, no calibration values are fabricated —
+the job's first runs are reports, and the landed flip plus calibration
+are the dedicated baseline-refresh procedure (08 §6). Drift state is
+never written here: `--update-drift-state` requires `--tiers` including
+`b`, and PR runs are read-only by contract. A missing Docker daemon or
+fixture fails the job loudly; there is no `continue-on-error` anywhere
+in the path.
+
+Validation: `scripts/merge_bench_results.dart` analyzes clean and was
+dry-run locally against three synthetic per-scenario documents (15
+rows, distinct `scenarioConfig`s) — merge exit 0, `check.dart --tiers a`
+exit 0, all three reported unlanded (log under `tasks/run3-task34/`).
+`dart test test/benchmarks` (110) and `dart test test/integration` (64)
+pass; the workflow YAML parses and the new jobs are structurally present.
+The fixture-backed run itself is unverifiable on this host (no Docker);
+CI owns the first real run. Item 21 narrows accordingly.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -4702,19 +4739,21 @@ pending badge, and the post-reset state are under
     equality/keying. Paths currently compare raw strings. Bookmark landing
     paths can contain spelling variants; VFS-derived paths alone do not
     establish canonical equality.
-21. **2026-09-14: M3 D12 benchmark jobs remain open.** The relocation gave
-    the harness its planned home, and the offline checker PR (dated
-    section above) landed `test/benchmarks/check.dart` + `budgets.json`
-    with all P1–P7 still unlanded. The P3, P5, and P7 tier-A collectors
-    have since landed under `packages/poltergeist_core/benchmark/` (dated
-    sections above). Still open: the ci.yml
-    `bench` job reusing run.sh's
-    `--lifecycle-only` mode and the documented drift-state artifact
-    handoff, real calibration (tier-A calibratedFingerprint + tier-B
-    baseline), landing scenarios as their surfaces arrive
-    (`BENCH_ENFORCE_A` from each introduction), and the tier-B xvfb
-    suites (P1/P2/P4/P6, trend-only until M9). No baseline calibration
-    has run; budgets gate nothing yet.
+21. **2026-09-14: M3 D12 benchmark jobs remain partially open.** The
+    relocation gave the harness its planned home, the offline checker PR
+    landed `test/benchmarks/check.dart` + `budgets.json` with all P1–P7
+    still unlanded, the P3/P5/P7 tier-A collectors landed under
+    `packages/poltergeist_core/benchmark/`, and the tier-A `bench` job
+    is on `ci.yml` reusing `run.sh --lifecycle-only` (dated section
+    above). Still open: real calibration (tier-A
+    `calibratedScenarioConfig`/`calibratedFingerprint` + tier-B
+    baseline) via the dedicated baseline-refresh procedure, landing
+    scenarios as their surfaces arrive (`BENCH_ENFORCE_A` from each
+    introduction), the drift-state artifact fetch/update wiring (arrives
+    with the tier-B leg — `--update-drift-state` requires `--tiers`
+    including `b`), and the tier-B xvfb suites (P1/P2/P4/P6, trend-only
+    until M9). No baseline calibration has run; budgets gate nothing
+    yet.
 
 ## Independent audit
 

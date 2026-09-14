@@ -1,11 +1,11 @@
 # D12 benchmark checker (08 §6)
 
-Offline evaluation of Poltergeist's D12 performance budgets. The future CI
-bench job (08 §8 — not built yet) produces the inputs; this checker only
+Offline evaluation of Poltergeist's D12 performance budgets. The CI
+`bench` job (08 §8) produces the inputs; this checker only
 consumes files, prints an honest table plus notices, and exits with the
-plan's status. No collectors, calibration data, baseline, or Actions
-integration is committed here: every scenario in `budgets.json` stays
-`landed: false` until the real harness/job introduces its surface
+plan's status. No calibration data or baseline is committed here: every
+scenario in `budgets.json` stays `landed: false` until the real harness/job
+introduces its surface
 (07 §1), and `calibratedFingerprint` stays `null` until real calibration.
 
 ## Invocation
@@ -116,18 +116,27 @@ publication is atomic through an owned, uniquely named temporary file
 pre-existing `<state>.tmp` file or symlink is never overwritten or
 followed, and cleanup removes only the temp this run created.
 
-## Future CI artifact handoff (documentation only)
+## CI artifact handoff
 
-The bench job planned in 08 §8 will: write `bench-results.json` for the
-tiers it ran; pass `--tiers ab` on main/dispatch and `--tiers a` on PR
-runs; fetch the drift state from the latest main-branch bench job's
-artifact and pass it via `--drift-state` (the checker's drift state is
-its own standalone JSON file; the job uploads it as an always-present
-artifact — or keeps it in an `actions/cache` entry keyed on the
-fingerprint, the documented alternative single state store); add
-`--update-drift-state` on main-branch runs only; and run this checker
-with `if: always()` so partial results are graded. None of that wiring
-exists in this offline checker.
+The `bench` job in `.github/workflows/ci.yml` (tier A only so far)
+writes `bench-results.json` by merging the three collectors' per-scenario
+documents (`scripts/bench-tier-a.sh` + `scripts/merge_bench_results.dart`,
+run under `test/integration/run.sh --lifecycle-only`), evaluates it here
+with `--tiers a` and `if: always()` so partial results are graded, and
+uploads it as the always-present `bench-results` artifact. With every
+scenario unlanded the run is a report, not a gate; no `BENCH_ENFORCE_*`
+flag is set by the job.
+
+Still ahead for the tier-B leg (08 §6/§8): pass `--tiers ab` on
+main/dispatch once tier-B collectors exist; fetch the drift state from
+the latest main-branch bench job's artifact and pass it via
+`--drift-state` (the checker's drift state is its own standalone JSON
+file — the always-present artifact, or an `actions/cache` entry keyed on
+the fingerprint, is the documented single state store); add
+`--update-drift-state` on main-branch runs only — the checker rejects it
+on tier-B-blind runs, so drift state only ever flows through a run that
+evaluated tier B. PR invocations stay read-only and never mutate the
+store.
 
 ## Tests
 
