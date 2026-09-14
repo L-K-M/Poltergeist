@@ -204,15 +204,18 @@ void main() {
   });
 
   test('cancellation completes while the kernel queue stays busy', () async {
-    // Skip before any resource exists: markTestSkipped throws, and the
-    // cleanup try/finally only opens after the producers spawn below.
+    // markTestSkipped does not throw (test_api requires an explicit
+    // return), so both unavailable-probe paths return before any
+    // resource is created.
     try {
       final probe = await Process.run('python3', ['--version']);
       if (probe.exitCode != 0) {
         markTestSkipped('python3 is not available on this host');
+        return;
       }
     } on ProcessException {
       markTestSkipped('python3 is not available on this host');
+      return;
     }
 
     // Raw rename loops in owned processes reproduce the starvation shape:
@@ -238,29 +241,32 @@ void main() {
     final producers = <Process>[];
     final terminated = <int>{};
     final producerDiagnostics = <String>[];
-    for (var index = 0; index < producerCount; index++) {
-      final producer = await Process.start('python3', [
-        '-c',
-        _renameProducerScript,
-        root.path,
-        '$index',
-      ]);
-      producers.add(producer);
-      unawaited(
-        producer.exitCode.then((_) => terminated.add(producer.pid)),
-      );
-      unawaited(producer.stdout.drain<void>());
-      producer.stderr.transform(systemEncoding.decoder).listen(
-        producerDiagnostics.add,
-      );
-    }
-    // Any producer death invalidates the sustained-pressure premise, so
-    // require all four, not merely one survivor.
-    bool allRunning() => terminated.isEmpty;
-
-    var cancellation = Future<void>.value();
+    // Null until the body assigns its own cancellation; on an early
+    // failure the finally cancels itself so the await below always
+    // covers an actual release.
+    Future<void>? cancellation;
     var cancellationStalled = false;
     try {
+      for (var index = 0; index < producerCount; index++) {
+        final producer = await Process.start('python3', [
+          '-c',
+          _renameProducerScript,
+          root.path,
+          '$index',
+        ]);
+        producers.add(producer);
+        unawaited(
+          producer.exitCode.then((_) => terminated.add(producer.pid)),
+        );
+        unawaited(producer.stdout.drain<void>());
+        producer.stderr.transform(systemEncoding.decoder).listen(
+          producerDiagnostics.add,
+        );
+      }
+      // Any producer death invalidates the sustained-pressure premise, so
+      // require all four, not merely one survivor.
+      bool allRunning() => terminated.isEmpty;
+
       await delivered.future.timeout(deadline);
       await Future<void>.delayed(const Duration(milliseconds: 500));
       expect(allRunning(), isTrue, reason: 'producers must still be running');
@@ -285,20 +291,27 @@ void main() {
       // working, not a cancellation failure. The boundedness property
       // above is what this test pins.
     } finally {
-      // The body can fail before its cancel runs (delivered timeout, a
-      // failed premise): close the watcher here so the helper cannot
-      // outlive the test. A second cancel returns the first's future.
-      unawaited(subscription.cancel());
+      // Always await the real cancellation: the body assigns it on its
+      // own path; on an early failure (or a mid-loop spawn throw) cancel
+      // here so the await below covers an actual release. A second
+      // cancel returns the first future.
+      final pending = cancellation ?? subscription.cancel();
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigterm);
       }
-      // Never let a stalled cancellation displace the original failure or
-      // skip the kill/reap below — but record the stall so a helper that
-      // stopped acknowledging cannot hide behind a green body.
-      await cancellation.timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => cancellationStalled = true,
-      );
+      // Never let a stalled or errored cancellation displace the original
+      // failure or skip the kill/reap below — record the stall so a
+      // helper that stopped acknowledging cannot hide behind a green
+      // body; a cancel error on the green path already surfaced when the
+      // body awaited the same future.
+      try {
+        await pending.timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => cancellationStalled = true,
+        );
+      } catch (_) {
+        cancellationStalled = true;
+      }
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigkill);
       }

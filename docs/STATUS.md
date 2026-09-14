@@ -3298,7 +3298,20 @@ repeated cancel, partial setup, and sibling semantics unchanged; the
 cancellation doc records the precise control flow (engine suite 235,
 external lifetime proofs 18, overflow harness, full core 777 + 16
 skips, analyze/protocol/import guards green;
-`tasks/task21-logs/*cancel-fix*`).
+`tasks/task21-logs/*cancel-fix*`). *Fixture portability repair (same
+day, companion):* `markTestSkipped` does not throw (test_api 0.7.13
+requires an explicit return), so on hosts without python3 the busy-cancel
+fixture fell through to `Process.start` and failed with
+`ProcessException` after printing its skip message (supervisor runtime
+log, exit 1). Both unavailable-probe paths now return before any
+resource exists; the producer spawn loop moved inside the try/finally so
+partial startup reaps what it spawned; and the finally always awaits
+the real cancellation future (the body's or its own), not a
+placeholder. Verified: absent python3 and a nonzero `python3
+--version` shim both skip with exit 0; the normal pressure test, the
+unchanged supervisor probe (released at `elapsedMs=0`), engine suite,
+core suite, and guards stay green (`tasks/task21-logs/*fixture-fix*`,
+`no-python-repro-after.log`, `nonzero-python-repro-after.log`).
 ## M3 — pane listing uses the core natural sorter (2026-09-13)
 
 PaneController's placeholder comparator (lowercase lexical) is replaced by
