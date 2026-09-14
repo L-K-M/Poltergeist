@@ -325,9 +325,10 @@ Future<P3RunOutcome> collectListingOverheadPairs({
   int? targetEntries;
 
   // The tree size frozen after warmups — the identity every measured row's
-  // fingerprint claims (see the check inside runPair below). With zero
-  // warmups the freeze observes nothing, so arming defers to the first
-  // measured pair instead of never firing.
+  // fingerprint claims (see the check inside runPair below). The CLI
+  // rejects --warmups 0, but direct callers may pass it; with zero warmups
+  // the freeze observes nothing, so arming defers to the first measured
+  // pair instead of never firing.
   int? expectedControlEntries;
   int? expectedTargetEntries;
   var identityArmed = false;

@@ -71,9 +71,12 @@ test/integration/run.sh --lifecycle-only -- bash -c '
   root) as the minimal control. Any existing, distinct directories work;
   canonical aliasing is rejected.
 - The trust setup follows the 08 §5 non-TOFU convention: the in-memory
-  pin store is pre-seeded with the committed fixture host key, so a
-  healthy fixture never prompts; an unexpected host-key review aborts the
-  run instead of benchmarking against an unverified server.
+  pin store is pre-seeded from the committed fixture host public key at
+  `test/integration/keys/ssh_host_ed25519_key.pub` (the `--host-key-pub`
+  default, resolved from the repo root `run.sh` cds to; the required
+  env vars above carry the *user* key, not this host key), so a healthy
+  fixture never prompts; an unexpected host-key review aborts the run
+  instead of benchmarking against an unverified server.
 
 ## Local iteration
 
