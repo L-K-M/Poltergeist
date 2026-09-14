@@ -89,6 +89,9 @@ Options:
                        root; test/integration/run.sh cds there)
   -h, --help           print this usage
 
+A value starting with "-" is rejected as a likely mistyped option; if a
+path legitimately begins with "-", pass it absolute or prefix "./".
+
 Environment (exported by test/integration/run.sh --lifecycle-only):
   POLTERGEIST_SSHD            fixture host (must be IPv4 loopback)
   POLTERGEIST_SSHD_MODERN     sshd-modern port
@@ -210,10 +213,20 @@ final class P3CollectorConfig {
     String? flagValue(String flag) {
       final index = arguments.indexOf(flag);
       if (index == -1) return null;
+      if (arguments.lastIndexOf(flag) != index) {
+        throw P3UsageException('$flag was passed more than once.');
+      }
       if (index + 1 >= arguments.length) {
         throw P3UsageException('$flag requires a value.');
       }
-      return arguments[index + 1];
+      final value = arguments[index + 1];
+      if (value.startsWith('-')) {
+        throw P3UsageException(
+          '$flag requires a value; "$value" looks like an option; '
+          'see --help.',
+        );
+      }
+      return value;
     }
 
     if (arguments.any((argument) => argument == '-h' || argument == '--help')) {

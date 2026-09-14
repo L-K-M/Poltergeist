@@ -4134,6 +4134,31 @@ pass; the workflow YAML parses and the new jobs are structurally present.
 The fixture-backed run itself is unverifiable on this host (no Docker);
 CI owns the first real run. Item 21 narrows accordingly.
 
+## M3 — P3 collector CLI parser repair (2026-09-14)
+
+The P3 collector's `flagValue` carried the flag-duplication and
+flag-as-value flaw the P7 review repair fixed in #115 (its deferred
+follow-up, recorded in commit `12999d1`): a repeated flag silently took
+the first value — `--repetitions 5 --repetitions 20` under-collected
+rows while still passing the checker floor — and a flag token in a
+value position was bound literally (`--target --control /b` parsed
+`--control` as the target path). The repair applies the P7/P5 shape
+verbatim at the parser layer: a repeated flag throws a usage error
+naming the flag, and a value starting with `-` throws "looks like an
+option". No collection-semantics, schema, deadline, or temp-ownership
+change; P5/P7 parsers untouched (P5's later positional/non-empty
+hardening stays its own slice — P7, the reference repair, carries
+neither).
+
+Validation: four regressions failed red before the fix — unit-level
+repeated-flag and flag-as-value rejections (message names the flag)
+plus subprocess contracts asserting exit 2 and the distinctive error
+text — then went green alongside a still-parses test. `dart analyze
+packages/poltergeist_core` clean; the P3 file runs 39 tests green;
+`dart test packages/poltergeist_core` 905 pass (16 fixture skips
+unchanged); `dart test test/benchmarks` 110/110 after the standalone
+pub gets (logs and exits under `tasks/run3-task36/`).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
