@@ -330,6 +330,8 @@ jobs:
     needs: detect_bench
     if: needs.detect_bench.outputs.run == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4

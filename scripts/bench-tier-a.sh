@@ -27,6 +27,11 @@ trap 'rm -rf -- "$bin_dir"' EXIT
 # but the script is runnable standalone, so anchor it explicitly.
 cd "$repo_root"
 
+# A collector that dies before writing its output must surface as a
+# missing file, not be backfilled by a stale one from an earlier run —
+# this script is runnable standalone, where yesterday's files persist.
+rm -f -- "$repo_root"/bench-results.json "$repo_root"/bench-results-*.json
+
 command -v "$dart_binary" >/dev/null
 
 "$dart_binary" compile exe \
