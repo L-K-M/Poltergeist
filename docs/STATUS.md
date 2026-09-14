@@ -3847,7 +3847,7 @@ Scope held: no app files, no engine production behavior, no CI bench
 job, no real measurements or calibration values, P1–P7 all unlanded,
 calibratedFingerprint still null — open items 12 (cancellation gate), 21
 (bench job/calibration/landed flip), and M3 closure remain open.
-Validation: `dart test test/benchmarks` 109/109 (16 new regressions
+Validation: `dart test test/benchmarks` 110/110 (17 new regressions
 across schema forms, per-scenario axis, drift policy, and legacy
 compatibility), core benchmark tests 34/34 (two delayed-change
 regressions added red first, the two existing identity-guard tests

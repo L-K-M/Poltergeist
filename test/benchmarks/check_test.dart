@@ -339,6 +339,31 @@ void main() {
     );
 
     test(
+      'a tier-B scenario row carrying a calibrated config is rejected',
+      () {
+        expect(
+          () => BudgetCatalog.fromJson({
+            'schema': budgetsSchemaV2Id,
+            'scenarios': [
+              _scenarioJson(
+                id: 'P1',
+                tier: 'b',
+                calibratedConfig: 'p1/v1;dead-data',
+              ),
+            ],
+          }),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('tier-B trend scenarios carry no config'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
       'schema-1 rejects the per-scenario calibrated config (mixed form)',
       () {
         expect(

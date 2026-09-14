@@ -399,6 +399,17 @@ class BudgetCatalog {
         'budgets.json: $id.tier must be "a" or "b" (got "$tierText")',
       ),
     };
+    if (tier == BenchTier.b && map.containsKey('calibratedScenarioConfig')) {
+      // Tier-B trend scenarios carry no config; rejecting beats silently
+      // ignoring dead data. The schema grows per-scenario tier-B configs
+      // with the first config-carrying tier-B collector (same rule as the
+      // baseline's null-config requirement).
+      throw CheckDataException(
+        'budgets.json: scenario $id calibratedScenarioConfig is only '
+        'valid for tier-A scenarios — tier-B trend scenarios carry no '
+        'config',
+      );
+    }
     final operatorText = _expectString(
       map['operator'],
       'budgets.json: $id.operator',

@@ -2271,7 +2271,7 @@ Map<String, Object?> _budgetsJson({
               landedIds.contains(id) &&
               !tierBSceanrio.contains(id))
             'calibratedScenarioConfig':
-                calibratedConfigs[id] ?? _tierATestConfigs[id],
+                calibratedConfigs[id] ?? _tierATestConfigs[id]!,
         };
       }(),
   ],
