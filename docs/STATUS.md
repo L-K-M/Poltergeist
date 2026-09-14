@@ -3799,6 +3799,38 @@ interface — open item 12); the docs state this and the bounded cleanup
 retires the channel. No retry was added and no ownership pattern was
 shared with the checker (mirrored, not refactored).
 
+## M3 — sibling cancel-race repair (2026-09-14)
+
+The fusion review's source-only finding, reproduced: the banner cancel
+decided sibling sharing synchronously, but `cancelRecovery`'s detached
+reference drop ran after the pane's awaited channel close — a sibling
+binding the same server during that await re-registered the serverId's
+pool reference, and the late `disconnectServer` removed whatever
+reference was current (the engine keys by serverId), severing the
+sibling's fresh binding. `PaneController.cancelRecovery` now takes a
+`serverStillUnshared` predicate evaluated after the detach's awaited
+release and the bind-attempt recheck; the shell — the sibling-knowledge
+owner — passes it from `_cancelPaneRecovery`, so the controller learns
+no sibling state and no engine layer grows UI knowledge. The predicate
+and the engine send are atomic in the app isolate and same-port sends
+are FIFO, so a sibling binding after the check reconnects on a fresh
+reference instead of being severed. Alone-pane cancellation (the
+reference still drops), the shared-server detach-only path, Esc and the
+post-grace Cancel affordance, late-channel retirement, and replacement
+binds during the await are unchanged.
+
+Validation: red-first — a new `workspace_panes_test` regression parks
+pane A's channel close on a held completer, binds pane B to the same
+bookmark inside the window, then releases A; on the pre-fix code the
+late `disconnectServer` fired (log `tasks/run3-task29/sibling-race-red.log`,
+exit 1) and after the repair the shared reference stays, B remains
+bound and listable, and the alone-pane drop test still passes
+(`sibling-race-green.log`, exit 0). Focused pane suites — panes,
+cancel-regressions, reconnect, selection (state and controller), and
+workspace shell — 160 green (`sibling-race-focused.log`); app analyze
+clean; full app suite 630 green (`sibling-race-full-app.log`). Core,
+benchmark, pins, and dependencies untouched.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

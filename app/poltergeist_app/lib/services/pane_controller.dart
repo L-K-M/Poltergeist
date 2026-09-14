@@ -487,7 +487,14 @@ class PaneController extends ChangeNotifier {
   /// Keyed on the pending binding, not the location: the post-first-cancel
   /// state keeps a live remote channel with no location, and its unbind
   /// must not dead-end.
-  Future<void> cancelRecovery() async {
+  ///
+  /// [serverStillUnshared] re-checks that solitude AFTER the detach's
+  /// awaited channel release: a sibling pane may bind the same server
+  /// while that release is in flight, and dropping the reference then
+  /// would sever the sibling's fresh binding (the engine removes
+  /// whatever reference is current for the id). The controller owns no
+  /// sibling knowledge — the shell supplies the late re-check.
+  Future<void> cancelRecovery({bool Function()? serverStillUnshared}) async {
     final lanes = _lanes;
     final serverId = _pendingRemote?.id;
     if (_disposed || lanes == null || serverId == null) return;
@@ -496,6 +503,7 @@ class PaneController extends ChangeNotifier {
     final detachedAttempt = _bindAttempt + 1;
     await detachRemote();
     if (_disposed || _bindAttempt != detachedAttempt) return;
+    if (serverStillUnshared != null && !serverStillUnshared()) return;
     try {
       await lanes.disconnectServer(serverId);
     } on Object catch (error, stackTrace) {

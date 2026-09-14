@@ -37,6 +37,21 @@ class _HeldListingChannel extends session_test.FakeAppBrowseChannel {
   }
 }
 
+/// A pane channel whose close parks on a caller-held completer, so a
+/// cancel's awaited channel release can be frozen mid-flight while a
+/// sibling acts (the parked-close race window).
+class _HeldCloseChannel extends session_test.FakeAppBrowseChannel {
+  _HeldCloseChannel({required super.homePath});
+
+  Completer<void>? holdClose;
+
+  @override
+  Future<void> close() async {
+    await holdClose?.future;
+    await super.close();
+  }
+}
+
 Bookmark _remoteBookmark(String id) => Bookmark(
   id: id,
   kind: BookmarkKind.remotePath,
@@ -575,6 +590,79 @@ void main() {
       expect(lateLeft.listCalls, isEmpty);
       expect(find.text('late.txt'), findsNothing);
       expect(find.text('right.txt'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'an alone-decided cancel keeps a reference a sibling binds mid-detach',
+    (tester) async {
+      final held = heldConnectEngine();
+      final leftChannel = _HeldCloseChannel(homePath: '/srv/home')
+        ..listings['/srv/home'] = [
+          _entry('bound-then-lost.txt', parent: '/srv/home'),
+        ];
+      final rightChannel = session_test.FakeAppBrowseChannel(
+        homePath: '/srv/home',
+      )
+        ..listings['/srv/home'] = [_entry('sibling-late.txt', parent: '/srv/home')];
+      held.paneChannels['pane.left'] = leftChannel;
+      held.paneChannels['pane.right'] = rightChannel;
+      engine = held;
+
+      await pumpApp(tester);
+      final (left, right) = paneControllers(tester);
+
+      // Pane A binds srv-1 alone and browses; the sibling stays local.
+      await left.connectRemote(_remoteBookmark('srv-1'));
+      await tester.pumpAndSettle();
+      expect(find.text('bound-then-lost.txt'), findsOneWidget);
+
+      // The transport severs: the connection-lost banner offers Cancel.
+      held.statesControllers['srv-1']!.add(
+        const ServerStatus(ServerConnectionState.reconnecting),
+      );
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: find.byType(PaneView).first,
+          matching: find.byKey(const ValueKey('pane.banner')),
+        ),
+        findsOneWidget,
+      );
+
+      // Park A's channel close, then cancel: the shell decides A is
+      // alone (the sibling is local) before detachRemote's awaited
+      // release — the decision point the race hides behind.
+      final releaseClose = Completer<void>();
+      addTearDown(() {
+        if (!releaseClose.isCompleted) releaseClose.complete();
+      });
+      leftChannel.holdClose = releaseClose;
+      await tester.tap(find.byKey(const ValueKey('pane.banner.cancel')));
+      await tester.pump();
+      expect(left.phase, PanePhase.unbound);
+      expect(leftChannel.closeCalls, 0, reason: 'the close is parked');
+
+      // While A's release is parked, pane B binds the SAME server and
+      // starts listing on it — the reference A was about to drop.
+      await right.connectRemote(_remoteBookmark('srv-1'));
+      await tester.pumpAndSettle();
+      expect(right.phase, PanePhase.browsing);
+      expect(find.text('sibling-late.txt'), findsOneWidget);
+
+      // Releasing A must not drop the server reference B now shares:
+      // a late disconnect would sever B's fresh binding.
+      releaseClose.complete();
+      await tester.pumpAndSettle();
+
+      expect(
+        held.disconnectIds,
+        isEmpty,
+        reason: 'the sibling took the reference during the detach await',
+      );
+      expect(right.phase, PanePhase.browsing);
+      expect(find.text('sibling-late.txt'), findsOneWidget);
+      expect(leftChannel.closeCalls, 1);
     },
   );
 }
