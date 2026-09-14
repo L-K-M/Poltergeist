@@ -7,10 +7,23 @@ Three pure-Dart tier-A entrypoints live here:
 fixture on loopback under `test/integration/run.sh --lifecycle-only`,
 emit the shared `poltergeist-d12-results-1` document with their own
 per-scenario `scenarioConfig` axis, and stay unlanded in
-`test/benchmarks/budgets.json` until the CI bench job and calibration
-land (open item 21). All collectors are read-only against the fixture:
+`test/benchmarks/budgets.json` until real calibration lands (open item
+21) — the CI `bench` job runs them but only reports while nothing is
+landed. All collectors are read-only against the fixture:
 `canonicalize`, `listDirectory`, and (P5 only) a first-byte `download`
 that cancels itself after the first chunk — never a write.
+
+## CI bench job
+
+The `bench` job in `.github/workflows/ci.yml` runs all three collectors
+through `scripts/bench-tier-a.sh` under `run.sh --lifecycle-only`:
+each is compiled AOT (`dart compile exe`), run against `sshd-modern`,
+and its per-scenario document is merged by
+`scripts/merge_bench_results.dart` into the single `bench-results.json`
+that `test/benchmarks/check.dart --tiers a` grades and the job uploads
+as the `bench-results` artifact. The per-collector invocations below are
+the same commands that script issues; they remain useful for local
+iteration against a hand-started fixture.
 
 ## P3 — remote listing overhead
 
@@ -70,7 +83,7 @@ can never gate a budget.
 ## P3 real-fixture invocation
 
 Docker on this host is unavailable, so this command is documented, not
-locally verified (CI's bench job owns the first real run — open item 21):
+locally verified (the CI `bench` job runs exactly this):
 
 ```bash
 test/integration/run.sh --lifecycle-only -- bash -c '
@@ -121,7 +134,7 @@ missing. Local numbers are JIT and must never be quoted against a budget.
   against a test-owned catalog).
 - AOT compile of the exact source is verified locally
   (`dart compile exe`); the fixture-backed measurement itself was not run
-  on this host (no Docker) and remains open item 21's CI job.
+  on this host (no Docker); the CI `bench` job owns fixture runs.
 
 ## P7 — sync scan rate
 
@@ -166,7 +179,7 @@ row    =  value = entries / elapsed seconds (unclipped)
 ## P7 real-fixture invocation
 
 Docker on this host is unavailable, so this command is documented, not
-locally verified (CI's bench job owns the first real run — open item 21):
+locally verified (the CI `bench` job runs exactly this):
 
 ```bash
 test/integration/run.sh --lifecycle-only -- bash -c '
@@ -202,7 +215,7 @@ numbers are JIT and must never be quoted against a budget.
   bench job will emit).
 - AOT compile of the exact source is verified locally
   (`dart compile exe`); the fixture-backed measurement itself was not run
-  on this host (no Docker) and remains open item 21's CI job.
+  on this host (no Docker); the CI `bench` job owns fixture runs.
 
 ## P5 — drop to transfer start
 
@@ -276,7 +289,7 @@ row    =  value = drop → first byte (ms, unclipped)
 ## P5 real-fixture invocation
 
 Docker on this host is unavailable, so this command is documented, not
-locally verified (CI's bench job owns the first real run — open item 21):
+locally verified (the CI `bench` job runs exactly this):
 
 ```bash
 test/integration/run.sh --lifecycle-only -- bash -c '
@@ -315,4 +328,4 @@ budget.
   0, all reported).
 - AOT compile of the exact source is verified locally
   (`dart compile exe`); the fixture-backed measurement itself was not run
-  on this host (no Docker) and remains open item 21's CI job.
+  on this host (no Docker); the CI `bench` job owns fixture runs.
