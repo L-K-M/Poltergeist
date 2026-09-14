@@ -384,7 +384,8 @@ Future<P3RunOutcome> collectListingOverheadPairs({
         if (runBudgetBinds) {
           throw _RunBudgetExceeded(
             'run deadline exceeded during the $leg listing of $label '
-            '(${deadline.inMilliseconds} ms whole-run budget)',
+            '(${runClock.elapsed.inMilliseconds} ms elapsed of a '
+            '${deadline.inMilliseconds} ms whole-run budget)',
           );
         }
         throw TimeoutException('$leg listing', listingTimeout);
@@ -864,8 +865,9 @@ Map<String, Object?> _errorRowJson({
 const p3TempNameAttempts = 5;
 
 /// Platform "name already exists" codes for an exclusive create: POSIX
-/// EEXIST plus the Windows ERROR_ALREADY_EXISTS / ERROR_FILE_EXISTS pair
-/// File.create surfaces. Any other code rethrows and surfaces rather than
+/// EEXIST plus Windows ERROR_FILE_EXISTS (80), which File.create's
+/// exclusive CREATE_NEW surfaces (183 is kept defensively for other
+/// Windows create paths). Any other code rethrows and surfaces rather than
 /// silently retrying, which is the safe direction (EACCES, ENOENT, ENOSPC
 /// are persistent conditions a different timestamped name cannot fix).
 const p3NameExistsErrorCodes = {17, 80, 183};
@@ -913,7 +915,8 @@ Future<Object?> _writeResultsOrReport(
       return null;
     }
     throw FileSystemException(
-      'could not acquire an owned temporary file beside',
+      'could not acquire an owned temporary file after '
+      '$p3TempNameAttempts name collisions beside',
       config.outputPath,
     );
   } catch (error) {
