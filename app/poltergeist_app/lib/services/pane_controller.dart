@@ -1165,11 +1165,13 @@ class PaneController extends ChangeNotifier {
   /// [entries] keeps its immutable contract. Matching scans the cached
   /// [_loweredNames] — no per-row allocation per keystroke.
   List<RemoteFileEntry> _filteredListing() {
-    if (_filterQuery.isEmpty) return _listing;
+    // The invariant guards every read, not just filtered ones — a
+    // desynced cache is wrong even when no query is active.
     assert(
       _loweredNames.length == _listing.length,
       '_loweredNames out of sync with _listing — assign via _setListing',
     );
+    if (_filterQuery.isEmpty) return _listing;
     final folded = ListingFilter(_filterQuery).foldedQuery;
     return List.unmodifiable([
       for (var i = 0; i < _listing.length; i++)
