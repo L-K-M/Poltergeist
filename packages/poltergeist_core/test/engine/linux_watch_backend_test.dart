@@ -15,6 +15,7 @@ import 'package:test/test.dart';
 /// reproduction lives in `linux_inotify_overflow_test.dart`.
 void main() {
   const deadline = Duration(seconds: 10);
+  const cleanupDeadline = Duration(seconds: 30);
 
   Future<Directory> tempFixture(String name) async {
     final directory = await Directory.systemTemp.createTemp(name);
@@ -295,22 +296,38 @@ void main() {
       // own path; on an early failure (or a mid-loop spawn throw) cancel
       // here so the await below covers an actual release. A second
       // cancel returns the first future.
-      final pending = cancellation ?? subscription.cancel();
+      Future<void>? pending;
+      try {
+        pending = cancellation ?? subscription.cancel();
+      } catch (error, stackTrace) {
+        cancellationStalled = true;
+        printOnFailure(
+          'cancellation threw before returning its cleanup future: '
+          '$error\n$stackTrace',
+        );
+      }
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigterm);
       }
-      // Never let a stalled or errored cancellation displace the original
-      // failure or skip the kill/reap below — record the stall so a
-      // helper that stopped acknowledging cannot hide behind a green
-      // body; a cancel error on the green path already surfaced when the
-      // body awaited the same future.
-      try {
-        await pending.timeout(
-          const Duration(seconds: 30),
-          onTimeout: () => cancellationStalled = true,
-        );
-      } catch (_) {
-        cancellationStalled = true;
+      // Preserve a primary body failure while retaining enough detail to
+      // distinguish a stalled release from an errored one.
+      if (pending != null) {
+        try {
+          await pending.timeout(
+            cleanupDeadline,
+            onTimeout: () {
+              cancellationStalled = true;
+              printOnFailure(
+                'cancellation outlived the $cleanupDeadline cleanup bound',
+              );
+            },
+          );
+        } catch (error, stackTrace) {
+          cancellationStalled = true;
+          printOnFailure(
+            'cancellation errored during cleanup: $error\n$stackTrace',
+          );
+        }
       }
       for (final producer in producers) {
         producer.kill(ProcessSignal.sigkill);
