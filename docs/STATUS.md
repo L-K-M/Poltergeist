@@ -3937,6 +3937,62 @@ field-first chord guard. Real-font captures (DejaVu + MaterialIcons)
 of the closed strip, Add mode, and Remove mode are under
 `tasks/run3-task30/`. Full app suite and analyze green.
 
+## M3 — D12 P7 scan-rate collector (2026-09-14)
+
+Second tier-A collector in
+`packages/poltergeist_core/benchmark/p7_scan_rate.dart`, a pure-Dart
+entrypoint following the accepted P3 pattern (#108/#110/#112): it
+measures 02 §12's P7 scan rate ("sync scan rate, LAN", `atLeast 1000`
+entries/s) as **sustained bulk listing throughput of a fixture tree over
+one retained browse channel** — the measurement substrate of 05 §3's
+`TreeScanner` (the engine itself lands later; the scenario gates at M8).
+Each measured repetition recursively scans the canonicalized target tree
+with at most 8 outstanding `listDirectory` calls — 05 §3's pipelined
+readdir at D9's frozen `readdirDepth` — counting every entry (symlinks
+counted, never descended) and dividing by unclipped elapsed seconds.
+Warmups (≥1, default 2) are discarded; ≥5 measured scans are enforced by
+the collector — stricter than budgets.json's spec-mirrored P7 floor of 3
+(08 §6's generic floor; M8 names none, while P3's 5 comes from 07 §3.4's
+explicit median criterion). Rows emit `scenario: 'P7'`, `unit: 'entries/s'` in
+the shared `poltergeist-d12-results-1` document with a P7-specific
+`scenarioConfig` (canonical root, entry count, readdir depth, warmups,
+repetitions) on the per-scenario axis #112 established, so one results
+file carries P3 and P7 rows side by side.
+
+P3's seams are reused, not copied: `detectRunMode`, `medianOf`,
+`P3FingerprintFields`, and `p3ResultsSchemaId` are imported from the P3
+source; the owned exclusive-temp publication is a faithful mirror of the
+`p3TempNameAttempts` pattern (the same ownership class the checker's
+drift state carries) — no P3 file churn. The honest-failure contract is
+identical: usage errors exit 2 with no results file; measurement
+failures exit 1 with partial rows plus an error row carrying frozen
+entry counts; publication I/O exits 74. The whole-run deadline bounds
+both call issuance and the pipeline drain, so an in-flight listing is
+never waited out past the budget; the run deadline and per-listing
+timeout are attributed honestly (`run deadline` vs `listing timeout` in
+the error text). A mid-scan entry-count change fails the run; completed
+rows and the error row keep the frozen identity.
+
+Scope held: no app files, no engine/lib production changes, no fixture
+changes, no CI job or `BENCH_*` enforcement, no calibration values — P7
+stays `landed: false` and P1–P7 all unlanded; open item 21 still owns
+the bench job, calibration, and the landed flip. Validation:
+`packages/poltergeist_core/test/benchmark/p7_scan_rate_test.dart` adds
+39 tests (pipelined-walk ordering and depth bound, warmup discard,
+symlink non-descent, mid-run count-change guard incl. frozen partial-row
+configs, deadline/timeout attribution, owned-temp collision and symlink
+safety, channel cleanup on every path, CLI subprocess contracts, and the
+real `check.dart` CLI evaluating collector output — including a one-file
+P3+P7 mixed-config run under `--tiers a` with both scenarios unlanded,
+exit 0, both reported). `dart analyze packages/poltergeist_core` clean;
+`dart test packages/poltergeist_core` 844 green; `dart test
+test/benchmarks` 110/110 after standalone pub gets; `dart compile exe`
+of the exact source verified plus `--help` smoke of the binary (logs and
+exits under `tasks/run3-task31/`). Docker is unavailable on this host,
+so the real-fixture measurement command is documented in
+benchmark/README, not locally claimed — the CI bench job owns the first
+real run.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -4545,9 +4601,10 @@ of the closed strip, Add mode, and Remove mode are under
 21. **2026-09-14: M3 D12 benchmark jobs remain open.** The relocation gave
     the harness its planned home, and the offline checker PR (dated
     section above) landed `test/benchmarks/check.dart` + `budgets.json`
-    with all P1–P7 still unlanded. Still open: tier-A entrypoints for P3
-    (and later P5/P7) under `packages/*/benchmark/`, scenario collectors
-    writing the D12 results file, the ci.yml `bench` job reusing run.sh's
+    with all P1–P7 still unlanded. The P3 and P7 tier-A collectors have
+    since landed under `packages/poltergeist_core/benchmark/` (dated
+    sections above). Still open: the P5 tier-A entrypoint, the ci.yml
+    `bench` job reusing run.sh's
     `--lifecycle-only` mode and the documented drift-state artifact
     handoff, real calibration (tier-A calibratedFingerprint + tier-B
     baseline), landing scenarios as their surfaces arrive
