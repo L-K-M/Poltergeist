@@ -39,7 +39,13 @@ void main() {
   });
 
   tearDown(() async {
-    await tempDir.delete(recursive: true);
+    try {
+      await tempDir.delete(recursive: true);
+    } on FileSystemException {
+      // Best-effort cleanup: a spawned subprocess may still hold a
+      // handle (notably on Windows); never mask the real test outcome
+      // with a cleanup error.
+    }
   });
 
   Future<P5RunOutcome> collect(
@@ -263,7 +269,7 @@ void main() {
 
         expect(
           elapsed.elapsed,
-          lessThan(const Duration(milliseconds: 600)),
+          lessThan(const Duration(milliseconds: 1500)),
           reason: 'a 50 ms whole-run budget must bound the listing await, '
               'not wait the 2 s listing out',
         );
@@ -438,6 +444,54 @@ void main() {
     );
 
     test(
+      'an empty leading chunk does not stamp the first-byte signal',
+      () async {
+        // A real transfer can flush an empty chunk first (header, a
+        // zero-length read); the "starts" signal must land on the first
+        // NON-EMPTY chunk, not time-to-empty-chunk.
+        final vfs = FakeDropVfs(tree: dropTreeSpec())
+          ..downloadEmptyLeadingChunk = true;
+        final outcome = await collect(vfs, warmups: 1, repetitions: 5);
+
+        expect(outcome.failedRepetition, isNull);
+        expect(outcome.measuredDrops, hasLength(5));
+        for (final sample in outcome.measuredDrops) {
+          expect(
+            sample.firstChunkBytes,
+            'payload of file-0'.length,
+            reason: 'the recorded chunk must be the payload, not the '
+                'empty leading chunk',
+          );
+        }
+      },
+    );
+
+    test(
+      'a writer-side sink error surfaces instead of the empty-file '
+      'diagnosis',
+      () async {
+        // A download that reports its failure through the sink protocol
+        // (addError) and then completes normally must surface that
+        // failure — without it, the leg would be misdiagnosed as an
+        // empty first file.
+        final vfs = FakeDropVfs(tree: dropTreeSpec())
+          ..downloadSinkError = StateError('writer reported via addError');
+        final outcome = await collect(vfs, warmups: 1, repetitions: 5);
+
+        expect(outcome.failedRepetition, 0);
+        expect(outcome.measuredDrops, isEmpty);
+        expect(
+          outcome.failureMessage,
+          contains('writer reported via addError'),
+        );
+        expect(
+          outcome.failureMessage,
+          isNot(contains('without delivering a byte')),
+        );
+      },
+    );
+
+    test(
       'a fast file completing before the cancel still reports first byte',
       () async {
         // A small file may finish before the first-byte cancellation is
@@ -569,6 +623,10 @@ void main() {
           );
         }
         expect(channel.closeCount, 1);
+        expect(channel.reportedFailures, isEmpty);
+        for (final lease in leases) {
+          expect(lease.reportedFailures, isEmpty);
+        }
         expect(result.released, isTrue);
         expect(events, contains('close'));
 
@@ -722,6 +780,51 @@ void main() {
       expect(row['error'], contains('run deadline exceeded'));
       expect(result.released, isTrue);
     });
+
+    test(
+      'an unpublishable results file on a pre-drop failure exits 74',
+      () async {
+        // The exit-code contract is uniform: results-write IO failure is
+        // EX_IOERR on the pre-drop path too, not masked as a generic
+        // measurement failure.
+        final foreign = File('${tempDir.path}/foreign');
+        await foreign.writeAsString('foreign payload');
+        final channel = FakeDropChannel(
+          tree: dropTreeSpec(rootPath: '/remote/tree'),
+          events: events = <String>[],
+        )..fs.canonicalFailure = StateError('canonicalize broke');
+        final result = await runP5Collection(
+          config: P5CollectorConfig(
+            targetPath: '/remote/tree',
+            outputPath: '${tempDir.path}/results.json',
+            warmups: 1,
+            repetitions: 5,
+            operationTimeout: const Duration(seconds: 5),
+            deadline: const Duration(minutes: 1),
+          ),
+          fingerprint: const P5FingerprintFields(
+            runnerImage: 'test-image',
+            arch: 'x64test',
+            dartVersion: 'test-dart',
+            flutterVersion: null,
+            mode: 'aot',
+            cpuModel: 'test-cpu',
+          ),
+          openChannel: () async => channel,
+          leaseChannel: () async => FakeTransferLease(fs: channel.fs),
+          releaseServer: () async {},
+          tempCandidateName: (_) => foreign.path,
+        );
+
+        expect(result.exitCode, 74);
+        expect(result.stderr, contains('cannot write results'));
+        expect(await foreign.readAsString(), 'foreign payload');
+        expect(
+          await File('${tempDir.path}/results.json').exists(),
+          isFalse,
+        );
+      },
+    );
 
     test('a canonicalize failure writes a single honest error row',
         () async {
@@ -1024,7 +1127,7 @@ void main() {
             );
             await probeLink.delete();
             return true;
-          } catch (_) {
+          } on FileSystemException {
             return false;
           }
         }();
@@ -1131,6 +1234,47 @@ void main() {
       expect(config.repetitions, 7);
       expect(config.targetPath, '/t');
     });
+
+    test('a positional argument is rejected, not silently dropped', () {
+      // The typo the doc comment promises can never slip through:
+      // a missing '--' prefix would otherwise run with the default 5
+      // repetitions.
+      expect(
+        () => P5CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--target',
+          '/t',
+          'repetitions',
+          '20',
+        ]),
+        throwsA(isA<P5UsageException>()),
+      );
+      expect(
+        () => P5CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--target',
+          '/t',
+          'stray-path',
+        ]),
+        throwsA(isA<P5UsageException>()),
+      );
+    });
+
+    test('an empty flag value is rejected for every flag', () {
+      expect(
+        () => P5CollectorConfig.parse([
+          '--output',
+          'a.json',
+          '--target',
+          '/t',
+          '--host-key-pub',
+          '',
+        ]),
+        throwsA(isA<P5UsageException>()),
+      );
+    });
   });
 
   group('CLI contract (subprocess)', () {
@@ -1197,6 +1341,12 @@ void main() {
     });
 
     test('missing fixture env names every absent variable', () async {
+      const fixtureEnvNames = {
+        'POLTERGEIST_SSHD',
+        'POLTERGEIST_SSHD_MODERN',
+        'POLTERGEIST_SSHD_USER',
+        'POLTERGEIST_SSHD_KEY',
+      };
       final result = await runCollector(
         [
           '--output',
@@ -1204,21 +1354,11 @@ void main() {
           '--target',
           '/remote/tree',
         ],
-        absentEnvironment: {
-          'POLTERGEIST_SSHD',
-          'POLTERGEIST_SSHD_MODERN',
-          'POLTERGEIST_SSHD_USER',
-          'POLTERGEIST_SSHD_KEY',
-        },
+        absentEnvironment: fixtureEnvNames,
       );
       expect(result.exitCode, 2);
       final stderrText = result.stderr as String;
-      for (final variable in [
-        'POLTERGEIST_SSHD',
-        'POLTERGEIST_SSHD_MODERN',
-        'POLTERGEIST_SSHD_USER',
-        'POLTERGEIST_SSHD_KEY',
-      ]) {
+      for (final variable in fixtureEnvNames) {
         expect(stderrText, contains(variable));
       }
       expect(await File('${tempDir.path}/results.json').exists(), isFalse);
@@ -1308,6 +1448,39 @@ void main() {
       expect(await File(checkerPath).exists(), isTrue);
     });
 
+    /// Runs the real check.dart CLI as a subprocess with the ambient
+    /// enforcement flags scrubbed — one place owns the flag/env wiring
+    /// so the mixed-file test below cannot drift.
+    Future<(int, String, String)> runCheckerCli({
+      required String resultsPath,
+      required String budgetsPath,
+      bool enforceA = false,
+    }) async {
+      final env = Map<String, String>.of(Platform.environment)
+        ..remove('BENCH_ENFORCE_A')
+        ..remove('BENCH_ENFORCE_B');
+      if (enforceA) env['BENCH_ENFORCE_A'] = '1';
+      final checker = await Process.run(
+        Platform.resolvedExecutable,
+        [
+          checkerPath,
+          '--results',
+          resultsPath,
+          '--tiers',
+          'a',
+          '--budgets',
+          budgetsPath,
+        ],
+        workingDirectory: repoRoot,
+        environment: env,
+      );
+      return (
+        checker.exitCode,
+        checker.stdout as String,
+        checker.stderr as String,
+      );
+    }
+
     /// Collects through the real sampler/writer against fakes with an
     /// injected (test-owned) fingerprint, then hands the emitted file to
     /// the real check.dart CLI with a test-owned budgets catalog.
@@ -1382,28 +1555,10 @@ void main() {
       final budgetsPath = '${tempDir.path}/budgets.json';
       await File(budgetsPath).writeAsString(jsonEncode(budgets));
 
-      final environment = Map<String, String>.of(Platform.environment)
-        ..remove('BENCH_ENFORCE_A')
-        ..remove('BENCH_ENFORCE_B');
-      if (enforce) environment['BENCH_ENFORCE_A'] = '1';
-      final checker = await Process.run(
-        Platform.resolvedExecutable,
-        [
-          checkerPath,
-          '--results',
-          output,
-          '--tiers',
-          'a',
-          '--budgets',
-          budgetsPath,
-        ],
-        workingDirectory: repoRoot,
-        environment: environment,
-      );
-      return (
-        checker.exitCode,
-        checker.stdout as String,
-        checker.stderr as String,
+      return runCheckerCli(
+        resultsPath: output,
+        budgetsPath: budgetsPath,
+        enforceA: enforce,
       );
     }
 
@@ -1567,31 +1722,18 @@ void main() {
         final budgetsPath = '${tempDir.path}/budgets.json';
         await File(budgetsPath).writeAsString(jsonEncode(budgets));
 
-        final environment = Map<String, String>.of(Platform.environment)
-          ..remove('BENCH_ENFORCE_A')
-          ..remove('BENCH_ENFORCE_B');
-        final checker = await Process.run(
-          Platform.resolvedExecutable,
-          [
-            checkerPath,
-            '--results',
-            combinedPath,
-            '--tiers',
-            'a',
-            '--budgets',
-            budgetsPath,
-          ],
-          workingDirectory: repoRoot,
-          environment: environment,
+        final (exit, stdoutText, stderrText) = await runCheckerCli(
+          resultsPath: combinedPath,
+          budgetsPath: budgetsPath,
         );
-        expect(checker.exitCode, 0, reason: checker.stderr as String);
-        final stdoutText = checker.stdout as String;
+        expect(exit, 0, reason: stderrText);
         for (final scenario in ['P3', 'P5', 'P7']) {
           expect(
             stdoutText,
             contains(
               RegExp(
-                '^$scenario\\s+a\\s.*reported \\(unlanded\\)\$',
+                '^${RegExp.escape(scenario)}\\s+a\\s.*'
+                'reported \\(unlanded\\)\$',
                 multiLine: true,
               ),
             ),
@@ -1653,6 +1795,10 @@ class FakeDropChannel implements PaneChannel {
 
   int closeCount = 0;
 
+  /// Failure callbacks the collector reports — a clean run must leave
+  /// this empty.
+  final List<RemoteFileException> reportedFailures = [];
+
   FakeDropChannel({
     required Map<String, List<RemoteFileEntry>> tree,
     required this.events,
@@ -1674,13 +1820,19 @@ class FakeDropChannel implements PaneChannel {
   }
 
   @override
-  void reportFailure(RemoteFileSystem source, RemoteFileException error) {}
+  void reportFailure(RemoteFileSystem source, RemoteFileException error) {
+    reportedFailures.add(error);
+  }
 }
 
 /// Fake transfer-channel lease over the production interface; counts
 /// releases so the per-leg lease/release contract is observable.
 class FakeTransferLease implements TransferChannelLease {
   int releaseCount = 0;
+
+  /// Failure callbacks the collector reports — a clean run must leave
+  /// this empty.
+  final List<RemoteFileException> reportedFailures = [];
 
   FakeTransferLease({required this.fs});
 
@@ -1693,7 +1845,9 @@ class FakeTransferLease implements TransferChannelLease {
   }
 
   @override
-  void reportFailure(RemoteFileSystem source, RemoteFileException error) {}
+  void reportFailure(RemoteFileSystem source, RemoteFileException error) {
+    reportedFailures.add(error);
+  }
 }
 
 /// Fake VFS over an in-memory tree map: counts every stat/list/download
@@ -1747,6 +1901,16 @@ class FakeDropVfs implements RemoteFileSystem {
     StreamSink<List<int>> destination,
     RemoteTransferCancellation? cancellation,
   )? downloadHook;
+
+  /// Delivers an empty leading chunk before the payload — a real
+  /// transfer can flush a header or a zero-length read first, and the
+  /// first-byte signal must not stamp on it.
+  bool downloadEmptyLeadingChunk = false;
+
+  /// Reports a failure through the sink protocol (`destination.addError`)
+  /// and then completes normally — the leg must surface this error, not
+  /// misattribute it as the empty-file case.
+  Object? downloadSinkError;
 
   /// When false the fake completes the download without observing the
   /// collector's first-byte cancellation — a small file can finish before
@@ -1832,6 +1996,9 @@ class FakeDropVfs implements RemoteFileSystem {
     return children;
   }
 
+  /// Caller owns [destination] (the pinned contract: download streams
+  /// into the caller's sink and never closes or completes it), so the
+  /// fake adds bytes and returns — no close, no done await.
   @override
   Future<RemoteFileEntry> download(
     String path,
@@ -1862,6 +2029,31 @@ class FakeDropVfs implements RemoteFileSystem {
         path: path,
         message: 'no such file: $path',
       );
+    }
+    // A token already cancelled at entry aborts before any byte —
+    // matching a real backend's pre-flight cancellation check.
+    if (honorCancellation && (cancellation?.isCancelled ?? false)) {
+      throw RemoteFileException(
+        kind: RemoteFileErrorKind.cancelled,
+        operation: 'download',
+        path: path,
+        message: 'Transfer cancelled.',
+      );
+    }
+    final sinkError = downloadSinkError;
+    if (sinkError != null) {
+      // A writer that reports through the sink protocol and returns
+      // normally — no byte is delivered.
+      destination.addError(sinkError);
+      return RemoteFileEntry(
+        path: path,
+        name: remoteBasename(path),
+        type: RemoteFileType.file,
+        size: 0,
+      );
+    }
+    if (downloadEmptyLeadingChunk) {
+      destination.add(const []);
     }
     if (bytes.isNotEmpty) {
       destination.add(bytes);

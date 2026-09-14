@@ -247,6 +247,9 @@ final class P5CollectorConfig {
           'see --help.',
         );
       }
+      if (value.isEmpty) {
+        throw P5UsageException('$flag requires a non-empty value.');
+      }
       return value;
     }
 
@@ -261,11 +264,25 @@ final class P5CollectorConfig {
       '--repetitions',
       '--host-key-pub',
     };
-    for (final argument in arguments) {
-      if (argument.startsWith('-') && !knownFlags.contains(argument)) {
+    for (var i = 0; i < arguments.length; i++) {
+      final argument = arguments[i];
+      if (argument.startsWith('-')) {
+        if (!knownFlags.contains(argument)) {
+          throw P5UsageException(
+            'unknown option "$argument" (or a value starting with "-"); '
+            'see --help.',
+          );
+        }
+        continue;
+      }
+      // A positional token that does not immediately follow a known flag
+      // is a dropped flag's value or a stray path — reject it instead of
+      // silently running with defaults (the typo guard the doc comment
+      // promises).
+      final isFlagValue = i > 0 && knownFlags.contains(arguments[i - 1]);
+      if (!isFlagValue) {
         throw P5UsageException(
-          'unknown option "$argument" (or a value starting with "-"); '
-          'see --help.',
+          'unexpected positional argument "$argument"; see --help.',
         );
       }
     }
@@ -344,6 +361,13 @@ final class _FirstByteSink implements StreamSink<List<int>> {
   var _closed = false;
   final _done = Completer<void>();
 
+  /// A writer-side failure reported through the StreamSink protocol's
+  /// error channel. Surfaced by the leg when no byte ever arrived —
+  /// without it, a downloader that reports via `addError` and then
+  /// completes normally would be misattributed as the empty-file case.
+  Object? sinkError;
+  StackTrace? sinkStackTrace;
+
   _FirstByteSink({required this.onFirstChunk});
 
   @override
@@ -351,15 +375,17 @@ final class _FirstByteSink implements StreamSink<List<int>> {
     if (_closed) {
       throw StateError('cannot add to a closed first-byte sink');
     }
-    if (_chunkCount++ == 0) {
+    // Only a non-empty chunk is "the first byte": an empty leading chunk
+    // (header flush, zero-length read) must not stamp the start signal.
+    if (data.isNotEmpty && _chunkCount++ == 0) {
       onFirstChunk(data.length);
     }
   }
 
   @override
   void addError(Object error, [StackTrace? stackTrace]) {
-    // A source-side error surfaces through the awaited addStream/future;
-    // the sink has no channel of its own to report on.
+    sinkError ??= error;
+    sinkStackTrace ??= stackTrace;
   }
 
   @override
@@ -597,6 +623,16 @@ Future<P5RunOutcome> collectDropToStartSamples({
     }
     final elapsed = firstByteAt;
     if (elapsed == null) {
+      // A writer that reported its failure through the sink protocol and
+      // then completed normally surfaces that failure, not the
+      // empty-file diagnosis.
+      final sinkError = sink.sinkError;
+      if (sinkError != null) {
+        Error.throwWithStackTrace(
+          sinkError,
+          sink.sinkStackTrace ?? StackTrace.current,
+        );
+      }
       // An empty first file completes without a byte ever flowing — the
       // scenario is genuinely unobservable on it, so the leg fails
       // honestly instead of reporting the full-download time as "start".
@@ -767,7 +803,7 @@ Future<P5RunResult> runP5Collection({
     // requested (not canonical) path is the honest scenario provenance.
     Future<int> failBeforeDrop(String context, Object error) async {
       final message = '$context failed: ${_describe(error)}';
-      await _writeResultsOrReport(
+      final writeError = await _writeResultsOrReport(
         config,
         stderrBuffer,
         buildP5ResultsDocument(
@@ -791,7 +827,9 @@ Future<P5RunResult> runP5Collection({
         tempCandidateName: tempCandidateName,
       );
       stderrBuffer.writeln('P5 collection failed: $message');
-      return 1;
+      // An unpublishable results file is EX_IOERR (74) on this path too,
+      // matching the main write below.
+      return writeError == null ? 1 : 74;
     }
 
     // The stated whole-run budget covers setup too. Channel open and
@@ -1274,56 +1312,59 @@ Future<int> p5Main(
     cpuModel: await _cpuModel(env),
   );
 
-  // Production pool wiring over the committed fixture pin (08 §5): a
-  // healthy fixture never prompts; any host-key review is a failure.
-  final pinStore = InMemoryHostKeyStore();
-  await pinStore.put(
-    HostKey.fromPublicKey(
-      host: host,
-      port: port,
-      type: publicKeyFields[0],
-      publicKeyBase64: publicKeyFields[1],
-      pinnedAt: 0,
-    ),
-  );
-  final server = ServerConfig(
-    id: 'p5-collector',
-    label: 'p5-collector',
-    host: host,
-    port: port,
-    username: username,
-    authMethod: AuthMethod.privateKey,
-    createdAt: 0,
-    updatedAt: 0,
-  );
-  final manager = PooledConnectionManager(
-    resolveServer: (_) async => server,
-    resolveCredentials: (_, _) async => ResolvedCredentials(
-      credentials: SshCredentials.privateKey(privateKey),
-      origin: CredentialOrigin.stored,
-    ),
-    tofu: TofuVerifier(pinStore),
-    onHostKey: (decision) async {
-      writeStderr(
-        'fixture presented an unreviewed host key '
-        '(verdict ${decision.verdict.name}) — the pre-seeded pin does not '
-        'cover this server; refusing to benchmark against it',
-      );
-      return false;
-    },
-    policy: const PoolPolicy(),
-  );
-
   final transcript = <String>[];
   const transcriptTail = 20;
-  final transcriptSubscription = manager.connectLog.listen((line) {
-    transcript.add(line.line);
-    if (transcript.length > transcriptTail) {
-      transcript.removeRange(0, transcript.length - transcriptTail);
-    }
-  });
+  StreamSubscription<ConnectLogLine>? transcriptSubscription;
 
   try {
+    // Production pool wiring over the committed fixture pin (08 §5): a
+    // healthy fixture never prompts; any host-key review is a failure.
+    // Construction lives inside the try so an early throw gets the
+    // structured failure path rather than escaping p5Main raw.
+    final pinStore = InMemoryHostKeyStore();
+    await pinStore.put(
+      HostKey.fromPublicKey(
+        host: host,
+        port: port,
+        type: publicKeyFields[0],
+        publicKeyBase64: publicKeyFields[1],
+        pinnedAt: 0,
+      ),
+    );
+    final server = ServerConfig(
+      id: 'p5-collector',
+      label: 'p5-collector',
+      host: host,
+      port: port,
+      username: username,
+      authMethod: AuthMethod.privateKey,
+      createdAt: 0,
+      updatedAt: 0,
+    );
+    final manager = PooledConnectionManager(
+      resolveServer: (_) async => server,
+      resolveCredentials: (_, _) async => ResolvedCredentials(
+        credentials: SshCredentials.privateKey(privateKey),
+        origin: CredentialOrigin.stored,
+      ),
+      tofu: TofuVerifier(pinStore),
+      onHostKey: (decision) async {
+        writeStderr(
+          'fixture presented an unreviewed host key '
+          '(verdict ${decision.verdict.name}) — the pre-seeded pin does not '
+          'cover this server; refusing to benchmark against it',
+        );
+        return false;
+      },
+      policy: const PoolPolicy(),
+    );
+    transcriptSubscription = manager.connectLog.listen((line) {
+      transcript.add(line.line);
+      if (transcript.length > transcriptTail) {
+        transcript.removeRange(0, transcript.length - transcriptTail);
+      }
+    });
+
     final result = await runP5Collection(
       config: config,
       fingerprint: fingerprint,
@@ -1353,7 +1394,7 @@ Future<int> p5Main(
     }
     return 1;
   } finally {
-    await transcriptSubscription.cancel();
+    await transcriptSubscription?.cancel();
   }
 }
 
