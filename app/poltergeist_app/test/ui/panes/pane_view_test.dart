@@ -1522,6 +1522,10 @@ void main() {
       // cancels the load, never the filter.
       final hold = Completer<void>();
       channel.holdNext = hold;
+      addTearDown(() {
+        // A failing expect must not leave the fake's future stranded.
+        if (!hold.isCompleted) hold.complete();
+      });
       left.navigate('/home/tester/docs');
       await tester.pump(const Duration(milliseconds: 300));
 
