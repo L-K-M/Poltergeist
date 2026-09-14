@@ -152,8 +152,13 @@ void main() {
         await locked.readAsString();
         await Process.run('chmod', ['644', locked.path]);
         // A privileged reader (root) bypasses mode bits, so the EACCES
-        // path is untestable in this environment.
-        return;
+        // path is untestable in this environment — record it as a skip,
+        // not a silent pass (markTestSkipped's Skip is not caught by the
+        // FileSystemException clause below).
+        markTestSkipped(
+          'reader is privileged (root bypasses mode bits); EACCES '
+          'untestable',
+        );
       } on FileSystemException {
         // Expected: the mode change denies the read.
       }
