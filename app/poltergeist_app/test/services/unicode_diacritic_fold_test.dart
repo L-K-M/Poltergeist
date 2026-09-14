@@ -28,9 +28,11 @@ void main() {
     // Long s and final sigma fold under C+S but never lowercase.
     expect(typeAheadFold('ſ'), 's');
     expect(typeAheadFold('ς'), 'σ');
-    // The chained fold resolves at generation: lunate sigma reaches
-    // the same final sigma in one table hop.
+    // Lunate sigma folds within its own pair (03F9 → 03F2); the
+    // claimed 03F2 → 03C2 hop does not exist in 17.0.0's CaseFolding,
+    // so Ϲ and ς land on different code points.
     expect(typeAheadFold('Ϲ'), 'ϲ');
+    expect(typeAheadFold('Ϲ'), isNot(typeAheadFold('ς')));
   });
 
   test('letters without canonical decompositions stay distinct', () {
