@@ -3814,7 +3814,12 @@ owner — passes it from `_cancelPaneRecovery`, so the controller learns
 no sibling state and no engine layer grows UI knowledge. The predicate
 and the engine send are atomic in the app isolate and same-port sends
 are FIFO, so a sibling binding after the check reconnects on a fresh
-reference instead of being severed. Alone-pane cancellation (the
+reference instead of being severed — that ordering holds while bind
+and disconnect messages share one engine port, a required invariant
+of this fix. A sibling whose bind merely STARTED is also covered:
+connectRemote publishes the pending binding synchronously before its
+first await, so the predicate sees even an unsettled sibling connect
+(pinned by the mid-flight regression). Alone-pane cancellation (the
 reference still drops), the shared-server detach-only path, Esc and the
 post-grace Cancel affordance, late-channel retirement, and replacement
 binds during the await are unchanged.
@@ -3825,11 +3830,15 @@ bookmark inside the window, then releases A; on the pre-fix code the
 late `disconnectServer` fired (log `tasks/run3-task29/sibling-race-red.log`,
 exit 1) and after the repair the shared reference stays, B remains
 bound and listable, and the alone-pane drop test still passes
-(`sibling-race-green.log`, exit 0). Focused pane suites — panes,
-cancel-regressions, reconnect, selection (state and controller), and
-workspace shell — 160 green (`sibling-race-focused.log`); app analyze
-clean; full app suite 630 green (`sibling-race-full-app.log`). Core,
-benchmark, pins, and dependencies untouched.
+(`sibling-race-green.log`, exit 0). Review round 1's claimed mid-flight
+hole was refuted with the sibling's open parked at the engine boundary:
+the late check sees the pending bind and the parked open completes
+undisturbed (`pr111-midflight-refutation2.log`, exit 0). Focused pane
+suites — panes, cancel-regressions, reconnect, selection (state and
+controller), and workspace shell — 160 green (`sibling-race-focused.log`);
+app analyze clean; full app suite 631 green
+(`sibling-race-full-app-final.log`). Core, benchmark, pins, and
+dependencies untouched.
 
 ## Open items
 

@@ -494,6 +494,10 @@ class PaneController extends ChangeNotifier {
   /// would sever the sibling's fresh binding (the engine removes
   /// whatever reference is current for the id). The controller owns no
   /// sibling knowledge — the shell supplies the late re-check.
+  ///
+  /// Omitting [serverStillUnshared] drops the server reference
+  /// unconditionally — safe only where no sibling pane can bind the
+  /// same server during the detach await.
   Future<void> cancelRecovery({bool Function()? serverStillUnshared}) async {
     final lanes = _lanes;
     final serverId = _pendingRemote?.id;

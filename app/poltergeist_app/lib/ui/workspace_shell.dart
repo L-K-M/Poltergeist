@@ -320,6 +320,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (siblingShares) {
         await pane.detachRemote();
       } else {
+        // Two panes are the workspace's fixed shape (the product is a
+        // two-pane transfer client), so this single sibling IS every
+        // other pane — revisit both checks before any multi-pane shape.
         await pane.cancelRecovery(
           serverStillUnshared: () => sibling.remoteBookmark?.id != serverId,
         );

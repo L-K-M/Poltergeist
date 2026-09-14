@@ -665,4 +665,73 @@ void main() {
       expect(leftChannel.closeCalls, 1);
     },
   );
+
+  testWidgets(
+    "a mid-flight sibling bind is visible to the cancel's late check",
+    (tester) async {
+      final held = heldConnectEngine();
+      final leftChannel = _HeldCloseChannel(homePath: '/srv/home')
+        ..listings['/srv/home'] = [
+          _entry('bound-then-lost.txt', parent: '/srv/home'),
+        ];
+      final rightChannel = session_test.FakeAppBrowseChannel(
+        homePath: '/srv/home',
+      )
+        ..listings['/srv/home'] = [_entry('late-open.txt', parent: '/srv/home')];
+      held.paneChannels['pane.left'] = leftChannel;
+      held.paneChannels['pane.right'] = rightChannel;
+      // The sibling's open parks engine-side: its bind has STARTED (the
+      // pending binding published synchronously at connectRemote entry)
+      // but has not settled — the window a committed-state-only check
+      // would miss.
+      final heldRightOpen = Completer<void>();
+      held.heldOpens['pane.right'] = heldRightOpen;
+      addTearDown(() {
+        if (!heldRightOpen.isCompleted) heldRightOpen.complete();
+      });
+      engine = held;
+
+      await pumpApp(tester);
+      final (left, right) = paneControllers(tester);
+
+      await left.connectRemote(_remoteBookmark('srv-1'));
+      await tester.pumpAndSettle();
+      held.statesControllers['srv-1']!.add(
+        const ServerStatus(ServerConnectionState.reconnecting),
+      );
+      await tester.pump();
+
+      // Cancel A (decided alone) with its channel close parked.
+      final releaseClose = Completer<void>();
+      addTearDown(() {
+        if (!releaseClose.isCompleted) releaseClose.complete();
+      });
+      leftChannel.holdClose = releaseClose;
+      await tester.tap(find.byKey(const ValueKey('pane.banner.cancel')));
+      await tester.pump();
+      expect(left.phase, PanePhase.unbound);
+
+      // B starts binding the same server; its open parks at the engine.
+      final rightConnect = right.connectRemote(_remoteBookmark('srv-1'));
+      await tester.pump();
+      expect(right.phase, PanePhase.connectingRemote);
+      expect(heldRightOpen.isCompleted, isFalse);
+
+      // Releasing A mid-flight-B must not drop the shared reference.
+      // Bounded pumps: the connecting pane's spinner animates, so
+      // pumpAndSettle would never settle while the bind is pending.
+      releaseClose.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(held.disconnectIds, isEmpty);
+
+      // B's parked open completes: it binds and lists undisturbed.
+      heldRightOpen.complete();
+      await rightConnect;
+      await tester.pumpAndSettle();
+      expect(right.phase, PanePhase.browsing);
+      expect(find.text('late-open.txt'), findsOneWidget);
+      expect(left.phase, PanePhase.unbound);
+    },
+  );
 }
