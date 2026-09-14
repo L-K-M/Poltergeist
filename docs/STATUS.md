@@ -3668,8 +3668,9 @@ detected-mode fingerprint — `dart compile exe` output reports aot,
 source/kernel runs report jit, so a JIT process can never label itself
 AOT. Rows match `poltergeist-d12-results-1`; the per-row scenarioConfig
 axis records canonical paths, observed entry counts, warmups, and
-repetitions, so a changed tree surfaces as controlled-axis drift rather
-than a silent comparison. Honest failure paths: a failed listing or
+repetitions; a tree that changes size mid-run fails the run at the
+changing pair (error row, nonzero exit) instead of smearing one count
+across the rows. Honest failure paths: a failed listing or
 deadline writes the completed rows plus one error row and exits 1;
 missing flags/env or aliasing paths exit 2 with actionable messages and
 write nothing; channel close and server release are bounded and run on

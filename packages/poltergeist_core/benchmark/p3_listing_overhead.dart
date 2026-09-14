@@ -325,9 +325,12 @@ Future<P3RunOutcome> collectListingOverheadPairs({
   int? targetEntries;
 
   // The tree size frozen after warmups — the identity every measured row's
-  // fingerprint claims (see the check inside runPair below).
+  // fingerprint claims (see the check inside runPair below). With zero
+  // warmups the freeze observes nothing, so arming defers to the first
+  // measured pair instead of never firing.
   int? expectedControlEntries;
   int? expectedTargetEntries;
+  var identityArmed = false;
 
   P3RunOutcome fail(int repetition, String message) => P3RunOutcome(
     measuredPairs: pairs,
@@ -357,6 +360,10 @@ Future<P3RunOutcome> collectListingOverheadPairs({
     // entry counts are a fingerprint axis: a tree that changes size mid-run
     // cannot be represented honestly, so the run fails at the changing
     // pair instead of smearing one count across every row.
+    if (identityArmed) {
+      expectedControlEntries ??= controlEntries;
+      expectedTargetEntries ??= targetEntries;
+    }
     if (expectedControlEntries != null &&
         (expectedControlEntries != controlEntries ||
             expectedTargetEntries != targetEntries)) {
@@ -387,9 +394,11 @@ Future<P3RunOutcome> collectListingOverheadPairs({
     }
   }
 
-  // Freeze the observed tree size as the run's scenario identity.
+  // Freeze the observed tree size as the run's scenario identity; the
+  // guard below arms even when no warmup pair ran.
   expectedControlEntries = controlEntries;
   expectedTargetEntries = targetEntries;
+  identityArmed = true;
 
   for (var repetition = 0; repetition < repetitions; repetition++) {
     if (runClock.elapsed >= deadline) {
@@ -898,7 +907,8 @@ Future<int> p3Main(
     final keyLine = (await File(hostKeyPubPath).readAsString())
         .split('\n')
         .firstWhere(
-          (line) => line.trimLeft().startsWith('#') == false &&
+          (line) =>
+              line.trimLeft().startsWith('#') == false &&
               line.trim().isNotEmpty,
           orElse: () => '',
         );

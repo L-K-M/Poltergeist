@@ -196,6 +196,28 @@ void main() {
         expect(outcome.failureMessage, contains('9999'));
       },
     );
+
+    test('the entry-count guard also arms without warmups', () async {
+      var targetCalls = 0;
+      final outcome = await collectListingOverheadPairs(
+        listControl: () async => 2,
+        listTarget: () async {
+          targetCalls++;
+          // The tree changes size between the first and second measured
+          // pair; with no warmup pair the identity must freeze on the
+          // first observation instead of never arming.
+          return targetCalls == 1 ? 10000 : 9999;
+        },
+        warmups: 0,
+        repetitions: 5,
+        listingTimeout: const Duration(seconds: 5),
+        deadline: const Duration(minutes: 1),
+      );
+
+      expect(outcome.failedRepetition, 1);
+      expect(outcome.measuredPairs, hasLength(1));
+      expect(outcome.failureMessage, contains('entry count changed'));
+    });
   });
 
   group('medianOf', () {
@@ -646,6 +668,24 @@ void main() {
       expect(result.stderr as String, contains('--repetition'));
       expect(result.stderr as String, contains('unknown option'));
     });
+
+    test(
+      'zero warmups are rejected: the protocol requires warm pairs',
+      () async {
+        final result = await runCollector([
+          '--output',
+          '${tempDir.path}/results.json',
+          '--target',
+          '/a',
+          '--control',
+          '/b',
+          '--warmups',
+          '0',
+        ]);
+        expect(result.exitCode, 2);
+        expect(result.stderr as String, contains('--warmups'));
+      },
+    );
   });
 
   group('real checker CLI against collector output', () {
