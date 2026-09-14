@@ -863,6 +863,8 @@ void main() {
     await tester.pump();
     expect(right.phase, PanePhase.unbound);
     expect(right.remoteBookmark, isNull);
+    // Alone on srv-1: the cancel drops the server reference.
+    expect(lanes.disconnects, ['srv-1']);
 
     open.complete();
     await connecting;
