@@ -154,7 +154,9 @@ void main() {
       find.byKey(const ValueKey('capture.pane')),
     );
     final captureOn = Platform.environment['POLTERGEIST_CAPTURE'] == '1';
-    final outDir = Directory(_captureDir)..createSync(recursive: true);
+    // Only the Directory reference is built here; creation waits inside
+    // the gate so an ordinary suite run creates nothing.
+    final outDir = Directory(_captureDir);
 
     Future<void> capture(String name) async {
       if (!captureOn) return;
@@ -169,6 +171,7 @@ void main() {
           image.dispose();
         }
       }))!;
+      outDir.createSync(recursive: true);
       File('${outDir.path}/$name.png').writeAsBytesSync(bytes);
     }
 

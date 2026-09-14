@@ -359,7 +359,7 @@ void main() {
       // persisted key set itself: a new persisted field (a filter among
       // them) must trip this test.
       expect(
-        ViewPreferences().toJson().keys,
+        ViewPreferences().toJson().keys.toSet(),
         {
           'mode',
           'density',

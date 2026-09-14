@@ -136,7 +136,15 @@ class PaneController extends ChangeNotifier {
   /// sort, BEFORE the §2.5 name filter — [_entries] is this list seen
   /// through the active filter. Keeping the pre-filter listing is what
   /// lets clearing or widening a query re-show rows without a re-list.
+  /// Written only through [_setListing], which rebuilds the lowercased
+  /// basename cache in lockstep.
   List<RemoteFileEntry> _listing = const [];
+
+  /// Lowercased basenames parallel to [_listing] — the §2.5 filter scans
+  /// cached strings instead of re-lowercasing every name per keystroke,
+  /// the same per-keystroke allocation rationale as [_foldedNames].
+  /// Plain `toLowerCase`, NOT `typeAheadFold` (no diacritic stripping).
+  List<String> _loweredNames = const [];
   List<RemoteFileEntry> _entries = const [];
   RemoteFileException? _error;
   int _issuedGeneration = 0;
@@ -429,7 +437,7 @@ class PaneController extends ChangeNotifier {
     _error = snapshot?.error;
     _selection =
         snapshot?.selection ?? SelectionState<_RowKey>.begin(rows: const []);
-    _listing = snapshot?.listing ?? const [];
+    _setListing(snapshot?.listing ?? const []);
     _applyEntries(_filteredListing());
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
@@ -795,7 +803,7 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
-    _listing = const [];
+    _setListing(const []);
     _filterQuery = '';
     _filterFieldOpen = false;
     _applyEntries(const []);
@@ -938,7 +946,7 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     if (presentation == _BindingPresentation.replace) {
       _location = null;
-      _listing = const [];
+      _setListing(const []);
       // A replaced binding drops the filter with its listing — the
       // transient lens is scoped to the browsing session it was set in.
       _filterQuery = '';
@@ -1006,7 +1014,8 @@ class PaneController extends ChangeNotifier {
     // and the new listing prunes it (02 §2.5).
     _endQuickSelectSession();
     if (!_loadingActive()) {
-      _snapshot = _QuiescentSnapshot(_location, _listing, _error, _selection);
+      _snapshot =
+          _QuiescentSnapshot(_location, _listing, _error, _selection);
     }
     if (_location != target) {
       // The old entries stay visible (dimmed) during the load, but the
@@ -1033,7 +1042,7 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
-      _listing = _visibleSorted(listed);
+      _setListing(_visibleSorted(listed));
       _applyEntries(_filteredListing());
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
@@ -1139,16 +1148,29 @@ class PaneController extends ChangeNotifier {
     return sortFileEntries(visible);
   }
 
+  /// Assigns the accepted listing and rebuilds the lowercased-name cache
+  /// in lockstep — the filter's per-keystroke scan never re-lowercases
+  /// rows.
+  void _setListing(List<RemoteFileEntry> listing) {
+    _listing = listing;
+    _loweredNames = List.generate(
+      listing.length,
+      (i) => listing[i].name.toLowerCase(),
+    );
+  }
+
   /// The accepted listing seen through the §2.5 filter: an empty query
   /// passes [_listing] through unchanged; an active one keeps only
   /// case-insensitive substring matches, as an unmodifiable copy so
-  /// [entries] keeps its immutable contract.
+  /// [entries] keeps its immutable contract. Matching scans the cached
+  /// [_loweredNames] — no per-row allocation per keystroke.
   List<RemoteFileEntry> _filteredListing() {
     if (_filterQuery.isEmpty) return _listing;
-    final filter = ListingFilter(_filterQuery);
-    return List.unmodifiable(
-      _listing.where((entry) => filter.matches(entry.name)),
-    );
+    final folded = ListingFilter(_filterQuery).foldedQuery;
+    return List.unmodifiable([
+      for (var i = 0; i < _listing.length; i++)
+        if (_loweredNames[i].contains(folded)) _listing[i],
+    ]);
   }
 
   void _report(Object error, StackTrace stackTrace) {

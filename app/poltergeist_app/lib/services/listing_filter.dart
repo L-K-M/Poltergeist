@@ -16,10 +16,13 @@
 /// ſ, final sigma ς) the conservative answer is a miss, never a surprise
 /// match.
 final class ListingFilter {
-  ListingFilter(String query) : _folded = query.toLowerCase();
+  ListingFilter(String query) : foldedQuery = query.toLowerCase();
 
-  final String _folded;
+  /// The query under the same case mapping [matches] applies to names —
+  /// callers that cache lowered basenames per listing scan them against
+  /// this instead of re-lowercasing each name per keystroke.
+  final String foldedQuery;
 
   /// Whether [name] contains the query as a case-insensitive substring.
-  bool matches(String name) => name.toLowerCase().contains(_folded);
+  bool matches(String name) => name.toLowerCase().contains(foldedQuery);
 }

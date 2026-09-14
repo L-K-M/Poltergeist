@@ -1691,7 +1691,6 @@ class _FilterFieldState extends State<_FilterField> {
                 // substring — no glob, no diacritic folding).
                 child: Semantics(
                   label: l10n.paneFilterFieldLabel,
-                  textField: true,
                   child: TextField(
                     key: ValueKey(
                       '${widget.controller.paneTabId}.filter.field',
@@ -1709,7 +1708,15 @@ class _FilterFieldState extends State<_FilterField> {
                     // Enter keeps the active filter and returns focus to
                     // the listing — the strip stays mounted while a
                     // query is live so the helper text remains visible.
-                    onSubmitted: (_) => widget.onClosed(),
+                    // An empty query has nothing to keep: close the
+                    // strip instead of leaving an inert field mounted.
+                    onSubmitted: (_) {
+                      if (_query.text.isEmpty) {
+                        _clear();
+                      } else {
+                        widget.onClosed();
+                      }
+                    },
                   ),
                 ),
               ),

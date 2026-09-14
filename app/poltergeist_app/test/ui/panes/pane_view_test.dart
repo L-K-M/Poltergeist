@@ -1406,6 +1406,11 @@ void main() {
       await tester.enterText(field, 'r');
       await tester.pump();
       expect(left.entries.map((e) => e.name), ['report.txt']);
+      // The rendered rows themselves must change, not just the
+      // controller state.
+      expect(find.text('report.txt'), findsOneWidget);
+      expect(find.text('docs'), findsNothing);
+      expect(find.text('link'), findsNothing);
       // The `12 of 348` helper: visible of total.
       expect(find.text('1 of 3'), findsOneWidget);
 
@@ -1417,6 +1422,30 @@ void main() {
       expect(left.filterActive, isTrue);
       expect(leftNode.hasFocus, isTrue);
       expect(find.text('1 of 3'), findsOneWidget);
+    });
+
+    testWidgets('Enter on an empty query closes the inert strip', (
+      tester,
+    ) async {
+      localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      expect(field, findsOneWidget);
+      expect(left.filterActive, isFalse);
+
+      // Nothing to keep — Enter dismisses the strip outright rather
+      // than leaving an inert field mounted between path bar and list.
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(field, findsNothing);
+      expect(left.filterFieldOpen, isFalse);
+      expect(leftNode.hasFocus, isTrue);
     });
 
     testWidgets('Esc in the field is the field tier: clear and close', (
@@ -1507,6 +1536,10 @@ void main() {
       expect(left.entries.map((e) => e.name), ['report.txt']);
       hold.complete();
       await tester.pumpAndSettle();
+      // The cancelled listing's late answer must never land.
+      expect(left.location, const LocalPaneLocation('/home/tester'));
+      expect(left.filterActive, isTrue);
+      expect(left.entries.map((e) => e.name), ['report.txt']);
     });
 
     testWidgets('filtered-to-nothing renders the dedicated empty state', (
@@ -1554,6 +1587,23 @@ void main() {
       await tester.pump();
       await tester.enterText(field, 'report');
       await tester.pump();
+
+      await tester.tap(clear);
+      await tester.pump();
+      expect(left.filterActive, isFalse);
+      expect(field, findsNothing);
+      expect(left.entries.length, 3);
+      expect(leftNode.hasFocus, isTrue);
+
+      // The persistent state: committed query, focus on the listing —
+      // the primary real-world Clear path.
+      left.openFilter();
+      await tester.pump();
+      await tester.pump();
+      await tester.enterText(field, 'report');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(leftNode.hasFocus, isTrue);
 
       await tester.tap(clear);
       await tester.pump();

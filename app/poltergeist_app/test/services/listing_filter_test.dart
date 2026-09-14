@@ -30,6 +30,16 @@ void main() {
       expect(ListingFilter('ét').matches('Étude.doc'), isTrue);
     });
 
+    test('full lowercase is the mapping — fold-only letters are '
+        'conservative misses', () {
+      // Where the §2.3 simple fold and toLowerCase disagree (long s ſ,
+      // final sigma ς), the filter misses rather than surprise-matching:
+      // 's' does not reach ſ, and 'σ' does not reach ς.
+      expect(ListingFilter('s').matches('ſlip.bin'), isFalse);
+      expect(ListingFilter('σ').matches('end.ς'), isFalse);
+      expect(ListingFilter('ς').matches('end.ς'), isTrue);
+    });
+
     test('wildcards are ordinary characters — no glob semantics', () {
       // Quick Select's * glob must not leak in: in a filter, '*' only
       // matches a literal asterisk in the name.
@@ -43,6 +53,9 @@ void main() {
       // of reach ('home' must never hit every row).
       final filter = ListingFilter('home');
       expect(filter.matches('report.txt'), isFalse);
+      // Positive control: the query hits when the NAME contains it — a
+      // call site passing full paths would break this.
+      expect(filter.matches('home movies.txt'), isTrue);
     });
 
     test('an empty query matches everything (the pass-through lens)', () {
