@@ -289,33 +289,24 @@ jobs:
               - 'scripts/bench-tier-a.sh'
               - 'scripts/merge_bench_results.dart'
               - '.github/workflows/ci.yml'
-            fixture:
-              - 'test/integration/**'
-              - '.github/workflows/ci.yml'
       # Same guard as detect_integration: a matching PR, a main push, or a
       # dispatch always runs the job; an absent fixture fails those runs
-      # loudly instead of silently disabling the benchmark.
+      # loudly instead of silently disabling the benchmark. The step only
+      # executes for a bench-relevant reason, so a missing fixture is
+      # always an error here — never a silent skip.
       - name: Require fixture when its lifecycle changes
         id: fixture
         if: >-
           github.event_name != 'pull_request' ||
           steps.changes.outputs.bench == 'true'
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          FIXTURE_CHANGED: ${{ steps.changes.outputs.fixture }}
         run: |
           readonly fixture_path='test/integration/docker-compose.yml'
-          if [[ -f "$fixture_path" ]]; then
-            echo 'run=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$EVENT_NAME" != 'pull_request' || "$FIXTURE_CHANGED" == 'true' ]]; then
+          if [[ ! -f "$fixture_path" ]]; then
             echo "::error::Missing integration fixture: $fixture_path"
             exit 1
           fi
 
-          echo 'run=false' >> "$GITHUB_OUTPUT"
+          echo 'run=true' >> "$GITHUB_OUTPUT"
 
   # D12 tier-A benchmarks (08 §5/§6): the three collectors compile AOT and
   # run against the §5 sshd fixture on loopback, merged into one
