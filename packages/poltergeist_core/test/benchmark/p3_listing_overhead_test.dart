@@ -151,6 +151,69 @@ void main() {
       expect(outcome.failureMessage, contains('deadline'));
     });
 
+    test('the whole-run deadline caps an in-flight listing await', () async {
+      // The verification probe: with a 50 ms whole-run budget and a 5 s
+      // per-listing timeout, a 2 s control listing must not be waited
+      // out — pre-fix the sampler returned after 2018 ms and only then
+      // reported the deadline. The budget caps every await.
+      final elapsed = Stopwatch()..start();
+      final outcome = await collectListingOverheadPairs(
+        listControl: () async {
+          await Future<void>.delayed(const Duration(seconds: 2));
+          return 2;
+        },
+        listTarget: () async => 10000,
+        warmups: 1,
+        repetitions: 5,
+        listingTimeout: const Duration(seconds: 5),
+        deadline: const Duration(milliseconds: 50),
+      );
+      elapsed.stop();
+
+      expect(
+        elapsed.elapsed,
+        lessThan(const Duration(milliseconds: 600)),
+        reason:
+            'a 50 ms whole-run budget must bound the control await, not '
+            'wait the 2 s listing out',
+      );
+      expect(outcome.failedRepetition, 0);
+      expect(outcome.failureMessage, contains('run deadline exceeded'));
+      expect(outcome.failureMessage, contains('control listing'));
+      // Whole-run expiry is attributed distinctly from a per-listing
+      // timeout: no 5 s per-listing wording may appear.
+      expect(
+        outcome.failureMessage,
+        isNot(contains('timed out after ${5 * 1000} ms')),
+      );
+    });
+
+    test(
+      'a deadline consumed by the target leg is attributed distinctly',
+      () async {
+        final never = Completer<int>();
+        addTearDown(() {
+          if (!never.isCompleted) never.complete(10000);
+        });
+        final outcome = await collectListingOverheadPairs(
+          listControl: () async => 2,
+          listTarget: () => never.future,
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(milliseconds: 80),
+        );
+
+        expect(outcome.failedRepetition, 0);
+        expect(outcome.failureMessage, contains('run deadline exceeded'));
+        expect(outcome.failureMessage, contains('target listing'));
+        expect(
+          outcome.failureMessage,
+          isNot(contains('timed out after ${5 * 1000} ms')),
+        );
+      },
+    );
+
     test(
       'a warmup failure reports repetition 0 with unknown entries',
       () async {
@@ -507,6 +570,146 @@ void main() {
       final fingerprint = row['fingerprint']! as Map<String, Object?>;
       expect(fingerprint['scenarioConfig'], contains('entries=unknown'));
     });
+  });
+
+  group('results temp ownership', () {
+    Future<P3RunResult> runWithCandidates(
+      String output,
+      String Function(int attempt) candidateName,
+    ) {
+      return runP3Collection(
+        config: P3CollectorConfig(
+          targetPath: '/remote/target',
+          controlPath: '/remote/control',
+          outputPath: output,
+          warmups: 1,
+          repetitions: 5,
+          listingTimeout: const Duration(seconds: 5),
+          deadline: const Duration(minutes: 1),
+        ),
+        fingerprint: const P3FingerprintFields(
+          runnerImage: 'test-image',
+          arch: 'x64test',
+          dartVersion: 'test-dart',
+          flutterVersion: null,
+          mode: 'aot',
+          cpuModel: 'test-cpu',
+        ),
+        openChannel: () async => FakeBrowseChannel(
+          targetPath: '/remote/target',
+          controlPath: '/remote/control',
+          controlEntries: 2,
+          events: <String>[],
+        ),
+        releaseServer: () async {},
+        tempCandidateName: candidateName,
+      );
+    }
+
+    test(
+      'a preexisting file at a candidate name is never overwritten',
+      () async {
+        final output = '${tempDir.path}/results.json';
+        final foreign = File('${tempDir.path}/foreign');
+        await foreign.writeAsString('foreign payload');
+
+        final result = await runWithCandidates(output, (attempt) {
+          // The first candidate collides with a foreign regular file; the
+          // second must be a fresh, claimable name.
+          return attempt == 1 ? foreign.path : '$output.owned-$attempt.tmp';
+        });
+
+        expect(result.exitCode, 0, reason: result.stderr);
+        expect(
+          await foreign.readAsString(),
+          'foreign payload',
+          reason:
+              'a foreign file at a candidate name must never be '
+              'truncated',
+        );
+        expect(
+          await File(output).exists(),
+          isTrue,
+          reason: 'the write must claim a different owned name and publish',
+        );
+        expect(
+          await File('$output.owned-2.tmp').exists(),
+          isFalse,
+          reason: 'the owned temp is renamed away, not left behind',
+        );
+      },
+    );
+
+    test(
+      'a preexisting symlink at a candidate name is never followed',
+      () async {
+        final canCreateSymlinks = await () async {
+          try {
+            final probeLink = Link('${tempDir.path}/probe-link');
+            await probeLink.create(
+              '${tempDir.path}/probe-target',
+              recursive: false,
+            );
+            await probeLink.delete();
+            return true;
+          } catch (_) {
+            return false;
+          }
+        }();
+        if (!canCreateSymlinks) {
+          markTestSkipped(
+            'symlink creation unavailable on this platform/privilege '
+            '(Windows privilege probing per STATUS open item 1)',
+          );
+          return;
+        }
+
+        final output = '${tempDir.path}/results.json';
+        final sentinel = File('${tempDir.path}/sentinel');
+        await sentinel.writeAsString('sentinel payload');
+        final planted = Link('${tempDir.path}/planted.tmp');
+        await planted.create(sentinel.path);
+
+        final result = await runWithCandidates(output, (attempt) {
+          return attempt == 1 ? planted.path : '$output.owned-$attempt.tmp';
+        });
+
+        expect(result.exitCode, 0, reason: result.stderr);
+        expect(
+          await sentinel.readAsString(),
+          'sentinel payload',
+          reason:
+              'following the planted symlink would truncate the '
+              'sentinel — concrete data loss',
+        );
+        // The planted symlink itself must survive untouched (type check
+        // must not follow the link).
+        expect(
+          await FileSystemEntity.type(planted.path, followLinks: false),
+          FileSystemEntityType.link,
+        );
+        expect(await File(output).exists(), isTrue);
+      },
+    );
+
+    test(
+      'exhausted candidates fail closed without touching foreign files',
+      () async {
+        final output = '${tempDir.path}/results.json';
+        final foreign = File('${tempDir.path}/foreign');
+        await foreign.writeAsString('foreign payload');
+
+        final result = await runWithCandidates(
+          output,
+          (attempt) => foreign.path, // every candidate collides
+        );
+
+        expect(result.exitCode, 74);
+        expect(result.stderr, contains('cannot write results'));
+        expect(await foreign.readAsString(), 'foreign payload');
+        expect(await File(output).exists(), isFalse);
+      },
+    );
   });
 
   group('CLI contract (subprocess)', () {

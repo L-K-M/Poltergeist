@@ -3707,6 +3707,29 @@ workflow, no enforcement activation — item 21 remains open for the
 bench job, calibration, and the landed flip; P3's functional
 cancellation gate (open item 12) is untouched.
 
+**Companion repair (2026-09-14, same day).** Independent verification
+blocked the merge's acceptance with a runtime-red probe: the whole-run
+deadline was only checked between pairs, so a listing already in flight
+was waited out — a 50 ms budget with a 5 s per-listing timeout returned
+after 2018 ms and only then reported the deadline (probe
+`pr108-deadline-probe.dart`, exit 255). A source audit found the same
+ownership hole class #105 repaired for the checker: the results temp
+name was written without an exclusive claim, so a preexisting file or
+symlink at the predictable name would be truncated or followed. Both
+are repaired with regressions observed red first: every control/target
+await is capped at the lesser of the per-listing timeout and the
+positive remaining budget, the between-legs guard never starts a target
+after the control consumed the budget, and whole-run expiry attributes
+distinctly from a per-listing timeout (the probe now returns in ~66 ms,
+exit 0); the temp name is claimed with an exclusive create, only
+recognized platform name-exists codes (POSIX 17, Windows 80/183) retry
+with the next candidate, foreign resources are never written, followed,
+or deleted, and only an owned temp is cleaned. The deadline stops the
+wait, never the underlying VFS IO (no cancellation exists in the pinned
+interface — open item 12); the docs state this and the bounded cleanup
+retires the channel. No retry was added and no ownership pattern was
+shared with the checker (mirrored, not refactored).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
