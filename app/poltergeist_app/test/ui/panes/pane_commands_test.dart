@@ -301,6 +301,76 @@ void main() {
     expect(left.quickSelectActive, isFalse);
   });
 
+  testWidgets('view.filter is registered, pane-scoped, and resolves the '
+      'active pane at invocation', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final leftChannel = controller_test.FakePaneChannel('/home/tester');
+    leftChannel.listings['/home/tester'] = [_entry('a')];
+    final rightChannel = controller_test.FakePaneChannel('/srv/home');
+    rightChannel.listings['/srv/home'] = [_entry('x')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final workspace = WorkspaceController(left: left, right: right);
+    addTearDown(workspace.dispose);
+
+    lanes.nextLocalChannel = leftChannel;
+    await left.openLocalHome();
+    lanes.nextRemoteChannel = rightChannel;
+    await right.connectRemote(_remoteBookmark());
+    await tester.pump();
+
+    final filter = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kViewFilterCommandId);
+
+    // 02 §8.3's table: pane scope, ⌘F on macOS, Ctrl+F elsewhere.
+    expect(filter.scope, CommandScope.pane);
+    expect(
+      filter.activators!(TargetPlatform.macOS),
+      [
+        const SingleActivator(LogicalKeyboardKey.keyF, meta: true),
+      ],
+    );
+    expect(
+      filter.activators!(TargetPlatform.linux),
+      [
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true),
+      ],
+    );
+    expect(
+      filter.activators!(TargetPlatform.windows),
+      [
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true),
+      ],
+    );
+
+    // Enablement follows the ACTIVE pane; running opens the strip on
+    // that pane alone.
+    workspace.setActivePane(right);
+    expect(filter.enabled(), isTrue);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    await filter.run(tester.element(find.byType(Scaffold)));
+    expect(right.filterFieldOpen, isTrue);
+    expect(left.filterFieldOpen, isFalse);
+
+    // Re-resolution: switch the active pane and the same command object
+    // opens the other pane's strip.
+    workspace.setActivePane(left);
+    await filter.run(tester.element(find.byType(Scaffold)));
+    expect(left.filterFieldOpen, isTrue);
+    expect(right.filterFieldOpen, isTrue,
+        reason: 'the first open is per-pane state — it stays put');
+  });
+
   testWidgets('no chord fires while a text field holds focus', (
     tester,
   ) async {

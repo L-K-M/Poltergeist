@@ -75,7 +75,10 @@ final class ViewLocationKey {
 
 /// Persisted view options shared by tabs visiting the same location (02 §2.4).
 ///
-/// Hidden-file keyboard overrides belong to the tab and never enter this model.
+/// Hidden-file keyboard overrides belong to the tab and never enter this
+/// model. Neither does the §2.5 name filter (`view.filter`): it is per-tab
+/// and transient — never persisted here, never in §3 workspace snapshots
+/// or session restore, because a forgotten filter reads as data loss.
 final class ViewPreferences {
   ViewPreferences({
     this.mode = PaneViewMode.details,
