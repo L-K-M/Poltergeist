@@ -814,8 +814,18 @@ CheckReport evaluate({
   // results file observed nothing, so no fingerprint is ever compared
   // (or fabricated) for it.
   final runFingerprint = results.fingerprint;
+  if (results.rows.isEmpty) {
+    notices.add(
+      'NOTICE: results file contained no rows — nothing was observed '
+      'this run',
+    );
+  }
   var tierBDrifted = false;
-  var tierBComparisonObserved = false;
+  // Every expected tier-B scenario that reached comparison must actually
+  // compare for the run to count as a clean observation: a single
+  // skipped comparison (e.g. a missing baseline entry) vetoes the reset.
+  var tierBExpected = 0;
+  var tierBCompared = 0;
   if (tiers.contains(BenchTier.b) &&
       baseline != null &&
       runFingerprint != null) {
@@ -998,12 +1008,18 @@ CheckReport evaluate({
         '(median of ${eligible.length})';
 
     if (budget.tier == BenchTier.a) {
+      // Non-empty `eligible` implies non-empty rows implies a parsed
+      // fingerprint; promote it explicitly instead of asserting `!`.
+      final tierARunFingerprint = runFingerprint;
+      if (tierARunFingerprint == null) {
+        throw StateError('eligible rows imply a parsed fingerprint');
+      }
       _evaluateTierA(
         budget: budget,
         medianValue: medianValue,
         measured: measured,
         catalog: catalog,
-        runFingerprint: runFingerprint!,
+        runFingerprint: tierARunFingerprint,
         enforceA: enforceA,
         table: table,
         notices: notices,
@@ -1011,21 +1027,22 @@ CheckReport evaluate({
         tableRow: tableRow,
       );
     } else {
-      tierBComparisonObserved =
-          _evaluateTierB(
-            budget: budget,
-            medianValue: medianValue,
-            measured: measured,
-            baseline: baseline,
-            baselinePath: baselinePath,
-            enforceB: enforceB,
-            drifted: tierBDrifted,
-            table: table,
-            notices: notices,
-            failures: failures,
-            tableRow: tableRow,
-          ) ||
-          tierBComparisonObserved;
+      tierBExpected++;
+      if (_evaluateTierB(
+        budget: budget,
+        medianValue: medianValue,
+        measured: measured,
+        baseline: baseline,
+        baselinePath: baselinePath,
+        enforceB: enforceB,
+        drifted: tierBDrifted,
+        table: table,
+        notices: notices,
+        failures: failures,
+        tableRow: tableRow,
+      )) {
+        tierBCompared++;
+      }
     }
   }
 
@@ -1091,13 +1108,22 @@ CheckReport evaluate({
     // failed (measurement validity, drift, and budget failures are
     // distinct).
     final mayReset =
-        failures.isEmpty && firedDriftKeys.isEmpty && tierBComparisonObserved;
+        failures.isEmpty &&
+        firedDriftKeys.isEmpty &&
+        tierBCompared > 0 &&
+        tierBCompared == tierBExpected;
     // A main run persists something only when it has news: drift that
     // fired, or a genuinely clean observation that clears streaks. A
     // failed/unobserved run with no drift records nothing — rewriting
     // the store (even with byte-identical counts under a new updatedUtc)
     // would misrepresent when the streaks were last actually observed.
-    final hasNews = firedDriftKeys.isNotEmpty || mayReset;
+    // A clean run against a known-empty store has nothing to publish
+    // either: the write exists to record drift or to clear streaks (or
+    // to resolve unknown history), not to churn updatedUtc.
+    final hasNews =
+        firedDriftKeys.isNotEmpty ||
+        (mayReset &&
+            (stateUnknown || (priorState?.notices.isNotEmpty ?? false)));
     if (runKind == DriftRunKind.mainRun && hasNews) {
       newState = advanceDriftState(
         stateUnknown ? null : priorState,

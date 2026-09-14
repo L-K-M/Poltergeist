@@ -409,9 +409,14 @@ Future<void> _writeDriftState(
       await temporary.rename(target.path);
       return;
     } catch (_) {
-      // Cleanup only our own temp, then surface the IO failure.
-      if (await temporary.exists()) {
-        await temporary.delete();
+      // Cleanup only our own temp, then surface the original IO failure
+      // (best-effort: a failing cleanup must never mask it).
+      try {
+        if (await temporary.exists()) {
+          await temporary.delete();
+        }
+      } catch (_) {
+        // Best-effort cleanup; the original error is rethrown below.
       }
       rethrow;
     }

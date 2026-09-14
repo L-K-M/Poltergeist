@@ -1236,6 +1236,121 @@ void main() {
   });
 
   test(
+    'a partially-populated baseline cannot prove a clean main run',
+    () async {
+      final budgets = await writeFixture(
+        'budgets.json',
+        _budgetsJson(landedIds: {'P1', 'P4'}),
+      );
+      // The baseline carries P1 only: P4 is expected, fully measured, and
+      // yet uncomparable — a skipped comparison must veto the reset.
+      final baseline = await writeFixture(
+        'baseline.json',
+        _baselineJson(
+          scenarios: {
+            'P1': {'median': 100, 'unit': 'ms', 'repetitions': 3},
+          },
+        ),
+      );
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(
+          rows: [
+            for (var i = 0; i < 3; i++)
+              _rowJson(
+                scenario: 'P1',
+                repetition: i,
+                unit: 'ms',
+                fingerprint: _fingerprintJson(mode: 'profile'),
+              ),
+            for (var i = 0; i < 3; i++)
+              _rowJson(
+                scenario: 'P4',
+                repetition: i,
+                value: 80,
+                unit: 'ms',
+                fingerprint: _fingerprintJson(mode: 'profile'),
+              ),
+          ],
+        ),
+      );
+      final statePath = pathOf('state.json');
+      final prior = const DriftState({
+        'tier-b/cpu': DriftNoticeState(
+          consecutiveMainRuns: 3,
+          lastSeenUtc: '2026-09-14T00:00:00Z',
+        ),
+      }).toJson('2026-09-14T00:00:00Z');
+      await File(statePath).writeAsString(jsonEncode(prior));
+
+      final (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: [
+          '--results',
+          results,
+          '--tiers',
+          'b',
+          '--budgets',
+          budgets,
+          '--baseline',
+          baseline,
+          '--drift-state',
+          statePath,
+          '--update-drift-state',
+        ],
+      );
+      expect(exitCodeValue, 0, reason: 'soft mode, no graded failure');
+      expect(stdoutText, contains('no committed baseline entry for P4'));
+      expect(
+        await File(statePath).readAsString(),
+        jsonEncode(prior),
+        reason: 'a skipped comparison vetoes the reset',
+      );
+    },
+  );
+
+  test('a persisted stale streak reddens a read-only call', () async {
+    final budgets = await writeFixture(
+      'budgets.json',
+      _budgetsJson(landedIds: {'P1'}),
+    );
+    final baseline = await writeFixture(
+      'baseline.json',
+      _baselineJson(cpuModel: 'baseline-cpu'),
+    );
+    final results = await writeDriftResults();
+    final statePath = pathOf('state.json');
+    final seven = const DriftState({
+      'tier-b/cpu': DriftNoticeState(
+        consecutiveMainRuns: driftStaleThreshold,
+        lastSeenUtc: '2026-09-14T00:00:00Z',
+      ),
+    }).toJson('2026-09-14T00:00:00Z');
+    await File(statePath).writeAsString(jsonEncode(seven));
+
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+        '--drift-state',
+        statePath,
+      ],
+      environment: {'BENCH_ENFORCE_B': '1'},
+    );
+    expect(
+      exitCodeValue,
+      1,
+      reason: 'seven actual main drift runs already happened',
+    );
+    expect(stdoutText, contains('baseline stale — refresh required'));
+  });
+
+  test(
     'a read-only call does not grade a hypothetical next main run',
     () async {
       final budgets = await writeFixture(
@@ -1288,6 +1403,13 @@ void main() {
     'the state write never touches a pre-existing unrelated temp file',
     () async {
       final fixtures = await writeCleanTierBFixtures();
+      final prior = const DriftState({
+        'tier-b/cpu': DriftNoticeState(
+          consecutiveMainRuns: 3,
+          lastSeenUtc: '2026-09-14T00:00:00Z',
+        ),
+      }).toJson('2026-09-14T00:00:00Z');
+      await File(pathOf('state.json')).writeAsString(jsonEncode(prior));
       final unrelated = File(pathOf('state.json.tmp'));
       await unrelated.writeAsString('unrelated sentinel\n');
       await runChecker(
@@ -1381,9 +1503,10 @@ void main() {
     // Exactly the three fixtures and the blocked directory: no temp of
     // any name may linger after a failed publish.
     expect(
-      Directory(
-        tempDir.path,
-      ).listSync().map((entry) => entry.path.split('/').last).toSet(),
+      Directory(tempDir.path)
+          .listSync()
+          .map((entry) => entry.path.split(Platform.pathSeparator).last)
+          .toSet(),
       {'budgets.json', 'results.json', 'baseline.json', 'state.json'},
     );
   });
@@ -1448,6 +1571,34 @@ void main() {
       state.notices['tier-b/cpu']!.consecutiveMainRuns,
       6,
       reason: 'a failed run cannot prove a clean main observation',
+    );
+  });
+
+  test('a clean run against a known-empty store does not rewrite it', () async {
+    final fixtures = await writeCleanTierBFixtures();
+    final statePath = pathOf('state.json');
+    final empty = const DriftState({}).toJson('2026-09-14T00:00:00Z');
+    await File(statePath).writeAsString(jsonEncode(empty));
+    final (exitCodeValue, _, _) = await runChecker(
+      arguments: [
+        '--results',
+        fixtures.results,
+        '--tiers',
+        'b',
+        '--budgets',
+        fixtures.budgets,
+        '--baseline',
+        fixtures.baseline,
+        '--drift-state',
+        statePath,
+        '--update-drift-state',
+      ],
+    );
+    expect(exitCodeValue, 0);
+    expect(
+      await File(statePath).readAsString(),
+      jsonEncode(empty),
+      reason: 'no drift and nothing to clear means no write',
     );
   });
 

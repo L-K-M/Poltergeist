@@ -3564,7 +3564,26 @@ marking the skip (markTestSkipped neither throws nor returns — #102
 round 3 had accepted reviewer guidance to the contrary without
 exercising the branch; the chmod-unavailable guard got the same fix).
 
-Validation: analyzer clean; `dart test test/benchmarks` 90/90 (8 new
+Companion review round 1 (the confirmed major found a real hole in the
+reset gate, fixed with a failing regression first): a partially
+populated tier-B baseline (one expected scenario comparable, another
+skipped for a missing entry) cleared prior drift streaks — the
+OR-accumulated observation flag contradicted the run's own
+"skipped comparisons preserve" invariant; reset now requires every
+expected tier-B scenario that reached comparison to have actually
+compared. Also applied: best-effort temp cleanup that cannot mask the
+original IO error, a seeded prior streak in the clean-clears test (it
+was empty-in/empty-out), host-neutral basename extraction, an explicit
+fingerprint promotion instead of `!`, a loud notice when the results
+file carries no rows at all, and a guarded no-news write that also
+skips rewriting a known-empty store on clean runs (byte-identical).
+Declined with mapping: duplicating the CLI battery as core-level
+evaluate() tests — each suggested case already exists through the real
+entrypoint (errored-soft, empty-rows-expected, readOnly grading,
+reset preservation); one genuinely missing edge (a persisted
+threshold streak reddening a read-only call) was added.
+
+Validation: analyzer clean; `dart test test/benchmarks` 93/93 (11 new
 regressions plus the split drift-preservation cases); the supervisor's
 independent policy probe passes 7/7 (before: 6 failures) and the scoped
 chmod-shim run reports a real skip (before: fall-through failure).
