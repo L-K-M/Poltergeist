@@ -142,8 +142,10 @@ class _PaneViewState extends State<PaneView> {
       _graceTimer = null;
       _pastGrace = false;
       _quickSelectWasActive = false;
-      _filterFocusSeen = 0;
-      _filterStripWasVisible = false;
+      // Adopt the incoming controller's generation without treating it
+      // as a fresh focus request, and leave the visibility latch alone
+      // so a rebind-driven strip unmount is still seen as `justClosed`.
+      _filterFocusSeen = widget.controller.filterFocusGeneration;
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
@@ -1775,7 +1777,7 @@ class _FilteredEmpty extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           FilledButton.tonal(
-            key: const ValueKey('pane.filter.emptyClear'),
+            key: ValueKey('${controller.paneTabId}.filter.emptyClear'),
             onPressed: controller.clearFilter,
             child: Text(l10n.paneFilterClear),
           ),

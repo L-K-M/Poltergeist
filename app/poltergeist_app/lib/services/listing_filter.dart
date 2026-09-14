@@ -24,5 +24,9 @@ final class ListingFilter {
   final String foldedQuery;
 
   /// Whether [name] contains the query as a case-insensitive substring.
+  ///
+  /// Reference semantics: `PaneController._filteredListing` inlines this
+  /// exact test against its cached lowered names — keep the two
+  /// equivalent, and prefer the cached scan for full listings.
   bool matches(String name) => name.toLowerCase().contains(foldedQuery);
 }

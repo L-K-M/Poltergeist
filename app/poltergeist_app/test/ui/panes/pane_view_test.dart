@@ -1370,10 +1370,14 @@ void main() {
     final field = find.byKey(const ValueKey('pane.left.filter.field'));
     final clear = find.byKey(const ValueKey('pane.left.filter.clear'));
 
-    bool fieldHasFocus(WidgetTester tester) =>
-        tester.binding.focusManager.primaryFocus?.context
-            ?.findAncestorWidgetOfExactType<EditableText>() !=
-        null;
+    // Resolve the field's own EditableText — primaryFocus scanning for
+    // any editable would report a different text surface as a hit.
+    bool fieldHasFocus(WidgetTester tester) => tester
+        .widget<EditableText>(
+          find.descendant(of: field, matching: find.byType(EditableText)),
+        )
+        .focusNode
+        .hasFocus;
 
     testWidgets('view.filter opens the strip, filters live, Enter keeps', (
       tester,
@@ -1565,13 +1569,15 @@ void main() {
       // blank pane.
       expect(find.text('No items match "zzz"'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('pane.filter.emptyClear')),
+        find.byKey(const ValueKey('pane.left.filter.emptyClear')),
         findsOneWidget,
       );
       expect(find.text('This folder is empty.'), findsNothing,
           reason: 'the listing is not empty — the FILTER is');
 
-      await tester.tap(find.byKey(const ValueKey('pane.filter.emptyClear')));
+      await tester.tap(
+        find.byKey(const ValueKey('pane.left.filter.emptyClear')),
+      );
       await tester.pump();
       expect(left.filterActive, isFalse);
       expect(left.entries.length, 3);

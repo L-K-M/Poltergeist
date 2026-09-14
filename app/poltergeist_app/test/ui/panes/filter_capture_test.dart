@@ -19,10 +19,12 @@ import '../../services/pane_controller_test.dart' as controller_test;
 /// filtered-empty state for visual review. The widget-test default font
 /// renders hollow boxes, so the capture loads a real face when the host
 /// provides one — set POLTERGEIST_CAPTURE_FONT_DIR or rely on the DejaVu
-/// fallback. The PNGs land in tasks/run3-task35/ at the repo root, and
-/// POLTERGEIST_CAPTURE=1 gates every artifact write so an ordinary suite
-/// run produces no files.
-const _captureDir = '../../tasks/run3-task35';
+/// fallback. The PNGs land in tasks/run3-task35/ at the repo root (or
+/// POLTERGEIST_CAPTURE_DIR when set), and POLTERGEIST_CAPTURE=1 gates
+/// every artifact write so an ordinary suite run produces no files.
+final _captureDir =
+    Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
+    '../../tasks/run3-task35';
 
 Future<ByteData> _fontBytes(String path) async =>
     ByteData.view(File(path).readAsBytesSync().buffer);
@@ -36,6 +38,19 @@ Future<void> _loadRealFonts() async {
   final sans = File('$dir/DejaVuSans.ttf');
   final sansBold = File('$dir/DejaVuSans-Bold.ttf');
   final mono = File('$dir/DejaVuSansMono.ttf');
+  // Kind glyphs are MaterialIcons codepoints: without the icon font they
+  // rasterize as tofu boxes. It ships inside the Flutter SDK, so it loads
+  // even when the host has no DejaVu faces (text then falls back to
+  // boxes, which is still a usable capture).
+  final icons = File(
+    '${Platform.environment['FLUTTER_ROOT'] ?? ''}'
+    '/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+  );
+  if (icons.existsSync()) {
+    final iconsLoader = FontLoader('MaterialIcons')
+      ..addFont(_fontBytes(icons.path));
+    await iconsLoader.load();
+  }
   if (!sans.existsSync()) return; // boxes are still a usable capture
   final loader = FontLoader('DejaVu Sans')
     ..addFont(_fontBytes(sans.path));
@@ -45,17 +60,6 @@ Future<void> _loadRealFonts() async {
     final monoLoader = FontLoader('DejaVu Sans Mono')
       ..addFont(_fontBytes(mono.path));
     await monoLoader.load();
-  }
-  // Kind glyphs are MaterialIcons codepoints: without the icon font they
-  // rasterize as tofu boxes. It ships inside the Flutter SDK.
-  final icons = File(
-    '${Platform.environment['FLUTTER_ROOT'] ?? ''}'
-    '/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
-  );
-  if (icons.existsSync()) {
-    final iconsLoader = FontLoader('MaterialIcons')
-      ..addFont(_fontBytes(icons.path));
-    await iconsLoader.load();
   }
 }
 

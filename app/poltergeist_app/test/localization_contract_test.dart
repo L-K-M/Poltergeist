@@ -269,7 +269,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${widget.controller.paneTabId}.quickSelect.field'",
     r"'${widget.controller.paneTabId}.filter.field'",
     r"'${widget.controller.paneTabId}.filter.clear'",
-    "'pane.filter.emptyClear'",
+    r"'${controller.paneTabId}.filter.emptyClear'",
     "''",
     "'/'",
     "'\\\\'",

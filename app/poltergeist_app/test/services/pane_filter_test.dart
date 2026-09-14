@@ -293,6 +293,8 @@ void main() {
       expect(controller.entries.map((e) => e.name), ['report.txt']);
       hold.complete();
       await settle();
+      // The cancelled navigation's late completion must be a no-op.
+      expect(controller.entries.map((e) => e.name), ['report.txt']);
       controller.dispose();
     });
 

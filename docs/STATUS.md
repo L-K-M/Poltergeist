@@ -4158,6 +4158,7 @@ packages/poltergeist_core` clean; the P3 file runs 39 tests green;
 `dart test packages/poltergeist_core` 905 pass (16 fixture skips
 unchanged); `dart test test/benchmarks` 110/110 after the standalone
 pub gets (logs and exits under `tasks/run3-task36/`).
+
 ## M3 — Filter field: view.filter (2026-09-14)
 
 `view.filter` (⌘F/Ctrl+F, 02 §2.5) is live: the command is registered
