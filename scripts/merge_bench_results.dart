@@ -90,6 +90,15 @@ Future<int> mergeMain(List<String> arguments) async {
       stderr.writeln('$path: results document has no rows list');
       return dataExitCode;
     }
+    // Reject non-object rows here, not downstream: once merged into the
+    // shared file, a malformed row can no longer be attributed to the
+    // per-scenario document that carried it.
+    for (final row in documentRows) {
+      if (row is! Map<String, Object?>) {
+        stderr.writeln('$path: rows contains a non-object entry');
+        return dataExitCode;
+      }
+    }
     rows.addAll(documentRows);
   }
 
