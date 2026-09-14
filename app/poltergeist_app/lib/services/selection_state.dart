@@ -174,7 +174,7 @@ final class SelectionState<Key extends Object> {
     final rowSet = _rows.toSet();
     for (final key in selection) {
       if (!rowSet.contains(key)) {
-        throw ArgumentError.value(key, 'key', 'not a visible row');
+        throw ArgumentError.value(key, 'selectedKeys', 'not a visible row');
       }
     }
 

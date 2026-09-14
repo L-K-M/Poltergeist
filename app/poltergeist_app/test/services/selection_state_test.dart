@@ -11,7 +11,7 @@ void main() {
   test('starts with copied, immutable rows and selection', () {
     final rows = List<int>.of(_rows);
     final selected = [2, 3];
-    final state = _begin(selected: selected);
+    final state = _begin(rows: rows, selected: selected);
     rows.clear();
     selected.clear();
 
