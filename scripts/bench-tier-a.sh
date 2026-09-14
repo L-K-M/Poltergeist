@@ -38,6 +38,7 @@ command -v "$dart_binary" >/dev/null
 status=0
 compile_collector() {
   local scenario="$1" source="$2"
+  rm -f -- "$bin_dir/$scenario"
   "$dart_binary" compile exe "$source" -o "$bin_dir/$scenario" \
     || status="$?"
 }
