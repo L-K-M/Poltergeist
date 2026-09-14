@@ -997,7 +997,7 @@ void main() {
       // The merged label replaces the children: the name is announced
       // exactly once, on the row node itself.
       expect(
-        find.bySemanticsLabel(RegExp('report.txt')),
+        find.bySemanticsLabel(RegExp(r'report\.txt')),
         findsOneWidget,
       );
     } finally {
