@@ -590,6 +590,14 @@
   "@paneSwapFocusLabel": {
     "description": "Command label: swap focus between the panes."
   },
+  "editSelectAllLabel": "Select All",
+  "@editSelectAllLabel": {
+    "description": "Command label: select every row of the focused pane's listing (edit.selectAll, 02 §2.5)."
+  },
+  "editInvertSelectionLabel": "Invert Selection",
+  "@editInvertSelectionLabel": {
+    "description": "Command label: replace the focused pane's selection with its complement (edit.invertSelection, 02 §2.5)."
+  },
   "connectionsOpenInPane": "Open in Pane",
   "@connectionsOpenInPane": {
     "description": "Tooltip of the Connections row action that opens the bookmark in the active pane."

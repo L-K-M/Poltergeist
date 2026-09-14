@@ -6,6 +6,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'engine_session.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
+import 'selection_state.dart';
 
 /// Where a pane currently stands in the binding lifecycle. Listing-level
 /// loading/error state is separate ([PaneController.loading],
@@ -38,13 +39,43 @@ const _connectionLostError = RemoteFileException(
 
 /// The last quiescent state, captured on every not-loading → loading
 /// transition (02 §2.8): Esc-cancel restores exactly this, never a
-/// transient mid-navigation state.
+/// transient mid-navigation state. The selection is immutable, so the
+/// snapshot shares it without copying.
 class _QuiescentSnapshot {
-  const _QuiescentSnapshot(this.location, this.entries, this.error);
+  const _QuiescentSnapshot(
+    this.location,
+    this.entries,
+    this.error,
+    this.selection,
+  );
 
   final PaneLocation? location;
   final List<RemoteFileEntry> entries;
   final RemoteFileException? error;
+  final SelectionState<_RowKey> selection;
+}
+
+/// Stable identity of one visible row within a listing: the entry's
+/// full path plus an occurrence ordinal. Paths are unique per row in
+/// every listing the engine can produce EXCEPT decoded-name collisions
+/// (two raw byte names decoding to the same string share a path
+/// string); the ordinal keeps every such row a distinct identity
+/// without inventing a name heuristic (raw-byte disambiguation stays
+/// open with STATUS item 13 — two colliding rows may swap ordinals
+/// across a reorder until it lands).
+@immutable
+class _RowKey {
+  const _RowKey(this.path, this.occurrence);
+
+  final String path;
+  final int occurrence;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _RowKey && other.path == path && other.occurrence == occurrence;
+
+  @override
+  int get hashCode => Object.hash(path, occurrence);
 }
 
 /// Which app-side operation failed for a non-VFS fault: the pane view
@@ -57,10 +88,7 @@ enum PaneFault { connectionOpen, localOpen, listFolder }
 /// identity for the view's localized diagnostic line.
 class PaneFaultException extends RemoteFileException {
   PaneFaultException(this.fault, {required super.operation})
-    : super(
-        kind: RemoteFileErrorKind.other,
-        message: 'fault:${fault.name}',
-      );
+    : super(kind: RemoteFileErrorKind.other, message: 'fault:${fault.name}');
 
   final PaneFault fault;
 }
@@ -108,8 +136,17 @@ class PaneController extends ChangeNotifier {
   ServerStatus? _connectionStatus;
   _RecoveryPhase _recovery = _RecoveryPhase.none;
   Bookmark? _pendingRemote;
-  int? _cursorIndex;
   bool _disposed = false;
+
+  // Row identity and selection (02 §2.5): keys mirror [_entries] and the
+  // immutable SelectionState owns cursor, anchor, and selected keys as
+  // identities, so reorders and same-location refreshes keep surviving
+  // rows selected and never re-target a moved index.
+  List<_RowKey> _rowKeys = const [];
+  Map<_RowKey, int> _rowKeyIndex = const {};
+  SelectionState<_RowKey> _selection = SelectionState<_RowKey>.begin(
+    rows: const [],
+  );
 
   /// Binds and rebinds are serialized by this attempt counter: a stale
   /// bind's completions (open, teardown, watch events) drop themselves.
@@ -163,8 +200,19 @@ class PaneController extends ChangeNotifier {
   Bookmark? get remoteBookmark => _pendingRemote;
 
   /// The keyboard cursor row into [entries]; null until the first key
-  /// press or row tap.
-  int? get cursorIndex => _cursorIndex;
+  /// press or row tap. Derived from the selection state's cursor
+  /// identity, so the observable cursor API keeps its contract while
+  /// the cursor stays an identity that row replacement can prune.
+  int? get cursorIndex => _rowKeyIndex[_selection.cursorKey];
+
+  /// How many visible rows are selected.
+  int get selectedCount => _selection.selectedKeys.length;
+
+  /// Whether the visible row at [index] is selected.
+  bool isRowSelected(int index) =>
+      index >= 0 &&
+      index < _rowKeys.length &&
+      _selection.selectedKeys.contains(_rowKeys[index]);
 
   /// Binds the pane to a remote bookmark: closes any previous channel,
   /// subscribes to the server's state lane BEFORE connecting (live
@@ -245,13 +293,11 @@ class PaneController extends ChangeNotifier {
         _phase = PanePhase.browsing;
         notifyListeners();
 
-        final remotePath = initialPath ??
-            _pendingRemotePath ??
-            bookmark.remotePath;
-        final target =
-            remotePath == null || remotePath == '/'
-                ? channel.homePath
-                : remotePath;
+        final remotePath =
+            initialPath ?? _pendingRemotePath ?? bookmark.remotePath;
+        final target = remotePath == null || remotePath == '/'
+            ? channel.homePath
+            : remotePath;
         final location = RemotePaneLocation(bookmark.id, target);
         if (_recovery == _RecoveryPhase.waiting &&
             _connectionStatus?.state != ServerConnectionState.connected) {
@@ -316,18 +362,20 @@ class PaneController extends ChangeNotifier {
   /// The Esc tier that cancels navigation (02 §2.8): drops every in-flight
   /// generation by advancing the counters (never backward — a late answer
   /// from the cancelled navigation arrives stale and is swallowed) and
-  /// restores the last quiescent snapshot, including its error.
+  /// restores the last quiescent snapshot, including its error and
+  /// selection.
   void cancelNavigation() {
     if (_disposed || connectionLost || !_loadingActive()) return;
 
     final snapshot = _snapshot;
     _location = snapshot?.location;
-    _entries = snapshot?.entries ?? const [];
     _error = snapshot?.error;
+    _selection =
+        snapshot?.selection ?? SelectionState<_RowKey>.begin(rows: const []);
+    _applyEntries(snapshot?.entries ?? const []);
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
-    _cursorIndex = null;
     notifyListeners();
   }
 
@@ -352,10 +400,7 @@ class PaneController extends ChangeNotifier {
     if (_phase == PanePhase.connectingRemote && _error != null) {
       final bookmark = _pendingRemote;
       if (bookmark != null) {
-        await connectRemote(
-          bookmark,
-          initialPath: _pendingRemotePath,
-        );
+        await connectRemote(bookmark, initialPath: _pendingRemotePath);
         return;
       }
     }
@@ -378,20 +423,58 @@ class PaneController extends ChangeNotifier {
 
   /// Moves the cursor by [delta], clamped to the listing. An unset
   /// cursor seeds from the list's far end (first Down selects the first
-  /// row, first Up the last — the Finder convention).
-  void moveCursorBy(int delta) {
+  /// row, first Up the last — the Finder convention). [update] selects
+  /// the gesture: plain movement single-selects the target row, a range
+  /// update extends the anchored selection to it (02 §2.5).
+  void moveCursorBy(
+    int delta, {
+    SelectionUpdate update = SelectionUpdate.single,
+  }) {
     if (_entries.isEmpty) return;
     final seed = delta > 0 ? -1 : _entries.length;
-    final next = (_cursorIndex ?? seed) + delta;
-    setCursorIndex(next.clamp(0, _entries.length - 1));
+    final next = (cursorIndex ?? seed) + delta;
+    setCursorIndex(next.clamp(0, _entries.length - 1), update: update);
   }
 
-  /// Sets the cursor to [index] (a row tap or a direct jump), clamped.
-  void setCursorIndex(int index) {
+  /// Sets the cursor to [index] (a row tap or a direct jump), clamped,
+  /// applying [update] to the selection (plain taps single-select).
+  void setCursorIndex(
+    int index, {
+    SelectionUpdate update = SelectionUpdate.single,
+  }) {
     if (_disposed || _entries.isEmpty) return;
+    // Internal invariant: row identity mirrors the accepted listing.
+    // A future listing mutation that bypasses _applyEntries must fail
+    // loudly here, not activate the wrong row.
+    assert(
+      _rowKeys.length == _entries.length,
+      'row keys out of sync with entries',
+    );
     final clamped = index.clamp(0, _entries.length - 1);
-    if (_cursorIndex == clamped) return;
-    _cursorIndex = clamped;
+    final before = _selection;
+    _selection = _selection.activate(_rowKeys[clamped], update);
+    if (identical(before, _selection)) return;
+    notifyListeners();
+  }
+
+  /// `edit.selectAll` (02 §2.5): selects every visible row; the cursor
+  /// and anchor keep their positions.
+  void selectAll() {
+    if (_disposed || _entries.isEmpty) return;
+    final before = _selection;
+    _selection = _selection.selectAll();
+    if (identical(before, _selection)) return;
+    notifyListeners();
+  }
+
+  /// `edit.invertSelection` (02 §2.5): replaces the selection with its
+  /// complement among the visible rows; cursor and anchor keep their
+  /// positions.
+  void invertSelection() {
+    if (_disposed || _entries.isEmpty) return;
+    final before = _selection;
+    _selection = _selection.invert();
+    if (identical(before, _selection)) return;
     notifyListeners();
   }
 
@@ -433,10 +516,9 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
-    _entries = const [];
+    _applyEntries(const []);
     _error = null;
     _snapshot = null;
-    _cursorIndex = null;
     _connectionStatus = null;
     _recovery = _RecoveryPhase.none;
     _pendingRemote = null;
@@ -471,8 +553,7 @@ class PaneController extends ChangeNotifier {
     required String operation,
     required PaneFault fault,
     _BindingPresentation presentation = _BindingPresentation.replace,
-    required Future<void> Function(PaneEngineLanes lanes, int attempt)
-        connect,
+    required Future<void> Function(PaneEngineLanes lanes, int attempt) connect,
   }) async {
     final lanes = _lanes;
     if (_disposed || lanes == null) return;
@@ -544,8 +625,8 @@ class PaneController extends ChangeNotifier {
       final bookmark = _pendingRemote;
       if (channel != null && bookmark != null) {
         // Cancelling the first listing leaves no location but keeps the lane.
-        final location = _location ??
-            RemotePaneLocation(bookmark.id, channel.homePath);
+        final location =
+            _location ?? RemotePaneLocation(bookmark.id, channel.homePath);
         // The engine rebinds healthy PaneChannels before emitting connected.
         // Listing proves this particular binding healed; pool state cannot.
         _recovery = _RecoveryPhase.listing;
@@ -571,14 +652,13 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     if (presentation == _BindingPresentation.replace) {
       _location = null;
-      _entries = const [];
+      _applyEntries(const []);
       _error = null;
       _recovery = _RecoveryPhase.none;
     } else {
       _recovery = _RecoveryPhase.reopening;
     }
     _snapshot = null;
-    _cursorIndex = null;
     _connectionStatus = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
@@ -621,19 +701,26 @@ class PaneController extends ChangeNotifier {
   /// 02 §2.8's navigation-issue transition: snapshot the quiescent state
   /// (only on the not-loading → loading edge), set the location
   /// optimistically, bump the generation, clear the error — then run the
-  /// listing against the captured channel.
+  /// listing against the captured channel. An actual location change
+  /// resets the selection; a same-location refresh (or a recovery
+  /// re-list) keeps every identity, pruned when the new listing is
+  /// accepted.
   void _issueNavigation(
     PaneLocation target,
     String path,
     AppBrowseChannel channel,
   ) {
     if (!_loadingActive()) {
-      _snapshot = _QuiescentSnapshot(_location, _entries, _error);
+      _snapshot = _QuiescentSnapshot(_location, _entries, _error, _selection);
+    }
+    if (_location != target) {
+      // The old entries stay visible (dimmed) during the load, but the
+      // selection belongs to the old listing — the cursor convention.
+      _selection = SelectionState<_RowKey>.begin(rows: const []);
     }
     _location = target;
     _issuedGeneration++;
     _error = null;
-    _cursorIndex = null;
     notifyListeners();
 
     unawaited(_load(path, channel, _issuedGeneration));
@@ -651,11 +738,10 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
-      _entries = _visibleSorted(listed);
+      _applyEntries(_visibleSorted(listed));
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
       _error = null;
-      _cursorIndex = null;
       notifyListeners();
     } on RemoteFileException catch (error) {
       if (_disposed ||
@@ -678,6 +764,29 @@ class PaneController extends ChangeNotifier {
       if (connectionLost) _recovery = _RecoveryPhase.failed;
       _error = PaneFaultException(PaneFault.listFolder, operation: 'list');
       notifyListeners();
+    }
+  }
+
+  /// Adopts [entries] as the pane's accepted listing and prunes the
+  /// selection against the new row identities (02 §2.5): surviving keys
+  /// keep their selection, cursor, and anchor; missing keys drop out
+  /// instead of re-targeting a moved index.
+  void _applyEntries(List<RemoteFileEntry> entries) {
+    _entries = entries;
+    _rowKeys = List.unmodifiable(_keysFor(entries));
+    _rowKeyIndex = {for (var i = 0; i < _rowKeys.length; i++) _rowKeys[i]: i};
+    _selection = _selection.withRows(_rowKeys);
+  }
+
+  static Iterable<_RowKey> _keysFor(List<RemoteFileEntry> entries) sync* {
+    final occurrences = <String, int>{};
+    for (final entry in entries) {
+      final occurrence = occurrences.update(
+        entry.path,
+        (count) => count + 1,
+        ifAbsent: () => 0,
+      );
+      yield _RowKey(entry.path, occurrence);
     }
   }
 

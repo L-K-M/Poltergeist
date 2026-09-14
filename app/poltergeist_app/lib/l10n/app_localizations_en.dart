@@ -459,5 +459,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneSwapFocusLabel => 'Swap Pane Focus';
 
   @override
+  String get editSelectAllLabel => 'Select All';
+
+  @override
+  String get editInvertSelectionLabel => 'Invert Selection';
+
+  @override
   String get connectionsOpenInPane => 'Open in Pane';
 }
