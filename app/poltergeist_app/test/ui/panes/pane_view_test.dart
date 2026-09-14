@@ -1372,12 +1372,14 @@ void main() {
 
     // Resolve the field's own EditableText — primaryFocus scanning for
     // any editable would report a different text surface as a hit.
-    bool fieldHasFocus(WidgetTester tester) => tester
-        .widget<EditableText>(
-          find.descendant(of: field, matching: find.byType(EditableText)),
-        )
-        .focusNode
-        .hasFocus;
+    bool fieldHasFocus(WidgetTester tester) {
+      final editable = find
+          .descendant(of: field, matching: find.byType(EditableText))
+          .evaluate();
+      // Strip closed → the field can't hold focus.
+      if (editable.isEmpty) return false;
+      return (editable.single.widget as EditableText).focusNode.hasFocus;
+    }
 
     testWidgets('view.filter opens the strip, filters live, Enter keeps', (
       tester,
