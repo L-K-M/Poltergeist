@@ -195,14 +195,20 @@ class _TabStripState extends State<_TabStrip> {
                         ).context.findRenderObject();
                         if (chipObject is RenderBox &&
                             viewObject is RenderBox) {
+                          // Inclusive edge comparison, not
+                          // Rect.contains: a chip pixel-flush with the
+                          // viewport edge is fully visible (contains is
+                          // half-open and would recenter it).
                           final chipRect =
                               chipObject.localToGlobal(Offset.zero) &
                               chipObject.size;
                           final viewRect =
                               viewObject.localToGlobal(Offset.zero) &
                               viewObject.size;
-                          if (viewRect.contains(chipRect.topLeft) &&
-                              viewRect.contains(chipRect.bottomRight)) {
+                          if (chipRect.left >= viewRect.left &&
+                              chipRect.right <= viewRect.right &&
+                              chipRect.top >= viewRect.top &&
+                              chipRect.bottom <= viewRect.bottom) {
                             return;
                           }
                         }
