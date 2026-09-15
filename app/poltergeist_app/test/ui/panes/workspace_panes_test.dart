@@ -505,9 +505,9 @@ void main() {
         ];
       final lateLeft = session_test.FakeAppBrowseChannel(homePath: '/srv/home')
         ..listings['/srv/home'] = [_entry('late.txt', parent: '/srv/home')];
-      held.paneChannels['pane.right'] = sibling;
-      held.paneChannels['pane.left'] = lateLeft;
-      held.heldOpens['pane.left'] = Completer<void>();
+      held.paneChannels['pane.right.tab1'] = sibling;
+      held.paneChannels['pane.left.tab1'] = lateLeft;
+      held.heldOpens['pane.left.tab1'] = Completer<void>();
       engine = held;
 
       await pumpApp(tester);
@@ -528,7 +528,12 @@ void main() {
       );
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
+      // Bounded pumps here too: while the held open is still in flight
+      // the shared srv-1 status stays `connecting`, and the SIBLING's
+      // tab-strip dot animates on that lane — pumpAndSettle cannot
+      // settle until the held open resolves below.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       expect(left.phase, PanePhase.unbound);
       expect(left.remoteBookmark, isNull);
@@ -541,7 +546,7 @@ void main() {
       expect(find.text('sibling.txt'), findsOneWidget);
 
       // The late open's orphaned channel is retired; it never repaints.
-      held.heldOpens['pane.left']!.complete();
+      held.heldOpens['pane.left.tab1']!.complete();
       await leftConnect;
       await tester.pumpAndSettle();
       expect(lateLeft.closeCalls, 1);
@@ -557,8 +562,8 @@ void main() {
       final held = heldConnectEngine();
       final lateLeft = session_test.FakeAppBrowseChannel(homePath: '/srv/home')
         ..listings['/srv/home'] = [_entry('late.txt', parent: '/srv/home')];
-      held.paneChannels['pane.left'] = lateLeft;
-      held.heldOpens['pane.left'] = Completer<void>();
+      held.paneChannels['pane.left.tab1'] = lateLeft;
+      held.heldOpens['pane.left.tab1'] = Completer<void>();
       engine = held;
 
       await pumpApp(tester);
@@ -583,7 +588,7 @@ void main() {
       expect(left.remoteBookmark, isNull);
       expect(held.disconnectIds, ['srv-1']);
 
-      held.heldOpens['pane.left']!.complete();
+      held.heldOpens['pane.left.tab1']!.complete();
       await leftConnect;
       await tester.pumpAndSettle();
       expect(lateLeft.closeCalls, 1);
@@ -605,8 +610,8 @@ void main() {
         homePath: '/srv/home',
       )
         ..listings['/srv/home'] = [_entry('sibling-late.txt', parent: '/srv/home')];
-      held.paneChannels['pane.left'] = leftChannel;
-      held.paneChannels['pane.right'] = rightChannel;
+      held.paneChannels['pane.left.tab1'] = leftChannel;
+      held.paneChannels['pane.right.tab1'] = rightChannel;
       engine = held;
 
       await pumpApp(tester);
@@ -678,14 +683,14 @@ void main() {
         homePath: '/srv/home',
       )
         ..listings['/srv/home'] = [_entry('late-open.txt', parent: '/srv/home')];
-      held.paneChannels['pane.left'] = leftChannel;
-      held.paneChannels['pane.right'] = rightChannel;
+      held.paneChannels['pane.left.tab1'] = leftChannel;
+      held.paneChannels['pane.right.tab1'] = rightChannel;
       // The sibling's open parks engine-side: its bind has STARTED (the
       // pending binding published synchronously at connectRemote entry)
       // but has not settled — the window a committed-state-only check
       // would miss.
       final heldRightOpen = Completer<void>();
-      held.heldOpens['pane.right'] = heldRightOpen;
+      held.heldOpens['pane.right.tab1'] = heldRightOpen;
       addTearDown(() {
         if (!heldRightOpen.isCompleted) heldRightOpen.complete();
       });

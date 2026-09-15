@@ -412,6 +412,35 @@ counterpart is ported here.
 - Port-back candidates: the validator and sweep suites, once Séance
   exposes the statics for testing.
 
+## app/poltergeist_app/lib/ui/server_appearance.dart
+
+- Source: app/seance_app/lib/ui/server_appearance.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (rev pin, no
+  tag — the live pin this task shipped against)
+- Ported: 2026-09-15
+- Divergences: only the seed map, `ServerAccent`/`serverAccent`,
+  `serverIconData`, and `ServerBadge` are carried — the tab chip needs
+  the badge, not the rest. `ServerAvatar` (badge + status-dot overhang)
+  is not ported: the strip composes `ServerBadge` with the shared
+  `ServerStateGlyph` side by side instead, per 02 §3. `serverIconLabel`
+  and `serverColorLabel` (editor-picker tooltips) are omitted — no
+  bookmark editor exists yet, and human labels belong in ARB under the
+  localization contract anyway. Doc references re-pointed from
+  `SeanceTheme` to the app theme.
+- Port-back candidates: none — the elided surface is editor and
+  list-row chrome Poltergeist does not have.
+
+## app/poltergeist_app/test/ui/server_appearance_test.dart
+
+- Source: app/seance_app/test/server_appearance_test.dart (badge and
+  accent cases only)
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379
+- Ported: 2026-09-15
+- Divergences: the `ServerAvatar` and label-function cases are dropped
+  with the widgets they cover; the kept cases assert the same seed and
+  glyph contracts against the carried code.
+- Port-back candidates: none.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -509,4 +508,61 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectionsOpenInPane => 'Open in Pane';
+
+  @override
+  String get tabStripLabel => 'Tabs';
+
+  @override
+  String get tabNewLabel => 'New Tab';
+
+  @override
+  String get tabCloseLabel => 'Close Tab';
+
+  @override
+  String get tabReopenClosedLabel => 'Reopen Closed Tab';
+
+  @override
+  String get tabNextLabel => 'Next Tab';
+
+  @override
+  String get tabPreviousLabel => 'Previous Tab';
+
+  @override
+  String get tabLauncherTitle => 'Launcher';
+
+  @override
+  String tabTooltipRemote(String server, String path) {
+    return '$server — $path';
+  }
+
+  @override
+  String get tabCloseConfirmTitle => 'Close Tab?';
+
+  @override
+  String tabCloseConfirmBody(String tab) {
+    return '\"$tab\" has work in progress:';
+  }
+
+  @override
+  String get tabCloseTriggerNavigation => 'A navigation is still in flight.';
+
+  @override
+  String get tabCloseTriggerInlineRename => 'An inline rename is in progress.';
+
+  @override
+  String get tabCloseTriggerFolderSize =>
+      'A folder-size computation is running.';
+
+  @override
+  String get tabCloseTriggerApplyToEnclosed =>
+      'An apply-to-enclosed-items change is running.';
+
+  @override
+  String get tabCloseTriggerSyncAnchor => 'The tab anchors a sync pair.';
+
+  @override
+  String get tabCloseConfirmCancel => 'Cancel';
+
+  @override
+  String get tabCloseConfirmClose => 'Close';
 }

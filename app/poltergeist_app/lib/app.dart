@@ -9,6 +9,7 @@ import 'services/bookmark_store.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/engine_session.dart';
+import 'services/pane_tabs_controller.dart' show NewTabTarget;
 import 'services/ssh_config_import_setup.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -18,6 +19,7 @@ class PoltergeistApp extends StatefulWidget {
   const PoltergeistApp({
     super.key,
     this.initialPaneRatio = 0.5,
+    this.newTabTarget = NewTabTarget.duplicate,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.onContentSizeChanged,
@@ -30,6 +32,11 @@ class PoltergeistApp extends StatefulWidget {
   });
 
   final double initialPaneRatio;
+
+  /// The persisted "New tabs open" preference (02 §2.1), loaded at
+  /// startup and seeded onto each pane's tab strip.
+  final NewTabTarget newTabTarget;
+
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
   final ValueChanged<Size>? onContentSizeChanged;
@@ -170,6 +177,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     );
     final workspace = WorkspaceShell(
       initialPaneRatio: widget.initialPaneRatio,
+      newTabTarget: widget.newTabTarget,
       onPaneRatioChanged: widget.onPaneRatioChanged,
       onPaneRatioSaveError: widget.onPaneRatioSaveError,
       sshConfigImport: widget.sshConfigImport,

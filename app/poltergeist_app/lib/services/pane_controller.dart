@@ -10,6 +10,7 @@ import 'pane_location.dart';
 import 'quick_select_state.dart';
 import 'selection_state.dart';
 import 'unicode_diacritic_fold.dart';
+import 'view_preferences.dart';
 
 /// Where a pane currently stands in the binding lifecycle. Listing-level
 /// loading/error state is separate ([PaneController.loading],
@@ -44,8 +45,9 @@ const _connectionLostError = RemoteFileException(
 /// transition (02 §2.8): Esc-cancel restores exactly this, never a
 /// transient mid-navigation state. The selection is immutable, so the
 /// snapshot shares it without copying. [listing] is the full accepted
-/// listing (pre-filter): the filter is a lens on whatever listing is
-/// current, so the restore re-applies the query that is active NOW.
+/// listing (pre-hidden-policy, pre-filter): the filter and the hidden
+/// override are lenses on whatever listing is current, so the restore
+/// re-applies the lenses that are active NOW.
 class _QuiescentSnapshot {
   const _QuiescentSnapshot(
     this.location,
@@ -132,10 +134,17 @@ class PaneController extends ChangeNotifier {
   PanePhase _phase = PanePhase.unbound;
   PaneLocation? _location;
 
-  /// The accepted listing after the hidden-file policy and the §2.3
-  /// sort, BEFORE the §2.5 name filter — [_entries] is this list seen
-  /// through the active filter. Keeping the pre-filter listing is what
-  /// lets clearing or widening a query re-show rows without a re-list.
+  /// The accepted listing after the §2.3 sort, BEFORE the hidden-file
+  /// policy — the tab-local [showHidden] override re-derives the visible
+  /// listing from this without a re-list, and the quiescent snapshot
+  /// shares it so a cancelled navigation restores the pre-policy listing
+  /// too (the policy then re-applies on restore).
+  List<RemoteFileEntry> _sortedListing = const [];
+
+  /// [_sortedListing] after the hidden-file policy, BEFORE the §2.5
+  /// name filter — [_entries] is this list seen through the active
+  /// filter. Keeping the pre-filter listing is what lets clearing or
+  /// widening a query re-show rows without a re-list.
   /// Written only through [_setListing], which rebuilds the lowercased
   /// basename cache in lockstep.
   List<RemoteFileEntry> _listing = const [];
@@ -204,6 +213,25 @@ class PaneController extends ChangeNotifier {
   /// field on a change, so ⌘F re-opens editing over a live filter
   /// instead of no-oping against the already-mounted strip.
   int _filterFocusGeneration = 0;
+
+  /// The tab-local hidden-file override (02 §2.5's transient toggle):
+  /// while false, dotfiles stay out of the visible listing. The §2.4
+  /// precedence chain's persisted levels land with the view-options
+  /// slice; this is the chain's per-tab slot, which ghost-tab reopen
+  /// restores — it never persists (a forgotten hidden-file view reads
+  /// as missing rows, the same data-loss argument as the filter).
+  bool _showHidden = false;
+
+  /// The tab's view mode slot in the §2.4 chain. The view-mode commands
+  /// land with their own slice; tabs carry the field now so ghost-tab
+  /// reopen restores it.
+  PaneViewMode _viewMode = PaneViewMode.details;
+
+  /// Whether this tab's inline-rename session is open — written by the
+  /// row-interactions slice's rename flow; the tab close guard's
+  /// inlineRename probe already reads it, so a rename can never be
+  /// closed out from under the user once it exists.
+  bool _inlineRenameActive = false;
 
   /// Folded basenames per accepted listing, built once at apply time —
   /// type-ahead scans cached strings instead of re-folding every name
@@ -437,7 +465,8 @@ class PaneController extends ChangeNotifier {
     _error = snapshot?.error;
     _selection =
         snapshot?.selection ?? SelectionState<_RowKey>.begin(rows: const []);
-    _setListing(snapshot?.listing ?? const []);
+    _sortedListing = snapshot?.listing ?? const [];
+    _setListing(_hiddenFiltered(_sortedListing));
     _applyEntries(_filteredListing());
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
@@ -471,7 +500,7 @@ class PaneController extends ChangeNotifier {
       }
     }
     if (_phase == PanePhase.openingLocal && _error != null) {
-      await openLocalHome();
+      await _openLocal(_pendingLocalRoot);
       return;
     }
     final current = _location;
@@ -571,6 +600,61 @@ class PaneController extends ChangeNotifier {
   /// so the view re-focuses the field even when the strip is already
   /// mounted.
   int get filterFocusGeneration => _filterFocusGeneration;
+
+  /// The tab-local hidden-file override (02 §2.5's transient toggle);
+  /// the view slice's keyboard command writes it. Toggling re-derives
+  /// the visible listing from the pre-policy one and re-applies the
+  /// active filter — the same path a fresh listing accept takes, so
+  /// selection pruning and Quick Select invalidation behave identically.
+  bool get showHidden => _showHidden;
+
+  set showHidden(bool value) {
+    if (_disposed || value == _showHidden) return;
+    _showHidden = value;
+    _setListing(_hiddenFiltered(_sortedListing));
+    _applyEntries(_filteredListing());
+    notifyListeners();
+  }
+
+  /// The tab's view mode (02 §2.4's tab-local slot); the view-mode
+  /// commands write it when their slice lands.
+  PaneViewMode get viewMode => _viewMode;
+
+  set viewMode(PaneViewMode value) {
+    if (_disposed || value == _viewMode) return;
+    _viewMode = value;
+    notifyListeners();
+  }
+
+  /// Whether an inline rename is open on this tab — the tab close
+  /// guard's trigger probe; the row-interactions slice owns the session.
+  bool get inlineRenameActive => _inlineRenameActive;
+
+  set inlineRenameActive(bool value) {
+    if (_disposed || value == _inlineRenameActive) return;
+    _inlineRenameActive = value;
+    notifyListeners();
+  }
+
+  /// Restores the transient per-tab lenses a closed tab's ghost captured
+  /// (02 §3's ⇧⌘T): filter, hidden override, view mode. Deliberately
+  /// bypasses [changeFilterQuery]'s field-open gate — the ghost replays
+  /// the state it froze, not the keystrokes that produced it.
+  void restoreTransientState({
+    String filterQuery = '',
+    bool filterFieldOpen = false,
+    bool showHidden = false,
+    PaneViewMode viewMode = PaneViewMode.details,
+  }) {
+    if (_disposed) return;
+    _filterQuery = filterQuery;
+    _filterFieldOpen = filterFieldOpen;
+    _showHidden = showHidden;
+    _viewMode = viewMode;
+    _setListing(_hiddenFiltered(_sortedListing));
+    _applyEntries(_filteredListing());
+    notifyListeners();
+  }
 
   /// The pre-filter listing size — the "of N" half of the strip's
   /// `12 of 348` helper ([entries] carries the visible half).
@@ -803,6 +887,7 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
+    _sortedListing = const [];
     _setListing(const []);
     _filterQuery = '';
     _filterFieldOpen = false;
@@ -946,6 +1031,7 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     if (presentation == _BindingPresentation.replace) {
       _location = null;
+      _sortedListing = const [];
       _setListing(const []);
       // A replaced binding drops the filter with its listing — the
       // transient lens is scoped to the browsing session it was set in.
@@ -970,9 +1056,22 @@ class PaneController extends ChangeNotifier {
     _answeredGeneration = _issuedGeneration;
   }
 
-  Future<void> openLocalHome() async {
+  /// The root the in-flight or last-failed local open targeted — [retry]
+  /// re-opens THAT root, never silently '~' over a failed openLocalAt.
+  String _pendingLocalRoot = '~';
+
+  /// Opens a local channel rooted at the user's home and browses it.
+  Future<void> openLocalHome() => _openLocal('~');
+
+  /// Opens a local channel rooted at [path] and browses it — the root is
+  /// the channel's initial home, not a sandbox (the engine canonicalizes
+  /// it, 03 §2.2); `tab.new`'s Duplicate and Home targets land here.
+  Future<void> openLocalAt(String path) => _openLocal(path);
+
+  Future<void> _openLocal(String rootPath) async {
     _pendingRemote = null;
     _pendingRemotePath = null;
+    _pendingLocalRoot = rootPath;
     await _bind(
       connectingPhase: PanePhase.openingLocal,
       operation: 'open',
@@ -980,7 +1079,7 @@ class PaneController extends ChangeNotifier {
       connect: (lanes, attempt) async {
         // '~' expands to the user's home inside the engine (03 §2.2);
         // the channel answers the canonicalized home path.
-        final channel = await lanes.openLocalChannel(rootPath: '~');
+        final channel = await lanes.openLocalChannel(rootPath: rootPath);
         if (_disposed || attempt != _bindAttempt) {
           await _closeChannel(channel);
           return;
@@ -1015,7 +1114,7 @@ class PaneController extends ChangeNotifier {
     _endQuickSelectSession();
     if (!_loadingActive()) {
       _snapshot =
-          _QuiescentSnapshot(_location, _listing, _error, _selection);
+          _QuiescentSnapshot(_location, _sortedListing, _error, _selection);
     }
     if (_location != target) {
       // The old entries stay visible (dimmed) during the load, but the
@@ -1042,7 +1141,8 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
-      _setListing(_visibleSorted(listed));
+      _sortedListing = sortFileEntries(listed);
+      _setListing(_hiddenFiltered(_sortedListing));
       _applyEntries(_filteredListing());
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
@@ -1135,17 +1235,22 @@ class PaneController extends ChangeNotifier {
     }
   }
 
-  /// The visible listing: dotfiles are hidden by default (02 §2.5; the
-  /// toggle and the §2.4 precedence chain land with the view-options
-  /// slice), then the §2.3 core comparator orders the snapshot — default
-  /// name key, ascending, directories first, with natural digit runs and
-  /// Unicode simple folding. `sortFileEntries` returns an unmodifiable
-  /// copy over new row order, so the VFS-returned list is never mutated.
-  List<RemoteFileEntry> _visibleSorted(List<RemoteFileEntry> listed) {
-    final visible = listed
-        .where((entry) => !entry.name.startsWith('.'))
-        .toList(growable: false);
-    return sortFileEntries(visible);
+  /// The hidden-file policy over the sorted listing (02 §2.5): dotfiles
+  /// stay out unless the tab-local [showHidden] override is on — the
+  /// §2.4 precedence chain lands with the view-options slice. Pure over
+  /// its input so the override re-derives the visible listing without a
+  /// re-list; the §2.3 core comparator orders the snapshot first —
+  /// default name key, ascending, directories first, with natural digit
+  /// runs and Unicode simple folding — and `sortFileEntries` returns an
+  /// unmodifiable copy over new row order, so the VFS-returned list is
+  /// never mutated.
+  List<RemoteFileEntry> _hiddenFiltered(List<RemoteFileEntry> sorted) {
+    if (_showHidden) return sorted;
+    // unmodifiable, not just non-growable: [entries]' §2.3 contract is
+    // that mutating the accepted listing throws.
+    return List.unmodifiable(
+      sorted.where((entry) => !entry.name.startsWith('.')),
+    );
   }
 
   /// Assigns the accepted listing and rebuilds the lowercased-name cache

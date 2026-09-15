@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'pane_tabs_controller.dart' show NewTabTarget;
 import 'settings_store.dart';
 
 const _defaultPaneRatio = 0.5;
@@ -8,6 +9,7 @@ const _windowLeftKey = 'window.left';
 const _windowTopKey = 'window.top';
 const _windowWidthKey = 'window.width';
 const _windowHeightKey = 'window.height';
+const _newTabTargetKey = 'tabs.newTabTarget';
 
 class AppPreferences {
   AppPreferences({required SettingsStore store})
@@ -39,6 +41,26 @@ class AppPreferences {
 
     return _store.set(_paneRatioKey, ratio.clamp(0, 1).toDouble());
   }
+
+  /// The "New tabs open" preference (02 §2.1): what `tab.new` binds a
+  /// fresh tab to. The shell seeds each strip's live field with this
+  /// value; an unreadable or unknown stored value falls back to the
+  /// spec default rather than failing startup.
+  Future<NewTabTarget> loadNewTabTarget() async {
+    String? stored;
+    try {
+      stored = await _store.get<String>(_newTabTargetKey);
+    } catch (_) {
+      return NewTabTarget.duplicate;
+    }
+    for (final target in NewTabTarget.values) {
+      if (target.name == stored) return target;
+    }
+    return NewTabTarget.duplicate;
+  }
+
+  Future<void> saveNewTabTarget(NewTabTarget target) =>
+      _store.set(_newTabTargetKey, target.name);
 
   Future<Rect?> loadWindowBounds() async {
     late final List<num?> storedValues;

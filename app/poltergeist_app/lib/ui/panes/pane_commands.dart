@@ -17,6 +17,11 @@ const kEditSelectAllCommandId = 'edit.selectAll';
 const kEditInvertSelectionCommandId = 'edit.invertSelection';
 const kSelectionQuickSelectCommandId = 'selection.quickSelect';
 const kViewFilterCommandId = 'view.filter';
+const kTabNewCommandId = 'tab.new';
+const kTabCloseCommandId = 'tab.close';
+const kTabReopenClosedCommandId = 'tab.reopenClosed';
+const kTabNextCommandId = 'tab.next';
+const kTabPreviousCommandId = 'tab.previous';
 
 /// The pane-command registry slice (D21): every pane action this
 /// foundation ships is a registered command. Commands resolve the
@@ -28,7 +33,9 @@ List<RegisteredCommand> buildPaneCommands({
   required VoidCallback focusRight,
   required VoidCallback swapFocus,
 }) {
-  PaneController? activePane() => workspace.activePane;
+  // Browsing commands resolve the active pane's ACTIVE TAB at invocation
+  // time (02 §8.1); tab commands act on the strip itself.
+  PaneController? activePane() => workspace.activeTabController;
 
   return [
     RegisteredCommand(
@@ -227,6 +234,109 @@ List<RegisteredCommand> buildPaneCommands({
       enabled: () => activePane()?.verbsEnabled ?? false,
       run: (_) async {
         activePane()?.openFilter();
+      },
+    ),
+    RegisteredCommand(
+      id: kTabNewCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.tabNewLabel,
+      icon: Icons.add,
+      // ⌘T / Ctrl+T (02 §8.3's table), dual macOS/Ctrl registration.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyT, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyT, control: true)],
+      ),
+      // Always live — a launcher pane takes a new tab too.
+      run: (_) async {
+        workspace.activePane.newTab();
+      },
+    ),
+    RegisteredCommand(
+      id: kTabCloseCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.tabCloseLabel,
+      icon: Icons.close,
+      // ⌘W / Ctrl+W (02 §8.3's table), dual macOS/Ctrl registration.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyW, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyW, control: true)],
+      ),
+      enabled: () => workspace.activePane.activeTab != null,
+      run: (_) async {
+        // THE close operation: the guard and confirm live inside it, so
+        // this chord and middle-click can never bypass them (02 §3).
+        final strip = workspace.activePane;
+        final tab = strip.activeTab;
+        if (tab != null) await strip.requestCloseTab(tab);
+      },
+    ),
+    RegisteredCommand(
+      id: kTabReopenClosedCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.tabReopenClosedLabel,
+      icon: Icons.restart_alt_outlined,
+      // ⇧⌘T / Ctrl+Shift+T (02 §8.3's table), dual registration.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyT, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyT, control: true, shift: true),
+        ],
+      ),
+      enabled: () => workspace.activePane.canReopen,
+      run: (_) async {
+        await workspace.activePane.reopenClosedTab();
+      },
+    ),
+    RegisteredCommand(
+      id: kTabNextCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.tabNextLabel,
+      icon: Icons.tab_outlined,
+      // ⌃⇥ on every platform; ⇧⌘] is the additional macOS binding (02
+      // §8.3). Cycling is pane-scoped: it never crosses into the other
+      // pane's strip.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.tab, control: true),
+          SingleActivator(
+            LogicalKeyboardKey.bracketRight,
+            meta: true,
+            shift: true,
+          ),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.tab, control: true),
+        ],
+      ),
+      enabled: () => workspace.activePane.tabs.length >= 2,
+      run: (_) async {
+        workspace.activePane.activateNextTab();
+      },
+    ),
+    RegisteredCommand(
+      id: kTabPreviousCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.tabPreviousLabel,
+      icon: Icons.tab_outlined,
+      // ⌃⇧⇥ on every platform; ⇧⌘[ is the additional macOS binding.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.tab, control: true, shift: true),
+          SingleActivator(
+            LogicalKeyboardKey.bracketLeft,
+            meta: true,
+            shift: true,
+          ),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.tab, control: true, shift: true),
+        ],
+      ),
+      enabled: () => workspace.activePane.tabs.length >= 2,
+      run: (_) async {
+        workspace.activePane.activatePreviousTab();
       },
     ),
   ];

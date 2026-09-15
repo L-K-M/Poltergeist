@@ -7,6 +7,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
+import '../../services/pane_tabs_controller.dart';
 import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
 import '../../services/workspace_controller.dart';
@@ -66,6 +67,7 @@ class PaneView extends StatefulWidget {
   const PaneView({
     super.key,
     required this.controller,
+    required this.pane,
     required this.workspace,
     required this.focusNode,
     required this.onSwapFocus,
@@ -74,6 +76,10 @@ class PaneView extends StatefulWidget {
   });
 
   final PaneController controller;
+
+  /// The pane strip owning [controller]'s tab — pane identity, ordering,
+  /// and activity live at the strip level (02 §3).
+  final PaneTabsController pane;
 
   /// The workspace that owns pane activity: the active pane drives the
   /// accent path (02 §2.1) and receives pane-scoped commands.
@@ -509,18 +515,18 @@ class _PaneViewState extends State<PaneView> {
         _syncFilterFocus();
         final active = identical(
           widget.workspace.activePane,
-          widget.controller,
+          widget.pane,
         );
         return Semantics(
           container: true,
-          label: widget.controller.paneTabId == 'pane.left'
+          label: widget.pane.paneId == 'pane.left'
               ? l10n.paneAName
               : l10n.paneBName,
           child: Focus(
             focusNode: widget.focusNode,
             onKeyEvent: _handleKey,
             onFocusChange: (focused) {
-              if (focused) widget.workspace.setActivePane(widget.controller);
+              if (focused) widget.workspace.setActivePane(widget.pane);
             },
             child: Listener(
               // Clicking anywhere in the pane focuses its listing (and so
