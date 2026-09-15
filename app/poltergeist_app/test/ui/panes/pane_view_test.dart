@@ -485,6 +485,12 @@ void main() {
       left.navigate('/elsewhere');
       await tester.pumpAndSettle();
       expect(left.error, isNotNull);
+      expect(
+        left.staleRows,
+        isTrue,
+        reason: 'the error path keeps the old rows disowned; the '
+            'same-target retry below announces only because of this',
+      );
       expect(find.semantics.byLabel(RegExp(r'^Loading')), findsNothing);
 
       // A fresh navigation issued straight from the error card clears
@@ -518,6 +524,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(left.error, isNotNull);
       expect(left.location, const LocalPaneLocation('/elsewhere'));
+      expect(left.staleRows, isTrue);
 
       channel.listingFailure = null;
       hold = Completer<void>();
