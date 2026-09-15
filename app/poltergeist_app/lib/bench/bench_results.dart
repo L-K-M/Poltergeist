@@ -131,7 +131,10 @@ final class BenchResults {
     });
   }
 
-  Map<String, Object?> toJson() => {'schema': resultsSchemaId, 'rows': _rows};
+  Map<String, Object?> toJson() => {
+    'schema': resultsSchemaId,
+    'rows': rows,
+  };
 
   /// Owned-temp + rename publication, the same class the merger and the
   /// tier-A collectors use: a torn write never leaves a valid-looking

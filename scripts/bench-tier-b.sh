@@ -14,7 +14,8 @@
 # Unlike tier A this leg needs the Flutter toolchain and a display: the
 # bench job installs the GTK toolchain and xvfb first. Local iteration
 # can point XVFB_RUN at a wrapper (e.g. a pinned xkbdir) or set it to a
-# no-op when a display already exists.
+# pass-through such as `env` when a display already exists — a bare
+# no-op like `true` would silently discard the whole flutter invocation.
 set -euo pipefail
 
 readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,10 +31,16 @@ trap 'rm -rf -- "$fixture_root"' EXIT
 cd "$repo_root"
 
 # A drive run that dies before writing must surface as a missing file,
-# never as a stale document from an earlier invocation.
-rm -f -- "$repo_root"/bench-results-p1.json \
+# never as a stale document from an earlier invocation — and a stale
+# merged file must not mask a failed collection either.
+rm -f -- "$repo_root"/bench-results.json \
+         "$repo_root"/bench-results-p1.json \
          "$repo_root"/bench-results-p2.json \
          "$repo_root"/bench-results-p6.json
+
+# Fail fast on a missing toolchain before touching 110 000 files.
+command -v "$flutter_binary" >/dev/null
+command -v "$dart_binary" >/dev/null
 
 # Local filesystem fixtures only (08 §6): flat directories of empty
 # entries. One touch per 5 000 names keeps ARG_MAX and fork count out of
@@ -42,15 +49,12 @@ mkdir -p "$fixture_root/entries-10000" "$fixture_root/entries-100000"
 seq -f "$fixture_root/entries-10000/entry-%06g" 10000 | xargs -n 5000 touch
 seq -f "$fixture_root/entries-100000/entry-%06g" 100000 | xargs -n 5000 touch
 
-command -v "$flutter_binary" >/dev/null
-command -v "$dart_binary" >/dev/null
-
 # The flutterVersion fingerprint axis cannot be detected from inside the
 # app — stamp the toolchain's own report. An unparsed value stays empty;
 # the harness then records a null axis instead of a guess.
 flutter_version="$(
   "$flutter_binary" --version --machine 2>/dev/null \
-    | sed -n 's/.*"flutterVersion": *"\([^"]*\)".*/\1/p'
+    | sed -n 's/.*"flutterVersion": *"\([^"]*\)".*/\1/p' || true
 )"
 
 defines=(
@@ -74,7 +78,11 @@ run_scenario() {
     --device-id linux --profile \
     "--dart-define=POLTERGEIST_BENCH_OUTPUT=$repo_root/bench-results-$scenario.json" \
     "${defines[@]}") \
-    || status="$?"
+    || {
+      local rc=$?
+      echo "scenario $scenario drive failed (exit $rc)" >&2
+      status="$rc"
+    }
 }
 
 run_scenario p1 p1_first_paint_test.dart

@@ -63,19 +63,15 @@ final class FrameSlice {
   /// vsync-to-raster-done span: the honest "did this frame make its
   /// deadline" measure for the scroll budget (build + raster + waits).
   int get totalSpanUs => rasterFinishUs - vsyncStartUs;
-
-  FrameSlice copyWith({int? vsyncStartUs}) => FrameSlice(
-    vsyncStartUs: vsyncStartUs ?? this.vsyncStartUs,
-    buildStartUs: buildStartUs,
-    buildFinishUs: buildFinishUs,
-    rasterStartUs: rasterStartUs,
-    rasterFinishUs: rasterFinishUs,
-  );
 }
 
-/// The refresh rate implied by the median interval between consecutive
-/// vsync starts — measured, never assumed, because the deadline and the
-/// frame floor both derive from it. Throws [InsufficientFramesException]
+/// The refresh rate implied by the smallest positive interval between
+/// consecutive vsync starts — measured, never assumed, because the
+/// deadline and the frame floor both derive from it. Dropped frames
+/// only ever lengthen a vsync interval, never shorten it, so the
+/// smallest observed interval is the display period; a median would
+/// double the deadline — and halve the frame floor — exactly when the
+/// app is dropping half its frames. Throws [InsufficientFramesException]
 /// below two frames: one vsync stamps no interval.
 double estimateRefreshHz(List<FrameSlice> frames) {
   if (frames.length < 2) {
@@ -90,16 +86,14 @@ double estimateRefreshHz(List<FrameSlice> frames) {
     for (var i = 1; i < sorted.length; i++)
       sorted[i].vsyncStartUs - sorted[i - 1].vsyncStartUs,
   ]..sort();
-  final middle = intervals.length ~/ 2;
-  final median = intervals.length.isOdd
-      ? intervals[middle].toDouble()
-      : (intervals[middle - 1] + intervals[middle]) / 2;
-  if (median <= 0) {
-    // Two frames sharing one vsync stamp mean the clock did not tick —
-    // no rate is honest here.
-    throw StateError('non-positive median vsync interval: $median us');
+  final positive = intervals.where((interval) => interval > 0).toList();
+  if (positive.isEmpty) {
+    // No interval crossed a vsync tick — no rate is honest here.
+    throw StateError(
+      'no positive vsync interval in ${intervals.length} samples',
+    );
   }
-  return 1e6 / median;
+  return 1e6 / positive.first;
 }
 
 /// The reduced scroll-window statistic: how many captured frames missed

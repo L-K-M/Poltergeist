@@ -78,6 +78,15 @@ void main() {
               error: 'insufficient frame capture: $error',
               scenarioConfig: scenarioConfigBase,
             );
+          } on StateError catch (error) {
+            // estimateRefreshHz can also refuse the capture; that must
+            // be an error row too, or the rep dies unpublished.
+            results.addError(
+              scenario: scenario,
+              repetition: rep,
+              error: 'frame aggregation failed: $error',
+              scenarioConfig: scenarioConfigBase,
+            );
           }
         }
       },

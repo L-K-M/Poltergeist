@@ -33,9 +33,25 @@ void main() {
       expect(estimateRefreshHz(grid(1800)), closeTo(60.0, 0.01));
     });
 
-    test('uses the median interval so a single pause does not skew it', () {
-      final frames = grid(100);
-      frames[50] = frame(frames[50].vsyncStartUs + 500000);
+    test('a pause in delivery does not skew the smallest-interval '
+        'estimate', () {
+      // A pause is a gap in vsync delivery — an absent frame — never a
+      // shifted stamp (vsync targets stay on the display grid).
+      final frames = grid(100)..removeAt(50);
+      expect(estimateRefreshHz(frames), closeTo(60.0, 0.01));
+    });
+
+    test('halved delivery still measures the display period', () {
+      // Every other frame dropped: alternating 16666/33332 us intervals.
+      // The median (~25 ms) would halve the measured rate — and double
+      // the deadline — exactly when half the frames are missing; the
+      // smallest positive interval stays the true period.
+      final frames = <FrameSlice>[];
+      var at = 0;
+      for (var i = 0; i < 100; i++) {
+        frames.add(frame(at));
+        at += i.isEven ? 16666 : 33332;
+      }
       expect(estimateRefreshHz(frames), closeTo(60.0, 0.01));
     });
 
@@ -43,6 +59,14 @@ void main() {
       expect(
         () => estimateRefreshHz(grid(1)),
         throwsA(isA<InsufficientFramesException>()),
+      );
+    });
+
+    test('refuses a rate when no vsync interval is positive', () {
+      // Two frames sharing one vsync stamp: the clock never ticked.
+      expect(
+        () => estimateRefreshHz([frame(1000), frame(1000)]),
+        throwsA(isA<StateError>()),
       );
     });
   });

@@ -388,7 +388,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/bench/frame_stats.dart': {
     r"'captured $captured frame(s), but the scroll window requires >= '",
     r"'$required'",
-    r"'non-positive median vsync interval: $median us'",
+    r"'no positive vsync interval in ${intervals.length} samples'",
   },
 };
 

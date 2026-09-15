@@ -141,8 +141,10 @@ captures raster timing through
 `traceAction` summaries are not consumed. P1/P2 anchor first paint on
 the navigate()-issue timestamp through the first frame whose build
 began after the listing landed; P6 runs a scripted 30 s linear scroll
-of the 100 000-entry fixture, derives the refresh rate from the median
-vsync interval (recorded in the row's `scenarioConfig`), and reports
+of the 100 000-entry fixture, derives the refresh rate from the
+smallest positive vsync interval (recorded in the row's
+`scenarioConfig`; dropped frames only ever lengthen an interval, so
+the minimum is the display period a median would mask), and reports
 the percent of frames whose vsync-to-raster span exceeded the deadline
 — or an error row carrying the captured count when the window delivered
 fewer than `floor(30 s × measured Hz)` frames (>= 1800 at 60 Hz), never

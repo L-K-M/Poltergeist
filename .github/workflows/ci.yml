@@ -349,10 +349,11 @@ jobs:
           test/integration/run.sh --lifecycle-only -- scripts/bench-tier-a.sh
       # Tier-B: profile-mode UI benchmarks under Xvfb (main/dispatch only
       # — trend-only until M9, and PR invocations must not write drift
-      # state). always() so a failed tier-A leg does not silently drop the
-      # tier-B evidence a main run is expected to produce.
+      # state). !cancelled() so a failed tier-A leg does not silently drop
+      # the tier-B evidence a main run is expected to produce, while a
+      # cancelled run skips the leg instead of running it anyway.
       - name: Install Flutter toolchain
-        if: always() && github.event_name != 'pull_request'
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -361,18 +362,18 @@ jobs:
       # a headless display with real GLES (llvmpipe via
       # LIBGL_ALWAYS_SOFTWARE) so Impeller produces genuine raster timings.
       - name: Install Linux desktop + headless display toolchain
-        if: always() && github.event_name != 'pull_request'
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: >-
           sudo apt-get update && sudo apt-get install -y
           clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
           libsecret-1-dev libjsoncpp-dev
           xvfb libegl1 libgles2 libgl1-mesa-dri
       - name: Resolve app dependencies
-        if: always() && github.event_name != 'pull_request'
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         working-directory: app/poltergeist_app
         run: flutter pub get
       - name: Run tier-B collectors under Xvfb
-        if: always() && github.event_name != 'pull_request'
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: |

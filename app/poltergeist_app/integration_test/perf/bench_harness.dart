@@ -133,9 +133,9 @@ Future<void> waitFor(
   Duration timeout = const Duration(seconds: 120),
   Duration poll = const Duration(milliseconds: 16),
 }) async {
-  final deadline = DateTime.now().add(timeout);
+  final stopwatch = Stopwatch()..start();
   while (!predicate()) {
-    if (DateTime.now().isAfter(deadline)) {
+    if (stopwatch.elapsed >= timeout) {
       throw TimeoutException('timed out waiting for $description', timeout);
     }
     await Future<void>.delayed(poll);
@@ -162,8 +162,14 @@ Future<BenchmarkRig> bootBenchmarkApp(WidgetTester tester) async {
   // draws each BeginFrame, which also re-arms scheduleFrame, so the
   // pipeline free-runs at the platform's real rate (~11 fps under
   // llvmpipe) and reports genuine FrameTiming evidence.
-  (tester.binding as LiveTestWidgetsFlutterBinding).framePolicy =
-      LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+  final binding = tester.binding;
+  if (binding is! LiveTestWidgetsFlutterBinding) {
+    throw StateError(
+      'benchmarks must run under `flutter drive --profile`, not '
+      '`flutter test` (binding is ${binding.runtimeType})',
+    );
+  }
+  binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   final supportDirectory = await Directory.systemTemp.createTemp(
     'poltergeist-tierb-',
@@ -179,38 +185,56 @@ Future<BenchmarkRig> bootBenchmarkApp(WidgetTester tester) async {
     navigatorKey: navigatorKey,
     scaffoldMessengerKey: scaffoldMessengerKey,
   );
+  Future<void> cleanupBoot() async {
+    try {
+      await supportDirectory.delete(recursive: true);
+    } on FileSystemException {
+      // Best-effort: the temp root is per-run.
+    }
+  }
+
   if (session == null) {
+    await cleanupBoot();
     throw StateError(
       'engine session failed to start — the app boots engine-less, '
       'but a benchmark needs the real listing path',
     );
   }
 
-  await tester.pumpWidget(
-    PoltergeistApp(
-      navigatorKey: navigatorKey,
-      scaffoldMessengerKey: scaffoldMessengerKey,
-      bookmarks: bookmarks,
-      engineSession: session,
-    ),
-  );
+  try {
+    await tester.pumpWidget(
+      PoltergeistApp(
+        navigatorKey: navigatorKey,
+        scaffoldMessengerKey: scaffoldMessengerKey,
+        bookmarks: bookmarks,
+        engineSession: session,
+      ),
+    );
 
-  final pane = tester.widget<PaneView>(find.byType(PaneView).first).controller;
-  final rig = BenchmarkRig(
-    tester: tester,
-    pane: pane,
-    session: session,
-    supportDirectory: supportDirectory,
-  );
-  await waitFor(
-    tester,
-    () =>
-        pane.phase == PanePhase.browsing &&
-        !pane.loading &&
-        pane.error == null,
-    'left pane initial local listing',
-  );
-  return rig;
+    final pane =
+        tester.widget<PaneView>(find.byType(PaneView).first).controller;
+    final rig = BenchmarkRig(
+      tester: tester,
+      pane: pane,
+      session: session,
+      supportDirectory: supportDirectory,
+    );
+    await waitFor(
+      tester,
+      () => pane.phase == PanePhase.browsing && !pane.loading,
+      'left pane initial local listing',
+    );
+    if (pane.error != null) {
+      throw StateError(
+        'left pane failed to reach browsing state: ${pane.error}',
+      );
+    }
+    return rig;
+  } catch (_) {
+    await session.shutdown();
+    await cleanupBoot();
+    rethrow;
+  }
 }
 
 /// The frame-timing stream subscription for one measurement window.
@@ -264,9 +288,12 @@ Future<int> measureFirstPaintMicros(
     pane.navigate(targetPath);
     await waitFor(
       rig.tester,
-      () => acceptedAtUs >= 0,
+      () => acceptedAtUs >= 0 || pane.error != null,
       'listing of $expectedEntries entries at $targetPath',
     );
+    if (pane.error != null) {
+      throw StateError('navigation to $targetPath failed: ${pane.error}');
+    }
     FrameSlice? painted;
     await waitFor(
       rig.tester,
@@ -299,9 +326,12 @@ Future<void> settlePane(
   rig.pane.navigate(path);
   await waitFor(
     rig.tester,
-    () => !rig.pane.loading && rig.pane.error == null,
+    () => !rig.pane.loading,
     'settle navigation to $path',
   );
+  if (rig.pane.error != null) {
+    throw StateError('settle navigation to $path failed: ${rig.pane.error}');
+  }
 }
 
 /// The scripted P6 scroll: a linear [duration] sweep of the listing to

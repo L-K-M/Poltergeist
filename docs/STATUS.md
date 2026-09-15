@@ -4287,8 +4287,10 @@ captures real raster timing through
 synthetic timing. P1/P2 anchor first paint at the navigate()-issue
 timestamp through the first frame whose build began after the listing
 landed; P6 runs a scripted 30 s linear scroll of the 100 000-entry
-fixture, derives the refresh rate from the median vsync interval
-(recorded in `scenarioConfig`), and reports late-frame percent against
+fixture, derives the refresh rate from the smallest positive vsync
+interval — dropped frames only lengthen intervals, so the minimum is
+the display period a median would mask — (recorded in
+`scenarioConfig`), and reports late-frame percent against
 the measured deadline — a capture under `floor(30 s × measured Hz)`
 publishes an error row with the count, never a ratio over a too-small
 sample.

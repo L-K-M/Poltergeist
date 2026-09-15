@@ -32,6 +32,8 @@ void main() {
           expectedEntries: entries,
         );
 
+        var successes = 0;
+        Object? lastError;
         for (var rep = 0; rep < 3; rep++) {
           await settlePane(rig, parent);
           try {
@@ -47,10 +49,12 @@ void main() {
               unit: 'ms',
               scenarioConfig: scenarioConfig,
             );
+            successes++;
             // Evidence line for the run log artifact.
             // ignore: avoid_print
             print('P1 rep$rep: ${micros / 1000.0} ms first paint');
           } catch (error) {
+            lastError = error;
             results.addError(
               scenario: scenario,
               repetition: rep,
@@ -58,6 +62,11 @@ void main() {
               scenarioConfig: scenarioConfig,
             );
           }
+        }
+        // The error rows are published either way; a drive exiting zero
+        // on an all-error scenario would read as a successful leg.
+        if (successes == 0) {
+          throw StateError('no successful repetitions; last: $lastError');
         }
       },
     );
