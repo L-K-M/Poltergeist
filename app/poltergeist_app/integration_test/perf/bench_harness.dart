@@ -76,7 +76,9 @@ final class BenchmarkRig {
 
   final WidgetTester tester;
 
-  /// The left pane's controller — the measured surface.
+  /// The left pane's controller at boot — the measured surface for
+  /// P1/P2/P6. P4 tab activations swap the mounted controller, so this
+  /// reference goes stale after the first `measureTabSwitchMicros`.
   final PaneController pane;
 
   /// The left pane's tab strip — the P4 measured surface. Strips live
