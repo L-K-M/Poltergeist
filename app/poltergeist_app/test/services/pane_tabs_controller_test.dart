@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/double_click_action.dart';
+import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
@@ -48,6 +49,24 @@ Bookmark _bookmark(
   updatedAt: DateTime.utc(2026, 9, 14),
 );
 
+/// Engine-faithful local lanes: like engine_host, the minted channel's
+/// homePath is the canonicalized OPENING root — a tab opened at a
+/// non-home path reports that path as its home. Only '~' opens at the
+/// real user home.
+final class _EngineLikeLocalLanes extends FakePaneLanes {
+  final listings = <String, List<RemoteFileEntry>>{};
+
+  @override
+  Future<AppBrowseChannel> openLocalChannel({
+    required String rootPath,
+  }) async {
+    calls.add('openLocal:$rootPath');
+    final channel = FakePaneChannel(rootPath == '~' ? '/home/tester' : rootPath)
+      ..listings.addAll(listings);
+    return channel;
+  }
+}
+
 void main() {
   late FakePaneLanes lanes;
 
@@ -78,6 +97,79 @@ void main() {
       ..listings['/home/tester'] = [_entry('a.txt')];
   });
 
+  group('tilde home resolution across duplication and reopen (F8)', () {
+    test('~ and ~/child resolve to the user home from original, '
+        'duplicated, and reopened tabs', () async {
+      final engineLanes = _EngineLikeLocalLanes();
+      engineLanes.listings['/home/tester'] = [_entry('a.txt')];
+      engineLanes.listings['/home/tester/Documents'] = [_entry('b.txt')];
+      engineLanes.listings['/tmp/project'] = [
+        _entry('c.txt', parent: '/tmp/project'),
+      ];
+      final controller = PaneTabsController(
+        paneId: PaneTabsController.leftPaneId,
+        lanes: engineLanes,
+      );
+      addTearDown(controller.dispose);
+
+      final original = controller.newTab(target: NewTabTarget.home);
+      await settle();
+      expect(original.controller.location?.path, '/home/tester');
+      original.controller.navigate('/tmp/project');
+      await settle();
+      expect(original.controller.location?.path, '/tmp/project');
+
+      // Sanity: the original tab already expands ~ to the user home.
+      original.controller.editPath();
+      original.controller.submitPathField('~');
+      await settle();
+      expect(
+        original.controller.location,
+        const LocalPaneLocation('/home/tester'),
+      );
+      original.controller.navigate('/tmp/project');
+      await settle();
+
+      // Duplicate while sitting on /tmp/project.
+      final duplicate = controller.newTab();
+      await settle();
+      expect(duplicate.controller.location?.path, '/tmp/project');
+      duplicate.controller.editPath();
+      duplicate.controller.submitPathField('~');
+      await settle();
+      expect(
+        duplicate.controller.location,
+        const LocalPaneLocation('/home/tester'),
+        reason: 'a duplicated tab expands ~ to the user home, '
+            'not its opening directory',
+      );
+      duplicate.controller.editPath();
+      duplicate.controller.submitPathField('~/Documents');
+      await settle();
+      expect(
+        duplicate.controller.location,
+        const LocalPaneLocation('/home/tester/Documents'),
+      );
+
+      // A reopened ghost of a project-rooted tab keeps the true home.
+      duplicate.controller.navigate('/tmp/project');
+      await settle();
+      await controller.requestCloseTab(duplicate);
+      await settle();
+      final reopened = await controller.reopenClosedTab();
+      await settle();
+      expect(reopened!.controller.location?.path, '/tmp/project');
+      reopened.controller.editPath();
+      reopened.controller.submitPathField('~');
+      await settle();
+      expect(
+        reopened.controller.location,
+        const LocalPaneLocation('/home/tester'),
+        reason: 'a reopened tab expands ~ to the user home too',
+      );
+    });
+  });
+
   group('new tab targets (02 §3)', () {
     test('duplicate (default) reopens the active tab\'s local path', () async {
       final controller = tabs();
@@ -94,9 +186,13 @@ void main() {
       await settle();
       expect(first.controller.location?.path, '/home/tester/docs');
 
-      // The engine canonicalizes the requested root into the channel's
-      // homePath — the fake scripts the channel it would return.
-      lanes.nextLocalChannel = FakePaneChannel('/home/tester/docs');
+      // The duplicate binds the user's home and browses the source's
+      // path on it — the engine never opens the browsed directory as
+      // the channel's home (F8).
+      lanes.nextLocalChannel = FakePaneChannel('/home/tester')
+        ..listings['/home/tester/docs'] = [
+          _entry('d.txt', parent: '/home/tester/docs'),
+        ];
       final second = controller.newTab();
       await settle();
 
@@ -106,7 +202,8 @@ void main() {
         second.controller.location,
         const LocalPaneLocation('/home/tester/docs'),
       );
-      expect(lanes.calls, contains('openLocal:/home/tester/docs'));
+      expect(second.controller.loading, isFalse);
+      expect(lanes.calls, contains('openLocal:~'));
     });
 
     test('duplicate on a remote tab reconnects the same server and path', () async {
@@ -567,6 +664,8 @@ void main() {
       tab.controller.viewMode = PaneViewMode.list;
       await controller.requestCloseTab(tab);
 
+      lanes.nextLocalChannel = FakePaneChannel('/home/tester')
+        ..listings['/home/tester'] = [_entry('a.txt'), _entry('b.txt')];
       final reopened = await controller.reopenClosedTab();
       await settle();
 
@@ -575,10 +674,10 @@ void main() {
       expect(reopened.controller.filterQuery, 'a');
       expect(reopened.controller.showHidden, isTrue);
       expect(reopened.controller.viewMode, PaneViewMode.list);
-      // The reopened tab re-lists at the ghost's path — nothing
-      // in-flight is carried over and the old channel is gone.
+      // The reopened tab binds home and re-lists at the ghost's path —
+      // nothing in-flight is carried over and the old channel is gone.
       expect(channel.closeCalls, 1);
-      expect(lanes.calls, contains('openLocal:/home/tester'));
+      expect(lanes.calls, contains('openLocal:~'));
     });
 
     test('reopen restores the remote binding and its path', () async {
@@ -663,7 +762,10 @@ void main() {
       await controller.requestCloseTab(tab);
       expect(asked, 1, reason: 'the guard fired once and accepted');
 
-      lanes.nextLocalChannel = FakePaneChannel('/home/tester/sub');
+      lanes.nextLocalChannel = FakePaneChannel('/home/tester')
+        ..listings['/home/tester/sub'] = [
+          _entry('s.txt', parent: '/home/tester/sub'),
+        ];
       final reopened = await controller.reopenClosedTab();
       await settle();
       expect(

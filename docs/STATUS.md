@@ -4960,6 +4960,47 @@ pane_controller, workspace_panes, pane_tabs_controller — 162 tests);
 full app suite green (934 tests). Evidence and logs under
 `tasks/run3-task51/`.
 
+## M3 — review round 2 minors, fusion review round 2 (2026-09-15)
+
+Findings F7 and F8 of the second fusion review are repaired red-first,
+one PR, app-only (no engine-host change — the seam did not require it).
+
+F7: returning to a tab showed a blank Quick Select query while its old
+preview stayed active. The active-only keyed `PaneView` disposes the
+field on a tab switch, and `_QuickSelectFieldState` always created an
+empty text controller, never seeding it from the retained session —
+Enter then confirmed an invisible query's preview. The fix exposes the
+active query read-only from `PaneController.quickSelectQuery` and seeds
+the remounted field from it; the session's baseline and preview are
+untouched, and per-tab state semantics are unchanged (the segmented
+mode already read live from the controller).
+
+F8: tilde resolved to a duplicated tab's initial directory, not the
+local user's home. Duplication (and the ghost reopen) called
+`openLocalAt(currentPath)`, and the engine reports the canonicalized
+opening root as `homePath`, which path input treats as the user home.
+The fix binds every local channel at the user's home (`open '~'`) and
+browses the requested root on that binding in a single listing — the
+channel's `homePath` is always the real user home, so `~` and
+`~/child` resolve identically from original, duplicated, and reopened
+tabs. No environment/filesystem lookup in widgets or controllers (D8
+holds: `~` still expands inside the engine). The browsed path keeps its
+requested spelling like every navigation target; retry still returns to
+the targeted directory. Two existing call-shape assertions now expect
+`openLocal:~` (duplicate, ghost reopen).
+
+Validation: both regressions failed before the fix and pass after —
+the widget test types a query in tab A, visits B, returns to A, and
+asserts the displayed text plus the selected rows, then changes
+Add/Remove and confirms (`pane_tabs_view_test.dart`); the duplication
+test spans tab duplication plus path submission and verifies `~` and
+`~/child` from original, duplicated, and reopened tabs against an
+engine-faithful fake whose `homePath` is the opening root
+(`pane_tabs_controller_test.dart`). `flutter analyze` clean; focused
+suites green (pane_tabs_view, pane_tabs_controller, quick_select,
+pane_view, pane_path_input/pane_controller — 200 tests); full app
+suite green (936 tests). Evidence and logs under `tasks/run3-task52/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

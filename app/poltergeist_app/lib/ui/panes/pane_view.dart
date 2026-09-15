@@ -2082,12 +2082,19 @@ class _QuickSelectField extends StatefulWidget {
 }
 
 class _QuickSelectFieldState extends State<_QuickSelectField> {
-  final _query = TextEditingController();
+  late final TextEditingController _query;
   final _fieldFocus = FocusNode();
 
   @override
   void initState() {
     super.initState();
+    // The session outlives the field: a tab switch disposes this state
+    // while the controller retains the query and its preview, so a
+    // remount seeds from the session — a blank field over a live
+    // preview would confirm an invisible query on Enter.
+    _query = TextEditingController(
+      text: widget.controller.quickSelectQuery,
+    );
     // autofocus alone cannot take focus from a listing that already
     // holds it — the field must claim primary focus explicitly on open.
     WidgetsBinding.instance.addPostFrameCallback((_) {
