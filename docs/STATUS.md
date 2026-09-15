@@ -4704,6 +4704,17 @@ racing a newer commit) failed before the fix and pass after;
 `flutter analyze` clean; full app suite green (916 tests). Log:
 `tasks/run3-task48/flutter-test-reviewfix.log`.
 
+Round 2 flagged a stray word in this entry (fixed). Round 3 (`365c388`)
+confirmed one further hole: a retired commit settling while the pane
+still browsed the renamed directory on the same channel — the
+away-and-back or same-spelling-rebind case — never re-listed, so the
+accepted listing could show the old name indefinitely. The stale-success
+branch now re-fetches when `identical(channel, _channel) &&
+location == _location` still holds, keeping the retired session's
+editor and reselect off. A new controller regression (back-nav listing
+predating a held commit) failed before and passes after; full app suite
+green (917 tests). Log: `tasks/run3-task48/flutter-test-reviewfix2.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

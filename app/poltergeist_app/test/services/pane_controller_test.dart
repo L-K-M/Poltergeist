@@ -2188,6 +2188,54 @@ void main() {
       expect(controller.renameTarget?.name, 'inner.txt');
       controller.dispose();
     });
+
+    test('a commit settling after away-and-back navigation refreshes '
+        'the still-browsed directory', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+
+      // Away and back BEFORE the commit settles: the accepted back-
+      // navigation listing predates the rename, so it still shows the
+      // old name on the same channel at the same path.
+      controller.navigate('/parent/docs');
+      await settle();
+      controller.navigate('/home/tester');
+      await settle();
+      expect(controller.entries.map((e) => e.name), contains('alpha.txt'));
+
+      // The retired token still never reopens the editor or installs a
+      // reselect — but the pane browses the renamed directory, and its
+      // listing can predate the commit, so it is re-fetched.
+      channel.listings['/home/tester'] = [
+        _entry('beta.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ];
+      held.complete();
+      await settle();
+
+      expect(
+        channel.listCalls.last,
+        '/home/tester',
+        reason: 'a retired commit landing on the still-browsed '
+            'directory must re-list it',
+      );
+      expect(controller.entries.map((e) => e.name), contains('beta.txt'));
+      expect(
+        controller.renameTarget,
+        isNull,
+        reason: 'the retired session still never reopens its editor',
+      );
+      controller.dispose();
+    });
   });
 
   group('file open (02 §2.6)', () {
