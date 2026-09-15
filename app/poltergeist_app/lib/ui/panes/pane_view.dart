@@ -2382,10 +2382,13 @@ class _NoticeStrip extends StatelessWidget {
             children: [
               Padding(
                 padding: const EdgeInsetsDirectional.only(end: 6),
-                child: Icon(
-                  Icons.info_outline,
-                  size: 18,
-                  color: colors.onSurfaceVariant,
+                // Decorative — the sentence alone is the announcement.
+                child: ExcludeSemantics(
+                  child: Icon(
+                    Icons.info_outline,
+                    size: 18,
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
               ),
               Expanded(
