@@ -357,7 +357,10 @@ void main() {
             isA<CheckDataException>().having(
               (error) => '$error',
               'message',
-              contains('tier-B trend scenarios carry no config'),
+              contains(
+                'calibratedScenarioConfig is only valid for tier-A '
+                'scenarios',
+              ),
             ),
           ),
         );
@@ -880,6 +883,134 @@ void main() {
         );
       },
     );
+
+    test(
+      'the job-wide scenarioConfig rejection holds under schema -2 too',
+      () {
+        expect(
+          () => TierBBaseline.fromJson({
+            'schema': baselineSchemaV2Id,
+            'fingerprint': _fingerprintJson(
+              mode: 'profile',
+              scenarioConfig: 'p1/v1;claimed-job-wide',
+            ),
+            'scenarios': {
+              'P1': {
+                'median': 95,
+                'unit': 'ms',
+                'repetitions': 3,
+                'scenarioConfig': 'p1/v1;a',
+              },
+            },
+          }, _tierBCatalog()),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains(
+                'tier-B baseline: fingerprint.scenarioConfig must be null',
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('schema -2 entries record their per-scenario config', () {
+      final baseline = TierBBaseline.fromJson({
+        'schema': baselineSchemaV2Id,
+        'fingerprint': _fingerprintJson(mode: 'profile'),
+        'scenarios': {
+          'P1': {
+            'median': 95,
+            'unit': 'ms',
+            'repetitions': 3,
+            'scenarioConfig': 'p1/v1;entries=10000',
+          },
+          // A recorded null is a legitimate record: the collector emits
+          // no config, so the entry binds its median to config-free runs.
+          'P4': {
+            'median': 35,
+            'unit': 'ms',
+            'repetitions': 5,
+            'scenarioConfig': null,
+          },
+        },
+      }, _tierBCatalog());
+      expect(baseline.schemaId, baselineSchemaV2Id);
+      expect(baseline.scenarios['P1']!.scenarioConfigRecorded, isTrue);
+      expect(
+        baseline.scenarios['P1']!.scenarioConfig,
+        'p1/v1;entries=10000',
+      );
+      expect(baseline.scenarios['P4']!.scenarioConfigRecorded, isTrue);
+      expect(baseline.scenarios['P4']!.scenarioConfig, isNull);
+    });
+
+    test('schema -2 rejects an entry without a scenarioConfig key', () {
+      // The absent key is ambiguous (unrecorded or config-free?), so a
+      // -2 file must carry it explicitly — null included.
+      expect(
+        () => TierBBaseline.fromJson({
+          'schema': baselineSchemaV2Id,
+          'fingerprint': _fingerprintJson(mode: 'profile'),
+          'scenarios': {
+            'P1': {'median': 95, 'unit': 'ms', 'repetitions': 3},
+          },
+        }, _tierBCatalog()),
+        throwsA(
+          isA<CheckDataException>().having(
+            (error) => '$error',
+            'message',
+            contains(
+              'P1.scenarioConfig is required under schema '
+              '$baselineSchemaV2Id',
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('legacy schema -1 entries parse with no recorded config', () {
+      final baseline = TierBBaseline.fromJson({
+        'schema': baselineSchemaId,
+        'fingerprint': _fingerprintJson(mode: 'profile'),
+        'scenarios': {
+          'P1': {'median': 95, 'unit': 'ms', 'repetitions': 3},
+        },
+      }, _tierBCatalog());
+      expect(baseline.schemaId, baselineSchemaId);
+      expect(baseline.scenarios['P1']!.scenarioConfigRecorded, isFalse);
+    });
+
+    test(
+      'schema -1 rejects an entry carrying scenarioConfig (mixed form)',
+      () {
+        expect(
+          () => TierBBaseline.fromJson({
+            'schema': baselineSchemaId,
+            'fingerprint': _fingerprintJson(mode: 'profile'),
+            'scenarios': {
+              'P1': {
+                'median': 95,
+                'unit': 'ms',
+                'repetitions': 3,
+                'scenarioConfig': 'p1/v1;a',
+              },
+            },
+          }, _tierBCatalog()),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains(
+                'P1.scenarioConfig requires schema $baselineSchemaV2Id',
+              ),
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('drift-state parsing', () {
@@ -1024,6 +1155,8 @@ void main() {
     test('parses against the committed catalog and records the tier-B '
         'runtime axes', () {
       final baseline = _committedBaseline();
+      // The canonical schema records each entry's measured config.
+      expect(baseline.schemaId, baselineSchemaV2Id);
       // Mode is validated per store: the baseline must carry the tier-B
       // profile runtime, never the tier-A AOT one — and the per-tier
       // runtime axis (#125) records the Flutter-bundled Dart and the
@@ -1035,8 +1168,7 @@ void main() {
       expect(baseline.fingerprint.arch, isNotNull);
       expect(baseline.fingerprint.cpuModel, isNotNull);
       // scenarioConfig is a per-scenario axis; the baseline schema
-      // rejects a job-wide claim (per-scenario configs arrive with the
-      // first config-carrying tier-B collector's baseline entries).
+      // rejects a job-wide claim — each entry records its own instead.
       expect(baseline.fingerprint.scenarioConfig, isNull);
     });
 
@@ -1065,6 +1197,12 @@ void main() {
           greaterThanOrEqualTo(1),
           reason: 'a baseline median must count its observations',
         );
+        expect(
+          entry.value.scenarioConfigRecorded,
+          isTrue,
+          reason: 'a -2 baseline entry records the config its median '
+              'was measured under',
+        );
       }
       // Pin the exact committed set: P1/P2/P4 have honest pooled
       // medians and P6 deliberately has none (every leg errored), so a
@@ -1074,14 +1212,27 @@ void main() {
         baseline.scenarios.keys,
         unorderedEquals(['P1', 'P2', 'P4']),
       );
-      // Pin values too so an edited median or repetition count fails
-      // alongside a dropped or fabricated entry.
+      // Pin values too so an edited median, repetition count, or config
+      // fails alongside a dropped or fabricated entry. The configs are
+      // the ones the cited main-branch artifacts actually recorded.
       expect(baseline.scenarios['P1']!.median, 1061.087);
       expect(baseline.scenarios['P1']!.repetitions, 12);
+      expect(
+        baseline.scenarios['P1']!.scenarioConfig,
+        'local-entries-10000-first-paint',
+      );
       expect(baseline.scenarios['P2']!.median, 10781.459);
       expect(baseline.scenarios['P2']!.repetitions, 12);
+      expect(
+        baseline.scenarios['P2']!.scenarioConfig,
+        'local-entries-100000-first-paint',
+      );
       expect(baseline.scenarios['P4']!.median, 35.398);
       expect(baseline.scenarios['P4']!.repetitions, 5);
+      expect(
+        baseline.scenarios['P4']!.scenarioConfig,
+        'local-tabs-5-entries-10000-tab-switch',
+      );
     });
   });
 }
@@ -1141,6 +1292,16 @@ Map<String, Object?> _scenarioJson({
 BudgetCatalog _catalog() => BudgetCatalog.fromJson({
   'schema': budgetsSchemaId,
   'scenarios': [_scenarioJson()],
+});
+
+/// A catalog that knows the tier-B scenario ids the baseline fixtures
+/// use (baseline parsing validates entries against the catalog's tier).
+BudgetCatalog _tierBCatalog() => BudgetCatalog.fromJson({
+  'schema': budgetsSchemaId,
+  'scenarios': [
+    _scenarioJson(id: 'P1', tier: 'b'),
+    _scenarioJson(id: 'P4', tier: 'b'),
+  ],
 });
 
 Map<String, Object?> _resultsJson({required List<Map<String, Object?>> rows}) =>

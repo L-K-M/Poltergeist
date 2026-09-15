@@ -90,10 +90,23 @@ scenarios coexist in one file and both still compare.
 
 **tier-B baseline** (`tier-b-baseline.json`, committed) — per-scenario
 medians under one
-fingerprint; the fingerprint's `scenarioConfig` must be null (configs
-are per-scenario, and the baseline schema grows per-scenario configs
-with the first config-carrying tier-B collector). Tier-B comparisons
-fail on a median regressing
+fingerprint, plus each entry's own `scenarioConfig`: the config its
+median was measured under. In schema
+`poltergeist-d12-baseline-2` (the committed canonical form) every entry
+must carry the key explicitly — `null` records a config-free collector;
+an absent key is ambiguous and rejected. A run compares a scenario only
+against the entry recording the same config: a recorded-but-different
+config is a loud non-comparison skip (never cross-compared — a changed
+workload is a changed measurement), and a legacy
+`poltergeist-d12-baseline-1` file — still readable, with a loud
+deprecation notice — records no configs at all, so every entry reports
+`baseline-config-missing` and skips rather than inventing one. Both
+non-comparison outcomes stay soft (notice, exit zero) while
+`BENCH_ENFORCE_B` is unset and fail once it is set, and both veto the
+drift-state reset like any unexecuted comparison. The fingerprint's
+`scenarioConfig` must still be null — a job-wide claim could never be
+attributed to one scenario. Tier-B comparisons that do run fail on a
+median regressing
 strictly more than 25 % against the baseline median once enforced. A
 declared tier whose baseline file is absent prints a loud non-enforced
 notice and exits zero while soft, non-zero once `BENCH_ENFORCE_B` is
@@ -230,7 +243,13 @@ The refresh is measurement, not authoring:
    pool's controlled axes moved, the refresh re-measures on the **new**
    fingerprint — that is the point of the procedure.
 3. Per tier-B scenario, take the median of all pooled `ok` rows and set
-   `repetitions` to the pooled observation count. A scenario with no
+   `repetitions` to the pooled observation count — and record the
+   scenario's own `scenarioConfig` from the same rows (schema
+   `poltergeist-d12-baseline-2`; the within-run agreement check
+   guarantees each scenario carried one config per run, so pooling is
+   only honest when every pooled run's config for that scenario agrees —
+   a run measured under a different config belongs to a new baseline,
+   not this one). A scenario with no
    `ok` rows gets **no entry** — never a fabricated median; the checker
    reports a landed scenario without an entry loudly (and fails it once
    enforced).
@@ -262,6 +281,16 @@ The trend these medians anchor is environment-scale (llvmpipe raster),
 not a budget read — P1's ~1.06 s against the < 150 ms budget is the
 software stack talking, which is exactly what trend-only exists to
 expose before M9.
+
+The file moved to schema `poltergeist-d12-baseline-2` the same day
+(fusion review round 2, finding F9): each entry now records the
+`scenarioConfig` its rows actually carried in those artifacts — P1
+`local-entries-10000-first-paint`, P2
+`local-entries-100000-first-paint`, P4
+`local-tabs-5-entries-10000-tab-switch` — so a run only ever compares
+against a median measured under the same workload. Medians, repetition
+counts, and the fingerprint are unchanged from the -1 commit (re-verified
+against the same artifacts).
 
 ## First fixture-backed observations (2026-09-14)
 

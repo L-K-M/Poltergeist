@@ -2327,6 +2327,612 @@ void main() {
         );
       },
     );
+
+    test(
+      'a changed workload config never numerically compares: loud '
+      'skip soft, hard fail once enforced',
+      () async {
+        // The F9 regression: a landed scenario whose fixture config was
+        // changed uniformly across repetitions must not score against
+        // the old baseline's median — a different workload is a
+        // non-comparison, not a pass.
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+            scenarioConfigs: const {
+              'P4': 'local-tabs-5-entries-10000-tab-switch',
+            },
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 20,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(
+                    mode: 'profile',
+                    scenarioConfig: 'local-tabs-2-entries-10000-tab-switch',
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        var (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(stdoutText, contains('skipped: config mismatch'));
+        expect(
+          stdoutText,
+          contains(
+            'tier-B baseline config mismatch for P4 '
+            '(baseline "local-tabs-5-entries-10000-tab-switch" != '
+            'run "local-tabs-2-entries-10000-tab-switch")',
+          ),
+        );
+        expect(
+          stdoutText,
+          isNot(
+            contains(
+              RegExp(r'^P4\s+b\s.*\spass$', multiLine: true),
+            ),
+          ),
+          reason: 'a changed workload must never produce a numeric pass',
+        );
+
+        (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+          environment: {'BENCH_ENFORCE_B': '1'},
+        );
+        expect(exitCodeValue, 1, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(
+            'FAIL: tier-B baseline scenarioConfig mismatch for P4',
+          ),
+        );
+      },
+    );
+
+    test(
+      'a config-carrying run cannot compare against a baseline entry '
+      'recorded config-free',
+      () async {
+        // Recorded null is not "accepts anything": it binds the median
+        // to config-free runs only.
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 20,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(
+                    mode: 'profile',
+                    scenarioConfig: 'local-tabs-5-entries-10000-tab-switch',
+                  ),
+                ),
+            ],
+          ),
+        );
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(stdoutText, contains('skipped: config mismatch'));
+        expect(
+          stdoutText,
+          contains(
+            'baseline "<none>" != '
+            'run "local-tabs-5-entries-10000-tab-switch"',
+          ),
+        );
+      },
+    );
+
+    test(
+      'a config-free run cannot compare against a baseline entry with a '
+      'recorded config',
+      () async {
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+            scenarioConfigs: const {
+              'P4': 'local-tabs-5-entries-10000-tab-switch',
+            },
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 20,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(mode: 'profile'),
+                ),
+            ],
+          ),
+        );
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+          environment: {'BENCH_ENFORCE_B': '1'},
+        );
+        expect(exitCodeValue, 1, reason: stdoutText);
+        expect(stdoutText, contains('skipped: config mismatch'));
+        expect(
+          stdoutText,
+          isNot(contains(RegExp(r'^P4\s+b\s.*\spass$', multiLine: true))),
+        );
+      },
+    );
+
+    test(
+      'an unchanged workload config still compares and passes',
+      () async {
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        const config = 'local-tabs-5-entries-10000-tab-switch';
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+            scenarioConfigs: const {'P4': config},
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 35,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(
+                    mode: 'profile',
+                    scenarioConfig: config,
+                  ),
+                ),
+            ],
+          ),
+        );
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+          environment: {'BENCH_ENFORCE_B': '1'},
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(RegExp(r'^P4\s+b\s.*\spass$', multiLine: true)),
+        );
+      },
+    );
+
+    test(
+      'a legacy schema -1 baseline stays readable but never compares: '
+      'loud baseline-config-missing, enforced-nonzero',
+      () async {
+        // Migration policy: the pre-config baseline keeps parsing (its
+        // fingerprint still arms the drift evaluation), but no entry can
+        // honestly compare — never an invented config, never a silent
+        // numeric pass.
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            schema: baselineSchemaId,
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+          ),
+        );
+        // Even a run whose config happens to match what the legacy
+        // baseline was measured under cannot compare: the entry simply
+        // does not record it.
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 35,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(
+                    mode: 'profile',
+                    scenarioConfig: 'local-tabs-5-entries-10000-tab-switch',
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        var (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+        );
+        expect(exitCodeValue, 0, reason: stdoutText);
+        expect(stdoutText, contains('skipped: baseline-config-missing'));
+        expect(stdoutText, contains('baseline-config-missing'));
+        expect(
+          stdoutText,
+          contains('deprecated schema $baselineSchemaId'),
+        );
+        expect(
+          stdoutText,
+          isNot(
+            contains(
+              RegExp(r'^P4\s+b\s.*\spass$', multiLine: true),
+            ),
+          ),
+          reason: 'a config-less entry must never produce a numeric pass',
+        );
+
+        (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+          ],
+          environment: {'BENCH_ENFORCE_B': '1'},
+        );
+        expect(exitCodeValue, 1, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains('records no scenarioConfig'),
+        );
+      },
+    );
+
+    test(
+      'a config-skipped comparison cannot prove a clean main run',
+      () async {
+        // Same rule as a missing baseline entry: a comparison that
+        // never executed must veto the drift-state reset.
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+            scenarioConfigs: const {
+              'P4': 'local-tabs-5-entries-10000-tab-switch',
+            },
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 35,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(
+                    mode: 'profile',
+                    scenarioConfig: 'local-tabs-2-entries-10000-tab-switch',
+                  ),
+                ),
+            ],
+          ),
+        );
+        final statePath = pathOf('state.json');
+        final prior = const DriftState({
+          'tier-b/cpu': DriftNoticeState(
+            consecutiveMainRuns: 3,
+            lastSeenUtc: '2026-09-15T00:00:00Z',
+          ),
+        }).toJson('2026-09-15T00:00:00Z');
+        await File(statePath).writeAsString(jsonEncode(prior));
+
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+            '--drift-state',
+            statePath,
+            '--update-drift-state',
+          ],
+        );
+        expect(exitCodeValue, 0, reason: 'soft mode, no graded failure');
+        expect(stdoutText, contains('skipped: config mismatch'));
+        expect(
+          await File(statePath).readAsString(),
+          jsonEncode(prior),
+          reason: 'a skipped comparison vetoes the reset',
+        );
+      },
+    );
+
+    test(
+      'a baseline-config-missing skip also vetoes the drift reset',
+      () async {
+        // The legacy-schema skip is the same unexecuted comparison: it
+        // must veto the reset too, in soft and enforced mode alike.
+        final budgets = await writeFixture(
+          'budgets.json',
+          _budgetsJson(landedIds: {'P4'}),
+        );
+        final baseline = await writeFixture(
+          'baseline.json',
+          _baselineJson(
+            schema: baselineSchemaId,
+            scenarios: {
+              'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+            },
+          ),
+        );
+        final results = await writeFixture(
+          'results.json',
+          _resultsJson(
+            rows: [
+              for (var i = 0; i < 3; i++)
+                _rowJson(
+                  scenario: 'P4',
+                  repetition: i,
+                  value: 35,
+                  unit: 'ms',
+                  fingerprint: _fingerprintJson(mode: 'profile'),
+                ),
+            ],
+          ),
+        );
+        final statePath = pathOf('state.json');
+        final prior = const DriftState({
+          'tier-b/cpu': DriftNoticeState(
+            consecutiveMainRuns: 3,
+            lastSeenUtc: '2026-09-15T00:00:00Z',
+          ),
+        }).toJson('2026-09-15T00:00:00Z');
+        await File(statePath).writeAsString(jsonEncode(prior));
+
+        var (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+            '--drift-state',
+            statePath,
+            '--update-drift-state',
+          ],
+        );
+        expect(exitCodeValue, 0, reason: 'soft mode, no graded failure');
+        expect(stdoutText, contains('skipped: baseline-config-missing'));
+        expect(
+          await File(statePath).readAsString(),
+          jsonEncode(prior),
+          reason: 'a legacy skip vetoes the reset too',
+        );
+
+        (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: [
+            '--results',
+            results,
+            '--tiers',
+            'b',
+            '--budgets',
+            budgets,
+            '--baseline',
+            baseline,
+            '--drift-state',
+            statePath,
+            '--update-drift-state',
+          ],
+          environment: {'BENCH_ENFORCE_B': '1'},
+        );
+        expect(exitCodeValue, 1, reason: stdoutText);
+        expect(
+          await File(statePath).readAsString(),
+          jsonEncode(prior),
+          reason: 'an enforced failure still cannot touch the state',
+        );
+      },
+    );
+
+    test('baseline schema forms fail explicitly (exit 65)', () async {
+      final budgets = await writeFixture(
+        'budgets.json',
+        _budgetsJson(landedIds: {'P4'}),
+      );
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(
+          rows: [
+            for (var i = 0; i < 3; i++)
+              _rowJson(
+                scenario: 'P4',
+                repetition: i,
+                unit: 'ms',
+                fingerprint: _fingerprintJson(mode: 'profile'),
+              ),
+          ],
+        ),
+      );
+
+      // Schema -2 whose entry drops the per-scenario config key.
+      final missingKey = jsonDecode(jsonEncode(
+        _baselineJson(
+          scenarios: {
+            'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+          },
+        ),
+      )) as Map<String, Object?>;
+      ((missingKey['scenarios'] as Map)['P4'] as Map)
+          .remove('scenarioConfig');
+      final missingKeyPath = await writeFixture('missing-key.json', missingKey);
+      var (exitCodeValue, _, stderrText) = await runChecker(
+        arguments: [
+          '--results',
+          results,
+          '--tiers',
+          'b',
+          '--budgets',
+          budgets,
+          '--baseline',
+          missingKeyPath,
+        ],
+      );
+      expect(exitCodeValue, 65, reason: stderrText);
+      expect(
+        stderrText,
+        contains(
+          'P4.scenarioConfig is required under schema $baselineSchemaV2Id',
+        ),
+      );
+
+      // Schema -1 whose entry carries the schema-2 field (mixed form).
+      final mixed = jsonDecode(jsonEncode(
+        _baselineJson(
+          schema: baselineSchemaId,
+          scenarios: {
+            'P4': {'median': 35, 'unit': 'ms', 'repetitions': 5},
+          },
+        ),
+      )) as Map<String, Object?>;
+      ((mixed['scenarios'] as Map)['P4'] as Map)['scenarioConfig'] =
+          'local-tabs-5-entries-10000-tab-switch';
+      final mixedPath = await writeFixture('mixed.json', mixed);
+      (exitCodeValue, _, stderrText) = await runChecker(
+        arguments: [
+          '--results',
+          results,
+          '--tiers',
+          'b',
+          '--budgets',
+          budgets,
+          '--baseline',
+          mixedPath,
+        ],
+      );
+      expect(exitCodeValue, 65, reason: stderrText);
+      expect(
+        stderrText,
+        contains('P4.scenarioConfig requires schema $baselineSchemaV2Id'),
+      );
+    });
   });
 
   group('subprocess contract', () {
@@ -2557,20 +3163,44 @@ Map<String, Object?> _rowJson({
 };
 
 Map<String, Object?> _baselineJson({
+  String schema = baselineSchemaV2Id,
   String runnerImage = 'image-2026',
   String cpuModel = 'test-cpu',
   Map<String, Object?> scenarios = const {
     'P1': {'median': 100, 'unit': 'ms', 'repetitions': 3},
   },
-}) => {
-  'schema': baselineSchemaId,
-  'fingerprint': _fingerprintJson(
-    mode: 'profile',
-    runnerImage: runnerImage,
-    cpuModel: cpuModel,
-  ),
-  'scenarios': scenarios,
-};
+  Map<String, String?> scenarioConfigs = const {},
+}) {
+  assert(
+    schema == baselineSchemaV2Id || scenarioConfigs.isEmpty,
+    'schema -1 fixtures must not carry scenarioConfig (mixed form)',
+  );
+  assert(
+    scenarioConfigs.keys.every(scenarios.containsKey),
+    'scenarioConfigs names a scenario with no baseline entry',
+  );
+  return {
+    'schema': schema,
+    'fingerprint': _fingerprintJson(
+      mode: 'profile',
+      runnerImage: runnerImage,
+      cpuModel: cpuModel,
+    ),
+    'scenarios': {
+      for (final entry in scenarios.entries)
+        entry.key: {
+          ...(entry.value as Map).cast<String, Object?>(),
+          // Schema -2 records each entry's measured config. Tier-B test
+          // rows carry a null scenarioConfig by default (only the tier-A
+          // helpers assign configs), so a null record keeps plain fixtures
+          // comparable; scenarioConfigs overrides per entry. A -1 fixture
+          // must not carry the key (mixed form).
+          if (schema == baselineSchemaV2Id)
+            'scenarioConfig': scenarioConfigs[entry.key],
+        },
+    },
+  };
+}
 
 Map<String, Object?> _fingerprintJson({
   String runnerImage = 'image-2026',
