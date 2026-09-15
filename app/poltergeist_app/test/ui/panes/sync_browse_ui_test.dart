@@ -473,7 +473,7 @@ void main() {
 
     testWidgets('hiding the second pane suspends the link with the '
         'amber chip; re-showing resumes it', (tester) async {
-      await pumpShell(tester);
+      final engine = await pumpShell(tester);
       await tester.tap(find.byKey(
         const ValueKey('command.view.toggleSyncBrowsing'),
       ));
@@ -494,6 +494,16 @@ void main() {
         find.text('Sync browsing suspended'),
         findsWidgets,
       );
+
+      // While hidden, pane B's tabs take no commands (02 §3): the
+      // refresh chord retargeted to the survivor lists pane A again and
+      // never touches pane B's channel.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+      expect(engine.localChannels[0].listCalls, hasLength(2));
+      expect(engine.localChannels[1].listCalls, hasLength(1));
 
       // Re-showing restores the strip whole and resumes the link — the
       // anchors never moved.

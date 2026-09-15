@@ -80,6 +80,48 @@ void main() {
     expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
   });
 
+  testWidgets('reports effective second-pane visibility to the workspace '
+      'seam — stage hide, regrow, and intent hide on one channel', (
+    tester,
+  ) async {
+    final reports = <bool>[];
+    tester.view.physicalSize = const Size(679, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    Future<void> pump({required SecondPaneIntent intent}) =>
+        tester.pumpWidget(
+          MaterialApp(
+            home: AdaptiveShell(
+              resizeLabel: 'Resize panes',
+              formatRatio: (ratio) => '${(ratio * 100).round()}%',
+              secondPaneIntent: intent,
+              onSecondPaneVisibilityChanged: reports.add,
+              primary: _pane('A'),
+              secondary: _pane('B'),
+            ),
+          ),
+        );
+
+    // The stage-2 auto-hide reports through the same channel a user
+    // hide does — one mechanism, two intents (02 §1/§3).
+    await pump(intent: SecondPaneIntent.shown);
+    await tester.pump();
+    expect(reports, [false]);
+
+    tester.view.physicalSize = const Size(680, 600);
+    await pump(intent: SecondPaneIntent.shown);
+    await tester.pump();
+    expect(reports, [false, true]);
+
+    // The toggle's intent hide reports identically — downstream
+    // (Sync Browsing's suspend, the workspace's active-pane retarget)
+    // cannot tell the two hides apart.
+    await pump(intent: SecondPaneIntent.hidden);
+    await tester.pump();
+    expect(reports, [false, true, false]);
+  });
+
   testWidgets('keyboard-resizes the focused splitter', (tester) async {
     await _pumpShell(tester);
 
