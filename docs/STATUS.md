@@ -4715,6 +4715,16 @@ editor and reselect off. A new controller regression (back-nav listing
 predating a held commit) failed before and passes after; full app suite
 green (917 tests). Log: `tasks/run3-task48/flutter-test-reviewfix2.log`.
 
+Round 4 (`ca042a0`) flagged that the stale-success branch dropped the
+settle notification when the pane browsed elsewhere — the guard itself
+already releases at token retirement (round 2), but the settle signal
+is restored so observers always learn the commit finished, and the
+still-browsed-directory refresh stays gated on identical channel plus
+matching location. The new test asserts listener notification across
+the stale settle and the round-3 test now asserts list-call growth
+rather than a matching tail call. Full app suite green (918 tests).
+Log: `tasks/run3-task48/flutter-test-reviewfix3.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

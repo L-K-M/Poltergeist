@@ -2219,20 +2219,56 @@ void main() {
         _entry('beta.txt'),
         _entry('docs', type: RemoteFileType.directory),
       ];
+      final preSettleListCalls = channel.listCalls.length;
       held.complete();
       await settle();
 
       expect(
-        channel.listCalls.last,
-        '/home/tester',
+        channel.listCalls.length,
+        greaterThan(preSettleListCalls),
         reason: 'a retired commit landing on the still-browsed '
             'directory must re-list it',
       );
+      expect(channel.listCalls.last, '/home/tester');
       expect(controller.entries.map((e) => e.name), contains('beta.txt'));
       expect(
         controller.renameTarget,
         isNull,
         reason: 'the retired session still never reopens its editor',
+      );
+      controller.dispose();
+    });
+
+    test('a retired commit settling away from its directory still '
+        'notifies its settle', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+
+      // The pane browses a DIFFERENT directory when the commit lands:
+      // no refresh fires, but the settle must still be observable —
+      // anything tracking the in-flight operation learns it finished.
+      controller.navigate('/parent/docs');
+      await settle();
+      final before = notifications;
+      held.complete();
+      await settle();
+
+      expect(
+        notifications,
+        greaterThan(before),
+        reason: 'the commit\'s settle must still notify listeners even '
+            'when its token is retired and the pane browses elsewhere',
       );
       controller.dispose();
     });

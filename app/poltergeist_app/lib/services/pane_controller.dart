@@ -1280,11 +1280,14 @@ class PaneController extends ChangeNotifier {
     if (!ownsPresentation()) {
       // The rename applied on the old binding; the pane's current
       // listing belongs to a newer operation and is left untouched —
-      // the retired session's editor and reselect stay off. But an
-      // away-and-back round trip (or a rebind landing on the same path
-      // spelling) can leave the pane browsing the renamed directory on
-      // the SAME channel: the listing it accepted can predate the
-      // commit, so it is re-fetched.
+      // the retired session's editor and reselect stay off. The settle
+      // itself still notifies: anything tracking the in-flight
+      // operation learns it finished even though its state write is
+      // suppressed. An away-and-back round trip (or a rebind landing on
+      // the same path spelling) can leave the pane browsing the
+      // renamed directory on the SAME channel: the listing it accepted
+      // can predate the commit, so it is re-fetched.
+      notifyListeners();
       if (identical(channel, _channel) && location == _location) {
         refresh();
       }
