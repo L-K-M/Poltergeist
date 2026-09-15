@@ -4919,6 +4919,47 @@ the frame they were issued — a live region that mounts and unmounts
 inside a single semantics frame produces no announcement, which is
 acceptable there because no intermediate inert state ever reached AT.
 
+## M3 — mirror-probe binding identity, fusion review round 2 (2026-09-15)
+
+Finding F2 of the second fusion review is repaired red-first: a held
+mirror probe could navigate a REPLACED binding using the old endpoint's
+answer. With a linked pair, committing a child navigation on one pane
+starts an existence probe on the other; rebinding that pane while the
+probe pends, letting the new channel open with its landing listing held,
+and then releasing the old probe issued `other.navigate(mirrorPath)`
+onto the NEW channel — superseding the user's landing navigation with a
+path/existence answer from the old server. A stale 'missing' answer
+published a false `mirrorMissing` suspension on the new binding the same
+way, and a target-side navigation issued while the probe pends was
+superseded by the replay's navigate.
+
+The probe is now bound to the pane's operation identity, not just its
+channel. `PaneController.probeMirrorDirectory` returns a
+`PaneMirrorProbe` carrying the existence verdict plus the operation
+identity it was taken under — `_operationIdentity`, a token rotated on
+every binding transition (`_beginBinding`, `detachRemote`,
+`_rollbackCandidateBind` — the rollback restore returns the SAME channel
+object, which channel identity alone cannot distinguish) and on every
+navigation issue, plus the probed channel itself. The replay rechecks
+`mirrorProbeCurrent` immediately before issuing the mirror navigation:
+a stale probe abandons the replay outright — neither 'exists' nor
+'missing' — so it can never suspend on a stale notFound or move a newer
+binding with an old endpoint's answer. §7's semantics on stable bindings
+are unchanged: replay, the two-cause suspension taxonomy, and the single
+resume predicate all ride the same paths as before.
+
+Validation: three regressions failed before the fix and pass after —
+held probe + rebind + held landing (the new channel receives only its
+intended landing request, its generation is not superseded, the link
+stays armed until the landing commit drops it), stale probe resolving
+missing (no false `mirrorMissing` on the new binding), and a target-side
+navigation issued mid-probe (the replay abandons; the user's commit
+re-evaluates on its own and suspends `mirrorMissing` honestly).
+`flutter analyze` clean; focused suites green (sync_browsing_controller,
+pane_controller, workspace_panes, pane_tabs_controller — 162 tests);
+full app suite green (934 tests). Evidence and logs under
+`tasks/run3-task51/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

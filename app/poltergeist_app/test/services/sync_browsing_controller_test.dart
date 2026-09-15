@@ -539,6 +539,149 @@ void main() {
       expect(r.sync.suspended, isFalse);
     });
 
+    test('a held mirror probe cannot navigate a rebound pane — the old '
+        'endpoint\'s answer never rides the new channel', () async {
+      final r = rig();
+      await openHomes(r);
+      r.sync.toggle();
+
+      // The left pane commits into docs; the mirror probe the replay
+      // issues on the right pane's channel is held in flight.
+      final probeHold = Completer<void>();
+      r.rightChannel.holdNext = probeHold;
+      r.left.navigate('/left/home/docs');
+      await settle();
+      expect(r.left.committedLocation?.path, '/left/home/docs');
+      expect(r.rightChannel.listCalls, ['/right/home', '/right/home/docs']);
+      expect(r.right.location?.path, '/right/home');
+
+      // The right tab rebinds to a server while the probe still pends;
+      // the new channel opens but its landing listing is held too.
+      final landingHold = Completer<void>();
+      final candidate = FakePaneChannel('/srv/home')
+        ..listings['/srv/home'] = [entry('r.txt', parent: '/srv/home')]
+        ..holdNext = landingHold;
+      r.lanes.nextRemoteChannel = candidate;
+      await r.right.connectRemote(remoteBookmark());
+      await settle();
+      expect(candidate.listCalls, ['/srv/home']);
+      expect(r.right.location, const RemotePaneLocation('srv-1', '/srv/home'));
+
+      // The stale probe resolves EXISTS on the old endpoint: the answer
+      // is abandoned — no mirror navigation on the new channel, and the
+      // user's landing navigation is not superseded.
+      probeHold.complete();
+      await settle();
+      expect(candidate.listCalls, ['/srv/home']);
+      expect(
+        r.right.location,
+        const RemotePaneLocation('srv-1', '/srv/home'),
+      );
+      expect(r.sync.enabled, isTrue);
+      expect(r.sync.suspended, isFalse);
+
+      // The landing commit on the other endpoint is the drop trigger —
+      // and it must be the landing itself, not a mirror path.
+      landingHold.complete();
+      await settle();
+      expect(
+        r.right.committedLocation,
+        const RemotePaneLocation('srv-1', '/srv/home'),
+      );
+      expect(candidate.listCalls, ['/srv/home']);
+      expect(r.sync.enabled, isFalse);
+    });
+
+    test('a stale probe resolving missing is abandoned, not published '
+        'as a mirror-missing suspension', () async {
+      final r = rig();
+      await openHomes(r);
+      r.sync.toggle();
+
+      // `leftOnly` has no mirror on the right: the probe is held so
+      // its notFound answer lands after the target has rebound.
+      final probeHold = Completer<void>();
+      r.rightChannel.holdNext = probeHold;
+      r.left.navigate('/left/home/leftOnly');
+      await settle();
+      expect(r.left.committedLocation?.path, '/left/home/leftOnly');
+      expect(r.rightChannel.listCalls.last, '/right/home/leftOnly');
+
+      final landingHold = Completer<void>();
+      final candidate = FakePaneChannel('/srv/home')
+        ..listings['/srv/home'] = [entry('r.txt', parent: '/srv/home')]
+        ..holdNext = landingHold;
+      r.lanes.nextRemoteChannel = candidate;
+      await r.right.connectRemote(remoteBookmark());
+      await settle();
+
+      // The old endpoint's missing answer is void on the new binding:
+      // no mirrorMissing cause, no navigation.
+      probeHold.complete();
+      await settle();
+      expect(r.sync.enabled, isTrue);
+      expect(r.sync.cause, isNull);
+      expect(candidate.listCalls, ['/srv/home']);
+      expect(
+        r.right.location,
+        const RemotePaneLocation('srv-1', '/srv/home'),
+      );
+
+      landingHold.complete();
+      await settle();
+      expect(r.sync.enabled, isFalse);
+    });
+
+    test('a target-side navigation issued while the probe pends '
+        'supersedes the replay', () async {
+      final r = rig();
+      await openHomes(r);
+      r.sync.toggle();
+      r.rightChannel.listings['/right/home/alt'] = [
+        entry('a.txt', parent: '/right/home/alt'),
+      ];
+
+      // The replay's mirror probe for docs is held on the right pane.
+      final probeHold = Completer<void>();
+      r.rightChannel.holdNext = probeHold;
+      r.left.navigate('/left/home/docs');
+      await settle();
+      expect(r.rightChannel.listCalls, ['/right/home', '/right/home/docs']);
+
+      // The user navigates the target pane while the probe still
+      // pends — the landing listing held so the intent is in flight
+      // when the stale answer arrives.
+      final navHold = Completer<void>();
+      r.rightChannel.holdNext = navHold;
+      r.right.navigate('/right/home/alt');
+      await settle();
+      expect(r.right.location?.path, '/right/home/alt');
+
+      // The probe's exists answer is abandoned: it must not supersede
+      // the user's pending navigation with a mirror navigate.
+      probeHold.complete();
+      await settle();
+      expect(r.right.location?.path, '/right/home/alt');
+      expect(
+        r.rightChannel.listCalls.where((p) => p == '/right/home/docs'),
+        hasLength(1), // the probe itself — no replay navigation
+      );
+
+      // The user's commit re-evaluates on its own: 'alt' has no left
+      // mirror, so the link suspends naming the left pane.
+      navHold.complete();
+      await settle();
+      await settle();
+      expect(
+        r.right.committedLocation?.path,
+        '/right/home/alt',
+      );
+      expect(r.left.location?.path, '/left/home/docs');
+      expect(r.sync.cause?.kind, SyncBrowseSuspension.mirrorMissing);
+      expect(r.sync.cause?.missingName, 'alt');
+      expect(r.sync.cause?.missingOnLeftPane, isTrue);
+    });
+
     test('a committed server change drops the link even while the pair '
         'is suspended — the drop is not visibility-gated', () async {
       final r = rig();

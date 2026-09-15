@@ -332,7 +332,7 @@ class SyncBrowsingController extends ChangeNotifier {
       // Probe BEFORE moving the other pane: a missing mirror suspends
       // and leaves it where it stands — never an optimistic error move
       // onto a nonexistent location.
-      final exists = await other.directoryExists(mirrorPath);
+      final probe = await other.probeMirrorDirectory(mirrorPath);
       if (_disposed ||
           serial != _replaySerial ||
           !enabled ||
@@ -345,7 +345,14 @@ class SyncBrowsingController extends ChangeNotifier {
           ? _leftTab!.controller.committedLocation
           : _rightTab!.controller.committedLocation;
       if (originCommitted != committed) return;
-      if (!exists) {
+      // The TARGET must still be the binding and navigation session the
+      // probe ran on, rechecked immediately before the mirror issue:
+      // a mid-probe rebind or intervening navigation supersedes the
+      // answer — an abandoned probe is neither 'exists' nor 'missing'
+      // (a stale missing would publish a false cause, a stale exists
+      // would drive an old endpoint's path onto the new channel).
+      if (!other.mirrorProbeCurrent(probe)) return;
+      if (!probe.exists) {
         _suspend(
           SyncBrowseCause(
             SyncBrowseSuspension.mirrorMissing,
