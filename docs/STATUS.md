@@ -4694,7 +4694,7 @@ minor findings, both confirmed and repaired red-first:
 - `_renameInFlight` was pane-global: a stalled commit on a retired
   binding kept `startRename` closed on the live one until the request
   settled. The guard now releases where the operation's ownership token
-  retires (bind, detach, location-changing navigation issue), and each
+  retires (bind, detach, location-changing navigation), and each
   settle frame clears the flag only while the operation still owns it,
   so a late settle cannot release a newer commit's guard.
 
