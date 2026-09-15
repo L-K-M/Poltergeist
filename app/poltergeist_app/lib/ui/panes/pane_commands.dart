@@ -14,6 +14,8 @@ const kGoForwardCommandId = 'go.forward';
 const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
 const kViewRefreshCommandId = 'view.refresh';
+const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
+const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
 const kPaneFocusLeftCommandId = 'pane.focusLeft';
 const kPaneFocusRightCommandId = 'pane.focusRight';
 const kPaneSwapFocusCommandId = 'pane.swapFocus';
@@ -225,6 +227,61 @@ List<RegisteredCommand> buildPaneCommands({
         menu: AppMenuId.view,
         order: 110,
         group: 2,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewToggleSecondPaneCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.viewToggleSecondPaneLabel,
+      icon: Icons.vertical_split_outlined,
+      // ⇧⌘D on macOS, Ctrl+Shift+D elsewhere (02 §8.3's table). Hiding
+      // keeps the second pane's strip and per-tab state whole — the
+      // layout unmounts it; the workspace objects live on (02 §3).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyD, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyD, control: true, shift: true),
+        ],
+      ),
+      run: (_) async {
+        workspace.toggleSecondPane();
+      },
+      // 02 §9's View menu: between Show/Hide Sidebar (60) and Show/Hide
+      // Activity (80) — both unregistered slots for later slices.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 70,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewToggleSyncBrowsingCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.viewToggleSyncBrowsingLabel,
+      icon: Icons.link_outlined,
+      // ⌥⌘B on macOS, Ctrl+Alt+B elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyB, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyB, control: true, alt: true),
+        ],
+      ),
+      // Disabled until both visible tabs stand at committed directories
+      // — an unbound pane has nothing to anchor. Once armed the toggle
+      // stays live so the link can always be dropped.
+      enabled: () =>
+          workspace.syncBrowsing.enabled || workspace.syncBrowsing.canLink,
+      run: (_) async {
+        workspace.syncBrowsing.toggle();
+      },
+      // 02 §9's Go menu: after Edit Path and the (unregistered) Recent
+      // slot, before Open in Terminal.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 80,
       ),
     ),
     RegisteredCommand(

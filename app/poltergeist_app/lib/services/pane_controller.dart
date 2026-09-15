@@ -55,12 +55,19 @@ class _QuiescentSnapshot {
     this.listing,
     this.error,
     this.selection,
+    this.committedLocation,
   );
 
   final PaneLocation? location;
   final List<RemoteFileEntry> listing;
   final RemoteFileException? error;
   final SelectionState<_RowKey> selection;
+
+  /// The committed-location marker at snapshot time: an Esc-cancelled
+  /// navigation (or an abandoned server change) restores it, so Sync
+  /// Browsing's commit-gated drop never fires off a location the pane
+  /// only visited optimistically (02 §7).
+  final PaneLocation? committedLocation;
 }
 
 /// Stable identity of one visible row within a listing: the entry's
@@ -242,6 +249,23 @@ class PaneController extends ChangeNotifier {
   /// inlineRename probe already reads it, so a rename can never be
   /// closed out from under the user once it exists.
   bool _inlineRenameActive = false;
+
+  /// Whether this tab anchors the workspace's Sync Browsing pair
+  /// (02 §7): the workspace's sync controller writes it on enable and
+  /// drop; the tab close guard's syncAnchor probe reads it so closing
+  /// an anchored tab quantifies the link loss through the same guarded
+  /// operation every other trigger uses.
+  bool _syncAnchorActive = false;
+
+  /// The last location whose listing was actually accepted — 02 §2.8's
+  /// committed answer. [location] moves optimistically at issue time
+  /// and STAYS on a failed target (the error overlay rides it), so it
+  /// cannot name where the pane verifiably stands; this marker only
+  /// ever names a directory the channel listed. Null while a rebind is
+  /// in flight and until its first listing lands. Sync Browsing (02 §7)
+  /// keys anchors, replay, and the server-change drop on it, so a
+  /// failed or Esc-cancelled navigation never drags the mirror.
+  PaneLocation? _committedLocation;
 
   /// The tab's navigation trail (02 §2.1): every location the user
   /// navigated to, recorded at issue time — committed, in-flight, and
@@ -493,6 +517,7 @@ class PaneController extends ChangeNotifier {
 
     final snapshot = _snapshot;
     _location = snapshot?.location;
+    _committedLocation = snapshot?.committedLocation;
     _error = snapshot?.error;
     _selection =
         snapshot?.selection ?? SelectionState<_RowKey>.begin(rows: const []);
@@ -820,6 +845,44 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether this tab anchors the Sync Browsing pair — the tab close
+  /// guard's syncAnchor trigger probe (02 §7); the workspace's sync
+  /// controller owns the writes.
+  bool get syncAnchorActive => _syncAnchorActive;
+
+  set syncAnchorActive(bool value) {
+    if (_disposed || value == _syncAnchorActive) return;
+    _syncAnchorActive = value;
+    notifyListeners();
+  }
+
+  /// The last directory this pane's channel verifiably listed — null
+  /// while a rebind is in flight and until its first listing lands.
+  /// Sync Browsing (02 §7) keys on it: only a commit moves a pane, so a
+  /// failed or cancelled navigation can neither replay nor drop the link.
+  PaneLocation? get committedLocation => _committedLocation;
+
+  /// Whether [path] lists on the live channel right now — the Sync
+  /// Browsing mirror probe (02 §7): the link checks existence on the
+  /// other pane BEFORE navigating it, so a missing mirror suspends the
+  /// link instead of optimistically erroring that pane onto a
+  /// nonexistent location. Typed VFS errors answer false; a transport
+  /// fault reports and answers false (a pane that cannot answer cannot
+  /// mirror).
+  Future<bool> directoryExists(String path) async {
+    final channel = _channel;
+    if (_disposed || channel == null || connectionLost) return false;
+    try {
+      await channel.listDirectory(path);
+      return true;
+    } on RemoteFileException {
+      return false;
+    } on Object catch (error, stackTrace) {
+      _report(error, stackTrace);
+      return false;
+    }
+  }
+
   /// Restores the transient per-tab lenses a closed tab's ghost captured
   /// (02 §3's ⇧⌘T): filter, hidden override, view mode. Deliberately
   /// bypasses [changeFilterQuery]'s field-open gate — the ghost replays
@@ -1078,6 +1141,7 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
+    _committedLocation = null;
     _history.clear();
     _historyIndex = -1;
     _pathFieldOpen = false;
@@ -1230,6 +1294,10 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     if (presentation == _BindingPresentation.replace) {
       _location = null;
+      // A rebind stands nowhere until its first listing commits — the
+      // sync link's server-change drop keys on THAT commit, so an
+      // abandoned rebind keeps the link (02 §7).
+      _committedLocation = null;
       // The trail and any open path edit are scoped to the binding —
       // a new binding starts a fresh trail.
       _history.clear();
@@ -1339,7 +1407,13 @@ class PaneController extends ChangeNotifier {
     }
     if (!_loadingActive()) {
       _snapshot =
-          _QuiescentSnapshot(_location, _sortedListing, _error, _selection);
+          _QuiescentSnapshot(
+        _location,
+        _sortedListing,
+        _error,
+        _selection,
+        _committedLocation,
+      );
     }
     if (_location != target) {
       // The old entries stay visible (dimmed) during the load, but the
@@ -1371,6 +1445,10 @@ class PaneController extends ChangeNotifier {
       _applyEntries(_filteredListing());
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
+      // The commit marker moves only here — an accepted answer. The
+      // generation check above already pins `_location` to this
+      // navigation's target.
+      _committedLocation = _location;
       _error = null;
       notifyListeners();
     } on RemoteFileException catch (error) {

@@ -790,5 +790,41 @@
   "tabCloseConfirmClose": "Close",
   "@tabCloseConfirmClose": {
     "description": "Accepts the guarded tab close despite its in-flight work."
+  },
+  "viewToggleSecondPaneLabel": "Show/Hide Second Pane",
+  "@viewToggleSecondPaneLabel": {
+    "description": "Command label: hide or show the second pane, preserving its tabs and per-tab state (view.toggleSecondPane, 02 §3/§8.3/§9)."
+  },
+  "viewToggleSyncBrowsingLabel": "Sync Browsing",
+  "@viewToggleSyncBrowsingLabel": {
+    "description": "Command label: link the two panes so relative navigation replays at the same path below the other pane's anchor (view.toggleSyncBrowsing, 02 §7/§8.3/§9)."
+  },
+  "syncBrowsingChip": "Sync browsing",
+  "@syncBrowsingChip": {
+    "description": "Linked-state chip text on both path bars and the status bar while Sync Browsing replays navigation (02 §7)."
+  },
+  "syncBrowsingSuspended": "Sync browsing suspended",
+  "@syncBrowsingSuspended": {
+    "description": "Bare suspended-state chip text (02 §7): the re-visibility cases — an anchored tab switched away or the second pane hidden — and a diverged pair carry it."
+  },
+  "syncBrowsingSuspendedMissing": "Sync browsing suspended — \"{name}\" missing on {side}",
+  "@syncBrowsingSuspendedMissing": {
+    "description": "Suspended chip for the missing-mirror cause (02 §7): the replayed relative directory does not exist on the named pane.",
+    "placeholders": {
+      "name": {"type": "String"},
+      "side": {"type": "String"}
+    }
+  },
+  "syncBrowsingSuspendedOutside": "Sync browsing suspended — outside the anchor subtree",
+  "@syncBrowsingSuspendedOutside": {
+    "description": "Suspended chip for the escape cause (02 §7): a navigation left the fixed anchor root, so the link is suspended rather than replaying `..` chains."
+  },
+  "syncBrowsingSideLeft": "left",
+  "@syncBrowsingSideLeft": {
+    "description": "The left pane named as a word inside the missing-mirror suspension copy (02 §7)."
+  },
+  "syncBrowsingSideRight": "right",
+  "@syncBrowsingSideRight": {
+    "description": "The right pane named as a word inside the missing-mirror suspension copy (02 §7)."
   }
 }

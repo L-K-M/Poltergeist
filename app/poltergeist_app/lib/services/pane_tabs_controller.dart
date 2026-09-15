@@ -58,13 +58,16 @@ enum TabCloseTrigger {
 /// the controller — evaluated at close time, never cached.
 typedef _CloseGuard = (TabCloseTrigger, bool Function(PaneController));
 
-/// The active registry (02 §3's trigger set): the two v1 probes, then the
-/// declared-for-later kinds. A later slice adds one line — a probe that
-/// reports its trigger — and the guard, the dialog, and every close
-/// route pick it up unchanged. (Not const: closures cannot be.)
+/// The active registry (02 §3's trigger set): the two v1 probes, the
+/// Sync Browsing anchor probe (02 §7 — closing an anchored tab takes the
+/// link down, so the guard asks first), then the declared-for-later
+/// kinds. A later slice adds one line — a probe that reports its
+/// trigger — and the guard, the dialog, and every close route pick it
+/// up unchanged. (Not const: closures cannot be.)
 final _closeGuards = <_CloseGuard>[
   (TabCloseTrigger.navigation, (c) => c.loading),
   (TabCloseTrigger.inlineRename, (c) => c.inlineRenameActive),
+  (TabCloseTrigger.syncAnchor, (c) => c.syncAnchorActive),
 ];
 
 /// What [PaneTabsController.requestCloseTab] settled to.

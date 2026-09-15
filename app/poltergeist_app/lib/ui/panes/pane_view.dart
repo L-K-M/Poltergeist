@@ -10,8 +10,10 @@ import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
+import '../../services/sync_browsing_controller.dart';
 import '../../services/workspace_controller.dart';
 import 'pane_format.dart';
+import 'sync_browse_chip.dart';
 
 /// 02 §2.8's anti-flash grace: no spinner, dim, footer swap, or cancel
 /// affordance before this, so fast navigations never flash.
@@ -116,6 +118,9 @@ class _PaneViewState extends State<PaneView> {
   late Listenable _listenable = Listenable.merge([
     widget.controller,
     widget.workspace,
+    // 02 §7's link chip state — suspension transitions must repaint the
+    // path bar even when the pane's own controller did not change.
+    widget.workspace.syncBrowsing,
   ]);
   Timer? _graceTimer;
   bool _pastGrace = false;
@@ -145,7 +150,11 @@ class _PaneViewState extends State<PaneView> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
         !identical(oldWidget.workspace, widget.workspace)) {
-      _listenable = Listenable.merge([widget.controller, widget.workspace]);
+      _listenable = Listenable.merge([
+        widget.controller,
+        widget.workspace,
+        widget.workspace.syncBrowsing,
+      ]);
     }
     if (!identical(oldWidget.controller, widget.controller)) {
       // The old controller's grace/reveal bookkeeping must not leak
@@ -599,6 +608,7 @@ class _PaneViewState extends State<PaneView> {
               },
               child: _PaneSurface(
                 controller: widget.controller,
+                syncLink: widget.workspace.syncBrowsing,
                 active: active,
                 graceVisible: _pastGrace,
                 scrollController: _scrollController,
@@ -642,6 +652,7 @@ class _PaneViewState extends State<PaneView> {
 class _PaneSurface extends StatelessWidget {
   const _PaneSurface({
     required this.controller,
+    required this.syncLink,
     required this.active,
     required this.graceVisible,
     required this.scrollController,
@@ -662,6 +673,10 @@ class _PaneSurface extends StatelessWidget {
   });
 
   final PaneController controller;
+
+  /// The workspace's Sync Browsing link (02 §7) — the path bar's
+  /// link chip reads its state.
+  final SyncBrowsingController syncLink;
   final bool active;
   final bool graceVisible;
   final ScrollController scrollController;
@@ -706,6 +721,7 @@ class _PaneSurface extends StatelessWidget {
       children: [
         _PathBar(
           controller: controller,
+          syncLink: syncLink,
           active: active,
           loadingVisible: graceVisible && !controller.connectionLost,
           onCancel: onCancelNavigation,
@@ -944,6 +960,7 @@ class _PathBar extends StatefulWidget {
     required this.controller,
     required this.active,
     required this.loadingVisible,
+    required this.syncLink,
     required this.onCancel,
     required this.pathFieldKey,
     required this.pathFieldFocusNode,
@@ -953,6 +970,11 @@ class _PathBar extends StatefulWidget {
   final PaneController controller;
   final bool active;
   final bool loadingVisible;
+
+  /// The workspace's Sync Browsing link (02 §7): while enabled, both
+  /// anchored path bars carry the link chip — quiet while linked, amber
+  /// link-broken while suspended.
+  final SyncBrowsingController syncLink;
   final VoidCallback onCancel;
 
   /// The editable field's hit-test boundary for the pane's pointer-down
@@ -1079,6 +1101,17 @@ class _PathBarState extends State<_PathBar> {
                         ],
                       ),
               ),
+              // 02 §7: the anchored tabs' path bars carry the chip —
+              // quiet while linked, amber link-broken while suspended.
+              // A non-anchored tab's bar shows none: its navigation is
+              // not the pair's.
+              if (controller.syncAnchorActive) ...[
+                const SizedBox(width: 4),
+                SyncBrowseChip(
+                  key: ValueKey('${controller.paneTabId}.syncChip'),
+                  link: widget.syncLink,
+                ),
+              ],
               if (controller.loading && widget.loadingVisible)
                 IconButton(
                   key: ValueKey('${controller.paneTabId}.cancel'),

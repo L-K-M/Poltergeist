@@ -4536,6 +4536,51 @@ run even with nothing landed. `dart test test/benchmarks` 118/118;
 baseline-refresh procedure (the path a future runner rotation uses)
 and the baseline's provenance.
 
+## M3 — Sync Browsing (2026-09-15)
+
+`view.toggleSyncBrowsing` (⌥⌘B on macOS, Ctrl+Alt+B elsewhere — the
+§8.3 table) links the two panes per 02 §7: enabling records both
+visible tabs' committed directories as the fixed anchor pair, and a
+committed relative navigation on either side replays at the same
+relative path below the other pane's anchor through the ordinary
+navigation machinery. Every transition keys on
+`PaneController.committedLocation` — a directory the channel verifiably
+listed — never the optimistic `location`, so a failed or Esc-cancelled
+move can neither replay nor suspend, and a tab's server change drops
+the link only when its landing listing commits. Relative moves replay
+after a `directoryExists` probe: a missing mirror suspends without
+moving the other pane ('"foo" missing on right'), and a commit outside
+the anchored subtree suspends outright ('outside the anchor subtree') —
+no `..` replay chains, no snap-into-place, no directory creation. The
+amber link-broken chip with the named cause renders on both anchored
+path bars and the status bar; resume fires under the single predicate
+of §7 (both anchored panes committed at the same valid relative path),
+with `diverged` and the re-visibility cause (tab switch or hidden
+second pane) carrying the plain suspended line.
+
+Closing an anchored tab routes through the existing ⌘W guard via the
+new `TabCloseTrigger.syncAnchor` registry entry — no call-site special
+case — and a confirmed close drops the link with the tab.
+`view.toggleSecondPane` (⇧⌘D / Ctrl+Shift+D, View menu) hides pane B
+whole — strip and tabs survive — and the same suspension/resume rules
+cover both the user toggle and the shell's responsive auto-hide, which
+now reports its effective second-pane visibility into the workspace.
+The Sync Browsing command is app-scoped, enabled while linked or
+linkable (both panes committed), and carries `AppMenuId.go` placement
+at order 80 per §9's Go-menu row.
+
+Validation: `flutter analyze` clean; app suite 850 tests green.
+Focused suites cover anchor
+recording, child/up/path-jump replay, both suspension causes with
+distinct chip copy, the auto-resume predicate and its rejections,
+commit-gated server-change drop (Esc-cancel keeps the link), guard
+routing on anchored close, tab-switch re-visibility, hidden-pane
+suspend/resume, command registration/chords/menu slots, and the
+shell-level status chip (`sync_browsing_controller_test`,
+`sync_browse_ui_test`). Real-font captures of the linked, replayed,
+and both amber suspended states are under
+`tasks/run3-task44/captures/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
