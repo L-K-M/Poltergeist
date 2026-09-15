@@ -1036,10 +1036,11 @@ Map<String, Object?> _fingerprintJson({
   String cpuModel = 'test-cpu',
   String dartVersion = '3.12.0',
   String? flutterVersion,
+  String arch = 'x64',
   String? scenarioConfig,
 }) => {
   'runnerImage': runnerImage,
-  'arch': 'x64',
+  'arch': arch,
   'dartVersion': dartVersion,
   'flutterVersion': flutterVersion,
   'mode': mode,
