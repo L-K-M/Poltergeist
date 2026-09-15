@@ -4838,6 +4838,14 @@ channel, a re-entrant rebind corrupting it) were already handled by the
 regressions pin both. Full app suite green (923 tests). Log:
 `tasks/run3-task49/flutter-test-reviewfix.log`.
 
+Round 2 (`4e88d93`) was minor-only with zero actionable findings: the
+one comment noted the two round-1 repairs lacked regressions, so two
+more now pin them — Esc during the candidate's mid-window
+`reconnecting` flap (also asserting the restored baseline drops the
+candidate's stale error/loss state), and the failed `retainCache` retry
+keeping the rollback parked. Full app suite green (925 tests). Log:
+`tasks/run3-task49/flutter-test-reviewfix2.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
