@@ -62,7 +62,8 @@ Options:
   --results <path>          bench-results.json written by the bench job
   --tiers a|b|ab            which tiers this invocation ran
   --budgets <path>          budgets catalog (default $defaultBudgetsPath)
-  --baseline <path>         tier-B baseline (default $defaultBaselinePath)
+  --baseline <path>         tier-B baseline (default $defaultBaselinePath;
+                            consulted only when --tiers includes b)
   --drift-state <path>      drift-state store to read (missing/unreadable
                             means unknown history: counting is
                             conservative, never a reset)
@@ -156,9 +157,23 @@ Future<void> checkMain(
       catalog,
     );
 
+    // The baseline is consulted only by the tier-B-declared paths in
+    // evaluate(), so a tier-B-blind run must not parse it at all:
+    // validating it would wrongly fail tier-A-only callers whose budgets
+    // catalog does not declare the tier-B scenarios (e.g. the collector
+    // tests' synthetic catalogs). An explicitly passed --baseline still
+    // earns a note rather than vanishing silently — a typo'd path must
+    // not read as a successful validation.
+    final tierBDeclared = tiers.contains(BenchTier.b);
+    if (!tierBDeclared && cli.baseline != defaultBaselinePath) {
+      stderrSink.writeln(
+        'note: --baseline is consulted only when --tiers includes b; '
+        'ignoring ${cli.baseline}',
+      );
+    }
     TierBBaseline? baseline;
     final baselineFile = File(cli.baseline);
-    if (await baselineFile.exists()) {
+    if (tierBDeclared && await baselineFile.exists()) {
       baseline = TierBBaseline.fromJson(
         await _readJsonDocument(cli.baseline, 'tier-B baseline'),
         catalog,

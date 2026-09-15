@@ -3,10 +3,16 @@
 Offline evaluation of Poltergeist's D12 performance budgets. The CI
 `bench` job (08 §8) produces the inputs; this checker only
 consumes files, prints an honest table plus notices, and exits with the
-plan's status. No calibration data or baseline is committed here: every
+plan's status. Every
 scenario in `budgets.json` stays `landed: false` until the real harness/job
 introduces its surface
-(07 §1), and `calibratedFingerprint` stays `null` until real calibration.
+(07 §1), and the tier-A `calibratedFingerprint` stays `null` until real
+calibration. The tier-B baseline **is** committed
+(`tier-b-baseline.json`, measured from real main-branch bench artifacts —
+provenance below), so a declared tier-B scope now runs the per-run
+fingerprint-drift evaluation against it instead of printing the
+absent-baseline notice; per-scenario trend lines still wait on the
+`landed` flips, which are a separate step.
 
 ## Invocation
 
@@ -82,12 +88,12 @@ file — each landed tier-A scenario is compared against its own
 calibrated config, never another scenario's, so two config-carrying
 scenarios coexist in one file and both still compare.
 
-**tier-B baseline** (`tier-b-baseline.json`, absent until a real
-calibration commits it) — committed per-scenario medians under one
+**tier-B baseline** (`tier-b-baseline.json`, committed) — per-scenario
+medians under one
 fingerprint; the fingerprint's `scenarioConfig` must be null (configs
-are per-scenario; no tier-B scenario carries one yet, and the baseline
-schema grows per-scenario configs with the first config-carrying
-tier-B collector). Tier-B comparisons fail on a median regressing
+are per-scenario, and the baseline schema grows per-scenario configs
+with the first config-carrying tier-B collector). Tier-B comparisons
+fail on a median regressing
 strictly more than 25 % against the baseline median once enforced. A
 declared tier whose baseline file is absent prints a loud non-enforced
 notice and exits zero while soft, non-zero once `BENCH_ENFORCE_B` is
@@ -170,17 +176,18 @@ a software stack.
 Tier-B rows land in the same `bench-results.json` and the checker runs
 `--tiers ab` on main/dispatch, `--tiers a` on PRs (the tier-B leg never
 runs on a PR — PR invocations must not write drift state). The leg is
-trend-only until M9: no `BENCH_ENFORCE_B`, no `landed` flips, and no
-committed baseline — so a declared tier-B scope still prints the loud
-non-enforced `no committed tier-B baseline` notice and exits zero.
+trend-only until M9: no `BENCH_ENFORCE_B` and no `landed` flips — the
+committed baseline (below) arms the fingerprint-drift evaluation on
+`--tiers ab` runs while every scenario stays reported-not-judged.
 
 Local iteration needs a display plus the Linux toolchain; the same
 script honors `XVFB_RUN`/`FLUTTER_BIN`/`DART_BIN` overrides, e.g.
 `XVFB_RUN="xvfb-run -a" scripts/bench-tier-b.sh`, and software GL via
 `LIBGL_ALWAYS_SOFTWARE=1` suffices for real Impeller raster timings.
 
-Still ahead for tier B (08 §6/§8, with the first baseline): commit
-`tier-b-baseline.json` from a real calibration run; fetch the drift
+Still ahead for tier B (08 §6/§8): flip each tier-B scenario's `landed`
+as its surface's introduction step allows, so the committed baseline
+starts producing per-scenario trend lines; fetch the drift
 state from the latest main-branch bench job's artifact and pass it via
 `--drift-state` (the checker's drift state is its own standalone JSON
 file — the always-present artifact, or an `actions/cache` entry keyed
@@ -189,6 +196,72 @@ on the fingerprint, is the documented single state store); add
 it on tier-B-blind runs, so drift state only ever flows through a run
 that evaluated tier B. PR invocations stay read-only and never mutate
 the store.
+
+## Baseline refresh procedure (08 §6's dedicated PR)
+
+A tier-B drift notice — controlled-axis or CPU — never auto-clears: a
+human opens a **dedicated baseline-refresh PR** that re-measures on the
+current fingerprint and updates `tier-b-baseline.json` in one commit.
+The refresh is measurement, not authoring:
+
+1. Download the `bench-results` artifact of the last few successful
+   **main-branch** `ci.yml` runs (the tier-B leg runs only on main
+   pushes and manual dispatch — PR artifacts never carry it):
+   `gh run list --repo L-K-M/Poltergeist --workflow ci.yml --branch main`
+   then `gh run download <run-id> --repo L-K-M/Poltergeist --name
+   bench-results`. Use at least three runs that include the tier-B leg
+   (a scenario whose suite has reached main fewer times pools whatever
+   `ok` rows exist — its `repetitions` records the shortfall, as P4's
+   first entry below does); the merged `bench-results.json` holds the
+   per-repetition rows.
+2. Read the tier-B rows' shared fingerprint (every axis except
+   `scenarioConfig`, which is per scenario). The baseline records that
+   fingerprint — including the **tier-B** runtime axes (`dartVersion`
+   is the Flutter-bundled Dart, `flutterVersion` the pinned Flutter,
+   `mode` `profile`), never the job SDK's tier-A runtime. Pool
+   observations only from runs matching the recorded fingerprint in
+   full — a run on a different CPU model is a different environment
+   (the uncontrolled axis skips its comparison anyway), so its numbers
+   never fold into a baseline it would not be compared against. A
+   mixed fleet (two CPU models serving `ubuntu-latest` concurrently)
+   keeps printing the CPU-axis notice on the non-recorded CPU even
+   after a refresh — that notice then tracks runner assignment, not
+   baseline staleness, and is noted rather than refreshed away. If the
+   pool's controlled axes moved, the refresh re-measures on the **new**
+   fingerprint — that is the point of the procedure.
+3. Per tier-B scenario, take the median of all pooled `ok` rows and set
+   `repetitions` to the pooled observation count. A scenario with no
+   `ok` rows gets **no entry** — never a fabricated median; the checker
+   reports a landed scenario without an entry loudly (and fails it once
+   enforced).
+4. Run the checker against one of the real artifacts and confirm the
+   drift notice is gone; run `dart test test/benchmarks` (the committed
+   file's contract is pinned by tests) and `dart analyze
+   test/benchmarks`, then open the refresh PR. Nothing else rides along
+   — no `landed` flips, no `BENCH_ENFORCE_*`, no budget edits.
+
+## First committed baseline (2026-09-15)
+
+Measured from the `bench-results` artifacts of the main-branch CI runs
+34920829912, 34925105848, 34925201167, and 34937535607 (run
+34934485531 ran on `AMD EPYC 9V74`, a different uncontrolled-axis
+environment, so its rows were excluded; the dispatch run 34935534520 on
+the P4-suite branch corroborates P4 at a 36.8 ms median but is not a
+main-branch artifact). The recorded fingerprint is the one those runs
+share: `ubuntu-latest@20260907.300.1`, `linux_x64`, Flutter 3.47.2's
+bundled Dart 3.13.2, `profile`, `AMD EPYC 7763 64-Core Processor`.
+Per-run medians of the pooled runs: P1 1006.5–1089.3 ms (pooled median
+1061.087, n=12), P2 10465.3–11286.0 ms (pooled 10781.459, n=12), P4
+35.398 ms (n=5, one run — the P4 suite landed in #127 and has run on
+main only once). **P6 has no baseline entry**: every tier-B leg so far
+returned error rows for it (insufficient frame capture — ~750–800
+frames in 30 s against the >= 1800-frame floor the ~60 Hz measured
+vsync cadence implies under llvmpipe), so no honest median exists; a
+harness fix lands with its owner before any P6 baseline is possible.
+The trend these medians anchor is environment-scale (llvmpipe raster),
+not a budget read — P1's ~1.06 s against the < 150 ms budget is the
+software stack talking, which is exactly what trend-only exists to
+expose before M9.
 
 ## First fixture-backed observations (2026-09-14)
 

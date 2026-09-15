@@ -9,6 +9,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import 'check.dart' show defaultBaselinePath;
 import 'check_core.dart';
 
 void main() {
@@ -1013,6 +1014,76 @@ void main() {
       });
     }
   });
+
+  group('the committed tier-B baseline matches the checker contract', () {
+    // The committed baseline is a real measurement record, not a fixture:
+    // a file that fails this contract would turn every main-branch
+    // `--tiers ab` run into an exit-65 malformed-input failure, so the
+    // file's own validity is pinned here (08 §1: a rail without a test
+    // is absent).
+    test('parses against the committed catalog and records the tier-B '
+        'runtime axes', () {
+      final baseline = _committedBaseline();
+      // Mode is validated per store: the baseline must carry the tier-B
+      // profile runtime, never the tier-A AOT one — and the per-tier
+      // runtime axis (#125) records the Flutter-bundled Dart and the
+      // Flutter version, which differ from the job SDK's.
+      expect(baseline.fingerprint.mode, eligibleModeByTier[BenchTier.b]);
+      expect(baseline.fingerprint.flutterVersion, isNotNull);
+      expect(baseline.fingerprint.dartVersion, isNotNull);
+      expect(baseline.fingerprint.runnerImage, isNotNull);
+      expect(baseline.fingerprint.arch, isNotNull);
+      expect(baseline.fingerprint.cpuModel, isNotNull);
+      // scenarioConfig is a per-scenario axis; the baseline schema
+      // rejects a job-wide claim (per-scenario configs arrive with the
+      // first config-carrying tier-B collector's baseline entries).
+      expect(baseline.fingerprint.scenarioConfig, isNull);
+    });
+
+    test('carries only tier-B scenarios with comparable medians', () {
+      final catalog = _committedCatalog();
+      final baseline = _committedBaseline();
+      expect(baseline.scenarios, isNotEmpty);
+      for (final entry in baseline.scenarios.entries) {
+        final budget = catalog.scenarios[entry.key];
+        expect(
+          budget,
+          isNotNull,
+          reason: 'baseline scenario ${entry.key} must exist in the '
+              'catalog',
+        );
+        expect(
+          budget!.tier,
+          BenchTier.b,
+          reason: 'baseline scenario ${entry.key} must be tier-B',
+        );
+        expect(entry.value.unit, budget.unit);
+        expect(entry.value.median.isFinite, isTrue);
+        expect(entry.value.median, greaterThan(0));
+        expect(
+          entry.value.repetitions,
+          greaterThanOrEqualTo(1),
+          reason: 'a baseline median must count its observations',
+        );
+      }
+      // Pin the exact committed set: P1/P2/P4 have honest pooled
+      // medians and P6 deliberately has none (every leg errored), so a
+      // fabricated P6 median — or a dropped entry — fails here. New
+      // entries arrive via a baseline-refresh PR and update this pin.
+      expect(
+        baseline.scenarios.keys,
+        unorderedEquals(['P1', 'P2', 'P4']),
+      );
+      // Pin values too so an edited median or repetition count fails
+      // alongside a dropped or fabricated entry.
+      expect(baseline.scenarios['P1']!.median, 1061.087);
+      expect(baseline.scenarios['P1']!.repetitions, 12);
+      expect(baseline.scenarios['P2']!.median, 10781.459);
+      expect(baseline.scenarios['P2']!.repetitions, 12);
+      expect(baseline.scenarios['P4']!.median, 35.398);
+      expect(baseline.scenarios['P4']!.repetitions, 5);
+    });
+  });
 }
 
 BenchFingerprint _fingerprint({
@@ -1100,3 +1171,17 @@ final _committedBudgetsJson = File(
 BudgetCatalog? _cachedCommittedCatalog;
 BudgetCatalog _committedCatalog() => _cachedCommittedCatalog ??=
     BudgetCatalog.fromJson(jsonDecode(_committedBudgetsJson));
+
+// The committed tier-B baseline, read through the same parser the CLI
+// uses — a file that cannot parse here would exit-65 every `--tiers b`
+// invocation.
+final _committedBaselineJson = File(
+  defaultBaselinePath,
+).readAsStringSync();
+
+TierBBaseline? _cachedCommittedBaseline;
+TierBBaseline _committedBaseline() => _cachedCommittedBaseline ??=
+    TierBBaseline.fromJson(
+      jsonDecode(_committedBaselineJson),
+      _committedCatalog(),
+    );
