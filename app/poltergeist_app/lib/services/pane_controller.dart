@@ -1145,6 +1145,12 @@ class PaneController extends ChangeNotifier {
   QuickSelectMode get quickSelectMode =>
       _quickSelect?.mode ?? QuickSelectMode.add;
 
+  /// The session's live query; empty while closed. The field is
+  /// disposable (a tab switch unmounts it) while the session survives
+  /// on the controller, so a remounted field seeds from here instead
+  /// of opening blank over a live preview.
+  String get quickSelectQuery => _quickSelect?.query ?? '';
+
   /// The active filter's raw query (02 §2.5); empty while no filter
   /// applies. The field edits it live through [changeFilterQuery].
   String get filterQuery => _filterQuery;
@@ -2085,16 +2091,23 @@ class PaneController extends ChangeNotifier {
     _pendingRenameSelectPath = null;
   }
 
-  /// The root the in-flight or last-failed local open targeted — [retry]
-  /// re-opens THAT root, never silently '~' over a failed openLocalAt.
+  /// The browse target of the in-flight or last-failed local open —
+  /// [retry] returns to THAT directory. The binding itself always opens
+  /// the user's home (see [_openLocal]), so a retry restores the target
+  /// on a home binding — never a stale opening root.
   String _pendingLocalRoot = '~';
 
-  /// Opens a local channel rooted at the user's home and browses it.
+  /// Opens a local channel at the user's home and browses it.
   Future<void> openLocalHome() => _openLocal('~');
 
-  /// Opens a local channel rooted at [path] and browses it — the root is
-  /// the channel's initial home, not a sandbox (the engine canonicalizes
-  /// it, 03 §2.2); `tab.new`'s Duplicate and Home targets land here.
+  /// Browses [path] on a local channel bound at the user's home: the
+  /// binding's home (the engine's `~` anchor for path input) stays the
+  /// real user home no matter which directory the tab shows —
+  /// `tab.new`'s Duplicate and the ghost reopen land here. [path] is
+  /// '~' or an absolute path (every caller passes a location's
+  /// canonical path); the engine canonicalizes the binding root
+  /// (03 §2.2) while the browsed path keeps its requested spelling
+  /// like every navigation target.
   Future<void> openLocalAt(String path) => _openLocal(path);
 
   Future<void> _openLocal(String rootPath) async {
@@ -2110,9 +2123,15 @@ class PaneController extends ChangeNotifier {
       priorRemote: priorRemote,
       priorRemotePath: priorRemotePath,
       connect: (lanes, attempt) async {
-        // '~' expands to the user's home inside the engine (03 §2.2);
-        // the channel answers the canonicalized home path.
-        final channel = await lanes.openLocalChannel(rootPath: rootPath);
+        // The binding always opens the user's home: the channel's
+        // homePath is path input's `~` anchor, and opening the browsed
+        // directory itself would report THAT directory as the home — a
+        // duplicated or reopened tab would then resolve `~` under its
+        // own opening directory instead of the user home. The
+        // requested root is browsed on the home binding instead: one
+        // listing, so no home-then-target flash. '~' still lands on
+        // the canonicalized home path.
+        final channel = await lanes.openLocalChannel(rootPath: '~');
         if (_disposed || attempt != _bindAttempt) {
           await _closeChannel(channel);
           return;
@@ -2120,9 +2139,10 @@ class PaneController extends ChangeNotifier {
         _channel = channel;
         _phase = PanePhase.browsing;
         notifyListeners();
+        final target = rootPath == '~' ? channel.homePath : rootPath;
         _issueNavigation(
-          LocalPaneLocation(channel.homePath),
-          channel.homePath,
+          LocalPaneLocation(target),
+          target,
           channel,
         );
       },

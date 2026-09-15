@@ -441,6 +441,48 @@ void main() {
     controller.dispose();
   });
 
+  test('a missing openLocalAt target errors on the home-bound channel; '
+      'retry re-attempts the target', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester')
+      ..listings['/home/tester'] = [_entry('here.txt')];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+
+    // The binding opens the user home even though the tab browses
+    // elsewhere (F8): a vanished target fails at its own listing, on
+    // the home-bound channel.
+    await controller.openLocalAt('/home/tester/gone');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(lanes.calls, ['openLocal:~']);
+    expect(channel.listCalls, ['/home/tester/gone']);
+    expect(controller.error, isA<RemoteFileException>());
+    expect(
+      (controller.error as RemoteFileException).kind,
+      RemoteFileErrorKind.notFound,
+    );
+    expect(
+      controller.location,
+      const LocalPaneLocation('/home/tester/gone'),
+      reason: 'the optimistic location stays after the error (02 §2.7)',
+    );
+
+    // Retry re-attempts the TARGET — it never silently settles on the
+    // home listing the binding opened.
+    channel.listings['/home/tester/gone'] = [_entry('back.txt')];
+    controller.retry();
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.error, isNull);
+    expect(
+      controller.location,
+      const LocalPaneLocation('/home/tester/gone'),
+    );
+    expect(controller.entries.single.name, 'back.txt');
+    expect(channel.listCalls, ['/home/tester/gone', '/home/tester/gone']);
+    controller.dispose();
+  });
+
   test('Esc cancel restores the last quiescent snapshot, including errors',
       () async {
     final lanes = FakePaneLanes();
