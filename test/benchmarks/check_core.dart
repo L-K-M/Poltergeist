@@ -878,7 +878,11 @@ class BaselineEntry {
     required this.repetitions,
     this.scenarioConfigRecorded = false,
     this.scenarioConfig,
-  });
+  }) : assert(
+         scenarioConfigRecorded || scenarioConfig == null,
+         'scenarioConfig is meaningful only when scenarioConfigRecorded '
+         'is true',
+       );
 }
 
 /// Drift-state store: consecutive-main-run counters per fired tier-B drift
@@ -1113,10 +1117,9 @@ CheckReport evaluate({
     notices.add(
       'NOTICE: tier-B baseline uses the deprecated schema '
       '$baselineSchemaId — its entries record no per-scenario '
-      'scenarioConfig, so no entry can honestly compare '
-      '(baseline-config-missing, never an invented config); migrate to '
-      '$baselineSchemaV2Id via a baseline-refresh PR that records each '
-      "entry's measured config",
+      'scenarioConfig, so no entry can honestly compare (never an '
+      'invented config); migrate to $baselineSchemaV2Id via a '
+      'baseline-refresh PR that records each entry\'s measured config',
     );
   }
 
@@ -1703,8 +1706,9 @@ bool _evaluateTierB({
   if (entry.scenarioConfig != runScenarioConfig) {
     // The run measured a different workload than the baseline recorded:
     // a changed config is a changed measurement, never a comparison —
-    // scored like the hardware-drift skip (soft notice, hard once
-    // enforced), never cross-compared.
+    // soft notice, hard once enforced — and, unlike the CPU-axis skip,
+    // this does not feed the drift-state staleness counters (a config
+    // change needs a human baseline refresh, not machine escalation).
     notices.add(
       'NOTICE: tier-B baseline config mismatch for ${budget.id} '
       '(baseline "${entry.scenarioConfig ?? '<none>'}" != '
