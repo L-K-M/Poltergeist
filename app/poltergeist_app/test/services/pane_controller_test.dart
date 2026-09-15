@@ -1643,5 +1643,35 @@ void main() {
       );
       controller.dispose();
     });
+
+    test('the new path keeps the entry path\'s own separator', () async {
+      // A Windows-style entry path renames with '\' — never a
+      // synthesized '/' join that would mismatch the refreshed
+      // listing's normalized path and break the cursor re-anchor.
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        const RemoteFileEntry(
+          path: r'C:\dir\beta.txt',
+          name: 'beta.txt',
+          type: RemoteFileType.file,
+        ),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.listings['/home/tester'] = [
+        const RemoteFileEntry(
+          path: r'C:\dir\renamed.txt',
+          name: 'renamed.txt',
+          type: RemoteFileType.file,
+        ),
+      ];
+      await controller.submitRename('renamed.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        (r'C:\dir\beta.txt', r'C:\dir\renamed.txt'),
+      ]);
+      controller.dispose();
+    });
   });
 }

@@ -920,7 +920,9 @@ class PaneController extends ChangeNotifier {
       return;
     }
     final cursor = cursorIndex;
-    if (cursor == null) return;
+    // The cursor is kept in-range by the listing prune, but the session
+    // owns its own precondition rather than borrowing that invariant.
+    if (cursor == null || cursor < 0 || cursor >= _entries.length) return;
     _renameSession = _RenameSession(
       entry: _entries[cursor],
       rowKey: _rowKeys[cursor],
@@ -977,11 +979,18 @@ class PaneController extends ChangeNotifier {
       return;
     }
 
-    // The parent prefix is cut from the entry's own path so the listing's
-    // separator survives on every platform ('/' on POSIX and remote,
-    // '\' on Windows locals) — never a synthesized join.
-    final parent = entry.path.endsWith(entry.name)
-        ? entry.path.substring(0, entry.path.length - entry.name.length)
+    // The parent prefix is the entry path up to its own last separator —
+    // never a synthesized join — so the listing's separator survives on
+    // every platform ('/' on POSIX and remote, '\' on Windows locals) and
+    // the re-anchored path matches the refreshed listing's normalization.
+    // A trailing separator is trimmed first so the split finds the
+    // entry's parent, not the entry itself.
+    final trimmed = entry.path.endsWith('/') || entry.path.endsWith('\\')
+        ? entry.path.substring(0, entry.path.length - 1)
+        : entry.path;
+    final lastSep = trimmed.lastIndexOf(RegExp(r'[\\/]'));
+    final parent = lastSep >= 0
+        ? trimmed.substring(0, lastSep + 1)
         : '${location?.path ?? ''}/';
     final newPath = '$parent$raw';
 

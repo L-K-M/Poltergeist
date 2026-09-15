@@ -76,6 +76,74 @@ void main() {
       }
     });
 
+    test('a local Windows pane rejects device names and a trailing '
+        'dot or space', () {
+      for (final name in [
+        'CON',
+        'con.txt',
+        'PRN',
+        'aux',
+        'NUL',
+        'COM1',
+        'com9.log',
+        'LPT1',
+        'lpt9',
+        'report.',
+        'report ',
+      ]) {
+        expect(
+          renameNameError(
+            name,
+            remote: false,
+            platform: TargetPlatform.windows,
+          ),
+          RenameNameError.invalid,
+          reason: '$name must reject on a local Windows pane',
+        );
+      }
+      // Not reserved: digit suffixes past 9 and longer stems are
+      // ordinary names.
+      for (final name in ['COM0', 'COM10', 'LPT0', 'console', 'contract']) {
+        expect(
+          renameNameError(
+            name,
+            remote: false,
+            platform: TargetPlatform.windows,
+          ),
+          isNull,
+          reason: '$name is not a reserved device name',
+        );
+      }
+      // A remote pane stays permissive — the server may accept names
+      // the client OS would not.
+      expect(
+        renameNameError(
+          'CON',
+          remote: true,
+          platform: TargetPlatform.windows,
+        ),
+        isNull,
+      );
+      // Trailing dots/spaces are legal POSIX names on non-Windows
+      // locals.
+      expect(
+        renameNameError(
+          'report.',
+          remote: false,
+          platform: TargetPlatform.linux,
+        ),
+        isNull,
+      );
+      expect(
+        renameNameError(
+          'report ',
+          remote: false,
+          platform: TargetPlatform.macOS,
+        ),
+        isNull,
+      );
+    });
+
     test('POSIX-local and remote panes keep the permissive rule', () {
       // The same NTFS-reserved characters are legal names on a POSIX
       // local filesystem and on an SFTP server — only the client OS's

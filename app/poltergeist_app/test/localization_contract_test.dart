@@ -229,6 +229,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'~'",
     "'.'",
     "'/'",
+    "'\\\\'",
+    r"r'[\\/]'",
     "'connect'",
     "'open'",
     "'list'",
@@ -269,7 +271,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // authored copy.
   'lib/services/pane_rename.dart': {
     "'/'",
+    "'.'",
+    "' '",
     'r\'[<>:"\\\\|?*]\'',
+    r"r'^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'",
   },
   // The path-field resolver's grammar literals: separator characters,
   // drive-spec regexes, tilde forms, and dot segments — machine data,
