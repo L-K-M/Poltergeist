@@ -4914,7 +4914,10 @@ are disowned, a polite live region announces the transition with the
 same `paneLoadingFolder` string the footer shows once the grace dim
 lands (WCAG 4.1.3 — review round 2's major). A device pass
 (VoiceOver/TalkBack) remains a follow-up to confirm the announcement
-lands on real AT.
+lands on real AT, including fast local listings that can resolve within
+the frame they were issued — a live region that mounts and unmounts
+inside a single semantics frame produces no announcement, which is
+acceptable there because no intermediate inert state ever reached AT.
 
 ## Open items
 
