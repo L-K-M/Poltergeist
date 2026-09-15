@@ -50,7 +50,9 @@ class WorkspaceController extends ChangeNotifier {
   /// scanned across BOTH panes' tab sets. The shell routes this into each
   /// strip's sibling seam so a remote tab's close/banner-cancel drops the
   /// pooled server reference only when it was the last binding (03 §3.2).
-  bool serverStillBound(String serverId, {required PaneController excluding}) {
+  /// Positional [excluding] matches the strips' `serverStillShared`
+  /// typedef, so a tear-off wires the seam without an adapter.
+  bool serverStillBound(String serverId, PaneController excluding) {
     for (final pane in [left, right]) {
       for (final tab in pane.tabs) {
         final controller = tab.controller;

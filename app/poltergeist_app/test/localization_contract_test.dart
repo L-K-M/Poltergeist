@@ -191,8 +191,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/workspace_shell.dart': {
     "'command.\${command.id}'",
     "'connectionEngine is ignored when engineSession is provided'",
-    "'pane.left'",
-    "'pane.right'",
     "'pane.left.listing'",
     "'pane.right.listing'",
     "'openInPane: no bookmark for \${server.serverId}'",
@@ -209,6 +207,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // guard diagnostic — machine data, never rendered UI copy.
   'lib/services/pane_tabs_controller.dart': {
     r"'$paneId.tab${_nextTabOrdinal++}'",
+    // The canonical pane ids — engine-channel identity, not copy.
+    "'pane.left'",
+    "'pane.right'",
     "'tab close guard fired with no presenter wired'",
     "'newTab on a disposed PaneTabsController'",
     "'addTab on a disposed PaneTabsController'",
@@ -273,13 +274,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The tab strip's widget keys and pane-id name lookup — widget plumbing
   // keyed to the engine's paneTabId identity, never authored copy.
   'lib/ui/panes/pane_tabs_view.dart': {
-    "'pane.left'",
     r"'${tabs.paneId}.tab.new'",
     r"'${tab.id}.close'",
     "'/'",
   },
   'lib/ui/panes/pane_view.dart': {
-    "'pane.left'",
     "'pane.footer'",
     "'pane.error.retry'",
     "'pane.banner'",

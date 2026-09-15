@@ -46,7 +46,7 @@ void main() {
     left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     leftStrip = testPaneStrip(left);
-    rightStrip = testPaneStrip(right, paneId: 'pane.right');
+    rightStrip = testPaneStrip(right);
     workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     leftNode = FocusNode();
     rightNode = FocusNode();

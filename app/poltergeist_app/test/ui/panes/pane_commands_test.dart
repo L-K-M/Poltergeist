@@ -143,7 +143,7 @@ void main() {
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     final leftStrip = testPaneStrip(left);
-    final rightStrip = testPaneStrip(right, paneId: 'pane.right');
+    final rightStrip = testPaneStrip(right);
     final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
 
@@ -252,7 +252,7 @@ void main() {
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     final leftStrip = testPaneStrip(left);
-    final rightStrip = testPaneStrip(right, paneId: 'pane.right');
+    final rightStrip = testPaneStrip(right);
     final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
 
@@ -316,7 +316,7 @@ void main() {
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     final leftStrip = testPaneStrip(left);
-    final rightStrip = testPaneStrip(right, paneId: 'pane.right');
+    final rightStrip = testPaneStrip(right);
     final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
 

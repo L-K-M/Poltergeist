@@ -4221,7 +4221,9 @@ predictable (`pane.left.tab1`, …) and double as the engine channel's
 `paneTabId`. `tab.new` (⌘T) honors the persisted "New tabs open"
 preference (`NewTabTarget.duplicate` default / `home` / `launcher`,
 read at open time; the shell's initial tab is explicitly `home` since
-startup has no duplicate source); `tab.close` (⌘W), `tab.reopenClosed`
+startup has no duplicate source, and a `duplicate` ⌘T on an empty
+strip — the post-last-close launcher — likewise has no source and
+opens an unbound launcher tab); `tab.close` (⌘W), `tab.reopenClosed`
 (⇧⌘T), `tab.next`/`tab.previous` (⌃⇥/⌃⇧⇥ plus ⇧⌘]/⇧⌘[) are registered
 app-scoped commands resolving the active pane's strip at invocation —
 cycling never crosses panes. The close guard lives INSIDE
@@ -4233,7 +4235,9 @@ applyToEnclosed / syncAnchor) consults the presenter only when a probe
 fires — a trigger with no presenter fails closed, and a re-entrant ⌘W
 rides the in-flight confirmation rather than stacking dialogs.
 Closing the last tab leaves the pane on the launcher (02 §2.7) —
-never blank, never auto-opened. ⇧⌘T pops a FIFO ring of ten ghosts:
+never blank, never auto-opened. ⇧⌘T pops a LIFO ring of ten ghosts —
+the most recently closed tab reopens first, and the oldest ghost is
+evicted at the cap:
 binding + location re-open and the transient lenses (filter query and
 field state, hidden-file override, view mode) restore through
 `restoreTransientState`; selection and in-flight state are not

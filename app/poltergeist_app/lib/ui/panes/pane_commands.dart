@@ -34,8 +34,10 @@ List<RegisteredCommand> buildPaneCommands({
   required VoidCallback swapFocus,
 }) {
   // Browsing commands resolve the active pane's ACTIVE TAB at invocation
-  // time (02 §8.1); tab commands act on the strip itself.
-  PaneController? activePane() => workspace.activeTabController;
+  // time (02 §8.1) — null while the pane sits on the launcher, and every
+  // enabled getter below treats null as disabled. Tab commands act on
+  // the strip itself.
+  PaneController? activeTab() => workspace.activeTabController;
 
   return [
     RegisteredCommand(
@@ -47,9 +49,9 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.arrowUp, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.arrowUp, alt: true)],
       ),
-      enabled: () => activePane()?.verbsEnabled ?? false,
+      enabled: () => activeTab()?.verbsEnabled ?? false,
       run: (_) async {
-        activePane()?.goUp();
+        activeTab()?.goUp();
       },
     ),
     RegisteredCommand(
@@ -68,7 +70,7 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.enter)],
       ),
       enabled: () {
-        final pane = activePane();
+        final pane = activeTab();
         final cursor = pane?.cursorIndex;
         return pane != null &&
             pane.verbsEnabled &&
@@ -77,7 +79,7 @@ List<RegisteredCommand> buildPaneCommands({
             cursor < pane.entries.length;
       },
       run: (_) async {
-        final pane = activePane();
+        final pane = activeTab();
         final cursor = pane?.cursorIndex;
         if (pane == null ||
             cursor == null ||
@@ -100,13 +102,13 @@ List<RegisteredCommand> buildPaneCommands({
         other: const [SingleActivator(LogicalKeyboardKey.keyR, control: true)],
       ),
       enabled: () {
-        final pane = activePane();
+        final pane = activeTab();
         return pane != null &&
             pane.phase == PanePhase.browsing &&
             !pane.connectionLost;
       },
       run: (_) async {
-        activePane()?.refresh();
+        activeTab()?.refresh();
       },
     ),
     RegisteredCommand(
@@ -182,9 +184,9 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.keyA, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.keyA, control: true)],
       ),
-      enabled: () => activePane()?.verbsEnabled ?? false,
+      enabled: () => activeTab()?.verbsEnabled ?? false,
       run: (_) async {
-        activePane()?.selectAll();
+        activeTab()?.selectAll();
       },
     ),
     RegisteredCommand(
@@ -201,9 +203,9 @@ List<RegisteredCommand> buildPaneCommands({
           SingleActivator(LogicalKeyboardKey.keyI, control: true, shift: true),
         ],
       ),
-      enabled: () => activePane()?.verbsEnabled ?? false,
+      enabled: () => activeTab()?.verbsEnabled ?? false,
       run: (_) async {
-        activePane()?.invertSelection();
+        activeTab()?.invertSelection();
       },
     ),
     RegisteredCommand(
@@ -216,9 +218,9 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.keyE, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.keyE, control: true)],
       ),
-      enabled: () => activePane()?.verbsEnabled ?? false,
+      enabled: () => activeTab()?.verbsEnabled ?? false,
       run: (_) async {
-        activePane()?.openQuickSelect();
+        activeTab()?.openQuickSelect();
       },
     ),
     RegisteredCommand(
@@ -231,9 +233,9 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [SingleActivator(LogicalKeyboardKey.keyF, meta: true)],
         other: const [SingleActivator(LogicalKeyboardKey.keyF, control: true)],
       ),
-      enabled: () => activePane()?.verbsEnabled ?? false,
+      enabled: () => activeTab()?.verbsEnabled ?? false,
       run: (_) async {
-        activePane()?.openFilter();
+        activeTab()?.openFilter();
       },
     ),
     RegisteredCommand(

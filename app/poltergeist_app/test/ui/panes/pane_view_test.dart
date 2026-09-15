@@ -73,7 +73,7 @@ void main() {
     left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     leftStrip = testPaneStrip(left);
-    rightStrip = testPaneStrip(right, paneId: 'pane.right');
+    rightStrip = testPaneStrip(right);
     workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     leftNode = FocusNode();
     rightNode = FocusNode();
@@ -685,7 +685,7 @@ void main() {
     final strip = testPaneStrip(controller);
     final workspace = WorkspaceController(
       left: strip,
-      right: testPaneStrip(otherPane, paneId: 'pane.right'),
+      right: testPaneStrip(otherPane),
     );
     addTearDown(workspace.dispose);
 
@@ -737,7 +737,7 @@ void main() {
     final strip = testPaneStrip(controller);
     final workspace = WorkspaceController(
       left: strip,
-      right: testPaneStrip(otherPane, paneId: 'pane.right'),
+      right: testPaneStrip(otherPane),
     );
     addTearDown(workspace.dispose);
 
@@ -1190,7 +1190,7 @@ void main() {
     final enginelessStrip = testPaneStrip(engineless);
     final enginelessWorkspace = WorkspaceController(
       left: enginelessStrip,
-      right: testPaneStrip(enginelessRight, paneId: 'pane.right'),
+      right: testPaneStrip(enginelessRight),
     );
     addTearDown(enginelessWorkspace.dispose);
 

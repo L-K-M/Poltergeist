@@ -126,6 +126,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace = null;
       _buildWorkspace();
     }
+    // The settings slice writes the strips' live newTabTarget directly;
+    // this sync only covers a parent rebuild with a changed seed, which
+    // can never clobber the settings writer — it fires solely on an
+    // actual widget-parameter change.
+    if (widget.newTabTarget != oldWidget.newTabTarget) {
+      _workspace?.left.newTabTarget = widget.newTabTarget;
+      _workspace?.right.newTabTarget = widget.newTabTarget;
+    }
   }
 
   @override
@@ -163,12 +171,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // The cross-pane half of a remote tab's last-binding check: read
       // the workspace lazily — the strips are built before it exists.
       serverStillShared: (serverId, excluding) =>
-          _workspace?.serverStillBound(serverId, excluding: excluding) ??
-          false,
+          // Null-workspace is unreachable by close time — but if timing
+          // ever shifted, "assume shared" is the fail-safe direction:
+          // it detaches rather than dropping a pool reference a sibling
+          // might still hold.
+          _workspace?.serverStillBound(serverId, excluding) ?? true,
       onError: ApplicationErrorReporter().report,
     );
-    final left = buildStrip('pane.left');
-    final right = buildStrip('pane.right');
+    final left = buildStrip(PaneTabsController.leftPaneId);
+    final right = buildStrip(PaneTabsController.rightPaneId);
     _workspace = WorkspaceController(left: left, right: right);
 
     // The initial binding: each pane opens one tab on the local home —
@@ -332,6 +343,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        // The trigger bullet list grows with the registry — scrollable
+        // keeps a long localization plus several triggers inside short
+        // windows instead of overflowing the column.
+        scrollable: true,
         title: Text(l10n.tabCloseConfirmTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -376,12 +391,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final serverId = pane?.remoteBookmark?.id;
     if (pane == null || serverId == null) return;
     try {
-      if (workspace.serverStillBound(serverId, excluding: pane)) {
+      if (workspace.serverStillBound(serverId, pane)) {
         await pane.detachRemote();
       } else {
         await pane.cancelRecovery(
           serverStillUnshared: () =>
-              !workspace.serverStillBound(serverId, excluding: pane),
+              !workspace.serverStillBound(serverId, pane),
         );
       }
     } on Object catch (error, stackTrace) {

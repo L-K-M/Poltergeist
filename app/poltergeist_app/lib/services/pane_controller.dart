@@ -641,10 +641,12 @@ class PaneController extends ChangeNotifier {
   /// bypasses [changeFilterQuery]'s field-open gate — the ghost replays
   /// the state it froze, not the keystrokes that produced it.
   void restoreTransientState({
-    String filterQuery = '',
-    bool filterFieldOpen = false,
-    bool showHidden = false,
-    PaneViewMode viewMode = PaneViewMode.details,
+    // All four lenses are required: a partial restore must fail at
+    // compile time rather than silently wiping the lenses it omitted.
+    required String filterQuery,
+    required bool filterFieldOpen,
+    required bool showHidden,
+    required PaneViewMode viewMode,
   }) {
     if (_disposed) return;
     _filterQuery = filterQuery;
@@ -888,6 +890,11 @@ class PaneController extends ChangeNotifier {
     _phase = PanePhase.unbound;
     _location = null;
     _sortedListing = const [];
+    // The transient lenses die with the session like the listing and
+    // filter do — an unbound pane shows hidden files and a non-default
+    // view mode only while the browsing session that set them lives.
+    _showHidden = false;
+    _viewMode = PaneViewMode.details;
     _setListing(const []);
     _filterQuery = '';
     _filterFieldOpen = false;
@@ -1032,9 +1039,12 @@ class PaneController extends ChangeNotifier {
     if (presentation == _BindingPresentation.replace) {
       _location = null;
       _sortedListing = const [];
+      // A replaced binding drops the transient lenses with its listing —
+      // the filter, the hidden override, and the view mode are all
+      // scoped to the browsing session they were set in (02 §2.5).
+      _showHidden = false;
+      _viewMode = PaneViewMode.details;
       _setListing(const []);
-      // A replaced binding drops the filter with its listing — the
-      // transient lens is scoped to the browsing session it was set in.
       _filterQuery = '';
       _filterFieldOpen = false;
       _applyEntries(const []);

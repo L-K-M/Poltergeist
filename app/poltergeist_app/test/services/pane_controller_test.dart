@@ -7,6 +7,7 @@ import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_engine_lanes.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/quick_select_state.dart';
+import 'package:poltergeist_app/services/view_preferences.dart';
 
 /// Scripted lanes recording call order so ordering assertions (subscribe
 /// before connect) can run against the fake.
@@ -874,6 +875,49 @@ void main() {
     expect(channel.closeCalls, 1);
     expect(controller.phase, PanePhase.unbound);
     expect(controller.remoteBookmark, isNull);
+    controller.dispose();
+  });
+
+  test('the transient lenses reset when the binding is replaced', () async {
+    final lanes = FakePaneLanes();
+    lanes.nextLocalChannel = FakePaneChannel('/home/tester')
+      ..listings['/home/tester'] = const [];
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+    await settle();
+
+    controller.showHidden = true;
+    controller.viewMode = PaneViewMode.list;
+
+    // A new binding is a new browsing session: the hidden override and
+    // view mode die with the old one, like the listing and filter do.
+    lanes.nextLocalChannel = FakePaneChannel('/srv/other')
+      ..listings['/srv/other'] = const [];
+    await controller.openLocalAt('/srv/other');
+    await settle();
+
+    expect(controller.location, const LocalPaneLocation('/srv/other'));
+    expect(controller.showHidden, isFalse);
+    expect(controller.viewMode, PaneViewMode.details);
+    controller.dispose();
+  });
+
+  test('the transient lenses reset on unbind', () async {
+    final lanes = FakePaneLanes();
+    lanes.nextRemoteChannel = FakePaneChannel('/srv/home')
+      ..listings['/srv/home'] = const [];
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    controller.showHidden = true;
+    controller.viewMode = PaneViewMode.list;
+
+    await controller.detachRemote();
+
+    expect(controller.phase, PanePhase.unbound);
+    expect(controller.showHidden, isFalse);
+    expect(controller.viewMode, PaneViewMode.details);
     controller.dispose();
   });
 

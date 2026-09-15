@@ -131,8 +131,10 @@ class PaneTabsView extends StatelessWidget {
 
 /// The strip (02 §3): ordered tab chips plus the `tab.new` affordance.
 /// Scrolls horizontally instead of shrinking chips below usability; the
-/// new-tab button stays pinned at the trailing edge.
-class _TabStrip extends StatelessWidget {
+/// new-tab button stays pinned at the trailing edge. An activation
+/// change scrolls the active chip back into the visible extent —
+/// ⌃⇥-cycling or ⌘T must never leave the active tab's chip offscreen.
+class _TabStrip extends StatefulWidget {
   const _TabStrip({
     required this.tabs,
     required this.workspace,
@@ -144,9 +146,20 @@ class _TabStrip extends StatelessWidget {
   final FocusNode focusNode;
 
   @override
+  State<_TabStrip> createState() => _TabStripState();
+}
+
+class _TabStripState extends State<_TabStrip> {
+  /// Keys the ACTIVE chip so its context can be scrolled into view; the
+  /// key moves chip-to-chip with the activation.
+  final _activeChipKey = GlobalKey();
+  PaneTab? _lastActive;
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context);
+    final tabs = widget.tabs;
     return Semantics(
       container: true,
       label: l10n.tabStripLabel,
@@ -164,18 +177,45 @@ class _TabStrip extends StatelessWidget {
               child: ListenableBuilder(
                 listenable: tabs,
                 builder: (context, _) {
+                  final active = tabs.activeTab;
+                  if (!identical(active, _lastActive)) {
+                    _lastActive = active;
+                    if (active != null) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        final chipContext = _activeChipKey.currentContext;
+                        if (chipContext != null) {
+                          Scrollable.ensureVisible(
+                            chipContext,
+                            alignment: 0.5,
+                          );
+                        }
+                      });
+                    }
+                  }
                   return SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
                         for (final tab in tabs.tabs)
-                          _TabChip(
-                            key: ValueKey(tab.id),
-                            tabs: tabs,
-                            tab: tab,
-                            workspace: workspace,
-                            focusNode: focusNode,
-                          ),
+                          if (identical(tab, active))
+                            KeyedSubtree(
+                              key: _activeChipKey,
+                              child: _TabChip(
+                                key: ValueKey(tab.id),
+                                tabs: tabs,
+                                tab: tab,
+                                workspace: widget.workspace,
+                                focusNode: widget.focusNode,
+                              ),
+                            )
+                          else
+                            _TabChip(
+                              key: ValueKey(tab.id),
+                              tabs: tabs,
+                              tab: tab,
+                              workspace: widget.workspace,
+                              focusNode: widget.focusNode,
+                            ),
                       ],
                     ),
                   );
@@ -359,7 +399,7 @@ class _ConnectionDot extends StatelessWidget {
 /// The 02 §2.7 launcher: the pane's surface while it holds no tabs —
 /// never blank, never an auto-opened replacement. Focusable like the
 /// listing surface so pane activation and the Tab swap keep working.
-class _PaneLauncher extends StatelessWidget {
+class _PaneLauncher extends StatefulWidget {
   const _PaneLauncher({
     required this.tabs,
     required this.workspace,
@@ -373,15 +413,38 @@ class _PaneLauncher extends StatelessWidget {
   final VoidCallback onSwapFocus;
 
   @override
+  State<_PaneLauncher> createState() => _PaneLauncherState();
+}
+
+class _PaneLauncherState extends State<_PaneLauncher> {
+  @override
+  void initState() {
+    super.initState();
+    // Mounting the launcher means the last PaneView — which held the
+    // pane's shared focus node — just unmounted; detaching the node's
+    // last attachment drops its focus to the parent scope, so the
+    // pane's own keys (Tab swap) would go dead until a click. Reclaim
+    // focus, but only when this pane is the workspace's active one: an
+    // inactive pane's launcher must never steal focus on mount.
+    if (identical(widget.workspace.activePane, widget.tabs)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !widget.focusNode.hasFocus) {
+          widget.focusNode.requestFocus();
+        }
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     return Semantics(
       container: true,
-      label: tabs.paneId == 'pane.left' ? l10n.paneAName : l10n.paneBName,
+      label: widget.tabs.isLeftPane ? l10n.paneAName : l10n.paneBName,
       child: Focus(
-        focusNode: focusNode,
+        focusNode: widget.focusNode,
         onFocusChange: (focused) {
-          if (focused) workspace.setActivePane(tabs);
+          if (focused) widget.workspace.setActivePane(widget.tabs);
         },
         onKeyEvent: (node, event) {
           if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
@@ -390,22 +453,26 @@ class _PaneLauncher extends StatelessWidget {
           if (event.logicalKey != LogicalKeyboardKey.tab) {
             return KeyEventResult.ignored;
           }
-          // The launcher's single pane key: plain Tab swaps panes (02
-          // §8.2); repeats are consumed so a held key cannot oscillate.
-          if (event is KeyRepeatEvent) return KeyEventResult.handled;
           final modified =
               HardwareKeyboard.instance.isShiftPressed ||
               HardwareKeyboard.instance.isControlPressed ||
               HardwareKeyboard.instance.isMetaPressed ||
               HardwareKeyboard.instance.isAltPressed;
+          // Modified Tab (Ctrl+Tab cycling, Shift+Tab traversal) belongs
+          // to the chord layer / focus traversal — the launcher only owns
+          // the plain key, and its repeats must fall through the same way
+          // the initial keydown did.
           if (modified) return KeyEventResult.ignored;
-          onSwapFocus();
+          // The launcher's single pane key: plain Tab swaps panes (02
+          // §8.2); repeats are consumed so a held key cannot oscillate.
+          if (event is KeyRepeatEvent) return KeyEventResult.handled;
+          widget.onSwapFocus();
           return KeyEventResult.handled;
         },
         child: Listener(
           // Clicking the launcher focuses the pane (activates it) — the
           // same muscle memory as the listing.
-          onPointerDown: (_) => focusNode.requestFocus(),
+          onPointerDown: (_) => widget.focusNode.requestFocus(),
           child: Center(
             child: Padding(
               padding: const EdgeInsets.all(24),

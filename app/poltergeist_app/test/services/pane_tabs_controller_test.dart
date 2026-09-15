@@ -9,9 +9,10 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'pane_controller_test.dart';
 
-/// Every scripted future in the fakes completes immediately, so one event-
-/// loop turn drains the bind+list chain end to end.
-Future<void> settle() => Future<void>.delayed(Duration.zero);
+/// The fakes' scripted futures complete on ordinary microtask turns, so
+/// draining the event queue to quiescence — not a single turn — is what
+/// keeps this suite honest if the bind+list chain ever grows a hop.
+Future<void> settle() => pumpEventQueue();
 
 RemoteFileEntry _entry(String name, {String parent = '/home/tester'}) =>
     RemoteFileEntry(
@@ -54,13 +55,19 @@ void main() {
     Future<bool> Function(PaneTab, List<TabCloseTrigger>)? confirmClose,
     bool Function(String serverId, PaneController excluding)?
         serverStillShared,
-  }) => PaneTabsController(
-    paneId: 'pane.left',
-    lanes: lanes,
-    newTabTarget: newTabTarget,
-    confirmClose: confirmClose,
-    serverStillShared: serverStillShared,
-  );
+    void Function(Object error, StackTrace stackTrace)? onError,
+  }) {
+    final controller = PaneTabsController(
+      paneId: PaneTabsController.leftPaneId,
+      lanes: lanes,
+      newTabTarget: newTabTarget,
+      confirmClose: confirmClose,
+      serverStillShared: serverStillShared,
+      onError: onError,
+    );
+    addTearDown(controller.dispose);
+    return controller;
+  }
 
   setUp(() {
     lanes = FakePaneLanes();
@@ -152,6 +159,19 @@ void main() {
       final tab = controller.newTab();
       await settle();
 
+      expect(tab.controller.phase, PanePhase.unbound);
+      expect(lanes.calls.where((c) => c.startsWith('open')), isEmpty);
+    });
+
+    test('duplicate on an empty strip opens an unbound tab', () async {
+      // The post-last-close launcher state: duplicate has no source to
+      // copy, so the tab falls back to the launcher's unbound surface —
+      // it must not throw or no-op.
+      final controller = tabs();
+      final tab = controller.newTab();
+      await settle();
+
+      expect(controller.tabs.single, same(tab));
       expect(tab.controller.phase, PanePhase.unbound);
       expect(lanes.calls.where((c) => c.startsWith('open')), isEmpty);
     });
@@ -310,6 +330,52 @@ void main() {
       expect(controller.tabs, contains(tab));
     });
 
+    test('a fail-closed decline stays retryable once the trigger clears', () async {
+      final channel = FakePaneChannel('/home/tester')
+        ..listings['/x'] = const [];
+      lanes.nextLocalChannel = channel;
+      // No presenter: the triggered guard fails closed — and must not
+      // pin the tab to that outcome (the settle-without-await path used
+      // to leave a stale in-flight entry that deduped every retry).
+      final controller = tabs();
+      final tab = controller.newTab(target: NewTabTarget.home);
+      await settle();
+
+      final hold = Completer<void>();
+      channel.holdNext = hold;
+      tab.controller.navigate('/x');
+      expect(await controller.requestCloseTab(tab), TabCloseOutcome.declined);
+      expect(controller.tabs, contains(tab));
+
+      hold.complete();
+      await settle();
+      expect(tab.controller.loading, isFalse);
+      expect(await controller.requestCloseTab(tab), TabCloseOutcome.closed);
+      expect(controller.tabs, isEmpty);
+    });
+
+    test('a throwing presenter fails closed and reports the error', () async {
+      final reported = <Object>[];
+      var throwDialog = true;
+      final controller = tabs(
+        confirmClose: (_, _) => throwDialog
+            ? Future<bool>.error(StateError('dialog gone'))
+            : Future<bool>.value(true),
+        onError: (error, _) => reported.add(error),
+      );
+      final tab = controller.newTab(target: NewTabTarget.launcher);
+      tab.controller.inlineRenameActive = true;
+
+      expect(await controller.requestCloseTab(tab), TabCloseOutcome.declined);
+      expect(reported.single, isA<StateError>());
+      expect(controller.tabs, contains(tab));
+
+      // The failed confirm must leave no in-flight residue — fixing the
+      // presenter lets the very next close proceed.
+      throwDialog = false;
+      expect(await controller.requestCloseTab(tab), TabCloseOutcome.closed);
+    });
+
     test('a re-entrant close returns the in-flight operation', () async {
       final channel = FakePaneChannel('/home/tester');
       lanes.nextLocalChannel = channel;
@@ -465,13 +531,27 @@ void main() {
 
     test('the ring is capped at 10 — the oldest ghost drops first', () async {
       final controller = tabs();
-      for (var i = 0; i < 11; i++) {
+      // The oldest ghost must be distinguishable from the launcher
+      // ghosts that follow: a bound home tab carries a location, so if
+      // eviction ever dropped the NEWEST ghost instead, one of the ten
+      // reopens below would come back bound and fail the unbound check.
+      final home = controller.newTab(target: NewTabTarget.home);
+      await settle();
+      await controller.requestCloseTab(home);
+      for (var i = 0; i < 10; i++) {
         await controller.requestCloseTab(
           controller.newTab(target: NewTabTarget.launcher),
         );
       }
       for (var i = 0; i < 10; i++) {
-        expect(await controller.reopenClosedTab(), isNotNull);
+        final reopened = await controller.reopenClosedTab();
+        expect(reopened, isNotNull);
+        await settle();
+        expect(
+          reopened!.controller.phase,
+          PanePhase.unbound,
+          reason: 'the bound home ghost (oldest) must have been evicted',
+        );
       }
       expect(await controller.reopenClosedTab(), isNull);
     });
@@ -486,8 +566,8 @@ void main() {
       expect(reopened!.controller.phase, PanePhase.unbound);
     });
 
-    test('an in-flight navigation is not restorable — the ghost freezes '
-        'the last committed view, reopened fresh', () async {
+    test('an in-flight navigation is not restorable — the ghost restores '
+        'the pending target, re-listed fresh', () async {
       final channel = FakePaneChannel('/home/tester')
         ..listings['/home/tester'] = [_entry('a.txt')];
       lanes.nextLocalChannel = channel;
@@ -522,6 +602,36 @@ void main() {
       expect(reopened.controller.loading, isFalse);
     });
 
+    test('a reopened tab closed mid-bind skips the lens restore', () async {
+      lanes.nextRemoteChannel = FakePaneChannel('/srv/home');
+      final controller = tabs();
+      final tab = controller.newTab(target: NewTabTarget.launcher);
+      await tab.controller.connectRemote(_bookmark('srv-1'));
+      await settle();
+      tab.controller.showHidden = true;
+      await controller.requestCloseTab(tab);
+
+      // Park the reopen's remote bind on the held open, then close the
+      // reopened tab underneath it: the bind's await resumes onto a
+      // disposed controller, so the ghost's lens restore must not run.
+      final hold = Completer<void>();
+      lanes.holdRemoteOpen = hold;
+      lanes.nextRemoteChannel = FakePaneChannel('/srv/home');
+      final reopening = controller.reopenClosedTab();
+      await settle();
+      final reopened = controller.activeTab!;
+      expect(reopened, isNot(same(tab)));
+
+      // The parked bind has issued no listing, so no guard trigger is
+      // active and the close settles quietly.
+      expect(await controller.requestCloseTab(reopened), TabCloseOutcome.closed);
+      expect(controller.tabs, isNot(contains(reopened)));
+
+      hold.complete();
+      expect(await reopening, same(reopened));
+      expect(controller.tabs, isNot(contains(reopened)));
+    });
+
     test('reopen with an empty ring is a no-op', () async {
       final controller = tabs();
       expect(await controller.reopenClosedTab(), isNull);
@@ -531,7 +641,12 @@ void main() {
 
   group('dispose', () {
     test('disposes every tab controller and clears the ring', () async {
-      final controller = tabs();
+      // Constructed directly, not via tabs(): this test owns the
+      // dispose, so the factory's teardown must not see a second one.
+      final controller = PaneTabsController(
+        paneId: PaneTabsController.leftPaneId,
+        lanes: lanes,
+      );
       controller.newTab(target: NewTabTarget.launcher);
       controller.newTab(target: NewTabTarget.launcher);
       await controller.requestCloseTab(controller.tabs.first);

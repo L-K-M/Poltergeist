@@ -29,8 +29,12 @@ final _captureDir =
     Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
     '../../tasks/run3-task38';
 
-Future<ByteData> _fontBytes(String path) async =>
-    ByteData.view(File(path).readAsBytesSync().buffer);
+Future<ByteData> _fontBytes(String path) async {
+  // sublistView, not ByteData.view: correct even if the read ever
+  // returns a sublist view into a pooled buffer (offset ≠ 0).
+  final bytes = File(path).readAsBytesSync();
+  return ByteData.sublistView(bytes);
+}
 
 Future<void> _loadRealFonts() async {
   final dir = Platform.environment['POLTERGEIST_CAPTURE_FONT_DIR'] ??
@@ -197,7 +201,13 @@ void main() {
         }
       }))!;
       outDir.createSync(recursive: true);
-      File('${outDir.path}/$name.png').writeAsBytesSync(bytes);
+      final file = File('${outDir.path}/$name.png');
+      // The default dir is relative to the test runner's CWD; print
+      // where the PNG actually landed so a run launched from another
+      // directory is obvious instead of silently writing elsewhere.
+      // ignore: avoid_print
+      print('capture: ${file.absolute.path}');
+      file.writeAsBytesSync(bytes);
     }
 
     PaneTabsController leftStrip() => tester

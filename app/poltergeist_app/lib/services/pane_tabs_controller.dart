@@ -160,6 +160,15 @@ class PaneTabsController extends ChangeNotifier {
   /// selects the pane's name in semantics.
   final String paneId;
 
+  /// The canonical pane ids (02 §1's pane A/pane B) — the one place the
+  /// literals live, so surfaces compare against a named constant rather
+  /// than spreading the string.
+  static const leftPaneId = 'pane.left';
+  static const rightPaneId = 'pane.right';
+
+  /// Whether this strip is the left pane (02 §1's pane A).
+  bool get isLeftPane => paneId == leftPaneId;
+
   /// The "New tabs open" preference's live value (02 §2.1): read at
   /// every `tab.new`; the settings slice writes it.
   NewTabTarget newTabTarget;
@@ -328,36 +337,51 @@ class PaneTabsController extends ChangeNotifier {
     if (_disposed || !_tabs.contains(tab)) {
       return Future.value(TabCloseOutcome.stale);
     }
-    final future = _closeGuarded(tab);
+    // The entry is owned HERE, not by _closeGuarded: a guard path that
+    // settles without awaiting (fail-closed with no presenter) completes
+    // synchronously, and a finally inside the callee would run before
+    // this line ever stored the future — leaving a stale entry that
+    // dedupes every later close to the dead outcome.
+    final future = _closeGuarded(tab).whenComplete(() {
+      // A block body matters: Map.remove returns the removed future —
+      // which IS the whenComplete wrapper — and a FutureOr-returning
+      // callback would make whenComplete await its own future forever.
+      _closeInFlight.remove(tab);
+    });
     _closeInFlight[tab] = future;
     return future;
   }
 
   Future<TabCloseOutcome> _closeGuarded(PaneTab tab) async {
-    try {
-      final triggers = closeTriggers(tab);
-      if (triggers.isNotEmpty) {
-        final presenter = confirmClose;
-        if (presenter == null) {
-          // A guard that cannot ask fails closed: in-flight state is
-          // never dropped by a close that could not confirm it.
-          _report(
-            StateError('tab close guard fired with no presenter wired'),
-            StackTrace.current,
-          );
-          return TabCloseOutcome.declined;
-        }
-        final accepted = await presenter(tab, triggers);
-        // The await above is the SEA-009 window: the workspace may have
-        // torn down, or a racing close may have settled the tab.
-        if (_disposed || !_tabs.contains(tab)) return TabCloseOutcome.stale;
-        if (!accepted) return TabCloseOutcome.declined;
+    final triggers = closeTriggers(tab);
+    if (triggers.isNotEmpty) {
+      final presenter = confirmClose;
+      if (presenter == null) {
+        // A guard that cannot ask fails closed: in-flight state is
+        // never dropped by a close that could not confirm it.
+        _report(
+          StateError('tab close guard fired with no presenter wired'),
+          StackTrace.current,
+        );
+        return TabCloseOutcome.declined;
       }
-      await _closeTab(tab);
-      return TabCloseOutcome.closed;
-    } finally {
-      _closeInFlight.remove(tab);
+      // A presenter fault fails closed like a declined confirm: the tab
+      // keeps its in-flight state and the close stays retryable — the
+      // fire-and-forget call sites must never see the throw escape.
+      final bool accepted;
+      try {
+        accepted = await presenter(tab, triggers);
+      } catch (error, stackTrace) {
+        _report(error, stackTrace);
+        return TabCloseOutcome.declined;
+      }
+      // The await above is the SEA-009 window: the workspace may have
+      // torn down, or a racing close may have settled the tab.
+      if (_disposed || !_tabs.contains(tab)) return TabCloseOutcome.stale;
+      if (!accepted) return TabCloseOutcome.declined;
     }
+    await _closeTab(tab);
+    return TabCloseOutcome.closed;
   }
 
   /// The actual removal — reached only after the guard cleared. Captures
@@ -430,7 +454,10 @@ class PaneTabsController extends ChangeNotifier {
     } else if (location is LocalPaneLocation) {
       await controller.openLocalAt(location.path);
     }
-    if (_disposed) return tab;
+    // The reopened tab may itself have been closed while the bind was
+    // in flight — its controller is disposed then, so the lens restore
+    // must not run (the strip-disposed check alone misses that case).
+    if (_disposed || !_tabs.contains(tab)) return tab;
     controller.restoreTransientState(
       filterQuery: ghost.filterQuery,
       filterFieldOpen: ghost.filterFieldOpen,
@@ -454,7 +481,8 @@ class PaneTabsController extends ChangeNotifier {
 
   void _pushGhost(_GhostTab ghost) {
     _ghosts.add(ghost);
-    // FIFO eviction: the ring keeps the 10 most recent closes (02 §3).
+    // Oldest-out at the cap — reopen pops from the other end (most
+    // recently closed first, 02 §3): a bounded LIFO stack, not a queue.
     while (_ghosts.length > _ghostRingSize) {
       _ghosts.removeAt(0);
     }

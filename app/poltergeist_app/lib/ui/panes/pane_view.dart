@@ -519,9 +519,7 @@ class _PaneViewState extends State<PaneView> {
         );
         return Semantics(
           container: true,
-          label: widget.pane.paneId == 'pane.left'
-              ? l10n.paneAName
-              : l10n.paneBName,
+          label: widget.pane.isLeftPane ? l10n.paneAName : l10n.paneBName,
           child: Focus(
             focusNode: widget.focusNode,
             onKeyEvent: _handleKey,
