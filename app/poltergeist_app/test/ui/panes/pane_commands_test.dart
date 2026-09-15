@@ -378,6 +378,135 @@ void main() {
         reason: 'the first open is per-pane state — it stays put');
   });
 
+  testWidgets('the go.* path and history commands carry the §8.3 chords '
+      'and §9 Go-menu slots', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a')];
+    channel.listings['/home/tester/a'] = [_entry('inner')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+    workspace.setActivePane(leftStrip);
+
+    final commands = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    );
+    RegisteredCommand byId(String id) =>
+        commands.firstWhere((command) => command.id == id);
+
+    final back = byId(kGoBackCommandId);
+    final forward = byId(kGoForwardCommandId);
+    final toFolder = byId(kGoToFolderCommandId);
+    final editPath = byId(kGoEditPathCommandId);
+
+    // 02 §8.3's table: ⌘[/⌘] on macOS, Alt+Left/Right elsewhere.
+    expect(back.scope, CommandScope.pane);
+    expect(
+      back.activators!(TargetPlatform.macOS),
+      [const SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true)],
+    );
+    expect(
+      back.activators!(TargetPlatform.linux),
+      [const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true)],
+    );
+    expect(
+      forward.activators!(TargetPlatform.macOS),
+      [const SingleActivator(LogicalKeyboardKey.bracketRight, meta: true)],
+    );
+    expect(
+      forward.activators!(TargetPlatform.windows),
+      [const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true)],
+    );
+    // ⇧⌘G / Ctrl+Shift+G and ⌘L / Ctrl+L.
+    expect(
+      toFolder.activators!(TargetPlatform.macOS),
+      [
+        const SingleActivator(
+          LogicalKeyboardKey.keyG,
+          meta: true,
+          shift: true,
+        ),
+      ],
+    );
+    expect(
+      toFolder.activators!(TargetPlatform.linux),
+      [
+        const SingleActivator(
+          LogicalKeyboardKey.keyG,
+          control: true,
+          shift: true,
+        ),
+      ],
+    );
+    expect(
+      editPath.activators!(TargetPlatform.macOS),
+      [const SingleActivator(LogicalKeyboardKey.keyL, meta: true)],
+    );
+    expect(
+      editPath.activators!(TargetPlatform.windows),
+      [const SingleActivator(LogicalKeyboardKey.keyL, control: true)],
+    );
+
+    // 02 §9's Go menu: Back 10, Forward 20, Enclosing 30, then the
+    // field commands at 50/60 (slot 40 stays open for Home).
+    expect(back.menuPlacement?.menu, AppMenuId.go);
+    expect(back.menuPlacement?.order, 10);
+    expect(forward.menuPlacement?.order, 20);
+    expect(toFolder.menuPlacement?.menu, AppMenuId.go);
+    expect(toFolder.menuPlacement?.order, 50);
+    expect(editPath.menuPlacement?.order, 60);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+
+    // Disabled at the trail's ends; enabled once a second entry exists.
+    expect(back.enabled(), isFalse);
+    expect(forward.enabled(), isFalse);
+    left.navigate('/home/tester/a');
+    await tester.pump();
+    expect(back.enabled(), isTrue);
+    expect(forward.enabled(), isFalse);
+    await back.run(context);
+    await tester.pump();
+    expect(left.location?.path, '/home/tester');
+    expect(forward.enabled(), isTrue);
+
+    // The field commands open the editor on the ACTIVE pane only.
+    expect(editPath.enabled(), isTrue);
+    await editPath.run(context);
+    expect(left.pathFieldOpen, isTrue);
+    expect(left.pathFieldSeed, '/home/tester');
+    expect(right.pathFieldOpen, isFalse);
+    left.closePathField();
+    await toFolder.run(context);
+    expect(left.pathFieldSeed, isEmpty);
+    left.closePathField();
+
+    // An unbound active pane reports disabled — no location model to
+    // edit or walk.
+    workspace.setActivePane(rightStrip);
+    expect(back.enabled(), isFalse);
+    expect(editPath.enabled(), isFalse);
+    expect(toFolder.enabled(), isFalse);
+  });
+
   testWidgets('no chord fires while a text field holds focus', (
     tester,
   ) async {

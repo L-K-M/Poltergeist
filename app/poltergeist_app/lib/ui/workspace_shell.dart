@@ -537,12 +537,17 @@ class _Toolbar extends StatelessWidget {
                         command.icon ?? Icons.bug_report_outlined,
                         size: 18,
                       ),
-                      const SizedBox(width: 4),
+                      // The gap rides inside the Flexible so a squeezed
+                      // button can collapse to the icon alone instead of
+                      // overflowing at icon + spacing width.
                       Flexible(
-                        child: Text(
-                          command.label(l10n),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        child: Padding(
+                          padding: const EdgeInsetsDirectional.only(start: 4),
+                          child: Text(
+                            command.label(l10n),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ),
                     ],

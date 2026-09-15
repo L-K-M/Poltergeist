@@ -7,6 +7,7 @@ import 'engine_session.dart';
 import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
+import 'pane_path_input.dart';
 import 'quick_select_state.dart';
 import 'selection_state.dart';
 import 'unicode_diacritic_fold.dart';
@@ -88,7 +89,16 @@ class _RowKey {
 /// Which app-side operation failed for a non-VFS fault: the pane view
 /// maps this to an ARB-authored diagnostic line (D20 — the controller
 /// never authors user copy).
-enum PaneFault { connectionOpen, localOpen, listFolder }
+enum PaneFault {
+  connectionOpen,
+  localOpen,
+  listFolder,
+
+  /// The path field's submission has no navigable shape under this
+  /// pane's location model (02 §2.1) — rejected client-side, so no
+  /// listing was ever requested.
+  invalidPath,
+}
 
 /// A non-VFS fault surfacing on the pane: the taxonomy message is a
 /// machine sentinel (never rendered); [fault] carries the renderable
@@ -232,6 +242,27 @@ class PaneController extends ChangeNotifier {
   /// inlineRename probe already reads it, so a rename can never be
   /// closed out from under the user once it exists.
   bool _inlineRenameActive = false;
+
+  /// The tab's navigation trail (02 §2.1): every location the user
+  /// navigated to, recorded at issue time — committed, in-flight, and
+  /// erred entries alike — with [_historyIndex] naming the entry the
+  /// pane stands on. Classic branch-truncation semantics: a new
+  /// user-driven navigation drops every entry above the index; Back and
+  /// Forward walk the index without recording. Per-tab and transient
+  /// by construction — the trail lives on the per-tab controller and
+  /// never reaches a persistence surface (ghost-tab reopen deliberately
+  /// starts an empty trail, the same data-loss rule as the filter).
+  final List<PaneLocation> _history = <PaneLocation>[];
+  int _historyIndex = -1;
+
+  /// 02 §2.1's path-field session (`go.editPath`/`go.toFolder`): the
+  /// flag the view swaps the segment bar for the editable field on, the
+  /// seed text of the current open, and the invocation counter — every
+  /// open bumps it so the view re-seeds and re-focuses an already-open
+  /// field instead of no-oping.
+  bool _pathFieldOpen = false;
+  String _pathFieldSeed = '';
+  int _pathFieldGeneration = 0;
 
   /// Folded basenames per accepted listing, built once at apply time —
   /// type-ahead scans cached strings instead of re-folding every name
@@ -468,10 +499,152 @@ class PaneController extends ChangeNotifier {
     _sortedListing = snapshot?.listing ?? const [];
     _setListing(_hiddenFiltered(_sortedListing));
     _applyEntries(_filteredListing());
+    // Reconcile the trail with the restored location: the index was
+    // moved at issue time, so it names the just-cancelled target. The
+    // restored location was recorded when the user navigated to it —
+    // the nearest matching entry below the index (a cancelled push) or
+    // above it (a cancelled traversal) becomes current. A cancelled
+    // user navigation thereby survives as forward history: Esc then
+    // Forward re-attempts it, like a browser's stop-then-forward.
+    final restored = _location;
+    if (restored != null && _history.isNotEmpty) {
+      final origin = _historyIndex.clamp(0, _history.length - 1);
+      for (var delta = 0; delta < _history.length; delta++) {
+        final below = origin - delta;
+        if (below >= 0 && _history[below] == restored) {
+          _historyIndex = below;
+          break;
+        }
+        final above = origin + delta;
+        if (above != below &&
+            above < _history.length &&
+            _history[above] == restored) {
+          _historyIndex = above;
+          break;
+        }
+      }
+    }
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
     _snapshot = null;
     notifyListeners();
+  }
+
+  /// Whether Back can walk the trail — false on the oldest entry and
+  /// whenever no live channel could carry the navigation. Command
+  /// enablement reads this, so Back greys at the start (02 §2.1).
+  bool get canGoBack =>
+      _channel != null && !connectionLost && _historyIndex > 0;
+
+  /// Whether Forward can walk the trail — false on the newest entry.
+  bool get canGoForward =>
+      _channel != null &&
+      !connectionLost &&
+      _historyIndex < _history.length - 1;
+
+  /// 02 §2.1's Back (Alt+Left / ⌘[): reissues the previous trail entry
+  /// through the SAME navigation seam a typed path takes — generation
+  /// bump, stale-answer drop, optimistic location — after walking the
+  /// index so a later Forward still names where the user was heading.
+  void goBack() {
+    if (_disposed || !canGoBack) return;
+    _historyIndex--;
+    _issueNavigation(
+      _history[_historyIndex],
+      _history[_historyIndex].path,
+      _channel!,
+      historyTraversal: true,
+    );
+  }
+
+  /// Forward (Alt+Right / ⌘]): [goBack]'s mirror.
+  void goForward() {
+    if (_disposed || !canGoForward) return;
+    _historyIndex++;
+    _issueNavigation(
+      _history[_historyIndex],
+      _history[_historyIndex].path,
+      _channel!,
+      historyTraversal: true,
+    );
+  }
+
+  /// Whether the path field can open: a bound pane with a live channel.
+  /// Unbound, mid-open, and connection-lost surfaces have no location
+  /// model to edit against.
+  bool get acceptsPathInput =>
+      _phase == PanePhase.browsing && _channel != null && !connectionLost;
+
+  /// Whether the path bar is swapped for its editable field (02 §2.1).
+  bool get pathFieldOpen => _pathFieldOpen;
+
+  /// The seed the field shows for the current open: the pane's location
+  /// path for `go.editPath`, empty for `go.toFolder`.
+  String get pathFieldSeed => _pathFieldSeed;
+
+  /// The open-invocation counter: each `go.editPath`/`go.toFolder`
+  /// bumps it, so the view re-seeds and re-focuses an already-open
+  /// field instead of no-oping.
+  int get pathFieldGeneration => _pathFieldGeneration;
+
+  /// `go.editPath` (02 §2.1, ⌘L/Ctrl+L): swaps the path bar for the
+  /// editable field seeded with the current location, selected whole.
+  void editPath() => _openPathField(_location?.path ?? '');
+
+  /// `go.toFolder` (⇧⌘G / Ctrl+Shift+G per §8.3): the same editor
+  /// seeded empty — the path-only Go to Folder.
+  void goToFolder() => _openPathField('');
+
+  void _openPathField(String seed) {
+    if (_disposed || !acceptsPathInput) return;
+    // An open Quick Select session ends first: two text fields never
+    // compete for the pane's keys (02 §8.2's field-first rule).
+    _endQuickSelectSession();
+    _pathFieldOpen = true;
+    _pathFieldSeed = seed;
+    _pathFieldGeneration++;
+    notifyListeners();
+  }
+
+  /// Esc in the field — the highest Esc tier (02 §8.2): closes the
+  /// editor, restores the segment bar, and navigates nothing.
+  void closePathField() {
+    if (_disposed || !_pathFieldOpen) return;
+    _pathFieldOpen = false;
+    notifyListeners();
+  }
+
+  /// Enter in the field: closes the editor and navigates the resolved
+  /// target through the same seam every navigation takes — generation
+  /// counter, stale-answer drop, and history record all apply
+  /// unchanged. A blank submission just closes (there is nothing to
+  /// navigate); an unresolvable shape surfaces the pane's inline error
+  /// affordance (02 §2.1's no-dialog rule) — never an engine call for
+  /// input that cannot name a location.
+  void submitPathField(String raw) {
+    if (_disposed || !_pathFieldOpen) return;
+    _pathFieldOpen = false;
+    final input = raw.trim();
+    if (input.isEmpty) {
+      notifyListeners();
+      return;
+    }
+    final channel = _channel;
+    final resolved = channel == null
+        ? null
+        : resolvePanePathInput(
+            raw: input,
+            remote: _pendingRemote != null,
+            currentPath: _location?.path,
+            homePath: channel.homePath,
+          );
+    if (resolved == null) {
+      _error = PaneFaultException(PaneFault.invalidPath, operation: 'list');
+      notifyListeners();
+      return;
+    }
+    notifyListeners();
+    navigate(resolved);
   }
 
   /// Retries whatever failed: a failed connect reopens the channel, a
@@ -501,6 +674,14 @@ class PaneController extends ChangeNotifier {
     }
     if (_phase == PanePhase.openingLocal && _error != null) {
       await _openLocal(_pendingLocalRoot);
+      return;
+    }
+    // A bound pane can hold an error with no committed location — the
+    // path field's invalid-input fault, or a first listing that never
+    // landed. Its channel is live, so retry opens the channel home
+    // rather than dead-ending.
+    if (_location == null && _error != null && _channel != null) {
+      navigate(_channel!.homePath);
       return;
     }
     final current = _location;
@@ -668,6 +849,9 @@ class PaneController extends ChangeNotifier {
   /// generation instead of no-oping.
   void openFilter() {
     if (_disposed || !verbsEnabled) return;
+    // One text surface at a time (02 §8.2's field-first rule): an open
+    // path field yields to the filter field taking focus.
+    _pathFieldOpen = false;
     _filterFieldOpen = true;
     _filterFocusGeneration++;
     notifyListeners();
@@ -773,6 +957,8 @@ class PaneController extends ChangeNotifier {
   /// rows still survive in the baseline selection under both modes.
   void openQuickSelect() {
     if (_disposed || !verbsEnabled || _quickSelect != null) return;
+    // Same one-field rule: an open path field yields to Quick Select.
+    _pathFieldOpen = false;
     final names = <_RowKey, String>{};
     for (var i = 0; i < _entries.length; i++) {
       final entry = _entries[i];
@@ -889,6 +1075,9 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     _phase = PanePhase.unbound;
     _location = null;
+    _history.clear();
+    _historyIndex = -1;
+    _pathFieldOpen = false;
     _sortedListing = const [];
     // The transient lenses die with the session like the listing and
     // filter do — an unbound pane shows hidden files and a non-default
@@ -1038,6 +1227,11 @@ class PaneController extends ChangeNotifier {
     _cancelListing();
     if (presentation == _BindingPresentation.replace) {
       _location = null;
+      // The trail and any open path edit are scoped to the binding —
+      // a new binding starts a fresh trail.
+      _history.clear();
+      _historyIndex = -1;
+      _pathFieldOpen = false;
       _sortedListing = const [];
       // A replaced binding drops the transient lenses with its listing —
       // the filter, the hidden override, and the view mode are all
@@ -1116,12 +1310,30 @@ class PaneController extends ChangeNotifier {
   void _issueNavigation(
     PaneLocation target,
     String path,
-    AppBrowseChannel channel,
-  ) {
+    AppBrowseChannel channel, {
+    bool historyTraversal = false,
+  }) {
     // Quick Select ends BEFORE the navigation snapshot and the selection
     // reset: the restored baseline is what a later Esc-cancel restores,
     // and the new listing prunes it (02 §2.5).
     _endQuickSelectSession();
+    if (!historyTraversal && target != _location) {
+      // 02 §2.1's branch semantics: a user-driven navigation to a new
+      // location truncates the forward entries and records the target
+      // at issue time — an interrupted or failed navigation stays in
+      // the trail too (the failure IS a location the user tried to
+      // visit), matching browser history. A same-location re-list
+      // (refresh, recovery re-list) records nothing; Back/Forward set
+      // the index before issuing and arrive flagged, so they record
+      // nothing either.
+      if (_historyIndex < _history.length - 1) {
+        _history.removeRange(_historyIndex + 1, _history.length);
+      }
+      if (_history.isEmpty || _history.last != target) {
+        _history.add(target);
+      }
+      _historyIndex = _history.length - 1;
+    }
     if (!_loadingActive()) {
       _snapshot =
           _QuiescentSnapshot(_location, _sortedListing, _error, _selection);

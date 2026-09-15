@@ -543,6 +543,10 @@
   "@paneFaultListFolder": {
     "description": "Diagnostic line for a non-VFS fault while listing a folder."
   },
+  "paneFaultInvalidPath": "That is not a folder path this pane can open. Use an absolute path, ~, or a name in this folder.",
+  "@paneFaultInvalidPath": {
+    "description": "Diagnostic line when the editable path field's submission cannot resolve to a location under the pane's path rules — rejected before any folder listing is attempted (02 §2.1)."
+  },
   "paneConnectionLost": "Connection to {label} lost — reconnecting…",
   "@paneConnectionLost": {
     "description": "Banner shown while the remote transport reconnects (02 §2.7).",
@@ -601,13 +605,29 @@
   "@paneRowKindOther": {
     "description": "Screen-reader kind word for an entry that is none of file, directory, or symbolic link (RemoteFileType.other). Must not claim the entry is a regular file."
   },
+  "goBackLabel": "Back",
+  "@goBackLabel": {
+    "description": "Command label: navigate to the previous location in the tab's history (go.back, 02 §2.1)."
+  },
+  "goEditPathLabel": "Edit Path",
+  "@goEditPathLabel": {
+    "description": "Command label: swap the pane's path bar for an editable field seeded with the current location (go.editPath, 02 §2.1)."
+  },
   "goEnclosingLabel": "Parent Folder",
   "@goEnclosingLabel": {
     "description": "Command label: navigate to the parent folder."
   },
+  "goForwardLabel": "Forward",
+  "@goForwardLabel": {
+    "description": "Command label: navigate to the next location in the tab's history (go.forward, 02 §2.1)."
+  },
   "goOpenLabel": "Open",
   "@goOpenLabel": {
     "description": "Command label: open the selected row."
+  },
+  "goToFolderLabel": "Go to Folder…",
+  "@goToFolderLabel": {
+    "description": "Command label: open the pane's editable path field seeded empty (go.toFolder, 02 §2.1)."
   },
   "viewRefreshLabel": "Refresh",
   "@viewRefreshLabel": {
@@ -683,6 +703,14 @@
     "placeholders": {
       "query": {"type": "String"}
     }
+  },
+  "panePathFieldLabel": "Path",
+  "@panePathFieldLabel": {
+    "description": "Accessible label of the pane's editable path field that replaces the segment bar (02 §2.1, go.editPath/go.toFolder)."
+  },
+  "panePathFieldHint": "/path, ~, or a name in this folder",
+  "@panePathFieldHint": {
+    "description": "Hint inside the pane's editable path field stating the accepted shapes: an absolute path, ~ for the home folder, or a name relative to the current folder (02 §2.1). Keep it terse — it is placeholder text, not documentation."
   },
   "connectionsOpenInPane": "Open in Pane",
   "@connectionsOpenInPane": {

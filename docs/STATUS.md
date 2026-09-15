@@ -4449,6 +4449,53 @@ job's tier-B step needs no restructuring, and P4 stays unlanded —
 reported trend-only like the rest of tier B. Local llvmpipe+Xvfb
 evidence is in `tasks/run3-task41/`: five `ok` rows at 168–264 ms per
 switch — environment-scale numbers, not budget reads.
+## M3 — path bar editing + navigation history (2026-09-15)
+
+`go.editPath` (⌘L / Ctrl+L) swaps the segment bar for an in-bar text
+field seeded with the current path, selected whole; Enter submits and
+Esc closes the field first, leaving the §8.2 navigation-cancel tier
+for a second press. `go.toFolder` (⇧⌘G / Ctrl+Shift+G — the §8.3
+table wins over the task brief's Ctrl+Alt+G) opens the same editor
+seeded empty. Submission resolves through `resolvePanePathInput`, a
+pure shape check ahead of any engine call: absolute POSIX paths pass
+through, `~`/`~/…` expand against the channel's `homePath`, relative
+names join the committed location, and a Windows local pane applies
+drive/UNC rules — `~name`, drive-relative `C:name`, root-relative
+`\name`, and control characters are rejected shape, not engine
+failures. Unresolvable input closes the field and raises the pane's
+typed `PaneFault.invalidPath` on the existing inline error surface —
+no dialog. A valid target navigates through the ordinary
+`PaneController.navigate` seam, so generation counters and
+stale-listing rejection apply unchanged. While the field owns focus
+the existing text-field suppression keeps pane single keys and
+type-ahead out (02 §8.2's field-first tier); a pointer down outside
+the strip rescues focus to the listing.
+
+Per-tab back/forward history lives on each tab's `PaneController`:
+a user navigation truncates the forward branch and appends the
+target, refresh/same-location issues no entry, and `go.back`/
+`go.forward` (⌘[/⌘] on macOS, Alt+Left/Right elsewhere) walk the
+trail without recording. Esc-cancelled navigation reconciles the
+trail the way a browser's stop-then-forward does. Rebinding or
+detaching a tab clears its trail; nothing persists. The commands
+carry `AppMenuId.go` placement (Back 10, Forward 20, Go to Folder 50,
+Edit Path 60) so the reachability invariant holds, and Back/Forward
+disable at the trail ends. 02 §2.1 is precision-edited: `go.toFolder`
+is the in-bar editor seeded empty, not a dialog.
+
+Validation: `flutter analyze` clean; app suite 821 tests green
+(`pane_path_input_test` covers the shape grammar including the
+POSIX-legal drive-looking names; `pane_history_test` covers
+push/back/forward/up, branch truncation, per-tab isolation, cancel
+reconciliation, and rebind reset; `path_field_test` covers
+seed/select, Enter through the seam, the two-tier Esc, field-first
+chord suppression, and reseed-while-open; `pane_commands_test`
+covers ids, per-platform activators, Go-menu order, and
+disabled-at-ends). Real-font captures of the closed bar, the editing
+state, the inline invalid-path error, and the empty `go.toFolder`
+field are under `tasks/run3-task42/captures/`. The command strip's
+button label now collapses under squeeze so the four new Go commands
+cannot overflow narrow shells.
 
 ## Open items
 
