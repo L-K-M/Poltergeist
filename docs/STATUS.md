@@ -5022,7 +5022,7 @@ switch — environment-scale numbers, not budget reads.
     scenarios as their surfaces arrive (`BENCH_ENFORCE_A` from each
     introduction), the drift-state artifact fetch/update wiring (arrives
     with the tier-B leg — `--update-drift-state` requires `--tiers`
-    including `b`). The P4 tab-switch suite landed 2026-09-15 with the
+    including `b`). The P4 tab-switch suite merged 2026-09-15 with the
     other tier-B xvfb suites (dated section above) — trend-only until
     M9. No baseline calibration has run; budgets gate nothing yet.
 22. **2026-09-14: M3 D12 P3/P5 budgets unreachable on the CI fixture as
