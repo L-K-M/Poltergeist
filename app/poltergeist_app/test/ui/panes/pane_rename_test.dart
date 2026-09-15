@@ -339,6 +339,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(left.inlineRenameActive, isFalse);
       expect(channel.renameCalls, isEmpty);
+      expect(find.byKey(fieldKey), findsNothing);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
