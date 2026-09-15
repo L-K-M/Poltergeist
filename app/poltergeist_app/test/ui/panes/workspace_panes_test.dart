@@ -897,6 +897,77 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('right.txt'), findsOneWidget);
+
+        // Re-showing must not re-grab the active pane: the next
+        // refresh chord still lists pane A's channel, not pane B's.
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(engine.localChannels[0].listCalls, hasLength(4));
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('hiding pane B while a strip control holds focus still '
+        'hands focus to pane A', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pumpApp(tester);
+        await tester.pumpAndSettle();
+
+        // The strip's own focusables — chips, the new-tab button — are
+        // siblings of the listing's Focus node, not its descendants.
+        // Keyboard traversal can land on them; the hide handoff must
+        // cover that too. Seeding the scope's focus history with pane
+        // A's button first makes the test decisive: without an explicit
+        // handoff, the unmount's focus restoration would park on that
+        // still-mounted button instead of the surviving listing.
+        final leftAddFocus = Focus.of(
+          tester.element(
+            find.descendant(
+              of: find.byKey(const ValueKey('pane.left.tab.new')),
+              matching: find.byType(Icon),
+            ),
+          ),
+        );
+        leftAddFocus.requestFocus();
+        await tester.pump();
+        expect(
+          FocusManager.instance.primaryFocus,
+          leftAddFocus,
+        );
+        final rightAddFocus = Focus.of(
+          tester.element(
+            find.descendant(
+              of: find.byKey(const ValueKey('pane.right.tab.new')),
+              matching: find.byType(Icon),
+            ),
+          ),
+        );
+        rightAddFocus.requestFocus();
+        await tester.pump();
+        expect(
+          FocusManager.instance.primaryFocus,
+          rightAddFocus,
+        );
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(AdaptiveShell.secondaryPaneKey),
+          findsNothing,
+        );
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.left.listing',
+        );
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }
@@ -1038,6 +1109,8 @@ void main() {
         // Below 02 §1's stage-2 boundary the shell's own allocation
         // hides pane B — the same mechanism view.toggleSecondPane
         // feeds, so focus and the active pane move to the survivor.
+        // pumpApp pins devicePixelRatio to 1.0, so these sizes are
+        // logical pixels straddling the real stage-2 breakpoint.
         tester.view.physicalSize = const Size(600, 900);
         await tester.pumpAndSettle();
 
@@ -1057,7 +1130,8 @@ void main() {
         expect(engine.localChannels[1].listCalls, hasLength(1));
 
         // Regrowth restores pane B on its own: the auto-hide was
-        // transient and never latched the toggle's user intent.
+        // transient and never latched the toggle's user intent. Same
+        // DPR-1.0 logical-pixel sizing as the hide above.
         tester.view.physicalSize = const Size(1400, 900);
         await tester.pumpAndSettle();
         expect(

@@ -199,9 +199,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
     final left = buildStrip(PaneTabsController.leftPaneId);
     final right = buildStrip(PaneTabsController.rightPaneId);
-    _secondPaneWasShown = true;
-    _workspace = WorkspaceController(left: left, right: right)
+    final workspace = WorkspaceController(left: left, right: right)
       ..addListener(_onWorkspaceChanged);
+    // Seed from the controller, not a hardcoded shown: the workspace's
+    // initial visibility is the source of truth for the transition
+    // edge _onWorkspaceChanged tracks.
+    _secondPaneWasShown = workspace.secondPaneShown;
+    _workspace = workspace;
 
     // The initial binding: each pane opens one tab on the local home —
     // explicit `home` because the startup tab has no duplicate source and
@@ -390,11 +394,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   /// 02 §3's hidden-pane rule made concrete: when pane B leaves the
   /// screen its tabs take no keyboard focus. On the user toggle the
-  /// notify lands before the unmount, so the right node still reports
-  /// [FocusNode.hasFocus]; on the stage-2 auto-hide the strip is already
-  /// gone and focus fell to nowhere (a detached primary focus reads
-  /// null). Both move focus to the survivor; focus sitting on an
-  /// unrelated control is left alone.
+  /// notify lands before the unmount, so primary focus can still sit on
+  /// any node in the disappearing half — the listing node itself, one
+  /// of its fields, a tab chip, the strip's buttons, or the splitter
+  /// (which unmounts with the second pane). On the stage-2 auto-hide
+  /// the strip is already gone and a detached primary focus reads
+  /// null. All of those move focus to the survivor; focus sitting on an
+  /// unrelated, still-mounted control is left alone.
   void _onWorkspaceChanged() {
     final workspace = _workspace;
     if (workspace == null) return;
@@ -403,11 +409,32 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _secondPaneWasShown = shown;
     if (!becameHidden) return;
     final left = _leftFocus;
-    final right = _rightFocus;
-    if (left == null || right == null) return;
-    if (right.hasFocus || FocusManager.instance.primaryFocus == null) {
+    if (left == null) return;
+    final primary = FocusManager.instance.primaryFocus;
+    if (primary == null || _focusInsideDisappearingPanes(primary)) {
       left.requestFocus();
     }
+  }
+
+  /// True when [node]'s widget lives inside the secondary-pane subtree
+  /// or on the splitter — both unmount when pane B hides, so a node
+  /// anywhere under either keyed widget is leaving the screen. The
+  /// strip's own focusables (tab chips, the new-tab button) are
+  /// siblings of the listing's Focus, not its descendants, so
+  /// [FocusNode.hasFocus] alone cannot see them.
+  bool _focusInsideDisappearingPanes(FocusNode node) {
+    final context = node.context;
+    if (context == null) return false;
+    var inside = false;
+    context.visitAncestorElements((element) {
+      if (element.widget.key == AdaptiveShell.secondaryPaneKey ||
+          element.widget.key == AdaptiveShell.splitterKey) {
+        inside = true;
+        return false;
+      }
+      return true;
+    });
+    return inside;
   }
 
   /// The tab-close confirmation presenter wired onto each strip's
