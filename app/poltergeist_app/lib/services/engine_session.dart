@@ -72,6 +72,12 @@ abstract interface class AppBrowseChannel {
   /// exists fails with the typed conflict error — never an overwrite.
   Future<void> rename(String oldPath, String newPath);
 
+  /// Opens [path] in the operating system's default application (02
+  /// §2.6's Open on a local file): the engine owns the launcher process
+  /// (D8 — the UI isolate never spawns). Local channels only; a remote
+  /// channel answers the typed `unsupported` refusal.
+  Future<void> openInDefaultApp(String path);
+
   Future<void> close();
 }
 
@@ -203,6 +209,10 @@ final class _EngineClientChannel implements AppBrowseChannel {
   @override
   Future<void> rename(String oldPath, String newPath) =>
       _channel.rename(oldPath, newPath);
+
+  @override
+  Future<void> openInDefaultApp(String path) =>
+      _channel.openInDefaultApp(path);
 
   @override
   Future<void> close() => _channel.close();

@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_app/services/app_preferences.dart';
+import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/settings_store.dart';
 
 void main() {
@@ -67,6 +68,37 @@ void main() {
     );
 
     expect(await preferences.loadWindowBounds(), isNull);
+  });
+
+  test('persists every Double-click action value and reads it back',
+      () async {
+    for (final action in DoubleClickAction.values) {
+      final preferences = AppPreferences(
+        store: SettingsStore(path: settingsFile.path),
+      );
+      await preferences.saveDoubleClickAction(action);
+      expect(await preferences.loadDoubleClickAction(), action);
+    }
+  });
+
+  test('the Double-click action defaults to Open and falls back on an '
+      'unknown stored value', () async {
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    expect(
+      await preferences.loadDoubleClickAction(),
+      DoubleClickAction.open,
+    );
+
+    await settingsFile.writeAsString(
+      '{"panes.doubleClickAction":"teleport"}',
+    );
+    expect(
+      await preferences.loadDoubleClickAction(),
+      DoubleClickAction.open,
+    );
   });
 
   test('does not persist invalid window bounds', () async {

@@ -576,6 +576,91 @@ void main() {
         reason: 'the inactive pane never opens a session');
   });
 
+  testWidgets('go.open is selection-scoped, dispatches openEntry on the '
+      'active pane\'s cursor row, and documents its §8.3 keys', (
+    tester,
+  ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final leftChannel = controller_test.FakePaneChannel('/home/tester');
+    leftChannel.listings['/home/tester'] = [
+      _entry('a', type: RemoteFileType.directory),
+      _entry('b'),
+    ];
+    leftChannel.listings['/home/tester/a'] = [_entry('inner')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+
+    lanes.nextLocalChannel = leftChannel;
+    await left.openLocalHome();
+    await tester.pump();
+
+    final open = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kGoOpenCommandId);
+
+    // 02 §8.3's table: ⌘↓ and ⌘O on macOS, Enter elsewhere — declared
+    // for menus; the bare Enter leg is dispatched by the pane's focus
+    // node (02 §8.2), never by the chord layer.
+    expect(open.scope, CommandScope.selection);
+    expect(
+      open.activators!(TargetPlatform.macOS),
+      [
+        const SingleActivator(LogicalKeyboardKey.arrowDown, meta: true),
+        const SingleActivator(LogicalKeyboardKey.keyO, meta: true),
+      ],
+    );
+    expect(
+      open.activators!(TargetPlatform.linux),
+      [const SingleActivator(LogicalKeyboardKey.enter)],
+    );
+    expect(
+      open.activators!(TargetPlatform.windows),
+      [const SingleActivator(LogicalKeyboardKey.enter)],
+    );
+    // 02 §9's File menu: Open heads the file-verb group after the
+    // (unregistered) New Folder/New File slots.
+    expect(open.menuPlacement?.menu, AppMenuId.file);
+    expect(open.menuPlacement?.order, 60);
+    expect(open.menuPlacement?.group, 1);
+
+    // Enablement follows the ACTIVE pane's cursor: no cursor, no verb.
+    workspace.setActivePane(rightStrip);
+    expect(open.enabled(), isFalse);
+
+    left.setCursorIndex(0);
+    workspace.setActivePane(leftStrip);
+    expect(open.enabled(), isTrue);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+
+    // 02 §2.6: a folder row navigates under every double-click action.
+    await open.run(tester.element(find.byType(Scaffold)));
+    await tester.pump();
+    expect(left.location?.path, '/home/tester/a');
+    expect(leftChannel.openCalls, isEmpty);
+
+    // A file row follows the action — default Open launches through the
+    // channel; the pane never launches a process itself.
+    left.goUp();
+    await tester.pump();
+    left.setCursorIndex(1); // 'b' — a file
+    await open.run(tester.element(find.byType(Scaffold)));
+    await tester.pump();
+    expect(leftChannel.openCalls, ['/home/tester/b']);
+  });
+
   testWidgets('no chord fires while a text field holds focus', (
     tester,
   ) async {
@@ -657,8 +742,12 @@ Bookmark _remoteBookmark() {
   );
 }
 
-RemoteFileEntry _entry(String name) => RemoteFileEntry(
-  path: '/home/tester/$name',
-  name: name,
-  type: RemoteFileType.file,
-);
+RemoteFileEntry _entry(
+  String name, {
+  RemoteFileType type = RemoteFileType.file,
+}) =>
+    RemoteFileEntry(
+      path: '/home/tester/$name',
+      name: name,
+      type: type,
+    );

@@ -509,6 +509,24 @@ class EngineBrowseChannel {
     return (result as DirectoryListed).entries;
   }
 
+  /// Opens [path] in the operating system's default application (02
+  /// §2.6's Open on a local file): the engine owns the launcher process
+  /// and answers once the launch was accepted — not when the launched
+  /// application exits. Local channels only — a pool channel fails with
+  /// the typed local-only `unsupported` refusal, the same as
+  /// [watchDirectory]: a remote file's open is the managed-checkout
+  /// pipeline (06). Launcher failures arrive as typed
+  /// [RemoteFileException]s like any other engine error.
+  Future<void> openInDefaultApp(String path) async {
+    await _client._call(
+      (id) => OpenLocalFileRequest(
+        requestId: id,
+        channelId: channelId,
+        path: path,
+      ),
+    );
+  }
+
   /// Renames one entry inside its directory (02 §2.6): [oldPath] and
   /// [newPath] share a parent, and a destination that exists fails with
   /// the typed conflict error — never an overwrite.

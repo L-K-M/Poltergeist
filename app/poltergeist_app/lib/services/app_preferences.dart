@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'double_click_action.dart';
 import 'pane_tabs_controller.dart' show NewTabTarget;
 import 'settings_store.dart';
 
@@ -10,6 +11,7 @@ const _windowTopKey = 'window.top';
 const _windowWidthKey = 'window.width';
 const _windowHeightKey = 'window.height';
 const _newTabTargetKey = 'tabs.newTabTarget';
+const _doubleClickActionKey = 'panes.doubleClickAction';
 
 class AppPreferences {
   AppPreferences({required SettingsStore store})
@@ -61,6 +63,26 @@ class AppPreferences {
 
   Future<void> saveNewTabTarget(NewTabTarget target) =>
       _store.set(_newTabTargetKey, target.name);
+
+  /// The "Double-click action" preference (02 §2.6): what the Open verb
+  /// does to a file. The shell seeds each strip's live field with this
+  /// value; an unreadable or unknown stored value falls back to the
+  /// spec default (Open) rather than failing startup.
+  Future<DoubleClickAction> loadDoubleClickAction() async {
+    String? stored;
+    try {
+      stored = await _store.get<String>(_doubleClickActionKey);
+    } catch (_) {
+      return DoubleClickAction.open;
+    }
+    for (final action in DoubleClickAction.values) {
+      if (action.name == stored) return action;
+    }
+    return DoubleClickAction.open;
+  }
+
+  Future<void> saveDoubleClickAction(DoubleClickAction action) =>
+      _store.set(_doubleClickActionKey, action.name);
 
   Future<Rect?> loadWindowBounds() async {
     late final List<num?> storedValues;

@@ -118,6 +118,7 @@ export 'src/import/ssh_config_import.dart'
 export 'src/engine/engine_client.dart'
     show EngineBrowseChannel, EngineClient, ProbeBridge, PromptBridge;
 export 'src/engine/engine_host.dart' show EngineHost, engineMain;
+export 'src/engine/local_file_opener.dart' show LocalFileOpener;
 export 'src/engine/protocol.dart'
     show
         CloseBrowseChannelRequest,
@@ -150,6 +151,7 @@ export 'src/engine/protocol.dart'
         ListDirectoryRequest,
         OpenBrowseChannelRequest,
         OpenLocalBrowseChannelRequest,
+        OpenLocalFileRequest,
         PromptDismissedEvent,
         PromptReply,
         PromptReplyRequest,

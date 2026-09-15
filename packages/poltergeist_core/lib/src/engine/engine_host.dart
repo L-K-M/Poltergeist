@@ -12,6 +12,7 @@ import '../fs/local_file_system.dart';
 import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
 import 'local_directory_watcher.dart';
+import 'local_file_opener.dart';
 import 'protocol.dart';
 
 /// The drain's own abandon-signal: thrown by the timeout wrapper, never
@@ -79,6 +80,11 @@ class EngineHost {
   final Map<String, StreamSubscription<ServerStatus>> _watches = {};
   late final LocalWatchBackend _localWatch;
 
+  /// The OS-default-application launcher behind [OpenLocalFileRequest]
+  /// (02 §2.6): stateless, so one host-level seam serves every local
+  /// channel — unlike the per-channel watch.
+  late final LocalFileOpener _fileOpener;
+
   /// Bound per retirement await — used by the shutdown drain AND by
   /// request-level closes (a wedged backend cancel must not hang either
   /// the shutdown ack or a close ack forever; the bounded-teardown
@@ -92,6 +98,8 @@ class EngineHost {
   /// production defaults need real sockets; tests inject socket-free fakes.
   /// [localWatch] is the same for 03 §7.5's directory watchers: the default
   /// selects the native platform backend; tests inject deterministic backends.
+  /// [fileOpener] is the same for §2.6's local-file Open: the default runs
+  /// the platform's opener; tests script the launch.
   factory EngineHost({
     required EngineConfig config,
     required SendPort events,
@@ -99,10 +107,12 @@ class EngineHost {
     Prober prober = const TcpBannerProber(),
     HostKeyStore? hostKeyStore,
     LocalWatchBackend? localWatch,
+    LocalFileOpener? fileOpener,
     Duration? shutdownDrainTimeout,
   }) {
     final host = EngineHost._(events);
     host._localWatch = localWatch ?? LocalWatchBackend.platform();
+    host._fileOpener = fileOpener ?? LocalFileOpener.platform();
     host._shutdownDrainTimeout = shutdownDrainTimeout ?? _defaultDrainTimeout;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
@@ -252,6 +262,8 @@ class EngineHost {
         _guard(request.requestId, () => _listDirectory(request));
       case final RenameEntryRequest request:
         _guard(request.requestId, () => _renameEntry(request));
+      case final OpenLocalFileRequest request:
+        _guard(request.requestId, () => _openLocalFile(request));
       case final WatchServerRequest request:
         _watch(request.serverId);
       case final UnwatchServerRequest request:
@@ -464,6 +476,43 @@ class EngineHost {
       channel.reportFailure(fs, error);
       rethrow;
     }
+  }
+
+  /// §2.6's local-file Open: launches [request.path] in the OS default
+  /// application through the host's opener seam. Same routing posture as
+  /// the watch seam — a closed channel answers `disconnected`, a pool
+  /// channel refuses `unsupported` (a remote file's open is 06's managed
+  /// checkout, never a launcher call), and an empty path fails fast
+  /// typed before the opener is touched. Launcher failures cross back
+  /// as the opener's own typed errors.
+  Future<EngineResult> _openLocalFile(OpenLocalFileRequest request) async {
+    final channel = _channels[request.channelId];
+    if (channel == null) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'open',
+        message: 'The browse channel is closed.',
+      );
+    }
+    if (channel is! _LocalPaneChannel) {
+      // Explicit refusal, never a silent no-op — same rule as watching:
+      // the engine deliberately owns no remote checkout path this slice.
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.unsupported,
+        operation: 'open',
+        message: 'Opening files in the default application is available '
+            'on local channels only.',
+      );
+    }
+    if (request.path.isEmpty) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.other,
+        operation: 'open',
+        message: 'The open path must not be empty.',
+      );
+    }
+    await _fileOpener.open(request.path);
+    return const EngineAck();
   }
 
   /// Opens are the only requests that mint new channels, so they are

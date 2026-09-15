@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
@@ -52,6 +53,7 @@ void main() {
 
   PaneTabsController tabs({
     NewTabTarget newTabTarget = NewTabTarget.duplicate,
+    DoubleClickAction doubleClickAction = DoubleClickAction.open,
     Future<bool> Function(PaneTab, List<TabCloseTrigger>)? confirmClose,
     bool Function(String serverId, PaneController excluding)?
         serverStillShared,
@@ -61,6 +63,7 @@ void main() {
       paneId: PaneTabsController.leftPaneId,
       lanes: lanes,
       newTabTarget: newTabTarget,
+      doubleClickAction: doubleClickAction,
       confirmClose: confirmClose,
       serverStillShared: serverStillShared,
       onError: onError,
@@ -185,6 +188,39 @@ void main() {
       final home = controller.newTab();
       await settle();
       expect(home.controller.location, isNotNull);
+    });
+  });
+
+  group('double-click action propagation (02 §2.6)', () {
+    test('the seed lands on every tab', () async {
+      final controller = tabs(doubleClickAction: DoubleClickAction.edit);
+      final first = controller.newTab(target: NewTabTarget.launcher);
+      await settle();
+      final second = controller.newTab(target: NewTabTarget.launcher);
+      await settle();
+
+      expect(first.controller.doubleClickAction, DoubleClickAction.edit);
+      expect(second.controller.doubleClickAction, DoubleClickAction.edit);
+    });
+
+    test('writing the live value propagates to open tabs and stamps new '
+        'arrivals', () async {
+      final controller = tabs();
+      final first = controller.newTab(target: NewTabTarget.launcher);
+      await settle();
+      expect(first.controller.doubleClickAction, DoubleClickAction.open);
+
+      controller.doubleClickAction = DoubleClickAction.transfer;
+      expect(first.controller.doubleClickAction, DoubleClickAction.transfer);
+
+      // A later arrival — new or ghost-reopened — opens files under the
+      // current value, not the value at its construction.
+      final second = controller.newTab(target: NewTabTarget.launcher);
+      await settle();
+      expect(
+        second.controller.doubleClickAction,
+        DoubleClickAction.transfer,
+      );
     });
   });
 
