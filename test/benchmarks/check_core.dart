@@ -546,9 +546,16 @@ class ResultsFile {
       }
       scenarioConfigs[parsedRow.scenario] = rowConfig;
       final rowFingerprint = parsedRow.fingerprint;
-      // _parseResultRow already resolved the scenario against the
-      // catalog, so the tier lookup cannot miss.
-      final tier = catalog.scenarios[parsedRow.scenario]!.tier;
+      // _parseResultRow already rejects unknown scenarios, so this lookup
+      // cannot miss — a miss would be a checker bug, but it still reports
+      // as a data error rather than a null-check crash.
+      final tier = catalog.scenarios[parsedRow.scenario]?.tier;
+      if (tier == null) {
+        throw CheckDataException(
+          'results file: row $key references scenario '
+          '"${parsedRow.scenario}" missing from the budget catalog',
+        );
+      }
       final tierFingerprint = fingerprints[tier];
       if (tierFingerprint == null) {
         fingerprints[tier] = rowFingerprint;
@@ -1252,7 +1259,9 @@ CheckReport evaluate({
       // tier-A fingerprint; promote it explicitly instead of asserting `!`.
       final tierARunFingerprint = tierAFingerprint;
       if (tierARunFingerprint == null) {
-        throw StateError('eligible rows imply a parsed fingerprint');
+        throw StateError(
+          'eligible tier-A rows imply a parsed tier-A fingerprint',
+        );
       }
       _evaluateTierA(
         budget: budget,
