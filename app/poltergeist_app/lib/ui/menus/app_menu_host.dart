@@ -106,7 +106,7 @@ class _AppMenuHostState extends State<AppMenuHost> {
     List<AppMenuModel> menus,
     AppLocalizations l10n,
   ) {
-    final signature = _signature(menus);
+    final signature = _signature(menus, l10n);
     final cached = _platformMenus;
     if (cached != null &&
         _menuRunner == widget.onRun &&
@@ -123,13 +123,13 @@ class _AppMenuHostState extends State<AppMenuHost> {
   /// Everything a native menu item can carry — structure, titles, each
   /// command's enablement and bound key equivalent — flattened to scalars
   /// and records so [listEquals] can compare two builds field-by-field.
-  List<Object?> _signature(List<AppMenuModel> menus) => [
+  List<Object?> _signature(List<AppMenuModel> menus, AppLocalizations l10n) => [
     for (final menu in menus) ...[
       menu.id,
       menu.title,
       for (final group in menu.groups) ...[
         _rowBoundary,
-        for (final row in group) ..._rowSignature(row),
+        for (final row in group) ..._rowSignature(row, l10n),
       ],
     ],
   ];
@@ -137,15 +137,20 @@ class _AppMenuHostState extends State<AppMenuHost> {
   /// Positional marker inside a signature; identity-stable across builds.
   static const _rowBoundary = Object();
 
-  Iterable<Object?> _rowSignature(AppMenuRow row) sync* {
+  Iterable<Object?> _rowSignature(AppMenuRow row, AppLocalizations l10n) sync* {
     switch (row) {
       case AppMenuCommandRow(:final command):
-        yield (command.id, command.enabled(), _nativeShortcut(command));
+        yield (
+          command.id,
+          command.label(l10n),
+          command.enabled(),
+          _nativeShortcut(command),
+        );
       case AppMenuSubmenuRow(:final title, :final items):
         yield _rowBoundary;
         yield title;
         for (final item in items) {
-          yield* _rowSignature(item);
+          yield* _rowSignature(item, l10n);
         }
       case AppMenuProvidedRow(:final type):
         yield type;
