@@ -685,6 +685,8 @@ void main() {
                   repetition: 0,
                   fingerprint: _fingerprintJson(
                     mode: 'profile',
+                    dartVersion: '3.13.2-engine',
+                    flutterVersion: '3.47.2',
                     cpuModel: 'other-cpu',
                   ),
                 ),
