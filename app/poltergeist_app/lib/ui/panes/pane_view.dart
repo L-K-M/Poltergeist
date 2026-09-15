@@ -956,10 +956,31 @@ class _PaneSurface extends StatelessWidget {
       }
       // 02 §2.7's filtered-to-nothing state: the dedicated message plus
       // the Clear affordance — never a blank pane.
-      if (controller.filterActive) {
-        return _FilteredEmpty(controller: controller);
+      final Widget emptyState = controller.filterActive
+          ? _FilteredEmpty(controller: controller)
+          : Center(child: Text(l10n.paneEmptyFolder));
+      // A detached rename session (its row left the visible listing —
+      // e.g. the last row vanished) has no row to anchor on: it floats
+      // at the top of the empty state so the renameTargetGone
+      // diagnostic and its dismissal stay reachable instead of hiding
+      // behind "Empty folder" while the close guard still holds.
+      if (controller.renameTarget != null) {
+        return Stack(
+          children: [
+            Positioned.fill(child: emptyState),
+            PositionedDirectional(
+              start: _renameNameCellStart,
+              end: _renameNameCellEnd,
+              top: 0,
+              child: _RenameEditor(
+                key: renameEditorKey,
+                controller: controller,
+              ),
+            ),
+          ],
+        );
       }
-      return Center(child: Text(l10n.paneEmptyFolder));
+      return emptyState;
     }
 
     final extent = scaledPaneRowExtent(context);

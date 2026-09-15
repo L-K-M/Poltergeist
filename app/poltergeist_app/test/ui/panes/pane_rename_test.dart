@@ -299,6 +299,52 @@ void main() {
     }
   });
 
+  testWidgets('the gone-row fault stays visible and dismissible when '
+      'the listing empties', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [_entry('solo.txt')];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.setCursorIndex(0);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+      await tester.pumpAndSettle();
+      expect(find.byKey(fieldKey), findsOneWidget);
+
+      // The last visible row leaves the listing: the pane still owes
+      // the user the detached session's diagnostic — not a bare
+      // "empty folder" that hides the fault while the tab-close guard
+      // keeps holding the session.
+      channel.listings['/home/tester'] = [];
+      left.refresh();
+      await tester.pumpAndSettle();
+
+      expect(left.entries, isEmpty);
+      expect(find.byKey(fieldKey), findsOneWidget,
+          reason: 'the detached editor keeps floating over the empty '
+              'state so its fault stays visible');
+      expect(
+        find.text('The item is no longer in this folder.'),
+        findsOneWidget,
+      );
+
+      // Dismissal stays reachable: Esc closes the diagnostic session.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(left.inlineRenameActive, isFalse);
+      expect(channel.renameCalls, isEmpty);
+      expect(find.byKey(fieldKey), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('the pane keys stay inert while a commit is in flight', (
     tester,
   ) async {

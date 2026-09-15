@@ -4678,6 +4678,87 @@ changed/unchanged config comparison outcomes, legacy migration outcome
 in both modes, and the config-skip reset veto. `dart test
 test/benchmarks` 130/130; `dart analyze test/benchmarks` clean.
 
+## M3 — rename ownership repairs, fusion review round 2 (2026-09-15)
+
+Three confirmed findings from the second source-level review of the
+rename path (#131/#132) are repaired, each red-first:
+
+- **Rename completion owned whichever binding the tab now held.** A
+  commit settling after a rebind refreshed and reselected the NEW
+  binding (a same-path rebind could even select an unrelated row at the
+  old destination's spelling), and a typed refusal resurrected the
+  stale editor after a same-path rebind or an away-and-back navigation
+  while a different-location failure dropped silently. `submitRename`
+  now captures an ownership token (channel identity, bind attempt, and
+  a new `_locationRevision` bumped on every location-changing
+  navigation issue): the in-flight guard always settles, but
+  refresh/reselect/reopen only run while the token still owns the
+  presentation, and a retired operation's refusal reports through the
+  pane's `onError` sink instead of attaching to the new binding or
+  vanishing.
+- **An invalidated rename session stayed a live mutation capability.**
+  After the `renameTargetGone` re-attach, submitting still sent
+  `channel.rename` for the old path — renaming a merely-hidden file or
+  a replacement that took the path since. Submission now re-checks row
+  membership: a session whose row key is absent is diagnostic-only —
+  Enter dismisses it, a new edit needs a fresh row session — and the
+  detached editor now floats over the empty-listing state too, so the
+  fault and its dismissal stay reachable when the last row vanishes.
+- **Trailing POSIX backslashes corrupted the destination.** A basename
+  ending in `\` (a legal POSIX filename byte) was trimmed as if it were
+  a separator, and the fallback split then landed on a backslash inside
+  the name (`/parent/weird\name\` → `/parent/weird\plain.txt`). The
+  parent derivation now uses the entry path's own separator grammar,
+  removes the exact basename before any separator trimming, and joins
+  the location with ITS separator as the last resort.
+
+Validation: seven new controller regressions (rebind success/refusal,
+away-and-back refusal, invalidated and same-path-replacement submits,
+internal+terminal backslash names on local POSIX and remote panes) and
+one widget regression (gone-row fault on an emptied listing) failed
+before the fix and pass after; `flutter analyze` clean; full app suite
+green (912 tests). Logs under `tasks/run3-task48/`.
+
+The exact-head GLM review (#134, round 1 at `9f38ed8`) returned two
+minor findings, both confirmed and repaired red-first:
+
+- The last-resort location join unconditionally appended the base's
+  separator, doubling it on root locations (`/` → `//name`). The join
+  now respects a base that already ends with its separator.
+- `_renameInFlight` was pane-global: a stalled commit on a retired
+  binding kept `startRename` closed on the live one until the request
+  settled. The guard now releases where the operation's ownership token
+  retires (bind, detach, location-changing navigation), and each
+  settle frame clears the flag only while the operation still owns it,
+  so a late settle cannot release a newer commit's guard.
+
+Validation: four new controller regressions (local and remote root
+joins, rebind and navigation guard release including a stale settle
+racing a newer commit) failed before the fix and pass after;
+`flutter analyze` clean; full app suite green (916 tests). Log:
+`tasks/run3-task48/flutter-test-reviewfix.log`.
+
+Round 2 flagged a stray word in this entry (fixed). Round 3 (`365c388`)
+confirmed one further hole: a retired commit settling while the pane
+still browsed the renamed directory on the same channel — the
+away-and-back or same-spelling-rebind case — never re-listed, so the
+accepted listing could show the old name indefinitely. The stale-success
+branch now re-fetches when `identical(channel, _channel) &&
+location == _location` still holds, keeping the retired session's
+editor and reselect off. A new controller regression (back-nav listing
+predating a held commit) failed before and passes after; full app suite
+green (917 tests). Log: `tasks/run3-task48/flutter-test-reviewfix2.log`.
+
+Round 4 (`ca042a0`) flagged that the stale-success branch dropped the
+settle notification when the pane browsed elsewhere — the guard itself
+already releases at token retirement (round 2), but the settle signal
+is restored so observers always learn the commit finished, and the
+still-browsed-directory refresh stays gated on identical channel plus
+matching location. The new test asserts listener notification across
+the stale settle and the round-3 test now asserts list-call growth
+rather than a matching tail call. Full app suite green (918 tests).
+Log: `tasks/run3-task48/flutter-test-reviewfix3.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

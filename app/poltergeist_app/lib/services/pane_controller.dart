@@ -253,6 +253,12 @@ class PaneController extends ChangeNotifier {
   PanePhase _phase = PanePhase.unbound;
   PaneLocation? _location;
 
+  /// Bumped each time a navigation issue changes the location VALUE —
+  /// the browsing-session half of a rename operation's ownership token:
+  /// an away-and-back round trip lands on an equal path but is a
+  /// different session, which location equality alone cannot tell.
+  int _locationRevision = 0;
+
   /// The accepted listing after the §2.3 sort, BEFORE the hidden-file
   /// policy — the tab-local [showHidden] override re-derives the visible
   /// listing from this without a re-list, and the quiescent snapshot
@@ -1128,6 +1134,19 @@ class PaneController extends ChangeNotifier {
       return;
     }
 
+    // A session whose row left the listing is diagnostic-only (the
+    // `renameTargetGone` fault): it must never reach the channel — the
+    // old path may now name a hidden file or a REPLACEMENT file that
+    // arrived after the row vanished. Enter dismisses the stranded
+    // editor; a new edit needs a fresh session on a live row.
+    if (!_rowKeyIndex.containsKey(session.rowKey)) {
+      // The canonical teardown (no notify by contract) plus this
+      // path's own notify — the dismissal IS the transition here.
+      _endRenameSession();
+      notifyListeners();
+      return;
+    }
+
     final location = _location;
     final nameError = renameNameError(
       raw,
@@ -1156,26 +1175,52 @@ class PaneController extends ChangeNotifier {
 
     // The parent prefix keeps the entry path's own separators — never a
     // synthesized join — so the re-anchored path matches the refreshed
-    // listing's normalization. A trailing separator is trimmed first;
-    // then the entry's own name is stripped, but only when the cut lands
-    // on a separator boundary — a POSIX name may itself contain '\',
-    // which must not split. The last-separator split is the fallback for
-    // a path that does not end with its name, the location join the last
-    // resort.
-    final trimmed = entry.path.endsWith('/') || entry.path.endsWith('\\')
-        ? entry.path.substring(0, entry.path.length - 1)
-        : entry.path;
-    final stripped = trimmed.endsWith(entry.name)
-        ? trimmed.substring(0, trimmed.length - entry.name.length)
-        : '';
-    final lastSep = trimmed.lastIndexOf(RegExp(r'[\\/]'));
-    final parent = stripped.endsWith('/') || stripped.endsWith('\\')
-        ? stripped
-        : trimmed == entry.name
-            ? '${location?.path ?? ''}/'
-            : lastSep >= 0
-                ? trimmed.substring(0, lastSep + 1)
-                : '${location?.path ?? ''}/';
+    // listing's normalization. The grammar comes from the path itself:
+    // a remote or POSIX local path separates on '/' only, so a '\' in
+    // a name is a filename byte, never a separator. The exact basename
+    // is removed BEFORE any separator trimming — a POSIX name may end
+    // in '\' and trimming it first would leave a path that no longer
+    // ends with its name — and the prefix counts only when the cut
+    // lands on a separator boundary. The last-separator split is the
+    // fallback for a path that does not end with its name, the
+    // location join the last resort.
+    final separator = paneSeparator(entry.path);
+    var parent = '';
+    if (entry.path.endsWith(entry.name)) {
+      final prefix = entry.path.substring(
+        0,
+        entry.path.length - entry.name.length,
+      );
+      if (prefix.isEmpty || prefix.endsWith(separator)) {
+        parent = prefix;
+      }
+    }
+    if (parent.isEmpty && entry.path != entry.name) {
+      var trimmed = entry.path;
+      while (trimmed.length > 1 && trimmed.endsWith(separator)) {
+        trimmed = trimmed.substring(0, trimmed.length - 1);
+      }
+      if (trimmed.endsWith(entry.name)) {
+        final prefix = trimmed.substring(
+          0,
+          trimmed.length - entry.name.length,
+        );
+        if (prefix.endsWith(separator)) parent = prefix;
+      }
+      if (parent.isEmpty) {
+        final lastSep = trimmed.lastIndexOf(separator);
+        if (lastSep >= 0) parent = trimmed.substring(0, lastSep + 1);
+      }
+    }
+    if (parent.isEmpty) {
+      // The last resort still respects the base's own terminator — a
+      // root location ('/', 'C:\', a UNC root) already ends with its
+      // separator, and doubling it would synthesize a spelling the
+      // refreshed listing never matches.
+      final base = location?.path ?? '';
+      final baseSeparator = paneSeparator(base);
+      parent = base.endsWith(baseSeparator) ? base : '$base$baseSeparator';
+    }
     final newPath = '$parent$raw';
 
     // The field closes at submit: the in-flight flag alone holds the
@@ -1186,23 +1231,45 @@ class PaneController extends ChangeNotifier {
     _renameInFlight = true;
     notifyListeners();
 
+    // The operation's ownership token: channel identity, bind attempt,
+    // and the browsing-session revision at submit time. A rebind — even
+    // one landing on the same path spelling — or an away-and-back
+    // navigation retires the token, so a late answer can never mutate
+    // a binding or session the operation no longer owns.
+    final attempt = _bindAttempt;
+    final revision = _locationRevision;
+    bool ownsPresentation() =>
+        identical(channel, _channel) &&
+        attempt == _bindAttempt &&
+        revision == _locationRevision &&
+        location == _location;
+
     try {
       await channel.rename(entry.path, newPath);
-    } on RemoteFileException catch (error) {
-      _renameInFlight = false;
+    } on RemoteFileException catch (error, stackTrace) {
+      // Only the owning operation clears the guard: a retired commit's
+      // late settle must not release a newer commit's flag.
+      if (_disposed || ownsPresentation()) _renameInFlight = false;
       if (_disposed) return;
-      // Re-open the field with the refusal inside while the pane still
-      // browses the session's location. A row that left the listing
-      // renders detached (renameIndex null) but the refusal still
-      // surfaces — a typed VFS error is never swallowed silently.
-      if (location == _location) {
+      if (ownsPresentation()) {
+        // Re-open the field with the refusal inside while the pane
+        // still browses the session's location. A row that left the
+        // listing renders detached (renameIndex null) but the refusal
+        // still surfaces — a typed VFS error is never swallowed
+        // silently.
         session.error = error;
         _renameSession = session;
+      } else {
+        // A stale operation's refusal belongs to the retired session,
+        // not to whatever the pane browses now: it reports through the
+        // pane's error path rather than reopening a stale editor or
+        // dropping silently.
+        _report(error, stackTrace);
       }
       notifyListeners();
       return;
     } on Object catch (error, stackTrace) {
-      _renameInFlight = false;
+      if (_disposed || ownsPresentation()) _renameInFlight = false;
       if (_disposed) return;
       // An untyped failure is not a name refusal — it reports on the
       // pane's error surface, and the field stays closed.
@@ -1210,8 +1277,24 @@ class PaneController extends ChangeNotifier {
       return;
     }
 
-    _renameInFlight = false;
+    if (_disposed || ownsPresentation()) _renameInFlight = false;
     if (_disposed) return;
+    if (!ownsPresentation()) {
+      // The rename applied on the old binding; the pane's current
+      // listing belongs to a newer operation and is left untouched —
+      // the retired session's editor and reselect stay off. The settle
+      // itself still notifies: anything tracking the in-flight
+      // operation learns it finished even though its state write is
+      // suppressed. An away-and-back round trip (or a rebind landing on
+      // the same path spelling) can leave the pane browsing the
+      // renamed directory on the SAME channel: the listing it accepted
+      // can predate the commit, so it is re-fetched.
+      notifyListeners();
+      if (identical(channel, _channel) && location == _location) {
+        refresh();
+      }
+      return;
+    }
     refresh();
     // Set AFTER refresh() issues: a navigation issue clears the pending
     // select, and the refresh's own accept is what consumes it.
@@ -1519,6 +1602,9 @@ class PaneController extends ChangeNotifier {
     if (_disposed || _pendingRemote == null) return;
     _bindAttempt++; // invalidate the bind this detach replaces
     _cancelListing();
+    // The detached binding's pending rename is retired by the attempt
+    // bump — release its in-flight guard with the rest of the state.
+    _renameInFlight = false;
     _phase = PanePhase.unbound;
     _location = null;
     _committedLocation = null;
@@ -1680,6 +1766,12 @@ class PaneController extends ChangeNotifier {
   /// Both invalidate every old answer before releasing the prior channel.
   void _beginBinding(_BindingPresentation presentation) {
     _cancelListing();
+    // The attempt bump in _bind retires every pending rename's
+    // ownership token; release the in-flight guard here so a stalled
+    // request on the old binding cannot keep the new binding's rename
+    // verb closed. The retiring operation's settle leaves the flag
+    // untouched once it no longer owns it.
+    _renameInFlight = false;
     // The notice dies with the browsing session it arose in — a rebind
     // never carries one pane-moment's "not yet" into the next binding.
     _noticeTimer?.cancel();
@@ -1792,6 +1884,11 @@ class PaneController extends ChangeNotifier {
       // a same-location refresh instead lets the accepted listing's
       // row-presence check decide (02 §2.8's keep-rows-while-loading).
       _endRenameSession();
+      _locationRevision++;
+      // The revision bump retires a pending commit's ownership token —
+      // release its in-flight guard so a stalled request cannot keep
+      // this location's rename verb closed.
+      _renameInFlight = false;
     }
     if (!historyTraversal && target != _location) {
       // 02 §2.1's branch semantics: a user-driven navigation to a new

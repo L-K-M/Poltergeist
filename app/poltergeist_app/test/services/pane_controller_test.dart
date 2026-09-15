@@ -1743,6 +1743,542 @@ void main() {
       ]);
       controller.dispose();
     });
+
+    test('a POSIX basename ending in a backslash keeps its parent',
+        () async {
+      // Both an internal AND a terminal '\': the terminal byte is part
+      // of the legal POSIX name, not a separator — trimming it first
+      // would leave a path that no longer ends with its name, and the
+      // fallback split would then land inside the basename.
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        const RemoteFileEntry(
+          path: '/parent/weird\\name\\',
+          name: 'weird\\name\\',
+          type: RemoteFileType.file,
+        ),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.listings['/home/tester'] = [_entry('plain.txt')];
+      await controller.submitRename('plain.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        ('/parent/weird\\name\\', '/parent/plain.txt'),
+      ]);
+      expect(
+        controller.entries[controller.cursorIndex!].name,
+        'plain.txt',
+        reason: 'the refresh re-anchors on the real destination',
+      );
+      controller.dispose();
+    });
+
+    test('a remote pane keeps POSIX grammar for backslash names',
+        () async {
+      // A Windows client browsing a remote POSIX listing: the entry
+      // path's grammar is '/', so a trailing '\' in the name is a
+      // filename byte there too.
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/srv/home');
+      channel.listings['/srv/home'] = [
+        const RemoteFileEntry(
+          path: '/parent/weird\\name\\',
+          name: 'weird\\name\\',
+          type: RemoteFileType.file,
+        ),
+      ];
+      lanes.nextRemoteChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.connectRemote(_remoteBookmark());
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.listings['/srv/home'] = [_entry('plain.txt')];
+      await controller.submitRename('plain.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        ('/parent/weird\\name\\', '/parent/plain.txt'),
+      ]);
+      controller.dispose();
+    });
+
+    test('a commit settling after a rebind to another server neither '
+        'refreshes nor reselects the new binding', () async {
+      final lanes = FakePaneLanes();
+      final channelA = FakePaneChannel('/srv/a');
+      channelA.listings['/srv/a'] = [_entry('alpha.txt')];
+      lanes.nextRemoteChannel = channelA;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.connectRemote(_remoteBookmark());
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channelA.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+      expect(controller.inlineRenameActive, isTrue);
+
+      // The tab rebinds to server B and its landing listing commits
+      // BEFORE server A's rename settles. B's listing even contains a
+      // row at A's destination path spelling.
+      final channelB = FakePaneChannel('/srv/b');
+      channelB.listings['/srv/b'] = [
+        _entry('beta.txt'),
+        _entry('other.txt'),
+      ];
+      lanes.nextRemoteChannel = channelB;
+      await controller.connectRemote(_remoteBookmark(id: 'srv-2'));
+      await settle();
+      expect(
+        controller.location,
+        const RemotePaneLocation('srv-2', '/srv/b'),
+      );
+
+      held.complete();
+      await settle();
+
+      expect(controller.inlineRenameActive, isFalse,
+          reason: 'the in-flight guard settles regardless of ownership');
+      expect(
+        channelB.listCalls,
+        ['/srv/b'],
+        reason: "server A's retired rename must not re-list server B",
+      );
+      expect(
+        controller.cursorIndex,
+        isNull,
+        reason: "server A's destination must not install a pending "
+            'selection on the new binding',
+      );
+      controller.dispose();
+    });
+
+    test('a refusal after a same-path rebind does not reopen the stale '
+        'editor and reports operation-scoped', () async {
+      final lanes = FakePaneLanes();
+      final channelA = FakePaneChannel('/home/tester');
+      channelA.listings['/home/tester'] = [_entry('alpha.txt')];
+      lanes.nextLocalChannel = channelA;
+      final reported = <Object>[];
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+        onError: (error, _) => reported.add(error),
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channelA.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+
+      // Rebind lands on the SAME path spelling — a value-equal
+      // location must not make the old operation's session own the
+      // new binding's presentation.
+      final channelB = FakePaneChannel('/home/tester');
+      channelB.listings['/home/tester'] = [_entry('alpha.txt')];
+      lanes.nextLocalChannel = channelB;
+      await controller.openLocalAt('/home/tester');
+      await settle();
+
+      channelA.renameFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'rename',
+        path: '/parent/alpha.txt',
+        message: 'denied',
+      );
+      held.complete();
+      await settle();
+
+      expect(controller.renameTarget, isNull,
+          reason: 'a stale operation never reopens its editor on the '
+              'replacement binding');
+      expect(controller.inlineRenameActive, isFalse);
+      expect(
+        reported.single,
+        isA<RemoteFileException>(),
+        reason: 'a retired operation\'s refusal reports through the '
+            'error sink instead of dropping silently',
+      );
+      controller.dispose();
+    });
+
+    test('a refusal after away-and-back navigation does not reopen the '
+        'old session', () async {
+      final lanes = FakePaneLanes();
+      final reported = <Object>[];
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ];
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+        onError: (error, _) => reported.add(error),
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+
+      // Away and back to the same path VALUE on the same channel: the
+      // location compares equal but the browsing session moved on.
+      controller.navigate('/parent/docs');
+      await settle();
+      controller.navigate('/home/tester');
+      await settle();
+      expect(controller.location, const LocalPaneLocation('/home/tester'));
+
+      channel.renameFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'rename',
+        path: '/parent/alpha.txt',
+        message: 'denied',
+      );
+      held.complete();
+      await settle();
+
+      expect(controller.renameTarget, isNull,
+          reason: 'an away-and-back round trip retires the operation\'s '
+              'presentation ownership');
+      expect(controller.inlineRenameActive, isFalse);
+      expect(reported.single, isA<RemoteFileException>());
+      controller.dispose();
+    });
+
+    test('submitting a renameTargetGone session sends no request',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+
+      // The edited row leaves the listing: the session re-attaches as
+      // a renameTargetGone diagnostic — it must no longer be a live
+      // mutation capability (the old path may name a hidden or
+      // REPLACED file by now).
+      channel.listings['/home/tester'] = [_entry('beta.txt')];
+      controller.refresh();
+      await settle();
+      expect(
+        (controller.renameError! as PaneFaultException).fault,
+        PaneFault.renameTargetGone,
+      );
+
+      await controller.submitRename('gamma.txt');
+      expect(channel.renameCalls, isEmpty,
+          reason: 'an invalidated session must never reach the channel');
+      expect(controller.inlineRenameActive, isFalse,
+          reason: 'submitting the diagnostic dismisses it — a new edit '
+              'needs a fresh row session');
+      controller.dispose();
+    });
+
+    test('a same-path replacement fixture still cannot be renamed from '
+        'the invalidated session', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+
+      // A filter hides the edited row — the file itself may still sit
+      // at the old path (the gone fault's hidden-file case).
+      controller.openFilter();
+      controller.changeFilterQuery('beta');
+      expect(
+        (controller.renameError! as PaneFaultException).fault,
+        PaneFault.renameTargetGone,
+      );
+
+      // A refresh now reports a REPLACEMENT entry at the old path —
+      // still filtered out, so the diagnostic session stays mounted.
+      channel.listings['/home/tester'] = [
+        _entry('alpha.txt', size: 9999),
+        _entry('beta.txt'),
+      ];
+      controller.refresh();
+      await settle();
+      expect(controller.renameTarget, isNotNull);
+
+      await controller.submitRename('gamma.txt');
+      expect(channel.renameCalls, isEmpty,
+          reason: 'the stale session must not act on the replacement '
+              'file now occupying the old path');
+      controller.dispose();
+    });
+
+    test('a last-resort parent join on a root location does not double '
+        'the separator', () async {
+      // An entry whose path IS its name (an inconsistent listing)
+      // forces the last-resort location join; a POSIX root already ends
+      // with its separator, so the join must not produce '//'.
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/');
+      channel.listings['/'] = [
+        const RemoteFileEntry(
+          path: 'plain.txt',
+          name: 'plain.txt',
+          type: RemoteFileType.file,
+        ),
+      ];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+      expect(controller.location, const LocalPaneLocation('/'));
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      await controller.submitRename('renamed.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        ('plain.txt', '/renamed.txt'),
+      ]);
+      controller.dispose();
+    });
+
+    test('a last-resort parent join on a remote root does not double '
+        'the separator', () async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/');
+      channel.listings['/'] = [
+        const RemoteFileEntry(
+          path: 'plain.txt',
+          name: 'plain.txt',
+          type: RemoteFileType.file,
+        ),
+      ];
+      lanes.nextRemoteChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.connectRemote(_remoteBookmark(remotePath: '/'));
+      await settle();
+      expect(
+        controller.location,
+        const RemotePaneLocation('srv-1', '/'),
+      );
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      await controller.submitRename('renamed.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        ('plain.txt', '/renamed.txt'),
+      ]);
+      controller.dispose();
+    });
+
+    test('a stalled commit releases the in-flight guard when a rebind '
+        'retires its ownership token', () async {
+      final lanes = FakePaneLanes();
+      final channelA = FakePaneChannel('/srv/a');
+      channelA.listings['/srv/a'] = [_entry('alpha.txt')];
+      lanes.nextRemoteChannel = channelA;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.connectRemote(_remoteBookmark());
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channelA.heldRename = held; // a wedged request — never completes
+      unawaited(controller.submitRename('beta.txt'));
+      expect(controller.inlineRenameActive, isTrue);
+
+      // Rebinding retires the stalled operation's token: its request
+      // may still be black-holed, but it no longer owns this pane, so
+      // the new binding's rename verb must not stay closed on it.
+      final channelB = FakePaneChannel('/srv/b');
+      channelB.listings['/srv/b'] = [_entry('beta.txt')];
+      lanes.nextRemoteChannel = channelB;
+      await controller.connectRemote(_remoteBookmark(id: 'srv-2'));
+      await settle();
+
+      expect(
+        controller.inlineRenameActive,
+        isFalse,
+        reason: 'a retired operation must not keep the new binding\'s '
+            'rename verb closed while its request stalls',
+      );
+      controller.setCursorIndex(0);
+      controller.startRename();
+      expect(controller.renameTarget?.name, 'beta.txt');
+
+      // A newer commit's guard must survive the retired operation's
+      // late settle — the settling frame may only clear a flag it owns.
+      final heldB = Completer<void>();
+      channelB.heldRename = heldB;
+      unawaited(controller.submitRename('gamma.txt'));
+      expect(controller.inlineRenameActive, isTrue);
+      held.complete();
+      await settle();
+      expect(
+        controller.inlineRenameActive,
+        isTrue,
+        reason: 'a retired operation settling late must not release a '
+            'newer commit\'s guard',
+      );
+      heldB.complete();
+      await settle();
+      expect(controller.inlineRenameActive, isFalse);
+      controller.dispose();
+    });
+
+    test('a stalled commit releases the in-flight guard when a location '
+        'change retires its ownership token', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+      expect(controller.inlineRenameActive, isTrue);
+
+      controller.navigate('/parent/docs');
+      await settle();
+      expect(
+        controller.inlineRenameActive,
+        isFalse,
+        reason: 'a retired operation must not keep the browsed '
+            'location\'s rename verb closed while its request stalls',
+      );
+      controller.setCursorIndex(0);
+      controller.startRename();
+      expect(controller.renameTarget?.name, 'inner.txt');
+      controller.dispose();
+    });
+
+    test('a commit settling after away-and-back navigation refreshes '
+        'the still-browsed directory', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+
+      // Away and back BEFORE the commit settles: the accepted back-
+      // navigation listing predates the rename, so it still shows the
+      // old name on the same channel at the same path.
+      controller.navigate('/parent/docs');
+      await settle();
+      controller.navigate('/home/tester');
+      await settle();
+      expect(controller.entries.map((e) => e.name), contains('alpha.txt'));
+
+      // The retired token still never reopens the editor or installs a
+      // reselect — but the pane browses the renamed directory, and its
+      // listing can predate the commit, so it is re-fetched.
+      channel.listings['/home/tester'] = [
+        _entry('beta.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ];
+      final preSettleListCalls = channel.listCalls.length;
+      held.complete();
+      await settle();
+
+      expect(
+        channel.listCalls.length,
+        greaterThan(preSettleListCalls),
+        reason: 'a retired commit landing on the still-browsed '
+            'directory must re-list it',
+      );
+      expect(channel.listCalls.last, '/home/tester');
+      expect(controller.entries.map((e) => e.name), contains('beta.txt'));
+      expect(
+        controller.renameTarget,
+        isNull,
+        reason: 'the retired session still never reopens its editor',
+      );
+      controller.dispose();
+    });
+
+    test('a retired commit settling away from its directory still '
+        'notifies its settle', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+
+      // The pane browses a DIFFERENT directory when the commit lands:
+      // no refresh fires, but the settle must still be observable —
+      // anything tracking the in-flight operation learns it finished.
+      controller.navigate('/parent/docs');
+      await settle();
+      final before = notifications;
+      final listCallsBefore = channel.listCalls.length;
+      held.complete();
+      await settle();
+
+      expect(
+        notifications,
+        greaterThan(before),
+        reason: 'the commit\'s settle must still notify listeners even '
+            'when its token is retired and the pane browses elsewhere',
+      );
+      expect(
+        channel.listCalls.length,
+        listCallsBefore,
+        reason: 'a retired settle must not re-list when the pane browses '
+            'a directory the commit did not touch',
+      );
+      controller.dispose();
+    });
   });
 
   group('file open (02 §2.6)', () {
