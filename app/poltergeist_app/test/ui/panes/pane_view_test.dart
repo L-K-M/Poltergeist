@@ -313,6 +313,102 @@ void main() {
     expect(find.textContaining('1 item'), findsOneWidget);
   });
 
+  testWidgets('stale rows are inert before the anti-flash dim appears', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final channel = localChannelWithEntries();
+      channel.listings['/elsewhere'] = [_entry('there.txt', size: 7)];
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+      expect(
+        find.semantics.byLabel(RegExp(r'^report\.txt')),
+        findsOne,
+        reason: 'the live listing announces its rows before the navigation',
+      );
+
+      // The listing of a different directory is held: the old rows stay
+      // rendered — the §2.8 grace governs PRESENTATION, but the pane has
+      // already disowned them, so row interaction is inert from t=0.
+      final hold = Completer<void>();
+      channel.holdNext = hold;
+      left.navigate('/elsewhere');
+      await tester.pump();
+      expect(left.staleRows, isTrue);
+
+      // t=0: Enter on a stale row and a cursor key are already inert —
+      // activation cannot supersede the pending navigation.
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(channel.listCalls, ['/home/tester', '/elsewhere']);
+      expect(left.location, const LocalPaneLocation('/elsewhere'));
+      expect(left.cursorIndex, isNull);
+
+      // Still inside the grace: no progress line, no dim, footer keeps
+      // its counts — the cached rows look exactly as before.
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(const ValueKey('pane.left.progress')), findsNothing);
+      expect(find.text('report.txt'), findsOneWidget);
+      expect(find.textContaining('3 items'), findsOneWidget);
+      // …but they already left the semantics tree: a reachable-but-inert
+      // row would read as broken to AT activation.
+      expect(
+        find.semantics.byLabel(RegExp(r'^report\.txt')),
+        findsNothing,
+        reason: 'stale rows leave the semantics tree at issue, not when '
+            'the dim appears',
+      );
+
+      // Keyboard, type-ahead, and pointer gestures over cached rows are
+      // all inert: no throw, no cursor, no selection, no activation.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.home);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+      await tester.tap(find.text('report.txt'), warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(left.cursorIndex, isNull);
+      expect(left.selectedCount, 0);
+      expect(left.typeAheadActive, isFalse);
+      expect(
+        channel.listCalls,
+        ['/home/tester', '/elsewhere'],
+        reason: 'stale input must never issue another listing request',
+      );
+      expect(left.location, const LocalPaneLocation('/elsewhere'));
+
+      // A stale double-tap cannot hijack the pending navigation either
+      // (the grace may have elapsed by now — the rows stay inert under
+      // the dim too).
+      await tester.tap(find.text('docs'), warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('docs'), warnIfMissed: false);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(channel.listCalls, ['/home/tester', '/elsewhere']);
+      expect(left.location, const LocalPaneLocation('/elsewhere'));
+
+      // Esc still cancels back to the old listing, which owns its rows
+      // again: the next cursor key lands.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(left.staleRows, isFalse);
+      expect(left.location, const LocalPaneLocation('/home/tester'));
+      expect(find.text('report.txt'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(left.cursorIndex, 0);
+
+      hold.complete();
+      await tester.pumpAndSettle();
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('Esc cancels an in-flight navigation back to the old listing', (
     tester,
   ) async {

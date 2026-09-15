@@ -4865,6 +4865,47 @@ new pane-controller regressions plus the deliberately-fresh reconnect
 test. Full app suite green (925 tests). Log:
 `tasks/run3-task49/flutter-test-reviewfix3.log`.
 
+## M3 — stale-selection eligibility, fusion review round 2 (2026-09-15)
+
+Finding F1 of the second fusion review is repaired red-first: a
+location-changing navigation resets `_selection` to empty rows at issue
+while `_entries`/`_rowKeys` keep the old listing rendered for 02 §2.8's
+150 ms anti-flash grace — but interaction eligibility followed the dim,
+not the disowning. Inside the window, keyboard selection, type-ahead,
+pointer activation, and semantics activation could reach the cached
+rows: `setCursorIndex` threw `ArgumentError('not a visible row')` out of
+`SelectionState.activate`, and a stale `openEntry` issued a listing
+request for the OLD directory that superseded the pending navigation.
+
+Presentation grace and interaction eligibility are now separate states.
+`PaneController._staleRows` is set the moment a location-changing
+navigation disowns its rows and cleared only when a listing is accepted
+or a quiescent snapshot, rollback, or binding reset restores an owner —
+never by a mid-flight lens edit, which re-derives rows from the same
+disowned listing. Every controller row-interaction entry point guards on
+it (`setCursorIndex`/`moveCursorBy`, `selectAll`, `invertSelection`,
+`typeAhead`, `openEntry`), so a caller bypassing the widget can neither
+throw nor mutate stale selection; a stale activation can no longer
+supersede the pending navigation. The view reads `controller.staleRows`
+to gate its own dispatch: owned listing keys and type-ahead characters
+swallow from issue (Esc and Tab stay live), `IgnorePointer` drops stale
+row gestures, and `ExcludeSemantics` removes the cached rows from the
+live semantics tree at issue — a reachable-but-inert row would read as
+broken to AT activation, which bypasses hit testing. The grace itself is
+untouched: no early spinner, dim, or footer change, and permitted
+navigation chrome stays live.
+
+Validation: three controller regressions and one widget regression
+failed before the fix and pass after — the throw, the stale-activation
+supersede, and stale rows lingering in the semantics tree are all
+reproduced red-first. The widget test drives t=0 and t≈100 ms Down/
+Home/Up/Enter, a matching type-ahead prefix, and single/double taps on
+cached rows: no throw, no selection, no extra listing request, the
+pending destination is unchanged, no early spinner/dim appears, and Esc
+restores the prior listing with selection live again. `flutter analyze`
+clean; focused pane suites green (197 tests); full app suite green (929
+tests). Evidence and logs under `tasks/run3-task50/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

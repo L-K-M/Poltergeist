@@ -364,6 +364,18 @@ class PaneController extends ChangeNotifier {
     rows: const [],
   );
 
+  /// Whether the rendered rows are presentation cache for a location
+  /// the pane has already left (02 §2.8's grace is presentation-only):
+  /// set the moment a location-changing navigation resets the selection
+  /// while the old listing stays rendered for the anti-flash grace, and
+  /// cleared only when a listing is accepted or a quiescent
+  /// snapshot/rollback/binding state is restored — never by a
+  /// mid-flight lens edit, which re-derives rows from the same disowned
+  /// listing. Row interaction (cursor, selection, type-ahead,
+  /// activation) is inert while this holds: the rows are cached data,
+  /// not selectable rows.
+  bool _staleRows = false;
+
   /// The open Quick Select session (02 §2.5); null while the field is
   /// closed. The pane owns the field's visibility and its invalidation:
   /// every listing/selection replacement ends the session before the new
@@ -582,6 +594,14 @@ class PaneController extends ChangeNotifier {
       index < _rowKeys.length &&
       _selection.selectedKeys.contains(_rowKeys[index]);
 
+  /// Whether the rendered rows are a disowned cached listing — inert
+  /// from the moment a location-changing navigation issues, not from
+  /// the dim's appearance (02 §2.8). The view reads this to block
+  /// pointer/keyboard/semantics dispatch before the grace elapses; the
+  /// controller enforces the same boundary on every row-interaction
+  /// entry point so no caller can select or activate a stale row.
+  bool get staleRows => _staleRows;
+
   /// Binds the pane to a remote bookmark: closes any previous channel,
   /// subscribes to the server's state lane BEFORE connecting (live
   /// streams keep no replay, 03 §5), opens the browse channel, and
@@ -692,7 +712,10 @@ class PaneController extends ChangeNotifier {
   /// values post their honest not-yet notices; Do nothing is inert.
   /// Any fresh activation clears a lingering notice first.
   Future<void> openEntry(RemoteFileEntry entry) async {
-    if (_disposed) return;
+    // A stale row activation is fully inert — not even a notice clear:
+    // the row is disowned presentation, and navigating into it would
+    // supersede the pending navigation with the old directory's data.
+    if (_disposed || _staleRows) return;
     dismissNotice();
     if (entry.type == RemoteFileType.directory) {
       navigate(entry.path);
@@ -804,6 +827,8 @@ class PaneController extends ChangeNotifier {
     _sortedListing = snapshot?.listing ?? const [];
     _setListing(_hiddenFiltered(_sortedListing));
     _applyEntries(_filteredListing());
+    // The restored snapshot owns its rows again.
+    _staleRows = false;
     // Reconcile the trail with the restored location: the index was
     // moved at issue time, so it names the just-cancelled target. The
     // restored location was recorded when the user navigated to it —
@@ -1032,7 +1057,7 @@ class PaneController extends ChangeNotifier {
     int index, {
     SelectionUpdate update = SelectionUpdate.single,
   }) {
-    if (_disposed || _entries.isEmpty) return;
+    if (_disposed || _staleRows || _entries.isEmpty) return;
     // Internal invariant: row identity mirrors the accepted listing.
     // A future listing mutation that bypasses _applyEntries must fail
     // loudly here, not activate the wrong row.
@@ -1050,7 +1075,7 @@ class PaneController extends ChangeNotifier {
   /// `edit.selectAll` (02 §2.5): selects every visible row; the cursor
   /// and anchor keep their positions.
   void selectAll() {
-    if (_disposed || _entries.isEmpty) return;
+    if (_disposed || _staleRows || _entries.isEmpty) return;
     final before = _selection;
     _selection = _selection.selectAll();
     if (identical(before, _selection)) return;
@@ -1061,7 +1086,7 @@ class PaneController extends ChangeNotifier {
   /// complement among the visible rows; cursor and anchor keep their
   /// positions.
   void invertSelection() {
-    if (_disposed || _entries.isEmpty) return;
+    if (_disposed || _staleRows || _entries.isEmpty) return;
     final before = _selection;
     _selection = _selection.invert();
     if (identical(before, _selection)) return;
@@ -1493,7 +1518,9 @@ class PaneController extends ChangeNotifier {
   /// flag metadata. Hidden files never reach the matcher: the hidden
   /// policy already ran when the listing was accepted.
   void typeAhead(String character) {
-    if (_disposed || _entries.isEmpty || character.isEmpty) return;
+    if (_disposed || _staleRows || _entries.isEmpty || character.isEmpty) {
+      return;
+    }
     _typeAheadBuffer += character;
     _armTypeAheadReset();
     final prefix = typeAheadFold(_typeAheadBuffer);
@@ -1694,6 +1721,7 @@ class PaneController extends ChangeNotifier {
     _filterQuery = '';
     _filterFieldOpen = false;
     _applyEntries(const []);
+    _staleRows = false;
     _error = null;
     _snapshot = null;
     _connectionStatus = null;
@@ -1963,6 +1991,8 @@ class PaneController extends ChangeNotifier {
       _filterQuery = '';
       _filterFieldOpen = false;
       _applyEntries(const []);
+      // No rows at all now — nothing stale is left to guard.
+      _staleRows = false;
       _error = null;
       _recovery = _RecoveryPhase.none;
     } else {
@@ -2093,6 +2123,9 @@ class PaneController extends ChangeNotifier {
     if (_location != target) {
       // The old entries stay visible (dimmed) during the load, but the
       // selection belongs to the old listing — the cursor convention.
+      // The rows are disowned from THIS moment: the anti-flash grace
+      // governs presentation only, never interaction eligibility.
+      _staleRows = true;
       _selection = SelectionState<_RowKey>.begin(rows: const []);
     }
     _location = target;
@@ -2121,6 +2154,8 @@ class PaneController extends ChangeNotifier {
       _sortedListing = sortFileEntries(listed);
       _setListing(_hiddenFiltered(_sortedListing));
       _applyEntries(_filteredListing());
+      // The accepted listing owns its rows again.
+      _staleRows = false;
       final renameSelect = _pendingRenameSelectPath;
       _pendingRenameSelectPath = null;
       if (renameSelect != null) {
@@ -2300,6 +2335,8 @@ class PaneController extends ChangeNotifier {
     _setListing(_hiddenFiltered(_sortedListing));
     _selection = rollback.selection;
     _applyEntries(_filteredListing());
+    // The restored binding owns its rows again.
+    _staleRows = false;
     _history
       ..clear()
       ..addAll(rollback.history);
