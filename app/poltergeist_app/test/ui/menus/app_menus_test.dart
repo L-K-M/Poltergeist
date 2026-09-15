@@ -682,7 +682,13 @@ void main() {
 
       final navigatorKey = GlobalKey<NavigatorState>();
       final supportDir = Directory.systemTemp.createTempSync('pg-menus-');
-      addTearDown(() => supportDir.deleteSync(recursive: true));
+      addTearDown(() {
+        try {
+          supportDir.deleteSync(recursive: true);
+        } on FileSystemException {
+          // Best-effort: a stuck engine handle must not mask the result.
+        }
+      });
       final bookmarks = FakeBookmarkStore();
       final session = await startEngineSession(
         supportDirectoryPath: supportDir.path,
