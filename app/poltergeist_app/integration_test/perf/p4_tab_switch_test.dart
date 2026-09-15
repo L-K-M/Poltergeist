@@ -32,9 +32,17 @@ void main() {
 
         // Seed the strip: the boot tab plus launcher-target tabs, then
         // bind every tab to the fixture listing. `newTab` activates
-        // each one, so the strip ends on the last-created tab.
-        while (tabs.tabs.length < tabCount) {
+        // each one, so the strip ends on the last-created tab. The
+        // loop is bounded so a capped strip fails fast instead of
+        // spinning until the test timeout.
+        for (var i = tabs.tabs.length; i < tabCount; i++) {
           tabs.newTab(target: NewTabTarget.launcher);
+        }
+        if (tabs.tabs.length != tabCount) {
+          throw StateError(
+            'newTab stopped growing the strip at '
+            '${tabs.tabs.length}/$tabCount tabs',
+          );
         }
         for (final tab in tabs.tabs) {
           unawaited(tab.controller.openLocalAt(fixture));
@@ -56,10 +64,13 @@ void main() {
           }
         }
 
-        // One unmeasured warmup switch — the first activation pays
-        // one-time costs (view first-mount, shaders) no steady-state
-        // budget means to sample.
-        await measureTabSwitchMicros(rig, tab: tabs.tabs.first);
+        // One unmeasured warmup pass over every tab — the strip
+        // mounts only the ACTIVE tab's PaneView, so each tab's first
+        // data-laden paint (plus shader warm) is a one-time cost no
+        // steady-state budget means to sample.
+        for (var i = 1; i <= tabCount; i++) {
+          await measureTabSwitchMicros(rig, tab: tabs.tabs[i % tabCount]);
+        }
 
         // Every rep then targets a different tab than the one the
         // previous switch left active, so all five tabs serve as a

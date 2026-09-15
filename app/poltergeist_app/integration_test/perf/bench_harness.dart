@@ -359,9 +359,11 @@ Future<int> measureTabSwitchMicros(
       'first frame painting tab ${tab.id}',
       timeout: const Duration(seconds: 30),
     );
-    // The painted frame is only honest if the mounted view serves the
-    // TARGET tab — a rebuild that lagged the activation would quietly
-    // measure a different tab's paint.
+    // End-state sanity check — the mounted view must serve the TARGET
+    // tab. This catches a swap that never landed; a swap landing one
+    // frame after the measured frame can still slip past it, since the
+    // tree is inspected only once a post-issue timing has been
+    // delivered. 02 §3's synchronous activation is what rules that out.
     expect(
       find.byWidgetPredicate(
         (widget) =>
