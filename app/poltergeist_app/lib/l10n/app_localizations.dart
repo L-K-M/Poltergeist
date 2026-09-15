@@ -784,6 +784,12 @@ abstract class AppLocalizations {
   /// **'This folder could not be listed.'**
   String get paneFaultListFolder;
 
+  /// Diagnostic line when the editable path field's submission cannot resolve to a location under the pane's path rules — rejected before any folder listing is attempted (02 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'That is not a folder path this pane can open. Use an absolute path, ~, or a name in this folder.'**
+  String get paneFaultInvalidPath;
+
   /// Banner shown while the remote transport reconnects (02 §2.7).
   ///
   /// In en, this message translates to:
@@ -849,17 +855,41 @@ abstract class AppLocalizations {
   /// **'item'**
   String get paneRowKindOther;
 
+  /// Command label: navigate to the previous location in the tab's history (go.back, 02 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get goBackLabel;
+
+  /// Command label: swap the pane's path bar for an editable field seeded with the current location (go.editPath, 02 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Path'**
+  String get goEditPathLabel;
+
   /// Command label: navigate to the parent folder.
   ///
   /// In en, this message translates to:
   /// **'Parent Folder'**
   String get goEnclosingLabel;
 
+  /// Command label: navigate to the next location in the tab's history (go.forward, 02 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Forward'**
+  String get goForwardLabel;
+
   /// Command label: open the selected row.
   ///
   /// In en, this message translates to:
   /// **'Open'**
   String get goOpenLabel;
+
+  /// Command label: open the pane's editable path field seeded empty (go.toFolder, 02 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Go to Folder…'**
+  String get goToFolderLabel;
 
   /// Command label: refresh the focused pane's listing.
   ///
@@ -962,6 +992,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No items match \"{query}\"'**
   String paneFilterNoMatch(String query);
+
+  /// Accessible label of the pane's editable path field that replaces the segment bar (02 §2.1, go.editPath/go.toFolder).
+  ///
+  /// In en, this message translates to:
+  /// **'Path'**
+  String get panePathFieldLabel;
+
+  /// Hint inside the pane's editable path field stating the accepted shapes: an absolute path, ~ for the home folder, or a name relative to the current folder (02 §2.1). Keep it terse — it is placeholder text, not documentation.
+  ///
+  /// In en, this message translates to:
+  /// **'/path, ~, or a name in this folder'**
+  String get panePathFieldHint;
 
   /// Tooltip of the Connections row action that opens the bookmark in the active pane.
   ///

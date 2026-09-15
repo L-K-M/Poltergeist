@@ -250,6 +250,26 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'LocalPaneLocation(\$path)'",
     "'RemotePaneLocation(\$serverId, \$path)'",
   },
+  // The path-field resolver's grammar literals: separator characters,
+  // drive-spec regexes, tilde forms, and dot segments — machine data,
+  // never authored copy.
+  'lib/services/pane_path_input.dart': {
+    "r'^[A-Za-z]:'",
+    r"r'^[A-Za-z]:$'",
+    "''",
+    "'~'",
+    "'~/'",
+    r"'~\\'",
+    "'/'",
+    r"'\\'",
+    r"'\\\\'",
+    "'.'",
+    "'..'",
+    r"'${win[0]}:\\'",
+    r"'${rawSegments[0]}\\'",
+    r"'$stem$separator$child'",
+    r"'$prefix${segments.join(separator)}'",
+  },
   // Menu-row widget keys keyed to the registry's command/menu ids —
   // widget plumbing, not authored copy.
   'lib/ui/menus/app_menu_host.dart': {
@@ -266,8 +286,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // widget keys plus path-separator arithmetic — machine data, never
   // authored copy.
   'lib/ui/panes/pane_commands.dart': {
+    "'go.back'",
+    "'go.editPath'",
     "'go.enclosing'",
+    "'go.forward'",
     "'go.open'",
+    "'go.toFolder'",
     "'view.refresh'",
     "'pane.focusLeft'",
     "'pane.focusRight'",
@@ -303,6 +327,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${controller.paneTabId}.cancel'",
     r"'${controller.paneTabId}.progress'",
     r"'${widget.controller.paneTabId}.quickSelect.field'",
+    r"'${widget.controller.paneTabId}.path.field'",
     r"'${widget.controller.paneTabId}.filter.field'",
     r"'${widget.controller.paneTabId}.filter.clear'",
     r"'${controller.paneTabId}.filter.emptyClear'",

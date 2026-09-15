@@ -7,8 +7,12 @@ import '../../services/pane_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
 
+const kGoBackCommandId = 'go.back';
+const kGoEditPathCommandId = 'go.editPath';
 const kGoEnclosingCommandId = 'go.enclosing';
+const kGoForwardCommandId = 'go.forward';
 const kGoOpenCommandId = 'go.open';
+const kGoToFolderCommandId = 'go.toFolder';
 const kViewRefreshCommandId = 'view.refresh';
 const kPaneFocusLeftCommandId = 'pane.focusLeft';
 const kPaneFocusRightCommandId = 'pane.focusRight';
@@ -41,6 +45,55 @@ List<RegisteredCommand> buildPaneCommands({
 
   return [
     RegisteredCommand(
+      id: kGoBackCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.goBackLabel,
+      icon: Icons.arrow_back_outlined,
+      // ⌘[ on macOS, Alt+Left elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true),
+        ],
+      ),
+      // Disabled at the trail's start (02 §2.1) and on a pane with no
+      // live channel — canGoBack is the single definition of both.
+      enabled: () => activeTab()?.canGoBack ?? false,
+      run: (_) async {
+        activeTab()?.goBack();
+      },
+      // 02 §9's Go menu leads with Back/Forward.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 10,
+      ),
+    ),
+    RegisteredCommand(
+      id: kGoForwardCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.goForwardLabel,
+      icon: Icons.arrow_forward_outlined,
+      // ⌘] on macOS, Alt+Right elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.bracketRight, meta: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.arrowRight, alt: true),
+        ],
+      ),
+      enabled: () => activeTab()?.canGoForward ?? false,
+      run: (_) async {
+        activeTab()?.goForward();
+      },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 20,
+      ),
+    ),
+    RegisteredCommand(
       id: kGoEnclosingCommandId,
       scope: CommandScope.pane,
       label: (l10n) => l10n.goEnclosingLabel,
@@ -53,11 +106,54 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goUp();
       },
-      // 02 §9's Go menu: Back, Forward, Enclosing Folder, Home — slots
-      // 10/20/40 stay open for the commands that land later.
+      // 02 §9's Go menu: Back, Forward, Enclosing Folder, Home, then
+      // the path-field commands — slot 40 stays open for Home.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.go,
         order: 30,
+      ),
+    ),
+    RegisteredCommand(
+      id: kGoToFolderCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.goToFolderLabel,
+      icon: Icons.folder_open_outlined,
+      // ⇧⌘G on macOS, Ctrl+Shift+G elsewhere (02 §8.3's table): opens
+      // the same in-bar path editor as `go.editPath`, seeded empty.
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyG, meta: true, shift: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyG, control: true, shift: true),
+        ],
+      ),
+      enabled: () => activeTab()?.acceptsPathInput ?? false,
+      run: (_) async {
+        activeTab()?.goToFolder();
+      },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 50,
+      ),
+    ),
+    RegisteredCommand(
+      id: kGoEditPathCommandId,
+      scope: CommandScope.pane,
+      label: (l10n) => l10n.goEditPathLabel,
+      icon: Icons.edit_location_alt_outlined,
+      // ⌘L / Ctrl+L (02 §8.3's table), dual macOS/Ctrl registration.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyL, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.keyL, control: true)],
+      ),
+      enabled: () => activeTab()?.acceptsPathInput ?? false,
+      run: (_) async {
+        activeTab()?.editPath();
+      },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 60,
       ),
     ),
     RegisteredCommand(

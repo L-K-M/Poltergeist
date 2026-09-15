@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -423,6 +422,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneFaultListFolder => 'This folder could not be listed.';
 
   @override
+  String get paneFaultInvalidPath =>
+      'That is not a folder path this pane can open. Use an absolute path, ~, or a name in this folder.';
+
+  @override
   String paneConnectionLost(String label) {
     return 'Connection to $label lost — reconnecting…';
   }
@@ -468,10 +471,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneRowKindOther => 'item';
 
   @override
+  String get goBackLabel => 'Back';
+
+  @override
+  String get goEditPathLabel => 'Edit Path';
+
+  @override
   String get goEnclosingLabel => 'Parent Folder';
 
   @override
+  String get goForwardLabel => 'Forward';
+
+  @override
   String get goOpenLabel => 'Open';
+
+  @override
+  String get goToFolderLabel => 'Go to Folder…';
 
   @override
   String get viewRefreshLabel => 'Refresh';
@@ -527,6 +542,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String paneFilterNoMatch(String query) {
     return 'No items match \"$query\"';
   }
+
+  @override
+  String get panePathFieldLabel => 'Path';
+
+  @override
+  String get panePathFieldHint => '/path, ~, or a name in this folder';
 
   @override
   String get connectionsOpenInPane => 'Open in Pane';

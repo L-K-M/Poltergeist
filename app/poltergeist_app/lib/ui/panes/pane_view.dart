@@ -129,6 +129,14 @@ class _PaneViewState extends State<PaneView> {
   final _filterStripKey = GlobalKey();
   int _filterFocusSeen = 0;
   bool _filterStripWasVisible = false;
+  // The path field's focus node and invocation bookkeeping, owned here
+  // for the same reason as the filter's: `go.editPath`/`go.toFolder`
+  // re-invocations must re-focus (and the view re-seeds) an
+  // already-mounted field (02 §2.1).
+  final _pathFieldFocusNode = FocusNode();
+  final _pathFieldStripKey = GlobalKey();
+  int _pathFieldSeen = -1;
+  bool _pathFieldWasOpen = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
 
@@ -152,6 +160,7 @@ class _PaneViewState extends State<PaneView> {
       // as a fresh focus request, and leave the visibility latch alone
       // so a rebind-driven strip unmount is still seen as `justClosed`.
       _filterFocusSeen = widget.controller.filterFocusGeneration;
+      _pathFieldSeen = widget.controller.pathFieldGeneration;
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
@@ -163,6 +172,7 @@ class _PaneViewState extends State<PaneView> {
     _graceTimer?.cancel();
     _scrollController.dispose();
     _filterFocusNode.dispose();
+    _pathFieldFocusNode.dispose();
     super.dispose();
   }
 
@@ -258,6 +268,38 @@ class _PaneViewState extends State<PaneView> {
       if (_disposed || !mounted) return;
       if (focusRequest && stripVisible) {
         _filterFocusNode.requestFocus();
+        return;
+      }
+      if (justClosed) {
+        final primary = FocusManager.instance.primaryFocus;
+        if (primary == null ||
+            primary.context == null ||
+            identical(primary, FocusManager.instance.rootScope)) {
+          widget.focusNode.requestFocus();
+        }
+      }
+    });
+  }
+
+  /// The path field's two focus chores, mirroring the filter's. A
+  /// `go.editPath`/`go.toFolder` invocation bumps the controller's
+  /// generation — including over an already-mounted field — so the
+  /// field re-claims primary focus on a change. And when the field
+  /// unmounts under a still-focused node — a controller-side close (a
+  /// rebind, a listing verb) rather than the field's own Enter/Esc —
+  /// primary focus strands at the root; return it to the listing
+  /// unless a deliberate target already claimed it.
+  void _syncPathFieldFocus() {
+    final controller = widget.controller;
+    final focusRequest = controller.pathFieldGeneration != _pathFieldSeen;
+    _pathFieldSeen = controller.pathFieldGeneration;
+    final justClosed = _pathFieldWasOpen && !controller.pathFieldOpen;
+    _pathFieldWasOpen = controller.pathFieldOpen;
+    if (!focusRequest && !justClosed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      if (focusRequest && controller.pathFieldOpen) {
+        _pathFieldFocusNode.requestFocus();
         return;
       }
       if (justClosed) {
@@ -513,6 +555,7 @@ class _PaneViewState extends State<PaneView> {
         _syncReveal();
         _syncQuickSelectFocus();
         _syncFilterFocus();
+        _syncPathFieldFocus();
         final active = identical(
           widget.workspace.activePane,
           widget.pane,
@@ -537,7 +580,11 @@ class _PaneViewState extends State<PaneView> {
                 // pointer down inside the Quick Select or filter strip
                 // must not bounce focus to the listing before the
                 // field's own tap handler runs.
-                for (final key in [_quickSelectFieldKey, _filterStripKey]) {
+                for (final key in [
+                  _quickSelectFieldKey,
+                  _filterStripKey,
+                  _pathFieldStripKey,
+                ]) {
                   final fieldBox =
                       key.currentContext?.findRenderObject() as RenderBox?;
                   if (fieldBox != null &&
@@ -564,6 +611,9 @@ class _PaneViewState extends State<PaneView> {
                 filterStripKey: _filterStripKey,
                 filterFocusNode: _filterFocusNode,
                 onFilterClosed: () => widget.focusNode.requestFocus(),
+                pathFieldStripKey: _pathFieldStripKey,
+                pathFieldFocusNode: _pathFieldFocusNode,
+                onPathFieldClosed: () => widget.focusNode.requestFocus(),
                 onActivateRow: (index, modifiers) {
                   widget.controller.setCursorIndex(
                     index,
@@ -604,6 +654,9 @@ class _PaneSurface extends StatelessWidget {
     required this.filterStripKey,
     required this.filterFocusNode,
     required this.onFilterClosed,
+    required this.pathFieldStripKey,
+    required this.pathFieldFocusNode,
+    required this.onPathFieldClosed,
     required this.onActivateRow,
     required this.onOpenRow,
   });
@@ -629,6 +682,19 @@ class _PaneSurface extends StatelessWidget {
 
   /// Returns focus to the listing after the field's own Enter/Esc.
   final VoidCallback onFilterClosed;
+
+  /// The path field's hit-test boundary for the pane's pointer-down
+  /// listener (clicks inside the editing bar must not bounce focus to
+  /// the listing before the field's own tap runs).
+  final GlobalKey pathFieldStripKey;
+
+  /// The path field's focus node, owned by the pane state so a
+  /// `go.editPath`/`go.toFolder` re-invocation re-focuses the mounted
+  /// field (02 §2.1).
+  final FocusNode pathFieldFocusNode;
+
+  /// Returns focus to the listing after the field's own Enter/Esc.
+  final VoidCallback onPathFieldClosed;
   final ValueChanged<int> onOpenRow;
   final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
 
@@ -643,6 +709,9 @@ class _PaneSurface extends StatelessWidget {
           active: active,
           loadingVisible: graceVisible && !controller.connectionLost,
           onCancel: onCancelNavigation,
+          pathFieldKey: pathFieldStripKey,
+          pathFieldFocusNode: pathFieldFocusNode,
+          onPathFieldClosed: onPathFieldClosed,
         ),
         // 02 §2.5: the Quick Select field drops in below the path bar
         // while the controller reports an open session.
@@ -876,12 +945,26 @@ class _PathBar extends StatefulWidget {
     required this.active,
     required this.loadingVisible,
     required this.onCancel,
+    required this.pathFieldKey,
+    required this.pathFieldFocusNode,
+    required this.onPathFieldClosed,
   });
 
   final PaneController controller;
   final bool active;
   final bool loadingVisible;
   final VoidCallback onCancel;
+
+  /// The editable field's hit-test boundary for the pane's pointer-down
+  /// listener — clicks inside the editing bar keep the field's focus.
+  final GlobalKey pathFieldKey;
+
+  /// The field's focus node, owned by the pane state (open
+  /// re-invocations re-focus the mounted field).
+  final FocusNode pathFieldFocusNode;
+
+  /// Returns focus to the listing after the field's own Enter/Esc.
+  final VoidCallback onPathFieldClosed;
 
   @override
   State<_PathBar> createState() => _PathBarState();
@@ -959,31 +1042,42 @@ class _PathBarState extends State<_PathBar> {
               ),
               const SizedBox(width: 6),
               Expanded(
-                child: ListView(
-                  controller: _segmentScroll,
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final (label, path) in segments)
-                      Padding(
-                        padding: const EdgeInsetsDirectional.only(end: 2),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(4),
-                          onTap: () => controller.navigate(path),
-                          child: Padding(
-                            padding: const EdgeInsetsDirectional.symmetric(
-                              horizontal: 6,
-                              vertical: 8,
+                // `go.editPath`/`go.toFolder` swap the segments for the
+                // editable field in place (02 §2.1) — the glyph and the
+                // cancel affordance stay put around it.
+                child: controller.pathFieldOpen
+                    ? _PathEditorField(
+                        key: widget.pathFieldKey,
+                        controller: controller,
+                        focusNode: widget.pathFieldFocusNode,
+                        onClosed: widget.onPathFieldClosed,
+                      )
+                    : ListView(
+                        controller: _segmentScroll,
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          for (final (label, path) in segments)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 2),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => controller.navigate(path),
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsetsDirectional.symmetric(
+                                        horizontal: 6,
+                                        vertical: 8,
+                                      ),
+                                  child: Text(
+                                    label,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(color: segmentColor),
+                                  ),
+                                ),
+                              ),
                             ),
-                            child: Text(
-                              label,
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(color: segmentColor),
-                            ),
-                          ),
-                        ),
+                        ],
                       ),
-                  ],
-                ),
               ),
               if (controller.loading && widget.loadingVisible)
                 IconButton(
@@ -1027,6 +1121,145 @@ class _PathBarState extends State<_PathBar> {
     final ordered = segments.reversed.toList();
     ordered.insert(0, (walking, walking)); // the root ('/' or 'C:\')
     return ordered;
+  }
+}
+
+/// 02 §2.1's editable path field, mounted inside the bar in place of
+/// the segments while `go.editPath`/`go.toFolder` hold it open. The
+/// controller owns the session — the field is pure plumbing: the seed
+/// arrives from the controller (current path selected whole for
+/// `go.editPath`, empty for `go.toFolder`), Enter submits through
+/// [PaneController.submitPathField], and Esc is the field tier of
+/// §8.2's order. While this field holds focus the pane's single-key
+/// table and type-ahead stay inert — the FocusNode.hasPrimaryFocus
+/// gate on the pane's key handler covers it, since this node is not
+/// the listing's.
+class _PathEditorField extends StatefulWidget {
+  const _PathEditorField({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.onClosed,
+  });
+
+  final PaneController controller;
+
+  /// Owned by the pane state so a re-invoked `go.editPath`/`go.toFolder`
+  /// can re-focus the already-mounted field.
+  final FocusNode focusNode;
+
+  /// Returns focus to the listing after Enter commits or Esc cancels.
+  final VoidCallback onClosed;
+
+  @override
+  State<_PathEditorField> createState() => _PathEditorFieldState();
+}
+
+class _PathEditorFieldState extends State<_PathEditorField> {
+  final _text = TextEditingController();
+
+  /// The controller generation whose seed is currently in the field —
+  /// a re-invocation while mounted re-seeds instead of no-oping.
+  late int _appliedGeneration;
+
+  /// The seed applies selected-whole: `go.editPath` opens with the
+  /// current path highlighted so a keystroke replaces it (02 §2.1's
+  /// prefilled-and-selected rule); an empty seed just places the caret.
+  void _applySeed() {
+    final seed = widget.controller.pathFieldSeed;
+    _appliedGeneration = widget.controller.pathFieldGeneration;
+    _text.value = TextEditingValue(
+      text: seed,
+      selection: seed.isEmpty
+          ? const TextSelection.collapsed(offset: 0)
+          : TextSelection(baseOffset: 0, extentOffset: seed.length),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _applySeed();
+    // autofocus alone cannot take focus from a listing that already
+    // holds it — the field must claim primary focus explicitly on open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void didUpdateWidget(_PathEditorField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller.pathFieldGeneration != _appliedGeneration) {
+      _applySeed();
+    }
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    widget.controller.submitPathField(_text.text);
+    widget.onClosed();
+  }
+
+  void _cancel() {
+    widget.controller.closePathField();
+    widget.onClosed();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Focus(
+      // Esc cancels from inside the field — the field tier of §8.2's
+      // order, so an in-flight navigation underneath keeps loading.
+      // This node sits in the focus ancestry above the field and sees
+      // only keys the field itself did not consume.
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent ||
+            event.logicalKey != LogicalKeyboardKey.escape) {
+          return KeyEventResult.ignored;
+        }
+        _cancel();
+        return KeyEventResult.handled;
+      },
+      child: Center(
+        // A floated label cannot fit the bar's height; the field's
+        // accessible name rides Semantics instead and the hint carries
+        // the accepted shapes (02 §2.1).
+        child: Semantics(
+          label: l10n.panePathFieldLabel,
+          textField: true,
+          child: TextField(
+            key: ValueKey('${widget.controller.paneTabId}.path.field'),
+            controller: _text,
+            focusNode: widget.focusNode,
+            autofocus: true,
+            style: Theme.of(context).textTheme.bodySmall,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 7,
+              ),
+              border: const OutlineInputBorder(),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: colors.outlineVariant),
+              ),
+              hintText: l10n.panePathFieldHint,
+            ),
+            onSubmitted: (_) => _submit(),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1334,6 +1567,7 @@ class _ErrorOverlay extends StatelessWidget {
                       PaneFault.connectionOpen => l10n.paneFaultConnectionOpen,
                       PaneFault.localOpen => l10n.paneFaultLocalOpen,
                       PaneFault.listFolder => l10n.paneFaultListFolder,
+                      PaneFault.invalidPath => l10n.paneFaultInvalidPath,
                     },
                     _ => error.message,
                   },
