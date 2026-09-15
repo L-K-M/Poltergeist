@@ -35,7 +35,13 @@
 //                       not reuse the M0 evidence envelope (different
 //                       schema, validator, and provenance).
 // * tier-B baseline   — committed medians per tier-B scenario with the
-//                       fingerprint they were measured under.
+//                       fingerprint they were measured under and, in
+//                       schema -2, each entry's own scenarioConfig: a
+//                       run compares only against an entry recording the
+//                       same config. The legacy -1 form (entries with no
+//                       recorded config) stays readable but can never
+//                       compare — a config-less entry is a loud
+//                       non-comparison outcome, never an invented config.
 // * drift state       — the small state store that time-boxes drift skips
 //                       (consecutive-main-run counters per drift notice).
 //
@@ -50,9 +56,13 @@
 //    escalates through the drift state.
 //  * Tier-B compares the median of the in-job repetitions against the
 //    committed baseline and fails on a > 25 % regression once enforced;
-//    controlled-axis mismatch is a hard non-zero exit once BENCH_ENFORCE_B
-//    is set, while the uncontrolled CPU axis skips with a loud notice and
-//    only reddens through the >= 7 consecutive-main-run staleness rule.
+//    the comparison runs only against a baseline entry whose recorded
+//    per-scenario config matches the run's — an unrecorded (legacy
+//    schema) or mismatched config is a loud non-comparison, never a
+//    numeric pass. Controlled-axis mismatch is a hard non-zero exit once
+//    BENCH_ENFORCE_B is set, while the uncontrolled CPU axis skips with
+//    a loud notice and only reddens through the >= 7 consecutive-main-run
+//    staleness rule.
 //  * A missing/unreadable drift state is "count unknown": the fired
 //    notices are counted conservatively at the escalation threshold, never
 //    reset to a fresh count.
@@ -99,6 +109,16 @@ const budgetsSchemaV2Id = 'poltergeist-d12-budgets-2';
 const budgetsSchemaIds = {budgetsSchemaId, budgetsSchemaV2Id};
 const resultsSchemaId = 'poltergeist-d12-results-1';
 const baselineSchemaId = 'poltergeist-d12-baseline-1';
+
+/// The canonical baseline form: each entry records the per-scenario
+/// `scenarioConfig` its median was measured under, so a run compares
+/// only against an entry with a matching config. The legacy
+/// [baselineSchemaId] remains readable — its entries record no config
+/// and can therefore never honestly compare (loud non-comparison, never
+/// a silent numeric pass and never an invented config).
+const baselineSchemaV2Id = 'poltergeist-d12-baseline-2';
+
+const baselineSchemaIds = {baselineSchemaId, baselineSchemaV2Id};
 const driftStateSchemaId = 'poltergeist-d12-drift-state-1';
 
 /// The regression budget of a tier-B trend comparison: a median worse than
@@ -408,14 +428,13 @@ class BudgetCatalog {
       ),
     };
     if (tier == BenchTier.b && map.containsKey('calibratedScenarioConfig')) {
-      // Tier-B trend scenarios carry no config; rejecting beats silently
-      // ignoring dead data. The schema grows per-scenario tier-B configs
-      // with the first config-carrying tier-B collector (same rule as the
-      // baseline's null-config requirement).
+      // Tier-B trend scenarios carry no calibration: they compare against
+      // the baseline's per-scenario recorded config, not a budget-side
+      // calibration. Rejecting beats silently ignoring dead data.
       throw CheckDataException(
         'budgets.json: scenario $id calibratedScenarioConfig is only '
-        'valid for tier-A scenarios — tier-B trend scenarios carry no '
-        'config',
+        'valid for tier-A scenarios — tier-B scenarios trend against the '
+        "baseline's recorded per-scenario config, not a calibration",
       );
     }
     final operatorText = _expectString(
@@ -721,17 +740,23 @@ String? scenarioRunConfig(String scenario, List<ResultRow> rows) {
 /// Committed tier-B baseline medians with the fingerprint they were
 /// measured under.
 class TierBBaseline {
+  /// The schema id this baseline was read from — one of
+  /// [baselineSchemaIds]. The legacy [baselineSchemaId] form is accepted
+  /// with a loud migration notice: its entries record no per-scenario
+  /// config, so none of them can honestly compare.
+  final String schemaId;
   final BenchFingerprint fingerprint;
   final Map<String, BaselineEntry> scenarios;
 
-  const TierBBaseline(this.fingerprint, this.scenarios);
+  const TierBBaseline(this.schemaId, this.fingerprint, this.scenarios);
 
   factory TierBBaseline.fromJson(Object? json, BudgetCatalog catalog) {
     final map = _expectMap(json, 'tier-B baseline');
-    if (map['schema'] != baselineSchemaId) {
+    final schemaId = map['schema'];
+    if (schemaId is! String || !baselineSchemaIds.contains(schemaId)) {
       throw CheckDataException(
-        'tier-B baseline: unsupported schema ${map['schema']} '
-        '(expected $baselineSchemaId)',
+        'tier-B baseline: unsupported schema $schemaId '
+        '(expected one of ${baselineSchemaIds.join(' or ')})',
       );
     }
     final fingerprint = BenchFingerprint.fromJson(
@@ -747,13 +772,13 @@ class TierBBaseline {
     }
     if (fingerprint.scenarioConfig != null) {
       // scenarioConfig is per-scenario; a job-wide claim on the baseline
-      // could never be attributed to one scenario. No tier-B scenario
-      // carries a config yet — the baseline schema grows per-scenario
-      // configs with the first config-carrying tier-B collector.
+      // could never be attributed to one scenario — in schema -2 each
+      // entry records its own config instead.
       throw CheckDataException(
         'tier-B baseline: fingerprint.scenarioConfig must be null — '
-        'scenarioConfig is a per-scenario axis and the baseline carries '
-        'no per-scenario configs (re-measure without the job-wide claim)',
+        'scenarioConfig is a per-scenario axis recorded on each entry '
+        'under schema $baselineSchemaV2Id (re-measure without the '
+        'job-wide claim)',
       );
     }
     final entries = _expectMap(map['scenarios'], 'tier-B baseline: scenarios');
@@ -796,13 +821,38 @@ class TierBBaseline {
           'tier-B baseline: ${entry.key}.repetitions must be >= 1',
         );
       }
+      final hasConfigKey = entryMap.containsKey('scenarioConfig');
+      if (schemaId == baselineSchemaV2Id && !hasConfigKey) {
+        // A -2 entry must record the config its median was measured
+        // under — null is a legitimate record (a config-free collector),
+        // an absent key is an ambiguous one.
+        throw CheckDataException(
+          'tier-B baseline: ${entry.key}.scenarioConfig is required '
+          'under schema $baselineSchemaV2Id — record the config the '
+          'median was measured under (null for a config-free collector)',
+        );
+      }
+      if (schemaId == baselineSchemaId && hasConfigKey) {
+        // Mixed form: the per-entry field is the schema-2 contract; a
+        // -1 file carrying it would leave its meaning ambiguous.
+        throw CheckDataException(
+          'tier-B baseline: ${entry.key}.scenarioConfig requires schema '
+          '$baselineSchemaV2Id — a $baselineSchemaId entry records no '
+          'per-scenario config',
+        );
+      }
       scenarios[entry.key] = BaselineEntry(
         median: median,
         unit: unit,
         repetitions: repetitions,
+        scenarioConfigRecorded: schemaId == baselineSchemaV2Id,
+        scenarioConfig: _expectOptionalString(
+          entryMap['scenarioConfig'],
+          'tier-B baseline: ${entry.key}.scenarioConfig',
+        ),
       );
     }
-    return TierBBaseline(fingerprint, scenarios);
+    return TierBBaseline(schemaId, fingerprint, scenarios);
   }
 }
 
@@ -811,10 +861,23 @@ class BaselineEntry {
   final String unit;
   final int repetitions;
 
+  /// Whether this entry records the per-scenario config its median was
+  /// measured under. False only for legacy schema [baselineSchemaId]
+  /// entries — an unrecorded config can never be compared against (never
+  /// an invented config, never a silent numeric pass).
+  final bool scenarioConfigRecorded;
+
+  /// The recorded config; meaningful only when [scenarioConfigRecorded]
+  /// holds (a recorded null is a config-free collector, not an
+  /// unrecorded one).
+  final String? scenarioConfig;
+
   const BaselineEntry({
     required this.median,
     required this.unit,
     required this.repetitions,
+    this.scenarioConfigRecorded = false,
+    this.scenarioConfig,
   });
 }
 
@@ -1044,6 +1107,16 @@ CheckReport evaluate({
       'calibratedFingerprint.scenarioConfig, when present, calibrates '
       'every tier-A scenario); migrate to $budgetsSchemaV2Id with '
       'per-scenario calibratedScenarioConfig',
+    );
+  }
+  if (baseline != null && baseline.schemaId == baselineSchemaId) {
+    notices.add(
+      'NOTICE: tier-B baseline uses the deprecated schema '
+      '$baselineSchemaId — its entries record no per-scenario '
+      'scenarioConfig, so no entry can honestly compare '
+      '(baseline-config-missing, never an invented config); migrate to '
+      '$baselineSchemaV2Id via a baseline-refresh PR that records each '
+      "entry's measured config",
     );
   }
 
@@ -1284,6 +1357,7 @@ CheckReport evaluate({
         measured: measured,
         baseline: baseline,
         baselinePath: baselinePath,
+        runScenarioConfig: scenarioRunConfig(budget.id, rows),
         enforceB: enforceB,
         drifted: tierBDrifted,
         table: table,
@@ -1533,14 +1607,16 @@ void _evaluateTierA({
 }
 
 /// Returns whether a real trend comparison executed (true only when the
-/// baseline entry existed and the fingerprint matched — the observation
-/// that can prove a clean main run).
+/// baseline entry existed, recorded a config matching the run's, and the
+/// fingerprint matched — the observation that can prove a clean main
+/// run).
 bool _evaluateTierB({
   required ScenarioBudget budget,
   required double medianValue,
   required String measured,
   required TierBBaseline? baseline,
   required String? baselinePath,
+  required String? runScenarioConfig,
   required bool enforceB,
   required bool drifted,
   required List<String> table,
@@ -1592,6 +1668,66 @@ bool _evaluateTierB({
       measured,
       'baseline trend',
       'skipped: no baseline entry',
+    );
+    return false;
+  }
+  if (!entry.scenarioConfigRecorded) {
+    // A legacy schema -1 entry records no config, so it can never bind
+    // its median to a workload: comparing would score a possibly
+    // different workload as the same. Loud non-comparison in every mode
+    // — never an invented config, never a silent numeric pass.
+    notices.add(
+      'NOTICE: baseline-config-missing: tier-B baseline entry for '
+      '${budget.id} at ${baselinePath ?? '<unspecified>'} records no '
+      'scenarioConfig (legacy schema $baselineSchemaId) — comparison '
+      'skipped; migrate to $baselineSchemaV2Id via a baseline-refresh PR '
+      'that records the measured config',
+    );
+    if (enforceB) {
+      failures.add(
+        'scenario ${budget.id} is landed and enforced, but its committed '
+        'tier-B baseline entry records no scenarioConfig (legacy schema '
+        '$baselineSchemaId) — refresh the baseline via a dedicated '
+        'baseline-refresh PR (08 §6)',
+      );
+    }
+    tableRow(
+      budget.id,
+      budget.tier,
+      measured,
+      'baseline trend',
+      'skipped: baseline-config-missing',
+    );
+    return false;
+  }
+  if (entry.scenarioConfig != runScenarioConfig) {
+    // The run measured a different workload than the baseline recorded:
+    // a changed config is a changed measurement, never a comparison —
+    // scored like the hardware-drift skip (soft notice, hard once
+    // enforced), never cross-compared.
+    notices.add(
+      'NOTICE: tier-B baseline config mismatch for ${budget.id} '
+      '(baseline "${entry.scenarioConfig ?? '<none>'}" != '
+      'run "${runScenarioConfig ?? '<none>'}") at '
+      '${baselinePath ?? '<unspecified>'} — comparison skipped, never '
+      'cross-compared; refresh the baseline via a dedicated '
+      'baseline-refresh PR if the workload change is intentional (08 §6)',
+    );
+    if (enforceB) {
+      failures.add(
+        'tier-B baseline scenarioConfig mismatch for ${budget.id} '
+        '(baseline "${entry.scenarioConfig ?? '<none>'}" != '
+        'run "${runScenarioConfig ?? '<none>'}") while BENCH_ENFORCE_B '
+        'is set — refresh the baseline via a dedicated baseline-refresh '
+        'PR (08 §6)',
+      );
+    }
+    tableRow(
+      budget.id,
+      budget.tier,
+      measured,
+      'baseline trend',
+      'skipped: config mismatch',
     );
     return false;
   }

@@ -1,5 +1,5 @@
 {
-  "schema": "poltergeist-d12-baseline-1",
+  "schema": "poltergeist-d12-baseline-2",
   "fingerprint": {
     "runnerImage": "ubuntu-latest@20260907.300.1",
     "arch": "linux_x64",
@@ -13,17 +13,20 @@
     "P1": {
       "median": 1061.087,
       "unit": "ms",
-      "repetitions": 12
+      "repetitions": 12,
+      "scenarioConfig": "local-entries-10000-first-paint"
     },
     "P2": {
       "median": 10781.459,
       "unit": "ms",
-      "repetitions": 12
+      "repetitions": 12,
+      "scenarioConfig": "local-entries-100000-first-paint"
     },
     "P4": {
       "median": 35.398,
       "unit": "ms",
-      "repetitions": 5
+      "repetitions": 5,
+      "scenarioConfig": "local-tabs-5-entries-10000-tab-switch"
     }
   }
 }
