@@ -53,6 +53,14 @@ const _comfortableRowExtent = 28.0;
 /// space so the cursor never shifts row content as it moves.
 const _cursorBarWidth = 3.0;
 
+/// The inline-rename editor's horizontal insets over the edited row's
+/// name cell: past the leading padding, the cursor bar, and the kind
+/// icon (start), up to the size/modified columns' leading edge (end).
+/// They mirror `_PaneRow`'s column metrics — a row-layout change must
+/// change them with it.
+const _renameNameCellStart = 8 + _cursorBarWidth + 22;
+const _renameNameCellEnd = 8.0 + 12 + 64 + 12 + 120;
+
 double scaledPaneRowExtent(BuildContext context) =>
     MediaQuery.textScalerOf(context).scale(_comfortableRowExtent);
 
@@ -980,13 +988,18 @@ class _PaneSurface extends StatelessWidget {
                   : 0.0;
               return PositionedDirectional(
                 // The row's name cell: past the leading padding, the
-                // cursor bar, and the kind icon.
-                start: 8 + _cursorBarWidth + 22,
-                // …up to the size/modified columns' leading edge.
-                end: 8 + 12 + 64 + 12 + 120,
-                top: index == null
-                    ? 0
-                    : (index * extent - offset).clamp(0.0, double.infinity),
+                // cursor bar, and the kind icon …up to the
+                // size/modified columns' leading edge. These mirror
+                // _PaneRow's column metrics — a row-layout change must
+                // change them with it.
+                start: _renameNameCellStart,
+                end: _renameNameCellEnd,
+                // No clamp: a row scrolled above the viewport carries
+                // its editor off with it — the Stack clips the
+                // overflow, and clipped pixels never hit-test. A
+                // detached session (the row left the listing) anchors
+                // at the top so its fault stays visible.
+                top: index == null ? 0.0 : index * extent - offset,
                 child: _RenameEditor(
                   key: renameEditorKey,
                   controller: controller,

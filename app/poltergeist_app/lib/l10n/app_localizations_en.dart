@@ -432,8 +432,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneFaultRenameNameSeparator => 'A name cannot contain “/”.';
 
   @override
-  String get paneFaultRenameNameInvalid =>
-      'The name contains a character that is not allowed here.';
+  String get paneFaultRenameNameInvalid => 'That name is not allowed here.';
 
   @override
   String get paneFaultRenameTargetGone =>

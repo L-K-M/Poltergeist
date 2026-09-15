@@ -802,10 +802,10 @@ abstract class AppLocalizations {
   /// **'A name cannot contain “/”.'**
   String get paneFaultRenameNameSeparator;
 
-  /// Inline-rename validation error: the typed name contains a character the pane's filesystem forbids — on a local pane under Windows, the NTFS-reserved set or a control character (02 §2.6).
+  /// Inline-rename validation error: the pane's filesystem forbids the typed name — on a local pane under Windows, the NTFS-reserved characters, a control character, a DOS device name, or a trailing dot or space (02 §2.6).
   ///
   /// In en, this message translates to:
-  /// **'The name contains a character that is not allowed here.'**
+  /// **'That name is not allowed here.'**
   String get paneFaultRenameNameInvalid;
 
   /// Inline-rename error: the row under edit left the listing mid-session — a refresh, another client's delete, or a filter edit removed it (02 §2.6).

@@ -979,19 +979,26 @@ class PaneController extends ChangeNotifier {
       return;
     }
 
-    // The parent prefix is the entry path up to its own last separator —
-    // never a synthesized join — so the listing's separator survives on
-    // every platform ('/' on POSIX and remote, '\' on Windows locals) and
-    // the re-anchored path matches the refreshed listing's normalization.
-    // A trailing separator is trimmed first so the split finds the
-    // entry's parent, not the entry itself.
+    // The parent prefix keeps the entry path's own separators — never a
+    // synthesized join — so the re-anchored path matches the refreshed
+    // listing's normalization. A trailing separator is trimmed first;
+    // then the entry's own name is stripped, but only when the cut lands
+    // on a separator boundary — a POSIX name may itself contain '\',
+    // which must not split. The last-separator split is the fallback for
+    // a path that does not end with its name, the location join the last
+    // resort.
     final trimmed = entry.path.endsWith('/') || entry.path.endsWith('\\')
         ? entry.path.substring(0, entry.path.length - 1)
         : entry.path;
+    final stripped = trimmed.endsWith(entry.name)
+        ? trimmed.substring(0, trimmed.length - entry.name.length)
+        : '';
     final lastSep = trimmed.lastIndexOf(RegExp(r'[\\/]'));
-    final parent = lastSep >= 0
-        ? trimmed.substring(0, lastSep + 1)
-        : '${location?.path ?? ''}/';
+    final parent = stripped.endsWith('/') || stripped.endsWith('\\')
+        ? stripped
+        : lastSep >= 0
+            ? trimmed.substring(0, lastSep + 1)
+            : '${location?.path ?? ''}/';
     final newPath = '$parent$raw';
 
     // The field closes at submit: the in-flight flag alone holds the

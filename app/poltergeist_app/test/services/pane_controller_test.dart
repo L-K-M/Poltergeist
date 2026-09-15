@@ -1673,5 +1673,29 @@ void main() {
       ]);
       controller.dispose();
     });
+
+    test('a POSIX name containing a backslash stays inside its parent',
+        () async {
+      // '\' is a legal POSIX filename character — the parent split must
+      // not land on a backslash inside the name itself.
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        const RemoteFileEntry(
+          path: r'/parent/weird\name',
+          name: r'weird\name',
+          type: RemoteFileType.file,
+        ),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.listings['/home/tester'] = [_entry('plain.txt')];
+      await controller.submitRename('plain.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        (r'/parent/weird\name', '/parent/plain.txt'),
+      ]);
+      controller.dispose();
+    });
   });
 }
