@@ -495,6 +495,7 @@ class PaneController extends ChangeNotifier {
     _noticeTimer?.cancel();
     _notice = value;
     _noticeTimer = Timer(noticeLifetime, dismissNotice);
+    notifyListeners();
   }
 
   /// The keyboard cursor row into [entries]; null until the first key
@@ -652,11 +653,9 @@ class PaneController extends ChangeNotifier {
         return;
       case DoubleClickAction.edit:
         _postNotice(PaneNotice.editLater);
-        notifyListeners();
         return;
       case DoubleClickAction.transfer:
         _postNotice(PaneNotice.transferLater);
-        notifyListeners();
         return;
       case DoubleClickAction.open:
         // The BINDING names remote-ness (navigate's rule): a cancelled
@@ -664,7 +663,6 @@ class PaneController extends ChangeNotifier {
         // channel, and a null location must never mint a local open.
         if (_pendingRemote != null) {
           _postNotice(PaneNotice.openRemoteUnavailable);
-          notifyListeners();
           return;
         }
         await _openLocalEntry(entry);
@@ -682,7 +680,9 @@ class PaneController extends ChangeNotifier {
     if (channel == null) return;
     try {
       await channel.openInDefaultApp(entry.path);
-      if (_disposed) return;
+      // A rebind during the in-flight launch makes this answer stale —
+      // same drop rule as a superseded listing generation.
+      if (_disposed || !identical(_channel, channel)) return;
       // A successful (re)launch retires an open failure's inline error
       // — never an unrelated listing error that arrived in between.
       if (_error is OpenEntryError) {
@@ -690,12 +690,14 @@ class PaneController extends ChangeNotifier {
         notifyListeners();
       }
     } on RemoteFileException catch (error) {
-      if (_disposed) return;
+      if (_disposed || !identical(_channel, channel)) return;
       _error = _OpenEntryException(entry, error);
       notifyListeners();
     } on Object catch (error, stackTrace) {
-      if (_disposed) return;
+      // The opaque failure is real regardless of staleness — it still
+      // reports; only the pane-state write drops after a rebind.
       _report(error, stackTrace);
+      if (_disposed || !identical(_channel, channel)) return;
       _error = _OpenEntryFaultException(
         PaneFault.openFile,
         entry,

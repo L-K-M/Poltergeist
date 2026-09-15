@@ -251,8 +251,11 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
     await capture('open-error-inline', leftBoundary);
 
-    // Retire the remote pane's outstanding notice timer — the binding
-    // fails the run on a pending Timer.
+    // Retire outstanding notice timers — the binding fails the run on
+    // a pending Timer. (The left pane's last activation ended in the
+    // error overlay, which retired its notice; dismiss anyway so the
+    // cleanup stays symmetric if the sequence changes.)
     right.dismissNotice();
+    left.dismissNotice();
   });
 }

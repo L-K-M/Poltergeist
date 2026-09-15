@@ -191,6 +191,7 @@ class PaneTabsController extends ChangeNotifier {
   /// all open files under the current value.
   DoubleClickAction get doubleClickAction => _doubleClickAction;
   set doubleClickAction(DoubleClickAction value) {
+    if (_doubleClickAction == value) return;
     _doubleClickAction = value;
     for (final tab in _tabs) {
       tab.controller.doubleClickAction = value;
