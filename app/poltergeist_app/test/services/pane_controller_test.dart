@@ -494,6 +494,126 @@ void main() {
     controller.dispose();
   });
 
+  test('stale rows are inert while a location-changing navigation is held',
+      () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('docs', type: RemoteFileType.directory),
+      _entry('report.txt'),
+    ];
+    channel.listings['/elsewhere'] = [_entry('there.txt')];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+    await settle();
+    controller.setCursorIndex(1);
+    expect(controller.cursorIndex, 1);
+
+    // The listing of a different directory is held: the old rows stay
+    // rendered for the anti-flash grace, but the navigation has already
+    // disowned them (02 §2.8's grace is presentation-only).
+    final hold = Completer<void>();
+    channel.holdNext = hold;
+    controller.navigate('/elsewhere');
+    expect(controller.loading, isTrue);
+    expect(controller.staleRows, isTrue);
+    expect(controller.entries, hasLength(2));
+
+    // Every row-interaction path is inert while the rows are disowned:
+    // no throw, no selection mutation, no activation — a caller that
+    // bypasses the widget cannot hit 'not a visible row'.
+    controller.setCursorIndex(0);
+    controller.moveCursorBy(1);
+    controller.selectAll();
+    controller.invertSelection();
+    controller.typeAhead('d');
+    await controller.openEntry(controller.entries.first);
+    await settle();
+
+    expect(controller.cursorIndex, isNull);
+    expect(controller.selectedCount, 0);
+    expect(controller.typeAheadActive, isFalse);
+    expect(
+      channel.listCalls,
+      ['/home/tester', '/elsewhere'],
+      reason: 'stale input must never issue another listing request',
+    );
+    expect(controller.location, const LocalPaneLocation('/elsewhere'));
+
+    // The accepted listing owns its rows again.
+    hold.complete();
+    await settle();
+    expect(controller.staleRows, isFalse);
+    controller.setCursorIndex(0);
+    expect(controller.cursorIndex, 0);
+    controller.dispose();
+  });
+
+  test('a stale row activation cannot supersede the pending navigation',
+      () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('docs', type: RemoteFileType.directory),
+      _entry('report.txt'),
+    ];
+    channel.listings['/elsewhere'] = [_entry('there.txt')];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+    await settle();
+
+    final hold = Completer<void>();
+    channel.holdNext = hold;
+    controller.navigate('/elsewhere');
+
+    // Double-clicking the cached 'docs' row while '/elsewhere' is in
+    // flight must do nothing — not navigate to the stale path.
+    await controller.openEntry(controller.entries.first);
+    await settle();
+
+    expect(channel.listCalls, ['/home/tester', '/elsewhere']);
+    expect(controller.location, const LocalPaneLocation('/elsewhere'));
+
+    hold.complete();
+    await settle();
+    expect(controller.entries.single.name, 'there.txt');
+    controller.dispose();
+  });
+
+  test('Esc inside the stale window restores live rows', () async {
+    final lanes = FakePaneLanes();
+    final channel = FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('docs', type: RemoteFileType.directory),
+      _entry('report.txt'),
+    ];
+    lanes.nextLocalChannel = channel;
+    final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    await controller.openLocalHome();
+    await settle();
+
+    final hold = Completer<void>();
+    channel.holdNext = hold;
+    controller.navigate('/elsewhere');
+    expect(controller.staleRows, isTrue);
+    controller.cancelNavigation();
+    expect(controller.staleRows, isFalse);
+
+    // The restored listing owns its rows again — selection works.
+    expect(controller.entries, hasLength(2));
+    controller.setCursorIndex(0);
+    expect(controller.cursorIndex, 0);
+    expect(controller.selectedCount, 1);
+
+    // The abandoned answer stays swallowed.
+    hold.complete();
+    await settle();
+    expect(controller.location, const LocalPaneLocation('/home/tester'));
+    controller.dispose();
+  });
+
   test('connectRemote subscribes to state before opening the channel',
       () async {
     final lanes = FakePaneLanes();

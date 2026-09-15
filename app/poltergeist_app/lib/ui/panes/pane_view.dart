@@ -394,15 +394,16 @@ class _PaneViewState extends State<PaneView> {
         !HardwareKeyboard.instance.isMetaPressed &&
         !HardwareKeyboard.instance.isAltPressed;
 
-    // 02 §2.8: once the grace passes, the pane's OWN keys are inert —
-    // the entries under the dim are stale; the connection-lost scrim
-    // declares the same inertness (pointer and semantics are already
-    // blocked there — the keyboard must not be the one live path onto
-    // stale entries). Type-ahead input is inert for the same reason:
-    // matching a stale listing would jump a cursor onto disowned rows.
-    // Unowned keys fall through to ancestors (app shortcuts stay live
-    // during slow loads); Esc and Tab reach the switch below and stay
-    // live.
+    // 02 §2.8: the pane's OWN keys are inert the moment its rows are
+    // disowned — a location-changing navigation stales them at issue,
+    // not when the dim appears (the grace governs presentation, never
+    // interaction eligibility); the connection-lost scrim declares the
+    // same inertness (pointer and semantics are already blocked there —
+    // the keyboard must not be the one live path onto stale entries).
+    // Type-ahead input is inert for the same reason: matching a stale
+    // listing would jump a cursor onto disowned rows. Unowned keys fall
+    // through to ancestors (app shortcuts stay live during slow loads);
+    // Esc and Tab reach the switch below and stay live.
     final ownedKey =
         key == LogicalKeyboardKey.arrowDown ||
         key == LogicalKeyboardKey.arrowUp ||
@@ -415,6 +416,7 @@ class _PaneViewState extends State<PaneView> {
     if ((controller.connectionLost ||
             controller.error != null ||
             controller.inlineRenameActive ||
+            controller.staleRows ||
             (_graceBusy() && _pastGrace)) &&
         (ownedKey || _typeAheadCharacter(event) != null) &&
         plainKey) {
@@ -843,19 +845,23 @@ class _PaneSurface extends StatelessWidget {
         // post-grace dim declares the listing inert — the stale listing
         // leaves the semantics tree too: a reachable-but-inert row
         // would read as broken (AT activation bypasses hit testing).
-        // The inline error makes the stale listing's POINTERS inert as
-        // well (the error card never covers the whole listing, and a
-        // stray click on an uncovered stale row would change selection
-        // over data the pane has disowned) — scoped to this subtree,
-        // never a Stack sibling, so chrome added to this Stack later
-        // stays clickable.
+        // Disowned rows also leave it the moment a location-changing
+        // navigation issues — the grace delays only the DIM, never the
+        // inertness. The inline error makes the stale listing's
+        // POINTERS inert as well (the error card never covers the whole
+        // listing, and a stray click on an uncovered stale row would
+        // change selection over data the pane has disowned) — scoped to
+        // this subtree, never a Stack sibling, so chrome added to this
+        // Stack later stays clickable.
         Positioned.fill(
           child: IgnorePointer(
-            ignoring: controller.error != null && !controller.connectionLost,
+            ignoring: (controller.error != null || controller.staleRows) &&
+                !controller.connectionLost,
             child: ExcludeSemantics(
               excluding:
                   controller.connectionLost ||
                   controller.error != null ||
+                  controller.staleRows ||
                   (controller.loading && graceVisible),
               child: controller.connectionLost
                   ? _listing(context, l10n)
@@ -867,6 +873,27 @@ class _PaneSurface extends StatelessWidget {
                     },
             ),
           ),
+        ),
+        // WCAG 4.1.3: the rows leaving the semantics tree at issue must
+        // not be silent — while they're disowned, a live region
+        // announces the transition with the same string the footer shows
+        // once the grace dim lands. The node stays mounted permanently
+        // and the label transitions '' → loading string at issue: live
+        // regions announce label CHANGES on an existing node, while
+        // mount-time announcements are dropped by some engines/AT. A
+        // 1x1 empty box keeps the node in the semantics tree (zero-size
+        // nodes are culled) while staying invisible.
+        Semantics(
+          label: controller.staleRows &&
+                  !controller.connectionLost &&
+                  controller.error == null
+              ? l10n.paneLoadingFolder(
+                  paneLastSegment(controller.location?.path),
+                )
+              : '',
+          liveRegion: true,
+          container: true,
+          child: const SizedBox(width: 1, height: 1),
         ),
         // 02 §2.8: the old listing stays visible, dimmed, past the grace —
         // and inert while the navigation it belongs to is still in flight.
