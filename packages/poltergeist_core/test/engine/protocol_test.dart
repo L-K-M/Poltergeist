@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 9;
+const _expectedProtocolVersion = 10;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,
@@ -344,6 +344,15 @@ void main() {
       await _roundTrip(
         incoming,
         engine,
+        const OpenLocalFileRequest(
+          requestId: 23,
+          channelId: 5,
+          path: '/home/user/notes.txt',
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
         const CloseBrowseChannelRequest(requestId: 2, channelId: 5),
       );
       await _roundTrip(
@@ -599,6 +608,10 @@ Future<void> _roundTrip(
     ):
       expect(got.requestId, sent.requestId);
       expect(got.channelId, sent.channelId);
+    case (final OpenLocalFileRequest sent, final OpenLocalFileRequest got):
+      expect(got.requestId, sent.requestId);
+      expect(got.channelId, sent.channelId);
+      expect(got.path, sent.path);
     case (final WatchServerRequest sent, final WatchServerRequest got):
       expect(got.requestId, sent.requestId);
       expect(got.serverId, sent.serverId);

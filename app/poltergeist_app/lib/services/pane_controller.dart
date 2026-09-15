@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'double_click_action.dart';
 import 'engine_session.dart';
 import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
@@ -140,6 +141,11 @@ enum PaneFault {
   /// another client's delete, or a filter edit removed it — so there
   /// is nothing left to rename.
   renameTargetGone,
+
+  /// The file Open's launch failed with an untyped (non-VFS) error —
+  /// the engine's answer was not a [RemoteFileException] at all, so the
+  /// pane shows its own authored line instead of an opaque message.
+  openFile,
 }
 
 /// A non-VFS fault surfacing on the pane: the taxonomy message is a
@@ -150,6 +156,67 @@ class PaneFaultException extends RemoteFileException {
     : super(kind: RemoteFileErrorKind.other, message: 'fault:${fault.name}');
 
   final PaneFault fault;
+}
+
+/// A failed file Open's retry handle: the failed launch's error,
+/// carrying the entry to re-open. The concrete type stays intact — a
+/// typed engine error renders its message line, an authored fault
+/// renders its ARB sentence — while the pane's Retry re-runs the
+/// launch for THIS error, not a re-list. Snapshot/restore preserves it
+/// like any other pane error (02 §2.8), so the retry identity survives
+/// an Esc-cancel round trip without parallel bookkeeping. The view
+/// reads the marker too: an open failure is a FILE problem, not the
+/// kind taxonomy's folder sentence.
+abstract interface class OpenEntryError implements Exception {
+  /// The row the failed open targeted — [PaneController.retry]'s
+  /// re-open payload.
+  RemoteFileEntry get entry;
+}
+
+/// A typed launcher refusal carrying its retry entry.
+final class _OpenEntryException extends RemoteFileException
+    implements OpenEntryError {
+  _OpenEntryException(this.entry, RemoteFileException error)
+    : super(
+        kind: error.kind,
+        operation: error.operation,
+        path: error.path,
+        message: error.message,
+        cause: error.cause,
+      );
+
+  @override
+  final RemoteFileEntry entry;
+}
+
+/// An opaque launcher failure's authored fault carrying its retry
+/// entry — still a [PaneFaultException], so the overlay renders the
+/// fault's ARB line rather than a wrapper's synthetic message.
+final class _OpenEntryFaultException extends PaneFaultException
+    implements OpenEntryError {
+  _OpenEntryFaultException(super.fault, this.entry, {required super.operation});
+
+  @override
+  final RemoteFileEntry entry;
+}
+
+/// A transient pane notice (02 §10's notice family): the honest
+/// "not yet" for a registered-but-deferred action — never an error,
+/// so it renders as a dismissible strip, not the error overlay. The
+/// view maps each value to its ARB-authored sentence (D20 — the
+/// controller never authors user copy).
+enum PaneNotice {
+  /// A remote file's Open: the managed-checkout pipeline is 06's —
+  /// nothing runs, and the notice says so.
+  openRemoteUnavailable,
+
+  /// "Double-click action: Edit in Poltergeist" was chosen; the
+  /// editor is 06's.
+  editLater,
+
+  /// "Double-click action: Transfer to other pane" was chosen; the
+  /// transfer queue is M4's.
+  transferLater,
 }
 
 /// One pane-tab's browsing controller (03 §6): navigation state per 02
@@ -395,6 +462,42 @@ class PaneController extends ChangeNotifier {
   /// after a failed connect reuses it.
   Bookmark? get remoteBookmark => _pendingRemote;
 
+  /// The "Double-click action" preference's live value (02 §2.6): read
+  /// at every FILE activation in [openEntry]. The owning strip stamps
+  /// it; the spec default is Open. Folders never consult it — they
+  /// always navigate.
+  DoubleClickAction doubleClickAction = DoubleClickAction.open;
+
+  /// The active transient notice (02 §10's notice family): set when an
+  /// activation resolves to a registered-but-deferred action, cleared
+  /// by [dismissNotice], by the next activation (a notice never stacks
+  /// on a notice), by the auto-hide timer, and by binding teardown.
+  PaneNotice? get notice => _notice;
+  PaneNotice? _notice;
+  Timer? _noticeTimer;
+
+  /// How long a notice lingers before auto-dismiss (02 §10's "transient
+  /// or dismiss" contract — this notice is both). Public so tests pin a
+  /// short life.
+  Duration noticeLifetime = const Duration(seconds: 4);
+
+  /// Dismisses the current notice (the strip's ✕ routes here); a no-op
+  /// when none is showing.
+  void dismissNotice() {
+    _noticeTimer?.cancel();
+    _noticeTimer = null;
+    if (_notice == null) return;
+    _notice = null;
+    notifyListeners();
+  }
+
+  void _postNotice(PaneNotice value) {
+    _noticeTimer?.cancel();
+    _notice = value;
+    _noticeTimer = Timer(noticeLifetime, dismissNotice);
+    notifyListeners();
+  }
+
   /// The keyboard cursor row into [entries]; null until the first key
   /// press or row tap. Derived from the selection state's cursor
   /// identity, so the observable cursor API keeps its contract while
@@ -526,15 +629,81 @@ class PaneController extends ChangeNotifier {
     );
   }
 
-  /// Opens one row (Enter / double-click): only entries the listing
-  /// itself types as directories navigate — a symlink is not a directory
-  /// from listing metadata alone (02 §2.3 classifies without a target
-  /// round trip), so opening it does nothing this slice. Files do
-  /// nothing yet — the double-click action
-  /// setting and the file verbs land with their own slices.
-  void openEntry(RemoteFileEntry entry) {
+  /// Activates one row (02 §2.6's Open — double-click, ⌘↓/⌘O on macOS,
+  /// Enter on Windows/Linux): only entries the listing itself types as
+  /// directories navigate, under every gesture and regardless of the
+  /// preference (a symlink is not a directory from listing metadata
+  /// alone — 02 §2.3 classifies without a target round trip — so it
+  /// routes as a file). A file runs the "Double-click action" live
+  /// value: Open launches a local file in the OS default application
+  /// through the engine's seam (D8 — the UI never spawns the launcher)
+  /// and posts the unavailable notice for a remote one (managed
+  /// checkout is 06's); the registered-but-deferred Edit and Transfer
+  /// values post their honest not-yet notices; Do nothing is inert.
+  /// Any fresh activation clears a lingering notice first.
+  Future<void> openEntry(RemoteFileEntry entry) async {
+    if (_disposed) return;
+    dismissNotice();
     if (entry.type == RemoteFileType.directory) {
       navigate(entry.path);
+      return;
+    }
+    switch (doubleClickAction) {
+      case DoubleClickAction.nothing:
+        return;
+      case DoubleClickAction.edit:
+        _postNotice(PaneNotice.editLater);
+        return;
+      case DoubleClickAction.transfer:
+        _postNotice(PaneNotice.transferLater);
+        return;
+      case DoubleClickAction.open:
+        // The BINDING names remote-ness (navigate's rule): a cancelled
+        // first listing leaves the location null under a live remote
+        // channel, and a null location must never mint a local open.
+        if (_pendingRemote != null) {
+          _postNotice(PaneNotice.openRemoteUnavailable);
+          return;
+        }
+        await _openLocalEntry(entry);
+    }
+  }
+
+  /// The local-file Open: hands the row's path to the engine's
+  /// shell-open seam and maps the launch outcome onto the pane's ONE
+  /// inline error affordance (02 §2.8) — typed engine errors surface
+  /// verbatim, an untyped failure surfaces as the authored
+  /// [PaneFault.openFile] line, and either way the pane's Retry re-runs
+  /// the open for THIS entry (the error carries it).
+  Future<void> _openLocalEntry(RemoteFileEntry entry) async {
+    final channel = _channel;
+    if (channel == null) return;
+    try {
+      await channel.openInDefaultApp(entry.path);
+      // A rebind during the in-flight launch makes this answer stale —
+      // same drop rule as a superseded listing generation.
+      if (_disposed || !identical(_channel, channel)) return;
+      // A successful (re)launch retires an open failure's inline error
+      // — never an unrelated listing error that arrived in between.
+      if (_error is OpenEntryError) {
+        _error = null;
+        notifyListeners();
+      }
+    } on RemoteFileException catch (error) {
+      if (_disposed || !identical(_channel, channel)) return;
+      _error = _OpenEntryException(entry, error);
+      notifyListeners();
+    } on Object catch (error, stackTrace) {
+      // The opaque failure is real regardless of staleness — it still
+      // reports; only the pane-state write drops after a rebind.
+      _report(error, stackTrace);
+      if (_disposed || !identical(_channel, channel)) return;
+      _error = _OpenEntryFaultException(
+        PaneFault.openFile,
+        entry,
+        operation: 'open',
+      );
+      notifyListeners();
     }
   }
 
@@ -762,6 +931,12 @@ class PaneController extends ChangeNotifier {
     }
     final current = _location;
     if (current != null && _error != null) {
+      // A failed file Open retries the LAUNCH for its recorded entry —
+      // re-listing the directory would not re-attempt the open (02 §2.6).
+      if (_error case OpenEntryError(:final entry)) {
+        await _openLocalEntry(entry);
+        return;
+      }
       final bookmark = _pendingRemote;
       if (bookmark != null &&
           current is RemotePaneLocation &&
@@ -1366,6 +1541,9 @@ class PaneController extends ChangeNotifier {
     _recovery = _RecoveryPhase.none;
     _pendingRemote = null;
     _pendingRemotePath = null;
+    _noticeTimer?.cancel();
+    _noticeTimer = null;
+    _notice = null;
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
     notifyListeners();
@@ -1381,6 +1559,9 @@ class PaneController extends ChangeNotifier {
     _quickSelect = null;
     _renameSession = null;
     _pendingRenameSelectPath = null;
+    _noticeTimer?.cancel();
+    _noticeTimer = null;
+    _notice = null;
     _typeAheadReset?.cancel();
     _typeAheadReset = null;
     _typeAheadBuffer = '';
@@ -1499,6 +1680,11 @@ class PaneController extends ChangeNotifier {
   /// Both invalidate every old answer before releasing the prior channel.
   void _beginBinding(_BindingPresentation presentation) {
     _cancelListing();
+    // The notice dies with the browsing session it arose in — a rebind
+    // never carries one pane-moment's "not yet" into the next binding.
+    _noticeTimer?.cancel();
+    _noticeTimer = null;
+    _notice = null;
     if (presentation == _BindingPresentation.replace) {
       _location = null;
       // A rebind stands nowhere until its first listing commits — the

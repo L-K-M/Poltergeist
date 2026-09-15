@@ -4613,6 +4613,37 @@ Validation: focused controller, validator, widget, command-registry,
 and engine host/client suites plus real-font captures of the open,
 mid-edit, and error states under `tasks/run3-task45/`.
 
+## M3 — file open: gestures, action preference, notices (2026-09-15)
+
+`go.open` and the row's double-tap land 02 §2.6's file half: folder rows
+navigate under every preference value, and file rows follow the new
+persisted `Double-click action` (`open`/`edit`/`transfer`/`nothing`,
+default `open`, unknown stored values fall back to `open`). The strip
+controller owns the live value and stamps it on every existing and
+future tab. macOS keeps Return for rename — the bare-Enter leg of
+`go.open` is dispatched by the pane's focus node per §8.2, which is
+where the platform split lives (⌘↓/⌘O on macOS, Enter elsewhere); F2
+rename elsewhere is untouched.
+
+Local Open rides a new engine seam — protocol v10's
+`OpenLocalFileRequest` routes through the channel-id fan-in to an
+injectable `LocalFileOpener`, so the pane never launches a process
+itself. Launcher failures surface in the pane's inline error overlay
+(typed `RemoteFileException` verbatim, untyped mapped to the new
+`PaneFault.openFile` one-liner); Retry re-opens the same entry rather
+than relisting, and a successful retry clears the stale fault. Remote
+Open is honest about the gap: an informational strip posts the
+localized not-yet-available notice and nothing launches — managed
+checkout stays with milestone 06. Edit and Transfer post their own
+localized later-milestone notices (06 and the transfer milestone
+respectively); Do Nothing is inert. Notices dismiss manually,
+auto-dismiss after a short lifetime, and clear on a fresh activation or
+binding teardown — never the error overlay, never a modal.
+
+Validation: focused controller, tabs, preferences, widget, command,
+localization-contract, and engine host/client/protocol suites under
+`tasks/run3-task46/`.
+
 ## M3 — D12 tier-B baseline per-scenario config binding (2026-09-15)
 
 Fusion review round 2's finding F9 (reproduced red-first): a landed

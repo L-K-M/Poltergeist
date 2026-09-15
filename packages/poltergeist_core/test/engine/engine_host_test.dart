@@ -55,6 +55,21 @@ class FakeWatchBackend implements LocalWatchBackend {
       controllers[directory]?.add(event);
 }
 
+/// The scripted §2.6 file opener: records each launch path and throws a
+/// scripted failure — the engine-side seam the host uses in place of the
+/// platform launcher (tests never spawn real opener processes).
+class FakeFileOpener implements LocalFileOpener {
+  final opened = <String>[];
+  Object? failure;
+
+  @override
+  Future<void> open(String path) async {
+    opened.add(path);
+    final failure = this.failure;
+    if (failure != null) throw failure;
+  }
+}
+
 /// Filesystem for the engine suite's channels: home resolution plus a
 /// scripted listing. Anything else fails loudly.
 class ScriptedFs implements RemoteFileSystem {
@@ -157,6 +172,7 @@ class HostHarness {
     EngineConfig config = const EngineConfig(),
     FakeTransportOpener? opener,
     LocalWatchBackend? localWatch,
+    LocalFileOpener? fileOpener,
     Duration? shutdownDrainTimeout,
   }) : opener = opener ?? FakeTransportOpener() {
     this.opener.transportFsBuilder = (_) => fs;
@@ -174,6 +190,7 @@ class HostHarness {
       openTransport: this.opener.opener,
       prober: prober,
       localWatch: localWatch,
+      fileOpener: fileOpener,
       shutdownDrainTimeout: shutdownDrainTimeout,
     );
   }
@@ -217,6 +234,15 @@ class HostHarness {
       channelId: channelId,
       oldPath: oldPath,
       newPath: newPath,
+    ),
+  );
+
+  /// §2.6's local-file Open request on [channelId].
+  Future<EngineResult> openFile(int channelId, String path) => call(
+    (id) => OpenLocalFileRequest(
+      requestId: id,
+      channelId: channelId,
+      path: path,
     ),
   );
 
@@ -1261,6 +1287,99 @@ void main() {
         ),
       );
       expect(conflict.kind, RemoteFileErrorKind.conflict);
+    });
+
+    test('openLocalFile launches through the opener seam and acks',
+        () async {
+      final opener = FakeFileOpener();
+      final h = HostHarness(fileOpener: opener);
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-open');
+      final home = await _canonical(root.path);
+
+      final opened = await h.openLocal(root.path);
+      final result = await h.openFile(opened.channelId, '$home/a.txt');
+
+      expect(result, isA<EngineAck>());
+      expect(opener.opened, ['$home/a.txt']);
+    });
+
+    test('openLocalFile on an unknown channel fails disconnected', () async {
+      final opener = FakeFileOpener();
+      final h = HostHarness(fileOpener: opener);
+      addTearDown(h.dispose);
+
+      final error = await expectError(h.openFile(42, '/tmp/a.txt'));
+
+      expect(error.kind, RemoteFileErrorKind.disconnected);
+      expect(opener.opened, isEmpty);
+    });
+
+    test('openLocalFile on a pool channel refuses unsupported', () async {
+      final opener = FakeFileOpener();
+      final h = HostHarness(fileOpener: opener);
+      addTearDown(h.dispose);
+
+      final channel = await h.openWithDefaults();
+
+      final error = await expectError(
+        h.openFile(channel.channelId, '/remote/a.txt'),
+      );
+      // The explicit local-only refusal — a remote file's open is 06's
+      // managed checkout, never a silent launcher call.
+      expect(error.kind, RemoteFileErrorKind.unsupported);
+      expect(opener.opened, isEmpty);
+    });
+
+    test('openLocalFile rejects an empty path before touching the opener',
+        () async {
+      final opener = FakeFileOpener();
+      final h = HostHarness(fileOpener: opener);
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-open-empty');
+
+      final opened = await h.openLocal(root.path);
+      final error = await expectError(h.openFile(opened.channelId, ''));
+
+      expect(error.kind, RemoteFileErrorKind.other);
+      expect(opener.opened, isEmpty);
+    });
+
+    test('an opener failure serializes its typed kind', () async {
+      final opener = FakeFileOpener()
+        ..failure = const RemoteFileException(
+          kind: RemoteFileErrorKind.permissionDenied,
+          operation: 'open',
+          message: 'The launcher refused the file.',
+        );
+      final h = HostHarness(fileOpener: opener);
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-open-fail');
+
+      final opened = await h.openLocal(root.path);
+      final error = await expectError(
+        h.openFile(opened.channelId, '${opened.homePath}/a.txt'),
+      );
+
+      expect(error.kind, RemoteFileErrorKind.permissionDenied);
+      expect(error.operation, 'open');
+      expect(error.message, 'The launcher refused the file.');
+    });
+
+    test('an untyped opener failure serializes as other', () async {
+      final opener = FakeFileOpener()
+        ..failure = StateError('xdg-open exited 1');
+      final h = HostHarness(fileOpener: opener);
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-open-opaque');
+
+      final opened = await h.openLocal(root.path);
+      final error = await expectError(
+        h.openFile(opened.channelId, '${opened.homePath}/a.txt'),
+      );
+
+      expect(error.kind, RemoteFileErrorKind.other);
+      expect(error.message, contains('xdg-open exited 1'));
     });
 
     test('symlinks report as links without target metadata', () async {

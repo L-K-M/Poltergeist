@@ -224,6 +224,18 @@ class FakePaneChannel implements AppBrowseChannel {
   @override
   Future<void> rename(String oldPath, String newPath) async {}
 
+  /// Recorded default-app opens (paths) and a scripted failure — null
+  /// opens succeed silently.
+  final openCalls = <String>[];
+  Object? openFailure;
+
+  @override
+  Future<void> openInDefaultApp(String path) async {
+    openCalls.add(path);
+    final failure = openFailure;
+    if (failure != null) throw failure;
+  }
+
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     listCalls.add(path);

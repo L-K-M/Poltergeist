@@ -96,6 +96,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'window.width'",
     "'window.height'",
     "'tabs.newTabTarget'",
+    "'panes.doubleClickAction'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // Ported Séance contracts (see docs/PORTS.md): the exception messages are
@@ -361,6 +362,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${widget.controller.paneTabId}.filter.field'",
     r"'${widget.controller.paneTabId}.filter.clear'",
     r"'${controller.paneTabId}.filter.emptyClear'",
+    r"'${controller.paneTabId}.notice.dismiss'",
     r"'${controller.paneTabId}.syncChip'",
     "''",
     // The rename editor's stem-selection dot — name arithmetic, not copy.

@@ -1,0 +1,304 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/double_click_action.dart';
+import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/pane_tabs_controller.dart';
+import 'package:poltergeist_app/services/workspace_controller.dart';
+import 'package:poltergeist_app/ui/panes/pane_view.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+import '../../services/pane_controller_test.dart' as controller_test;
+import '../../support/test_panes.dart';
+
+RemoteFileEntry _entry(
+  String name, {
+  RemoteFileType type = RemoteFileType.file,
+  int? size,
+  String parent = '/home/tester',
+}) {
+  return RemoteFileEntry(
+    path: '$parent/$name',
+    name: name,
+    type: type,
+    size: size,
+  );
+}
+
+Bookmark _remoteBookmark() {
+  final now = DateTime.utc(2026, 9, 12);
+  return Bookmark(
+    id: 'srv-1',
+    kind: BookmarkKind.remotePath,
+    label: 'web.example.com',
+    server: BookmarkServerRef(
+      identity: EmbeddedHostIdentity(
+        host: 'web.example.com',
+        port: 22,
+        username: 'tester',
+        authMethod: AuthMethod.password,
+      ),
+    ),
+    remotePath: '/srv/home',
+    sortKey: 'k',
+    createdAt: now,
+    updatedAt: now,
+  );
+}
+
+void main() {
+  late controller_test.FakePaneLanes lanes;
+  late PaneController left;
+  late PaneController right;
+  late PaneTabsController leftStrip;
+  late PaneTabsController rightStrip;
+  late WorkspaceController workspace;
+  late FocusNode leftNode;
+  late FocusNode rightNode;
+  late List<Object> reported;
+
+  setUp(() {
+    lanes = controller_test.FakePaneLanes();
+    reported = <Object>[];
+    left = PaneController(
+      paneTabId: 'pane.left',
+      lanes: lanes,
+      onError: (error, _) => reported.add(error),
+    );
+    right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    leftStrip = testPaneStrip(left);
+    rightStrip = testPaneStrip(right);
+    workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    leftNode = FocusNode();
+    rightNode = FocusNode();
+  });
+
+  tearDown(() {
+    workspace.dispose();
+    leftNode.dispose();
+    rightNode.dispose();
+  });
+
+  Future<void> pumpShell(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: Row(
+            children: [
+              Expanded(
+                child: PaneView(
+                  controller: left,
+                  pane: leftStrip,
+                  workspace: workspace,
+                  focusNode: leftNode,
+                  onSwapFocus: () => rightNode.requestFocus(),
+                  onCancelRecovery: () => unawaited(left.cancelRecovery()),
+                ),
+              ),
+              Expanded(
+                child: PaneView(
+                  controller: right,
+                  pane: rightStrip,
+                  workspace: workspace,
+                  focusNode: rightNode,
+                  onSwapFocus: () => leftNode.requestFocus(),
+                  onCancelRecovery: () => unawaited(right.cancelRecovery()),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// docs (a folder) plus two files, sorted directories-first then by
+  /// name: docs, notes.md, report.txt.
+  controller_test.FakePaneChannel localChannel() {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('docs', type: RemoteFileType.directory),
+      _entry('report.txt', size: 2048),
+      _entry('notes.md', size: 10),
+    ];
+    channel.listings['/home/tester/docs'] = const [];
+    lanes.nextLocalChannel = channel;
+    return channel;
+  }
+
+  /// Two taps inside the double-tap window: the row's onDoubleTap is the
+  /// §2.6 Open gesture, the deferred single-tap is only selection.
+  Future<void> doubleTapRow(WidgetTester tester, String name) async {
+    await tester.tap(find.text(name));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text(name));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a double-tap on a file row launches through the channel '
+      'under the default Open', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await doubleTapRow(tester, 'report.txt');
+
+    expect(channel.openCalls, ['/home/tester/report.txt']);
+    // The pane stayed put — a file open is not a navigation.
+    expect(left.location?.path, '/home/tester');
+    expect(left.notice, isNull);
+    expect(left.error, isNull);
+  });
+
+  testWidgets('a double-tap on a folder navigates under every action '
+      'value', (tester) async {
+    final channel = localChannel();
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    for (final action in DoubleClickAction.values) {
+      left.doubleClickAction = action;
+      await doubleTapRow(tester, 'docs');
+      expect(left.location?.path, '/home/tester/docs');
+      left.goUp();
+      await tester.pumpAndSettle();
+    }
+
+    expect(channel.openCalls, isEmpty);
+    expect(left.notice, isNull);
+  });
+
+  testWidgets('Enter opens the cursor file on Linux', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      final channel = localChannel();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.setCursorIndex(2); // report.txt (docs, notes.md sort ahead)
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(channel.openCalls, ['/home/tester/report.txt']);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('the deferred-action notice renders as a dismissible '
+      'strip', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    try {
+      localChannel();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      left.doubleClickAction = DoubleClickAction.edit;
+      left.setCursorIndex(2); // report.txt
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Editing files in Poltergeist isn't available yet — the "
+          'editor arrives in a later milestone.',
+        ),
+        findsOneWidget,
+      );
+
+      // The ✕ dismisses early (02 §10: transient or dismiss — both).
+      await tester.tap(
+        find.byKey(const ValueKey('pane.left.notice.dismiss')),
+      );
+      await tester.pumpAndSettle();
+      expect(left.notice, isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('the remote-unavailable notice renders on a remote file '
+      'and never launches', (tester) async {
+    final remote = controller_test.FakePaneChannel('/srv/home');
+    remote.listings['/srv/home'] = [
+      _entry('remote.txt', parent: '/srv/home'),
+    ];
+    lanes.nextRemoteChannel = remote;
+    await left.connectRemote(_remoteBookmark());
+    await pumpShell(tester);
+    await tester.pumpAndSettle();
+
+    await doubleTapRow(tester, 'remote.txt');
+
+    expect(
+      find.text(
+        "Remote files can't be opened in place yet — Poltergeist will "
+        'download and open them in a later milestone.',
+      ),
+      findsOneWidget,
+    );
+    expect(remote.openCalls, isEmpty);
+    expect(left.error, isNull);
+
+    // The ✕ dismisses early — and retires the auto-dismiss timer.
+    await tester.tap(
+      find.byKey(const ValueKey('pane.left.notice.dismiss')),
+    );
+    await tester.pumpAndSettle();
+    expect(left.notice, isNull);
+  });
+
+  testWidgets('a launcher failure renders in the pane inline error — '
+      'never a modal', (tester) async {
+    localChannel().openFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.other,
+      operation: 'open',
+      message: 'No application is registered for this file.',
+    );
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await doubleTapRow(tester, 'report.txt');
+
+    expect(
+      find.text('No application is registered for this file.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    expect(left.notice, isNull);
+  });
+
+  testWidgets('an untyped launcher failure renders the authored fault '
+      'line', (tester) async {
+    localChannel().openFailure = StateError('spawn failed');
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    await doubleTapRow(tester, 'report.txt');
+
+    expect(find.text('The file could not be opened.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pane.error.retry')), findsOneWidget);
+    expect(find.byType(Dialog), findsNothing);
+    // The opaque error also reports through the pane's error sink —
+    // the same non-VFS route as every other untyped pane failure.
+    expect(reported.single, isA<StateError>());
+  });
+}
