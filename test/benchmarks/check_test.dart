@@ -592,6 +592,120 @@ void main() {
     );
 
     test(
+      'rows of different tiers may carry different runtime axes',
+      () {
+        // The one `ab` results file of a main-branch job mixes tier-A
+        // rows (standalone Dart AOT collectors, no Flutter) with tier-B
+        // rows (the Flutter engine's bundled Dart, profile mode): the
+        // runtime axes never agree by construction, so agreement is
+        // enforced per tier while the machine axes stay job-wide.
+        final catalog = BudgetCatalog.fromJson({
+          'schema': budgetsSchemaId,
+          'scenarios': [
+            _scenarioJson(),
+            _scenarioJson(id: 'P1', tier: 'b'),
+          ],
+        });
+        final results = ResultsFile.fromJson(
+          _resultsJson(
+            rows: [
+              _rowJson(repetition: 0),
+              _rowJson(
+                scenario: 'P1',
+                repetition: 0,
+                fingerprint: _fingerprintJson(
+                  mode: 'profile',
+                  dartVersion: '3.13.2-engine',
+                  flutterVersion: '3.47.2',
+                ),
+              ),
+            ],
+          ),
+          catalog,
+        );
+        expect(results.rows, hasLength(2));
+        expect(results.fingerprints.keys, {BenchTier.a, BenchTier.b});
+        expect(results.fingerprints[BenchTier.a]!.mode, 'aot');
+        expect(results.fingerprints[BenchTier.b]!.mode, 'profile');
+      },
+    );
+
+    test(
+      'rows of one tier carrying different runtime axes are rejected',
+      () {
+        final catalog = BudgetCatalog.fromJson({
+          'schema': budgetsSchemaId,
+          'scenarios': [
+            _scenarioJson(),
+            _scenarioJson(id: 'P5'),
+          ],
+        });
+        expect(
+          () => ResultsFile.fromJson(
+            _resultsJson(
+              rows: [
+                _rowJson(repetition: 0),
+                _rowJson(
+                  scenario: 'P5',
+                  repetition: 0,
+                  fingerprint: _fingerprintJson(mode: 'jit'),
+                ),
+              ],
+            ),
+            catalog,
+          ),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('different environment fingerprint'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'a machine-axis difference across tiers is still rejected',
+      () {
+        final catalog = BudgetCatalog.fromJson({
+          'schema': budgetsSchemaId,
+          'scenarios': [
+            _scenarioJson(),
+            _scenarioJson(id: 'P1', tier: 'b'),
+          ],
+        });
+        expect(
+          () => ResultsFile.fromJson(
+            _resultsJson(
+              rows: [
+                _rowJson(repetition: 0),
+                _rowJson(
+                  scenario: 'P1',
+                  repetition: 0,
+                  fingerprint: _fingerprintJson(
+                    mode: 'profile',
+                    dartVersion: '3.13.2-engine',
+                    flutterVersion: '3.47.2',
+                    cpuModel: 'other-cpu',
+                  ),
+                ),
+              ],
+            ),
+            catalog,
+          ),
+          throwsA(
+            isA<CheckDataException>().having(
+              (error) => '$error',
+              'message',
+              contains('different environment fingerprint'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
       'repetitions of one scenario with differing configs are rejected',
       () {
         expect(
@@ -825,7 +939,7 @@ void main() {
         scenarioConfig: null,
       ),
     );
-    final results = ResultsFile(const [row], row.fingerprint);
+    final results = ResultsFile(const [row], {BenchTier.a: row.fingerprint});
     expect(
       () => evaluate(
         catalog: catalog,
@@ -920,12 +1034,15 @@ Map<String, Object?> _fingerprintJson({
   String runnerImage = 'image-2026',
   String mode = 'aot',
   String cpuModel = 'test-cpu',
+  String dartVersion = '3.12.0',
+  String? flutterVersion,
+  String arch = 'x64',
   String? scenarioConfig,
 }) => {
   'runnerImage': runnerImage,
-  'arch': 'x64',
-  'dartVersion': '3.12.0',
-  'flutterVersion': null,
+  'arch': arch,
+  'dartVersion': dartVersion,
+  'flutterVersion': flutterVersion,
   'mode': mode,
   'cpuModel': cpuModel,
   'scenarioConfig': scenarioConfig,

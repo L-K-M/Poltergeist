@@ -21,11 +21,16 @@
 //                       readable with a loud deprecation notice.
 // * results file      — what a bench job's run wrote: per-repetition rows
 //                       keyed (scenario, repetition) with value/unit or an
-//                       error, all sharing one job-wide environment
-//                       fingerprint. scenarioConfig is agreed per
-//                       scenario: one config within a scenario's
-//                       repetitions, distinct configs across scenarios
-//                       (one file carries the whole job, 08 §6).
+//                       error. Rows share one environment fingerprint per
+//                       tier: the machine axes (runner image, arch, CPU)
+//                       are job-wide, while the runtime axes (Dart/Flutter
+//                       version, mode) legitimately differ across tiers —
+//                       tier A runs standalone Dart AOT collectors, tier B
+//                       runs inside the Flutter engine, whose bundled Dart
+//                       version differs from the job's SDK. scenarioConfig
+//                       is agreed per scenario: one config within a
+//                       scenario's repetitions, distinct configs across
+//                       scenarios (one file carries the whole job, 08 §6).
 //                       This is a D12-specific format; it deliberately does
 //                       not reuse the M0 evidence envelope (different
 //                       schema, validator, and provenance).
@@ -126,10 +131,13 @@ const eligibleModeByTier = {BenchTier.a: 'aot', BenchTier.b: 'profile'};
 /// (each scenario's fixture identity — one config within a scenario's
 /// repetitions, distinct configs allowed across scenarios in the one
 /// results file), compared only against that scenario's own calibrated
-/// config, never across rows. `mode` is likewise not a cross-row axis:
-/// one main-branch job writes tier-A (aot) and tier-B (profile) rows
-/// into one results file, so it is validated per store (row eligibility,
-/// calibration and baseline mode checks).
+/// config, never across rows. The runtime axes — `mode`, `dartVersion`,
+/// `flutterVersion` — are per tier, not job-wide: one main-branch job
+/// writes tier-A rows measured by standalone Dart AOT collectors and
+/// tier-B rows measured inside the Flutter engine, and the two runtimes
+/// never carry the same values, so they are agreed within a tier and
+/// validated per store (row eligibility, calibration and baseline
+/// fingerprint checks). The machine axes stay job-wide.
 class BenchFingerprint {
   final String runnerImage;
   final String arch;
@@ -479,18 +487,24 @@ class ResultRow {
 class ResultsFile {
   final List<ResultRow> rows;
 
-  /// All rows must share one job-wide fingerprint (controlled axes
-  /// except mode and scenarioConfig, plus the CPU model): a mid-job
-  /// environment change is not a comparable sample (08 §6 compares the
-  /// job, not a mixture). `scenarioConfig` is instead agreed per
-  /// scenario: one scenario's repetitions must share one config, while
-  /// distinct scenarios may carry distinct configs in this one file.
-  /// Null exactly when [rows] is empty — an empty job observed nothing,
-  /// and no fingerprint is fabricated for it (fingerprint-dependent
-  /// paths treat an empty file as unobserved, never as a comparison).
-  final BenchFingerprint? fingerprint;
+  /// The environment fingerprint of each tier present in [rows], keyed
+  /// by tier. Rows of one tier must share one fingerprint in full —
+  /// a mid-job environment or runtime change inside a tier is not a
+  /// comparable sample. Across tiers only the machine axes (runner
+  /// image, arch, CPU model) must agree: the runtime axes legitimately
+  /// differ because tier A runs standalone Dart AOT collectors while
+  /// tier B runs inside the Flutter engine (08 §6 compares each tier
+  /// against its own store — tier-A rows against the calibration,
+  /// tier-B rows against the baseline). `scenarioConfig` is instead
+  /// agreed per scenario: one scenario's repetitions must share one
+  /// config, while distinct scenarios may carry distinct configs in
+  /// this one file. Empty exactly when [rows] is empty — an empty job
+  /// observed nothing, and no fingerprint is fabricated for it
+  /// (fingerprint-dependent paths treat an empty file as unobserved,
+  /// never as a comparison).
+  final Map<BenchTier, BenchFingerprint> fingerprints;
 
-  const ResultsFile(this.rows, this.fingerprint);
+  const ResultsFile(this.rows, this.fingerprints);
 
   static ResultsFile fromJson(Object? json, BudgetCatalog catalog) {
     final map = _expectMap(json, 'results file');
@@ -509,7 +523,8 @@ class ResultsFile {
     // Per-scenario config agreement: key present with a null value means
     // the scenario's rows carry no config (itself an agreement).
     final scenarioConfigs = <String, String?>{};
-    BenchFingerprint? fingerprint;
+    BenchFingerprint? machineFingerprint;
+    final fingerprints = <BenchTier, BenchFingerprint>{};
     for (final row in rows) {
       final parsedRow = _parseResultRow(row, catalog);
       final key = '${parsedRow.scenario}/${parsedRow.repetition}';
@@ -530,13 +545,35 @@ class ResultsFile {
         );
       }
       scenarioConfigs[parsedRow.scenario] = rowConfig;
-      if (fingerprint == null) {
-        fingerprint = parsedRow.fingerprint;
-      } else if (_fingerprintsDiffer(fingerprint, parsedRow.fingerprint)) {
+      final rowFingerprint = parsedRow.fingerprint;
+      // _parseResultRow already rejects unknown scenarios, so this lookup
+      // cannot miss — a miss would be a checker bug, but it still reports
+      // as a data error rather than a null-check crash.
+      final tier = catalog.scenarios[parsedRow.scenario]?.tier;
+      if (tier == null) {
+        throw CheckDataException(
+          'results file: row $key references scenario '
+          '"${parsedRow.scenario}" missing from the budget catalog',
+        );
+      }
+      final tierFingerprint = fingerprints[tier];
+      if (tierFingerprint == null) {
+        fingerprints[tier] = rowFingerprint;
+      } else if (_fingerprintsDiffer(tierFingerprint, rowFingerprint)) {
         throw CheckDataException(
           'results file: row $key carries a different environment '
-          'fingerprint than earlier rows; one job must run on one '
-          'environment',
+          'fingerprint than earlier rows of tier ${tier.name}; one tier '
+          'must share one machine and runtime environment',
+        );
+      }
+      if (machineFingerprint == null) {
+        machineFingerprint = rowFingerprint;
+      } else if (_machineAxesDiffer(machineFingerprint, rowFingerprint)) {
+        throw CheckDataException(
+          'results file: row $key carries a different environment '
+          'fingerprint than earlier rows — the machine axes '
+          '(runnerImage, arch, cpuModel) are job-wide; one job must run '
+          'on one environment',
         );
       }
       parsed.add(parsedRow);
@@ -545,7 +582,7 @@ class ResultsFile {
     // set decides what that means (honest no-budgets-evaluated when
     // nothing is landed; explicit missing-scenario failures when
     // something is).
-    return ResultsFile(parsed, fingerprint);
+    return ResultsFile(parsed, Map.unmodifiable(fingerprints));
   }
 
   static ResultRow _parseResultRow(Object? json, BudgetCatalog catalog) {
@@ -624,14 +661,26 @@ class ResultsFile {
   }
 
   static bool _fingerprintsDiffer(BenchFingerprint a, BenchFingerprint b) {
-    // Full job-wide inequality across rows except mode and
-    // scenarioConfig (see controlledAxes): cpuModel is uncontrolled for
-    // *comparison* policy but a row-level difference still means two
-    // environments in one job, which is rejected here. scenarioConfig is
-    // agreed per scenario instead (one config within a scenario's
-    // repetitions, distinct configs across scenarios).
-    return a.controlledMismatches(b).isNotEmpty || a.cpuModel != b.cpuModel;
+    // Same-tier agreement is full — every axis except the per-scenario
+    // scenarioConfig. mode is compared here even though the drift
+    // controlledAxes deliberately omit it: rows of one tier mixing
+    // aot/profile modes would be two runtimes, not one sample. cpuModel
+    // is uncontrolled for *comparison* policy but a row-level difference
+    // still means two environments in one tier, rejected here.
+    return a.controlledMismatches(b).isNotEmpty ||
+        a.cpuModel != b.cpuModel ||
+        a.mode != b.mode;
   }
+
+  /// The job-wide machine axes. runnerImage, arch, and cpuModel identify
+  /// the physical environment every row in the job must share; the
+  /// runtime axes (dartVersion, flutterVersion, mode) are per tier by
+  /// construction — tier A's standalone Dart AOT collectors and tier B's
+  /// Flutter engine never carry the same values.
+  static bool _machineAxesDiffer(BenchFingerprint a, BenchFingerprint b) =>
+      a.runnerImage != b.runnerImage ||
+      a.arch != b.arch ||
+      a.cpuModel != b.cpuModel;
 }
 
 /// The data error for a scenario whose repetitions carry differing
@@ -1007,8 +1056,11 @@ CheckReport evaluate({
   // single scenario: evaluate it once per run so failures and notices
   // appear once per mismatching axis, never once per scenario. An empty
   // results file observed nothing, so no fingerprint is ever compared
-  // (or fabricated) for it.
-  final runFingerprint = results.fingerprint;
+  // (or fabricated) for it. The run fingerprint is per tier — the
+  // baseline records the tier-B rows' runtime axes, the calibration the
+  // tier-A rows', and the two never agree by construction.
+  final tierAFingerprint = results.fingerprints[BenchTier.a];
+  final tierBFingerprint = results.fingerprints[BenchTier.b];
   if (results.rows.isEmpty) {
     notices.add(
       'NOTICE: results file contained no rows — nothing was observed '
@@ -1023,9 +1075,9 @@ CheckReport evaluate({
   var tierBCompared = 0;
   if (tiers.contains(BenchTier.b) &&
       baseline != null &&
-      runFingerprint != null) {
+      tierBFingerprint != null) {
     final controlled = baseline.fingerprint.controlledMismatches(
-      runFingerprint,
+      tierBFingerprint,
     );
     if (controlled.isNotEmpty) {
       tierBDrifted = true;
@@ -1054,13 +1106,13 @@ CheckReport evaluate({
         'cross-compared',
       );
       _printRefreshProcedure(notices);
-    } else if (baseline.fingerprint.cpuModel != runFingerprint.cpuModel) {
+    } else if (baseline.fingerprint.cpuModel != tierBFingerprint.cpuModel) {
       tierBDrifted = true;
       firedDriftKeys.add('tier-b/cpu');
       notices.add(
         'NOTICE: hardware drift — refresh the baseline: tier-B CPU model '
         'mismatch (${baseline.fingerprint.cpuModel} != '
-        '${runFingerprint.cpuModel}); comparison skipped, never '
+        '${tierBFingerprint.cpuModel}); comparison skipped, never '
         'cross-compared and never auto-reddened on its own',
       );
       _printRefreshProcedure(notices);
@@ -1203,11 +1255,13 @@ CheckReport evaluate({
         '(median of ${eligible.length})';
 
     if (budget.tier == BenchTier.a) {
-      // Non-empty `eligible` implies non-empty rows implies a parsed
-      // fingerprint; promote it explicitly instead of asserting `!`.
-      final tierARunFingerprint = runFingerprint;
+      // Non-empty `eligible` implies tier-A rows implies a parsed
+      // tier-A fingerprint; promote it explicitly instead of asserting `!`.
+      final tierARunFingerprint = tierAFingerprint;
       if (tierARunFingerprint == null) {
-        throw StateError('eligible rows imply a parsed fingerprint');
+        throw StateError(
+          'eligible tier-A rows imply a parsed tier-A fingerprint',
+        );
       }
       _evaluateTierA(
         budget: budget,
