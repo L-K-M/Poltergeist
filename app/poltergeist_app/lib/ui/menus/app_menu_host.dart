@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -11,12 +12,12 @@ import 'app_menus.dart';
 ///
 /// On macOS the derived model is pushed to the native menu bar through
 /// [PlatformMenuBar]; on Windows and Linux the same model renders as a
-/// Flutter [MenuBar] strip above [child] (02 §9).
+/// Flutter [MenuBar] strip above the content (02 §9).
 ///
 /// The host owns no command behavior: labels, enablement, and shortcut
 /// hints all come straight from each [RegisteredCommand], and activation
 /// delegates to [onRun] — the same path the chord layer and toolbar take.
-class AppMenuHost extends StatelessWidget {
+class AppMenuHost extends StatefulWidget {
   const AppMenuHost({
     super.key,
     required this.commands,
@@ -25,6 +26,11 @@ class AppMenuHost extends StatelessWidget {
   });
 
   /// The live registry snapshot from the shell.
+  ///
+  /// Contract: [commands] is consulted for enablement on every build, so
+  /// the shell must rebuild this host whenever any command's
+  /// [RegisteredCommand.enabled] result may have flipped — the workspace
+  /// listenable that drives the toolbar does exactly that.
   final List<RegisteredCommand> commands;
 
   /// Runs a command; called on menu activation with the command itself.
@@ -34,19 +40,33 @@ class AppMenuHost extends StatelessWidget {
   final Widget child;
 
   @override
+  State<AppMenuHost> createState() => _AppMenuHostState();
+}
+
+class _AppMenuHostState extends State<AppMenuHost> {
+  /// Cache for the macOS serialization: [PlatformMenuBar.didUpdateWidget]
+  /// re-syncs the whole menu tree over the platform channel whenever the
+  /// item objects differ, and the pane listenable rebuilds this host on
+  /// every selection/filter notification — so identical menus must keep
+  /// identical item objects to stay a no-op.
+  List<Object?>? _menuSignature;
+  Object? _menuRunner;
+  List<PlatformMenuItem>? _platformMenus;
+
+  @override
   Widget build(BuildContext context) {
     final platform = Theme.of(context).platform;
     final l10n = AppLocalizations.of(context);
     final menus = buildAppMenus(
-      commands: commands,
+      commands: widget.commands,
       l10n: l10n,
       platform: platform,
     );
 
     if (platform == TargetPlatform.macOS) {
       return PlatformMenuBar(
-        menus: [for (final menu in menus) _platformMenu(menu, l10n)],
-        child: child,
+        menus: _syncedMenus(menus, l10n),
+        child: widget.child,
       );
     }
 
@@ -74,9 +94,62 @@ class AppMenuHost extends StatelessWidget {
           ),
         ),
         const Divider(height: 1),
-        Expanded(child: child),
+        Expanded(child: widget.child),
       ],
     );
+  }
+
+  /// Serializes [menus] once per content change; a rebuild with an
+  /// unchanged signature reuses the same item objects so the platform
+  /// bar's `listEquals` check short-circuits the channel sync.
+  List<PlatformMenuItem> _syncedMenus(
+    List<AppMenuModel> menus,
+    AppLocalizations l10n,
+  ) {
+    final signature = _signature(menus);
+    final cached = _platformMenus;
+    if (cached != null &&
+        _menuRunner == widget.onRun &&
+        listEquals(signature, _menuSignature)) {
+      return cached;
+    }
+    final built = [for (final menu in menus) _platformMenu(menu, l10n)];
+    _menuSignature = signature;
+    _menuRunner = widget.onRun;
+    _platformMenus = built;
+    return built;
+  }
+
+  /// Everything a native menu item can carry — structure, titles, each
+  /// command's enablement and bound key equivalent — flattened to scalars
+  /// and records so [listEquals] can compare two builds field-by-field.
+  List<Object?> _signature(List<AppMenuModel> menus) => [
+    for (final menu in menus) ...[
+      menu.id,
+      menu.title,
+      for (final group in menu.groups) ...[
+        _rowBoundary,
+        for (final row in group) ..._rowSignature(row),
+      ],
+    ],
+  ];
+
+  /// Positional marker inside a signature; identity-stable across builds.
+  static const _rowBoundary = Object();
+
+  Iterable<Object?> _rowSignature(AppMenuRow row) sync* {
+    switch (row) {
+      case AppMenuCommandRow(:final command):
+        yield (command.id, command.enabled(), _nativeShortcut(command));
+      case AppMenuSubmenuRow(:final title, :final items):
+        yield _rowBoundary;
+        yield title;
+        for (final item in items) {
+          yield* _rowSignature(item);
+        }
+      case AppMenuProvidedRow(:final type):
+        yield type;
+    }
   }
 
   // -- MenuBar (Windows/Linux) -----------------------------------------
@@ -91,7 +164,7 @@ class AppMenuHost extends StatelessWidget {
         key: ValueKey('menu.item.${command.id}'),
         shortcut: _displayShortcut(command, platform),
         onPressed: command.enabled()
-            ? () => unawaited(onRun(command))
+            ? () => unawaited(widget.onRun(command))
             : null,
         child: Text(command.label(l10n)),
       ),
@@ -205,7 +278,9 @@ class AppMenuHost extends StatelessWidget {
   /// surface owns outright (⌘A/⌘C/⌘X/⌘V/⌘Z/⌘⇧Z/⌘⌫) re-dispatches the
   /// matching text intent to that field instead of running the command.
   /// No Swift side is needed — the macOS embedder turns menu selections
-  /// into this callback.
+  /// into this callback. When the field's handler is absent or disabled
+  /// (a read-only field's Paste, say), the command runs as usual rather
+  /// than the key equivalent being swallowed.
   void _activateNative(
     RegisteredCommand command,
     MenuSerializableShortcut? shortcut,
@@ -216,10 +291,13 @@ class AppMenuHost extends StatelessWidget {
         focusContext != null &&
         focusContext.findAncestorWidgetOfExactType<EditableText>() !=
             null) {
-      Actions.maybeInvoke(focusContext, intent);
-      return;
+      final action = Actions.maybeFind(focusContext, intent: intent);
+      if (action != null && action.isEnabled(intent)) {
+        Actions.invoke(focusContext, intent);
+        return;
+      }
     }
-    unawaited(onRun(command));
+    unawaited(widget.onRun(command));
   }
 
   /// Maps a field-owned macOS chord to the intent a focused text field

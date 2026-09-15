@@ -42,13 +42,16 @@ RegisteredCommand _command(
 /// asserts the real platform for provided items).
 class _RecordingMenuDelegate extends PlatformMenuDelegate {
   List<PlatformMenuItem> menus = const [];
+  var pushes = 0;
 
   @override
   void clearMenus() => menus = const [];
 
   @override
-  void setMenus(List<PlatformMenuItem> topLevelMenus) =>
-      menus = topLevelMenus;
+  void setMenus(List<PlatformMenuItem> topLevelMenus) {
+    pushes++;
+    menus = topLevelMenus;
+  }
 
   @override
   bool debugLockDelegate(BuildContext context) => true;
@@ -58,10 +61,10 @@ class _RecordingMenuDelegate extends PlatformMenuDelegate {
 }
 
 void _useRecordingMenuDelegate() {
+  final original = WidgetsBinding.instance.platformMenuDelegate;
   WidgetsBinding.instance.platformMenuDelegate = _RecordingMenuDelegate();
   addTearDown(() {
-    WidgetsBinding.instance.platformMenuDelegate =
-        DefaultPlatformMenuDelegate();
+    WidgetsBinding.instance.platformMenuDelegate = original;
   });
 }
 
@@ -355,6 +358,41 @@ void main() {
       // duplicated chord spelling.
       expect(item.shortcut, same(chord));
     });
+
+    testWidgets('renders shared submenu rows as nested submenus', (
+      tester,
+    ) async {
+      String submenuTitle(AppLocalizations l10n) => 'Sort By';
+      await pumpHost(
+        tester,
+        [
+          _command(
+            'x.byName',
+            placement: CommandMenuPlacement(
+              menu: AppMenuId.view,
+              order: 10,
+              submenu: submenuTitle,
+            ),
+          ),
+          _command(
+            'x.bySize',
+            placement: CommandMenuPlacement(
+              menu: AppMenuId.view,
+              order: 11,
+              submenu: submenuTitle,
+            ),
+          ),
+        ],
+        onRun: (_) async {},
+      );
+
+      await tester.tap(find.text('View'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sort By'));
+      await tester.pumpAndSettle();
+      expect(find.text('x.byName'), findsOneWidget);
+      expect(find.text('x.bySize'), findsOneWidget);
+    });
   });
 
   group('PlatformMenuBar branch (macOS)', () {
@@ -393,9 +431,12 @@ void main() {
       final bar = tester.widget<PlatformMenuBar>(
         find.byType(PlatformMenuBar),
       );
-      // App menu chrome first, the command-derived Go menu, then the
-      // platform Window menu (minimize/zoom + future tab rows).
-      final titles = bar.menus.map((m) => (m as PlatformMenu).label);
+      // The delegate received the push itself, not just the widget's
+      // configuration: app chrome first, then Go, then Window.
+      final pushed =
+          WidgetsBinding.instance.platformMenuDelegate
+              as _RecordingMenuDelegate;
+      final titles = pushed.menus.map((m) => (m as PlatformMenu).label);
       expect(titles, ['Poltergeist', 'Go', 'Window']);
 
       final goMenu = _menuNamed(bar, 'Go');
@@ -410,6 +451,58 @@ void main() {
       item.onSelected!();
       await tester.pump();
       expect(ran, isTrue);
+    });
+
+    testWidgets('nests submenu rows under a nested PlatformMenu', (
+      tester,
+    ) async {
+      _useRecordingMenuDelegate();
+      String submenuTitle(AppLocalizations l10n) => 'Sort By';
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.macOS),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AppMenuHost(
+              commands: [
+                _command(
+                  'x.byName',
+                  placement: CommandMenuPlacement(
+                    menu: AppMenuId.view,
+                    order: 10,
+                    submenu: submenuTitle,
+                  ),
+                ),
+                _command(
+                  'x.bySize',
+                  placement: CommandMenuPlacement(
+                    menu: AppMenuId.view,
+                    order: 11,
+                    submenu: submenuTitle,
+                  ),
+                ),
+              ],
+              onRun: (_) async {},
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final pushed =
+          WidgetsBinding.instance.platformMenuDelegate
+              as _RecordingMenuDelegate;
+      final view = pushed.menus
+          .whereType<PlatformMenu>()
+          .singleWhere((m) => m.label == 'View');
+      final nested = _leavesOf(view).single as PlatformMenu;
+      expect(nested.label, 'Sort By');
+      expect(
+        _leavesOf(nested).map((item) => item.label),
+        ['x.byName', 'x.bySize'],
+      );
     });
 
     testWidgets('a disabled command pushes a disabled item', (tester) async {
@@ -444,6 +537,62 @@ void main() {
       );
       final item = _leavesOf(_menuNamed(bar, 'File')).single;
       expect(item.onSelected, isNull);
+    });
+
+    testWidgets('an unchanged menu signature skips the channel re-sync', (
+      tester,
+    ) async {
+      _useRecordingMenuDelegate();
+      var enabled = true;
+      final commands = [
+        _command(
+          'x.verb',
+          enabled: () => enabled,
+          placement: const CommandMenuPlacement(
+            menu: AppMenuId.file,
+            order: 10,
+          ),
+        ),
+      ];
+      Future<void> onRun(RegisteredCommand command) async {}
+      Widget host() => MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.macOS),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: AppMenuHost(
+            commands: commands,
+            onRun: onRun,
+            child: const SizedBox.expand(),
+          ),
+        ),
+      );
+
+      // PlatformMenuBar populates its descendant baseline on the first
+      // didUpdateWidget, so one update syncs once regardless — warm it,
+      // then take the baseline.
+      await tester.pumpWidget(host());
+      await tester.pumpWidget(host());
+      await tester.pump();
+      final pushed =
+          WidgetsBinding.instance.platformMenuDelegate
+              as _RecordingMenuDelegate;
+      final afterFirst = pushed.pushes;
+      final firstMenus = pushed.menus;
+
+      // A rebuild with an unchanged signature reuses the item objects —
+      // the platform bar's listEquals check then short-circuits.
+      await tester.pumpWidget(host());
+      await tester.pump();
+      expect(pushed.pushes, afterFirst);
+      expect(identical(pushed.menus, firstMenus), isTrue);
+
+      // A flipped enablement is a new signature and does re-sync.
+      enabled = false;
+      await tester.pumpWidget(host());
+      await tester.pump();
+      expect(pushed.pushes, greaterThan(afterFirst));
+      expect(identical(pushed.menus, firstMenus), isFalse);
     });
 
     testWidgets('a field-owned chord retargets to the focused text field', (

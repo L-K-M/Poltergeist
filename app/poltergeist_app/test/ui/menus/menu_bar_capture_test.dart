@@ -18,8 +18,9 @@ import '../../support/fake_bookmark_store.dart';
 import '../../support/fake_ssh_config_source.dart';
 
 /// Real-font captures of the registry-rendered menu bar (02 §9 / 07
-/// §3.4): the closed strip, the File menu (tab block, Open, import), and
-/// the Edit menu showing the registered shortcut hints. The widget-test
+/// §3.4): the closed strip, the File menu (tab block, Open, import), the
+/// Edit menu showing the registered shortcut hints, and the View menu
+/// (Refresh + the interim Connections entry). The widget-test
 /// default font renders hollow boxes, so the capture loads a real face
 /// when the host provides one — set POLTERGEIST_CAPTURE_FONT_DIR or rely
 /// on the DejaVu fallback. The PNGs land in tasks/run3-task40/ at the
@@ -38,8 +39,9 @@ Future<ByteData> _fontBytes(String path) async {
 }
 
 Future<void> _loadRealFonts() async {
+  final home = Platform.environment['HOME'];
   final dir = Platform.environment['POLTERGEIST_CAPTURE_FONT_DIR'] ??
-      '${Platform.environment['HOME']}/.local/share/fonts';
+      (home == null ? '' : '$home/.local/share/fonts');
   final sans = File('$dir/DejaVuSans.ttf');
   final sansBold = File('$dir/DejaVuSans-Bold.ttf');
   final mono = File('$dir/DejaVuSansMono.ttf');
@@ -72,8 +74,8 @@ RemoteFileEntry _entry(String name) => RemoteFileEntry(
 );
 
 void main() {
-  testWidgets('captures the closed menu bar and the open File and Edit '
-      'menus', (tester) async {
+  testWidgets('captures the closed menu bar and the open File, Edit, '
+      'and View menus', (tester) async {
     await tester.runAsync(_loadRealFonts);
 
     final engine = session_test.FakeAppEngine();
@@ -184,6 +186,9 @@ void main() {
     await tester.tap(find.text(l10n.menuFile));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // The popup actually opened — a closed-bar capture is not
+    // evidence the menu renders.
+    expect(find.byType(MenuItemButton), findsWidgets);
     await capture('menu-file');
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -191,6 +196,9 @@ void main() {
     await tester.tap(find.text(l10n.menuEdit));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // The popup actually opened — a closed-bar capture is not
+    // evidence the menu renders.
+    expect(find.byType(MenuItemButton), findsWidgets);
     await capture('menu-edit');
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -198,6 +206,9 @@ void main() {
     await tester.tap(find.text(l10n.menuView));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // The popup actually opened — a closed-bar capture is not
+    // evidence the menu renders.
+    expect(find.byType(MenuItemButton), findsWidgets);
     await capture('menu-view');
   });
 }

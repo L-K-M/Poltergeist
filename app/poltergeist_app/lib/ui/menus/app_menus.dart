@@ -20,10 +20,11 @@ final class AppMenuCommandRow extends AppMenuRow {
 
 /// A named submenu grouping command rows (02 §9 "Sort By").
 final class AppMenuSubmenuRow extends AppMenuRow {
-  AppMenuSubmenuRow({required this.title});
+  AppMenuSubmenuRow({required this.title, required List<AppMenuCommandRow> items})
+    : items = List.unmodifiable(items);
 
   final String title;
-  final List<AppMenuCommandRow> items = [];
+  final List<AppMenuCommandRow> items;
 }
 
 /// A platform-provided native item — used only on macOS for the
@@ -86,6 +87,11 @@ List<AppMenuModel> buildAppMenus({
           AppMenuProvidedRow(PlatformProvidedMenuItemType.zoomWindow),
         ],
         ...groups,
+        const [
+          AppMenuProvidedRow(
+            PlatformProvidedMenuItemType.arrangeWindowsInFront,
+          ),
+        ],
       ];
     }
     if (groups.isEmpty) continue;
@@ -140,34 +146,48 @@ List<List<AppMenuRow>> _menuGroups(
     return true;
   }());
 
+  // Per divider-separated section: `ordered` keeps each row's
+  // first-occurrence position (a command, or a submenu title for merged
+  // submenu rows whose members buffer in `submenuItems`).
   final groups = <List<AppMenuRow>>[];
   int? group;
-  List<AppMenuRow>? rows;
+  List<Object>? ordered;
+  Map<String, List<AppMenuCommandRow>>? submenuItems;
+
+  void flush() {
+    final entries = ordered;
+    final submenus = submenuItems;
+    if (entries == null || submenus == null) return;
+    groups.add([
+      for (final entry in entries)
+        entry is String
+            ? AppMenuSubmenuRow(title: entry, items: submenus[entry]!)
+            : AppMenuCommandRow(entry as RegisteredCommand),
+    ]);
+  }
+
   for (final command in sorted) {
     final placement = command.menuPlacement!;
     if (placement.group != group) {
+      flush();
       group = placement.group;
-      rows = [];
-      groups.add(rows);
+      ordered = [];
+      submenuItems = {};
     }
     final submenu = placement.submenu;
     if (submenu == null) {
-      rows!.add(AppMenuCommandRow(command));
+      ordered!.add(command);
     } else {
       final title = submenu(l10n);
-      final row = rows!
-          .whereType<AppMenuSubmenuRow>()
-          .where((r) => r.title == title)
-          .firstOrNull;
-      if (row == null) {
-        final created = AppMenuSubmenuRow(title: title)
-          ..items.add(AppMenuCommandRow(command));
-        rows.add(created);
-      } else {
-        row.items.add(AppMenuCommandRow(command));
-      }
+      submenuItems!
+          .putIfAbsent(title, () {
+            ordered!.add(title);
+            return [];
+          })
+          .add(AppMenuCommandRow(command));
     }
   }
+  flush();
   return groups;
 }
 
