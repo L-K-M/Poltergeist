@@ -788,6 +788,108 @@ void main() {
     controller.dispose();
   });
 
+  test('Esc restores the prior binding when the candidate flaps to '
+      'reconnecting mid-window', () async {
+    final lanes = FakePaneLanes();
+    final remote = FakePaneChannel('/srv/home')
+      ..listings['/srv/home'] = [_entry('remote.txt')];
+    lanes.nextRemoteChannel = remote;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    final candidate = FakePaneChannel('/other/home')
+      ..listings['/other/home'] = [_entry('other.txt')]
+      ..holdNext = Completer<void>();
+    lanes.nextRemoteChannel = candidate;
+    await controller.connectRemote(_remoteBookmark(id: 'srv-2'));
+    expect(controller.loading, isTrue);
+
+    // The candidate's own status lane reports loss mid-window: _error
+    // and connectionLost now describe the CANDIDATE — the state that
+    // used to dead-end Esc behind cancelNavigation's guards.
+    lanes.emitState(
+      'srv-2',
+      const ServerStatus(ServerConnectionState.reconnecting),
+    );
+    await settle();
+    expect(controller.connectionLost, isTrue);
+
+    controller.cancelNavigation();
+    await settle();
+
+    expect(controller.phase, PanePhase.browsing);
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(controller.entries.single.name, 'remote.txt');
+    // The restored baseline must not carry the candidate's stale
+    // loss/error state.
+    expect(controller.connectionLost, isFalse);
+    expect(controller.error, isNull);
+    expect(remote.closeCalls, 0);
+    expect(candidate.closeCalls, 1);
+    controller.dispose();
+  });
+
+  test('a failed retainCache retry keeps the rollback parked for Esc',
+      () async {
+    final lanes = FakePaneLanes();
+    final remote = FakePaneChannel('/srv/home')
+      ..listings['/srv/home'] = [_entry('remote.txt')];
+    lanes.nextRemoteChannel = remote;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    final candidate = FakePaneChannel('/other/home')
+      ..listings['/other/home'] = [_entry('other.txt')]
+      ..holdNext = Completer<void>();
+    lanes.nextRemoteChannel = candidate;
+    await controller.connectRemote(_remoteBookmark(id: 'srv-2'));
+
+    // Drive the candidate to recovery-failed: reconnecting parks the
+    // pane on the banner, disconnected ends it.
+    lanes.emitState(
+      'srv-2',
+      const ServerStatus(ServerConnectionState.reconnecting),
+    );
+    await settle();
+    lanes.emitState(
+      'srv-2',
+      const ServerStatus(ServerConnectionState.disconnected),
+    );
+    await settle();
+    expect(controller.canRetryRecovery, isTrue);
+
+    // The recovery retry re-binds the candidate (retainCache) and the
+    // open fails — a transient retry failure must NOT retire the
+    // parked prior binding before the replacement ever committed.
+    lanes.remoteOpenFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'connect',
+      message: 'still down',
+    );
+    await controller.retry();
+    expect(candidate.closeCalls, 1);
+    expect(controller.error, isNotNull);
+
+    controller.cancelNavigation();
+    await settle();
+
+    expect(controller.phase, PanePhase.browsing);
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(controller.entries.single.name, 'remote.txt');
+    expect(controller.connectionLost, isFalse);
+    expect(controller.error, isNull);
+    expect(remote.closeCalls, 0);
+    controller.dispose();
+  });
+
   test('verbsEnabled requires a live browsing phase', () async {
     // No engine at all: never verbs.
     final engineless = PaneController(paneTabId: 'pane.left');
