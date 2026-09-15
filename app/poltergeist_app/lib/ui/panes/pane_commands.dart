@@ -53,6 +53,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goUp();
       },
+      // 02 §9's Go menu: Back, Forward, Enclosing Folder, Home — slots
+      // 10/20/40 stay open for the commands that land later.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.go,
+        order: 30,
+      ),
     ),
     RegisteredCommand(
       id: kGoOpenCommandId,
@@ -89,6 +95,13 @@ List<RegisteredCommand> buildPaneCommands({
         }
         pane.openEntry(pane.entries[cursor]);
       },
+      // 02 §9's File menu, after the (unregistered) New Folder/New File
+      // slots; the second group splits file verbs from the tab block.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 60,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kViewRefreshCommandId,
@@ -110,6 +123,13 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.refresh();
       },
+      // 02 §9's View table ends at Customize Sidebar (slot 100); Refresh
+      // and the interim Connections entry sit in the trailing group.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 110,
+        group: 2,
+      ),
     ),
     RegisteredCommand(
       id: kPaneFocusLeftCommandId,
@@ -188,6 +208,13 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.selectAll();
       },
+      // 02 §9's Edit menu: the clipboard block (slots 10–50) is empty
+      // today, so the selection block opens the rendered menu.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 60,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kEditInvertSelectionCommandId,
@@ -207,6 +234,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.invertSelection();
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 70,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kSelectionQuickSelectCommandId,
@@ -222,6 +254,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.openQuickSelect();
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 80,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kViewFilterCommandId,
@@ -237,6 +274,12 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.openFilter();
       },
+      // 02 §9 puts Filter in the Edit menu (after Quick Select).
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.edit,
+        order: 90,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kTabNewCommandId,
@@ -252,6 +295,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.activePane.newTab();
       },
+      // 02 §9's File menu opens with the tab block (slots 10–30).
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 10,
+      ),
     ),
     RegisteredCommand(
       id: kTabCloseCommandId,
@@ -271,6 +319,10 @@ List<RegisteredCommand> buildPaneCommands({
         final tab = strip.activeTab;
         if (tab != null) await strip.requestCloseTab(tab);
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 30,
+      ),
     ),
     RegisteredCommand(
       id: kTabReopenClosedCommandId,
@@ -290,6 +342,10 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         await workspace.activePane.reopenClosedTab();
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 20,
+      ),
     ),
     RegisteredCommand(
       id: kTabNextCommandId,
@@ -316,6 +372,14 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.activePane.activateNextTab();
       },
+      // 02 §9's Window menu carries the tab-navigation rows beside the
+      // platform-standard items (group 0 on macOS) — the tab.select1–9
+      // block follows at slot 30+.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.window,
+        order: 10,
+        group: 1,
+      ),
     ),
     RegisteredCommand(
       id: kTabPreviousCommandId,
@@ -340,6 +404,11 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         workspace.activePane.activatePreviousTab();
       },
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.window,
+        order: 20,
+        group: 1,
+      ),
     ),
   ];
 }

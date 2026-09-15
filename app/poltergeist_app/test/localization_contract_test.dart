@@ -250,6 +250,18 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'LocalPaneLocation(\$path)'",
     "'RemotePaneLocation(\$serverId, \$path)'",
   },
+  // Menu-row widget keys keyed to the registry's command/menu ids —
+  // widget plumbing, not authored copy.
+  'lib/ui/menus/app_menu_host.dart': {
+    r"'menu.${menu.id.name}'",
+    r"'menu.item.${command.id}'",
+  },
+  // Debug-only placement-slot invariant diagnostics — never rendered.
+  'lib/ui/menus/app_menus.dart': {
+    "'the macOS application menu is platform chrome only'",
+    r"'${p.group}:${p.order}'",
+    r"'${command.id} shares menu slot ${p.group}:${p.order}'",
+  },
   // The pane-command registry ids (D21 plumbing) and the pane view's
   // widget keys plus path-separator arithmetic — machine data, never
   // authored copy.

@@ -4,6 +4,34 @@
   "@appTitle": {
     "description": "Application and main window title."
   },
+  "menuFile": "File",
+  "@menuFile": {
+    "description": "Title of the File application menu."
+  },
+  "menuEdit": "Edit",
+  "@menuEdit": {
+    "description": "Title of the Edit application menu."
+  },
+  "menuView": "View",
+  "@menuView": {
+    "description": "Title of the View application menu."
+  },
+  "menuGo": "Go",
+  "@menuGo": {
+    "description": "Title of the Go application menu."
+  },
+  "menuCommands": "Commands",
+  "@menuCommands": {
+    "description": "Title of the Commands application menu (02 §9 menu table)."
+  },
+  "menuWindow": "Window",
+  "@menuWindow": {
+    "description": "Title of the Window application menu."
+  },
+  "menuHelp": "Help",
+  "@menuHelp": {
+    "description": "Title of the Help application menu."
+  },
   "paneAName": "Pane A",
   "@paneAName": {
     "description": "Label for the left file pane."
