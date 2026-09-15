@@ -833,9 +833,10 @@ class PaneController extends ChangeNotifier {
         snapshot?.selection ?? SelectionState<_RowKey>.begin(rows: const []);
     _sortedListing = snapshot?.listing ?? const [];
     _setListing(_hiddenFiltered(_sortedListing));
-    _applyEntries(_filteredListing());
-    // The restored snapshot owns its rows again.
+    // The restored snapshot owns its rows again — clear before
+    // publishing so listeners never see owned rows flagged stale.
     _staleRows = false;
+    _applyEntries(_filteredListing());
     // Reconcile the trail with the restored location: the index was
     // moved at issue time, so it names the just-cancelled target. The
     // restored location was recorded when the user navigated to it —
@@ -1727,8 +1728,8 @@ class PaneController extends ChangeNotifier {
     _setListing(const []);
     _filterQuery = '';
     _filterFieldOpen = false;
-    _applyEntries(const []);
     _staleRows = false;
+    _applyEntries(const []);
     _error = null;
     _snapshot = null;
     _connectionStatus = null;
@@ -1997,9 +1998,9 @@ class PaneController extends ChangeNotifier {
       _setListing(const []);
       _filterQuery = '';
       _filterFieldOpen = false;
-      _applyEntries(const []);
       // No rows at all now — nothing stale is left to guard.
       _staleRows = false;
+      _applyEntries(const []);
       _error = null;
       _recovery = _RecoveryPhase.none;
     } else {
@@ -2160,9 +2161,10 @@ class PaneController extends ChangeNotifier {
       _retireRollback();
       _sortedListing = sortFileEntries(listed);
       _setListing(_hiddenFiltered(_sortedListing));
-      _applyEntries(_filteredListing());
-      // The accepted listing owns its rows again.
+      // The accepted listing owns its rows again — clear before
+      // publishing so listeners never see owned rows flagged stale.
       _staleRows = false;
+      _applyEntries(_filteredListing());
       final renameSelect = _pendingRenameSelectPath;
       _pendingRenameSelectPath = null;
       if (renameSelect != null) {
@@ -2341,9 +2343,10 @@ class PaneController extends ChangeNotifier {
     _sortedListing = rollback.sortedListing;
     _setListing(_hiddenFiltered(_sortedListing));
     _selection = rollback.selection;
-    _applyEntries(_filteredListing());
-    // The restored binding owns its rows again.
+    // The restored binding owns its rows again — clear before
+    // publishing so listeners never see owned rows flagged stale.
     _staleRows = false;
+    _applyEntries(_filteredListing());
     _history
       ..clear()
       ..addAll(rollback.history);
