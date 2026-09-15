@@ -183,12 +183,33 @@ class _TabStripState extends State<_TabStrip> {
                     if (active != null) {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         final chipContext = _activeChipKey.currentContext;
-                        if (chipContext != null) {
-                          Scrollable.ensureVisible(
-                            chipContext,
-                            alignment: 0.5,
-                          );
+                        if (chipContext == null) return;
+                        // Scroll only when the chip is actually
+                        // offscreen — an already-visible activation
+                        // shouldn't animate. (There is no
+                        // "only-if-offscreen" alignmentPolicy constant;
+                        // the rect check is the guard.)
+                        final chipObject = chipContext.findRenderObject();
+                        final viewObject = Scrollable.of(
+                          chipContext,
+                        ).context.findRenderObject();
+                        if (chipObject is RenderBox &&
+                            viewObject is RenderBox) {
+                          final chipRect =
+                              chipObject.localToGlobal(Offset.zero) &
+                              chipObject.size;
+                          final viewRect =
+                              viewObject.localToGlobal(Offset.zero) &
+                              viewObject.size;
+                          if (viewRect.contains(chipRect.topLeft) &&
+                              viewRect.contains(chipRect.bottomRight)) {
+                            return;
+                          }
                         }
+                        Scrollable.ensureVisible(
+                          chipContext,
+                          alignment: 0.5,
+                        );
                       });
                     }
                   }

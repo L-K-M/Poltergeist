@@ -4237,8 +4237,8 @@ rides the in-flight confirmation rather than stacking dialogs.
 Closing the last tab leaves the pane on the launcher (02 §2.7) —
 never blank, never auto-opened. ⇧⌘T pops a LIFO ring of ten ghosts —
 the most recently closed tab reopens first, and the oldest ghost is
-evicted at the cap:
-binding + location re-open and the transient lenses (filter query and
+evicted at the cap.
+Binding + location re-open and the transient lenses (filter query and
 field state, hidden-file override, view mode) restore through
 `restoreTransientState`; selection and in-flight state are not
 restorable (selection keys name dead listing identities) — the ghost

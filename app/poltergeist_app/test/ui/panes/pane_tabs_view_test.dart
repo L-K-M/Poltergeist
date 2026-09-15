@@ -185,5 +185,23 @@ void main() {
       isTrue,
       reason: 'cycling back must scroll the first chip into view',
     );
+
+    // An already-visible activation must not scroll: ensureVisible's
+    // explicit alignment would re-center the chip on every ⌃⇥.
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byType(SingleChildScrollView),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    final atRest = scrollable.position.pixels;
+    strip.activateTab(strip.tabs[1]);
+    await tester.pump();
+    await tester.pump();
+    expect(
+      scrollable.position.pixels,
+      atRest,
+      reason: 'an onscreen chip activation keeps the strip at rest',
+    );
   });
 }
