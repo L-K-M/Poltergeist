@@ -556,7 +556,7 @@ class ResultsFile {
         throw CheckDataException(
           'results file: row $key carries a different environment '
           'fingerprint than earlier rows of tier ${tier.name}; one tier '
-          'must run on one runtime',
+          'must share one machine and runtime environment',
         );
       }
       if (machineFingerprint == null) {
