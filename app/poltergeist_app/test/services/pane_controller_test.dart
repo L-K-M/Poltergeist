@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
@@ -101,6 +102,24 @@ class FakePaneChannel implements AppBrowseChannel {
   /// When set, every listing throws this non-VFS error (drives the
   /// typed PaneFault list path).
   Object? listingFailure;
+
+  /// Recorded rename calls (oldPath, newPath) and a scripted failure —
+  /// null renames succeed silently.
+  final renameCalls = <(String, String)>[];
+  Object? renameFailure;
+  Completer<void>? heldRename;
+
+  @override
+  Future<void> rename(String oldPath, String newPath) async {
+    renameCalls.add((oldPath, newPath));
+    final held = heldRename;
+    if (held != null) {
+      heldRename = null;
+      await held.future;
+    }
+    final failure = renameFailure;
+    if (failure != null) throw failure;
+  }
 
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
@@ -1306,6 +1325,321 @@ void main() {
         0,
         reason:
             'Esc restores the FIRST baseline (empty), not the mid-session edit',
+      );
+      controller.dispose();
+    });
+  });
+
+  group('inline rename (02 §2.6)', () {
+    /// A controller browsing a scripted local listing; the channel is
+    /// returned alongside so rename calls and failures are scriptable.
+    Future<(PaneController, FakePaneChannel)> renaming(
+      FakePaneLanes lanes,
+      List<RemoteFileEntry> entries,
+    ) async {
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = entries;
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+      return (controller, channel);
+    }
+
+    test('opens on the cursor row and Esc cancels without a request',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      expect(controller.inlineRenameActive, isFalse);
+      expect(controller.renameTarget, isNull);
+
+      // No cursor → nothing to edit.
+      controller.startRename();
+      expect(controller.renameTarget, isNull);
+
+      controller.setCursorIndex(1);
+      controller.startRename();
+      expect(controller.inlineRenameActive, isTrue);
+      expect(controller.renameTarget!.name, 'beta.txt');
+      expect(controller.renameIndex, 1);
+
+      controller.cancelRename();
+      expect(controller.inlineRenameActive, isFalse);
+      expect(controller.renameTarget, isNull);
+      expect(channel.renameCalls, isEmpty);
+      controller.dispose();
+    });
+
+    test('is inert off the verb surface and while a commit is in flight',
+        () async {
+      // Unbound: no verbs, no session.
+      final unbound = PaneController(paneTabId: 'pane.left');
+      unbound.startRename();
+      expect(unbound.inlineRenameActive, isFalse);
+      unbound.dispose();
+
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      // A second start while a session is open is a no-op.
+      controller.startRename();
+      expect(controller.renameTarget!.name, 'alpha.txt');
+
+      // During the in-flight commit, another start is rejected.
+      channel.heldRename = Completer<void>();
+      unawaited(controller.submitRename('gamma.txt'));
+      expect(controller.renameTarget, isNull);
+      expect(controller.inlineRenameActive, isTrue,
+          reason: 'the in-flight commit still holds the close guard');
+      controller.startRename();
+      expect(controller.renameTarget, isNull);
+      channel.heldRename = null;
+      controller.dispose();
+    });
+
+    test('the unchanged name closes silently — no request, no refresh',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      await controller.submitRename('alpha.txt');
+
+      expect(controller.inlineRenameActive, isFalse);
+      expect(channel.renameCalls, isEmpty);
+      expect(
+        channel.listCalls,
+        ['/home/tester'],
+        reason: 'a no-op rename must not refresh the listing',
+      );
+      controller.dispose();
+    });
+
+    test('blank, separator, and Windows-invalid names stay client-side',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+      ]);
+      controller.setCursorIndex(0);
+
+      controller.startRename();
+      await controller.submitRename('   ');
+      expect(
+        (controller.renameError! as PaneFaultException).fault,
+        PaneFault.renameNameEmpty,
+      );
+      expect(controller.inlineRenameActive, isTrue,
+          reason: 'a failed validation keeps the field open');
+
+      await controller.submitRename('a/b');
+      expect(
+        (controller.renameError! as PaneFaultException).fault,
+        PaneFault.renameNameSeparator,
+      );
+
+      expect(channel.renameCalls, isEmpty);
+      controller.cancelRename();
+      controller.dispose();
+    });
+
+    test('a local pane on Windows rejects the NTFS set but POSIX does '
+        'not', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      try {
+        final lanes = FakePaneLanes();
+        final (controller, channel) = await renaming(lanes, [
+          _entry('alpha.txt'),
+        ]);
+        controller.setCursorIndex(0);
+        controller.startRename();
+        await controller.submitRename('a:b');
+        expect(
+          (controller.renameError! as PaneFaultException).fault,
+          PaneFault.renameNameInvalid,
+        );
+        expect(channel.renameCalls, isEmpty);
+        controller.dispose();
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    test('a valid commit renames, refreshes, and reselects the row',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.setCursorIndex(1);
+      controller.startRename();
+
+      // The refresh answers with the renamed listing (the engine has
+      // applied the rename by then).
+      channel.listings['/home/tester'] = [
+        _entry('alpha.txt'),
+        _entry('renamed.txt'),
+      ];
+      await controller.submitRename('renamed.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        ('/parent/beta.txt', '/parent/renamed.txt'),
+      ]);
+      expect(
+        channel.listCalls,
+        ['/home/tester', '/home/tester'],
+        reason: 'a committed rename re-lists its directory',
+      );
+      expect(controller.inlineRenameActive, isFalse);
+      // The cursor re-anchors on the renamed row, not a pruned index.
+      expect(controller.cursorIndex, 1);
+      expect(controller.entries[1].name, 'renamed.txt');
+      controller.dispose();
+    });
+
+    test('a typed refusal re-opens the field with the error inside',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.renameFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'rename',
+        path: '/parent/alpha.txt',
+        message: 'Permission denied',
+      );
+      await controller.submitRename('beta.txt');
+
+      expect(controller.renameTarget, isNotNull,
+          reason: 'the field re-opens on the failed session');
+      expect(
+        controller.renameError!.kind,
+        RemoteFileErrorKind.permissionDenied,
+      );
+      expect(controller.inlineRenameActive, isTrue);
+      // A retry submits against the same session.
+      channel.renameFailure = null;
+      channel.listings['/home/tester'] = [_entry('beta.txt')];
+      await controller.submitRename('beta.txt');
+      await settle();
+      expect(controller.inlineRenameActive, isFalse);
+      expect(channel.renameCalls.last, ('/parent/alpha.txt', '/parent/beta.txt'));
+      controller.dispose();
+    });
+
+    test('an untyped failure reports through onError and closes the '
+        'field', () async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [_entry('alpha.txt')];
+      lanes.nextLocalChannel = channel;
+      final reported = <Object>[];
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+        onError: (error, stackTrace) => reported.add(error),
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.renameFailure = StateError('engine exploded');
+      await controller.submitRename('beta.txt');
+
+      expect(controller.renameTarget, isNull);
+      expect(controller.inlineRenameActive, isFalse);
+      expect(
+        reported.single,
+        isA<StateError>(),
+        reason: 'a non-VFS failure is not a name refusal — it reports '
+            'through the pane\'s onError sink like every other untyped '
+            'failure',
+      );
+      controller.dispose();
+    });
+
+    test('a location change ends the session; the in-flight commit '
+        'settles without re-opening', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('docs', type: RemoteFileType.directory),
+      ]);
+      channel.listings['/parent/docs'] = [_entry('inner.txt')];
+      controller.setCursorIndex(0);
+      controller.startRename();
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(controller.submitRename('beta.txt'));
+      expect(controller.inlineRenameActive, isTrue);
+
+      controller.navigate('/parent/docs');
+      await settle();
+      expect(controller.location, const LocalPaneLocation('/parent/docs'));
+      channel.renameFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'rename',
+        message: 'denied',
+      );
+      held.complete();
+      await settle();
+      expect(controller.renameTarget, isNull,
+          reason: 'a rename settling after its pane navigated away '
+              'never re-opens a field');
+      expect(controller.inlineRenameActive, isFalse);
+      controller.dispose();
+    });
+
+    test('a same-location refresh that keeps the row ends the session '
+        'silently; losing it reports renameTargetGone', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+
+      // Row survives the refresh → the session just ends (the listing
+      // the field edited against was replaced).
+      channel.listings['/home/tester'] = [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+        _entry('gamma.txt'),
+      ];
+      controller.refresh();
+      await settle();
+      expect(controller.renameTarget, isNull);
+      expect(controller.renameError, isNull);
+
+      // Row vanishes mid-session → the session re-attaches with the
+      // gone fault so the field can say why its target disappeared.
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.listings['/home/tester'] = [_entry('beta.txt')];
+      controller.refresh();
+      await settle();
+      expect(controller.renameTarget, isNotNull);
+      expect(
+        (controller.renameError! as PaneFaultException).fault,
+        PaneFault.renameTargetGone,
       );
       controller.dispose();
     });

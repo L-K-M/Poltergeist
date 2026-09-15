@@ -547,6 +547,22 @@
   "@paneFaultInvalidPath": {
     "description": "Diagnostic line when the editable path field's submission cannot resolve to a location under the pane's path rules — rejected before any folder listing is attempted (02 §2.1)."
   },
+  "paneFaultRenameNameEmpty": "Enter a name.",
+  "@paneFaultRenameNameEmpty": {
+    "description": "Inline-rename validation error: the typed name is blank or all whitespace — rejected before any rename request (02 §2.6)."
+  },
+  "paneFaultRenameNameSeparator": "A name cannot contain “/”.",
+  "@paneFaultRenameNameSeparator": {
+    "description": "Inline-rename validation error: the typed name contains the listing's path separator — a rename never moves an item across folders (02 §2.6)."
+  },
+  "paneFaultRenameNameInvalid": "The name contains a character that is not allowed here.",
+  "@paneFaultRenameNameInvalid": {
+    "description": "Inline-rename validation error: the typed name contains a character the pane's filesystem forbids — on a local pane under Windows, the NTFS-reserved set or a control character (02 §2.6)."
+  },
+  "paneFaultRenameTargetGone": "The item is no longer in this folder.",
+  "@paneFaultRenameTargetGone": {
+    "description": "Inline-rename error: the row under edit left the listing mid-session — a refresh, another client's delete, or a filter edit removed it (02 §2.6)."
+  },
   "paneConnectionLost": "Connection to {label} lost — reconnecting…",
   "@paneConnectionLost": {
     "description": "Banner shown while the remote transport reconnects (02 §2.7).",
@@ -624,6 +640,14 @@
   "goOpenLabel": "Open",
   "@goOpenLabel": {
     "description": "Command label: open the selected row."
+  },
+  "fileRenameLabel": "Rename",
+  "@fileRenameLabel": {
+    "description": "Command label: rename the selected row inline in the listing (file.rename, 02 §2.6)."
+  },
+  "paneRenameFieldLabel": "Rename",
+  "@paneRenameFieldLabel": {
+    "description": "Accessible label of the inline-rename text field that replaces the edited row's name (02 §2.6)."
   },
   "goToFolderLabel": "Go to Folder…",
   "@goToFolderLabel": {

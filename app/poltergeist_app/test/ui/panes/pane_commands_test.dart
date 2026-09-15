@@ -507,6 +507,75 @@ void main() {
     expect(toFolder.enabled(), isFalse);
   });
 
+  testWidgets('file.rename is selection-scoped, opens the editor on '
+      'the active pane\'s cursor row, and documents its §8.3 keys', (
+    tester,
+  ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final leftChannel = controller_test.FakePaneChannel('/home/tester');
+    leftChannel.listings['/home/tester'] = [_entry('a'), _entry('b')];
+    final rightChannel = controller_test.FakePaneChannel('/srv/home');
+    rightChannel.listings['/srv/home'] = [_entry('x')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+
+    lanes.nextLocalChannel = leftChannel;
+    await left.openLocalHome();
+    lanes.nextRemoteChannel = rightChannel;
+    await right.connectRemote(_remoteBookmark());
+    await tester.pump();
+
+    final rename = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kFileRenameCommandId);
+
+    // 02 §8.3's table: a file-verb (selection) scope; Return on macOS,
+    // F2 elsewhere — declared for menus, dispatched by the pane's focus
+    // node (02 §8.2), never by the chord layer.
+    expect(rename.scope, CommandScope.selection);
+    expect(
+      rename.activators!(TargetPlatform.macOS),
+      [const SingleActivator(LogicalKeyboardKey.enter)],
+    );
+    expect(
+      rename.activators!(TargetPlatform.linux),
+      [const SingleActivator(LogicalKeyboardKey.f2)],
+    );
+    expect(
+      rename.activators!(TargetPlatform.windows),
+      [const SingleActivator(LogicalKeyboardKey.f2)],
+    );
+    // 02 §9's File menu: Rename follows Open in the file-verb group.
+    expect(rename.menuPlacement?.menu, AppMenuId.file);
+    expect(rename.menuPlacement?.order, 70);
+
+    // Enablement follows the ACTIVE pane's cursor: no cursor, no verb.
+    workspace.setActivePane(rightStrip);
+    expect(rename.enabled(), isFalse);
+
+    left.setCursorIndex(1);
+    workspace.setActivePane(leftStrip);
+    expect(rename.enabled(), isTrue);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    await rename.run(tester.element(find.byType(Scaffold)));
+    expect(left.renameTarget?.name, 'b');
+    expect(right.renameTarget, isNull,
+        reason: 'the inactive pane never opens a session');
+  });
+
   testWidgets('no chord fires while a text field holds focus', (
     tester,
   ) async {

@@ -8,6 +8,7 @@ import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
 import 'pane_path_input.dart';
+import 'pane_rename.dart';
 import 'quick_select_state.dart';
 import 'selection_state.dart';
 import 'unicode_diacritic_fold.dart';
@@ -93,6 +94,22 @@ class _RowKey {
   int get hashCode => Object.hash(path, occurrence);
 }
 
+/// One open inline-rename session (02 §2.6): the row under edit, kept as
+/// an identity so a same-location refresh that drops the row can report
+/// its loss instead of renaming a re-targeted index. [error] is the
+/// last failed commit — a client-side validation fault or the channel's
+/// typed refusal — shown inside the field until the next submission;
+/// [attempted] keeps the refused draft so the re-opened field re-seeds
+/// with what the user typed, not the pre-rename name.
+class _RenameSession {
+  _RenameSession({required this.entry, required this.rowKey});
+
+  final RemoteFileEntry entry;
+  final _RowKey rowKey;
+  RemoteFileException? error;
+  String? attempted;
+}
+
 /// Which app-side operation failed for a non-VFS fault: the pane view
 /// maps this to an ARB-authored diagnostic line (D20 — the controller
 /// never authors user copy).
@@ -105,6 +122,24 @@ enum PaneFault {
   /// pane's location model (02 §2.1) — rejected client-side, so no
   /// listing was ever requested.
   invalidPath,
+
+  /// The inline-rename field's typed name was blank or all whitespace
+  /// (02 §2.6) — rejected client-side, so no rename was ever requested.
+  renameNameEmpty,
+
+  /// The typed name contains the listing's `/` separator — a rename
+  /// moves nothing across directories, so this is always invalid.
+  renameNameSeparator,
+
+  /// The typed name contains a character the pane's filesystem family
+  /// forbids (a local pane on Windows rejects the NTFS set; remote
+  /// panes stay POSIX-permissive and never hit this fault).
+  renameNameInvalid,
+
+  /// The row under edit left the listing mid-session — a refresh,
+  /// another client's delete, or a filter edit removed it — so there
+  /// is nothing left to rename.
+  renameTargetGone,
 }
 
 /// A non-VFS fault surfacing on the pane: the taxonomy message is a
@@ -244,11 +279,24 @@ class PaneController extends ChangeNotifier {
   /// reopen restores it.
   PaneViewMode _viewMode = PaneViewMode.details;
 
-  /// Whether this tab's inline-rename session is open — written by the
-  /// row-interactions slice's rename flow; the tab close guard's
-  /// inlineRename probe already reads it, so a rename can never be
-  /// closed out from under the user once it exists.
-  bool _inlineRenameActive = false;
+  /// The open inline-rename session (02 §2.6); null while the row's
+  /// field is closed. The pane owns its invalidation: a location change
+  /// ends it at navigation-issue time, every row-set replacement ends it
+  /// before pruning (re-attaching a `renameTargetGone` fault when the
+  /// edited row left the listing), and a binding replace or detach ends
+  /// it with the session it edited.
+  _RenameSession? _renameSession;
+
+  /// An awaited `channel.rename` — the field closes at submit time, but
+  /// the tab-close guard must still quantify the in-flight rename.
+  bool _renameInFlight = false;
+
+  /// The rename target a just-issued refresh should re-select: the
+  /// rename changes the row's key, so without this the listing accept
+  /// would prune the cursor off the renamed row (02 §2.5's identity
+  /// convention). Consumed by the next accepted listing; cleared by any
+  /// newer navigation issue.
+  String? _pendingRenameSelectPath;
 
   /// Whether this tab anchors the workspace's Sync Browsing pair
   /// (02 §7): the workspace's sync controller writes it on enable and
@@ -835,14 +883,153 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether an inline rename is open on this tab — the tab close
-  /// guard's trigger probe; the row-interactions slice owns the session.
-  bool get inlineRenameActive => _inlineRenameActive;
+  /// Whether an inline rename is open or committing on this tab — the
+  /// tab close guard's trigger probe (02 §3). True while the field is
+  /// mounted AND while its submitted rename is still in flight, so a
+  /// close can never cut under either half.
+  bool get inlineRenameActive =>
+      _renameSession != null || _renameInFlight;
 
-  set inlineRenameActive(bool value) {
-    if (_disposed || value == _inlineRenameActive) return;
-    _inlineRenameActive = value;
+  /// The row under inline edit; null while no session is open.
+  RemoteFileEntry? get renameTarget => _renameSession?.entry;
+
+  /// The session row's index into [entries] — the overlay's anchor;
+  /// null while closed or when the row left the listing (the
+  /// `renameTargetGone` fault surface).
+  int? get renameIndex =>
+      _renameSession == null ? null : _rowKeyIndex[_renameSession!.rowKey];
+
+  /// The session's last failed commit — a validation fault or the
+  /// channel's typed refusal — rendered inside the field.
+  RemoteFileException? get renameError => _renameSession?.error;
+
+  /// The text the field opens with: the refused draft after a failed
+  /// commit, the row's current name on a fresh open.
+  String get renameSeed =>
+      _renameSession?.attempted ?? _renameSession?.entry.name ?? '';
+
+  /// `file.rename` (02 §2.6): opens the inline editor on the cursor row.
+  /// Inert off the verb surface (unbound, loading, errored, or lost
+  /// connection), while a session is open, and while a commit is in
+  /// flight — one rename at a time per tab.
+  void startRename() {
+    if (_disposed ||
+        !verbsEnabled ||
+        _renameSession != null ||
+        _renameInFlight) {
+      return;
+    }
+    final cursor = cursorIndex;
+    if (cursor == null) return;
+    _renameSession = _RenameSession(
+      entry: _entries[cursor],
+      rowKey: _rowKeys[cursor],
+    );
     notifyListeners();
+  }
+
+  /// Esc / focus-loss cancel (02 §8.2's field-first tier): closes the
+  /// editor without a request. Inert while a commit is in flight — the
+  /// session field is already null then, and the in-flight guard holds
+  /// the close guard regardless.
+  void cancelRename() {
+    if (_disposed || _renameSession == null) return;
+    _renameSession = null;
+    notifyListeners();
+  }
+
+  /// Enter commit (02 §2.6): validates the typed name against the pane's
+  /// filesystem family, closes the field, renames through the channel,
+  /// then refreshes so the listing re-sorts around the new name. The
+  /// field closes BEFORE the request — a failure re-opens it with the
+  /// typed error; a vanish mid-commit drops it. Submitting the
+  /// unchanged name is a silent no-op (no request, no refresh).
+  Future<void> submitRename(String raw) async {
+    final session = _renameSession;
+    final channel = _channel;
+    if (_disposed || session == null || channel == null || _renameInFlight) {
+      return;
+    }
+
+    final location = _location;
+    final nameError = renameNameError(
+      raw,
+      remote: location is RemotePaneLocation,
+      platform: defaultTargetPlatform,
+    );
+    if (nameError != null) {
+      session.error = PaneFaultException(
+        switch (nameError) {
+          RenameNameError.empty => PaneFault.renameNameEmpty,
+          RenameNameError.separator => PaneFault.renameNameSeparator,
+          RenameNameError.invalid => PaneFault.renameNameInvalid,
+        },
+        operation: 'rename',
+      );
+      notifyListeners();
+      return;
+    }
+
+    final entry = session.entry;
+    if (raw == entry.name) {
+      _renameSession = null;
+      notifyListeners();
+      return;
+    }
+
+    // The parent prefix is cut from the entry's own path so the listing's
+    // separator survives on every platform ('/' on POSIX and remote,
+    // '\' on Windows locals) — never a synthesized join.
+    final parent = entry.path.endsWith(entry.name)
+        ? entry.path.substring(0, entry.path.length - entry.name.length)
+        : '${location?.path ?? ''}/';
+    final newPath = '$parent$raw';
+
+    // The field closes at submit: the in-flight flag alone holds the
+    // tab-close guard until the request settles. The typed draft stays
+    // on the session so a refusal can re-open the field with it.
+    session.attempted = raw;
+    _renameSession = null;
+    _renameInFlight = true;
+    notifyListeners();
+
+    try {
+      await channel.rename(entry.path, newPath);
+    } on RemoteFileException catch (error) {
+      _renameInFlight = false;
+      if (_disposed) return;
+      // Re-open the field with the refusal inside while the pane still
+      // browses the session's location. A row that left the listing
+      // renders detached (renameIndex null) but the refusal still
+      // surfaces — a typed VFS error is never swallowed silently.
+      if (location == _location) {
+        session.error = error;
+        _renameSession = session;
+      }
+      notifyListeners();
+      return;
+    } on Object catch (error, stackTrace) {
+      _renameInFlight = false;
+      if (_disposed) return;
+      // An untyped failure is not a name refusal — it reports on the
+      // pane's error surface, and the field stays closed.
+      _report(error, stackTrace);
+      return;
+    }
+
+    _renameInFlight = false;
+    if (_disposed) return;
+    refresh();
+    // Set AFTER refresh() issues: a navigation issue clears the pending
+    // select, and the refresh's own accept is what consumes it.
+    _pendingRenameSelectPath = newPath;
+  }
+
+  /// Ends the open session without a notify — every invalidation funnel
+  /// (navigation issue, row-set replacement, binding reset) calls this
+  /// inside a flow that notifies once for the whole transition.
+  void _endRenameSession() {
+    _renameSession = null;
   }
 
   /// Whether this tab anchors the Sync Browsing pair — the tab close
@@ -1174,6 +1361,8 @@ class PaneController extends ChangeNotifier {
     _disposed = true;
     _bindAttempt++;
     _quickSelect = null;
+    _renameSession = null;
+    _pendingRenameSelectPath = null;
     _typeAheadReset?.cancel();
     _typeAheadReset = null;
     _typeAheadBuffer = '';
@@ -1329,6 +1518,8 @@ class PaneController extends ChangeNotifier {
   void _cancelListing() {
     _issuedGeneration++;
     _answeredGeneration = _issuedGeneration;
+    // A cancelled listing can never consume a pending rename re-select.
+    _pendingRenameSelectPath = null;
   }
 
   /// The root the in-flight or last-failed local open targeted — [retry]
@@ -1388,6 +1579,16 @@ class PaneController extends ChangeNotifier {
     // reset: the restored baseline is what a later Esc-cancel restores,
     // and the new listing prunes it (02 §2.5).
     _endQuickSelectSession();
+    // A rename's refresh-select hint is consumed by the listing THIS
+    // issue's answer accepts; any newer issue invalidates it.
+    _pendingRenameSelectPath = null;
+    if (_location != target) {
+      // A location change ends an open rename at issue time — the field
+      // edits against rows of the directory it opened on (02 §2.6), and
+      // a same-location refresh instead lets the accepted listing's
+      // row-presence check decide (02 §2.8's keep-rows-while-loading).
+      _endRenameSession();
+    }
     if (!historyTraversal && target != _location) {
       // 02 §2.1's branch semantics: a user-driven navigation to a new
       // location truncates the forward entries and records the target
@@ -1443,6 +1644,16 @@ class PaneController extends ChangeNotifier {
       _sortedListing = sortFileEntries(listed);
       _setListing(_hiddenFiltered(_sortedListing));
       _applyEntries(_filteredListing());
+      final renameSelect = _pendingRenameSelectPath;
+      _pendingRenameSelectPath = null;
+      if (renameSelect != null) {
+        // The rename changed the row's key; re-anchor the cursor to the
+        // renamed row's new index instead of letting the prune drop it.
+        final index = _entries.indexWhere(
+          (entry) => entry.path == renameSelect,
+        );
+        if (index >= 0) setCursorIndex(index);
+      }
       _recovery = _RecoveryPhase.none;
       _answeredGeneration = generation;
       // The commit marker moves only here — an accepted answer. The
@@ -1490,6 +1701,14 @@ class PaneController extends ChangeNotifier {
     // A replaced listing also drops a pending type-ahead buffer — the
     // accumulated prefix was matched against rows that no longer stand.
     clearTypeAhead();
+    // Any row-set replacement ends an open rename session (02 §2.6 —
+    // the field edits against the listing it opened on). When the edited
+    // row left the new listing while the pane still browses, the session
+    // re-attaches carrying the `renameTargetGone` fault: the field stays
+    // mounted to show why its target vanished instead of disappearing
+    // silently.
+    final rename = _renameSession;
+    _renameSession = null;
     _entries = entries;
     _foldedNames = List.generate(entries.length, (i) {
       final name = entries[i].name;
@@ -1498,6 +1717,15 @@ class PaneController extends ChangeNotifier {
     _rowKeys = List.unmodifiable(_keysFor(entries));
     _rowKeyIndex = {for (var i = 0; i < _rowKeys.length; i++) _rowKeys[i]: i};
     _selection = _selection.withRows(_rowKeys);
+    if (rename != null &&
+        _location != null &&
+        !_rowKeyIndex.containsKey(rename.rowKey)) {
+      rename.error = PaneFaultException(
+        PaneFault.renameTargetGone,
+        operation: 'rename',
+      );
+      _renameSession = rename;
+    }
   }
 
   static Iterable<_RowKey> _keysFor(List<RemoteFileEntry> entries) sync* {

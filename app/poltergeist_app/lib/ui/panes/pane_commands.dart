@@ -13,6 +13,7 @@ const kGoEnclosingCommandId = 'go.enclosing';
 const kGoForwardCommandId = 'go.forward';
 const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
+const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
 const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
 const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
@@ -198,6 +199,39 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 60,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileRenameCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.fileRenameLabel,
+      icon: Icons.drive_file_rename_outline,
+      // Return on macOS, F2 elsewhere (02 §8.3's table). Both are
+      // unmodified keys, so the chord layer skips them by design and
+      // the pane's focus node dispatches (02 §8.2) — the activator
+      // documents the binding for menus and reachability, it never
+      // fires here.
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.enter)],
+        other: const [SingleActivator(LogicalKeyboardKey.f2)],
+      ),
+      enabled: () {
+        final pane = activeTab();
+        final cursor = pane?.cursorIndex;
+        return pane != null &&
+            pane.verbsEnabled &&
+            cursor != null &&
+            cursor >= 0 &&
+            cursor < pane.entries.length;
+      },
+      run: (_) async {
+        activeTab()?.startRename();
+      },
+      // 02 §9's File menu: Rename follows Open among the file verbs.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 70,
         group: 1,
       ),
     ),

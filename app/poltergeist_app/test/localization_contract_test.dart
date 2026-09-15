@@ -232,6 +232,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'connect'",
     "'open'",
     "'list'",
+    // The rename commit's operation tag and its path arithmetic — the
+    // engine's operation label and machine path data, never UI copy.
+    "'rename'",
+    r"'${location?.path ?? ''}/'",
+    r"'$parent$raw'",
     "'fault:\${fault.name}'",
     // The U+FFFD flagged-name signal Quick Select excludes from matching
     // — a byte-level literal, never rendered (02 §13).
@@ -258,6 +263,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$anchor$separator'",
     r"'$anchor${rel.join(separator)}'",
     r"'$anchor$separator${rel.join(separator)}'",
+  },
+  // The inline-rename validator's grammar literals: the path separator
+  // and the NTFS forbidden-character class — machine data, never
+  // authored copy.
+  'lib/services/pane_rename.dart': {
+    "'/'",
+    'r\'[<>:"\\\\|?*]\'',
   },
   // The path-field resolver's grammar literals: separator characters,
   // drive-spec regexes, tilde forms, and dot segments — machine data,
@@ -301,6 +313,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'go.forward'",
     "'go.open'",
     "'go.toFolder'",
+    "'file.rename'",
     "'view.refresh'",
     "'pane.focusLeft'",
     "'pane.focusRight'",
@@ -338,12 +351,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${controller.paneTabId}.cancel'",
     r"'${controller.paneTabId}.progress'",
     r"'${widget.controller.paneTabId}.quickSelect.field'",
+    r"'${widget.controller.paneTabId}.rename.field'",
     r"'${widget.controller.paneTabId}.path.field'",
     r"'${widget.controller.paneTabId}.filter.field'",
     r"'${widget.controller.paneTabId}.filter.clear'",
     r"'${controller.paneTabId}.filter.emptyClear'",
     r"'${controller.paneTabId}.syncChip'",
     "''",
+    // The rename editor's stem-selection dot — name arithmetic, not copy.
+    "'.'",
     "'/'",
     "'\\\\'",
   },

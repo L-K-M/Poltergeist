@@ -375,6 +375,41 @@ void main() {
       );
     });
 
+    test('rename crosses the boundary and a refused name answers typed',
+        () async {
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+
+      final root = Directory.systemTemp.createTempSync('pg-engine-rename');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File('${root.path}/a.txt').writeAsStringSync('alpha');
+      File('${root.path}/b.txt').writeAsStringSync('beta');
+
+      final channel = await client.openLocalChannel(rootPath: root.path);
+      await channel.rename(
+        '${channel.homePath}/a.txt',
+        '${channel.homePath}/renamed.txt',
+      );
+      expect(File('${root.path}/renamed.txt').existsSync(), isTrue);
+      expect(File('${root.path}/a.txt').existsSync(), isFalse);
+
+      // A rename onto an existing name refuses typed — never a silent
+      // overwrite (02 §2.6).
+      await expectLater(
+        channel.rename(
+          '${channel.homePath}/renamed.txt',
+          '${channel.homePath}/b.txt',
+        ),
+        throwsA(
+          isA<RemoteFileException>().having(
+            (error) => error.kind,
+            'kind',
+            RemoteFileErrorKind.conflict,
+          ),
+        ),
+      );
+    });
+
     test('closing a local channel is idempotent and retires it', () async {
       final client = await EngineClient.spawn(const EngineConfig());
       addTearDown(client.shutdown);

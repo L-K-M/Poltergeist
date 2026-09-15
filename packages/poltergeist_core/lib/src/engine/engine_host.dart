@@ -250,6 +250,8 @@ class EngineHost {
         _guard(request.requestId, () => _closeChannel(request));
       case final ListDirectoryRequest request:
         _guard(request.requestId, () => _listDirectory(request));
+      case final RenameEntryRequest request:
+        _guard(request.requestId, () => _renameEntry(request));
       case final WatchServerRequest request:
         _watch(request.serverId);
       case final UnwatchServerRequest request:
@@ -436,6 +438,29 @@ class EngineHost {
     } on RemoteFileException catch (error) {
       // Report before answering: recovery keys off disconnected failures
       // from the binding's current transport (03 §3.2 PaneChannel).
+      channel.reportFailure(fs, error);
+      rethrow;
+    }
+  }
+
+  /// Same routing as [_listDirectory]: the channel's VFS performs the
+  /// rename, typed failures serialize back, and a disconnected failure
+  /// reports for recovery before the answer crosses the port.
+  Future<EngineResult> _renameEntry(RenameEntryRequest request) async {
+    final channel = _channels[request.channelId];
+    if (channel == null) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'rename',
+        message: 'The browse channel is closed.',
+      );
+    }
+
+    final fs = channel.fs;
+    try {
+      await fs.rename(request.oldPath, request.newPath);
+      return const EngineAck();
+    } on RemoteFileException catch (error) {
       channel.reportFailure(fs, error);
       rethrow;
     }

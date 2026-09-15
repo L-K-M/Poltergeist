@@ -4581,6 +4581,38 @@ shell-level status chip (`sync_browsing_controller_test`,
 and both amber suspended states are under
 `tasks/run3-task44/captures/`.
 
+## M3 — inline rename (2026-09-15)
+
+`file.rename` (02 §2.6) lands the inline-rename slice: Return on macOS
+and F2 elsewhere — both plain keys dispatched by the pane's focus node
+per §8.2, declared on the command for menu reachability only — opens a
+text field floated over the cursor row's name cell, seeded with the
+row's name and its stem selected. Enter validates the basename
+client-side (blank, `/`, and the NTFS-reserved set on a local Windows
+pane; remote panes stay POSIX-permissive), closes the field, renames
+through the browse channel's new `rename` verb, refreshes the listing,
+and re-anchors the cursor on the renamed row; the unchanged name is a
+silent no-op. A refused commit re-opens the field carrying the typed
+error and the refused draft; Esc and click-outside cancel at the field
+tier of §8.2's order without a request. The engine protocol moves to
+v9 for `RenameEntryRequest`, which routes through the same channel-id
+fan-in as `ListDirectoryRequest` into `RemoteFileSystem.rename` —
+never an overwrite, so a destination conflict answers typed without
+touching recovery.
+
+The tab-close guard's existing `TabCloseTrigger.inlineRename` entry
+now reads a derived state — open session OR in-flight commit — so a
+submitted rename still holds the guard after its field closes. A
+location change ends the session at navigation-issue time; a
+same-location listing replacement ends it silently when the edited row
+survives and re-attaches it with the `renameTargetGone` fault when the
+row vanished. Validation faults stay client-side; untyped failures
+report through `onError` like every other non-VFS pane failure.
+
+Validation: focused controller, validator, widget, command-registry,
+and engine host/client suites plus real-font captures of the open,
+mid-edit, and error states under `tasks/run3-task45/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

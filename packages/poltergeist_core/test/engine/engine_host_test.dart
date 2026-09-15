@@ -62,6 +62,9 @@ class ScriptedFs implements RemoteFileSystem {
   Object? listFailure;
   int listCalls = 0;
 
+  final renameCalls = <(String, String)>[];
+  Object? renameFailure;
+
   @override
   Future<String> canonicalize(String path) async => '/home/test';
 
@@ -74,9 +77,20 @@ class ScriptedFs implements RemoteFileSystem {
   }
 
   @override
+  Future<void> rename(
+    String oldPath,
+    String newPath, {
+    bool overwrite = false,
+  }) async {
+    renameCalls.add((oldPath, newPath));
+    final failure = renameFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
-    'ScriptedFs only implements canonicalize and listDirectory, got '
-    '${invocation.memberName}.',
+    'ScriptedFs only implements canonicalize, listDirectory, and '
+    'rename, got ${invocation.memberName}.',
   );
 }
 
@@ -191,6 +205,19 @@ class HostHarness {
   Future<EngineResult> list(int channelId, String path) => call(
     (id) =>
         ListDirectoryRequest(requestId: id, channelId: channelId, path: path),
+  );
+
+  Future<EngineResult> rename(
+    int channelId,
+    String oldPath,
+    String newPath,
+  ) => call(
+    (id) => RenameEntryRequest(
+      requestId: id,
+      channelId: channelId,
+      oldPath: oldPath,
+      newPath: newPath,
+    ),
   );
 
   /// Opens a local channel (03 §5's engine-side seam) and fails loudly on
@@ -597,6 +624,85 @@ void main() {
     final error = await expectError(h.list(42, '/tmp'));
     expect(error.kind, RemoteFileErrorKind.disconnected);
     expect(h.fs.listCalls, 0);
+  });
+
+  test('renameEntry routes through the channel fs and acks', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+
+    final channel = await h.openWithDefaults();
+
+    final result = await h.rename(
+      channel.channelId,
+      '/tmp/a',
+      '/tmp/b',
+    );
+    expect(result, isA<EngineAck>());
+    expect(h.fs.renameCalls, [('/tmp/a', '/tmp/b')]);
+  });
+
+  test('renameEntry on an unknown channel fails disconnected', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+
+    final error = await expectError(h.rename(42, '/tmp/a', '/tmp/b'));
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(h.fs.renameCalls, isEmpty);
+  });
+
+  test('a VFS rename failure serializes its kind and reports for '
+      'recovery', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    h.fs.renameFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'rename',
+      message: 'The connection was lost.',
+    );
+    h.watch('srv-1');
+    await h.pumping();
+
+    final channel = await h.openWithDefaults();
+
+    final error = await expectError(
+      h.rename(channel.channelId, '/tmp/a', '/tmp/b'),
+    );
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(error.message, 'The connection was lost.');
+
+    // The report reached the binding: recovery starts (03 §3.3).
+    await h.pumping();
+    expect(
+      h.events.whereType<ServerStateEvent>().map((e) => e.state),
+      contains(ServerConnectionState.reconnecting),
+    );
+  });
+
+  test('a refused rename serializes the typed refusal without '
+      'triggering recovery', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    // An overwrite/name-conflict refusal is not a transport failure —
+    // it must answer typed without reporting the binding for recovery.
+    h.fs.renameFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.conflict,
+      operation: 'rename',
+      message: 'A file with that name already exists.',
+    );
+    h.watch('srv-1');
+    await h.pumping();
+
+    final channel = await h.openWithDefaults();
+
+    final error = await expectError(
+      h.rename(channel.channelId, '/tmp/a', '/tmp/b'),
+    );
+    expect(error.kind, RemoteFileErrorKind.conflict);
+    await h.pumping();
+    expect(
+      h.events.whereType<ServerStateEvent>().map((e) => e.state),
+      isNot(contains(ServerConnectionState.reconnecting)),
+    );
   });
 
   test(
@@ -1127,6 +1233,34 @@ void main() {
       expect(byName['a.txt']!.size, 5);
       expect(byName['b.txt']!.size, 4);
       expect(byName['sub']!.type, RemoteFileType.directory);
+    });
+
+    test('renameEntry renames through the local channel fs', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-rename');
+      final home = await _canonical(root.path);
+
+      final opened = await h.openLocal(root.path);
+      final result = await h.rename(
+        opened.channelId,
+        '$home/a.txt',
+        '$home/renamed.txt',
+      );
+      expect(result, isA<EngineAck>());
+      expect(File('${root.path}/renamed.txt').existsSync(), isTrue);
+      expect(File('${root.path}/a.txt').existsSync(), isFalse);
+
+      // A rename onto an existing name refuses typed — the request never
+      // carries an overwrite flag (02 §2.6: no silent clobber).
+      final conflict = await expectError(
+        h.rename(
+          opened.channelId,
+          '$home/renamed.txt',
+          '$home/b.txt',
+        ),
+      );
+      expect(conflict.kind, RemoteFileErrorKind.conflict);
     });
 
     test('symlinks report as links without target metadata', () async {
