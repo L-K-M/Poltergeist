@@ -169,11 +169,19 @@ void main() {
         matching: find.byType(SingleChildScrollView),
       ),
     );
+    // Full containment with the same 0.5px tolerance the widget's
+    // visibility guard uses — a one-pixel overlap is not "in view".
+    bool fullyVisible(Finder chipFinder) {
+      final r = tester.getRect(chipFinder);
+      return r.left >= stripRect.left - 0.5 &&
+          r.right <= stripRect.right + 0.5;
+    }
+
     // The last tab activated on open — its chip is scrolled into view.
     expect(
-      stripRect.overlaps(tester.getRect(lastChip)),
+      fullyVisible(lastChip),
       isTrue,
-      reason: 'the freshly activated chip must be visible',
+      reason: 'the freshly activated chip must be fully visible',
     );
 
     strip.activateTab(strip.tabs.first);
@@ -181,9 +189,9 @@ void main() {
     await tester.pump();
 
     expect(
-      stripRect.overlaps(tester.getRect(chip('pane.left.tab1'))),
+      fullyVisible(chip('pane.left.tab1')),
       isTrue,
-      reason: 'cycling back must scroll the first chip into view',
+      reason: 'cycling back must scroll the first chip fully into view',
     );
 
     // An already-visible activation must not scroll: ensureVisible's
