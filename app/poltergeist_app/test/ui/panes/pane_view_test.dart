@@ -468,6 +468,8 @@ void main() {
     final semantics = tester.ensureSemantics();
     try {
       final channel = localChannelWithEntries();
+      channel.listings['/elsewhere'] = [_entry('there.txt', size: 7)];
+      channel.listings['/another'] = [_entry('other.txt', size: 9)];
       await left.openLocalHome();
       await pumpShell(tester);
       leftNode.requestFocus();
@@ -488,7 +490,7 @@ void main() {
       // A fresh navigation issued straight from the error card clears
       // the error at issue, so the next flight announces normally.
       channel.listingFailure = null;
-      final hold = Completer<void>();
+      var hold = Completer<void>();
       channel.holdNext = hold;
       left.navigate('/another');
       await tester.pump();
@@ -498,9 +500,39 @@ void main() {
         reason: 'a navigation issued from the error state clears the '
             'error at issue, so its announcement is not muted',
       );
-
       hold.complete();
       await tester.pumpAndSettle();
+      expect(left.error, isNull);
+      expect(find.text('other.txt'), findsOneWidget);
+
+      // The same-target retry: a failed destination stays the
+      // location, so the retry's issue skips the disown block — but
+      // the error clear at issue is unconditional, so this flight
+      // announces too.
+      channel.listingFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.notFound,
+        operation: 'list',
+        message: 'Not found',
+      );
+      left.navigate('/elsewhere');
+      await tester.pumpAndSettle();
+      expect(left.error, isNotNull);
+      expect(left.location, const LocalPaneLocation('/elsewhere'));
+
+      channel.listingFailure = null;
+      hold = Completer<void>();
+      channel.holdNext = hold;
+      left.navigate('/elsewhere');
+      await tester.pump();
+      expect(
+        find.semantics.byLabel(RegExp(r'^Loading elsewhere')),
+        findsOne,
+        reason: 'a same-target retry announces its load even though '
+            'the disown block is skipped',
+      );
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('there.txt'), findsOneWidget);
     } finally {
       semantics.dispose();
     }
