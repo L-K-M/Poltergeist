@@ -417,6 +417,51 @@ void main() {
     }
   });
 
+  testWidgets('a failed navigation quiets the loading announcement', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      final channel = localChannelWithEntries();
+      await left.openLocalHome();
+      await pumpShell(tester);
+      leftNode.requestFocus();
+      await tester.pump();
+
+      final hold = Completer<void>();
+      channel.holdNext = hold;
+      left.navigate('/elsewhere');
+      await tester.pump();
+      expect(
+        find.semantics.byLabel(RegExp(r'^Loading elsewhere')),
+        findsOne,
+      );
+
+      // The navigation FAILS: the error card replaces the loading state.
+      // The stale rows remain disowned (staleRows stays true) but the
+      // pane is no longer loading — keeping a "Loading" live region
+      // would announce a load that already failed to AT users.
+      channel.listingFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.notFound,
+        operation: 'list',
+        message: 'Not found',
+      );
+      hold.complete();
+      await tester.pumpAndSettle();
+
+      expect(left.error, isNotNull);
+      expect(left.staleRows, isTrue);
+      expect(
+        find.semantics.byLabel(RegExp(r'^Loading')),
+        findsNothing,
+        reason: 'a failed navigation must not keep a "Loading" '
+            'announcement live under the error card',
+      );
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('Esc cancels an in-flight navigation back to the old listing', (
     tester,
   ) async {

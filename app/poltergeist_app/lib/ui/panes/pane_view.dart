@@ -877,20 +877,24 @@ class _PaneSurface extends StatelessWidget {
         // WCAG 4.1.3: the rows leaving the semantics tree at issue must
         // not be silent — while they're disowned, a live region
         // announces the transition with the same string the footer shows
-        // once the grace dim lands. It mounts at issue (not at the dim)
-        // and unmounts when the new listing takes ownership, so AT hears
-        // the load start even for sub-150 ms navigations. A 1x1 empty
-        // box keeps the node in the semantics tree (zero-size nodes are
-        // culled) while staying invisible.
-        if (controller.staleRows && !controller.connectionLost)
-          Semantics(
-            label: l10n.paneLoadingFolder(
-              paneLastSegment(controller.location?.path),
-            ),
-            liveRegion: true,
-            container: true,
-            child: const SizedBox(width: 1, height: 1),
-          ),
+        // once the grace dim lands. The node stays mounted permanently
+        // and the label transitions '' → loading string at issue: live
+        // regions announce label CHANGES on an existing node, while
+        // mount-time announcements are dropped by some engines/AT. A
+        // 1x1 empty box keeps the node in the semantics tree (zero-size
+        // nodes are culled) while staying invisible.
+        Semantics(
+          label: controller.staleRows &&
+                  !controller.connectionLost &&
+                  controller.error == null
+              ? l10n.paneLoadingFolder(
+                  paneLastSegment(controller.location?.path),
+                )
+              : '',
+          liveRegion: true,
+          container: true,
+          child: const SizedBox(width: 1, height: 1),
+        ),
         // 02 §2.8: the old listing stays visible, dimmed, past the grace —
         // and inert while the navigation it belongs to is still in flight.
         if (controller.loading && graceVisible && !controller.connectionLost)
