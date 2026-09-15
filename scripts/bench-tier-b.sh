@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # D12 tier-B collector driver (08 §6/§8): runs the profile-mode UI
-# benchmarks (P1/P2/P6 — app/poltergeist_app/integration_test/perf/) under
+# benchmarks (P1/P2/P4/P6 — app/poltergeist_app/integration_test/perf/) under
 # Xvfb on Linux and merges their per-scenario documents — together with
 # any per-scenario documents tier A already produced — into the single
 # bench-results.json the job hands to test/benchmarks/check.dart.
@@ -36,6 +36,7 @@ cd "$repo_root"
 rm -f -- "$repo_root"/bench-results.json \
          "$repo_root"/bench-results-p1.json \
          "$repo_root"/bench-results-p2.json \
+         "$repo_root"/bench-results-p4.json \
          "$repo_root"/bench-results-p6.json
 
 # Fail fast on a missing toolchain before touching 110 000 files.
@@ -93,16 +94,18 @@ run_scenario() {
 
 run_scenario p1 p1_first_paint_test.dart
 run_scenario p2 p2_first_paint_test.dart
+run_scenario p4 p4_tab_switch_test.dart
 run_scenario p6 p6_scroll_test.dart
 
 # Merge every per-scenario document present — tier A's included — into
 # the one results file the checker reads (08 §6: one job, one file).
 inputs=()
-for scenario in p1 p2 p6 p3 p5 p7; do
+for scenario in p1 p2 p4 p6 p3 p5 p7; do
   results_file="$repo_root/bench-results-$scenario.json"
   if [[ -f "$results_file" ]]; then
     inputs+=("$results_file")
-  elif [[ "$scenario" == p1 || "$scenario" == p2 || "$scenario" == p6 ]]; then
+  elif [[ "$scenario" == p1 || "$scenario" == p2 ||
+          "$scenario" == p4 || "$scenario" == p6 ]]; then
     echo "scenario $scenario produced no results file" >&2
     status=1
   fi
