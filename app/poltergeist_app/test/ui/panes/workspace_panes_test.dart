@@ -9,7 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/pane_tabs_controller.dart';
+import 'package:poltergeist_app/services/view_preferences.dart';
+import 'package:poltergeist_app/ui/adaptive_shell.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
+import 'package:poltergeist_app/ui/panes/pane_tabs_view.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -752,4 +756,318 @@ void main() {
       expect(left.phase, PanePhase.unbound);
     },
   );
+
+  group('second-pane toggle (02 §3)', () {
+    /// Drains the fake-channel microtask hops a navigation takes.
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 12; i++) {
+        await tester.pump();
+      }
+    }
+
+    /// The per-tab state a hide must preserve whole (02 §3): location
+    /// and listing, selection and cursor, the filter lens, the hidden
+    /// override, view mode, history, Quick Select, and the rename
+    /// session.
+    void expectTabState(
+      PaneController controller, {
+      required String location,
+      required String committed,
+      required List<String> entries,
+      required int selectedCount,
+      required List<bool> selectedRows,
+      required int cursor,
+      required String filterQuery,
+      required bool filterFieldOpen,
+      required bool showHidden,
+      required PaneViewMode viewMode,
+      required bool canGoBack,
+      required bool canGoForward,
+      required bool quickSelectActive,
+      required String quickSelectQuery,
+      required String? renameTarget,
+      required String renameSeed,
+    }) {
+      expect(controller.location?.path, location);
+      expect(controller.committedLocation?.path, committed);
+      expect(controller.entries.map((e) => e.path).toList(), entries);
+      expect(controller.selectedCount, selectedCount);
+      expect(
+        [
+          for (var i = 0; i < selectedRows.length; i++)
+            controller.isRowSelected(i),
+        ],
+        selectedRows,
+      );
+      expect(controller.cursorIndex, cursor);
+      expect(controller.filterQuery, filterQuery);
+      expect(controller.filterFieldOpen, filterFieldOpen);
+      expect(controller.showHidden, showHidden);
+      expect(controller.viewMode, viewMode);
+      expect(controller.canGoBack, canGoBack);
+      expect(controller.canGoForward, canGoForward);
+      expect(controller.quickSelectActive, quickSelectActive);
+      expect(controller.quickSelectQuery, quickSelectQuery);
+      expect(controller.renameTarget?.path, renameTarget);
+      expect(controller.renameSeed, renameSeed);
+    }
+
+    testWidgets('hiding the focused pane B hands focus and commands to '
+        'pane A', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pumpApp(tester);
+        await tester.pumpAndSettle();
+
+        // Focus pane B through the production focus command.
+        await tester.tap(
+          find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
+        );
+        await tester.pump();
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.right.listing',
+        );
+
+        // The chord hides pane B (Ctrl+Shift+D / ⇧⌘D, 02 §8.3): its
+        // surface unmounts and focus lands on the surviving pane, not
+        // on the unmounted node.
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(AdaptiveShell.secondaryPaneKey),
+          findsNothing,
+        );
+        expect(find.text('right.txt'), findsNothing);
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.left.listing',
+        );
+
+        // Pane commands resolve the ACTIVE pane — it retargeted to pane
+        // A, so the refresh chord lists pane A's channel again and pane
+        // B's scripted channel is never touched while hidden.
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(engine.localChannels[0].listCalls, hasLength(2));
+        expect(engine.localChannels[1].listCalls, hasLength(1));
+
+        // pane.focusRight cannot reach a hidden pane: it resolves to
+        // the visible survivor and the next chord still targets pane A.
+        await tester.tap(
+          find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
+        );
+        await tester.pump();
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.left.listing',
+        );
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(engine.localChannels[0].listCalls, hasLength(3));
+        expect(engine.localChannels[1].listCalls, hasLength(1));
+
+        // Plain Tab inside the listing swaps panes (02 §8.2) — with
+        // only one pane it stays put.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.left.listing',
+        );
+
+        // Re-showing restores pane B's surface.
+        await tester.tap(
+          find.byKey(
+            const ValueKey('command.$kViewToggleSecondPaneCommandId'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(AdaptiveShell.secondaryPaneKey),
+          findsOneWidget,
+        );
+        expect(find.text('right.txt'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('pane B keeps every tab and all per-tab state across a '
+        'hide/show', (tester) async {
+      // Pane B's scripted channel carries a subfolder so the tab can
+      // build history; a third channel backs the strip's second tab.
+      engine.localChannels[1].listings['/home/tester'] = [
+        _entry('alpha.txt'),
+        _entry('beta.txt'),
+        const RemoteFileEntry(
+          path: '/home/tester/docs',
+          name: 'docs',
+          type: RemoteFileType.directory,
+        ),
+      ];
+      engine.localChannels[1].listings['/home/tester/docs'] = [
+        _entry('inner.txt', parent: '/home/tester/docs'),
+      ];
+      engine.localChannels.add(
+        session_test.FakeAppBrowseChannel(homePath: '/srv/deep')
+          ..listings['/srv/deep'] = [
+            _entry('deep.txt', parent: '/srv/deep'),
+          ],
+      );
+      await pumpApp(tester);
+      await tester.pumpAndSettle();
+
+      final rightStrip = tester
+          .widgetList<PaneTabsView>(find.byType(PaneTabsView))
+          .toList()[1]
+          .tabs;
+      final tab1 = rightStrip.tabs[0];
+      final c1 = tab1.controller;
+
+      // Layer every per-tab state kind onto the first tab: a history
+      // step, a filtered lens, the hidden override, a non-default view
+      // mode, a cursor+selection, an open Quick Select session, and an
+      // open inline-rename editor.
+      c1.navigate('/home/tester/docs');
+      await settle(tester);
+      c1.openFilter();
+      c1.changeFilterQuery('inn');
+      c1.showHidden = true;
+      c1.viewMode = PaneViewMode.details;
+      c1.setCursorIndex(0);
+      c1.startRename();
+      c1.openQuickSelect();
+      c1.changeQuickSelectQuery('in');
+
+      void expectFirstTab() => expectTabState(
+        c1,
+        location: '/home/tester/docs',
+        committed: '/home/tester/docs',
+        entries: ['/home/tester/docs/inner.txt'],
+        selectedCount: 1,
+        selectedRows: [true],
+        cursor: 0,
+        filterQuery: 'inn',
+        filterFieldOpen: true,
+        showHidden: true,
+        viewMode: PaneViewMode.details,
+        canGoBack: true,
+        canGoForward: false,
+        quickSelectActive: true,
+        quickSelectQuery: 'in',
+        renameTarget: '/home/tester/docs/inner.txt',
+        renameSeed: 'inner.txt',
+      );
+      expectFirstTab();
+
+      // A second tab with its own location — the strip survives with
+      // its WHOLE tab set, not just the active one.
+      final tab2 = rightStrip.newTab(target: NewTabTarget.home);
+      await settle(tester);
+      final c2 = tab2.controller;
+      expect(rightStrip.tabs, hasLength(2));
+      expect(identical(rightStrip.activeTab, tab2), isTrue);
+      expect(c2.location?.path, '/srv/deep');
+
+      // Hide through the registered command: the surface unmounts.
+      await tester.tap(
+        find.byKey(
+          const ValueKey('command.$kViewToggleSecondPaneCommandId'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsNothing);
+      expect(find.text('deep.txt'), findsNothing);
+
+      // Nothing was disposed or reset: the strip, both tab objects, and
+      // both controllers are the same instances with the same state.
+      expect(rightStrip.tabs, hasLength(2));
+      expect(identical(rightStrip.tabs[0], tab1), isTrue);
+      expect(identical(rightStrip.tabs[1], tab2), isTrue);
+      expect(identical(rightStrip.tabs[0].controller, c1), isTrue);
+      expect(identical(rightStrip.activeTab, tab2), isTrue);
+      expectFirstTab();
+      expect(c2.location?.path, '/srv/deep');
+      expect(c2.entries.map((e) => e.path), ['/srv/deep/deep.txt']);
+
+      // Re-showing restores it exactly — the remembered pane renders
+      // the same active tab and every lens rides again.
+      await tester.tap(
+        find.byKey(
+          const ValueKey('command.$kViewToggleSecondPaneCommandId'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(AdaptiveShell.secondaryPaneKey), findsOneWidget);
+      expect(find.text('deep.txt'), findsOneWidget);
+      expectFirstTab();
+      expect(c2.location?.path, '/srv/deep');
+
+      // History survived the round-trip too: Back on the first tab
+      // lands on the pre-hide parent.
+      c1.goBack();
+      await settle(tester);
+      expect(c1.location?.path, '/home/tester');
+    });
+
+    testWidgets('the stage-2 auto-hide shares the seam and never '
+        'latches the toggle intent', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      try {
+        await pumpApp(tester);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('command.$kPaneFocusRightCommandId')),
+        );
+        await tester.pump();
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.right.listing',
+        );
+
+        // Below 02 §1's stage-2 boundary the shell's own allocation
+        // hides pane B — the same mechanism view.toggleSecondPane
+        // feeds, so focus and the active pane move to the survivor.
+        tester.view.physicalSize = const Size(600, 900);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(AdaptiveShell.secondaryPaneKey),
+          findsNothing,
+        );
+        expect(
+          FocusManager.instance.primaryFocus?.debugLabel,
+          'pane.left.listing',
+        );
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+        expect(engine.localChannels[0].listCalls, hasLength(2));
+        expect(engine.localChannels[1].listCalls, hasLength(1));
+
+        // Regrowth restores pane B on its own: the auto-hide was
+        // transient and never latched the toggle's user intent.
+        tester.view.physicalSize = const Size(1400, 900);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(AdaptiveShell.secondaryPaneKey),
+          findsOneWidget,
+        );
+        expect(find.text('right.txt'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  });
 }
