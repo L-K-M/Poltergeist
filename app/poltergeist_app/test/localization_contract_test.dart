@@ -349,6 +349,47 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'PaneFailure($paneTabId, $message)'",
     r"'ConnectionServer($serverId, $label, $status)'",
   },
+  // Tier-B benchmark plumbing (08 §6): results-document schema keys,
+  // environment-detection probes, and temp-file name templates — wire
+  // format and diagnostics, never rendered UI copy.
+  'lib/bench/bench_results.dart': {
+    "'poltergeist-d12-results-1'",
+    "'profile'",
+    "'debug'",
+    "'release'",
+    "'unknown'",
+    'r\'"([^"]+)"\\s*\$\'',
+    "'/proc/cpuinfo'",
+    'r\'^model name\\s*:\\s*(.+)\$\'',
+    "'runnerImage'",
+    "'arch'",
+    "'dartVersion'",
+    "'flutterVersion'",
+    "'mode'",
+    "'cpuModel'",
+    "'scenarioConfig'",
+    "'scenario'",
+    "'repetition'",
+    "'status'",
+    "'ok'",
+    "'value'",
+    "'unit'",
+    "'fingerprint'",
+    "'error'",
+    "'schema'",
+    "'rows'",
+    r"'${target.path}.bench-$pid-'",
+    r"'${DateTime.now().microsecondsSinceEpoch}.tmp'",
+    r"'${const JsonEncoder.withIndent('  ').convert(toJson())}\n'",
+    "'  '",
+  },
+  // Tier-B frame-aggregation diagnostics: the InsufficientFrames/invalid
+  // input error text the checker publishes, not UI copy.
+  'lib/bench/frame_stats.dart': {
+    r"'captured $captured frame(s), but the scroll window requires >= '",
+    r"'$required'",
+    r"'no positive vsync interval in ${intervals.length} samples'",
+  },
 };
 
 void main() {

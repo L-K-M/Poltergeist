@@ -4274,6 +4274,53 @@ decision this needs before any `landed` flip; see also the
 "First fixture-backed observations" note in `test/benchmarks/README.md`.
 No `landed` flips, `budgets.json`, or workflow changes here.
 
+## M3 — D12 tier-B UI benchmark harness (2026-09-15)
+
+The P1/P2/P6 profile-mode suites land under
+`app/poltergeist_app/integration_test/perf/` with
+`scripts/bench-tier-b.sh` driving them via `flutter drive --profile -d
+linux` under Xvfb; P4 stays with lane A (tab UI). Each suite boots the
+production app over a real engine session on a per-run temp support
+directory, drives the left pane's production `PaneController`, and
+captures real raster timing through
+`SchedulerBinding.addTimingsCallback` — no `traceAction` summaries, no
+synthetic timing. P1/P2 anchor first paint at the navigate()-issue
+timestamp through the first frame whose build began after the listing
+landed; P6 runs a scripted 30 s linear scroll of the 100 000-entry
+fixture, derives the refresh rate from the smallest positive vsync
+interval — dropped frames only lengthen intervals, so the minimum is
+the display period a median would mask — (recorded in
+`scenarioConfig`), and reports late-frame percent against
+the measured deadline — a capture under `floor(30 s × measured Hz)`
+publishes an error row with the count, never a ratio over a too-small
+sample.
+
+Timing reduction is pure Dart in `app/poltergeist_app/lib/bench/`
+(`frame_stats.dart`, `bench_results.dart`) with deterministic unit
+coverage in `test/bench/` (9 frame-stats + writer/schema cases). The
+one non-obvious mechanism: the suites set
+`LiveTestWidgetsFlutterBindingFramePolicy.fullyLive`, because the
+default `fadePointers` policy silently skips platform BeginFrames that
+nothing pumped — under Xvfb (no Present extension, no free-running
+vsync) a ticker-driven scroll starves without ever timing out.
+llvmpipe's observed rate is ~11 fps; the measured-Hz floor and
+deadline scale to the platform's real rate.
+
+CI: the `bench` job installs the GTK/Xvfb/Mesa toolchain and runs the
+tier-B leg on main pushes and manual dispatch only — never on PRs,
+since PR invocations must not mutate drift state — grading
+`--tiers ab`/`--tiers a` accordingly, with `if: always()` evaluation
+and upload so partial results still grade and publish. No
+`BENCH_ENFORCE_B`, no `landed` flips, no committed baseline: tier B is
+trend-only until M9 per 08 §8.
+
+Local validation on llvmpipe+Xvfb (evidence, not budgets): P1 ≈
+1.0–1.5 s, P2 ≈ 10.7–14.8 s first paint (engine scan dominates; both
+scenarios remain unlanded), P6 309–315 frames/rep at a measured
+10.00 Hz with 100 % of frames past the 100 ms software-stack deadline
+— real numbers from a software rasterizer, which is exactly what
+trend-only collection exists to expose.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -4891,7 +4938,8 @@ No `landed` flips, `budgets.json`, or workflow changes here.
     scenarios as their surfaces arrive (`BENCH_ENFORCE_A` from each
     introduction), the drift-state artifact fetch/update wiring (arrives
     with the tier-B leg — `--update-drift-state` requires `--tiers`
-    including `b`), and the tier-B xvfb suites (P1/P2/P4/P6, trend-only
+    including `b`), and the P4 tab-switch tier-B suite (lane A owns the
+    tab surface; the P1/P2/P6 xvfb suites landed 2026-09-15, trend-only
     until M9). No baseline calibration has run; budgets gate nothing
     yet.
 22. **2026-09-14: M3 D12 P3/P5 budgets unreachable on the CI fixture as
