@@ -451,14 +451,20 @@ void main() {
   test(
     'loss after cancelling the first listing still heals to the channel home',
     () async {
+      // A pane with NO prior binding keeps its live channel when Esc
+      // cancels the first listing — the state this test exercises. A
+      // bound pane's Esc now rolls back to the prior binding instead
+      // (transactional replacement, 02 §2.8).
+      final freshPane = PaneController(paneTabId: 'fresh', lanes: lanes);
+      addTearDown(freshPane.dispose);
       final held = Completer<void>();
       final first = FakePaneChannel('/new/home')
         ..listings['/new/home'] = []
         ..holdNext = held;
       lanes.nextRemoteChannel = first;
-      await pane.connectRemote(bookmark());
-      pane.cancelNavigation();
-      expect(pane.location, isNull);
+      await freshPane.connectRemote(bookmark());
+      freshPane.cancelNavigation();
+      expect(freshPane.location, isNull);
       held.complete();
       await settle();
       lanes.emitState(
@@ -472,9 +478,9 @@ void main() {
       );
       await settle();
       expect(first.listCalls, ['/new/home', '/new/home']);
-      expect(pane.location?.path, '/new/home');
-      expect(pane.connectionLost, isFalse);
-      expect(pane.verbsEnabled, isTrue);
+      expect(freshPane.location?.path, '/new/home');
+      expect(freshPane.connectionLost, isFalse);
+      expect(freshPane.verbsEnabled, isTrue);
     },
   );
 

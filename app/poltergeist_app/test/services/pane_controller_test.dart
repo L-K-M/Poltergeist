@@ -606,6 +606,68 @@ void main() {
     controller.dispose();
   });
 
+  test('cancelling a rebind to local restores the remote binding', () async {
+    final lanes = FakePaneLanes();
+    final remote = FakePaneChannel('/srv/home');
+    remote.listings['/srv/home'] = [_entry('remote.txt')];
+    remote.listings['/srv/www'] = [_entry('www.txt')];
+    lanes.nextRemoteChannel = remote;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    // Rebind to local; Esc during the landing listing restores the
+    // remote binding — channel, bookmark, committed marker, and rows —
+    // and re-arms the server state watch.
+    final held = Completer<void>();
+    final local = FakePaneChannel('/home/tester')
+      ..listings['/home/tester'] = [_entry('local.txt')]
+      ..holdNext = held;
+    lanes.nextLocalChannel = local;
+    await controller.openLocalAt('/home/tester');
+    expect(controller.loading, isTrue);
+
+    controller.cancelNavigation();
+    await settle();
+
+    expect(controller.phase, PanePhase.browsing);
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(
+      controller.committedLocation,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(controller.entries.single.name, 'remote.txt');
+    expect(controller.remoteBookmark?.id, 'srv-1');
+    expect(remote.closeCalls, 0);
+    expect(local.closeCalls, 1);
+    expect(
+      lanes.calls.where((call) => call == 'watch:srv-1').length,
+      2,
+      reason: 'the restored remote binding re-subscribes its state watch',
+    );
+
+    // The old channel still navigates as a REMOTE pane, and the late
+    // candidate answer cannot alter the restored state.
+    controller.navigate('/srv/www');
+    await settle();
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/www'),
+    );
+    expect(remote.listCalls, ['/srv/home', '/srv/www']);
+    held.complete();
+    await settle();
+    expect(controller.entries.single.name, 'www.txt');
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/www'),
+    );
+    controller.dispose();
+  });
+
   test('verbsEnabled requires a live browsing phase', () async {
     // No engine at all: never verbs.
     final engineless = PaneController(paneTabId: 'pane.left');

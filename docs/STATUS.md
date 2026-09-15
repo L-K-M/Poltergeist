@@ -4759,6 +4759,51 @@ the stale settle and the round-3 test now asserts list-call growth
 rather than a matching tail call. Full app suite green (918 tests).
 Log: `tasks/run3-task48/flutter-test-reviewfix3.log`.
 
+## M3 — transactional replacement binding, fusion review round 2 (2026-09-15)
+
+Finding F5 of the second fusion review is repaired red-first: replacing
+a pane binding destroyed the prior state before the candidate committed,
+so Esc during the replacement's connect or first listing lost the old
+location/listing and could detach the pane to the launcher — and the
+§7 sync link dropped without the manual `openLocalAt` reconstruction the
+old test used to mask it.
+
+Replacement binding is now transactional. `_beginBinding(replace)` moves
+the live channel and the full browsing state (location, committed
+marker, sorted listing, error, selection, history, filter/hidden/view
+lenses, connection status, recovery phase) into a `_BindingRollback`
+record — the channel stays open — instead of discarding them. The
+record survives until the candidate's first listing answers (commit or
+error retires it and the pane stays on the candidate), a bind failure,
+a restore, or dispose. `cancelNavigation` during the landing listing
+and `detachRemote`/`cancelRecovery` during the pending open both route
+to `_rollbackCandidateBind`, which bumps the bind attempt (a late
+candidate open now hits the stale-attempt close instead of being
+adopted, and `cancelRecovery`'s one-bump bookkeeping still decides the
+candidate server's disconnect), retires only the candidate channel and
+watch, restores the prior state, and re-subscribes the prior server's
+status lane under the current attempt. The candidate's issue skips the
+quiescent-snapshot capture while a rollback is pending — the record is
+the only honest restore target. A genuinely-fresh pane (no prior
+binding to restore) keeps the detach-to-launcher semantics, and a
+stacked rebind keeps the last DISPLAYED binding as the restore target
+rather than superseding it with the intermediate candidate.
+
+Validation: three new regressions failed before the fix and pass after
+— remote→local rollback (`pane_controller_test`), and in
+`sync_browsing_controller_test` an Esc-cancelled server change during
+the first listing plus a pre-open `cancelRecovery`, each asserting the
+restored location/committed marker/rows/selection, live old-channel
+navigation, late-candidate-answer immunity, and the link kept without
+manual reconstruction. Three existing tests that encoded the
+destructive semantics were updated to the contract: the reconnect
+suite's cancelled-first-listing heal now runs on a fresh pane, and the
+two workspace cancel tests assert the restored local binding while the
+candidate's server-reference bookkeeping is unchanged (sibling keeps
+the reference, alone drops it). `flutter analyze` clean; focused pane
+suites green (183 tests); full app suite green (920 tests). Logs under
+`tasks/run3-task49/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
