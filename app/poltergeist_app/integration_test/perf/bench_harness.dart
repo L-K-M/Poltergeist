@@ -1,8 +1,9 @@
-// Shared harness for the tier-B UI benchmarks (02 §12 P1/P2/P6, 08 §6):
-// boots the real app over a real engine session under `flutter drive
-// --profile`, drives the pane through its production controller, and
-// captures raster timing through SchedulerBinding.addTimingsCallback —
-// the primary mechanism; no traceAction summaries are consumed.
+// Shared harness for the tier-B UI benchmarks (02 §12 P1/P2/P4/P6,
+// 08 §6): boots the real app over a real engine session under
+// `flutter drive --profile`, drives the pane through its production
+// controller, and captures raster timing through
+// SchedulerBinding.addTimingsCallback — the primary mechanism; no
+// traceAction summaries are consumed.
 //
 // Each scenario's test file writes one `poltergeist-d12-results-1`
 // document (path from POLTERGEIST_BENCH_OUTPUT) that the bench job merges
@@ -30,6 +31,7 @@ import 'package:poltergeist_app/bench/frame_stats.dart';
 import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 
 /// Measurement configuration carried in through dart-defines. Absent
@@ -67,6 +69,7 @@ final class BenchmarkRig {
   const BenchmarkRig({
     required this.tester,
     required this.pane,
+    required this.tabs,
     required this.session,
     required this.supportDirectory,
   });
@@ -75,6 +78,11 @@ final class BenchmarkRig {
 
   /// The left pane's controller — the measured surface.
   final PaneController pane;
+
+  /// The left pane's tab strip — the P4 measured surface. Strips live
+  /// for the workspace's lifetime, so the reference stays valid across
+  /// the tab activations that swap the mounted PaneView under it.
+  final PaneTabsController tabs;
 
   final EngineSession session;
   final Directory supportDirectory;
@@ -211,22 +219,22 @@ Future<BenchmarkRig> bootBenchmarkApp(WidgetTester tester) async {
       ),
     );
 
-    final pane =
-        tester.widget<PaneView>(find.byType(PaneView).first).controller;
+    final paneView = tester.widget<PaneView>(find.byType(PaneView).first);
     final rig = BenchmarkRig(
       tester: tester,
-      pane: pane,
+      pane: paneView.controller,
+      tabs: paneView.pane,
       session: session,
       supportDirectory: supportDirectory,
     );
     await waitFor(
       tester,
-      () => pane.phase == PanePhase.browsing && !pane.loading,
+      () => rig.pane.phase == PanePhase.browsing && !rig.pane.loading,
       'left pane initial local listing',
     );
-    if (pane.error != null) {
+    if (rig.pane.error != null) {
       throw StateError(
-        'left pane failed to reach browsing state: ${pane.error}',
+        'left pane failed to reach browsing state: ${rig.pane.error}',
       );
     }
     return rig;
@@ -302,8 +310,7 @@ Future<int> measureFirstPaintMicros(
     FrameSlice? painted;
     await waitFor(
       rig.tester,
-      () => (painted = firstPaintedFrame(capture.slices, acceptedAtUs)) !=
-          null,
+      () => (painted = firstPaintedFrame(capture.slices, acceptedAtUs)) != null,
       'first frame painting $expectedEntries entries',
       timeout: const Duration(seconds: 30),
     );
@@ -317,6 +324,60 @@ Future<int> measureFirstPaintMicros(
     return latency;
   } finally {
     pane.removeListener(onPaneChanged);
+    capture.detach();
+  }
+}
+
+/// One tab-switch measurement (02 §12 P4): activate [tab] on the rig's
+/// strip and return the microseconds from the activation issue to the
+/// raster completion of the first frame whose build began after the
+/// issue. A switch is an atomic active-pointer change — every per-tab
+/// state lives on the tab's own controller (02 §3), so the activation
+/// lands synchronously inside the issue call and the first post-issue
+/// build is the first frame that can carry the target tab's view with
+/// its already-loaded listing: the same [firstPaintedFrame] selection
+/// rule P1/P2 anchor on, with the issue instant as the accept.
+///
+/// [tab] must not already be active: `activateTab` on the current tab
+/// is a notify-less no-op, which would measure an unrelated frame.
+Future<int> measureTabSwitchMicros(
+  BenchmarkRig rig, {
+  required PaneTab tab,
+}) async {
+  final tabs = rig.tabs;
+  if (identical(tabs.activeTab, tab)) {
+    throw ArgumentError('P4 target ${tab.id} is already the active tab');
+  }
+  final capture = FrameCapture();
+  try {
+    final triggerUs = Timeline.now;
+    tabs.activateTab(tab);
+    FrameSlice? painted;
+    await waitFor(
+      rig.tester,
+      () => (painted = firstPaintedFrame(capture.slices, triggerUs)) != null,
+      'first frame painting tab ${tab.id}',
+      timeout: const Duration(seconds: 30),
+    );
+    // The painted frame is only honest if the mounted view serves the
+    // TARGET tab — a rebuild that lagged the activation would quietly
+    // measure a different tab's paint.
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is PaneView && identical(widget.controller, tab.controller),
+      ),
+      findsOneWidget,
+    );
+    final latency = painted!.rasterFinishUs - triggerUs;
+    if (latency < 0) {
+      throw StateError(
+        'frame-timing clock domain mismatch: rasterFinish '
+        '${painted!.rasterFinishUs} precedes trigger $triggerUs',
+      );
+    }
+    return latency;
+  } finally {
     capture.detach();
   }
 }

@@ -4340,7 +4340,8 @@ No `landed` flips, `budgets.json`, or workflow changes here.
 The P1/P2/P6 profile-mode suites land under
 `app/poltergeist_app/integration_test/perf/` with
 `scripts/bench-tier-b.sh` driving them via `flutter drive --profile -d
-linux` under Xvfb; P4 stays with lane A (tab UI). Each suite boots the
+linux` under Xvfb; P4 waited on lane A's tab UI and lands in the next
+section. Each suite boots the
 production app over a real engine session on a per-run temp support
 directory, drives the left pane's production `PaneController`, and
 captures real raster timing through
@@ -4381,6 +4382,28 @@ scenarios remain unlanded), P6 309–315 frames/rep at a measured
 10.00 Hz with 100 % of frames past the 100 ms software-stack deadline
 — real numbers from a software rasterizer, which is exactly what
 trend-only collection exists to expose.
+
+## M3 — D12 tier-B P4 tab-switch suite (2026-09-15)
+
+The P4 scenario joins the tier-B leg now that pane tabs are on main
+(#123). `p4_tab_switch_test.dart` seeds a five-tab strip on the left
+pane — a five-location working set per 02 §3, the heavy end of an
+everyday strip — with every tab bound to the 10 000-entry fixture,
+then times each scripted `PaneTabsController.activateTab` (the one
+call chip taps and ⌃⇥ cycling share) from issue to the raster
+completion of the first frame whose build began after it. The anchor
+reuses `firstPaintedFrame` semantics: activation is a synchronous
+active-pointer change (02 §3), so the first post-issue build is the
+first frame that can carry the target tab's already-loaded listing;
+the measurement asserts the mounted PaneView serves the target tab's
+controller before reporting. Five measured repetitions cover each tab
+as a switch target once (median lands via the checker; budget
+`minimumRepetitions` 3). `bench-tier-b.sh` gains the `p4` leg — one
+`run_scenario` line plus the cleanup/merge-required lists; the bench
+job's tier-B step needs no restructuring, and P4 stays unlanded —
+reported trend-only like the rest of tier B. Local llvmpipe+Xvfb
+evidence is in `tasks/run3-task41/`: five `ok` rows at 168–264 ms per
+switch — environment-scale numbers, not budget reads.
 
 ## Open items
 
@@ -4999,10 +5022,9 @@ trend-only collection exists to expose.
     scenarios as their surfaces arrive (`BENCH_ENFORCE_A` from each
     introduction), the drift-state artifact fetch/update wiring (arrives
     with the tier-B leg — `--update-drift-state` requires `--tiers`
-    including `b`), and the P4 tab-switch tier-B suite (lane A owns the
-    tab surface; the P1/P2/P6 xvfb suites landed 2026-09-15, trend-only
-    until M9). No baseline calibration has run; budgets gate nothing
-    yet.
+    including `b`). The P4 tab-switch suite landed 2026-09-15 with the
+    other tier-B xvfb suites (dated section above) — trend-only until
+    M9. No baseline calibration has run; budgets gate nothing yet.
 22. **2026-09-14: M3 D12 P3/P5 budgets unreachable on the CI fixture as
     specified.** The bench job's first real medians (P3 ≈ 4.3–4.6 s,
     P5 ≈ 4.7–4.9 s — the dated analysis section above) are runner/

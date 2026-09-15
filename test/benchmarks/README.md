@@ -126,7 +126,7 @@ The `bench` job in `.github/workflows/ci.yml` writes
 `bench-results.json` by merging the collectors' per-scenario documents
 (`scripts/bench-tier-a.sh` for P3/P5/P7 under
 `test/integration/run.sh --lifecycle-only`; `scripts/bench-tier-b.sh`
-for P1/P2/P6 — see below), evaluates it here with `if: always()` so
+for P1/P2/P4/P6 — see below), evaluates it here with `if: always()` so
 partial results are graded, and uploads it as the always-present
 `bench-results` artifact. With every scenario unlanded the run is a
 report, not a gate; no `BENCH_ENFORCE_*` flag is set by the job.
@@ -144,9 +144,13 @@ captures raster timing through
 `SchedulerBinding.addTimingsCallback` — the primary mechanism;
 `traceAction` summaries are not consumed. P1/P2 anchor first paint on
 the navigate()-issue timestamp through the first frame whose build
-began after the listing landed; P6 runs a scripted 30 s linear scroll
-of the 100 000-entry fixture, derives the refresh rate from the
-smallest positive vsync interval (recorded in the row's
+began after the listing landed; P4 seeds a five-tab strip on the
+10 000-entry fixture and times each scripted `activateTab` from issue
+to the first post-activation frame's raster completion (a switch is an
+atomic active-pointer change — 02 §3 — so that frame is the first that
+can carry the target tab's already-loaded listing); P6 runs a scripted
+30 s linear scroll of the 100 000-entry fixture, derives the refresh
+rate from the smallest positive vsync interval (recorded in the row's
 `scenarioConfig`; dropped frames only ever lengthen an interval, so
 the minimum is the display period a median would mask), and reports
 the percent of frames whose vsync-to-raster span exceeded the deadline
