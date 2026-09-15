@@ -1140,7 +1140,9 @@ class PaneController extends ChangeNotifier {
     // arrived after the row vanished. Enter dismisses the stranded
     // editor; a new edit needs a fresh session on a live row.
     if (!_rowKeyIndex.containsKey(session.rowKey)) {
-      _renameSession = null;
+      // The canonical teardown (no notify by contract) plus this
+      // path's own notify — the dismissal IS the transition here.
+      _endRenameSession();
       notifyListeners();
       return;
     }
