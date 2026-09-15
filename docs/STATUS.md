@@ -4644,6 +4644,40 @@ Validation: focused controller, tabs, preferences, widget, command,
 localization-contract, and engine host/client/protocol suites under
 `tasks/run3-task46/`.
 
+## M3 — D12 tier-B baseline per-scenario config binding (2026-09-15)
+
+Fusion review round 2's finding F9 (reproduced red-first): a landed
+tier-B scenario whose fixture config changed uniformly across
+repetitions still numerically compared against the old baseline — the
+baseline stored only median/unit/repetitions and required the job-wide
+config to be null, so a different workload scored as the same. The
+baseline contract is now versioned: schema
+`poltergeist-d12-baseline-2` records each entry's own `scenarioConfig`
+(key required, `null` a legitimate record for a config-free collector),
+and `_evaluateTierB` receives the run's per-scenario config and
+enforces the match — a recorded-but-different config is a loud
+non-comparison skip (`skipped: config mismatch`, never cross-compared),
+soft-mode notice / hard fail once `BENCH_ENFORCE_B` is set. The legacy
+`-1` file stays readable with a loud deprecation notice, but its
+entries record no config, so every one reports
+`baseline-config-missing` and skips rather than inventing one; both
+non-comparison outcomes veto the drift-state reset like any unexecuted
+comparison. The committed baseline moved to `-2` with the REAL configs
+extracted from the same cited artifacts (P1
+`local-entries-10000-first-paint`, P2
+`local-entries-100000-first-paint`, P4
+`local-tabs-5-entries-10000-tab-switch`; medians, counts, and
+fingerprint unchanged, re-verified). Within-run config agreement and
+the job-wide-null rejection are unchanged; no tier-A, workflow, or
+`landed` changes.
+
+Red evidence (pre-fix numeric `pass` under a changed config) and the
+post-fix logs live under `tasks/run3-task47/`. New coverage: schema
+forms (-2 required key, -1 mixed-form rejection, recorded-null),
+changed/unchanged config comparison outcomes, legacy migration outcome
+in both modes, and the config-skip reset veto. `dart test
+test/benchmarks` 130/130; `dart analyze test/benchmarks` clean.
+
 ## M3 — rename ownership repairs, fusion review round 2 (2026-09-15)
 
 Three confirmed findings from the second source-level review of the
