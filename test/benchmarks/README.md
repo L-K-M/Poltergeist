@@ -62,15 +62,19 @@ run in every mode, with the repetition and message attributed in the
 failure line; successful siblings cannot hide it. An empty `rows` list
 is a valid, fully unobserved job (no fingerprint is fabricated for it):
 it yields the honest no-budgets-evaluated outcome when nothing is
-landed, and explicit missing-scenario failures when something is. All
-rows must share one job-wide environment fingerprint — the controlled
-axes `runnerImage`, `arch`, `dartVersion`, `flutterVersion` plus the
-uncontrolled-but-row-checked `cpuModel` (two CPUs in one job are two
-environments). `mode` differs per tier by design: tier A runs AOT, tier
-B runs profile, and one `--tiers ab` job writes both into this file —
-`mode` is instead validated per store: row eligibility filters
-non-AOT/non-profile rows as ineligible with a loud notice, and the
-calibration/baseline must record their tier's mode. `scenarioConfig` is
+landed, and explicit missing-scenario failures when something is. Rows
+must share one environment fingerprint **per tier** — within a tier,
+every axis except `scenarioConfig` (two runtimes in one tier are two
+measurement classes). Across tiers only the machine axes `runnerImage`,
+`arch`, and `cpuModel` must agree (two machines in one job are two
+environments); the runtime axes differ per tier by construction — tier
+A runs standalone Dart AOT collectors, tier B runs inside the Flutter
+engine under profile mode, so `dartVersion`, `flutterVersion`, and
+`mode` never carry the same values and one `--tiers ab` job writes both
+sets into this file. The runtime axes are instead validated per store:
+row eligibility filters non-AOT/non-profile rows as ineligible with a
+loud notice, and the calibration/baseline must record their tier's
+runtime. `scenarioConfig` is
 agreed **per scenario**: one scenario's repetitions must share one
 config (conflicting configs are a malformed measurement set, exit 65),
 while distinct scenarios may carry distinct configs in the one results
