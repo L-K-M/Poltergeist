@@ -20,8 +20,7 @@ void main() {
   const scenario = 'P4';
   const tabCount = 5;
   const entries = 10000;
-  const scenarioConfig =
-      'local-tabs-$tabCount-entries-$entries-tab-switch';
+  const scenarioConfig = 'local-tabs-$tabCount-entries-$entries-tab-switch';
 
   testWidgets('P4 tab switch, five 10k-entry tabs', (tester) async {
     await runBenchScenario(
