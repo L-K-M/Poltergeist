@@ -141,7 +141,7 @@ List<List<AppMenuRow>> _menuGroups(
   }());
 
   final groups = <List<AppMenuRow>>[];
-  var group = -1;
+  int? group;
   List<AppMenuRow>? rows;
   for (final command in sorted) {
     final placement = command.menuPlacement!;
