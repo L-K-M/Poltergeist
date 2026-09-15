@@ -4450,6 +4450,45 @@ reported trend-only like the rest of tier B. Local llvmpipe+Xvfb
 evidence is in `tasks/run3-task41/`: five `ok` rows at 168–264 ms per
 switch — environment-scale numbers, not budget reads.
 
+## M3 — D12 tier-B baseline committed (2026-09-15)
+
+`test/benchmarks/tier-b-baseline.json` now carries the first real
+tier-B baseline, measured from the `bench-results` artifacts of
+main-branch CI runs 34920829912, 34925105848, 34925201167, and
+34937535607 (run 34934485531 excluded — `AMD EPYC 9V74`, a different
+uncontrolled-axis environment): P1 1061.087 ms (n=12), P2 10781.459 ms
+(n=12), P4 35.398 ms (n=5 — the P4 suite has produced main-branch rows
+only once so far, with the dispatch run 34935534520 corroborating at a
+36.8 ms median). The fingerprint records the tier-B runtime axes (the
+per-tier axis from #125): `ubuntu-latest@20260907.300.1`, Flutter
+3.47.2's bundled Dart 3.13.2, `profile`, `AMD EPYC 7763`. **P6 has no
+entry** — every tier-B leg has returned only error rows for it
+(insufficient frame capture: ~750–800 frames against the >= 1800-frame
+floor the ~60 Hz measured vsync cadence implies under llvmpipe), so no
+honest median exists; the P6 harness question belongs to its owner.
+
+With the baseline committed, a declared tier-B scope runs the per-run
+fingerprint-drift evaluation instead of the absent-baseline notice —
+soft-mode `hardware drift` notices (controlled axes) or
+refresh-the-baseline notices (the uncontrolled CPU axis) now print on
+real runs, never failing while `BENCH_ENFORCE_B` stays unset.
+Per-scenario trend lines still wait on the `landed` flips (kept out of
+this change per the task boundary; the committed-catalog test pins
+every scenario unlanded). Verified end to end against the real
+artifacts: as-committed run exits 0 with no absent-baseline notice; a
+simulated-landing budgets variant prints trend pass lines and fails on
+P6's errored rows (exit 1 — the missing/errored rule); a simulated
++40 % P1 run prints the regression notice and exits 0; the real
+9V74-CPU artifact prints the uncontrolled-axis drift notice and exits
+0. Logs under `tasks/run3-task43/`. New coverage: the committed
+baseline's own contract (parses, tier-B runtime axes, tier-B-only
+finite-median entries) plus the baseline-present soft semantics —
+unlanded scenarios never become expected, and drift is evaluated per
+run even with nothing landed. `dart test test/benchmarks` 118/118;
+`dart analyze test/benchmarks` clean. The README gained the dedicated
+baseline-refresh procedure (the path a future runner rotation uses)
+and the baseline's provenance.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -5061,15 +5100,20 @@ switch — environment-scale numbers, not budget reads.
     still unlanded, the P3/P5/P7 tier-A collectors landed under
     `packages/poltergeist_core/benchmark/`, and the tier-A `bench` job
     is on `ci.yml` reusing `run.sh --lifecycle-only` (dated section
-    above). Still open: real calibration (tier-A
-    `calibratedScenarioConfig`/`calibratedFingerprint` + tier-B
-    baseline) via the dedicated baseline-refresh procedure, landing
+    above). Still open: real calibration of the tier-A
+    `calibratedScenarioConfig`/`calibratedFingerprint` (a dedicated
+    tier-A calibration step; the baseline-refresh procedure covers
+    tier B only), landing
     scenarios as their surfaces arrive (`BENCH_ENFORCE_A` from each
-    introduction), the drift-state artifact fetch/update wiring (arrives
-    with the tier-B leg — `--update-drift-state` requires `--tiers`
+    introduction), the drift-state artifact fetch/update wiring
+    (`--update-drift-state` requires `--tiers`
     including `b`). The P4 tab-switch suite merged 2026-09-15 with the
     other tier-B xvfb suites (dated section above) — trend-only until
-    M9. No baseline calibration has run; budgets gate nothing yet.
+    M9. The tier-B baseline committed 2026-09-15 (dated section above)
+    arms fingerprint-drift evaluation on `--tiers ab` runs; P6 has no
+    entry yet (its leg has never produced an `ok` row — insufficient
+    frame capture under llvmpipe; the harness question is the P6
+    owner's). Budgets gate nothing yet.
 22. **2026-09-14: M3 D12 P3/P5 budgets unreachable on the CI fixture as
     specified.** The bench job's first real medians (P3 ≈ 4.3–4.6 s,
     P5 ≈ 4.7–4.9 s — the dated analysis section above) are runner/

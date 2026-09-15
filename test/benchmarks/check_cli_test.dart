@@ -847,6 +847,67 @@ void main() {
     },
   );
 
+  test('a tier-B-blind run skips the baseline but notes an explicit '
+      '--baseline', () async {
+    // The baseline is consulted only by a declared tier-B scope: under
+    // --tiers a a catalog that knows no tier-B scenario still runs
+    // clean even though the default --baseline resolves to the
+    // committed file (the collector subprocess tests rely on this),
+    // and an explicitly passed --baseline earns a stderr note instead
+    // of vanishing silently.
+    final budgets = await writeFixture('budgets.json', {
+      'schema': budgetsSchemaV2Id,
+      'calibratedFingerprint': _fingerprintJson(),
+      'scenarios': [
+        {
+          'id': 'P3',
+          'tier': 'a',
+          'summary': 'synthetic',
+          'operator': 'lessThan',
+          'value': 50,
+          'unit': 'ms',
+          'minimumRepetitions': 5,
+          'landed': false,
+        },
+      ],
+    });
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(rows: [_rowJson()]),
+    );
+
+    var (exitCodeValue, _, stderrText) = await runChecker(
+      arguments: ['--results', results, '--tiers', 'a', '--budgets', budgets],
+    );
+    expect(exitCodeValue, 0, reason: stderrText);
+    expect(stderrText, isNot(contains('ignoring')));
+
+    // Deliberately invalid, proving the tier-B-blind path never parses
+    // the file (a valid document would also pass if parsing returned).
+    final baseline = await writeFixture('baseline.json', {
+      'unexpected': true,
+    });
+    (exitCodeValue, _, stderrText) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'a',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+    );
+    expect(exitCodeValue, 0, reason: stderrText);
+    expect(
+      stderrText,
+      contains(
+        'note: --baseline is consulted only when --tiers includes b',
+      ),
+    );
+  });
+
   test('a landed tier-B scenario missing from the baseline fails only when '
       'enforced', () async {
     final budgets = await writeFixture(
@@ -899,6 +960,196 @@ void main() {
     );
     expect(exitCodeValue, 1);
     expect(stdoutText, contains('no entry for it'));
+  });
+
+  test('a present baseline never promotes unlanded scenarios to '
+      'expected', () async {
+    // The M3 window runs every tier-B scenario unlanded: the committed
+    // baseline must not turn their rows — including errored ones — into
+    // failures. "Expected" stays the landed set (08 §6); the baseline
+    // only arms drift evaluation and the absent-baseline notice goes
+    // away.
+    final budgets = await writeFixture('budgets.json', _budgetsJson());
+    final baseline = await writeFixture('baseline.json', _baselineJson());
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(mode: 'profile'),
+            ),
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P6',
+              repetition: i,
+              status: 'error',
+              error: 'fixture died',
+              unit: '%',
+              fingerprint: _fingerprintJson(mode: 'profile'),
+            ),
+        ],
+      ),
+    );
+    final (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+    );
+    expect(exitCodeValue, 0, reason: stdoutText);
+    expect(stdoutText, isNot(contains('FAIL:')));
+    expect(stdoutText, contains('reported (unlanded)'));
+    expect(
+      stdoutText,
+      isNot(contains('NOT ENFORCED: no committed tier-B baseline')),
+      reason: 'the baseline exists, so its absent-notice must not print',
+    );
+  });
+
+  test('baseline-present drift is evaluated per run, even when every '
+      'tier-B scenario is unlanded', () async {
+    // Drift is a property of the baseline vs the run fingerprint, not of
+    // any landed scenario: with the baseline committed, a controlled-axis
+    // rotation surfaces the recalibrate notice in soft mode (hard exit
+    // once enforced) even though no scenario is expected.
+    final budgets = await writeFixture('budgets.json', _budgetsJson());
+    final baseline = await writeFixture(
+      'baseline.json',
+      _baselineJson(runnerImage: 'image-2026'),
+    );
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: _fingerprintJson(
+                mode: 'profile',
+                runnerImage: 'image-2027',
+              ),
+            ),
+        ],
+      ),
+    );
+    var (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+    );
+    expect(exitCodeValue, 0, reason: stdoutText);
+    expect(stdoutText, contains('hardware drift — recalibrate'));
+    expect(
+      stdoutText,
+      contains('controlled axis runnerImage (image-2026 != image-2027)'),
+    );
+    expect(stdoutText, contains('never cross-compared'));
+
+    (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: [
+        '--results',
+        results,
+        '--tiers',
+        'b',
+        '--budgets',
+        budgets,
+        '--baseline',
+        baseline,
+      ],
+      environment: {'BENCH_ENFORCE_B': '1'},
+    );
+    expect(exitCodeValue, 1);
+    expect(
+      stdoutText,
+      contains('FAIL: tier-B baseline controlled axis runnerImage'),
+    );
+  });
+
+  test('the committed baseline drives the default invocation path', () async {
+    // check.dart resolves --budgets/--baseline to the committed files by
+    // default; this run exercises exactly what the bench job's
+    // `--tiers ab` invocation does on a matching fingerprint: no
+    // absent-baseline notice, no drift, exit zero. Relies on the
+    // committed catalog keeping every tier-B scenario unlanded; the
+    // first `landed` flip should re-examine this test's assertions.
+    final baselineDoc =
+        jsonDecode(File(defaultBaselinePath).readAsStringSync())
+            as Map<String, Object?>;
+    final baselineFingerprint =
+        Map<String, Object?>.from(baselineDoc['fingerprint'] as Map);
+    final results = await writeFixture(
+      'results.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: {
+                ...baselineFingerprint,
+                'scenarioConfig': 'local-entries-10000-first-paint',
+              },
+            ),
+        ],
+      ),
+    );
+    var (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: ['--results', results, '--tiers', 'b'],
+    );
+    expect(exitCodeValue, 0, reason: stdoutText);
+    expect(stdoutText, contains('reported (unlanded)'));
+    expect(
+      stdoutText,
+      isNot(contains('NOT ENFORCED: no committed tier-B baseline')),
+    );
+    expect(stdoutText, isNot(contains('hardware drift')));
+
+    // A rotated runner image against the committed baseline is a
+    // controlled-axis drift notice on the default path too — the
+    // baseline's fingerprint is what arms that detection.
+    final driftedResults = await writeFixture(
+      'drifted.json',
+      _resultsJson(
+        rows: [
+          for (var i = 0; i < 3; i++)
+            _rowJson(
+              scenario: 'P1',
+              repetition: i,
+              unit: 'ms',
+              fingerprint: {
+                ...baselineFingerprint,
+                'runnerImage': 'ubuntu-latest@20991231.999.9',
+              },
+            ),
+        ],
+      ),
+    );
+    (exitCodeValue, stdoutText, _) = await runChecker(
+      arguments: ['--results', driftedResults, '--tiers', 'b'],
+    );
+    expect(exitCodeValue, 0, reason: stdoutText);
+    expect(stdoutText, contains('hardware drift — recalibrate'));
+    expect(stdoutText, contains('controlled axis runnerImage'));
   });
 
   group('drift-state progression (tier-B CPU axis)', () {

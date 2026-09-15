@@ -1,0 +1,29 @@
+{
+  "schema": "poltergeist-d12-baseline-1",
+  "fingerprint": {
+    "runnerImage": "ubuntu-latest@20260907.300.1",
+    "arch": "linux_x64",
+    "dartVersion": "3.13.2 (stable) (Tue Aug 25 01:01:12 2026 -0700) on \"linux_x64\"",
+    "flutterVersion": "3.47.2",
+    "mode": "profile",
+    "cpuModel": "AMD EPYC 7763 64-Core Processor",
+    "scenarioConfig": null
+  },
+  "scenarios": {
+    "P1": {
+      "median": 1061.087,
+      "unit": "ms",
+      "repetitions": 12
+    },
+    "P2": {
+      "median": 10781.459,
+      "unit": "ms",
+      "repetitions": 12
+    },
+    "P4": {
+      "median": 35.398,
+      "unit": "ms",
+      "repetitions": 5
+    }
+  }
+}
