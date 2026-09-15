@@ -1697,5 +1697,30 @@ void main() {
       ]);
       controller.dispose();
     });
+
+    test('a separator-less path equal to its name joins the location',
+        () async {
+      // A path that is exactly its name carries no parent prefix —
+      // the backslash inside it must not split, and the destination
+      // joins the browsed location instead.
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await renaming(lanes, [
+        const RemoteFileEntry(
+          path: r'weird\name',
+          name: r'weird\name',
+          type: RemoteFileType.file,
+        ),
+      ]);
+      controller.setCursorIndex(0);
+      controller.startRename();
+      channel.listings['/home/tester'] = [_entry('plain.txt')];
+      await controller.submitRename('plain.txt');
+      await settle();
+
+      expect(channel.renameCalls, [
+        (r'weird\name', '/home/tester/plain.txt'),
+      ]);
+      controller.dispose();
+    });
   });
 }

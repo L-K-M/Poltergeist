@@ -996,9 +996,11 @@ class PaneController extends ChangeNotifier {
     final lastSep = trimmed.lastIndexOf(RegExp(r'[\\/]'));
     final parent = stripped.endsWith('/') || stripped.endsWith('\\')
         ? stripped
-        : lastSep >= 0
-            ? trimmed.substring(0, lastSep + 1)
-            : '${location?.path ?? ''}/';
+        : trimmed == entry.name
+            ? '${location?.path ?? ''}/'
+            : lastSep >= 0
+                ? trimmed.substring(0, lastSep + 1)
+                : '${location?.path ?? ''}/';
     final newPath = '$parent$raw';
 
     // The field closes at submit: the in-flight flag alone holds the
