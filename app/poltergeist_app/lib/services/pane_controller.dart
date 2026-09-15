@@ -1211,8 +1211,13 @@ class PaneController extends ChangeNotifier {
       }
     }
     if (parent.isEmpty) {
+      // The last resort still respects the base's own terminator — a
+      // root location ('/', 'C:\', a UNC root) already ends with its
+      // separator, and doubling it would synthesize a spelling the
+      // refreshed listing never matches.
       final base = location?.path ?? '';
-      parent = '$base${paneSeparator(base)}';
+      final baseSeparator = paneSeparator(base);
+      parent = base.endsWith(baseSeparator) ? base : '$base$baseSeparator';
     }
     final newPath = '$parent$raw';
 
@@ -1240,7 +1245,9 @@ class PaneController extends ChangeNotifier {
     try {
       await channel.rename(entry.path, newPath);
     } on RemoteFileException catch (error, stackTrace) {
-      _renameInFlight = false;
+      // Only the owning operation clears the guard: a retired commit's
+      // late settle must not release a newer commit's flag.
+      if (_disposed || ownsPresentation()) _renameInFlight = false;
       if (_disposed) return;
       if (ownsPresentation()) {
         // Re-open the field with the refusal inside while the pane
@@ -1260,7 +1267,7 @@ class PaneController extends ChangeNotifier {
       notifyListeners();
       return;
     } on Object catch (error, stackTrace) {
-      _renameInFlight = false;
+      if (_disposed || ownsPresentation()) _renameInFlight = false;
       if (_disposed) return;
       // An untyped failure is not a name refusal — it reports on the
       // pane's error surface, and the field stays closed.
@@ -1268,7 +1275,7 @@ class PaneController extends ChangeNotifier {
       return;
     }
 
-    _renameInFlight = false;
+    if (_disposed || ownsPresentation()) _renameInFlight = false;
     if (_disposed) return;
     if (!ownsPresentation()) {
       // The rename applied on the old binding; the pane's current
@@ -1584,6 +1591,9 @@ class PaneController extends ChangeNotifier {
     if (_disposed || _pendingRemote == null) return;
     _bindAttempt++; // invalidate the bind this detach replaces
     _cancelListing();
+    // The detached binding's pending rename is retired by the attempt
+    // bump — release its in-flight guard with the rest of the state.
+    _renameInFlight = false;
     _phase = PanePhase.unbound;
     _location = null;
     _committedLocation = null;
@@ -1745,6 +1755,12 @@ class PaneController extends ChangeNotifier {
   /// Both invalidate every old answer before releasing the prior channel.
   void _beginBinding(_BindingPresentation presentation) {
     _cancelListing();
+    // The attempt bump in _bind retires every pending rename's
+    // ownership token; release the in-flight guard here so a stalled
+    // request on the old binding cannot keep the new binding's rename
+    // verb closed. The retiring operation's settle leaves the flag
+    // untouched once it no longer owns it.
+    _renameInFlight = false;
     // The notice dies with the browsing session it arose in — a rebind
     // never carries one pane-moment's "not yet" into the next binding.
     _noticeTimer?.cancel();
@@ -1858,6 +1874,10 @@ class PaneController extends ChangeNotifier {
       // row-presence check decide (02 §2.8's keep-rows-while-loading).
       _endRenameSession();
       _locationRevision++;
+      // The revision bump retires a pending commit's ownership token —
+      // release its in-flight guard so a stalled request cannot keep
+      // this location's rename verb closed.
+      _renameInFlight = false;
     }
     if (!historyTraversal && target != _location) {
       // 02 §2.1's branch semantics: a user-driven navigation to a new

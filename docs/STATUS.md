@@ -4685,6 +4685,25 @@ one widget regression (gone-row fault on an emptied listing) failed
 before the fix and pass after; `flutter analyze` clean; full app suite
 green (912 tests). Logs under `tasks/run3-task48/`.
 
+The exact-head GLM review (#134, round 1 at `9f38ed8`) returned two
+minor findings, both confirmed and repaired red-first:
+
+- The last-resort location join unconditionally appended the base's
+  separator, doubling it on root locations (`/` → `//name`). The join
+  now respects a base that already ends with its separator.
+- `_renameInFlight` was pane-global: a stalled commit on a retired
+  binding kept `startRename` closed on the live one until the request
+  settled. The guard now releases where the operation's ownership token
+  retires (bind, detach, location-changing navigation issue), and each
+  settle frame clears the flag only while the operation still owns it,
+  so a late settle cannot release a newer commit's guard.
+
+Validation: four new controller regressions (local and remote root
+joins, rebind and navigation guard release including a stale settle
+racing a newer commit) failed before the fix and pass after;
+`flutter analyze` clean; full app suite green (916 tests). Log:
+`tasks/run3-task48/flutter-test-reviewfix.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
