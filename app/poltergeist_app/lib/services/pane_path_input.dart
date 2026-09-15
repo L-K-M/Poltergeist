@@ -12,13 +12,14 @@ final RegExp _driveLetterOnly = RegExp(r'^[A-Za-z]:$');
 ///
 /// Returns null for input whose shape can never name a location under
 /// this pane: control characters, `~name` (other-user expansion needs
-/// the engine), a drive-relative `C:name`, a root-relative `\name` or
-/// a shareless `\\server` UNC. POSIX panes accept drive-looking names
-/// (`C:\x`) as ordinary relative names — the colon and backslash are
-/// legal filename characters there, so the drive rules apply only to
-/// a Windows local pane. The caller surfaces the pane error
-/// affordance without an engine round-trip; whether a well-formed
-/// result exists is the listing's question, not this check's.
+/// the engine), and on a Windows pane a drive-relative `C:name`, a
+/// root-relative `\name` or a shareless `\\server` UNC. POSIX panes
+/// accept drive-looking names (`C:\x`) as ordinary relative names —
+/// the colon and backslash are legal filename characters there, so
+/// the drive rules apply only to a Windows local pane. The caller
+/// surfaces the pane error affordance without an engine round-trip;
+/// whether a well-formed result exists is the listing's question, not
+/// this check's.
 ///
 /// [remote] selects the POSIX ruleset for a remote pane; a local pane
 /// reads its conventions from [homePath]'s separator, so the same field
