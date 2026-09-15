@@ -602,6 +602,13 @@ class PaneController extends ChangeNotifier {
   /// entry point so no caller can select or activate a stale row.
   bool get staleRows => _staleRows;
 
+  /// Whether row interaction is permitted: the controller is live, its
+  /// rows are owned (not disowned cache), and a listing is present.
+  /// Every row-interaction entry point gates on this so the stale
+  /// boundary cannot drift as new entry points appear.
+  bool get _rowsInteractive =>
+      !_disposed && !_staleRows && _entries.isNotEmpty;
+
   /// Binds the pane to a remote bookmark: closes any previous channel,
   /// subscribes to the server's state lane BEFORE connecting (live
   /// streams keep no replay, 03 §5), opens the browse channel, and
@@ -1057,7 +1064,7 @@ class PaneController extends ChangeNotifier {
     int index, {
     SelectionUpdate update = SelectionUpdate.single,
   }) {
-    if (_disposed || _staleRows || _entries.isEmpty) return;
+    if (!_rowsInteractive) return;
     // Internal invariant: row identity mirrors the accepted listing.
     // A future listing mutation that bypasses _applyEntries must fail
     // loudly here, not activate the wrong row.
@@ -1075,7 +1082,7 @@ class PaneController extends ChangeNotifier {
   /// `edit.selectAll` (02 §2.5): selects every visible row; the cursor
   /// and anchor keep their positions.
   void selectAll() {
-    if (_disposed || _staleRows || _entries.isEmpty) return;
+    if (!_rowsInteractive) return;
     final before = _selection;
     _selection = _selection.selectAll();
     if (identical(before, _selection)) return;
@@ -1086,7 +1093,7 @@ class PaneController extends ChangeNotifier {
   /// complement among the visible rows; cursor and anchor keep their
   /// positions.
   void invertSelection() {
-    if (_disposed || _staleRows || _entries.isEmpty) return;
+    if (!_rowsInteractive) return;
     final before = _selection;
     _selection = _selection.invert();
     if (identical(before, _selection)) return;
@@ -1518,7 +1525,7 @@ class PaneController extends ChangeNotifier {
   /// flag metadata. Hidden files never reach the matcher: the hidden
   /// policy already ran when the listing was accepted.
   void typeAhead(String character) {
-    if (_disposed || _staleRows || _entries.isEmpty || character.isEmpty) {
+    if (!_rowsInteractive || character.isEmpty) {
       return;
     }
     _typeAheadBuffer += character;

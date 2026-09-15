@@ -4906,6 +4906,13 @@ restores the prior listing with selection live again. `flutter analyze`
 clean; focused pane suites green (197 tests); full app suite green (929
 tests). Evidence and logs under `tasks/run3-task50/`.
 
+AT note: rows leave the semantics tree at navigation *issue*, so screen
+readers see the listing vanish even during sub-150 ms loads. The removal
+is deliberate — a reachable-but-inert row reads as broken, and AT
+activation bypasses hit testing — but a device pass (VoiceOver/TalkBack)
+remains a follow-up; revisit with a polite "loading" announcement if
+churn is reported.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
