@@ -276,6 +276,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/panes/pane_tabs_view.dart': {
     r"'${tabs.paneId}.tab.new'",
     r"'${tab.id}.close'",
+    // Root-path fallback in the remote tooltip — path data, not copy.
     "'/'",
   },
   'lib/ui/panes/pane_view.dart': {

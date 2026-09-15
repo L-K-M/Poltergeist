@@ -205,10 +205,15 @@ class _TabStripState extends State<_TabStrip> {
                           final viewRect =
                               viewObject.localToGlobal(Offset.zero) &
                               viewObject.size;
-                          if (chipRect.left >= viewRect.left &&
-                              chipRect.right <= viewRect.right &&
-                              chipRect.top >= viewRect.top &&
-                              chipRect.bottom <= viewRect.bottom) {
+                          // Half-logical-pixel tolerance: localToGlobal
+                          // can drift a fraction of a pixel after a
+                          // settled scroll (fractional DPR, matrix
+                          // composition), which would still recenter a
+                          // visually flush chip.
+                          if (chipRect.left >= viewRect.left - 0.5 &&
+                              chipRect.right <= viewRect.right + 0.5 &&
+                              chipRect.top >= viewRect.top - 0.5 &&
+                              chipRect.bottom <= viewRect.bottom + 0.5) {
                             return;
                           }
                         }
