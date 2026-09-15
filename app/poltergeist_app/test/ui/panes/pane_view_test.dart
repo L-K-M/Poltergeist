@@ -339,6 +339,14 @@ void main() {
       await tester.pump();
       expect(left.staleRows, isTrue);
 
+      // The rows leaving the semantics tree is not silent: a polite live
+      // region announces the transition from t=0, before the grace dim.
+      expect(
+        find.semantics.byLabel(RegExp(r'^Loading elsewhere')),
+        findsOne,
+        reason: 'AT hears the load start while the rows are disowned',
+      );
+
       // t=0: Enter on a stale row and a cursor key are already inert —
       // activation cannot supersede the pending navigation.
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);

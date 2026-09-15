@@ -4909,9 +4909,12 @@ tests). Evidence and logs under `tasks/run3-task50/`.
 AT note: rows leave the semantics tree at navigation *issue*, so screen
 readers see the listing vanish even during sub-150 ms loads. The removal
 is deliberate — a reachable-but-inert row reads as broken, and AT
-activation bypasses hit testing — but a device pass (VoiceOver/TalkBack)
-remains a follow-up; revisit with a polite "loading" announcement if
-churn is reported.
+activation bypasses hit testing — and it is not silent: while the rows
+are disowned, a polite live region announces the transition with the
+same `paneLoadingFolder` string the footer shows once the grace dim
+lands (WCAG 4.1.3 — review round 2's major). A device pass
+(VoiceOver/TalkBack) remains a follow-up to confirm the announcement
+lands on real AT.
 
 ## Open items
 
