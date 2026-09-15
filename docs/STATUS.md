@@ -4759,6 +4759,112 @@ the stale settle and the round-3 test now asserts list-call growth
 rather than a matching tail call. Full app suite green (918 tests).
 Log: `tasks/run3-task48/flutter-test-reviewfix3.log`.
 
+## M3 — transactional replacement binding, fusion review round 2 (2026-09-15)
+
+Finding F5 of the second fusion review is repaired red-first: replacing
+a pane binding destroyed the prior state before the candidate committed,
+so Esc during the replacement's connect or first listing lost the old
+location/listing and could detach the pane to the launcher — and the
+§7 sync link dropped without the manual `openLocalAt` reconstruction the
+old test used to mask it.
+
+Replacement binding is now transactional. `_beginBinding(replace)` moves
+the live channel and the full browsing state (location, committed
+marker, sorted listing, error, selection, history, filter/hidden/view
+lenses, connection status, recovery phase) into a `_BindingRollback`
+record — the channel stays open — instead of discarding them. The
+record survives until the candidate's first listing answers (commit or
+error retires it and the pane stays on the candidate), a bind failure,
+a restore, or dispose. `cancelNavigation` during the landing listing
+and `detachRemote`/`cancelRecovery` during the pending open both route
+to `_rollbackCandidateBind`, which bumps the bind attempt (a late
+candidate open now hits the stale-attempt close instead of being
+adopted, and `cancelRecovery`'s one-bump bookkeeping still decides the
+candidate server's disconnect), retires only the candidate channel and
+watch, restores the prior state, and re-subscribes the prior server's
+status lane under the current attempt. The candidate's issue skips the
+quiescent-snapshot capture while a rollback is pending — the record is
+the only honest restore target. A genuinely-fresh pane (no prior
+binding to restore) keeps the detach-to-launcher semantics, and a
+stacked rebind keeps the last DISPLAYED binding as the restore target
+rather than superseding it with the intermediate candidate.
+
+Validation: three new regressions failed before the fix and pass after
+— remote→local rollback (`pane_controller_test`), and in
+`sync_browsing_controller_test` an Esc-cancelled server change during
+the first listing plus a pre-open `cancelRecovery`, each asserting the
+restored location/committed marker/rows/selection, live old-channel
+navigation, late-candidate-answer immunity, and the link kept without
+manual reconstruction. Three existing tests that encoded the
+destructive semantics were updated to the contract: the reconnect
+suite's cancelled-first-listing heal now runs on a fresh pane, and the
+two workspace cancel tests assert the restored local binding while the
+candidate's server-reference bookkeeping is unchanged (sibling keeps
+the reference, alone drops it). `flutter analyze` clean; focused pane
+suites green (183 tests); full app suite green (920 tests). Logs under
+`tasks/run3-task49/`.
+
+The exact-head GLM review (#135, round 1 at `df96e07`) surfaced two
+confirmed findings, both repaired:
+
+- `cancelNavigation`'s rollback branch sat behind the
+  `connectionLost`/`_loadingActive` guards, so a candidate server
+  flapping to `reconnecting` mid-window (which sets `_recovery` and
+  `_error` through the candidate's own status lane) dead-ended Esc on
+  the failing candidate. The rollback check now runs before both
+  guards.
+- `_bind`'s catch blocks retired the parked rollback on ANY bind
+  failure, including a `retainCache` recovery retry of the candidate —
+  a transient reconnect failure would have destroyed the escape hatch
+  before the replacement ever committed. The retire is now gated on
+  `replace`.
+
+Minor rounds applied: the sync tests now park the cursor on a
+non-default index so the restored selection is observable, assert the
+old channel's survival and restored rows after late candidate answers,
+and document the double-settle replay convention; `detachRemote`'s
+Esc-only reachability and the stale `connectionStatus`/`recovery`
+capture semantics are commented; three new controller regressions cover
+dispose mid-rebind (both channels close), a stacked rebind (the oldest
+record stays the restore target; the superseded candidate retires), and
+remote→remote rollback. Declined with evidence: carrying a
+`_QuiescentSnapshot` in the record — the restored state IS the
+baseline and `_issueNavigation` recaptures before any listing flies —
+and defensive copies of `sortedListing`/`selection`, both
+reassign-only/immutable (the invariant is now documented on the
+record). The two outside-diff-range majors (dispose leaking the parked
+channel, a re-entrant rebind corrupting it) were already handled by the
+`_retireRollback` dispose call and the no-supersede guard; the new
+regressions pin both. Full app suite green (923 tests). Log:
+`tasks/run3-task49/flutter-test-reviewfix.log`.
+
+Round 2 (`4e88d93`) was minor-only with zero actionable findings: the
+one comment noted the two round-1 repairs lacked regressions, so two
+more now pin them — Esc during the candidate's mid-window
+`reconnecting` flap (also asserting the restored baseline drops the
+candidate's stale error/loss state), and the failed `retainCache` retry
+keeping the rollback parked. Full app suite green (925 tests). Log:
+`tasks/run3-task49/flutter-test-reviewfix2.log`.
+
+Round 3 (`8d07793`) again carried zero actionable findings; its three
+minor comments are applied: a post-Esc `candidate.closeCalls` assert in
+the failed-retry test, a mid-window `controller.error` assert in the
+flap test, and the rollback branch moved out of public `detachRemote`
+into a dedicated `cancelPendingBind` entry point so detach keeps a
+single meaning — `cancelRecovery` and the shell's sibling-bound cancel
+route now funnel through it, and any future explicit disconnect
+affordance gets a literal detach. Both info comments are
+verified-or-declined: the four rollback-retirement points all hold
+(first answer retires via `_load`, a stacked replace keeps the oldest
+record, `_retireRollback` releases the parked channel for `dispose`),
+while the suggested `presentation != replace` retire guard is declined
+— a `retainCache` bind continues the same replacement transaction, so
+retiring there would re-break the retry path the round-1 fix
+preserved; the fresh-pane coverage question is already answered by the
+new pane-controller regressions plus the deliberately-fresh reconnect
+test. Full app suite green (925 tests). Log:
+`tasks/run3-task49/flutter-test-reviewfix3.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

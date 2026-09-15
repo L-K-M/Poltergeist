@@ -437,7 +437,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (pane == null || serverId == null) return;
     try {
       if (workspace.serverStillBound(serverId, pane)) {
-        await pane.detachRemote();
+        await pane.cancelPendingBind();
       } else {
         await pane.cancelRecovery(
           serverStillUnshared: () =>

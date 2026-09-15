@@ -535,12 +535,16 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(left.phase, PanePhase.unbound);
+      // The pane had a live LOCAL binding when the remote bind started,
+      // so Esc rolls the candidate back and restores it whole — only a
+      // genuinely-fresh pane detaches to the launcher (02 §2.8).
+      expect(left.phase, PanePhase.browsing);
       expect(left.remoteBookmark, isNull);
+      expect(find.text('left.txt'), findsOneWidget);
       expect(
         held.disconnectIds,
         isEmpty,
-        reason: 'the sibling still browses srv-1 — only the pane detaches',
+        reason: 'the sibling still browses srv-1 — only the candidate retires',
       );
       expect(right.phase, PanePhase.browsing);
       expect(find.text('sibling.txt'), findsOneWidget);
@@ -584,8 +588,12 @@ void main() {
       await tester.tap(cancel);
       await tester.pumpAndSettle();
 
-      expect(left.phase, PanePhase.unbound);
+      // The prior local binding is restored; the "alone" decision now
+      // only governs whether the CANDIDATE's server reference drops —
+      // and with no sibling on srv-1 it does.
+      expect(left.phase, PanePhase.browsing);
       expect(left.remoteBookmark, isNull);
+      expect(find.text('left.txt'), findsOneWidget);
       expect(held.disconnectIds, ['srv-1']);
 
       held.heldOpens['pane.left.tab1']!.complete();

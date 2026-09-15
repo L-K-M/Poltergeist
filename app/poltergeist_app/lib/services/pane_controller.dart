@@ -72,6 +72,61 @@ class _QuiescentSnapshot {
   final PaneLocation? committedLocation;
 }
 
+/// The prior binding a `replace` rebind keeps alive until its candidate
+/// answers its first listing (02 §2.8's Esc-cancelled server change,
+/// 02 §7's commit-gated link drop): the still-open channel, the remote
+/// identity, and the full browsing presentation — wider than
+/// [_QuiescentSnapshot] because the restore crosses a binding boundary
+/// (channel, history, and the transient lenses come back too). Captured
+/// only for a pane with a live channel; a genuinely fresh pane has
+/// nothing to restore and keeps its detach-to-launcher semantics.
+///
+/// Invariant the record relies on: [_sortedListing] is only ever
+/// REASSIGNED (never mutated in place) and [SelectionState] is
+/// immutable — the captured references stay honest for the whole
+/// candidate window. [_history] is the one live-mutated list, so it is
+/// defensively copied at capture.
+class _BindingRollback {
+  const _BindingRollback({
+    required this.channel,
+    required this.remote,
+    required this.remotePath,
+    required this.location,
+    required this.committedLocation,
+    required this.sortedListing,
+    required this.error,
+    required this.selection,
+    required this.history,
+    required this.historyIndex,
+    required this.filterQuery,
+    required this.filterFieldOpen,
+    required this.showHidden,
+    required this.viewMode,
+    required this.connectionStatus,
+    required this.recovery,
+  });
+
+  /// Kept open for the whole candidate window: closing it early is what
+  /// used to make the candidate's first navigation snapshot an empty
+  /// state and left Esc with nothing to restore.
+  final AppBrowseChannel channel;
+  final Bookmark? remote;
+  final String? remotePath;
+  final PaneLocation? location;
+  final PaneLocation? committedLocation;
+  final List<RemoteFileEntry> sortedListing;
+  final RemoteFileException? error;
+  final SelectionState<_RowKey> selection;
+  final List<PaneLocation> history;
+  final int historyIndex;
+  final String filterQuery;
+  final bool filterFieldOpen;
+  final bool showHidden;
+  final PaneViewMode viewMode;
+  final ServerStatus? connectionStatus;
+  final _RecoveryPhase recovery;
+}
+
 /// Stable identity of one visible row within a listing: the entry's
 /// full path plus an occurrence ordinal. Paths are unique per row in
 /// every listing the engine can produce EXCEPT decoded-name collisions
@@ -285,6 +340,14 @@ class PaneController extends ChangeNotifier {
   int _answeredGeneration = 0;
   _QuiescentSnapshot? _snapshot;
   AppBrowseChannel? _channel;
+
+  /// The prior binding held open while a `replace` candidate is in
+  /// flight (02 §2.8/§7): non-null from the rebind's `_beginBinding`
+  /// until the candidate answers its first listing, fails, or is
+  /// cancelled back to the prior binding. While it is pending the pane
+  /// is BETWEEN bindings — [_channel] is null or the candidate, never
+  /// the rolled-back channel.
+  _BindingRollback? _rollback;
   StreamSubscription<ServerStatus>? _statusWatch;
   ServerStatus? _connectionStatus;
   _RecoveryPhase _recovery = _RecoveryPhase.none;
@@ -545,6 +608,11 @@ class PaneController extends ChangeNotifier {
   }) async {
     if (_disposed || _lanes == null) return;
 
+    // The binding being replaced, captured before [_pendingRemote]
+    // moves to the candidate — the rollback record needs the PRIOR
+    // identity, not the new one.
+    final priorRemote = _pendingRemote;
+    final priorRemotePath = _pendingRemotePath;
     // Preserve retries, but never carry one bookmark's path into another.
     if (bookmark.id != _pendingRemote?.id) _pendingRemotePath = null;
     _pendingRemote = bookmark;
@@ -554,37 +622,13 @@ class PaneController extends ChangeNotifier {
       operation: 'connect',
       fault: PaneFault.connectionOpen,
       presentation: presentation,
+      priorRemote: priorRemote,
+      priorRemotePath: priorRemotePath,
       connect: (lanes, attempt) async {
         // Subscribe before connecting: a connect that raises state (or
         // a prompt the coordinator answers) must find this pane
         // listening.
-        _statusWatch = lanes
-            .watchServer(bookmark.id)
-            .listen(
-              (status) {
-                if (_disposed || attempt != _bindAttempt) return;
-                _acceptStatus(status);
-              },
-              onError: (Object error, StackTrace stackTrace) {
-                if (_disposed || attempt != _bindAttempt) return;
-                _report(error, stackTrace);
-                // A dead status lane must not leave the banner pinned on
-                // its last state (a 'reconnecting' that never resolves);
-                // if the stream survives the error, the next event
-                // restores the truth.
-                _connectionStatus = null;
-                _endRecoveryWatch();
-                notifyListeners();
-              },
-              onDone: () {
-                if (_disposed || attempt != _bindAttempt) return;
-                // A lane that closes cleanly must not pin the banner
-                // on its last state either (same rule as a dead lane).
-                _connectionStatus = null;
-                _endRecoveryWatch();
-                notifyListeners();
-              },
-            );
+        _statusWatch = _watchServerFor(lanes, bookmark, attempt);
         final channel = await lanes.openBrowseChannel(
           serverId: bookmark.id,
           paneTabId: paneTabId,
@@ -736,7 +780,20 @@ class PaneController extends ChangeNotifier {
   /// restores the last quiescent snapshot, including its error and
   /// selection.
   void cancelNavigation() {
-    if (_disposed || connectionLost || !_loadingActive()) return;
+    if (_disposed) return;
+
+    // Esc during a pending replacement's first listing restores the
+    // prior binding, not the cleared-state snapshot the candidate's
+    // issue would have captured (02 §2.8's cancelled server change).
+    // Checked before the loss/loading guards: the CANDIDATE's status
+    // lane can raise connectionLost or set _error mid-window, which
+    // would otherwise dead-end Esc on the failing candidate.
+    if (_rollback != null) {
+      _rollbackCandidateBind();
+      return;
+    }
+
+    if (connectionLost || !_loadingActive()) return;
 
     final snapshot = _snapshot;
     _location = snapshot?.location;
@@ -1581,7 +1638,7 @@ class PaneController extends ChangeNotifier {
     // Cancel invalidates pending healing as well as pending opens. Close
     // this pane before dropping the reference; newer same-id binds own it.
     final detachedAttempt = _bindAttempt + 1;
-    await detachRemote();
+    await cancelPendingBind();
     if (_disposed || _bindAttempt != detachedAttempt) return;
     if (serverStillUnshared != null && !serverStillUnshared()) return;
     try {
@@ -1589,6 +1646,22 @@ class PaneController extends ChangeNotifier {
     } on Object catch (error, stackTrace) {
       _report(error, stackTrace);
     }
+  }
+
+  /// The Esc/banner cancel route's entry point while a bind is in
+  /// flight: a parked rollback means the pending bind was a REPLACEMENT,
+  /// so cancel restores the prior binding and retires only the
+  /// candidate; otherwise it is a plain detach. The branch lives here
+  /// (not inside [detachRemote]) so detach keeps exactly one meaning —
+  /// a future explicit disconnect affordance must not inherit the
+  /// rollback fork.
+  Future<void> cancelPendingBind() async {
+    if (_disposed) return;
+    if (_rollback != null) {
+      _rollbackCandidateBind();
+      return;
+    }
+    await detachRemote();
   }
 
   /// Detaches a remote binding without touching the shared server:
@@ -1653,6 +1726,7 @@ class PaneController extends ChangeNotifier {
     _typeAheadBuffer = '';
     unawaited(_statusWatch?.cancel());
     _statusWatch = null;
+    _retireRollback();
     unawaited(_releaseBinding());
     super.dispose();
   }
@@ -1669,6 +1743,8 @@ class PaneController extends ChangeNotifier {
     required String operation,
     required PaneFault fault,
     _BindingPresentation presentation = _BindingPresentation.replace,
+    Bookmark? priorRemote,
+    String? priorRemotePath,
     required Future<void> Function(PaneEngineLanes lanes, int attempt) connect,
   }) async {
     final lanes = _lanes;
@@ -1676,7 +1752,11 @@ class PaneController extends ChangeNotifier {
 
     final attempt = ++_bindAttempt;
     _phase = connectingPhase;
-    _beginBinding(presentation);
+    _beginBinding(
+      presentation,
+      priorRemote: priorRemote,
+      priorRemotePath: priorRemotePath,
+    );
     notifyListeners();
 
     await _releaseBinding();
@@ -1686,6 +1766,11 @@ class PaneController extends ChangeNotifier {
       await connect(lanes, attempt);
     } on RemoteFileException catch (error) {
       if (_disposed || attempt != _bindAttempt) return;
+      // A replace candidate's failure ends the transaction and retires
+      // the parked prior binding. A retainCache recovery RETRY failing
+      // is different: the rollback stays parked so Esc can still
+      // restore the prior binding out of the failed reconnect.
+      if (presentation == _BindingPresentation.replace) _retireRollback();
       _dropStatusWatch();
       if (presentation == _BindingPresentation.retainCache) {
         _recovery = _RecoveryPhase.failed;
@@ -1694,6 +1779,7 @@ class PaneController extends ChangeNotifier {
       notifyListeners();
     } on Object catch (error, stackTrace) {
       if (_disposed || attempt != _bindAttempt) return;
+      if (presentation == _BindingPresentation.replace) _retireRollback();
       _report(error, stackTrace);
       _dropStatusWatch();
       if (presentation == _BindingPresentation.retainCache) {
@@ -1702,6 +1788,44 @@ class PaneController extends ChangeNotifier {
       _error = PaneFaultException(fault, operation: operation);
       notifyListeners();
     }
+  }
+
+  /// The server-state subscription every remote binding owns: the
+  /// connect path and a rollback restore share it. Events are captured
+  /// under [attempt] so a superseded binding's statuses drop themselves
+  /// (09 §3's stale-attempt idiom).
+  StreamSubscription<ServerStatus> _watchServerFor(
+    PaneEngineLanes lanes,
+    Bookmark bookmark,
+    int attempt,
+  ) {
+    return lanes
+        .watchServer(bookmark.id)
+        .listen(
+          (status) {
+            if (_disposed || attempt != _bindAttempt) return;
+            _acceptStatus(status);
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (_disposed || attempt != _bindAttempt) return;
+            _report(error, stackTrace);
+            // A dead status lane must not leave the banner pinned on
+            // its last state (a 'reconnecting' that never resolves);
+            // if the stream survives the error, the next event
+            // restores the truth.
+            _connectionStatus = null;
+            _endRecoveryWatch();
+            notifyListeners();
+          },
+          onDone: () {
+            if (_disposed || attempt != _bindAttempt) return;
+            // A lane that closes cleanly must not pin the banner
+            // on its last state either (same rule as a dead lane).
+            _connectionStatus = null;
+            _endRecoveryWatch();
+            notifyListeners();
+          },
+        );
   }
 
   /// A failed bind keeps no server watch: the subscription is inert
@@ -1764,7 +1888,14 @@ class PaneController extends ChangeNotifier {
 
   /// A new location starts fresh; recovery retains the cached presentation.
   /// Both invalidate every old answer before releasing the prior channel.
-  void _beginBinding(_BindingPresentation presentation) {
+  ///
+  /// [priorRemote]/[priorRemotePath] carry the binding being replaced —
+  /// [_pendingRemote] already names the candidate by the time this runs.
+  void _beginBinding(
+    _BindingPresentation presentation, {
+    Bookmark? priorRemote,
+    String? priorRemotePath,
+  }) {
     _cancelListing();
     // The attempt bump in _bind retires every pending rename's
     // ownership token; release the in-flight guard here so a stalled
@@ -1778,6 +1909,40 @@ class PaneController extends ChangeNotifier {
     _noticeTimer = null;
     _notice = null;
     if (presentation == _BindingPresentation.replace) {
+      // Transactional replacement (02 §2.8/§7): the prior binding moves
+      // into the rollback record — channel still open — instead of
+      // being discarded before the candidate commits. A stacked rebind
+      // does NOT supersede a pending rollback: the last binding the
+      // pane actually displayed remains the restore target while the
+      // intermediate candidate's channel is released below like any
+      // other.
+      if (_rollback == null && _channel != null) {
+        _rollback = _BindingRollback(
+          channel: _channel!,
+          remote: priorRemote,
+          remotePath: priorRemotePath,
+          location: _location,
+          committedLocation: _committedLocation,
+          sortedListing: _sortedListing,
+          error: _error,
+          selection: _selection,
+          history: List.of(_history),
+          historyIndex: _historyIndex,
+          filterQuery: _filterQuery,
+          filterFieldOpen: _filterFieldOpen,
+          showHidden: _showHidden,
+          viewMode: _viewMode,
+          // Captured as displayed at replacement time: the parked
+          // server's status events are dropped while the candidate owns
+          // the watch, and the fresh subscription on restore corrects
+          // both on its next event.
+          connectionStatus: _connectionStatus,
+          recovery: _recovery,
+        );
+        // The record owns the channel now; [_releaseBinding] must not
+        // close it.
+        _channel = null;
+      }
       _location = null;
       // A rebind stands nowhere until its first listing commits — the
       // sync link's server-change drop keys on THAT commit, so an
@@ -1831,6 +1996,8 @@ class PaneController extends ChangeNotifier {
   Future<void> openLocalAt(String path) => _openLocal(path);
 
   Future<void> _openLocal(String rootPath) async {
+    final priorRemote = _pendingRemote;
+    final priorRemotePath = _pendingRemotePath;
     _pendingRemote = null;
     _pendingRemotePath = null;
     _pendingLocalRoot = rootPath;
@@ -1838,6 +2005,8 @@ class PaneController extends ChangeNotifier {
       connectingPhase: PanePhase.openingLocal,
       operation: 'open',
       fault: PaneFault.localOpen,
+      priorRemote: priorRemote,
+      priorRemotePath: priorRemotePath,
       connect: (lanes, attempt) async {
         // '~' expands to the user's home inside the engine (03 §2.2);
         // the channel answers the canonicalized home path.
@@ -1907,7 +2076,11 @@ class PaneController extends ChangeNotifier {
       }
       _historyIndex = _history.length - 1;
     }
-    if (!_loadingActive()) {
+    // While a replacement rollback is pending there is no quiescent
+    // state in the CANDIDATE binding to capture — the rollback record
+    // is the only honest restore target, and a cleared-state snapshot
+    // would resurrect the empty pane this seam exists to prevent.
+    if (!_loadingActive() && _rollback == null) {
       _snapshot =
           _QuiescentSnapshot(
         _location,
@@ -1942,6 +2115,9 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
+      // The candidate answered — its binding is now the pane's, so the
+      // prior binding's channel finally retires.
+      _retireRollback();
       _sortedListing = sortFileEntries(listed);
       _setListing(_hiddenFiltered(_sortedListing));
       _applyEntries(_filteredListing());
@@ -1969,6 +2145,10 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
+      // Same retire rule as an accept: the candidate binding answered,
+      // so the pane stays on it (with the error) rather than rolling
+      // back — Esc next routes to Retry, not restore.
+      _retireRollback();
       _answeredGeneration = generation;
       if (connectionLost) _recovery = _RecoveryPhase.failed;
       _error = error;
@@ -1979,6 +2159,7 @@ class PaneController extends ChangeNotifier {
           !identical(channel, _channel)) {
         return;
       }
+      _retireRollback();
       _report(error, stackTrace);
       _answeredGeneration = generation;
       if (connectionLost) _recovery = _RecoveryPhase.failed;
@@ -2045,6 +2226,10 @@ class PaneController extends ChangeNotifier {
   /// must not leave the previous binding's engine-side session alive.
   /// The channel close is the per-pane teardown the pool keys on (03
   /// §3.2); sibling panes on the same server keep theirs.
+  ///
+  /// A channel parked in [_rollback] is NOT this method's business —
+  /// the record owns it until [_retireRollback] or
+  /// [_rollbackCandidateBind] decides its fate.
   Future<void> _releaseBinding() async {
     final channel = _channel;
     _channel = null;
@@ -2057,6 +2242,82 @@ class PaneController extends ChangeNotifier {
         _report(error, stackTrace);
       }
     }
+  }
+
+  /// The candidate answered or failed — the pane stays on it, so the
+  /// parked prior binding closes for real. Fire-and-forget like every
+  /// other channel retire in this class (a hung close must not hold the
+  /// answer path).
+  void _retireRollback() {
+    final rollback = _rollback;
+    _rollback = null;
+    if (rollback != null) unawaited(_closeChannel(rollback.channel));
+  }
+
+  /// Esc/cancel while a replacement candidate is still in flight: the
+  /// CANDIDATE retires (channel close, pending markers dropped, status
+  /// watch — [_releaseBinding] plus the generation bumps), and the
+  /// prior binding comes back whole — channel still open, listing,
+  /// selection, history, lenses, error, connection status — with its
+  /// server watch re-subscribed under the current attempt so late
+  /// statuses keep flowing to the pane that restored it.
+  ///
+  /// [_cancelListing] retires every in-flight candidate answer before
+  /// the restore (09 §3's advance, never reuse — a late candidate
+  /// listing answers stale and is swallowed), and the bind-attempt bump
+  /// retires a still-pending candidate open the same way. The rollback
+  /// channel's own late answers were already swallowed by the
+  /// `identical(channel, _channel)` checks while it sat parked.
+  void _rollbackCandidateBind() {
+    final rollback = _rollback;
+    _rollback = null;
+    if (rollback == null) return;
+    // Invalidate the candidate's bind attempt first: a late
+    // openBrowseChannel/openLocalChannel completion must hit the
+    // stale-attempt close, never be adopted into the restored binding.
+    // (cancelRecovery also counts on this being exactly one bump.)
+    final attempt = ++_bindAttempt;
+    _cancelListing();
+    unawaited(_releaseBinding());
+    _pendingRemote = rollback.remote;
+    _pendingRemotePath = rollback.remotePath;
+    // [retry] reads the pending local root only under openingLocal —
+    // restore the prior binding's root, or the harmless default.
+    final priorLocal = rollback.location;
+    _pendingLocalRoot =
+        priorLocal is LocalPaneLocation ? priorLocal.path : '~';
+    _location = rollback.location;
+    _committedLocation = rollback.committedLocation;
+    _error = rollback.error;
+    // The lenses land before the listing is re-derived — the hidden and
+    // filter projections both read them (same order as cancelNavigation's
+    // snapshot restore).
+    _viewMode = rollback.viewMode;
+    _showHidden = rollback.showHidden;
+    _filterQuery = rollback.filterQuery;
+    _filterFieldOpen = rollback.filterFieldOpen;
+    _sortedListing = rollback.sortedListing;
+    _setListing(_hiddenFiltered(_sortedListing));
+    _selection = rollback.selection;
+    _applyEntries(_filteredListing());
+    _history
+      ..clear()
+      ..addAll(rollback.history);
+    _historyIndex = rollback.historyIndex;
+    _connectionStatus = rollback.connectionStatus;
+    _recovery = rollback.recovery;
+    _channel = rollback.channel;
+    // No snapshot is carried: the restored state IS the quiescent
+    // baseline, and the next _issueNavigation recaptures it before any
+    // listing goes in flight — there is no restore-less window.
+    _snapshot = null;
+    _phase = PanePhase.browsing;
+    final lanes = _lanes;
+    final remote = _pendingRemote;
+    if (lanes != null && remote != null) {
+      _statusWatch = _watchServerFor(lanes, remote, attempt);
+    }
+    notifyListeners();
   }
 
   Future<void> _closeChannel(AppBrowseChannel channel) async {

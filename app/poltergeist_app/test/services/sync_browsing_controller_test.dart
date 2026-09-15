@@ -418,32 +418,123 @@ void main() {
       final r = rig();
       await openHomes(r);
       r.sync.toggle();
+      // 'notes.txt' at index 1 — non-default, so the restored cursor
+      // and selection are observable rather than the fresh-listing 0.
+      r.right.setCursorIndex(1);
+      final oldChannel = r.rightChannel;
 
       // Rebind starts: the pane stands nowhere until the new channel's
       // first listing commits. Esc during the landing listing is
-      // §2.8's navigation cancel — no commit, no drop.
+      // §2.8's navigation cancel — no commit, no drop, and the prior
+      // pane snapshot comes back with no manual rebuild.
       final held = Completer<void>();
-      r.lanes.nextRemoteChannel = FakePaneChannel('/srv/home')
+      final candidate = FakePaneChannel('/srv/home')
         ..listings['/srv/home'] = [entry('r.txt', parent: '/srv/home')]
         ..holdNext = held;
+      r.lanes.nextRemoteChannel = candidate;
       await r.right.connectRemote(remoteBookmark());
       await settle();
       expect(r.right.loading, isTrue);
 
       r.right.cancelNavigation();
       await settle();
-      expect(r.sync.enabled, isTrue);
 
-      // The link survives with its anchors intact: re-rooting the pane
-      // at a matching relative path re-evals it back to linked.
+      // The §2.8 restore is immediate: old location, committed marker,
+      // rows, and selection — still browsing the OLD channel while only
+      // the candidate retires.
+      expect(r.right.location, const LocalPaneLocation('/right/home'));
+      expect(
+        r.right.committedLocation,
+        const LocalPaneLocation('/right/home'),
+      );
+      expect(r.right.entries.map((e) => e.name), ['docs', 'notes.txt']);
+      expect(r.right.loading, isFalse);
+      expect(r.right.cursorIndex, 1);
+      expect(r.right.isRowSelected(1), isTrue);
+      expect(r.sync.enabled, isTrue);
+      expect(r.sync.suspended, isFalse);
+      expect(oldChannel.closeCalls, 0);
+      expect(candidate.closeCalls, 1);
+
+      // The restored binding is usable: a navigation lands on the old
+      // channel and replays across the kept link like any commit.
+      r.right.navigate('/right/home/docs');
+      await settle(); // commit lands on the restored channel
+      await settle(); // sync replay propagates to the left pane
+      expect(oldChannel.listCalls, contains('/right/home/docs'));
+      expect(
+        r.right.committedLocation,
+        const LocalPaneLocation('/right/home/docs'),
+      );
+      expect(r.left.location, const LocalPaneLocation('/left/home/docs'));
+      expect(r.sync.suspended, isFalse);
+
+      // The cancelled candidate's late listing must not alter the
+      // restored pane or the link.
       held.complete();
-      r.lanes.nextLocalChannel = FakePaneChannel('/right/home')
-        ..listings['/right/home'] = [
-          entry('docs', parent: '/right/home', type: RemoteFileType.directory),
-        ];
-      await r.right.openLocalAt('/right/home');
       await settle();
+      expect(
+        r.right.location,
+        const LocalPaneLocation('/right/home/docs'),
+      );
+      expect(r.right.entries.map((e) => e.name), ['inner.txt']);
+      expect(candidate.listCalls, ['/srv/home']);
+      // The restored binding outlives the late candidate answer.
+      expect(oldChannel.closeCalls, 0);
+      expect(r.sync.enabled, isTrue);
+      expect(r.sync.suspended, isFalse);
+    });
+
+    test('cancelling a server change before the channel opens restores '
+        'the prior binding too', () async {
+      final r = rig();
+      await openHomes(r);
+      r.sync.toggle();
+      r.right.setCursorIndex(1); // non-default, restore is observable
+      final oldChannel = r.rightChannel;
+
+      // The open itself is held: the §2.7 Cancel (the shell's
+      // sibling-aware path) restores the browsing session instead of
+      // detaching to the launcher.
+      final heldOpen = Completer<void>();
+      r.lanes.holdRemoteOpen = heldOpen;
+      final candidate = FakePaneChannel('/srv/home')
+        ..listings['/srv/home'] = [entry('r.txt', parent: '/srv/home')];
+      r.lanes.nextRemoteChannel = candidate;
+      final connecting = r.right.connectRemote(remoteBookmark());
       await settle();
+      expect(r.right.phase, PanePhase.connectingRemote);
+
+      await r.right.cancelRecovery();
+      await settle();
+
+      expect(r.right.phase, PanePhase.browsing);
+      expect(r.right.location, const LocalPaneLocation('/right/home'));
+      expect(
+        r.right.committedLocation,
+        const LocalPaneLocation('/right/home'),
+      );
+      expect(r.right.entries.map((e) => e.name), ['docs', 'notes.txt']);
+      expect(r.right.cursorIndex, 1);
+      expect(r.sync.enabled, isTrue);
+      expect(r.sync.suspended, isFalse);
+      expect(oldChannel.closeCalls, 0);
+      expect(
+        r.lanes.disconnects,
+        ['srv-1'],
+        reason: 'the cancelled server reference still drops',
+      );
+
+      // The late open retires the candidate only: its channel closes
+      // unlisted and the restored pane is untouched.
+      heldOpen.complete();
+      await connecting;
+      await settle();
+      expect(candidate.closeCalls, 1);
+      expect(candidate.listCalls, isEmpty);
+      expect(r.right.location, const LocalPaneLocation('/right/home'));
+      expect(r.right.entries.map((e) => e.name), ['docs', 'notes.txt']);
+      expect(oldChannel.closeCalls, 0);
       expect(r.sync.enabled, isTrue);
       expect(r.sync.suspended, isFalse);
     });
