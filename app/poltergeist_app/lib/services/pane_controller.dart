@@ -597,9 +597,12 @@ class PaneController extends ChangeNotifier {
 
   void _openPathField(String seed) {
     if (_disposed || !acceptsPathInput) return;
-    // An open Quick Select session ends first: two text fields never
-    // compete for the pane's keys (02 §8.2's field-first rule).
+    // Open text surfaces yield first: Quick Select and the filter
+    // field close so two fields never compete for the pane's keys
+    // (02 §8.2's field-first rule). The filter QUERY survives — only
+    // its strip unmounts.
     _endQuickSelectSession();
+    _filterFieldOpen = false;
     _pathFieldOpen = true;
     _pathFieldSeed = seed;
     _pathFieldGeneration++;

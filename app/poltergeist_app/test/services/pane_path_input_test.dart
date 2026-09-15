@@ -36,6 +36,9 @@ void main() {
       // engine, so it is an invalid shape, not a silent home.
       expect(resolve('~root'), isNull);
       expect(resolve('~root/x'), isNull);
+      // `~\` is the Windows-pane spelling only; on POSIX it is just a
+      // tilde-prefixed name and joins the `~name` rejection.
+      expect(resolve('~\\docs'), isNull);
     });
 
     test('relative input joins the current location', () {

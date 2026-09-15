@@ -35,8 +35,10 @@ Future<ByteData> _fontBytes(String path) async =>
 /// default family name for body text plus the mono fallback chain the
 /// row metrics style reaches for.
 Future<void> _loadRealFonts() async {
+  final home =
+      Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
   final dir = Platform.environment['POLTERGEIST_CAPTURE_FONT_DIR'] ??
-      '${Platform.environment['HOME']}/.local/share/fonts';
+      (home != null ? '$home/.local/share/fonts' : '');
   final sans = File('$dir/DejaVuSans.ttf');
   final sansBold = File('$dir/DejaVuSans-Bold.ttf');
   final mono = File('$dir/DejaVuSansMono.ttf');
@@ -83,7 +85,11 @@ RemoteFileEntry _entry(
 void main() {
   testWidgets('captures the path field editing and error states',
       (tester) async {
-    await tester.runAsync(_loadRealFonts);
+    // Real faces matter only when artifacts are written; an ordinary
+    // suite run skips the file IO entirely.
+    if (Platform.environment['POLTERGEIST_CAPTURE'] == '1') {
+      await tester.runAsync(_loadRealFonts);
+    }
 
     final lanes = controller_test.FakePaneLanes();
     final channel = controller_test.FakePaneChannel('/home/tester');
@@ -205,6 +211,7 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     expect(left.pathFieldOpen, isFalse);
+    expect(left.error, isA<PaneFaultException>());
     expect(
       (left.error as PaneFaultException).fault,
       PaneFault.invalidPath,

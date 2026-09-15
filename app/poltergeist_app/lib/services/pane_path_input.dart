@@ -12,11 +12,13 @@ final RegExp _driveLetterOnly = RegExp(r'^[A-Za-z]:$');
 ///
 /// Returns null for input whose shape can never name a location under
 /// this pane: control characters, `~name` (other-user expansion needs
-/// the engine), a drive spec on a POSIX target, a drive-relative
-/// `C:name`, a root-relative `\name` or a shareless `\\server` UNC. The
-/// caller surfaces the pane error affordance without an engine
-/// round-trip; whether a well-formed result exists is the listing's
-/// question, not this check's.
+/// the engine), a drive-relative `C:name`, a root-relative `\name` or
+/// a shareless `\\server` UNC. POSIX panes accept drive-looking names
+/// (`C:\x`) as ordinary relative names — the colon and backslash are
+/// legal filename characters there, so the drive rules apply only to
+/// a Windows local pane. The caller surfaces the pane error
+/// affordance without an engine round-trip; whether a well-formed
+/// result exists is the listing's question, not this check's.
 ///
 /// [remote] selects the POSIX ruleset for a remote pane; a local pane
 /// reads its conventions from [homePath]'s separator, so the same field
@@ -34,10 +36,14 @@ String? resolvePanePathInput({
     if (unit < 0x20 || unit == 0x7f) return null;
   }
 
-  // `~` expands to the channel home on either side (02 §2.1). `~name`
-  // is other-user expansion, which has no app-side meaning.
+  // `~` expands to the channel home on either side (02 §2.1). `~\`
+  // is the Windows-pane spelling only — on a POSIX pane the backslash
+  // is an ordinary name character, so `~\x` falls through to the
+  // `~name` rejection. `~name` itself is other-user expansion, which
+  // has no app-side meaning.
   if (input == '~') return homePath;
-  if (input.startsWith('~/') || input.startsWith('~\\')) {
+  if (input.startsWith('~/') ||
+      (paneSeparator(homePath) == '\\' && input.startsWith('~\\'))) {
     return _join(homePath, input.substring(2), paneSeparator(homePath));
   }
   if (input.startsWith('~')) {

@@ -72,7 +72,7 @@ void main() {
     // channel, never a cached replay.
     expect(
       channel.listCalls,
-      containsAllInOrder([
+      equals([
         '/home/tester',
         '/home/tester/a',
         '/home/tester/b',
@@ -217,6 +217,10 @@ void main() {
 
     hold.complete();
     await settle();
+
+    // The held listing resolving after Esc must not resurrect the
+    // cancelled navigation — the pane stays on the quiescent restore.
+    expect(controller.location?.path, '/home/tester/a');
 
     controller.goForward();
     await settle();
