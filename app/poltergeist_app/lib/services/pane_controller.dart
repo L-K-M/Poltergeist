@@ -274,6 +274,32 @@ enum PaneNotice {
   transferLater,
 }
 
+/// A Sync Browsing mirror probe's verdict bound to the pane operation
+/// identity it was taken under (02 §7). The replay hands the probe back
+/// to [PaneController.mirrorProbeCurrent] immediately before issuing
+/// the mirror navigation: a rebind, detach, or intervening navigation
+/// on the target pane rotates that identity, so a stale answer is
+/// abandoned — never read as 'directory missing', never navigated into
+/// a binding the answer did not come from.
+final class PaneMirrorProbe {
+  const PaneMirrorProbe._({
+    required this._identity,
+    required this._channel,
+    required this.exists,
+  });
+
+  /// The pane's operation identity at probe issue — binding epoch and
+  /// navigation session in one opaque token.
+  final Object _identity;
+
+  /// The channel the probe actually listed on.
+  final AppBrowseChannel? _channel;
+
+  /// Whether the probed path listed on the captured binding. Meaningful
+  /// only while [PaneController.mirrorProbeCurrent] holds.
+  final bool exists;
+}
+
 /// One pane-tab's browsing controller (03 §6): navigation state per 02
 /// §2.8's normative machine — optimistic location, monotonic generations,
 /// stale answers dropped, errors inline over cached entries, Esc restores
@@ -494,6 +520,15 @@ class PaneController extends ChangeNotifier {
   /// Binds and rebinds are serialized by this attempt counter: a stale
   /// bind's completions (open, teardown, watch events) drop themselves.
   int _bindAttempt = 0;
+
+  /// The pane's current operation identity for the Sync Browsing mirror
+  /// probe (02 §7): a fresh token on every binding transition (bind,
+  /// detach, rollback restore) and every navigation issue, so a probe
+  /// answer taken under one identity can never drive a pane that has
+  /// since rebinded or received newer navigation intent. [navigate]'s
+  /// own issue rotates it — an in-flight probe is always scoped to the
+  /// session that asked for it.
+  Object _operationIdentity = Object();
 
   PanePhase get phase => _phase;
   PaneLocation? get location => _location;
@@ -1415,26 +1450,50 @@ class PaneController extends ChangeNotifier {
   /// failed or cancelled navigation can neither replay nor drop the link.
   PaneLocation? get committedLocation => _committedLocation;
 
-  /// Whether [path] lists on the live channel right now — the Sync
+  /// Whether [path] lists on the channel live at probe issue — the Sync
   /// Browsing mirror probe (02 §7): the link checks existence on the
   /// other pane BEFORE navigating it, so a missing mirror suspends the
   /// link instead of optimistically erroring that pane onto a
-  /// nonexistent location. Typed VFS errors answer false; a transport
-  /// fault reports and answers false (a pane that cannot answer cannot
-  /// mirror).
-  Future<bool> directoryExists(String path) async {
+  /// nonexistent location. Typed VFS errors answer `exists: false`; a
+  /// transport fault reports and answers false (a pane that cannot
+  /// answer cannot mirror).
+  ///
+  /// The answer is bound to the operation identity it was taken under:
+  /// the caller must re-verify [mirrorProbeCurrent] immediately before
+  /// navigating — a rebind, detach, or intervening navigation while the
+  /// probe flew abandons it, and an abandoned answer is neither 'exists'
+  /// nor 'missing'.
+  Future<PaneMirrorProbe> probeMirrorDirectory(String path) async {
     final channel = _channel;
-    if (_disposed || channel == null || connectionLost) return false;
-    try {
-      await channel.listDirectory(path);
-      return true;
-    } on RemoteFileException {
-      return false;
-    } on Object catch (error, stackTrace) {
-      _report(error, stackTrace);
-      return false;
+    final identity = _operationIdentity;
+    var exists = false;
+    if (!_disposed && channel != null && !connectionLost) {
+      try {
+        await channel.listDirectory(path);
+        exists = true;
+      } on RemoteFileException {
+        // Typed VFS failure — the mirror is missing on this binding.
+      } on Object catch (error, stackTrace) {
+        _report(error, stackTrace);
+      }
     }
+    return PaneMirrorProbe._(
+      identity: identity,
+      channel: channel,
+      exists: exists,
+    );
   }
+
+  /// Whether [probe]'s operation identity still owns this pane — the
+  /// mirror replay's recheck immediately before issuing the navigation
+  /// (02 §7). False means the pane rebinded, detached, or navigated
+  /// since the probe was taken: the answer is void and the replay
+  /// abandons rather than suspending on a stale 'missing' or moving a
+  /// newer binding with an old endpoint's answer.
+  bool mirrorProbeCurrent(PaneMirrorProbe probe) =>
+      _channel != null &&
+      identical(probe._identity, _operationIdentity) &&
+      identical(probe._channel, _channel);
 
   /// Restores the transient per-tab lenses a closed tab's ghost captured
   /// (02 §3's ⇧⌘T): filter, hidden override, view mode. Deliberately
@@ -1710,6 +1769,8 @@ class PaneController extends ChangeNotifier {
     if (_disposed || _pendingRemote == null) return;
     _bindAttempt++; // invalidate the bind this detach replaces
     _cancelListing();
+    // The detached pane owns nothing a probe could mirror into.
+    _operationIdentity = Object();
     // The detached binding's pending rename is retired by the attempt
     // bump — release its in-flight guard with the rest of the state.
     _renameInFlight = false;
@@ -1933,6 +1994,9 @@ class PaneController extends ChangeNotifier {
     String? priorRemotePath,
   }) {
     _cancelListing();
+    // A binding transition ends the session every in-flight mirror
+    // probe was scoped to (02 §7's stale-probe rule).
+    _operationIdentity = Object();
     // The attempt bump in _bind retires every pending rename's
     // ownership token; release the in-flight guard here so a stalled
     // request on the old binding cannot keep the new binding's rename
@@ -2085,6 +2149,9 @@ class PaneController extends ChangeNotifier {
     // A rename's refresh-select hint is consumed by the listing THIS
     // issue's answer accepts; any newer issue invalidates it.
     _pendingRenameSelectPath = null;
+    // Every navigation issue is newer intent: an in-flight mirror probe
+    // taken before it is stale and must be abandoned by the replay.
+    _operationIdentity = Object();
     if (_location != target) {
       // A location change ends an open rename at issue time — the field
       // edits against rows of the directory it opened on (02 §2.6), and
@@ -2322,6 +2389,10 @@ class PaneController extends ChangeNotifier {
     // (cancelRecovery also counts on this being exactly one bump.)
     final attempt = ++_bindAttempt;
     _cancelListing();
+    // The restored binding returns the SAME channel object — the
+    // identity rotation is what keeps a probe taken before the
+    // cancelled rebind from authorizing a replay into it.
+    _operationIdentity = Object();
     unawaited(_releaseBinding());
     _pendingRemote = rollback.remote;
     _pendingRemotePath = rollback.remotePath;
