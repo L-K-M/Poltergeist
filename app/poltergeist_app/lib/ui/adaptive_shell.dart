@@ -21,6 +21,8 @@ class AdaptiveShell extends StatefulWidget {
     required this.resizeLabel,
     required this.formatRatio,
     this.initialPaneRatio = _defaultPaneRatio,
+    this.secondPaneIntent = SecondPaneIntent.shown,
+    this.onSecondPaneVisibilityChanged,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
   });
@@ -34,6 +36,19 @@ class AdaptiveShell extends StatefulWidget {
   final String resizeLabel;
   final PaneRatioFormatter formatRatio;
   final double initialPaneRatio;
+
+  /// `view.toggleSecondPane`'s intent (02 §3): `hidden` collapses the
+  /// allocation to the primary pane at any width — the same mechanism
+  /// the stage-2 auto-hide uses, so a user hide and a responsive hide
+  /// are indistinguishable downstream.
+  final SecondPaneIntent secondPaneIntent;
+
+  /// Reports the allocation's effective `showsSecondPane` on every
+  /// change (and once at first layout): Sync Browsing suspends while a
+  /// pane is hidden — by the toggle OR the stage-2 auto-hide (02 §7's
+  /// hidden-pane rule covers both through this one channel). Called
+  /// post-frame, never mid-build.
+  final ValueChanged<bool>? onSecondPaneVisibilityChanged;
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
 
@@ -49,6 +64,7 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
   Future<void> _saveTail = Future.value();
   var _saveRevision = 0;
   var _hasPendingSave = false;
+  bool? _reportedSecondPaneShown;
 
   @override
   void initState() {
@@ -72,12 +88,28 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
         final allocation = allocatePanes(
           width: _contentWidth,
           ratio: _paneRatio,
-          secondPaneIntent: SecondPaneIntent.shown,
+          secondPaneIntent: widget.secondPaneIntent,
         );
+        _reportSecondPaneVisibility(allocation.showsSecondPane);
 
         return _buildPanes(context, allocation);
       },
     );
+  }
+
+  /// Posts the effective visibility change to the listener — post-frame
+  /// because the allocation is computed mid-build, and the workspace's
+  /// listener notifies (a build-phase notify would mark the tree dirty
+  /// during its own build).
+  void _reportSecondPaneVisibility(bool shown) {
+    if (shown == _reportedSecondPaneShown) return;
+    _reportedSecondPaneShown = shown;
+    final reporter = widget.onSecondPaneVisibilityChanged;
+    if (reporter == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      reporter(shown);
+    });
   }
 
   Widget _buildPanes(BuildContext context, PaneAllocation allocation) {

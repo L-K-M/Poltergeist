@@ -194,6 +194,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.left.listing'",
     "'pane.right.listing'",
     "'openInPane: no bookmark for \${server.serverId}'",
+    // The status bar's sync chip widget key — plumbing, not copy.
+    "'statusbar.syncChip'",
     // The confirm dialog's bullet list marker — typographic, not copy.
     r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
   },
@@ -250,6 +252,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'LocalPaneLocation(\$path)'",
     "'RemotePaneLocation(\$serverId, \$path)'",
   },
+  // The sync link's path arithmetic: relative-tail joins under the two
+  // anchors — machine data, never authored copy.
+  'lib/services/sync_browsing_controller.dart': {
+    r"'$anchor$separator'",
+    r"'$anchor${rel.join(separator)}'",
+    r"'$anchor$separator${rel.join(separator)}'",
+  },
   // The path-field resolver's grammar literals: separator characters,
   // drive-spec regexes, tilde forms, and dot segments — machine data,
   // never authored copy.
@@ -300,6 +309,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'edit.invertSelection'",
     "'selection.quickSelect'",
     "'view.filter'",
+    "'view.toggleSecondPane'",
+    "'view.toggleSyncBrowsing'",
     "'tab.new'",
     "'tab.close'",
     "'tab.reopenClosed'",
@@ -331,10 +342,14 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${widget.controller.paneTabId}.filter.field'",
     r"'${widget.controller.paneTabId}.filter.clear'",
     r"'${controller.paneTabId}.filter.emptyClear'",
+    r"'${controller.paneTabId}.syncChip'",
     "''",
     "'/'",
     "'\\\\'",
   },
+  // The missing-mirror cause's empty-name fallback — a null-safety
+  // placeholder, never rendered as copy.
+  'lib/ui/panes/sync_browse_chip.dart': {"''"},
   // Byte-unit table, the unevaluated dash, and the trailing-".0" trim
   // — technical formatting (02 §2.3 rendering rules).
   'lib/ui/panes/pane_format.dart': {

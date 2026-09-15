@@ -608,4 +608,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tabCloseConfirmClose => 'Close';
+
+  @override
+  String get viewToggleSecondPaneLabel => 'Show/Hide Second Pane';
+
+  @override
+  String get viewToggleSyncBrowsingLabel => 'Sync Browsing';
+
+  @override
+  String get syncBrowsingChip => 'Sync browsing';
+
+  @override
+  String get syncBrowsingSuspended => 'Sync browsing suspended';
+
+  @override
+  String syncBrowsingSuspendedMissing(String name, String side) {
+    return 'Sync browsing suspended — \"$name\" missing on $side';
+  }
+
+  @override
+  String get syncBrowsingSuspendedOutside =>
+      'Sync browsing suspended — outside the anchor subtree';
+
+  @override
+  String get syncBrowsingSideLeft => 'left';
+
+  @override
+  String get syncBrowsingSideRight => 'right';
 }

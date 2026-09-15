@@ -2,25 +2,34 @@ import 'package:flutter/foundation.dart';
 
 import 'pane_controller.dart';
 import 'pane_tabs_controller.dart';
+import 'sync_browsing_controller.dart';
 
-/// 03 §6's per-window workspace state, foundation slice: the pane pair and
-/// the active pane (which pane keyboard pane-scoped commands act on).
-/// Each pane owns its tab strip (02 §3); the pane toggle and layout
-/// ratios join with their own slices (ratios already persist through the
-/// M1 shell's splitter).
+/// 03 §6's per-window workspace state, foundation slice: the pane pair,
+/// the active pane (which pane keyboard pane-scoped commands act on),
+/// the second pane's visibility (02 §3's toggle), and the Sync Browsing
+/// link (02 §7). Each pane owns its tab strip (02 §3); layout ratios
+/// already persist through the M1 shell's splitter.
 class WorkspaceController extends ChangeNotifier {
   WorkspaceController({required this.left, required this.right})
     : assert(
         !identical(left, right),
         'Workspace panes must be distinct PaneTabsController instances.',
       ),
-      _activePane = left;
+      _activePane = left {
+    syncBrowsing = SyncBrowsingController(workspace: this);
+  }
 
   /// The two panes (02 §1's pane A/pane B) — each a tab strip owning its
   /// tab controllers. Owned by the shell, which disposes them with the
   /// workspace.
   final PaneTabsController left;
   final PaneTabsController right;
+
+  /// The workspace's Sync Browsing link (02 §7): the anchored tab pair,
+  /// the replay/suspend/resume state machine, and the anchor flags the
+  /// tab close guard probes. Reads the strips and [secondPaneShown];
+  /// created eagerly so a shell can never forget to wire it.
+  late final SyncBrowsingController syncBrowsing;
 
   PaneTabsController _activePane;
 
@@ -33,6 +42,46 @@ class WorkspaceController extends ChangeNotifier {
   /// registered pane commands act on; null while the pane sits on the
   /// launcher (no tab open).
   PaneController? get activeTabController => _activePane.activeTab?.controller;
+
+  /// `view.toggleSecondPane`'s user intent (02 §3): hiding pane B keeps
+  /// its strip and every tab's state whole — the layout unmounts the
+  /// surface while the workspace's tab objects live on, so re-showing
+  /// restores it exactly.
+  bool _secondPaneHidden = false;
+
+  /// Whether the second pane is hidden by user intent — the toggle's
+  /// own state, written only through [setSecondPaneHidden] so the
+  /// layout's stage-2 auto-hide cannot latch it (02 §3: a transient
+  /// auto-hide restores on regrow; only the explicit command persists).
+  bool get secondPaneHidden => _secondPaneHidden;
+
+  /// The shell-reported effective visibility of pane B — the layout's
+  /// answer after user intent AND stage (02 §1's stage-2 auto-hide runs
+  /// through the same mechanism). Sync Browsing suspends on
+  /// [secondPaneShown] going false whichever path hid the pane (02 §7).
+  bool _secondPaneLayoutShown = true;
+
+  /// Whether pane B is on screen: not user-hidden and not layout-hidden.
+  bool get secondPaneShown => !_secondPaneHidden && _secondPaneLayoutShown;
+
+  /// Sets the user intent — `view.toggleSecondPane`'s seam. The shell
+  /// folds it into the AdaptiveShell's `secondPaneIntent`.
+  void setSecondPaneHidden(bool hidden) {
+    if (hidden == _secondPaneHidden) return;
+    _secondPaneHidden = hidden;
+    notifyListeners();
+  }
+
+  void toggleSecondPane() => setSecondPaneHidden(!_secondPaneHidden);
+
+  /// The shell reports the allocation's effective answer here — covering
+  /// a stage-2 responsive hide the intent flag cannot see (02 §3's
+  /// "auto-hide uses the same mechanism").
+  void setSecondPaneLayoutShown(bool shown) {
+    if (shown == _secondPaneLayoutShown) return;
+    _secondPaneLayoutShown = shown;
+    notifyListeners();
+  }
 
   /// Marks [pane] active (a pane gained focus or was activated by
   /// command). Idempotent.
@@ -75,6 +124,9 @@ class WorkspaceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    // The link dies first so its anchor flags clear on live controllers
+    // and its strip listeners detach before the strips go.
+    syncBrowsing.dispose();
     left.dispose();
     right.dispose();
     super.dispose();

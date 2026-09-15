@@ -12,13 +12,16 @@ import '../services/pane_controller.dart';
 import '../services/pane_tabs_controller.dart';
 import '../services/registered_command.dart';
 import '../services/ssh_config_import_setup.dart';
+import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
 import 'adaptive_shell.dart';
 import 'connections/connections_command.dart';
 import 'import/ssh_config_import_command.dart';
+import 'layout/pane_allocation.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
+import 'panes/sync_browse_chip.dart';
 
 /// The production two-pane shell (02 §1, foundation slice): toolbar over
 /// the registered commands (D21), the pane pair in the M1 adaptive shell
@@ -294,41 +297,56 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                 ),
               Divider(height: 1, color: colors.outlineVariant),
               Expanded(
-                child: AdaptiveShell(
-                  initialPaneRatio: widget.initialPaneRatio,
-                  onPaneRatioChanged: widget.onPaneRatioChanged,
-                  onPaneRatioSaveError: widget.onPaneRatioSaveError,
-                  resizeLabel: strings.resizePanes,
-                  formatRatio: (ratio) =>
-                      strings.paneRatioPercent((ratio * 100).round()),
-                  primary: workspace == null || leftFocus == null
-                      ? const SizedBox.shrink()
-                      : PaneTabsView(
-                          tabs: workspace.left,
-                          workspace: workspace,
-                          focusNode: leftFocus,
-                          onSwapFocus: () => _focusPane(rightFocus),
-                          onCancelRecovery: () => _cancelPaneRecovery(
-                            workspace,
-                            workspace.left.activeTabController,
+                // `view.toggleSecondPane` and the Sync Browsing link
+                // state ride the workspace listenable — a hide/show or
+                // a suspension must re-lay-out the panes without a
+                // parent rebuild.
+                child: workspace == null || leftFocus == null
+                    ? const SizedBox.shrink()
+                    : ListenableBuilder(
+                        listenable: workspace,
+                        builder: (context, _) => AdaptiveShell(
+                          initialPaneRatio: widget.initialPaneRatio,
+                          secondPaneIntent: workspace.secondPaneHidden
+                              ? SecondPaneIntent.hidden
+                              : SecondPaneIntent.shown,
+                          onSecondPaneVisibilityChanged:
+                              workspace.setSecondPaneLayoutShown,
+                          onPaneRatioChanged: widget.onPaneRatioChanged,
+                          onPaneRatioSaveError: widget.onPaneRatioSaveError,
+                          resizeLabel: strings.resizePanes,
+                          formatRatio: (ratio) =>
+                              strings.paneRatioPercent((ratio * 100).round()),
+                          primary: PaneTabsView(
+                            tabs: workspace.left,
+                            workspace: workspace,
+                            focusNode: leftFocus,
+                            onSwapFocus: () => _focusPane(rightFocus),
+                            onCancelRecovery: () => _cancelPaneRecovery(
+                              workspace,
+                              workspace.left.activeTabController,
+                            ),
                           ),
+                          secondary: rightFocus == null
+                              ? const SizedBox.shrink()
+                              : PaneTabsView(
+                                  tabs: workspace.right,
+                                  workspace: workspace,
+                                  focusNode: rightFocus,
+                                  onSwapFocus: () => _focusPane(leftFocus),
+                                  onCancelRecovery: () => _cancelPaneRecovery(
+                                    workspace,
+                                    workspace.right.activeTabController,
+                                  ),
+                                ),
                         ),
-                  secondary: workspace == null || rightFocus == null
-                      ? const SizedBox.shrink()
-                      : PaneTabsView(
-                          tabs: workspace.right,
-                          workspace: workspace,
-                          focusNode: rightFocus,
-                          onSwapFocus: () => _focusPane(leftFocus),
-                          onCancelRecovery: () => _cancelPaneRecovery(
-                            workspace,
-                            workspace.right.activeTabController,
-                          ),
-                        ),
-                ),
+                      ),
               ),
               Divider(height: 1, color: colors.outlineVariant),
-              _StatusBar(label: strings.readyStatus),
+              _StatusBar(
+                label: strings.readyStatus,
+                syncLink: workspace?.syncBrowsing,
+              ),
             ],
           ),
           ),
@@ -533,9 +551,14 @@ class _Toolbar extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        command.icon ?? Icons.bug_report_outlined,
-                        size: 18,
+                      // The icon rides in a Flexible too: a growing
+                      // registry squeezes a button below icon width, and
+                      // a rigid 18px box would overflow its slot.
+                      Flexible(
+                        child: Icon(
+                          command.icon ?? Icons.bug_report_outlined,
+                          size: 18,
+                        ),
                       ),
                       // The gap rides inside the Flexible so a squeezed
                       // button can collapse to the icon alone instead of
@@ -562,19 +585,55 @@ class _Toolbar extends StatelessWidget {
 }
 
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.label});
+  const _StatusBar({required this.label, this.syncLink});
 
   final String label;
 
+  /// The workspace's Sync Browsing link (02 §7): while enabled the
+  /// status bar carries the same chip the path bars do — the amber
+  /// link-broken variant while suspended.
+  final SyncBrowsingController? syncLink;
+
   @override
   Widget build(BuildContext context) {
+    final link = syncLink;
     return SizedBox(
       height: 24,
       child: Padding(
         padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
-        child: Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: Text(label, style: Theme.of(context).textTheme.labelSmall),
+        child: Row(
+          children: [
+            // Both children ride Flexible — the named-cause line can
+            // exceed a narrow status row's width, and an unbounded chip
+            // would overflow it the way the toolbar did.
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
+            if (link != null)
+              Flexible(
+                child: ListenableBuilder(
+                  listenable: link,
+                  builder: (context, _) {
+                    if (!link.enabled) return const SizedBox.shrink();
+                    return Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.only(start: 10),
+                        child: SyncBrowseChip(
+                          key: const ValueKey('statusbar.syncChip'),
+                          link: link,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
         ),
       ),
     );

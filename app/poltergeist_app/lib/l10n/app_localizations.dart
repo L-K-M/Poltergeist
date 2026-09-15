@@ -1112,6 +1112,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Close'**
   String get tabCloseConfirmClose;
+
+  /// Command label: hide or show the second pane, preserving its tabs and per-tab state (view.toggleSecondPane, 02 §3/§8.3/§9).
+  ///
+  /// In en, this message translates to:
+  /// **'Show/Hide Second Pane'**
+  String get viewToggleSecondPaneLabel;
+
+  /// Command label: link the two panes so relative navigation replays at the same path below the other pane's anchor (view.toggleSyncBrowsing, 02 §7/§8.3/§9).
+  ///
+  /// In en, this message translates to:
+  /// **'Sync Browsing'**
+  String get viewToggleSyncBrowsingLabel;
+
+  /// Linked-state chip text on both path bars and the status bar while Sync Browsing replays navigation (02 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'Sync browsing'**
+  String get syncBrowsingChip;
+
+  /// Bare suspended-state chip text (02 §7): the re-visibility cases — an anchored tab switched away or the second pane hidden — and a diverged pair carry it.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync browsing suspended'**
+  String get syncBrowsingSuspended;
+
+  /// Suspended chip for the missing-mirror cause (02 §7): the replayed relative directory does not exist on the named pane.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync browsing suspended — \"{name}\" missing on {side}'**
+  String syncBrowsingSuspendedMissing(String name, String side);
+
+  /// Suspended chip for the escape cause (02 §7): a navigation left the fixed anchor root, so the link is suspended rather than replaying `..` chains.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync browsing suspended — outside the anchor subtree'**
+  String get syncBrowsingSuspendedOutside;
+
+  /// The left pane named as a word inside the missing-mirror suspension copy (02 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'left'**
+  String get syncBrowsingSideLeft;
+
+  /// The right pane named as a word inside the missing-mirror suspension copy (02 §7).
+  ///
+  /// In en, this message translates to:
+  /// **'right'**
+  String get syncBrowsingSideRight;
 }
 
 class _AppLocalizationsDelegate
