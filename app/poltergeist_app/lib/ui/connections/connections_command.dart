@@ -30,6 +30,14 @@ RegisteredCommand buildConnectionsCommand({
       onReviewBlocked: onReviewBlocked,
       onOpenInPane: onOpenInPane,
     ),
+    // No shortcut (02 §8.3 binds none), so §8.1's invariant needs a menu
+    // path: the View menu's trailing group, after Refresh — interim until
+    // M5's sidebar removes the surface.
+    menuPlacement: const CommandMenuPlacement(
+      menu: AppMenuId.view,
+      order: 120,
+      group: 2,
+    ),
   );
 }
 

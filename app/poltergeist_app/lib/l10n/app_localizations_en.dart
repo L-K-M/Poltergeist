@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -10,6 +11,27 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appTitle => 'Poltergeist';
+
+  @override
+  String get menuFile => 'File';
+
+  @override
+  String get menuEdit => 'Edit';
+
+  @override
+  String get menuView => 'View';
+
+  @override
+  String get menuGo => 'Go';
+
+  @override
+  String get menuCommands => 'Commands';
+
+  @override
+  String get menuWindow => 'Window';
+
+  @override
+  String get menuHelp => 'Help';
 
   @override
   String get paneAName => 'Pane A';

@@ -418,6 +418,17 @@ permissions · D29 mobile hooks · D30 Séance license · D31 no mounting
   proven Séance Swift-retargeting fallback if the M3 menu spike finds it
   insufficient — and a Flutter-drawn `MenuBar` (Windows/Linux);
   platform-correct shortcuts, dialogs, and scrolling physics. Details: 02.
+  *M3 spike outcome (TASK40): `PlatformMenuBar` suffices — the §9
+  Edit-menu retargeting is expressed in Dart, so the Swift fallback stays
+  on the shelf. A natively bound key equivalent intercepts the keystroke
+  before any in-window surface, so only modifier chords bind natively;
+  when activation of a field-owned chord (⌘A/⌘C/⌘X/⌘V/⌘Z/⌘⇧Z/⌘⌫) reaches
+  the menu while a text field holds focus, the item re-dispatches the
+  matching text intent to the focused `EditableText` instead of running
+  the command. Resolving focus at activation time replaces Séance's
+  `poltergeist/menu` focus-flag channel — there is no flag to stale
+  (SEA-008 is moot by construction). `NSWindow.allowsAutomaticWindowTabbing
+  = false` is set in `MainFlutterWindow`.*
 - **D13 — Single window in v1.** One window, dual pane, tabs per pane; a
   `WorkspaceController` owns one window's state so multi-window becomes
   mechanical when Flutter's windowing API stabilizes. Multi-window itself
