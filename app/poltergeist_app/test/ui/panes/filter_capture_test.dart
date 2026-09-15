@@ -14,6 +14,7 @@ import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
+import '../../support/test_panes.dart';
 
 /// Real-font captures of the Filter strip (02 §2.5) and the §2.7
 /// filtered-empty state for visual review. The widget-test default font
@@ -97,7 +98,9 @@ void main() {
 
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    final workspace = WorkspaceController(left: left, right: right);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
     final leftNode = FocusNode();
     final rightNode = FocusNode();
@@ -129,6 +132,7 @@ void main() {
                   key: const ValueKey('capture.pane'),
                   child: PaneView(
                     controller: left,
+                    pane: leftStrip,
                     workspace: workspace,
                     focusNode: leftNode,
                     onSwapFocus: () => rightNode.requestFocus(),
@@ -139,6 +143,7 @@ void main() {
               Expanded(
                 child: PaneView(
                   controller: right,
+                  pane: rightStrip,
                   workspace: workspace,
                   focusNode: rightNode,
                   onSwapFocus: () => leftNode.requestFocus(),

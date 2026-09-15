@@ -659,5 +659,80 @@
   "connectionsOpenInPane": "Open in Pane",
   "@connectionsOpenInPane": {
     "description": "Tooltip of the Connections row action that opens the bookmark in the active pane."
+  },
+  "tabStripLabel": "Tabs",
+  "@tabStripLabel": {
+    "description": "Accessible label of a pane's tab strip container (02 §3)."
+  },
+  "tabNewLabel": "New Tab",
+  "@tabNewLabel": {
+    "description": "Command label and button tooltip: open a new tab in the focused pane (tab.new, 02 §3)."
+  },
+  "tabCloseLabel": "Close Tab",
+  "@tabCloseLabel": {
+    "description": "Command label and chip-button tooltip: close a tab (tab.close, 02 §3)."
+  },
+  "tabReopenClosedLabel": "Reopen Closed Tab",
+  "@tabReopenClosedLabel": {
+    "description": "Command label: reopen the most recently closed tab in the focused pane (tab.reopenClosed, 02 §3)."
+  },
+  "tabNextLabel": "Next Tab",
+  "@tabNextLabel": {
+    "description": "Command label: activate the next tab in the focused pane's strip (tab.next, 02 §3)."
+  },
+  "tabPreviousLabel": "Previous Tab",
+  "@tabPreviousLabel": {
+    "description": "Command label: activate the previous tab in the focused pane's strip (tab.previous, 02 §3)."
+  },
+  "tabLauncherTitle": "Launcher",
+  "@tabLauncherTitle": {
+    "description": "Title of a tab — and the pane's surface — while no location is bound (the 02 §2.7 launcher)."
+  },
+  "tabTooltipRemote": "{server} — {path}",
+  "@tabTooltipRemote": {
+    "description": "Tooltip of a remote tab chip: the bookmark's label and the tab's full remote path (02 §3).",
+    "placeholders": {
+      "server": {"type": "String"},
+      "path": {"type": "String"}
+    }
+  },
+  "tabCloseConfirmTitle": "Close Tab?",
+  "@tabCloseConfirmTitle": {
+    "description": "Title of the guarded tab-close confirmation (02 §3), shown when the tab still has work in flight."
+  },
+  "tabCloseConfirmBody": "\"{tab}\" has work in progress:",
+  "@tabCloseConfirmBody": {
+    "description": "Lead-in of the guarded tab-close confirmation: names the tab, then the active guard triggers follow as a list (02 §3).",
+    "placeholders": {
+      "tab": {"type": "String"}
+    }
+  },
+  "tabCloseTriggerNavigation": "A navigation is still in flight.",
+  "@tabCloseTriggerNavigation": {
+    "description": "Tab-close guard item: the tab has an outstanding listing navigation (02 §3)."
+  },
+  "tabCloseTriggerInlineRename": "An inline rename is in progress.",
+  "@tabCloseTriggerInlineRename": {
+    "description": "Tab-close guard item: the tab's inline-rename session is open (02 §3)."
+  },
+  "tabCloseTriggerFolderSize": "A folder-size computation is running.",
+  "@tabCloseTriggerFolderSize": {
+    "description": "Tab-close guard item: a recursive folder-size computation is running on the tab (02 §3)."
+  },
+  "tabCloseTriggerApplyToEnclosed": "An apply-to-enclosed-items change is running.",
+  "@tabCloseTriggerApplyToEnclosed": {
+    "description": "Tab-close guard item: an apply-to-enclosed-items permissions change is running on the tab (02 §3)."
+  },
+  "tabCloseTriggerSyncAnchor": "The tab anchors a sync pair.",
+  "@tabCloseTriggerSyncAnchor": {
+    "description": "Tab-close guard item: the tab anchors a Sync Browsing pair (02 §3, §7)."
+  },
+  "tabCloseConfirmCancel": "Cancel",
+  "@tabCloseConfirmCancel": {
+    "description": "Declines the guarded tab close: the tab and its in-flight work stay."
+  },
+  "tabCloseConfirmClose": "Close",
+  "@tabCloseConfirmClose": {
+    "description": "Accepts the guarded tab close despite its in-flight work."
   }
 }

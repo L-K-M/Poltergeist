@@ -4212,6 +4212,67 @@ activators, and active-pane re-resolution. Real-font captures (DejaVu
 the filtered-empty state, and the post-Esc clear are under
 `tasks/run3-task35/`. Full app suite and analyze green.
 
+## M3 — Tab strip + tab lifecycle within a pane (2026-09-15)
+
+Each pane is now a `PaneTabsController` — the strip's ordered tab set,
+active tab, and ghost ring — over per-tab `PaneController`s, with the
+workspace owning exactly the two strips (03 §6). Tab ids are
+predictable (`pane.left.tab1`, …) and double as the engine channel's
+`paneTabId`. `tab.new` (⌘T) honors the persisted "New tabs open"
+preference (`NewTabTarget.duplicate` default / `home` / `launcher`,
+read at open time; the shell's initial tab is explicitly `home` since
+startup has no duplicate source, and a `duplicate` ⌘T on an empty
+strip — the post-last-close launcher — likewise has no source and
+opens an unbound launcher tab); `tab.close` (⌘W), `tab.reopenClosed`
+(⇧⌘T), `tab.next`/`tab.previous` (⌃⇥/⌃⇧⇥ plus ⇧⌘]/⇧⌘[) are registered
+app-scoped commands resolving the active pane's strip at invocation —
+cycling never crosses panes. The close guard lives INSIDE
+`requestCloseTab` (the SEA-009 lesson): chord, chip ✕, and
+middle-click all funnel through the one operation, whose trigger
+registry (navigation via `loading`, inline rename via
+`inlineRenameActive`, plus declared-for-later folderSize /
+applyToEnclosed / syncAnchor) consults the presenter only when a probe
+fires — a trigger with no presenter fails closed, and a re-entrant ⌘W
+rides the in-flight confirmation rather than stacking dialogs.
+Closing the last tab leaves the pane on the launcher (02 §2.7) —
+never blank, never auto-opened. ⇧⌘T pops a LIFO ring of ten ghosts —
+the most recently closed tab reopens first, and the oldest ghost is
+evicted at the cap.
+Binding + location re-open and the transient lenses (filter query and
+field state, hidden-file override, view mode) restore through
+`restoreTransientState`; selection and in-flight state are not
+restorable (selection keys name dead listing identities) — the ghost
+doc says so. Remote closes reuse the banner-cancel's sibling rule:
+the pooled reference drops only when the closed tab was the server's
+last binding, re-checked after the awaited channel release. Chip
+titles are the folder name; remote chips carry the `ServerBadge`
+accent + `ServerStateGlyph` dot (Séance `server_appearance.dart`
+ported for the badge/accent/icon half — PORTS.md entry added) and the
+tooltip shows full path + server. Per-tab state (location, listing,
+selection, cursor, filter, hidden override, view mode, Quick Select
+session) lives on each tab's controller, so switching is an atomic
+pointer change with no cross-tab leak. The listing pipeline gained a
+pre-filter stage (`_sortedListing` → hidden policy → `_listing` → §2.5
+filter → `entries`) so `showHidden` re-derives without a re-list, and
+the accepted listing keeps its `List.unmodifiable` contract.
+`AppPreferences` persists `tabs.newTabTarget` (unknown values fall
+back to `duplicate`); `main.dart` loads it before constructing the
+app. `tab.select1`–`9` stays unregistered this slice (menu path waits
+for the menu task). The §8.3 table's `tab.reopen` is renamed to
+`tab.reopenClosed` to match the brief.
+
+Validation: 28 `PaneTabsController` unit tests cover targets,
+cycling/wrapping and pane scoping, guard fire/decline/stale outcomes,
+no-presenter fail-closed, re-entrancy, ghost ring cap and restore,
+sibling-aware remote close, and dispose; widget tests cover the strip
+chrome (badges, dots, tooltips, middle-click routing), the launcher,
+command registration/bindings/enablement, and active-pane resolution;
+the existing pane/workspace suites were re-homed onto strips
+(`test/support/test_panes.dart`). Real-font captures of the multi-tab
+strip, the guarded-close dialog, and the post-last-close launcher are
+under `tasks/run3-task38/`. Full app suite (753 tests) and analyze
+green; core and benchmark suites unchanged and green.
+
 ## M3 — P3/P5 bench medians explained (2026-09-14)
 
 Investigation of the first fixture-backed tier-A results: explain why

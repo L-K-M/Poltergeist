@@ -33,6 +33,7 @@ Future<void> main() async {
   );
   final preferences = AppPreferences(store: settingsStore);
   final paneRatio = await preferences.loadPaneRatio();
+  final newTabTarget = await preferences.loadNewTabTarget();
   final windowLifecycle = DesktopWindowLifecycle(
     preferences,
     onError: errorReporter.report,
@@ -57,6 +58,7 @@ Future<void> main() async {
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
+      newTabTarget: newTabTarget,
       bookmarks: bookmarks,
       engineSession: engineSession,
       navigatorKey: navigatorKey,

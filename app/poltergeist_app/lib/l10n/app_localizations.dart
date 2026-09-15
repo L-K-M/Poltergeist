@@ -926,6 +926,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open in Pane'**
   String get connectionsOpenInPane;
+
+  /// Accessible label of a pane's tab strip container (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Tabs'**
+  String get tabStripLabel;
+
+  /// Command label and button tooltip: open a new tab in the focused pane (tab.new, 02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'New Tab'**
+  String get tabNewLabel;
+
+  /// Command label and chip-button tooltip: close a tab (tab.close, 02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Close Tab'**
+  String get tabCloseLabel;
+
+  /// Command label: reopen the most recently closed tab in the focused pane (tab.reopenClosed, 02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Reopen Closed Tab'**
+  String get tabReopenClosedLabel;
+
+  /// Command label: activate the next tab in the focused pane's strip (tab.next, 02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Next Tab'**
+  String get tabNextLabel;
+
+  /// Command label: activate the previous tab in the focused pane's strip (tab.previous, 02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Previous Tab'**
+  String get tabPreviousLabel;
+
+  /// Title of a tab — and the pane's surface — while no location is bound (the 02 §2.7 launcher).
+  ///
+  /// In en, this message translates to:
+  /// **'Launcher'**
+  String get tabLauncherTitle;
+
+  /// Tooltip of a remote tab chip: the bookmark's label and the tab's full remote path (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'{server} — {path}'**
+  String tabTooltipRemote(String server, String path);
+
+  /// Title of the guarded tab-close confirmation (02 §3), shown when the tab still has work in flight.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Tab?'**
+  String get tabCloseConfirmTitle;
+
+  /// Lead-in of the guarded tab-close confirmation: names the tab, then the active guard triggers follow as a list (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'\"{tab}\" has work in progress:'**
+  String tabCloseConfirmBody(String tab);
+
+  /// Tab-close guard item: the tab has an outstanding listing navigation (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'A navigation is still in flight.'**
+  String get tabCloseTriggerNavigation;
+
+  /// Tab-close guard item: the tab's inline-rename session is open (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'An inline rename is in progress.'**
+  String get tabCloseTriggerInlineRename;
+
+  /// Tab-close guard item: a recursive folder-size computation is running on the tab (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'A folder-size computation is running.'**
+  String get tabCloseTriggerFolderSize;
+
+  /// Tab-close guard item: an apply-to-enclosed-items permissions change is running on the tab (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'An apply-to-enclosed-items change is running.'**
+  String get tabCloseTriggerApplyToEnclosed;
+
+  /// Tab-close guard item: the tab anchors a Sync Browsing pair (02 §3, §7).
+  ///
+  /// In en, this message translates to:
+  /// **'The tab anchors a sync pair.'**
+  String get tabCloseTriggerSyncAnchor;
+
+  /// Declines the guarded tab close: the tab and its in-flight work stay.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get tabCloseConfirmCancel;
+
+  /// Accepts the guarded tab close despite its in-flight work.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get tabCloseConfirmClose;
 }
 
 class _AppLocalizationsDelegate

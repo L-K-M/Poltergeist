@@ -9,6 +9,7 @@ import 'package:poltergeist_app/ui/panes/pane_commands.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
+import '../../support/test_panes.dart';
 
 void main() {
   RegisteredCommand command(
@@ -141,13 +142,15 @@ void main() {
     ];
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    final workspace = WorkspaceController(left: left, right: right);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
 
     // Negative enablement first: right is the active pane and has no
     // listing yet, so its verbs are disabled — the command must report
     // disabled even once the inactive pane would be verb-enabled.
-    workspace.setActivePane(right);
+    workspace.setActivePane(rightStrip);
     final earlyCommands = buildPaneCommands(
       workspace: workspace,
       focusLeft: () {},
@@ -199,7 +202,7 @@ void main() {
     );
 
     // Right is the active pane: both commands act on it alone.
-    workspace.setActivePane(right);
+    workspace.setActivePane(rightStrip);
     expect(selectAll.enabled(), isTrue);
     await selectAll.run(context);
     await tester.pump();
@@ -215,7 +218,7 @@ void main() {
     lanes.nextLocalChannel = leftChannel;
     await left.openLocalHome();
     await tester.pump();
-    workspace.setActivePane(left);
+    workspace.setActivePane(leftStrip);
     expect(selectAll.enabled(), isTrue);
     await selectAll.run(context);
     await tester.pump();
@@ -232,7 +235,7 @@ void main() {
     );
     left.refresh();
     await tester.pump();
-    expect(workspace.activePane, left);
+    expect(workspace.activePane, leftStrip);
     expect(left.verbsEnabled, isFalse);
     expect(right.verbsEnabled, isTrue);
     expect(selectAll.enabled(), isFalse);
@@ -248,7 +251,9 @@ void main() {
     rightChannel.listings['/srv/home'] = [_entry('x')];
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    final workspace = WorkspaceController(left: left, right: right);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
 
     lanes.nextLocalChannel = leftChannel;
@@ -287,7 +292,7 @@ void main() {
 
     // Enablement follows the ACTIVE pane; running opens the field on
     // that pane alone.
-    workspace.setActivePane(right);
+    workspace.setActivePane(rightStrip);
     expect(quickSelect.enabled(), isTrue);
     await tester.pumpWidget(
       MaterialApp(
@@ -310,7 +315,9 @@ void main() {
     rightChannel.listings['/srv/home'] = [_entry('x')];
     final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    final workspace = WorkspaceController(left: left, right: right);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     addTearDown(workspace.dispose);
 
     lanes.nextLocalChannel = leftChannel;
@@ -349,7 +356,7 @@ void main() {
 
     // Enablement follows the ACTIVE pane; running opens the strip on
     // that pane alone.
-    workspace.setActivePane(right);
+    workspace.setActivePane(rightStrip);
     expect(filter.enabled(), isTrue);
     await tester.pumpWidget(
       MaterialApp(
@@ -364,7 +371,7 @@ void main() {
 
     // Re-resolution: switch the active pane and the same command object
     // opens the other pane's strip.
-    workspace.setActivePane(left);
+    workspace.setActivePane(leftStrip);
     await filter.run(tester.element(find.byType(Scaffold)));
     expect(left.filterFieldOpen, isTrue);
     expect(right.filterFieldOpen, isTrue,

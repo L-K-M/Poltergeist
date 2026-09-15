@@ -95,6 +95,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'window.top'",
     "'window.width'",
     "'window.height'",
+    "'tabs.newTabTarget'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // Ported Séance contracts (see docs/PORTS.md): the exception messages are
@@ -190,17 +191,28 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/workspace_shell.dart': {
     "'command.\${command.id}'",
     "'connectionEngine is ignored when engineSession is provided'",
-    "'pane.left'",
-    "'pane.right'",
     "'pane.left.listing'",
     "'pane.right.listing'",
     "'openInPane: no bookmark for \${server.serverId}'",
+    // The confirm dialog's bullet list marker — typographic, not copy.
+    r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
   },
   // The workspace controller's debug assert message — a dev-facing
   // invariant, never rendered.
   'lib/services/workspace_controller.dart': {
-    "'Workspace panes must be distinct PaneController instances.'",
+    "'Workspace panes must be distinct PaneTabsController instances.'",
     "'Active pane must be one of this workspace\\'s panes.'",
+  },
+  // The tab strip's engine-channel id arithmetic and its fail-closed
+  // guard diagnostic — machine data, never rendered UI copy.
+  'lib/services/pane_tabs_controller.dart': {
+    r"'$paneId.tab${_nextTabOrdinal++}'",
+    // The canonical pane ids — engine-channel identity, not copy.
+    "'pane.left'",
+    "'pane.right'",
+    "'tab close guard fired with no presenter wired'",
+    "'newTab on a disposed PaneTabsController'",
+    "'addTab on a disposed PaneTabsController'",
   },
   // The pane controller's machine data: the home anchor the engine
   // expands, the dotfile filter prefix, the root path, the taxonomy
@@ -252,10 +264,22 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'edit.invertSelection'",
     "'selection.quickSelect'",
     "'view.filter'",
+    "'tab.new'",
+    "'tab.close'",
+    "'tab.reopenClosed'",
+    "'tab.next'",
+    "'tab.previous'",
     r"'Duplicate shortcut activator $activator: later command wins'",
   },
+  // The tab strip's widget keys and pane-id name lookup — widget plumbing
+  // keyed to the engine's paneTabId identity, never authored copy.
+  'lib/ui/panes/pane_tabs_view.dart': {
+    r"'${tabs.paneId}.tab.new'",
+    r"'${tab.id}.close'",
+    // Root-path fallback in the remote tooltip — path data, not copy.
+    "'/'",
+  },
   'lib/ui/panes/pane_view.dart': {
-    "'pane.left'",
     "'pane.footer'",
     "'pane.error.retry'",
     "'pane.banner'",

@@ -9,6 +9,7 @@ import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
+import '../services/pane_tabs_controller.dart';
 import '../services/registered_command.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/workspace_controller.dart';
@@ -16,7 +17,7 @@ import 'adaptive_shell.dart';
 import 'connections/connections_command.dart';
 import 'import/ssh_config_import_command.dart';
 import 'panes/pane_commands.dart';
-import 'panes/pane_view.dart';
+import 'panes/pane_tabs_view.dart';
 
 /// The production two-pane shell (02 §1, foundation slice): toolbar over
 /// the registered commands (D21), the pane pair in the M1 adaptive shell
@@ -28,6 +29,7 @@ class WorkspaceShell extends StatefulWidget {
   const WorkspaceShell({
     super.key,
     this.initialPaneRatio = 0.5,
+    this.newTabTarget = NewTabTarget.duplicate,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.sshConfigImport,
@@ -37,6 +39,13 @@ class WorkspaceShell extends StatefulWidget {
   });
 
   final double initialPaneRatio;
+
+  /// The persisted "New tabs open" preference (02 §2.1) seeding each
+  /// strip's live [PaneTabsController.newTabTarget] — read at every
+  /// `tab.new`; the settings slice writes the field (and persists it)
+  /// after construction.
+  final NewTabTarget newTabTarget;
+
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
 
@@ -117,6 +126,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace = null;
       _buildWorkspace();
     }
+    // The settings slice writes the strips' live newTabTarget directly;
+    // this sync only covers a parent rebuild with a changed seed, which
+    // can never clobber the settings writer — it fires solely on an
+    // actual widget-parameter change.
+    if (widget.newTabTarget != oldWidget.newTabTarget) {
+      _workspace?.left.newTabTarget = widget.newTabTarget;
+      _workspace?.right.newTabTarget = widget.newTabTarget;
+    }
   }
 
   @override
@@ -146,20 +163,32 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
   void _buildWorkspace() {
     final lanes = widget.engineSession?.paneLanes;
-    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
-    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    PaneTabsController buildStrip(String paneId) => PaneTabsController(
+      paneId: paneId,
+      lanes: lanes,
+      newTabTarget: widget.newTabTarget,
+      confirmClose: _confirmTabClose,
+      // The cross-pane half of a remote tab's last-binding check: read
+      // the workspace lazily — the strips are built before it exists.
+      serverStillShared: (serverId, excluding) =>
+          // Null-workspace is unreachable by close time — but if timing
+          // ever shifted, "assume shared" is the fail-safe direction:
+          // it detaches rather than dropping a pool reference a sibling
+          // might still hold.
+          _workspace?.serverStillBound(serverId, excluding) ?? true,
+      onError: ApplicationErrorReporter().report,
+    );
+    final left = buildStrip(PaneTabsController.leftPaneId);
+    final right = buildStrip(PaneTabsController.rightPaneId);
     _workspace = WorkspaceController(left: left, right: right);
 
-    // The initial binding: both panes browse the local home through the
-    // engine's local channel (03 §5's seam; one engine, no second spawn).
-    // Keyboard starts on the left pane's listing.
-    if (lanes != null) {
-      // openLocalHome never rejects (its shared bind funnels every
-      // fault into the pane's error state — pinned by test); unawaited
-      // therefore discards nothing.
-      unawaited(left.openLocalHome());
-      unawaited(right.openLocalHome());
-    }
+    // The initial binding: each pane opens one tab on the local home —
+    // explicit `home` because the startup tab has no duplicate source and
+    // a launcher's first surface is still a browsing location. The "New
+    // tabs open" preference governs ⌘T only (02 §2.1). With no engine
+    // the tab stays unbound and renders the no-engine state.
+    left.newTab(target: NewTabTarget.home);
+    right.newTab(target: NewTabTarget.home);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final left = _leftFocus;
       final right = _rightFocus;
@@ -263,23 +292,27 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                       strings.paneRatioPercent((ratio * 100).round()),
                   primary: workspace == null || leftFocus == null
                       ? const SizedBox.shrink()
-                      : PaneView(
-                          controller: workspace.left,
+                      : PaneTabsView(
+                          tabs: workspace.left,
                           workspace: workspace,
                           focusNode: leftFocus,
                           onSwapFocus: () => _focusPane(rightFocus),
-                          onCancelRecovery: () =>
-                              _cancelPaneRecovery(workspace, workspace.left),
+                          onCancelRecovery: () => _cancelPaneRecovery(
+                            workspace,
+                            workspace.left.activeTabController,
+                          ),
                         ),
                   secondary: workspace == null || rightFocus == null
                       ? const SizedBox.shrink()
-                      : PaneView(
-                          controller: workspace.right,
+                      : PaneTabsView(
+                          tabs: workspace.right,
                           workspace: workspace,
                           focusNode: rightFocus,
                           onSwapFocus: () => _focusPane(leftFocus),
-                          onCancelRecovery: () =>
-                              _cancelPaneRecovery(workspace, workspace.right),
+                          onCancelRecovery: () => _cancelPaneRecovery(
+                            workspace,
+                            workspace.right.activeTabController,
+                          ),
                         ),
                 ),
               ),
@@ -296,35 +329,74 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     node?.requestFocus();
   }
 
-  /// The banner's cancel, sibling-aware (02 §2.7 in a two-pane world):
-  /// the engine keys pool references by serverId, so a plain disconnect
-  /// would kill a sibling pane browsing the same server. Detach only the
-  /// cancelling pane when the server is shared; drop the reference — and
-  /// with it the pool's recovery — when this pane is its last user. The
-  /// alone decision is re-checked after the detach's awaited release:
-  /// a sibling may bind the server while that release is in flight, and
-  /// its fresh reference must not be dropped out from under it.
+  /// The tab-close confirmation presenter wired onto each strip's
+  /// [PaneTabsController.confirmClose]: the ONLY shape the guarded close
+  /// accepts (the confirmation lives inside the state operation, so no
+  /// close route — chord, chip, or middle-click — can skip it). Answers
+  /// false when the dialog cannot be answered.
+  Future<bool> _confirmTabClose(
+    PaneTab tab,
+    List<TabCloseTrigger> triggers,
+  ) async {
+    if (!mounted) return false;
+    final l10n = AppLocalizations.of(context);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        // The trigger bullet list grows with the registry — scrollable
+        // keeps a long localization plus several triggers inside short
+        // windows instead of overflowing the column.
+        scrollable: true,
+        title: Text(l10n.tabCloseConfirmTitle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.tabCloseConfirmBody(paneTabTitle(tab, l10n))),
+            const SizedBox(height: 8),
+            for (final trigger in triggers)
+              Text('• ${tabCloseTriggerLabel(l10n, trigger)}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.tabCloseConfirmCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.tabCloseConfirmClose),
+          ),
+        ],
+      ),
+    );
+    return accepted ?? false;
+  }
+
+  /// The banner's cancel, sibling-aware (02 §2.7 in a two-pane, tabbed
+  /// world): the engine keys pool references by serverId, so a plain
+  /// disconnect would kill every tab and pane browsing the same server.
+  /// Detach only the cancelling tab when the server is shared; drop the
+  /// reference — and with it the pool's recovery — when this tab is its
+  /// last user. The alone decision is re-checked after the detach's
+  /// awaited release: another tab may bind the server while that release
+  /// is in flight, and its fresh reference must not be dropped out from
+  /// under it.
   Future<void> _cancelPaneRecovery(
     WorkspaceController workspace,
-    PaneController pane,
+    PaneController? pane,
   ) async {
     // Keyed on the pending binding: the post-first-cancel state holds a
     // live remote channel with no location.
-    final serverId = pane.remoteBookmark?.id;
-    if (serverId == null) return;
-    final sibling = identical(pane, workspace.left)
-        ? workspace.right
-        : workspace.left;
-    final siblingShares = sibling.remoteBookmark?.id == serverId;
+    final serverId = pane?.remoteBookmark?.id;
+    if (pane == null || serverId == null) return;
     try {
-      if (siblingShares) {
+      if (workspace.serverStillBound(serverId, pane)) {
         await pane.detachRemote();
       } else {
-        // Two panes are the workspace's fixed shape (the product is a
-        // two-pane transfer client), so this single sibling IS every
-        // other pane — revisit both checks before any multi-pane shape.
         await pane.cancelRecovery(
-          serverStillUnshared: () => sibling.remoteBookmark?.id != serverId,
+          serverStillUnshared: () =>
+              !workspace.serverStillBound(serverId, pane),
         );
       }
     } on Object catch (error, stackTrace) {
@@ -348,7 +420,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (pane == null) return;
       for (final bookmark in bookmarks) {
         if (bookmark.id == server.serverId) {
-          await pane.connectRemote(bookmark);
+          // The row binds the pane's ACTIVE tab — a launcher pane grows
+          // a tab for it rather than silently opening behind the strip.
+          final tab =
+              pane.activeTab ?? pane.newTab(target: NewTabTarget.launcher);
+          await tab.controller.connectRemote(bookmark);
           return;
         }
       }
@@ -430,17 +506,34 @@ class _Toolbar extends StatelessWidget {
             const Spacer(),
             for (final command in commands)
               Flexible(
-                child: TextButton.icon(
+                child: TextButton(
                   key: ValueKey('command.${command.id}'),
                   onPressed: command.enabled() ? () => onRun(command) : null,
-                  icon: Icon(
-                    command.icon ?? Icons.bug_report_outlined,
-                    size: 18,
+                  // Compact density: every registered command stays on
+                  // the strip, so a growing registry shares the width —
+                  // the label's Flexible ellipsis is what lets a button
+                  // shrink below its natural size instead of overflowing.
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  label: Text(
-                    command.label(l10n),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        command.icon ?? Icons.bug_report_outlined,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          command.label(l10n),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

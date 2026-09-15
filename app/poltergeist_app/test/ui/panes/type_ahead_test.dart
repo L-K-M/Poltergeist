@@ -6,11 +6,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
+import '../../support/test_panes.dart';
 
 RemoteFileEntry _entry(
   String name, {
@@ -33,6 +35,8 @@ void main() {
   late controller_test.FakePaneLanes lanes;
   late PaneController left;
   late PaneController right;
+  late PaneTabsController leftStrip;
+  late PaneTabsController rightStrip;
   late WorkspaceController workspace;
   late FocusNode leftNode;
   late FocusNode rightNode;
@@ -41,7 +45,9 @@ void main() {
     lanes = controller_test.FakePaneLanes();
     left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     right = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    workspace = WorkspaceController(left: left, right: right);
+    leftStrip = testPaneStrip(left);
+    rightStrip = testPaneStrip(right);
+    workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     leftNode = FocusNode();
     rightNode = FocusNode();
   });
@@ -65,6 +71,7 @@ void main() {
         Expanded(
           child: PaneView(
             controller: left,
+            pane: leftStrip,
             workspace: workspace,
             focusNode: leftNode,
             onSwapFocus: () => rightNode.requestFocus(),
@@ -75,6 +82,7 @@ void main() {
         Expanded(
           child: PaneView(
             controller: right,
+            pane: rightStrip,
             workspace: workspace,
             focusNode: rightNode,
             onSwapFocus: () => leftNode.requestFocus(),

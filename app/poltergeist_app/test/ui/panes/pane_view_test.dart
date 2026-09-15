@@ -7,12 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_location.dart';
+import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/quick_select_state.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
+import '../../support/test_panes.dart';
 
 RemoteFileEntry _entry(
   String name, {
@@ -57,6 +59,8 @@ void main() {
   late controller_test.FakePaneLanes lanes;
   late PaneController left;
   late PaneController right;
+  late PaneTabsController leftStrip;
+  late PaneTabsController rightStrip;
   late WorkspaceController workspace;
   late FocusNode leftNode;
   late FocusNode rightNode;
@@ -68,7 +72,9 @@ void main() {
     lanes = controller_test.FakePaneLanes();
     left = PaneController(paneTabId: 'pane.left', lanes: lanes);
     right = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    workspace = WorkspaceController(left: left, right: right);
+    leftStrip = testPaneStrip(left);
+    rightStrip = testPaneStrip(right);
+    workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     leftNode = FocusNode();
     rightNode = FocusNode();
   });
@@ -95,6 +101,7 @@ void main() {
               Expanded(
                 child: PaneView(
                   controller: left,
+                  pane: leftStrip,
                   workspace: workspace,
                   focusNode: leftNode,
                   onSwapFocus: () => rightNode.requestFocus(),
@@ -105,6 +112,7 @@ void main() {
               Expanded(
                 child: PaneView(
                   controller: right,
+                  pane: rightStrip,
                   workspace: workspace,
                   focusNode: rightNode,
                   onSwapFocus: () => leftNode.requestFocus(),
@@ -408,12 +416,12 @@ void main() {
 
     leftNode.requestFocus();
     await tester.pump();
-    expect(workspace.activePane, left);
+    expect(workspace.activePane, leftStrip);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.pump();
 
-    expect(workspace.activePane, right);
+    expect(workspace.activePane, rightStrip);
     expect(rightNode.hasFocus, isTrue);
   });
 
@@ -448,6 +456,7 @@ void main() {
                     Expanded(
                       child: PaneView(
                         controller: left,
+                        pane: leftStrip,
                         workspace: workspace,
                         focusNode: leftNode,
                         onSwapFocus: () => rightNode.requestFocus(),
@@ -458,6 +467,7 @@ void main() {
                     Expanded(
                       child: PaneView(
                         controller: right,
+                        pane: rightStrip,
                         workspace: workspace,
                         focusNode: rightNode,
                         onSwapFocus: () => leftNode.requestFocus(),
@@ -476,7 +486,7 @@ void main() {
 
     leftNode.requestFocus();
     await tester.pump();
-    expect(workspace.activePane, left);
+    expect(workspace.activePane, leftStrip);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
@@ -488,7 +498,7 @@ void main() {
     // of swapping to the right pane.
     expect(leftNode.hasFocus, isFalse);
     expect(sentinelNode.hasFocus, isTrue);
-    expect(workspace.activePane, left);
+    expect(workspace.activePane, leftStrip);
   });
 
   testWidgets('Esc over an inline error retries the navigation', (
@@ -629,6 +639,7 @@ void main() {
                   Expanded(
                     child: PaneView(
                       controller: left,
+                      pane: leftStrip,
                       workspace: workspace,
                       focusNode: leftNode,
                       onSwapFocus: () => rightNode.requestFocus(),
@@ -671,9 +682,10 @@ void main() {
       onError: (_, _) {},
     );
     final otherPane = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final strip = testPaneStrip(controller);
     final workspace = WorkspaceController(
-      left: controller,
-      right: otherPane,
+      left: strip,
+      right: testPaneStrip(otherPane),
     );
     addTearDown(workspace.dispose);
 
@@ -687,6 +699,7 @@ void main() {
         home: Scaffold(
           body: PaneView(
             controller: controller,
+            pane: strip,
             workspace: workspace,
             focusNode: leftNode,
             onSwapFocus: () {},
@@ -721,7 +734,11 @@ void main() {
       onError: (_, _) {},
     );
     final otherPane = PaneController(paneTabId: 'pane.right', lanes: lanes);
-    final workspace = WorkspaceController(left: controller, right: otherPane);
+    final strip = testPaneStrip(controller);
+    final workspace = WorkspaceController(
+      left: strip,
+      right: testPaneStrip(otherPane),
+    );
     addTearDown(workspace.dispose);
 
     Future<void> pumpPane() async {
@@ -732,6 +749,7 @@ void main() {
           home: Scaffold(
             body: PaneView(
               controller: controller,
+              pane: strip,
               workspace: workspace,
               focusNode: leftNode,
               onSwapFocus: () {},
@@ -1169,9 +1187,10 @@ void main() {
     final enginelessRight = PaneController(paneTabId: 'pane.right');
     addTearDown(engineless.dispose);
     addTearDown(enginelessRight.dispose);
+    final enginelessStrip = testPaneStrip(engineless);
     final enginelessWorkspace = WorkspaceController(
-      left: engineless,
-      right: enginelessRight,
+      left: enginelessStrip,
+      right: testPaneStrip(enginelessRight),
     );
     addTearDown(enginelessWorkspace.dispose);
 
@@ -1182,6 +1201,7 @@ void main() {
         home: Scaffold(
           body: PaneView(
             controller: engineless,
+            pane: enginelessStrip,
             workspace: enginelessWorkspace,
             focusNode: leftNode,
             onSwapFocus: () {},
@@ -1334,7 +1354,7 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
         expect(rightNode.hasFocus, isFalse);
-        expect(workspace.activePane, left);
+        expect(workspace.activePane, leftStrip);
         expect(left.quickSelectActive, isTrue);
       } finally {
         debugDefaultTargetPlatformOverride = null;
@@ -1659,7 +1679,7 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
         expect(rightNode.hasFocus, isFalse);
-        expect(workspace.activePane, left);
+        expect(workspace.activePane, leftStrip);
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }
