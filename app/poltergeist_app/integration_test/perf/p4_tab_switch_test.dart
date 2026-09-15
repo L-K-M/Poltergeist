@@ -28,7 +28,7 @@ void main() {
       name: scenario,
       measure: (rig, results) async {
         final tabs = rig.tabs;
-        final fixture = '${BenchConfig.fixtureRoot}/entries-10000';
+        final fixture = '${BenchConfig.fixtureRoot}/entries-$entries';
 
         // Seed the strip: the boot tab plus launcher-target tabs, then
         // bind every tab to the fixture listing. `newTab` activates
