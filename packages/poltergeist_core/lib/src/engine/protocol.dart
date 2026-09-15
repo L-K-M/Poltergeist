@@ -19,8 +19,10 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// panes (03 §5's ownership table). v8 adds the local directory-watch
 /// seam (03 §7.5): [WatchLocalDirectoryRequest],
 /// [UnwatchLocalDirectoryRequest], and [DirectoryWatchEvent]. v9 adds
-/// [RenameEntryRequest] for the panes' inline rename (02 §2.6).
-const engineProtocolVersion = 9;
+/// [RenameEntryRequest] for the panes' inline rename (02 §2.6). v10 adds
+/// [OpenLocalFileRequest] — §2.6's local-file Open behind the engine's
+/// OS-default-application launcher (D8).
+const engineProtocolVersion = 10;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -505,6 +507,29 @@ final class UnwatchLocalDirectoryRequest extends EngineRequest {
   const UnwatchLocalDirectoryRequest({
     required super.requestId,
     required this.channelId,
+  });
+}
+
+/// Opens [path] in the operating system's default application (02 §2.6's
+/// Open on a local file): the engine owns the launcher process (D8 keeps
+/// dart:io off the UI isolate) and answers [EngineAck] once the launch
+/// was accepted — not when the launched application exits. Local
+/// channels only: a pool channel answers the typed `unsupported`
+/// refusal, because a remote file's open is the managed-checkout
+/// pipeline (06), never a launcher call. Launcher failures — a missing
+/// opener, a nonzero exit — serialize like every other typed engine
+/// error so the pane can surface them inline. The path rides along
+/// unvalidated like a listing's: the pane sends rows it listed, and the
+/// user's OS permissions bound the reach (the same rule as
+/// [OpenLocalBrowseChannelRequest]'s root).
+final class OpenLocalFileRequest extends EngineRequest {
+  final int channelId;
+  final String path;
+
+  const OpenLocalFileRequest({
+    required super.requestId,
+    required this.channelId,
+    required this.path,
   });
 }
 

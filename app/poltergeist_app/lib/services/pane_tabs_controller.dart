@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import 'double_click_action.dart';
 import 'pane_controller.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
@@ -149,10 +150,16 @@ class PaneTabsController extends ChangeNotifier {
     required this.paneId,
     PaneEngineLanes? lanes,
     this.newTabTarget = NewTabTarget.duplicate,
+    DoubleClickAction doubleClickAction = DoubleClickAction.open,
     this.confirmClose,
     this.serverStillShared,
     void Function(Object error, StackTrace stackTrace)? onError,
-  }) : // Keep the lanes seam private to the strip.
+  }) : // The live preference initializes the private field directly —
+       // the setter's propagate-to-tabs write is for post-construction
+       // changes, not the seed (no tabs exist yet).
+       // ignore: prefer_initializing_formals
+       _doubleClickAction = doubleClickAction,
+       // Keep the lanes seam private to the strip.
        // ignore: prefer_initializing_formals
        _lanes = lanes,
        // Keep the reporter private while allowing test-only injection.
@@ -175,6 +182,22 @@ class PaneTabsController extends ChangeNotifier {
   /// The "New tabs open" preference's live value (02 §2.1): read at
   /// every `tab.new`; the settings slice writes it.
   NewTabTarget newTabTarget;
+
+  /// The "Double-click action" preference's live value (02 §2.6): read
+  /// at every file open through each tab's [PaneController]. Writing it
+  /// propagates to every open tab immediately — the setting must not
+  /// wait for the next tab to take effect — and [_appendTab] stamps it
+  /// on every later arrival, so adopted, new, and ghost-reopened tabs
+  /// all open files under the current value.
+  DoubleClickAction get doubleClickAction => _doubleClickAction;
+  set doubleClickAction(DoubleClickAction value) {
+    _doubleClickAction = value;
+    for (final tab in _tabs) {
+      tab.controller.doubleClickAction = value;
+    }
+  }
+
+  DoubleClickAction _doubleClickAction;
 
   /// The close-confirmation presenter (the confirm lives inside the
   /// close operation — call sites never decide). Null makes a triggered
@@ -492,6 +515,9 @@ class PaneTabsController extends ChangeNotifier {
   }
 
   PaneTab _appendTab(PaneController controller) {
+    // Every arrival opens files under the strip's current setting —
+    // adopted, new, and ghost-reopened controllers alike.
+    controller.doubleClickAction = _doubleClickAction;
     final tab = PaneTab(id: controller.paneTabId, controller: controller);
     // Strip surfaces (title, connection dot) follow the tab's own
     // browsing state — forward its changes as strip changes.

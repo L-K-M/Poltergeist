@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -439,6 +440,9 @@ class AppLocalizationsEn extends AppLocalizations {
       'The item is no longer in this folder.';
 
   @override
+  String get paneFaultOpenFile => 'The file could not be opened.';
+
+  @override
   String paneConnectionLost(String label) {
     return 'Connection to $label lost — reconnecting…';
   }
@@ -450,6 +454,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get paneConnectionLostCancel => 'Cancel';
+
+  @override
+  String get paneNoticeOpenRemoteUnavailable =>
+      'Remote files can\'t be opened in place yet — Poltergeist will download and open them in a later milestone.';
+
+  @override
+  String get paneNoticeEditLater =>
+      'Editing files in Poltergeist isn\'t available yet — the editor arrives in a later milestone.';
+
+  @override
+  String get paneNoticeTransferLater =>
+      'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.';
+
+  @override
+  String get paneNoticeDismiss => 'Dismiss';
 
   @override
   String paneDateToday(String time) {

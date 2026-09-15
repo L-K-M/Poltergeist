@@ -817,6 +817,12 @@ class _PaneSurface extends StatelessWidget {
             focusNode: filterFocusNode,
             onClosed: onFilterClosed,
           ),
+        // 02 §10's transient notice: the honest "not yet" when the
+        // Double-click action resolves to a registered-but-deferred
+        // verb (remote Open, Edit, Transfer). Informational — never an
+        // error — so it strips in under the chrome rather than taking
+        // the error overlay.
+        if (controller.notice != null) _NoticeStrip(controller: controller),
         Expanded(child: _body(context, l10n)),
         _PaneFooter(
           controller: controller,
@@ -1834,21 +1840,28 @@ class _ErrorOverlay extends StatelessWidget {
                     Expanded(
                       child: Text(
                         // D20: the taxonomy sentence is ARB-authored; the
-                        // engine's message rides below as the diagnostic line.
-                        switch (error.kind) {
-                          RemoteFileErrorKind.notFound =>
-                            l10n.paneErrorNotFound,
-                          RemoteFileErrorKind.permissionDenied =>
-                            l10n.paneErrorPermissionDenied,
-                          RemoteFileErrorKind.unsupported =>
-                            l10n.paneErrorUnsupported,
-                          RemoteFileErrorKind.disconnected =>
-                            l10n.paneErrorDisconnected,
-                          RemoteFileErrorKind.conflict =>
-                            l10n.paneErrorConflict,
-                          RemoteFileErrorKind.cancelled =>
-                            l10n.paneErrorCancelled,
-                          RemoteFileErrorKind.other => l10n.paneErrorOther,
+                        // engine's message rides below as the diagnostic
+                        // line. A failed file Open is a FILE problem —
+                        // the kind taxonomy's folder sentence would
+                        // misname the failed verb.
+                        switch (error) {
+                          OpenEntryError() => l10n.paneFaultOpenFile,
+                          _ => switch (error.kind) {
+                            RemoteFileErrorKind.notFound =>
+                              l10n.paneErrorNotFound,
+                            RemoteFileErrorKind.permissionDenied =>
+                              l10n.paneErrorPermissionDenied,
+                            RemoteFileErrorKind.unsupported =>
+                              l10n.paneErrorUnsupported,
+                            RemoteFileErrorKind.disconnected =>
+                              l10n.paneErrorDisconnected,
+                            RemoteFileErrorKind.conflict =>
+                              l10n.paneErrorConflict,
+                            RemoteFileErrorKind.cancelled =>
+                              l10n.paneErrorCancelled,
+                            RemoteFileErrorKind.other =>
+                              l10n.paneErrorOther,
+                          },
                         },
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
@@ -1861,6 +1874,9 @@ class _ErrorOverlay extends StatelessWidget {
                   // the view maps the typed fault to an ARB sentence (D20);
                   // every other error keeps the engine's message line.
                   switch (error) {
+                    // The title already carries the openFile sentence —
+                    // an authored fault has no diagnostic to repeat.
+                    PaneFaultException(fault: PaneFault.openFile) => '',
                     PaneFaultException(:final fault) => switch (fault) {
                       PaneFault.connectionOpen => l10n.paneFaultConnectionOpen,
                       PaneFault.localOpen => l10n.paneFaultLocalOpen,
@@ -1874,6 +1890,7 @@ class _ErrorOverlay extends StatelessWidget {
                         l10n.paneFaultRenameNameInvalid,
                       PaneFault.renameTargetGone =>
                         l10n.paneFaultRenameTargetGone,
+                      PaneFault.openFile => l10n.paneFaultOpenFile,
                     },
                     _ => error.message,
                   },
@@ -2326,6 +2343,76 @@ class _FilteredEmpty extends StatelessWidget {
             child: Text(l10n.paneFilterClear),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 02 §10's transient notice strip: the honest "not yet" for a
+/// registered-but-deferred activation — a remote file's Open (managed
+/// checkout is the editor milestone's), or the Double-click action's
+/// Edit and Transfer values. Informational, never an error, so it
+/// strips in under the pane chrome instead of taking the §2.8 error
+/// overlay; the controller owns the value, the auto-hide timer, and
+/// the binding-teardown drop. The ✕ dismisses early (02 §10's
+/// "transient or dismiss" — this notice is both).
+class _NoticeStrip extends StatelessWidget {
+  const _NoticeStrip({required this.controller});
+
+  final PaneController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      // A polite live-region announcement: the strip appears under the
+      // user's own activation, so an assertive interrupt would over-say it.
+      liveRegion: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(
+            bottom: BorderSide(color: colors.outlineVariant),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.only(end: 6),
+                child: Icon(
+                  Icons.info_outline,
+                  size: 18,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  // D20: the view maps the typed notice to its
+                  // ARB-authored sentence — the controller never
+                  // authors user copy.
+                  switch (controller.notice) {
+                    PaneNotice.openRemoteUnavailable =>
+                      l10n.paneNoticeOpenRemoteUnavailable,
+                    PaneNotice.editLater => l10n.paneNoticeEditLater,
+                    PaneNotice.transferLater => l10n.paneNoticeTransferLater,
+                    null => '',
+                  },
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              IconButton(
+                key: ValueKey('${controller.paneTabId}.notice.dismiss'),
+                tooltip: l10n.paneNoticeDismiss,
+                onPressed: controller.dismissNotice,
+                icon: const Icon(Icons.close, size: 16),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

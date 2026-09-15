@@ -432,6 +432,44 @@ void main() {
         ),
       );
     });
+
+    test(
+      'openInDefaultApp crosses the boundary and surfaces typed errors',
+      () async {
+        // The scripted engine answers the open seam directly — no real
+        // opener process runs in a test (02 §2.6, D8).
+        final client = await EngineClient.spawnForTesting(
+          const EngineConfig(),
+          entrypoint: _openFileEngine,
+        );
+        addTearDown(client.shutdown);
+
+        final channel = await client.openLocalChannel(rootPath: '/home/test');
+
+        // The ack path: channelId + path crossed, EngineAck returned.
+        await channel.openInDefaultApp('/home/test/a.txt');
+
+        // The typed-error path: the engine's refusal deserializes into a
+        // RemoteFileException carrying kind, operation, and path.
+        await expectLater(
+          channel.openInDefaultApp('/home/test/a.denied'),
+          throwsA(
+            isA<RemoteFileException>()
+                .having(
+                  (error) => error.kind,
+                  'kind',
+                  RemoteFileErrorKind.permissionDenied,
+                )
+                .having((error) => error.operation, 'operation', 'open')
+                .having(
+                  (error) => error.path,
+                  'path',
+                  '/home/test/a.denied',
+                ),
+          ),
+        );
+      },
+    );
   });
 
   group('local directory watches', () {
@@ -780,6 +818,55 @@ void _diagnosticEngine(SendPort events) {
         requests.close();
       default:
         throw StateError('Unexpected diagnostic fixture request.');
+    }
+  });
+}
+
+/// The open seam's scripted engine: one local channel, and
+/// [OpenLocalFileRequest] answers [EngineAck] — except a `.denied`
+/// path, which answers the typed refusal so the client's error
+/// deserialization is exercised without spawning a real opener.
+void _openFileEngine(SendPort events) {
+  final requests = ReceivePort();
+  events.send(requests.sendPort);
+  requests.listen((message) {
+    switch (message) {
+      case EngineConfig():
+        return;
+      case final OpenLocalBrowseChannelRequest request:
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const BrowseChannelOpened(
+              channelId: 7,
+              homePath: '/home/test',
+            ),
+          ),
+        );
+      case final OpenLocalFileRequest request:
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: request.path.endsWith('.denied')
+                ? EngineError(
+                    kind: RemoteFileErrorKind.permissionDenied,
+                    operation: 'open',
+                    path: request.path,
+                    message: 'The launcher refused the file.',
+                  )
+                : const EngineAck(),
+          ),
+        );
+      case final ShutdownRequest request:
+        events.send(
+          ResponseEvent(
+            requestId: request.requestId,
+            result: const EngineAck(),
+          ),
+        );
+        requests.close();
+      default:
+        throw StateError('Unexpected open-file fixture request.');
     }
   });
 }

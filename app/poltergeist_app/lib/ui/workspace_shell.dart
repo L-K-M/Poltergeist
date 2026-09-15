@@ -7,6 +7,7 @@ import '../services/application_error_reporter.dart';
 import '../services/bookmark_store.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
+import '../services/double_click_action.dart';
 import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_tabs_controller.dart';
@@ -34,6 +35,7 @@ class WorkspaceShell extends StatefulWidget {
     super.key,
     this.initialPaneRatio = 0.5,
     this.newTabTarget = NewTabTarget.duplicate,
+    this.doubleClickAction = DoubleClickAction.open,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.sshConfigImport,
@@ -49,6 +51,12 @@ class WorkspaceShell extends StatefulWidget {
   /// `tab.new`; the settings slice writes the field (and persists it)
   /// after construction.
   final NewTabTarget newTabTarget;
+
+  /// The persisted "Double-click action" preference (02 §2.6) seeding
+  /// each strip's live [PaneTabsController.doubleClickAction] — read at
+  /// every file open; the settings slice writes the field (and persists
+  /// it) after construction.
+  final DoubleClickAction doubleClickAction;
 
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
@@ -138,6 +146,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace?.left.newTabTarget = widget.newTabTarget;
       _workspace?.right.newTabTarget = widget.newTabTarget;
     }
+    // Same contract for the file-open preference: a changed seed syncs
+    // both strips' live value without clobbering the settings writer.
+    if (widget.doubleClickAction != oldWidget.doubleClickAction) {
+      _workspace?.left.doubleClickAction = widget.doubleClickAction;
+      _workspace?.right.doubleClickAction = widget.doubleClickAction;
+    }
   }
 
   @override
@@ -171,6 +185,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       paneId: paneId,
       lanes: lanes,
       newTabTarget: widget.newTabTarget,
+      doubleClickAction: widget.doubleClickAction,
       confirmClose: _confirmTabClose,
       // The cross-pane half of a remote tab's last-binding check: read
       // the workspace lazily — the strips are built before it exists.

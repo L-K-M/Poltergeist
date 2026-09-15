@@ -264,6 +264,18 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
     if (failure != null) throw failure;
   }
 
+  /// Recorded default-app opens (paths) and a scripted failure — null
+  /// opens succeed silently.
+  final openCalls = <String>[];
+  Object? openFailure;
+
+  @override
+  Future<void> openInDefaultApp(String path) async {
+    openCalls.add(path);
+    final failure = openFailure;
+    if (failure != null) throw failure;
+  }
+
   @override
   Future<void> close() async {
     closeCalls++;

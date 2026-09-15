@@ -814,6 +814,12 @@ abstract class AppLocalizations {
   /// **'The item is no longer in this folder.'**
   String get paneFaultRenameTargetGone;
 
+  /// File-open error (02 §2.6): the engine's default-application launch failed with an error outside the typed filesystem taxonomy — the pane's authored line for an opaque failure.
+  ///
+  /// In en, this message translates to:
+  /// **'The file could not be opened.'**
+  String get paneFaultOpenFile;
+
   /// Banner shown while the remote transport reconnects (02 §2.7).
   ///
   /// In en, this message translates to:
@@ -831,6 +837,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cancel'**
   String get paneConnectionLostCancel;
+
+  /// Transient notice strip (02 §10): the Open action on a remote file — the managed-checkout pipeline arrives with the editor milestone.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote files can\'t be opened in place yet — Poltergeist will download and open them in a later milestone.'**
+  String get paneNoticeOpenRemoteUnavailable;
+
+  /// Transient notice strip (02 §10): the Double-click action preference resolved to Edit in Poltergeist, whose editor arrives in a later milestone.
+  ///
+  /// In en, this message translates to:
+  /// **'Editing files in Poltergeist isn\'t available yet — the editor arrives in a later milestone.'**
+  String get paneNoticeEditLater;
+
+  /// Transient notice strip (02 §10): the Double-click action preference resolved to Transfer to other pane, whose queue arrives in a later milestone.
+  ///
+  /// In en, this message translates to:
+  /// **'Transferring to the other pane isn\'t available yet — the transfer queue arrives in a later milestone.'**
+  String get paneNoticeTransferLater;
+
+  /// Tooltip for the transient notice strip's close button (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get paneNoticeDismiss;
 
   /// Relative modified date for today (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.
   ///

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_app/services/double_click_action.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_engine_lanes.dart';
@@ -118,6 +119,18 @@ class FakePaneChannel implements AppBrowseChannel {
       await held.future;
     }
     final failure = renameFailure;
+    if (failure != null) throw failure;
+  }
+
+  /// Recorded default-app opens (paths) and a scripted failure — null
+  /// opens succeed silently.
+  final openCalls = <String>[];
+  Object? openFailure;
+
+  @override
+  Future<void> openInDefaultApp(String path) async {
+    openCalls.add(path);
+    final failure = openFailure;
     if (failure != null) throw failure;
   }
 
@@ -665,7 +678,8 @@ void main() {
     expect(channel.closeCalls, 1);
   });
 
-  test('openEntry navigates directories only', () async {
+  test('openEntry navigates directories and routes files by the '
+      'preference', () async {
     final lanes = FakePaneLanes();
     final channel = FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [
@@ -679,19 +693,26 @@ void main() {
     await controller.openLocalHome();
     await settle();
 
-    controller.openEntry(controller.entries[1]);
+    // A file under the default Open launches through the channel's
+    // default-app seam — never a navigation (02 §2.6).
+    await controller.openEntry(controller.entries[1]);
     expect(channel.listCalls, ['/home/tester']);
+    expect(channel.openCalls, ['/parent/file.txt']);
 
     // A symlink is not a directory from listing metadata alone (02
-    // §2.3): opening it must never navigate.
-    controller.openEntry(
+    // §2.3): it routes as a file — the OS resolves the link at launch.
+    await controller.openEntry(
       controller.entries.firstWhere((e) => e.name == 'link'),
     );
     expect(channel.listCalls, ['/home/tester']);
+    expect(channel.openCalls, ['/parent/file.txt', '/parent/link']);
 
-    controller.openEntry(controller.entries[0]);
+    await controller.openEntry(controller.entries[0]);
     await Future<void>.delayed(Duration.zero);
     expect(channel.listCalls, ['/home/tester', '/parent/folder']);
+    // The folder never consulted the preference — no launch, no notice.
+    expect(channel.openCalls, ['/parent/file.txt', '/parent/link']);
+    expect(controller.notice, isNull);
     controller.dispose();
   });
 
@@ -1720,6 +1741,232 @@ void main() {
       expect(channel.renameCalls, [
         (r'weird\name', '/home/tester/plain.txt'),
       ]);
+      controller.dispose();
+    });
+  });
+
+  group('file open (02 §2.6)', () {
+    /// A local pane browsing one file row; the fake channel's
+    /// [FakePaneChannel.openCalls] and [FakePaneChannel.openFailure]
+    /// script the engine's default-app seam.
+    Future<(PaneController, FakePaneChannel)> localFilePane(
+      FakePaneLanes lanes, {
+      List<RemoteFileEntry>? entries,
+    }) async {
+      final channel = FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] =
+          entries ?? [_entry('file.txt')];
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+      );
+      await controller.openLocalHome();
+      await settle();
+      return (controller, channel);
+    }
+
+    test('the default Open launches a local file through the channel '
+        'seam', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await localFilePane(lanes);
+
+      await controller.openEntry(controller.entries.single);
+
+      expect(channel.openCalls, ['/parent/file.txt']);
+      expect(channel.listCalls, ['/home/tester']);
+      expect(controller.error, isNull);
+      expect(controller.notice, isNull);
+      controller.dispose();
+    });
+
+    test('Open on a remote file posts the unavailable notice and never '
+        'reaches the channel', () async {
+      final lanes = FakePaneLanes();
+      final channel = FakePaneChannel('/srv/home')
+        ..listings['/srv/home'] = [_entry('remote.txt')];
+      lanes.nextRemoteChannel = channel;
+      final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+      await controller.connectRemote(_remoteBookmark());
+      await settle();
+
+      await controller.openEntry(controller.entries.single);
+
+      // The honest not-yet: managed checkout is the editor milestone's —
+      // no launcher call, no error (02 §2.6).
+      expect(controller.notice, PaneNotice.openRemoteUnavailable);
+      expect(channel.openCalls, isEmpty);
+      expect(controller.error, isNull);
+      controller.dispose();
+    });
+
+    test('Edit posts its deferred-milestone notice without launching',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await localFilePane(lanes);
+      controller.doubleClickAction = DoubleClickAction.edit;
+
+      await controller.openEntry(controller.entries.single);
+
+      expect(controller.notice, PaneNotice.editLater);
+      expect(channel.openCalls, isEmpty);
+      expect(controller.error, isNull);
+      controller.dispose();
+    });
+
+    test('Transfer posts its deferred-milestone notice without launching',
+        () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await localFilePane(lanes);
+      controller.doubleClickAction = DoubleClickAction.transfer;
+
+      await controller.openEntry(controller.entries.single);
+
+      expect(controller.notice, PaneNotice.transferLater);
+      expect(channel.openCalls, isEmpty);
+      expect(controller.error, isNull);
+      controller.dispose();
+    });
+
+    test('Do nothing is exactly inert', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await localFilePane(lanes);
+      controller.doubleClickAction = DoubleClickAction.nothing;
+
+      await controller.openEntry(controller.entries.single);
+
+      expect(channel.openCalls, isEmpty);
+      expect(channel.listCalls, ['/home/tester']);
+      expect(controller.notice, isNull);
+      expect(controller.error, isNull);
+      controller.dispose();
+    });
+
+    test('folders navigate under every preference value', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await localFilePane(
+        lanes,
+        entries: [_entry('folder', type: RemoteFileType.directory)],
+      );
+      channel.listings['/parent/folder'] = [_entry('inside.txt')];
+
+      // The entry object stays valid after the first navigation carries
+      // the listing away — each activation re-lists the folder.
+      final folder = controller.entries.single;
+      for (final action in DoubleClickAction.values) {
+        controller.doubleClickAction = action;
+        await controller.openEntry(folder);
+        await settle();
+      }
+
+      expect(channel.listCalls, [
+        '/home/tester',
+        '/parent/folder',
+        '/parent/folder',
+        '/parent/folder',
+        '/parent/folder',
+      ]);
+      expect(channel.openCalls, isEmpty);
+      expect(controller.notice, isNull);
+      controller.dispose();
+    });
+
+    test('a fresh activation clears the lingering notice', () async {
+      final lanes = FakePaneLanes();
+      final (controller, _) = await localFilePane(lanes);
+      controller.doubleClickAction = DoubleClickAction.edit;
+      await controller.openEntry(controller.entries.single);
+      expect(controller.notice, isNotNull);
+
+      controller.doubleClickAction = DoubleClickAction.nothing;
+      await controller.openEntry(controller.entries.single);
+
+      expect(controller.notice, isNull);
+      controller.dispose();
+    });
+
+    test('dismissNotice clears the strip early', () async {
+      final lanes = FakePaneLanes();
+      final (controller, _) = await localFilePane(lanes);
+      controller.doubleClickAction = DoubleClickAction.edit;
+      await controller.openEntry(controller.entries.single);
+
+      controller.dismissNotice();
+
+      expect(controller.notice, isNull);
+      controller.dispose();
+    });
+
+    test('the notice auto-dismisses after its lifetime', () async {
+      final lanes = FakePaneLanes();
+      final (controller, _) = await localFilePane(lanes);
+      controller.noticeLifetime = const Duration(milliseconds: 20);
+      controller.doubleClickAction = DoubleClickAction.edit;
+      await controller.openEntry(controller.entries.single);
+      expect(controller.notice, isNotNull);
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(controller.notice, isNull);
+      controller.dispose();
+    });
+
+    test('a typed launcher failure surfaces inline and Retry re-opens '
+        'the same entry', () async {
+      final lanes = FakePaneLanes();
+      final (controller, channel) = await localFilePane(
+        lanes,
+        entries: [_entry('a.txt'), _entry('b.txt')],
+      );
+      channel.openFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'open',
+        message: 'The launcher refused the file.',
+      );
+
+      await controller.openEntry(controller.entries.first);
+
+      expect(controller.error, isA<RemoteFileException>());
+      expect(controller.error!.kind, RemoteFileErrorKind.permissionDenied);
+      expect(controller.error!.message, 'The launcher refused the file.');
+
+      // Retry re-runs THE OPEN for the recorded entry — never a re-list
+      // (02 §2.6): the listing call log stays put while the launcher
+      // sees the same path again.
+      channel.openFailure = null;
+      await controller.retry();
+
+      expect(channel.openCalls, ['/parent/a.txt', '/parent/a.txt']);
+      expect(channel.listCalls, ['/home/tester']);
+      expect(controller.error, isNull);
+      controller.dispose();
+    });
+
+    test('an untyped launcher failure surfaces the authored fault and '
+        'reports the opaque error', () async {
+      final lanes = FakePaneLanes();
+      final reported = <Object>[];
+      final channel = FakePaneChannel('/home/tester')
+        ..listings['/home/tester'] = [_entry('file.txt')]
+        ..openFailure = StateError('spawn failed');
+      lanes.nextLocalChannel = channel;
+      final controller = PaneController(
+        paneTabId: 'pane.left',
+        lanes: lanes,
+        onError: (error, _) => reported.add(error),
+      );
+      await controller.openLocalHome();
+      await settle();
+
+      await controller.openEntry(controller.entries.single);
+
+      final error = controller.error;
+      expect(error, isA<PaneFaultException>());
+      expect(
+        (error! as PaneFaultException).fault,
+        PaneFault.openFile,
+      );
+      expect(reported.single, isA<StateError>());
       controller.dispose();
     });
   });
