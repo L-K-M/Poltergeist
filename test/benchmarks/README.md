@@ -118,25 +118,67 @@ followed, and cleanup removes only the temp this run created.
 
 ## CI artifact handoff
 
-The `bench` job in `.github/workflows/ci.yml` (tier A only so far)
-writes `bench-results.json` by merging the three collectors' per-scenario
-documents (`scripts/bench-tier-a.sh` + `scripts/merge_bench_results.dart`,
-run under `test/integration/run.sh --lifecycle-only`), evaluates it here
-with `--tiers a` and `if: always()` so partial results are graded, and
-uploads it as the always-present `bench-results` artifact. With every
-scenario unlanded the run is a report, not a gate; no `BENCH_ENFORCE_*`
-flag is set by the job.
+The `bench` job in `.github/workflows/ci.yml` writes
+`bench-results.json` by merging the collectors' per-scenario documents
+(`scripts/bench-tier-a.sh` for P3/P5/P7 under
+`test/integration/run.sh --lifecycle-only`; `scripts/bench-tier-b.sh`
+for P1/P2/P6 — see below), evaluates it here with `if: always()` so
+partial results are graded, and uploads it as the always-present
+`bench-results` artifact. With every scenario unlanded the run is a
+report, not a gate; no `BENCH_ENFORCE_*` flag is set by the job.
 
-Still ahead for the tier-B leg (08 §6/§8): pass `--tiers ab` on
-main/dispatch once tier-B collectors exist; fetch the drift state from
-the latest main-branch bench job's artifact and pass it via
+**Tier-B leg (M3 spike).** On pushes to `main` and manual dispatch the
+job additionally runs the profile-mode UI benchmarks under Xvfb:
+`scripts/bench-tier-b.sh` builds local filesystem fixtures
+(`entries-10000`, `entries-100000` under a per-run temp root — no
+Docker) and drives each suite in
+`app/poltergeist_app/integration_test/perf/` via
+`flutter drive --driver=test_driver/integration_test.dart --profile
+--device-id linux`. Each suite boots the real app over a real engine
+session, drives the left pane's production `PaneController`, and
+captures raster timing through
+`SchedulerBinding.addTimingsCallback` — the primary mechanism;
+`traceAction` summaries are not consumed. P1/P2 anchor first paint on
+the navigate()-issue timestamp through the first frame whose build
+began after the listing landed; P6 runs a scripted 30 s linear scroll
+of the 100 000-entry fixture, derives the refresh rate from the median
+vsync interval (recorded in the row's `scenarioConfig`), and reports
+the percent of frames whose vsync-to-raster span exceeded the deadline
+— or an error row carrying the captured count when the window delivered
+fewer than `floor(30 s × measured Hz)` frames (>= 1800 at 60 Hz), never
+a ratio over a too-small sample. Timing reduction lives in
+`app/poltergeist_app/lib/bench/` with deterministic unit tests under
+`test/bench/`. One harness subtlety: the suites run under
+`LiveTestWidgetsFlutterBindingFramePolicy.fullyLive` — the default
+`fadePointers` policy silently skips platform BeginFrames nothing
+explicitly pumped, and under Xvfb (no Present extension, no free-running
+vsync) a ticker-driven scroll would starve without ever timing out.
+Under llvmpipe the observed platform rate is ~11 fps; the measured-Hz
+floor and deadline scale accordingly, which is real trend evidence for
+a software stack.
+
+Tier-B rows land in the same `bench-results.json` and the checker runs
+`--tiers ab` on main/dispatch, `--tiers a` on PRs (the tier-B leg never
+runs on a PR — PR invocations must not write drift state). The leg is
+trend-only until M9: no `BENCH_ENFORCE_B`, no `landed` flips, and no
+committed baseline — so a declared tier-B scope still prints the loud
+non-enforced `no committed tier-B baseline` notice and exits zero.
+
+Local iteration needs a display plus the Linux toolchain; the same
+script honors `XVFB_RUN`/`FLUTTER_BIN`/`DART_BIN` overrides, e.g.
+`XVFB_RUN="xvfb-run -a" scripts/bench-tier-b.sh`, and software GL via
+`LIBGL_ALWAYS_SOFTWARE=1` suffices for real Impeller raster timings.
+
+Still ahead for tier B (08 §6/§8, with the first baseline): commit
+`tier-b-baseline.json` from a real calibration run; fetch the drift
+state from the latest main-branch bench job's artifact and pass it via
 `--drift-state` (the checker's drift state is its own standalone JSON
-file — the always-present artifact, or an `actions/cache` entry keyed on
-the fingerprint, is the documented single state store); add
-`--update-drift-state` on main-branch runs only — the checker rejects it
-on tier-B-blind runs, so drift state only ever flows through a run that
-evaluated tier B. PR invocations stay read-only and never mutate the
-store.
+file — the always-present artifact, or an `actions/cache` entry keyed
+on the fingerprint, is the documented single state store); add
+`--update-drift-state` on main-branch runs only — the checker rejects
+it on tier-B-blind runs, so drift state only ever flows through a run
+that evaluated tier B. PR invocations stay read-only and never mutate
+the store.
 
 ## First fixture-backed observations (2026-09-14)
 
