@@ -352,6 +352,12 @@ Future<int> measureTabSwitchMicros(
   try {
     final triggerUs = Timeline.now;
     tabs.activateTab(tab);
+    if (!identical(tabs.activeTab, tab)) {
+      throw StateError(
+        'activateTab(${tab.id}) did not land synchronously '
+        '(active tab: ${tabs.activeTab?.id})',
+      );
+    }
     FrameSlice? painted;
     await waitFor(
       rig.tester,
