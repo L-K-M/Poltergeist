@@ -1638,7 +1638,7 @@ class PaneController extends ChangeNotifier {
     // Cancel invalidates pending healing as well as pending opens. Close
     // this pane before dropping the reference; newer same-id binds own it.
     final detachedAttempt = _bindAttempt + 1;
-    await detachRemote();
+    await cancelPendingBind();
     if (_disposed || _bindAttempt != detachedAttempt) return;
     if (serverStillUnshared != null && !serverStillUnshared()) return;
     try {
@@ -1646,6 +1646,22 @@ class PaneController extends ChangeNotifier {
     } on Object catch (error, stackTrace) {
       _report(error, stackTrace);
     }
+  }
+
+  /// The Esc/banner cancel route's entry point while a bind is in
+  /// flight: a parked rollback means the pending bind was a REPLACEMENT,
+  /// so cancel restores the prior binding and retires only the
+  /// candidate; otherwise it is a plain detach. The branch lives here
+  /// (not inside [detachRemote]) so detach keeps exactly one meaning —
+  /// a future explicit disconnect affordance must not inherit the
+  /// rollback fork.
+  Future<void> cancelPendingBind() async {
+    if (_disposed) return;
+    if (_rollback != null) {
+      _rollbackCandidateBind();
+      return;
+    }
+    await detachRemote();
   }
 
   /// Detaches a remote binding without touching the shared server:
@@ -1656,19 +1672,7 @@ class PaneController extends ChangeNotifier {
   /// the pending binding — it is set for the whole remote-bind lifetime,
   /// including the post-first-cancel state and an in-flight connect.
   Future<void> detachRemote() async {
-    if (_disposed) return;
-    // Cancelling a pending replacement — the connect-phase counterpart
-    // of [cancelNavigation]'s Esc — restores the prior binding rather
-    // than detaching to the launcher; only the candidate retires.
-    // Reachable only through the Esc/banner cancel routes (the shell's
-    // sibling-aware _cancelPaneRecovery, via cancelRecovery); an
-    // explicit disconnect affordance would need its own path past
-    // this branch.
-    if (_rollback != null) {
-      _rollbackCandidateBind();
-      return;
-    }
-    if (_pendingRemote == null) return;
+    if (_disposed || _pendingRemote == null) return;
     _bindAttempt++; // invalidate the bind this detach replaces
     _cancelListing();
     // The detached binding's pending rename is retired by the attempt

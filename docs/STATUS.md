@@ -4846,6 +4846,25 @@ candidate's stale error/loss state), and the failed `retainCache` retry
 keeping the rollback parked. Full app suite green (925 tests). Log:
 `tasks/run3-task49/flutter-test-reviewfix2.log`.
 
+Round 3 (`8d07793`) again carried zero actionable findings; its three
+minor comments are applied: a post-Esc `candidate.closeCalls` assert in
+the failed-retry test, a mid-window `controller.error` assert in the
+flap test, and the rollback branch moved out of public `detachRemote`
+into a dedicated `cancelPendingBind` entry point so detach keeps a
+single meaning — `cancelRecovery` and the shell's sibling-bound cancel
+route now funnel through it, and any future explicit disconnect
+affordance gets a literal detach. Both info comments are
+verified-or-declined: the four rollback-retirement points all hold
+(first answer retires via `_load`, a stacked replace keeps the oldest
+record, `_retireRollback` releases the parked channel for `dispose`),
+while the suggested `presentation != replace` retire guard is declined
+— a `retainCache` bind continues the same replacement transaction, so
+retiring there would re-break the retry path the round-1 fix
+preserved; the fresh-pane coverage question is already answered by the
+new pane-controller regressions plus the deliberately-fresh reconnect
+test. Full app suite green (925 tests). Log:
+`tasks/run3-task49/flutter-test-reviewfix3.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

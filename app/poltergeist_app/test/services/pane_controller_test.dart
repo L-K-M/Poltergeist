@@ -814,6 +814,7 @@ void main() {
     );
     await settle();
     expect(controller.connectionLost, isTrue);
+    expect(controller.error, isNotNull);
 
     controller.cancelNavigation();
     await settle();
@@ -887,6 +888,9 @@ void main() {
     expect(controller.connectionLost, isFalse);
     expect(controller.error, isNull);
     expect(remote.closeCalls, 0);
+    // The failed retry already detached the candidate; Esc must not
+    // close it a second time.
+    expect(candidate.closeCalls, 1);
     controller.dispose();
   });
 
