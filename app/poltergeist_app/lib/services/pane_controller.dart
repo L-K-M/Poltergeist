@@ -2103,9 +2103,11 @@ class PaneController extends ChangeNotifier {
   /// Browses [path] on a local channel bound at the user's home: the
   /// binding's home (the engine's `~` anchor for path input) stays the
   /// real user home no matter which directory the tab shows —
-  /// `tab.new`'s Duplicate and the ghost reopen land here. The engine
-  /// canonicalizes the binding root (03 §2.2); the browsed path keeps
-  /// its requested spelling like every navigation target.
+  /// `tab.new`'s Duplicate and the ghost reopen land here. [path] is
+  /// '~' or an absolute path (every caller passes a location's
+  /// canonical path); the engine canonicalizes the binding root
+  /// (03 §2.2) while the browsed path keeps its requested spelling
+  /// like every navigation target.
   Future<void> openLocalAt(String path) => _openLocal(path);
 
   Future<void> _openLocal(String rootPath) async {
