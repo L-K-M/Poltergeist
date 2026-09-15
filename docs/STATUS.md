@@ -4804,6 +4804,40 @@ the reference, alone drops it). `flutter analyze` clean; focused pane
 suites green (183 tests); full app suite green (920 tests). Logs under
 `tasks/run3-task49/`.
 
+The exact-head GLM review (#135, round 1 at `df96e07`) surfaced two
+confirmed findings, both repaired:
+
+- `cancelNavigation`'s rollback branch sat behind the
+  `connectionLost`/`_loadingActive` guards, so a candidate server
+  flapping to `reconnecting` mid-window (which sets `_recovery` and
+  `_error` through the candidate's own status lane) dead-ended Esc on
+  the failing candidate. The rollback check now runs before both
+  guards.
+- `_bind`'s catch blocks retired the parked rollback on ANY bind
+  failure, including a `retainCache` recovery retry of the candidate —
+  a transient reconnect failure would have destroyed the escape hatch
+  before the replacement ever committed. The retire is now gated on
+  `replace`.
+
+Minor rounds applied: the sync tests now park the cursor on a
+non-default index so the restored selection is observable, assert the
+old channel's survival and restored rows after late candidate answers,
+and document the double-settle replay convention; `detachRemote`'s
+Esc-only reachability and the stale `connectionStatus`/`recovery`
+capture semantics are commented; three new controller regressions cover
+dispose mid-rebind (both channels close), a stacked rebind (the oldest
+record stays the restore target; the superseded candidate retires), and
+remote→remote rollback. Declined with evidence: carrying a
+`_QuiescentSnapshot` in the record — the restored state IS the
+baseline and `_issueNavigation` recaptures before any listing flies —
+and defensive copies of `sortedListing`/`selection`, both
+reassign-only/immutable (the invariant is now documented on the
+record). The two outside-diff-range majors (dispose leaking the parked
+channel, a re-entrant rebind corrupting it) were already handled by the
+`_retireRollback` dispose call and the no-supersede guard; the new
+regressions pin both. Full app suite green (923 tests). Log:
+`tasks/run3-task49/flutter-test-reviewfix.log`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

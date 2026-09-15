@@ -80,6 +80,12 @@ class _QuiescentSnapshot {
 /// (channel, history, and the transient lenses come back too). Captured
 /// only for a pane with a live channel; a genuinely fresh pane has
 /// nothing to restore and keeps its detach-to-launcher semantics.
+///
+/// Invariant the record relies on: [_sortedListing] is only ever
+/// REASSIGNED (never mutated in place) and [SelectionState] is
+/// immutable — the captured references stay honest for the whole
+/// candidate window. [_history] is the one live-mutated list, so it is
+/// defensively copied at capture.
 class _BindingRollback {
   const _BindingRollback({
     required this.channel,
@@ -774,15 +780,20 @@ class PaneController extends ChangeNotifier {
   /// restores the last quiescent snapshot, including its error and
   /// selection.
   void cancelNavigation() {
-    if (_disposed || connectionLost || !_loadingActive()) return;
+    if (_disposed) return;
 
     // Esc during a pending replacement's first listing restores the
     // prior binding, not the cleared-state snapshot the candidate's
     // issue would have captured (02 §2.8's cancelled server change).
+    // Checked before the loss/loading guards: the CANDIDATE's status
+    // lane can raise connectionLost or set _error mid-window, which
+    // would otherwise dead-end Esc on the failing candidate.
     if (_rollback != null) {
       _rollbackCandidateBind();
       return;
     }
+
+    if (connectionLost || !_loadingActive()) return;
 
     final snapshot = _snapshot;
     _location = snapshot?.location;
@@ -1649,6 +1660,10 @@ class PaneController extends ChangeNotifier {
     // Cancelling a pending replacement — the connect-phase counterpart
     // of [cancelNavigation]'s Esc — restores the prior binding rather
     // than detaching to the launcher; only the candidate retires.
+    // Reachable only through the Esc/banner cancel routes (the shell's
+    // sibling-aware _cancelPaneRecovery, via cancelRecovery); an
+    // explicit disconnect affordance would need its own path past
+    // this branch.
     if (_rollback != null) {
       _rollbackCandidateBind();
       return;
@@ -1747,7 +1762,11 @@ class PaneController extends ChangeNotifier {
       await connect(lanes, attempt);
     } on RemoteFileException catch (error) {
       if (_disposed || attempt != _bindAttempt) return;
-      _retireRollback();
+      // A replace candidate's failure ends the transaction and retires
+      // the parked prior binding. A retainCache recovery RETRY failing
+      // is different: the rollback stays parked so Esc can still
+      // restore the prior binding out of the failed reconnect.
+      if (presentation == _BindingPresentation.replace) _retireRollback();
       _dropStatusWatch();
       if (presentation == _BindingPresentation.retainCache) {
         _recovery = _RecoveryPhase.failed;
@@ -1756,7 +1775,7 @@ class PaneController extends ChangeNotifier {
       notifyListeners();
     } on Object catch (error, stackTrace) {
       if (_disposed || attempt != _bindAttempt) return;
-      _retireRollback();
+      if (presentation == _BindingPresentation.replace) _retireRollback();
       _report(error, stackTrace);
       _dropStatusWatch();
       if (presentation == _BindingPresentation.retainCache) {
@@ -1909,6 +1928,10 @@ class PaneController extends ChangeNotifier {
           filterFieldOpen: _filterFieldOpen,
           showHidden: _showHidden,
           viewMode: _viewMode,
+          // Captured as displayed at replacement time: the parked
+          // server's status events are dropped while the candidate owns
+          // the watch, and the fresh subscription on restore corrects
+          // both on its next event.
           connectionStatus: _connectionStatus,
           recovery: _recovery,
         );
@@ -2280,6 +2303,9 @@ class PaneController extends ChangeNotifier {
     _connectionStatus = rollback.connectionStatus;
     _recovery = rollback.recovery;
     _channel = rollback.channel;
+    // No snapshot is carried: the restored state IS the quiescent
+    // baseline, and the next _issueNavigation recaptures it before any
+    // listing goes in flight — there is no restore-less window.
     _snapshot = null;
     _phase = PanePhase.browsing;
     final lanes = _lanes;

@@ -418,7 +418,9 @@ void main() {
       final r = rig();
       await openHomes(r);
       r.sync.toggle();
-      r.right.setCursorIndex(0); // 'docs' — the snapshot's selection
+      // 'notes.txt' at index 1 — non-default, so the restored cursor
+      // and selection are observable rather than the fresh-listing 0.
+      r.right.setCursorIndex(1);
       final oldChannel = r.rightChannel;
 
       // Rebind starts: the pane stands nowhere until the new channel's
@@ -447,8 +449,8 @@ void main() {
       );
       expect(r.right.entries.map((e) => e.name), ['docs', 'notes.txt']);
       expect(r.right.loading, isFalse);
-      expect(r.right.cursorIndex, 0);
-      expect(r.right.isRowSelected(0), isTrue);
+      expect(r.right.cursorIndex, 1);
+      expect(r.right.isRowSelected(1), isTrue);
       expect(r.sync.enabled, isTrue);
       expect(r.sync.suspended, isFalse);
       expect(oldChannel.closeCalls, 0);
@@ -457,8 +459,8 @@ void main() {
       // The restored binding is usable: a navigation lands on the old
       // channel and replays across the kept link like any commit.
       r.right.navigate('/right/home/docs');
-      await settle();
-      await settle();
+      await settle(); // commit lands on the restored channel
+      await settle(); // sync replay propagates to the left pane
       expect(oldChannel.listCalls, contains('/right/home/docs'));
       expect(
         r.right.committedLocation,
@@ -477,6 +479,8 @@ void main() {
       );
       expect(r.right.entries.map((e) => e.name), ['inner.txt']);
       expect(candidate.listCalls, ['/srv/home']);
+      // The restored binding outlives the late candidate answer.
+      expect(oldChannel.closeCalls, 0);
       expect(r.sync.enabled, isTrue);
       expect(r.sync.suspended, isFalse);
     });
@@ -486,7 +490,7 @@ void main() {
       final r = rig();
       await openHomes(r);
       r.sync.toggle();
-      r.right.setCursorIndex(0);
+      r.right.setCursorIndex(1); // non-default, restore is observable
       final oldChannel = r.rightChannel;
 
       // The open itself is held: the §2.7 Cancel (the shell's
@@ -511,7 +515,7 @@ void main() {
         const LocalPaneLocation('/right/home'),
       );
       expect(r.right.entries.map((e) => e.name), ['docs', 'notes.txt']);
-      expect(r.right.cursorIndex, 0);
+      expect(r.right.cursorIndex, 1);
       expect(r.sync.enabled, isTrue);
       expect(r.sync.suspended, isFalse);
       expect(oldChannel.closeCalls, 0);
@@ -529,6 +533,8 @@ void main() {
       expect(candidate.closeCalls, 1);
       expect(candidate.listCalls, isEmpty);
       expect(r.right.location, const LocalPaneLocation('/right/home'));
+      expect(r.right.entries.map((e) => e.name), ['docs', 'notes.txt']);
+      expect(oldChannel.closeCalls, 0);
       expect(r.sync.enabled, isTrue);
       expect(r.sync.suspended, isFalse);
     });

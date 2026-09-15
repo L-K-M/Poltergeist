@@ -668,6 +668,126 @@ void main() {
     controller.dispose();
   });
 
+  test('disposing mid-rebind closes both the parked and candidate '
+      'channels', () async {
+    final lanes = FakePaneLanes();
+    final remote = FakePaneChannel('/srv/home')
+      ..listings['/srv/home'] = [_entry('remote.txt')];
+    lanes.nextRemoteChannel = remote;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    // A candidate left in flight when the pane dies must not strand
+    // either channel — the parked prior's close is the pool's
+    // per-pane teardown (03 §3.2).
+    final local = FakePaneChannel('/home/tester')
+      ..listings['/home/tester'] = [_entry('local.txt')]
+      ..holdNext = Completer<void>();
+    lanes.nextLocalChannel = local;
+    await controller.openLocalAt('/home/tester');
+    expect(controller.loading, isTrue);
+
+    controller.dispose();
+    await settle();
+
+    expect(remote.closeCalls, 1);
+    expect(local.closeCalls, 1);
+  });
+
+  test('a second rebind during a pending replacement keeps the oldest '
+      'restore target', () async {
+    final lanes = FakePaneLanes();
+    final remote = FakePaneChannel('/srv/home')
+      ..listings['/srv/home'] = [_entry('remote.txt')];
+    lanes.nextRemoteChannel = remote;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    // First candidate: opened, first listing held.
+    final local1 = FakePaneChannel('/home/one')
+      ..listings['/home/one'] = [_entry('one.txt')]
+      ..holdNext = Completer<void>();
+    lanes.nextLocalChannel = local1;
+    await controller.openLocalAt('/home/one');
+    expect(controller.loading, isTrue);
+
+    // Second rebind while the first candidate is still in flight: the
+    // parked REMOTE record stays the restore target and the superseded
+    // candidate's channel retires like any other.
+    final local2 = FakePaneChannel('/home/two')
+      ..listings['/home/two'] = [_entry('two.txt')]
+      ..holdNext = Completer<void>();
+    lanes.nextLocalChannel = local2;
+    await controller.openLocalAt('/home/two');
+    expect(controller.loading, isTrue);
+    expect(local1.closeCalls, 1);
+
+    controller.cancelNavigation();
+    await settle();
+
+    expect(controller.phase, PanePhase.browsing);
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(controller.entries.single.name, 'remote.txt');
+    expect(remote.closeCalls, 0);
+    expect(local2.closeCalls, 1);
+    controller.dispose();
+  });
+
+  test('cancelling a rebind to another remote restores the prior '
+      'remote binding', () async {
+    final lanes = FakePaneLanes();
+    final remote = FakePaneChannel('/srv/home')
+      ..listings['/srv/home'] = [_entry('remote.txt')];
+    lanes.nextRemoteChannel = remote;
+    final controller = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    await controller.connectRemote(_remoteBookmark());
+    await settle();
+
+    final held = Completer<void>();
+    final candidate = FakePaneChannel('/other/home')
+      ..listings['/other/home'] = [_entry('other.txt')]
+      ..holdNext = held;
+    lanes.nextRemoteChannel = candidate;
+    await controller.connectRemote(_remoteBookmark(id: 'srv-2'));
+    expect(controller.loading, isTrue);
+
+    controller.cancelNavigation();
+    await settle();
+
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(
+      controller.committedLocation,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    expect(controller.entries.single.name, 'remote.txt');
+    expect(controller.remoteBookmark?.id, 'srv-1');
+    expect(remote.closeCalls, 0);
+    expect(candidate.closeCalls, 1);
+    expect(
+      lanes.calls.where((call) => call == 'watch:srv-1').length,
+      2,
+      reason: 'the restored remote binding re-subscribes its state watch',
+    );
+
+    // The late candidate answer cannot alter the restored binding.
+    held.complete();
+    await settle();
+    expect(controller.entries.single.name, 'remote.txt');
+    expect(
+      controller.location,
+      const RemotePaneLocation('srv-1', '/srv/home'),
+    );
+    controller.dispose();
+  });
+
   test('verbsEnabled requires a live browsing phase', () async {
     // No engine at all: never verbs.
     final engineless = PaneController(paneTabId: 'pane.left');
