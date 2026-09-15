@@ -2261,6 +2261,9 @@ void main() {
       controller.navigate('/parent/docs');
       await settle();
       final before = notifications;
+      final docListings = channel.listCalls
+          .where((call) => call == '/parent/docs')
+          .length;
       held.complete();
       await settle();
 
@@ -2269,6 +2272,12 @@ void main() {
         greaterThan(before),
         reason: 'the commit\'s settle must still notify listeners even '
             'when its token is retired and the pane browses elsewhere',
+      );
+      expect(
+        channel.listCalls.where((call) => call == '/parent/docs').length,
+        docListings,
+        reason: 'a retired settle must not re-list when the pane browses '
+            'a directory the commit did not touch',
       );
       controller.dispose();
     });
