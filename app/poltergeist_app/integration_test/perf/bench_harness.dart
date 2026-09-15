@@ -231,7 +231,12 @@ Future<BenchmarkRig> bootBenchmarkApp(WidgetTester tester) async {
     }
     return rig;
   } catch (_) {
-    await session.shutdown();
+    try {
+      await session.shutdown();
+    } catch (_) {
+      // Best-effort: a failed shutdown must not skip the temp-dir
+      // cleanup or mask the original boot error.
+    }
     await cleanupBoot();
     rethrow;
   }

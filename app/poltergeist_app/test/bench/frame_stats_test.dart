@@ -43,12 +43,13 @@ void main() {
 
     test('halved delivery still measures the display period', () {
       // Every other frame dropped: alternating 16666/33332 us intervals.
-      // The median (~25 ms) would halve the measured rate — and double
-      // the deadline — exactly when half the frames are missing; the
-      // smallest positive interval stays the true period.
+      // 101 frames give exactly 100 intervals — 50 of each — so the
+      // median is genuinely (16666 + 33332) / 2 ≈ 40 Hz and a median
+      // implementation fails this expectation; the smallest positive
+      // interval stays the true period.
       final frames = <FrameSlice>[];
       var at = 0;
-      for (var i = 0; i < 100; i++) {
+      for (var i = 0; i < 101; i++) {
         frames.add(frame(at));
         at += i.isEven ? 16666 : 33332;
       }

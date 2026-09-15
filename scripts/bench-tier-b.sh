@@ -39,8 +39,14 @@ rm -f -- "$repo_root"/bench-results.json \
          "$repo_root"/bench-results-p6.json
 
 # Fail fast on a missing toolchain before touching 110 000 files.
-command -v "$flutter_binary" >/dev/null
-command -v "$dart_binary" >/dev/null
+command -v "$flutter_binary" >/dev/null || {
+  echo "flutter binary not found: $flutter_binary" >&2
+  exit 127
+}
+command -v "$dart_binary" >/dev/null || {
+  echo "dart binary not found: $dart_binary" >&2
+  exit 127
+}
 
 # Local filesystem fixtures only (08 §6): flat directories of empty
 # entries. One touch per 5 000 names keeps ARG_MAX and fork count out of
