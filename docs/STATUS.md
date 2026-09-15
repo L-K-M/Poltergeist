@@ -4383,6 +4383,51 @@ scenarios remain unlanded), P6 309–315 frames/rep at a measured
 — real numbers from a software rasterizer, which is exactly what
 trend-only collection exists to expose.
 
+## M3 — app menus render from the command registry (2026-09-15)
+
+Menus are now a rendering of the registry (07 §3.4, D21), never a
+parallel list: `RegisteredCommand` gained `menuPlacement` —
+`(menu, order, group, submenu)` declared at each registration site —
+and `buildAppMenus` derives the menu model from whatever is actually
+registered, so unplaced commands are omitted outright (no disabled
+placeholders for future commands) while the gapped order slots keep
+placement stable for them (02 §9's table). On macOS the model is
+pushed to the native bar through `PlatformMenuBar` — the application
+menu is standard chrome only (About/Services/Hide/Quit, no
+Poltergeist commands) and the Window menu leads with the native
+Minimize/Zoom group; on Windows and Linux the same model renders as
+a Flutter `MenuBar` strip above the toolbar. Placement today: File
+gets the tab block (New/Reopen Closed/Close), Open, and the
+ssh-config import; Edit gets Select All/Invert/Quick Select/Filter;
+View gets Refresh and the interim Connections entry; Go gets
+Enclosing Folder; Window gets Next/Previous Tab. Empty menus —
+Commands, Help — do not render. Enablement is `command.enabled()`
+verbatim (the same predicate the chord layer and toolbar consult,
+rebuilt off the shell's shared workspace listenable), and menu hints
+display the command's registered activator rather than a duplicated
+chord spelling.
+
+The M3 menu spike's outcome is recorded as a D11 amendment in
+00-OVERVIEW: `PlatformMenuBar` alone expresses 02 §9's Edit-menu
+retargeting — only modified chords bind as native key equivalents
+(an unmodified equivalent would steal typing), and a field-owned
+chord's menu activation re-dispatches the matching text intent to the
+focused `EditableText`, so the Swift `poltergeist/menu` focus-flag
+channel is unnecessary (SEA-008 is moot by construction).
+`NSWindow.allowsAutomaticWindowTabbing = false` is set in
+`MainFlutterWindow`. §8.1's keyboard-completeness invariant is a
+test that walks the shell's live registry per platform — every
+command must have a chord, a menu path, or an entry in
+`kMenuReachabilityExceptions` (empty today).
+
+Validation: `flutter analyze` clean; menu tests cover derivation
+(placement/order/groups), unplaced omission, submenu nesting, macOS
+chrome (app menu + window provided items), enablement and
+shortcut-hint parity, the retarget path (⌘A selects field text under
+focus, runs the command otherwise), and the registry invariant;
+real-font captures of the bar and open File/Edit/View menus are
+under `tasks/run3-task40/`. The palette stays M9.
+
 ## M3 — D12 tier-B P4 tab-switch suite (2026-09-15)
 
 The P4 scenario joins the tier-B leg now that pane tabs are on main

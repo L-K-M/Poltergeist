@@ -16,6 +16,7 @@ import '../services/workspace_controller.dart';
 import 'adaptive_shell.dart';
 import 'connections/connections_command.dart';
 import 'import/ssh_config_import_command.dart';
+import 'menus/app_menu_host.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
 
@@ -260,27 +261,37 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ),
     ];
 
+    // Re-evaluate enablement without rebuilding the pane listings — one
+    // shared listenable for the toolbar and the registry-driven menus.
+    final enablement = Listenable.merge([
+      if (workspace != null) ...[
+        workspace,
+        workspace.left,
+        workspace.right,
+      ],
+    ]);
+
     return Scaffold(
       body: SafeArea(
         child: CommandChordScope(
           commands: commands,
-          child: Column(
-            children: [
-              // Re-evaluate enablement without rebuilding the pane listings.
-              ListenableBuilder(
-                listenable: Listenable.merge([
-                  if (workspace != null) ...[
-                    workspace,
-                    workspace.left,
-                    workspace.right,
-                  ],
-                ]),
-                builder: (context, child) => _Toolbar(
-                  title: strings.appTitle,
-                  commands: commands,
-                  onRun: _runCommand,
+          child: ListenableBuilder(
+            listenable: enablement,
+            builder: (context, child) => AppMenuHost(
+              commands: commands,
+              onRun: _runCommand,
+              child: child!,
+            ),
+            child: Column(
+              children: [
+                ListenableBuilder(
+                  listenable: enablement,
+                  builder: (context, child) => _Toolbar(
+                    title: strings.appTitle,
+                    commands: commands,
+                    onRun: _runCommand,
+                  ),
                 ),
-              ),
               Divider(height: 1, color: colors.outlineVariant),
               Expanded(
                 child: AdaptiveShell(
@@ -319,6 +330,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               Divider(height: 1, color: colors.outlineVariant),
               _StatusBar(label: strings.readyStatus),
             ],
+          ),
           ),
         ),
       ),

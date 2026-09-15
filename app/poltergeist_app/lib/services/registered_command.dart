@@ -5,6 +5,49 @@ import '../l10n/app_localizations.dart';
 /// Which surface a command acts on (02 §8.1).
 enum CommandScope { app, pane, selection, editor }
 
+/// The app's top-level menus (02 §9's table, in menu-bar order). `app` is
+/// the macOS application menu — platform chrome the registry renders on
+/// macOS only; no command ever places into it.
+enum AppMenuId { app, file, edit, view, go, commands, window, help }
+
+/// A command's position inside a top-level menu, declared at registration
+/// (D21: menus are a rendering of the registry, never a parallel list).
+///
+/// [order] slots follow 02 §9's table positions with gaps between them so
+/// a command that lands later keeps a stable placement without
+/// renumbering its neighbours. [group] splits one menu into
+/// divider-separated sections — rows with different group values are
+/// separated by a divider on both menu backends. [submenu] names a 02 §9
+/// ▸ submenu (Sort By, Open With, Recent); unused while no parameterized
+/// submenu command exists.
+class CommandMenuPlacement {
+  const CommandMenuPlacement({
+    required this.menu,
+    required this.order,
+    this.group = 0,
+    this.submenu,
+  });
+
+  final AppMenuId menu;
+
+  /// The 02 §9 table slot; ascending within a group.
+  final int order;
+
+  /// Divider-separated section inside the menu; ascending across groups.
+  final int group;
+
+  /// The ▸ submenu this item nests under, localized like the label.
+  final String Function(AppLocalizations)? submenu;
+}
+
+/// The §8.1 keyboard-completeness invariant's documented exceptions:
+/// command ids that ship with neither a menu path nor a platform
+/// shortcut, keyed to their reason. Empty today — every registered
+/// command is menu- or shortcut-reachable on every platform. An entry
+/// must name why the command is exempt; the invariant test fails on an
+/// undocumented or unregistered id.
+const Map<String, String> kMenuReachabilityExceptions = {};
+
 /// One registered user action (D21: every user action is a registered
 /// command; menus, shortcuts, and toolbar buttons are renderings of the
 /// registry).
@@ -25,6 +68,7 @@ class RegisteredCommand {
     this.enabled = _alwaysEnabled,
     required this.run,
     this.activators,
+    this.menuPlacement,
   });
 
   /// Dotted lowerCamel, grouped by noun (`connect.*`, `pane.*`, 02 §8.1).
@@ -48,6 +92,12 @@ class RegisteredCommand {
   /// The returned list is freshly built (or const) per call and must be
   /// treated as immutable — callers copy before mutating.
   final List<ShortcutActivator> Function(TargetPlatform)? activators;
+
+  /// Where this command appears in the app menus (02 §9). Null leaves it
+  /// shortcut/palette-only — allowed only while §8.1's menu-or-shortcut
+  /// invariant still holds for it (a chord exists, or the id sits in
+  /// [kMenuReachabilityExceptions]).
+  final CommandMenuPlacement? menuPlacement;
 
   /// Executes the command with the invoking surface's [context].
   /// Implementations must not capture [context] and must re-check

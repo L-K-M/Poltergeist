@@ -100,6 +100,48 @@ abstract class AppLocalizations {
   /// **'Poltergeist'**
   String get appTitle;
 
+  /// Title of the File application menu.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get menuFile;
+
+  /// Title of the Edit application menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get menuEdit;
+
+  /// Title of the View application menu.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get menuView;
+
+  /// Title of the Go application menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Go'**
+  String get menuGo;
+
+  /// Title of the Commands application menu (02 §9 menu table).
+  ///
+  /// In en, this message translates to:
+  /// **'Commands'**
+  String get menuCommands;
+
+  /// Title of the Window application menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Window'**
+  String get menuWindow;
+
+  /// Title of the Help application menu.
+  ///
+  /// In en, this message translates to:
+  /// **'Help'**
+  String get menuHelp;
+
   /// Label for the left file pane.
   ///
   /// In en, this message translates to:
