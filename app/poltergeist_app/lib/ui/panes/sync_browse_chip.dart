@@ -29,10 +29,20 @@ String syncBrowseCauseText(AppLocalizations l10n, SyncBrowseCause cause) {
 /// itself, so callers mount it unconditionally while the link is
 /// enabled.
 class SyncBrowseChip extends StatelessWidget {
-  const SyncBrowseChip({super.key, required this.link});
+  const SyncBrowseChip({
+    super.key,
+    required this.link,
+    this.announce = true,
+  });
 
   /// The workspace's Sync Browsing link.
   final SyncBrowsingController link;
+
+  /// Whether this instance is the screen-reader announcer — several
+  /// chips mount while the link is enabled (both path bars and the
+  /// status bar), and only one may announce a state change. The status
+  /// bar's chip keeps the default; the path bars pass `announce: false`.
+  final bool announce;
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +68,7 @@ class SyncBrowseChip extends StatelessWidget {
 
     return Semantics(
       container: true,
-      liveRegion: true,
+      liveRegion: announce,
       child: Container(
         padding: const EdgeInsetsDirectional.symmetric(
           horizontal: 7,

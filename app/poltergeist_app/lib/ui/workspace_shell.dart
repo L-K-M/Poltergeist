@@ -603,20 +603,35 @@ class _StatusBar extends StatelessWidget {
         padding: const EdgeInsetsDirectional.symmetric(horizontal: 10),
         child: Row(
           children: [
-            Text(label, style: Theme.of(context).textTheme.labelSmall),
+            // Both children ride Flexible — the named-cause line can
+            // exceed a narrow status row's width, and an unbounded chip
+            // would overflow it the way the toolbar did.
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
             if (link != null)
-              ListenableBuilder(
-                listenable: link,
-                builder: (context, _) {
-                  if (!link.enabled) return const SizedBox.shrink();
-                  return Padding(
-                    padding: const EdgeInsetsDirectional.only(start: 10),
-                    child: SyncBrowseChip(
-                      key: const ValueKey('statusbar.syncChip'),
-                      link: link,
-                    ),
-                  );
-                },
+              Flexible(
+                child: ListenableBuilder(
+                  listenable: link,
+                  builder: (context, _) {
+                    if (!link.enabled) return const SizedBox.shrink();
+                    return Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.only(start: 10),
+                        child: SyncBrowseChip(
+                          key: const ValueKey('statusbar.syncChip'),
+                          link: link,
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
           ],
         ),

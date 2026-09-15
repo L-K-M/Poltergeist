@@ -222,6 +222,28 @@ class SyncBrowsingController extends ChangeNotifier {
       return;
     }
 
+    final leftLoc = leftTab.controller.committedLocation;
+    final rightLoc = rightTab.controller.committedLocation;
+    final leftMoved = leftLoc != _lastLeft;
+    final rightMoved = rightLoc != _lastRight;
+    _lastLeft = leftLoc;
+    _lastRight = rightLoc;
+
+    // The server-change rule: a committed location on another endpoint
+    // drops the link — on every pass, visible or not, so a commit that
+    // lands while the pair is suspended (a rebind finishing under a
+    // hidden pane or a switched tab) still drops it (02 §7). An
+    // abandoned rebind keeps the link: its committed location never
+    // changed. Evaluated only at commit — a null mid-rebind location
+    // cannot drop.
+    final leftAnchor = _leftAnchor!;
+    final rightAnchor = _rightAnchor!;
+    if ((leftLoc != null && !_sameEndpoint(leftLoc, leftAnchor)) ||
+        (rightLoc != null && !_sameEndpoint(rightLoc, rightAnchor))) {
+      _dropLink();
+      return;
+    }
+
     // The re-visibility rule: both anchored tabs must be their pane's
     // visible tab AND both panes on screen — a tab switch and a hidden
     // pane suspend exactly the same.
@@ -229,29 +251,8 @@ class SyncBrowsingController extends ChangeNotifier {
         identical(left.activeTab, leftTab) &&
         identical(right.activeTab, rightTab) &&
         _workspace.secondPaneShown;
-    final leftLoc = leftTab.controller.committedLocation;
-    final rightLoc = rightTab.controller.committedLocation;
-    final leftMoved = leftLoc != _lastLeft;
-    final rightMoved = rightLoc != _lastRight;
-    _lastLeft = leftLoc;
-    _lastRight = rightLoc;
     if (!visible) {
       _suspend(const SyncBrowseCause(SyncBrowseSuspension.pairNotVisible));
-      return;
-    }
-
-    // The server-change rule: a committed location on another endpoint
-    // drops the link — evaluated only at commit, so an abandoned rebind
-    // (an Esc-cancelled connect) keeps it (02 §7).
-    final leftAnchor = _leftAnchor!;
-    final rightAnchor = _rightAnchor!;
-    if ((leftMoved &&
-            leftLoc != null &&
-            !_sameEndpoint(leftLoc, leftAnchor)) ||
-        (rightMoved &&
-            rightLoc != null &&
-            !_sameEndpoint(rightLoc, rightAnchor))) {
-      _dropLink();
       return;
     }
 
@@ -273,7 +274,15 @@ class SyncBrowsingController extends ChangeNotifier {
       return;
     }
 
-    if (!leftMoved && !rightMoved) return; // unrelated notify
+    // A stale pairNotVisible cause still reclassifies on a no-move
+    // pass: the pair is visible again, so the cause that named the
+    // suspension must move on to the truth (diverged, or a restated
+    // escape). Every other no-move pass is an unrelated notify.
+    if (!leftMoved &&
+        !rightMoved &&
+        _cause?.kind != SyncBrowseSuspension.pairNotVisible) {
+      return;
+    }
 
     if (_cause != null) {
       // Suspended: a fresh escape restates that cause; a mover that

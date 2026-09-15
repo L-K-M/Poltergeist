@@ -106,7 +106,10 @@ class _AdaptiveShellState extends State<AdaptiveShell> {
     _reportedSecondPaneShown = shown;
     final reporter = widget.onSecondPaneVisibilityChanged;
     if (reporter == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) => reporter(shown));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      reporter(shown);
+    });
   }
 
   Widget _buildPanes(BuildContext context, PaneAllocation allocation) {

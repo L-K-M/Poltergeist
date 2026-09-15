@@ -447,6 +447,28 @@ void main() {
       expect(r.sync.enabled, isTrue);
       expect(r.sync.suspended, isFalse);
     });
+
+    test('a committed server change drops the link even while the pair '
+        'is suspended — the drop is not visibility-gated', () async {
+      final r = rig();
+      await openHomes(r);
+      r.sync.toggle();
+
+      // Suspended pairNotVisible: the right pane is hidden. Its tab's
+      // rebind still commits — the endpoint check runs on every pass,
+      // so the link drops now rather than on re-visibility.
+      r.workspace.setSecondPaneHidden(true);
+      expect(r.sync.cause?.kind, SyncBrowseSuspension.pairNotVisible);
+
+      r.lanes.nextRemoteChannel = FakePaneChannel('/srv/home')
+        ..listings['/srv/home'] = [entry('r.txt', parent: '/srv/home')];
+      await r.right.connectRemote(remoteBookmark());
+      await settle();
+
+      expect(r.sync.enabled, isFalse);
+      expect(r.left.syncAnchorActive, isFalse);
+      expect(r.right.syncAnchorActive, isFalse);
+    });
   });
 
   group('anchored-tab close (02 §7 → §3 guard)', () {
@@ -536,7 +558,10 @@ void main() {
 
       r.workspace.setSecondPaneHidden(false);
       await settle();
-      expect(r.sync.suspended, isTrue); // diverged: [docs] vs []
+      expect(r.sync.suspended, isTrue);
+      // The re-visibility pass reclassifies the stale cause: the pair
+      // IS visible now — what keeps it suspended is the divergence.
+      expect(r.sync.cause?.kind, SyncBrowseSuspension.diverged);
       r.right.navigate('/right/home/docs');
       await settle();
       await settle();

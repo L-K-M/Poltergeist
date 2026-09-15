@@ -1110,6 +1110,10 @@ class _PathBarState extends State<_PathBar> {
                 SyncBrowseChip(
                   key: ValueKey('${controller.paneTabId}.syncChip'),
                   link: widget.syncLink,
+                  // The status bar's chip is the live-region announcer —
+                  // three chips announcing one state change would
+                  // duplicate the screen-reader line.
+                  announce: false,
                 ),
               ],
               if (controller.loading && widget.loadingVisible)
