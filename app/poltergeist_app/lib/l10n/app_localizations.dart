@@ -790,6 +790,30 @@ abstract class AppLocalizations {
   /// **'That is not a folder path this pane can open. Use an absolute path, ~, or a name in this folder.'**
   String get paneFaultInvalidPath;
 
+  /// Inline-rename validation error: the typed name is blank or all whitespace — rejected before any rename request (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a name.'**
+  String get paneFaultRenameNameEmpty;
+
+  /// Inline-rename validation error: the typed name contains the listing's path separator — a rename never moves an item across folders (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'A name cannot contain “/”.'**
+  String get paneFaultRenameNameSeparator;
+
+  /// Inline-rename validation error: the pane's filesystem forbids the typed name — on a local pane under Windows, the NTFS-reserved characters, a control character, a DOS device name, or a trailing dot or space (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'That name is not allowed here.'**
+  String get paneFaultRenameNameInvalid;
+
+  /// Inline-rename error: the row under edit left the listing mid-session — a refresh, another client's delete, or a filter edit removed it (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'The item is no longer in this folder.'**
+  String get paneFaultRenameTargetGone;
+
   /// Banner shown while the remote transport reconnects (02 §2.7).
   ///
   /// In en, this message translates to:
@@ -884,6 +908,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open'**
   String get goOpenLabel;
+
+  /// Command label: rename the selected row inline in the listing (file.rename, 02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get fileRenameLabel;
+
+  /// Accessible label of the inline-rename text field that replaces the edited row's name (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get paneRenameFieldLabel;
 
   /// Command label: open the pane's editable path field seeded empty (go.toFolder, 02 §2.1).
   ///

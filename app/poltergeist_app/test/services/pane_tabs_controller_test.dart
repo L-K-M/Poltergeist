@@ -283,14 +283,47 @@ void main() {
           return false;
         },
       );
-      final tab = controller.newTab(target: NewTabTarget.launcher);
-      tab.controller.inlineRenameActive = true;
+      final tab = controller.newTab(target: NewTabTarget.home);
+      await settle();
+      tab.controller.setCursorIndex(0);
+      tab.controller.startRename();
 
       final outcome = await controller.requestCloseTab(tab);
       expect(outcome, TabCloseOutcome.declined);
       expect(seen, [TabCloseTrigger.inlineRename]);
 
-      tab.controller.inlineRenameActive = false;
+      tab.controller.cancelRename();
+      expect(await controller.requestCloseTab(tab), TabCloseOutcome.closed);
+    });
+
+    test('an in-flight rename commit holds the trigger after the field closes', () async {
+      final channel = lanes.nextLocalChannel as FakePaneChannel;
+      List<TabCloseTrigger>? seen;
+      final controller = tabs(
+        confirmClose: (_, triggers) async {
+          seen = triggers;
+          return false;
+        },
+      );
+      final tab = controller.newTab(target: NewTabTarget.home);
+      await settle();
+      tab.controller.setCursorIndex(0);
+      tab.controller.startRename();
+
+      // The submit parks the channel call: the field is already closed,
+      // but the in-flight rename is still work the guard must quantify.
+      final held = Completer<void>();
+      channel.heldRename = held;
+      unawaited(tab.controller.submitRename('renamed.txt'));
+      await settle();
+      expect(tab.controller.renameTarget, isNull);
+
+      final outcome = await controller.requestCloseTab(tab);
+      expect(outcome, TabCloseOutcome.declined);
+      expect(seen, [TabCloseTrigger.inlineRename]);
+
+      held.complete();
+      await settle();
       expect(await controller.requestCloseTab(tab), TabCloseOutcome.closed);
     });
 
@@ -363,8 +396,10 @@ void main() {
             : Future<bool>.value(true),
         onError: (error, _) => reported.add(error),
       );
-      final tab = controller.newTab(target: NewTabTarget.launcher);
-      tab.controller.inlineRenameActive = true;
+      final tab = controller.newTab(target: NewTabTarget.home);
+      await settle();
+      tab.controller.setCursorIndex(0);
+      tab.controller.startRename();
 
       expect(await controller.requestCloseTab(tab), TabCloseOutcome.declined);
       expect(reported.single, isA<StateError>());

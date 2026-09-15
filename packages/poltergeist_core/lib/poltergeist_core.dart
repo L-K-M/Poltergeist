@@ -157,6 +157,7 @@ export 'src/engine/protocol.dart'
         ProbeStatusesEvent,
         RecoveryFailedEvent,
         RemoveBookmarkRequest,
+        RenameEntryRequest,
         ResponseEvent,
         ServerIdsListed,
         ServerStateEvent,

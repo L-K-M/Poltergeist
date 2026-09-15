@@ -426,6 +426,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'That is not a folder path this pane can open. Use an absolute path, ~, or a name in this folder.';
 
   @override
+  String get paneFaultRenameNameEmpty => 'Enter a name.';
+
+  @override
+  String get paneFaultRenameNameSeparator => 'A name cannot contain “/”.';
+
+  @override
+  String get paneFaultRenameNameInvalid => 'That name is not allowed here.';
+
+  @override
+  String get paneFaultRenameTargetGone =>
+      'The item is no longer in this folder.';
+
+  @override
   String paneConnectionLost(String label) {
     return 'Connection to $label lost — reconnecting…';
   }
@@ -484,6 +497,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get goOpenLabel => 'Open';
+
+  @override
+  String get fileRenameLabel => 'Rename';
+
+  @override
+  String get paneRenameFieldLabel => 'Rename';
 
   @override
   String get goToFolderLabel => 'Go to Folder…';

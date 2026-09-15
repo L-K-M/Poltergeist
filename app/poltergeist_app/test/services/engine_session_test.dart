@@ -253,6 +253,17 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
     return listings[path] ?? const [];
   }
 
+  /// Recorded rename calls and a scripted failure — null succeeds.
+  final renameCalls = <(String, String)>[];
+  Object? renameFailure;
+
+  @override
+  Future<void> rename(String oldPath, String newPath) async {
+    renameCalls.add((oldPath, newPath));
+    final failure = renameFailure;
+    if (failure != null) throw failure;
+  }
+
   @override
   Future<void> close() async {
     closeCalls++;

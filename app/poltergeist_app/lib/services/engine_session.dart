@@ -67,6 +67,11 @@ abstract interface class AppBrowseChannel {
 
   Future<List<RemoteFileEntry>> listDirectory(String path);
 
+  /// Renames one entry inside its directory (02 §2.6's inline rename):
+  /// [oldPath] and [newPath] share a parent, and a destination that
+  /// exists fails with the typed conflict error — never an overwrite.
+  Future<void> rename(String oldPath, String newPath);
+
   Future<void> close();
 }
 
@@ -194,6 +199,10 @@ final class _EngineClientChannel implements AppBrowseChannel {
   @override
   Future<List<RemoteFileEntry>> listDirectory(String path) =>
       _channel.listDirectory(path);
+
+  @override
+  Future<void> rename(String oldPath, String newPath) =>
+      _channel.rename(oldPath, newPath);
 
   @override
   Future<void> close() => _channel.close();

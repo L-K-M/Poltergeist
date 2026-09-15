@@ -53,6 +53,14 @@ const _comfortableRowExtent = 28.0;
 /// space so the cursor never shifts row content as it moves.
 const _cursorBarWidth = 3.0;
 
+/// The inline-rename editor's horizontal insets over the edited row's
+/// name cell: past the leading padding, the cursor bar, and the kind
+/// icon (start), up to the size/modified columns' leading edge (end).
+/// They mirror `_PaneRow`'s column metrics — a row-layout change must
+/// change them with it.
+const _renameNameCellStart = 8 + _cursorBarWidth + 22;
+const _renameNameCellEnd = 8.0 + 12 + 64 + 12 + 120;
+
 double scaledPaneRowExtent(BuildContext context) =>
     MediaQuery.textScalerOf(context).scale(_comfortableRowExtent);
 
@@ -142,6 +150,11 @@ class _PaneViewState extends State<PaneView> {
   final _pathFieldStripKey = GlobalKey();
   int _pathFieldSeen = -1;
   bool _pathFieldWasOpen = false;
+  // The inline-rename editor's hit-test boundary (clicks inside it must
+  // not bounce focus to the listing) and its close bookkeeping, both
+  // mirroring the other field strips (02 §2.6).
+  final _renameEditorKey = GlobalKey();
+  bool _renameWasActive = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
 
@@ -170,6 +183,7 @@ class _PaneViewState extends State<PaneView> {
       // so a rebind-driven strip unmount is still seen as `justClosed`.
       _filterFocusSeen = widget.controller.filterFocusGeneration;
       _pathFieldSeen = widget.controller.pathFieldGeneration;
+      _renameWasActive = false;
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
@@ -322,6 +336,32 @@ class _PaneViewState extends State<PaneView> {
     });
   }
 
+  /// When an inline-rename session ends from the controller side — a
+  /// submitted rename, a listing replacement, a location change — the
+  /// field unmounts under focus and primary focus strands at the root.
+  /// Return it to the listing, but only when focus really is stranded:
+  /// a deliberate target is never yanked back (02 §8.2, same rule as
+  /// the other field strips).
+  void _syncRenameFocus() {
+    final active = widget.controller.inlineRenameActive;
+    final justClosed = _renameWasActive && !active;
+    _renameWasActive = active;
+    if (!justClosed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      // Stranded = no primary focus, a detached node (the unmounted
+      // field's), or a bare focus scope — where the IME `done` unfocus
+      // parks focus. A leaf node is a deliberate target and is never
+      // yanked back (02 §8.2, same rule as the other field strips).
+      final primary = FocusManager.instance.primaryFocus;
+      if (primary == null ||
+          primary.context == null ||
+          primary is FocusScopeNode) {
+        widget.focusNode.requestFocus();
+      }
+    });
+  }
+
   /// 02 §8.2's single-key table, scoped to this pane's focus node: these
   /// keys must never fire while any text field anywhere holds focus. The
   /// Quick Select field's focus node is a descendant of this pane's —
@@ -369,10 +409,12 @@ class _PaneViewState extends State<PaneView> {
         key == LogicalKeyboardKey.home ||
         key == LogicalKeyboardKey.end ||
         key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.f2 ||
         key == LogicalKeyboardKey.backspace ||
         key == LogicalKeyboardKey.space;
     if ((controller.connectionLost ||
             controller.error != null ||
+            controller.inlineRenameActive ||
             (_graceBusy() && _pastGrace)) &&
         (ownedKey || _typeAheadCharacter(event) != null) &&
         plainKey) {
@@ -410,16 +452,27 @@ class _PaneViewState extends State<PaneView> {
         return KeyEventResult.handled;
       case LogicalKeyboardKey.enter:
         // Enter opens on Windows/Linux; on macOS Enter is the rename key
-        // (§8.3), and rename lands with the row-interactions slice.
-        // Key repeats never re-open — holding Enter must not drill
-        // through nested folders (and the owned key must not leak its
-        // repeats to other handlers).
+        // (02 §8.3). Key repeats never re-open or re-invoke — holding
+        // Enter must not drill through nested folders (and the owned
+        // key must not leak its repeats to other handlers).
         if (event is KeyRepeatEvent) {
           return KeyEventResult.handled;
         }
-        if (platform == TargetPlatform.windows ||
+        if (platform == TargetPlatform.macOS) {
+          controller.startRename();
+        } else if (platform == TargetPlatform.windows ||
             platform == TargetPlatform.linux) {
           _openCursor();
+        }
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.f2:
+        // F2 is the rename key on Windows/Linux (02 §8.3; macOS renames
+        // through Return). Repeats are consumed, never re-invoked.
+        if (platform == TargetPlatform.macOS) {
+          return KeyEventResult.ignored;
+        }
+        if (event is! KeyRepeatEvent) {
+          controller.startRename();
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.backspace:
@@ -434,7 +487,15 @@ class _PaneViewState extends State<PaneView> {
         }
         return KeyEventResult.ignored;
       case LogicalKeyboardKey.escape:
-        if (controller.loading) {
+        if (controller.renameTarget != null) {
+          // 02 §8.2's field-first order: an open rename session owns the
+          // first Esc — a stranded field (its focus lost but the session
+          // still mounted) cancels here too, so the key can never fall
+          // through to navigation-cancel while an edit is open. An
+          // in-flight commit has no field left to cancel; its Esc falls
+          // through to the navigation tiers like any other.
+          controller.cancelRename();
+        } else if (controller.loading) {
           controller.cancelNavigation();
         } else if (controller.error != null) {
           // The inline error's keyboard escape hatch: Esc retries the
@@ -565,6 +626,7 @@ class _PaneViewState extends State<PaneView> {
         _syncQuickSelectFocus();
         _syncFilterFocus();
         _syncPathFieldFocus();
+        _syncRenameFocus();
         final active = identical(
           widget.workspace.activePane,
           widget.pane,
@@ -593,6 +655,7 @@ class _PaneViewState extends State<PaneView> {
                   _quickSelectFieldKey,
                   _filterStripKey,
                   _pathFieldStripKey,
+                  _renameEditorKey,
                 ]) {
                   final fieldBox =
                       key.currentContext?.findRenderObject() as RenderBox?;
@@ -624,6 +687,7 @@ class _PaneViewState extends State<PaneView> {
                 pathFieldStripKey: _pathFieldStripKey,
                 pathFieldFocusNode: _pathFieldFocusNode,
                 onPathFieldClosed: () => widget.focusNode.requestFocus(),
+                renameEditorKey: _renameEditorKey,
                 onActivateRow: (index, modifiers) {
                   widget.controller.setCursorIndex(
                     index,
@@ -668,6 +732,7 @@ class _PaneSurface extends StatelessWidget {
     required this.pathFieldStripKey,
     required this.pathFieldFocusNode,
     required this.onPathFieldClosed,
+    required this.renameEditorKey,
     required this.onActivateRow,
     required this.onOpenRow,
   });
@@ -710,6 +775,10 @@ class _PaneSurface extends StatelessWidget {
 
   /// Returns focus to the listing after the field's own Enter/Esc.
   final VoidCallback onPathFieldClosed;
+
+  /// The inline-rename editor's hit-test boundary for the pane's
+  /// pointer-down listener (clicks inside it keep the field's focus).
+  final GlobalKey renameEditorKey;
   final ValueChanged<int> onOpenRow;
   final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
 
@@ -889,18 +958,210 @@ class _PaneSurface extends StatelessWidget {
 
     final extent = scaledPaneRowExtent(context);
 
-    return ListView.builder(
-      controller: scrollController,
-      itemExtent: extent,
-      itemCount: controller.entries.length,
-      itemBuilder: (context, index) => _PaneRow(
-        entry: controller.entries[index],
-        highlighted: controller.cursorIndex == index,
-        selected: controller.isRowSelected(index),
-        active: active,
-        clock: clock,
-        onTap: (modifiers) => onActivateRow(index, modifiers),
-        onDoubleTap: () => onOpenRow(index),
+    return Stack(
+      children: [
+        ListView.builder(
+          controller: scrollController,
+          itemExtent: extent,
+          itemCount: controller.entries.length,
+          itemBuilder: (context, index) => _PaneRow(
+            entry: controller.entries[index],
+            highlighted: controller.cursorIndex == index,
+            selected: controller.isRowSelected(index),
+            active: active,
+            clock: clock,
+            onTap: (modifiers) => onActivateRow(index, modifiers),
+            onDoubleTap: () => onOpenRow(index),
+          ),
+        ),
+        // 02 §2.6's inline editor: it floats over the edited row at the
+        // row's scroll offset, so it rides the row through scrolling
+        // and a validation error extends below the row (the listing
+        // itself stays mounted underneath).
+        if (controller.renameTarget != null)
+          AnimatedBuilder(
+            animation: scrollController,
+            builder: (context, _) {
+              final index = controller.renameIndex;
+              final offset = scrollController.hasClients
+                  ? scrollController.offset
+                  : 0.0;
+              return PositionedDirectional(
+                // The row's name cell: past the leading padding, the
+                // cursor bar, and the kind icon …up to the
+                // size/modified columns' leading edge. These mirror
+                // _PaneRow's column metrics — a row-layout change must
+                // change them with it.
+                start: _renameNameCellStart,
+                end: _renameNameCellEnd,
+                // No clamp: a row scrolled above the viewport carries
+                // its editor off with it — the Stack clips the
+                // overflow, and clipped pixels never hit-test. A
+                // detached session (the row left the listing) anchors
+                // at the top so its fault stays visible.
+                top: index == null ? 0.0 : index * extent - offset,
+                child: _RenameEditor(
+                  key: renameEditorKey,
+                  controller: controller,
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+}
+
+/// 02 §2.6's inline-rename editor: the cursor row's name becomes a text
+/// field seeded with the current name, its stem pre-selected (Finder's
+/// convention — the extension survives a typed replacement). Enter
+/// commits through [PaneController.submitRename]; Esc and focus loss
+/// cancel through [PaneController.cancelRename] — the field tier of
+/// §8.2's order. The controller owns the session and its invalidation;
+/// a failed commit re-mounts this field carrying the typed error.
+class _RenameEditor extends StatefulWidget {
+  const _RenameEditor({super.key, required this.controller});
+
+  final PaneController controller;
+
+  @override
+  State<_RenameEditor> createState() => _RenameEditorState();
+}
+
+class _RenameEditorState extends State<_RenameEditor> {
+  final _text = TextEditingController();
+  final _fieldFocus = FocusNode();
+
+  /// Set while a submit is in progress: the IME `done` action unfocuses
+  /// the field right after `onSubmitted` returns, and that unfocus must
+  /// not cancel a session validation just kept open (02 §2.6 — the
+  /// field stays up with its error until the user fixes or Esc's).
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The seed is the row's name on a fresh open and the refused draft
+    // after a failed commit (02 §2.6 — the user edits what they typed,
+    // not the pre-rename name).
+    final name = widget.controller.renameSeed;
+    // Pre-select the stem only: the last '.' of a dotted name keeps its
+    // extension out of the selection, and dotfiles (a leading dot is
+    // part of the stem, not an extension) select whole.
+    final dot = name.lastIndexOf('.');
+    _text.value = TextEditingValue(
+      text: name,
+      selection: dot > 0
+          ? TextSelection(baseOffset: 0, extentOffset: dot)
+          : TextSelection(baseOffset: 0, extentOffset: name.length),
+    );
+    _fieldFocus.addListener(_onFocusChange);
+    // autofocus alone cannot take focus from a listing that already
+    // holds it — the field must claim primary focus explicitly on open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fieldFocus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _fieldFocus.removeListener(_onFocusChange);
+    _fieldFocus.dispose();
+    _text.dispose();
+    super.dispose();
+  }
+
+  /// Focus loss cancels the edit (02 §2.6's click-outside rule). Only a
+  /// mounted session cancels — a committed or already-closed session
+  /// makes this a no-op, and the listener detaches before dispose so an
+  /// unmount never re-triggers it. The unfocus that the `done` action
+  /// performs after `onSubmitted` is not a click-outside: [_submitting]
+  /// tells the two apart.
+  void _onFocusChange() {
+    if (!_fieldFocus.hasFocus && !_submitting) {
+      widget.controller.cancelRename();
+    }
+  }
+
+  /// Enter commit: the IME action unfocuses the field right after this
+  /// runs, so when the session survives (a refused name) the field
+  /// re-claims focus instead of stranding unfocused-and-open.
+  void _submit() {
+    _submitting = true;
+    unawaited(
+      widget.controller.submitRename(_text.text).whenComplete(() {
+        _submitting = false;
+        if (mounted && widget.controller.renameTarget != null) {
+          _fieldFocus.requestFocus();
+        }
+      }),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final error = widget.controller.renameError;
+    return Focus(
+      // Esc cancels from inside the field — the field tier of §8.2's
+      // order, so an in-flight navigation underneath keeps loading.
+      // This node sits in the focus ancestry above the field and sees
+      // only keys the field itself did not consume.
+      canRequestFocus: false,
+      skipTraversal: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent ||
+            event.logicalKey != LogicalKeyboardKey.escape) {
+          return KeyEventResult.ignored;
+        }
+        widget.controller.cancelRename();
+        return KeyEventResult.handled;
+      },
+      // A floated label cannot fit the row's height; the field's
+      // accessible name rides Semantics instead.
+      child: Semantics(
+        label: l10n.paneRenameFieldLabel,
+        textField: true,
+        child: TextField(
+          key: ValueKey('${widget.controller.paneTabId}.rename.field'),
+          controller: _text,
+          focusNode: _fieldFocus,
+          autofocus: true,
+          style: Theme.of(context).textTheme.bodySmall,
+          decoration: InputDecoration(
+            isDense: true,
+            // An opaque fill occludes the row's own name text under the
+            // editor; the border marks the edited extent.
+            filled: true,
+            fillColor: colors.surface,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 5,
+            ),
+            border: const OutlineInputBorder(),
+            enabledBorder: OutlineInputBorder(
+              borderSide: BorderSide(color: colors.outlineVariant),
+            ),
+            errorText: error == null
+                ? null
+                : switch (error) {
+                    PaneFaultException(:final fault) => switch (fault) {
+                      PaneFault.renameNameEmpty =>
+                        l10n.paneFaultRenameNameEmpty,
+                      PaneFault.renameNameSeparator =>
+                        l10n.paneFaultRenameNameSeparator,
+                      PaneFault.renameNameInvalid =>
+                        l10n.paneFaultRenameNameInvalid,
+                      PaneFault.renameTargetGone =>
+                        l10n.paneFaultRenameTargetGone,
+                      _ => error.message,
+                    },
+                    _ => error.message,
+                  },
+          ),
+          onSubmitted: (_) => _submit(),
+        ),
       ),
     );
   }
@@ -1605,6 +1866,14 @@ class _ErrorOverlay extends StatelessWidget {
                       PaneFault.localOpen => l10n.paneFaultLocalOpen,
                       PaneFault.listFolder => l10n.paneFaultListFolder,
                       PaneFault.invalidPath => l10n.paneFaultInvalidPath,
+                      PaneFault.renameNameEmpty =>
+                        l10n.paneFaultRenameNameEmpty,
+                      PaneFault.renameNameSeparator =>
+                        l10n.paneFaultRenameNameSeparator,
+                      PaneFault.renameNameInvalid =>
+                        l10n.paneFaultRenameNameInvalid,
+                      PaneFault.renameTargetGone =>
+                        l10n.paneFaultRenameTargetGone,
                     },
                     _ => error.message,
                   },

@@ -222,6 +222,9 @@ class FakePaneChannel implements AppBrowseChannel {
   Completer<List<RemoteFileEntry>>? heldListing;
 
   @override
+  Future<void> rename(String oldPath, String newPath) async {}
+
+  @override
   Future<List<RemoteFileEntry>> listDirectory(String path) async {
     listCalls.add(path);
     final failure = this.failure;

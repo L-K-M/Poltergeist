@@ -509,6 +509,20 @@ class EngineBrowseChannel {
     return (result as DirectoryListed).entries;
   }
 
+  /// Renames one entry inside its directory (02 §2.6): [oldPath] and
+  /// [newPath] share a parent, and a destination that exists fails with
+  /// the typed conflict error — never an overwrite.
+  Future<void> rename(String oldPath, String newPath) async {
+    await _client._call(
+      (id) => RenameEntryRequest(
+        requestId: id,
+        channelId: channelId,
+        oldPath: oldPath,
+        newPath: newPath,
+      ),
+    );
+  }
+
   /// Closes the channel; idempotent. A dead engine has closed every
   /// channel by definition — disconnected errors complete normally so
   /// disposal code can close defensively during teardown races.

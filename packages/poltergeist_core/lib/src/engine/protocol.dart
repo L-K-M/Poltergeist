@@ -18,8 +18,9 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// ([OpenLocalBrowseChannelRequest]) — the engine-side seam for local
 /// panes (03 §5's ownership table). v8 adds the local directory-watch
 /// seam (03 §7.5): [WatchLocalDirectoryRequest],
-/// [UnwatchLocalDirectoryRequest], and [DirectoryWatchEvent].
-const engineProtocolVersion = 8;
+/// [UnwatchLocalDirectoryRequest], and [DirectoryWatchEvent]. v9 adds
+/// [RenameEntryRequest] for the panes' inline rename (02 §2.6).
+const engineProtocolVersion = 9;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -437,6 +438,25 @@ final class ListDirectoryRequest extends EngineRequest {
     required super.requestId,
     required this.channelId,
     required this.path,
+  });
+}
+
+/// Renames one entry inside its directory (02 §2.6's inline rename):
+/// [oldPath] and [newPath] share a parent — the request moves nothing
+/// across directories and never overwrites, so a destination that exists
+/// fails with the channel fs's typed conflict error rather than a flag.
+/// Local and pool channels answer through the same channel-id routing as
+/// [ListDirectoryRequest]: both funnel to `RemoteFileSystem.rename`.
+final class RenameEntryRequest extends EngineRequest {
+  final int channelId;
+  final String oldPath;
+  final String newPath;
+
+  const RenameEntryRequest({
+    required super.requestId,
+    required this.channelId,
+    required this.oldPath,
+    required this.newPath,
   });
 }
 
