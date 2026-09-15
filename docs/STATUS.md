@@ -4644,6 +4644,47 @@ Validation: focused controller, tabs, preferences, widget, command,
 localization-contract, and engine host/client/protocol suites under
 `tasks/run3-task46/`.
 
+## M3 — rename ownership repairs, fusion review round 2 (2026-09-15)
+
+Three confirmed findings from the second source-level review of the
+rename path (#131/#132) are repaired, each red-first:
+
+- **Rename completion owned whichever binding the tab now held.** A
+  commit settling after a rebind refreshed and reselected the NEW
+  binding (a same-path rebind could even select an unrelated row at the
+  old destination's spelling), and a typed refusal resurrected the
+  stale editor after a same-path rebind or an away-and-back navigation
+  while a different-location failure dropped silently. `submitRename`
+  now captures an ownership token (channel identity, bind attempt, and
+  a new `_locationRevision` bumped on every location-changing
+  navigation issue): the in-flight guard always settles, but
+  refresh/reselect/reopen only run while the token still owns the
+  presentation, and a retired operation's refusal reports through the
+  pane's `onError` sink instead of attaching to the new binding or
+  vanishing.
+- **An invalidated rename session stayed a live mutation capability.**
+  After the `renameTargetGone` re-attach, submitting still sent
+  `channel.rename` for the old path — renaming a merely-hidden file or
+  a replacement that took the path since. Submission now re-checks row
+  membership: a session whose row key is absent is diagnostic-only —
+  Enter dismisses it, a new edit needs a fresh row session — and the
+  detached editor now floats over the empty-listing state too, so the
+  fault and its dismissal stay reachable when the last row vanishes.
+- **Trailing POSIX backslashes corrupted the destination.** A basename
+  ending in `\` (a legal POSIX filename byte) was trimmed as if it were
+  a separator, and the fallback split then landed on a backslash inside
+  the name (`/parent/weird\name\` → `/parent/weird\plain.txt`). The
+  parent derivation now uses the entry path's own separator grammar,
+  removes the exact basename before any separator trimming, and joins
+  the location with ITS separator as the last resort.
+
+Validation: seven new controller regressions (rebind success/refusal,
+away-and-back refusal, invalidated and same-path-replacement submits,
+internal+terminal backslash names on local POSIX and remote panes) and
+one widget regression (gone-row fault on an emptied listing) failed
+before the fix and pass after; `flutter analyze` clean; full app suite
+green (912 tests). Logs under `tasks/run3-task48/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

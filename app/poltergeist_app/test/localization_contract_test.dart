@@ -230,15 +230,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'~'",
     "'.'",
     "'/'",
-    "'\\\\'",
-    r"r'[\\/]'",
     "'connect'",
     "'open'",
     "'list'",
     // The rename commit's operation tag and its path arithmetic — the
     // engine's operation label and machine path data, never UI copy.
     "'rename'",
-    r"'${location?.path ?? ''}/'",
+    r"'$base${paneSeparator(base)}'",
     r"'$parent$raw'",
     "'fault:\${fault.name}'",
     // The U+FFFD flagged-name signal Quick Select excludes from matching
