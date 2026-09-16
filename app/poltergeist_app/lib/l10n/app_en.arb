@@ -623,6 +623,19 @@
   "@paneConnectionLostCancel": {
     "description": "The connection-lost banner's cancel action (stops reconnection)."
   },
+  "paneRestoredOffline": "Session restored — {label} is offline.",
+  "@paneRestoredOffline": {
+    "description": "Reconnect bar over a session-restored remote tab's cached listing (02 §3): the tab never connected this session — it shows the persisted snapshot until Reconnect or, with the auto-reconnect setting on, activation.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "paneReconnect": "Reconnect",
+  "@paneReconnect": {
+    "description": "The session-restored tab's Reconnect bar action (02 §3): opens the remote binding the persisted session recorded."
+  },
   "paneNoticeOpenRemoteUnavailable": "Remote files can't be opened in place yet — Poltergeist will download and open them in a later milestone.",
   "@paneNoticeOpenRemoteUnavailable": {
     "description": "Transient notice strip (02 §10): the Open action on a remote file — the managed-checkout pipeline arrives with the editor milestone."

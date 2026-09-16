@@ -5212,6 +5212,45 @@ plus core 918). Inspected real-font captures under `tasks/run3-task56/`:
 inspector over a local file, a local folder's settled size, a remote
 file (uid/gid), and a remote folder's Calculate affordance.
 
+## M3 — session state restoration on launch (2026-09-16)
+
+02 §3's launch restoration: one versioned `session.state` document inside
+`settings.json`, behind the prefs layer (`SessionStateStore` over the
+generic `SettingsStore` — strict decode, schema version 1, read-before-
+write so a document this build cannot decode is never silently
+overwritten; a malformed or newer-schema load reports and boots the
+default session). `SessionPersistence` captures both strips (ordered
+tabs, active index, per-tab location, id counter), the active pane, and
+the pane toggle's user intent at every safe point — tab open/close/
+switch, navigation commit, pane toggle — debounced and deduplicated by
+encoded content, with `flush()` awaited inside `onExitRequested` and the
+window-close interception (the app-quit safe point). Window geometry
+keeps riding the existing `DesktopWindowLifecycle` path.
+
+A `PanePhase.restored` tab adopts its persisted location, remote
+identity, and cached listing snapshot WITHOUT a channel: remote rows
+render stale and inert under a localized Reconnect bar (the §2.8 banner
+contract minus Cancel — nothing was opened to cancel), and the tab holds
+no pool reference so sibling last-binding accounting and close-time
+disconnects ignore it (`hasLiveRemoteBinding`). `resumeRestored` drives
+the ordinary connect/local-open flow on the restored path. The new
+"Reconnect restored tabs automatically" setting defaults ON: activation
+of a restored remote tab reconnects; OFF, activation alone never
+reconnects — the bar waits for the explicit click, which always works.
+Restored local tabs rebind live on activation regardless. Launcher
+semantics hold: a pane persisted with zero tabs restores to its
+launcher — restoration never auto-opens a tab — and an unbound persisted
+tab restores unbound.
+
+Validation: `flutter analyze` clean; focused suites green (doc codec +
+store fail-closed 12, controller/strip restore 14, safe-point commit
+coverage 9, prefs round-trip, 5 shell-level widget tests covering the
+two-pane multi-tab round trip with a hidden pane, ON/OFF reconnect
+semantics, live local rebind, and the empty session); localization
+contract green; full app suite green (1094 tests). Inspected real-font
+capture `tasks/run3-task57/captures/session-restore-reconnect-bar.png`:
+restored remote tab under the Reconnect bar with cached rows.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

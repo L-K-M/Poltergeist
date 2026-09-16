@@ -123,7 +123,11 @@ class WorkspaceController extends ChangeNotifier {
     for (final pane in [left, right]) {
       for (final tab in pane.tabs) {
         final controller = tab.controller;
+        // A session-restored tab keeps the bookmark for its badge and
+        // reconnect but holds no pool reference — only live bindings
+        // count toward last-binding close semantics (02 §3, 03 §3.2).
         if (!identical(controller, excluding) &&
+            controller.hasLiveRemoteBinding &&
             controller.remoteBookmark?.id == serverId) {
           return true;
         }

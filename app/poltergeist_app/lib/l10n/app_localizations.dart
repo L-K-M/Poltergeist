@@ -838,6 +838,18 @@ abstract class AppLocalizations {
   /// **'Cancel'**
   String get paneConnectionLostCancel;
 
+  /// Reconnect bar over a session-restored remote tab's cached listing (02 §3): the tab never connected this session — it shows the persisted snapshot until Reconnect or, with the auto-reconnect setting on, activation.
+  ///
+  /// In en, this message translates to:
+  /// **'Session restored — {label} is offline.'**
+  String paneRestoredOffline(String label);
+
+  /// The session-restored tab's Reconnect bar action (02 §3): opens the remote binding the persisted session recorded.
+  ///
+  /// In en, this message translates to:
+  /// **'Reconnect'**
+  String get paneReconnect;
+
   /// Transient notice strip (02 §10): the Open action on a remote file — the managed-checkout pipeline arrives with the editor milestone.
   ///
   /// In en, this message translates to:

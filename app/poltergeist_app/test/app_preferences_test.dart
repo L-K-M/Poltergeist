@@ -81,6 +81,29 @@ void main() {
     }
   });
 
+  test('the restored-tab reconnect setting defaults ON and persists',
+      () async {
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    expect(await preferences.loadReconnectRestoredTabs(), isTrue);
+
+    await preferences.saveReconnectRestoredTabs(false);
+    expect(await preferences.loadReconnectRestoredTabs(), isFalse);
+
+    // A non-bool stored value reads as the spec default, not a failure.
+    // SettingsStore caches after first load, so a fresh store observes
+    // the externally written file.
+    await settingsFile.writeAsString(
+      '{"tabs.reconnectRestored":"yes"}',
+    );
+    final reloaded = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+    expect(await reloaded.loadReconnectRestoredTabs(), isTrue);
+  });
+
   test('the Double-click action defaults to Open and falls back on an '
       'unknown stored value', () async {
     final preferences = AppPreferences(

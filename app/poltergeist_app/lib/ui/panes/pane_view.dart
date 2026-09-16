@@ -988,7 +988,8 @@ class _PaneSurface extends StatelessWidget {
                       PanePhase.unbound => _Centered(l10n.paneNoLocation),
                       PanePhase.openingLocal || PanePhase.connectingRemote =>
                         _connectingBody(context, l10n),
-                      PanePhase.browsing => _listing(context, l10n),
+                      PanePhase.browsing || PanePhase.restored =>
+                        _listing(context, l10n),
                     },
             ),
           ),
@@ -1005,7 +1006,8 @@ class _PaneSurface extends StatelessWidget {
         Semantics(
           label: controller.staleRows &&
                   !controller.connectionLost &&
-                  controller.error == null
+                  controller.error == null &&
+                  controller.phase != PanePhase.restored
               ? l10n.paneLoadingFolder(
                   paneLastSegment(controller.location?.path),
                 )
@@ -1061,6 +1063,19 @@ class _PaneSurface extends StatelessWidget {
           ),
       ],
     );
+    // 02 §3's session-restored remote tab: its persisted cached listing
+    // renders inert behind the Reconnect bar — the §2.8 banner rules
+    // (bar, scrim, inert rows) applied to a tab that never connected
+    // this session. A restored LOCAL tab needs no bar: activation
+    // rebinds it on the spot.
+    if (controller.phase == PanePhase.restored &&
+        controller.remoteBookmark != null) {
+      return _SessionReconnectBar(
+        label: controller.remoteBookmark!.label,
+        onReconnect: () => unawaited(controller.resumeRestored()),
+        child: content,
+      );
+    }
     if (!controller.connectionLost) return content;
 
     // Reserve banner space so even a short cached listing remains visible.
@@ -2099,6 +2114,92 @@ class _ErrorOverlay extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 02 §3's Reconnect bar for a session-restored remote tab: the same
+/// banner contract as the connection-lost banner — the persisted cached
+/// listing stays visible behind a scrim, inert — but the session's
+/// truth is "offline until asked", not "transport lost": a neutral
+/// surface, one Reconnect action, no Cancel (there is nothing to
+/// cancel — the binding was never opened).
+class _SessionReconnectBar extends StatelessWidget {
+  const _SessionReconnectBar({
+    required this.label,
+    required this.onReconnect,
+    required this.child,
+  });
+
+  final String label;
+  final VoidCallback onReconnect;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        Container(
+          key: const ValueKey('pane.reconnectBar'),
+          width: double.infinity,
+          padding: const EdgeInsetsDirectional.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
+          color: colors.secondaryContainer,
+          child: Row(
+            children: [
+              Icon(
+                Icons.cloud_off_outlined,
+                size: 16,
+                color: colors.onSecondaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                // Live region like the connection banner: the restored
+                // rows under the scrim are excluded from semantics, so
+                // the bar is the only announcement of the tab's state.
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    l10n.paneRestoredOffline(label),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const ValueKey('pane.reconnectBar.reconnect'),
+                onPressed: onReconnect,
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.onSecondaryContainer,
+                ),
+                child: Text(l10n.paneReconnect),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          // Absorb, not ignore — same rule as the connection banner:
+          // the cached rows are presentation until the rebind lands.
+          child: Stack(
+            children: [
+              Positioned.fill(child: child),
+              Positioned.fill(
+                child: AbsorbPointer(
+                  child: ColoredBox(
+                    color: colors.surfaceContainerLowest.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

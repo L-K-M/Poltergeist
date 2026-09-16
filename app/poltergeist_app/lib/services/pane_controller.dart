@@ -13,6 +13,7 @@ import 'pane_path_input.dart';
 import 'pane_rename.dart';
 import 'quick_select_state.dart';
 import 'selection_state.dart';
+import 'session_state.dart';
 import 'unicode_diacritic_fold.dart';
 import 'view_preferences.dart';
 
@@ -32,6 +33,11 @@ enum PanePhase {
 
   /// A channel is live; navigation and listings answer on it.
   browsing,
+
+  /// Session-restored (02 §3): the persisted location and cached listing
+  /// are adopted WITHOUT a channel — the rows render inert behind the
+  /// Reconnect bar until activation or its button drives [resumeRestored].
+  restored,
 }
 
 enum _RecoveryPhase { none, waiting, listing, failed, reopening }
@@ -594,8 +600,22 @@ class PaneController extends ChangeNotifier {
   bool get canRetryRecovery => _recovery == _RecoveryPhase.failed;
 
   /// The bookmark whose remote binding is live or connecting; the retry
-  /// after a failed connect reuses it.
+  /// after a failed connect reuses it. A session-restored tab keeps it
+  /// too — its badge and its reconnect both read the persisted record.
   Bookmark? get remoteBookmark => _pendingRemote;
+
+  /// Whether this tab sits in the session-restored phase (02 §3): its
+  /// location and cached listing are presentation only until activation
+  /// or the Reconnect bar drives [resumeRestored].
+  bool get restoredPending => _phase == PanePhase.restored;
+
+  /// Whether [_pendingRemote] names a LIVE binding — a connect issued
+  /// or a channel held. A session-restored tab keeps the bookmark for
+  /// its badge and reconnect but holds no pool reference: the shell's
+  /// sibling-binding counts and close-time disconnect must not treat
+  /// the restored placeholder as one.
+  bool get hasLiveRemoteBinding =>
+      _pendingRemote != null && _phase != PanePhase.restored;
 
   /// The "Double-click action" preference's live value (02 §2.6): read
   /// at every FILE activation in [openEntry]. The owning strip stamps
@@ -1686,6 +1706,90 @@ class PaneController extends ChangeNotifier {
     _setListing(_hiddenFiltered(_sortedListing));
     _applyEntries(_filteredListing());
     notifyListeners();
+  }
+
+  /// 02 §3's launch restoration: adopts one persisted session tab —
+  /// the location, the remote identity, and the cached listing
+  /// snapshot — WITHOUT opening a channel. The rows are marked stale
+  /// the moment they land: a restored tab's listing is presentation
+  /// (what the Reconnect bar covers), never selectable data — the same
+  /// inertness the disowned-cache rule gives every other stale row.
+  /// An unbound record restores nothing: the tab stays on its launcher.
+  void markRestored(SessionTabState tab) {
+    if (_disposed || _phase != PanePhase.unbound) return;
+    switch (tab.kind) {
+      case SessionTabKind.unbound:
+        return;
+      case SessionTabKind.local:
+        _location = LocalPaneLocation(tab.path!);
+      case SessionTabKind.remote:
+        _location = RemotePaneLocation(tab.serverId!, tab.path!);
+        _pendingRemote = tab.bookmark;
+        _pendingRemotePath = tab.path;
+    }
+    // The commit marker mirrors the location: the restored path is where
+    // the session verifiably left the pane — Sync Browsing anchors and
+    // the session capture both read it as the last committed location.
+    _committedLocation = _location;
+    _sortedListing = List.unmodifiable(tab.listing);
+    _setListing(_hiddenFiltered(_sortedListing));
+    _staleRows = true;
+    _applyEntries(_filteredListing());
+    _phase = PanePhase.restored;
+    notifyListeners();
+  }
+
+  /// Resumes a session-restored tab (02 §3): a remote tab reconnects
+  /// through the ordinary connect flow — prompts, errors, and the
+  /// connection banner stay owned by it — landing on the restored path;
+  /// a local tab rebinds on a local channel, the spec's "live" local
+  /// restore. The strip calls this on activation when the reconnect
+  /// preference allows; the Reconnect bar's button calls it
+  /// unconditionally — the explicit gesture always reconnects.
+  Future<void> resumeRestored() {
+    if (_disposed || _phase != PanePhase.restored) return Future.value();
+    final bookmark = _pendingRemote;
+    if (bookmark != null) {
+      return connectRemote(bookmark, initialPath: _location?.path);
+    }
+    final location = _location;
+    if (location == null) return Future.value();
+    return openLocalAt(location.path);
+  }
+
+  /// This tab's half of the session document (02 §3): the binding kind
+  /// and its location, plus the remote identity and the sorted listing
+  /// snapshot a restored tab shows behind its Reconnect bar. Nothing
+  /// session-scoped leaks in — selection, history, and the transient
+  /// lenses stay off the document by the same data-loss rule that keeps
+  /// them off ghost tabs (a resurrected selection reads as invented
+  /// state; a forgotten one does not).
+  SessionTabState captureSessionTab() {
+    final bookmark = _pendingRemote;
+    final location = _location;
+    if (bookmark != null) {
+      return SessionTabState.remote(
+        serverId: bookmark.id,
+        path: location is RemotePaneLocation
+            ? location.path
+            : _pendingRemotePath ?? bookmark.remotePath ?? '/',
+        bookmark: bookmark,
+        listing: _sortedListing,
+      );
+    }
+    if (location is LocalPaneLocation) {
+      return SessionTabState.local(
+        path: location.path,
+        listing: _sortedListing,
+      );
+    }
+    // A first local open still in flight persists its target so the
+    // restored tab lands where the launch was headed; '~' rebinds the
+    // user home like every other openLocalAt path.
+    if (_phase == PanePhase.openingLocal) {
+      return SessionTabState.local(path: _pendingLocalRoot);
+    }
+    return const SessionTabState.unbound();
   }
 
   /// The pre-filter listing size — the "of N" half of the strip's

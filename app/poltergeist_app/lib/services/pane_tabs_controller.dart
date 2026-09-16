@@ -7,6 +7,7 @@ import 'double_click_action.dart';
 import 'pane_controller.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
+import 'session_state.dart';
 import 'view_preferences.dart';
 
 /// What `tab.new` (⌘T) binds a fresh tab to — the persisted "New tabs
@@ -189,6 +190,13 @@ class PaneTabsController extends ChangeNotifier {
   /// every `tab.new`; the settings slice writes it.
   NewTabTarget newTabTarget;
 
+  /// The "Reconnect restored tabs automatically" setting's live value
+  /// (02 §3): read when a session-restored remote tab activates. With
+  /// it off, activation alone never reconnects — the tab's Reconnect
+  /// bar waits for the explicit click (the metered/VPN case). A
+  /// restored LOCAL tab rebinds on activation regardless.
+  bool reconnectRestoredTabs = true;
+
   /// The "Double-click action" preference's live value (02 §2.6): read
   /// at every file open through each tab's [PaneController]. Writing it
   /// propagates to every open tab immediately — the setting must not
@@ -361,6 +369,62 @@ class PaneTabsController extends ChangeNotifier {
     if (index < 0 || index == _activeIndex) return;
     _activeIndex = index;
     notifyListeners();
+    _resumeRestoredTab(tab);
+  }
+
+  /// 02 §3's launch restoration: seeds the strip from the persisted
+  /// session pane — the tab objects in order, the persisted active tab,
+  /// and the id counter so post-restore mints cannot collide with the
+  /// persisted ids. Nothing opens beyond the persisted set: a pane that
+  /// saved zero tabs stays on its launcher (restoration never
+  /// auto-opens), and an unbound persisted tab restores as unbound.
+  /// The active restored tab then resumes per [reconnectRestoredTabs].
+  void restoreSession(SessionPaneState state) {
+    assert(!_disposed, 'restoreSession on a disposed PaneTabsController');
+    for (final tabState in state.tabs) {
+      final controller = PaneController(
+        paneTabId: '$paneId.tab${_nextTabOrdinal++}',
+        lanes: _lanes,
+        onError: _onError,
+      );
+      controller.markRestored(tabState);
+      _appendTab(controller);
+    }
+    if (state.nextTabOrdinal > _nextTabOrdinal) {
+      _nextTabOrdinal = state.nextTabOrdinal;
+    }
+    _activeIndex = _tabs.isEmpty
+        ? -1
+        : state.activeTab.clamp(0, _tabs.length - 1);
+    notifyListeners();
+    final active = activeTab;
+    if (active != null) _resumeRestoredTab(active);
+  }
+
+  /// The strip's half of the session document (02 §3): the ordered
+  /// tabs, the active index (-1 on the launcher), and the id counter —
+  /// persisted so post-restore mints stay collision-free.
+  SessionPaneState captureSession() => SessionPaneState(
+    paneId: paneId,
+    activeTab: _activeIndex,
+    nextTabOrdinal: _nextTabOrdinal,
+    tabs: List.unmodifiable([
+      for (final tab in _tabs) tab.controller.captureSessionTab(),
+    ]),
+  );
+
+  /// The 02 §3 activation rule for session-restored tabs: a restored
+  /// local tab rebinds on activation; a restored remote tab reconnects
+  /// on activation only while the auto-reconnect preference allows —
+  /// off, its Reconnect bar waits for the click and activation alone
+  /// never reconnects.
+  void _resumeRestoredTab(PaneTab tab) {
+    final controller = tab.controller;
+    if (!controller.restoredPending) return;
+    if (controller.remoteBookmark != null && !reconnectRestoredTabs) {
+      return;
+    }
+    unawaited(controller.resumeRestored());
   }
 
   /// `tab.next` (⌃⇥ / ⇧⌘]): cycles forward within this pane's strip,
@@ -377,6 +441,7 @@ class PaneTabsController extends ChangeNotifier {
     // Dart's % is non-negative, so the backward leg wraps for free.
     _activeIndex = (_activeIndex + delta) % count;
     notifyListeners();
+    _resumeRestoredTab(_tabs[_activeIndex]);
   }
 
   /// The guard triggers currently active on [tab] — the registry's
@@ -476,7 +541,9 @@ class PaneTabsController extends ChangeNotifier {
     final controller = tab.controller;
     controller.removeListener(_forwardTabChange);
     final serverId = controller.remoteBookmark?.id;
-    if (serverId != null) {
+    // A session-restored tab holds the bookmark but no pool reference —
+    // closing it is a plain dispose, never a server detach.
+    if (serverId != null && controller.hasLiveRemoteBinding) {
       // Remote close = the banner-cancel path's sibling rule (03 §3.2):
       // drop the pooled reference only when this was its last binding,
       // re-checked AFTER the detach's awaited channel release (a
@@ -492,6 +559,7 @@ class PaneTabsController extends ChangeNotifier {
       _tabs.any(
         (t) =>
             !identical(t.controller, excluding) &&
+            t.controller.hasLiveRemoteBinding &&
             t.controller.remoteBookmark?.id == serverId,
       ) ||
       (serverStillShared?.call(serverId, excluding) ?? false);

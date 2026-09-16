@@ -92,6 +92,7 @@ final class DesktopWindowLifecycle {
     Duration geometrySaveDelay = _defaultGeometrySaveDelay,
     void Function() Function(Duration, Future<void> Function())?
     scheduleDebounce,
+    Future<void> Function()? onCloseFlush,
     void Function(Object, StackTrace)? onError,
   }) : _window = window ?? _WindowManagerAdapter(),
        _displays = displays ?? _ScreenRetrieverAdapter(),
@@ -101,6 +102,9 @@ final class DesktopWindowLifecycle {
        // ignore: prefer_initializing_formals
        _geometrySaveDelay = geometrySaveDelay,
        _scheduleDebounce = scheduleDebounce ?? _scheduleWithTimer,
+       // Keep the close-flush seam private to the lifecycle.
+       // ignore: prefer_initializing_formals
+       _onCloseFlush = onCloseFlush,
        // Keep the callback private while allowing test-only error injection.
        // ignore: prefer_initializing_formals
        _onError = onError;
@@ -113,6 +117,12 @@ final class DesktopWindowLifecycle {
   final Duration _geometrySaveDelay;
   final void Function() Function(Duration, Future<void> Function())
   _scheduleDebounce;
+
+  /// 02 §3's app-quit safe point: the session document's flush hook,
+  /// awaited inside [_close] after the geometry save and before the
+  /// window destroys — the intercepted close is the only quit path
+  /// where a wait is guaranteed, so the last session write lands here.
+  final Future<void> Function()? _onCloseFlush;
   final void Function(Object, StackTrace)? _onError;
 
   Rect? _restoredBounds;
@@ -338,6 +348,14 @@ final class DesktopWindowLifecycle {
 
   Future<void> _close() async {
     await _saveCurrentBounds();
+
+    // A wedged or failed flush reports and lets the window destroy —
+    // the quit can never be held hostage by a session write.
+    try {
+      await _onCloseFlush?.call();
+    } catch (error, stack) {
+      _report(error, stack);
+    }
 
     await _window.destroy();
     _window.unregisterCallbacks();
