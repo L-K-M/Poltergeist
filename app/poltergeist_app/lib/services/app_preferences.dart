@@ -12,6 +12,7 @@ const _windowWidthKey = 'window.width';
 const _windowHeightKey = 'window.height';
 const _newTabTargetKey = 'tabs.newTabTarget';
 const _doubleClickActionKey = 'panes.doubleClickAction';
+const _reconnectRestoredTabsKey = 'tabs.reconnectRestored';
 
 class AppPreferences {
   AppPreferences({required SettingsStore store})
@@ -83,6 +84,22 @@ class AppPreferences {
 
   Future<void> saveDoubleClickAction(DoubleClickAction action) =>
       _store.set(_doubleClickActionKey, action.name);
+
+  /// The "Reconnect restored tabs automatically" setting (02 §3): when
+  /// on, activating a session-restored remote tab reconnects without a
+  /// click; when off, its Reconnect bar waits for the explicit action —
+  /// activation alone never reconnects (the metered/VPN case). Defaults
+  /// ON; an unreadable store falls back to the spec default.
+  Future<bool> loadReconnectRestoredTabs() async {
+    try {
+      return await _store.get<bool>(_reconnectRestoredTabsKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> saveReconnectRestoredTabs(bool value) =>
+      _store.set(_reconnectRestoredTabsKey, value);
 
   Future<Rect?> loadWindowBounds() async {
     late final List<num?> storedValues;

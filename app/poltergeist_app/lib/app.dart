@@ -11,6 +11,8 @@ import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
 import 'services/engine_session.dart';
 import 'services/pane_tabs_controller.dart' show NewTabTarget;
+import 'services/session_persistence.dart';
+import 'services/session_state.dart';
 import 'services/ssh_config_import_setup.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
@@ -22,6 +24,9 @@ class PoltergeistApp extends StatefulWidget {
     this.initialPaneRatio = 0.5,
     this.newTabTarget = NewTabTarget.duplicate,
     this.doubleClickAction = DoubleClickAction.open,
+    this.reconnectRestoredTabs = true,
+    this.restoredSession,
+    this.sessionPersistence,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.onContentSizeChanged,
@@ -42,6 +47,19 @@ class PoltergeistApp extends StatefulWidget {
   /// The persisted "Double-click action" preference (02 §2.6), loaded
   /// at startup and seeded onto each pane's tab strip.
   final DoubleClickAction doubleClickAction;
+
+  /// The persisted "Reconnect restored tabs automatically" setting
+  /// (02 §3), loaded at startup and seeded onto each pane's tab strip.
+  final bool reconnectRestoredTabs;
+
+  /// The persisted session document (02 §3's launch restoration);
+  /// null boots the default two-pane layout.
+  final SessionState? restoredSession;
+
+  /// 02 §3's session writer: flushed inside `onExitRequested` — the
+  /// app-quit safe point — while its notify-driven writes cover every
+  /// other commit point. Null leaves session persistence unwired.
+  final SessionPersistence? sessionPersistence;
 
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
@@ -114,9 +132,11 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     _lifecycleListener?.dispose();
     _lifecycleListener = null;
     final session = widget.engineSession;
-    if (session == null) return;
+    final persistence = widget.sessionPersistence;
+    if (session == null && persistence == null) return;
     _lifecycleListener = AppLifecycleListener(
-      onStateChange: session.forwardLifecycle,
+      onStateChange:
+          session?.forwardLifecycle ?? (_) {},
       // The framework awaits this future before exiting — the only exit
       // hook with a wait semantic, so the pending mirror writes flush
       // before the process is allowed to die. The session's shutdown
@@ -125,19 +145,21 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onExitRequested: () async {
         // Flush what is already queued before stopping the engine: the
         // tails snapshot at call time, so writes racing the shutdown
-        // trigger still land first. Best-effort and bounded — the
-        // framework awaits this future, so neither a failed nor a wedged
-        // flush may block the exit.
+        // trigger still land first. The session document (02 §3's
+        // app-quit safe point) flushes in the same bounded wait. Both
+        // are best-effort — the framework awaits this future, so
+        // neither a failed nor a wedged flush may block the exit.
         try {
-          await session
-              .flushWrites()
-              .timeout(_exitFlushTimeout);
+          await Future.wait<void>([
+            if (session != null) session.flushWrites(),
+            if (persistence != null) persistence.flush(),
+          ]).timeout(_exitFlushTimeout);
         } on Object catch (error, stackTrace) {
           FlutterError.reportError(
             FlutterErrorDetails(exception: error, stack: stackTrace),
           );
         }
-        session.forwardLifecycle(AppLifecycleState.detached);
+        session?.forwardLifecycle(AppLifecycleState.detached);
         return AppExitResponse.exit;
       },
     );
@@ -185,6 +207,9 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       initialPaneRatio: widget.initialPaneRatio,
       newTabTarget: widget.newTabTarget,
       doubleClickAction: widget.doubleClickAction,
+      reconnectRestoredTabs: widget.reconnectRestoredTabs,
+      restoredSession: widget.restoredSession,
+      sessionPersistence: widget.sessionPersistence,
       onPaneRatioChanged: widget.onPaneRatioChanged,
       onPaneRatioSaveError: widget.onPaneRatioSaveError,
       sshConfigImport: widget.sshConfigImport,

@@ -12,6 +12,8 @@ import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_tabs_controller.dart';
 import '../services/registered_command.dart';
+import '../services/session_persistence.dart';
+import '../services/session_state.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
@@ -36,6 +38,9 @@ class WorkspaceShell extends StatefulWidget {
     this.initialPaneRatio = 0.5,
     this.newTabTarget = NewTabTarget.duplicate,
     this.doubleClickAction = DoubleClickAction.open,
+    this.reconnectRestoredTabs = true,
+    this.restoredSession,
+    this.sessionPersistence,
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.sshConfigImport,
@@ -57,6 +62,25 @@ class WorkspaceShell extends StatefulWidget {
   /// every file open; the settings slice writes the field (and persists
   /// it) after construction.
   final DoubleClickAction doubleClickAction;
+
+  /// The persisted "Reconnect restored tabs automatically" setting
+  /// (02 §3) seeding each strip's live
+  /// [PaneTabsController.reconnectRestoredTabs] — read when a
+  /// session-restored remote tab activates.
+  final bool reconnectRestoredTabs;
+
+  /// The persisted session document (02 §3's launch restoration);
+  /// consumed on the FIRST workspace build only — an engine-session
+  /// rebind later rebuilds the strips fresh rather than replaying the
+  /// launch document over live state. Null boots the default two-tab
+  /// layout.
+  final SessionState? restoredSession;
+
+  /// 02 §3's safe-point writer: attached to the live workspace so tab
+  /// open/close/switch, navigation commits, and the pane toggle land on
+  /// disk; null leaves session persistence unwired (test surfaces).
+  /// Same identity-stability contract as [bookmarks].
+  final SessionPersistence? sessionPersistence;
 
   final PaneRatioSaver? onPaneRatioChanged;
   final void Function(Object, StackTrace)? onPaneRatioSaveError;
@@ -152,6 +176,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace?.left.doubleClickAction = widget.doubleClickAction;
       _workspace?.right.doubleClickAction = widget.doubleClickAction;
     }
+    // And for the restored-tab reconnect setting (02 §3).
+    if (widget.reconnectRestoredTabs != oldWidget.reconnectRestoredTabs) {
+      _workspace?.left.reconnectRestoredTabs = widget.reconnectRestoredTabs;
+      _workspace?.right.reconnectRestoredTabs = widget.reconnectRestoredTabs;
+    }
   }
 
   @override
@@ -179,41 +208,78 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     );
   }
 
+  /// Whether the launch session document was already consumed: it seeds
+  /// exactly one workspace build — an engine-session rebind later must
+  /// not replay launch state over the session the user has since built.
+  bool _sessionRestoreConsumed = false;
+
   void _buildWorkspace() {
     final lanes = widget.engineSession?.paneLanes;
-    PaneTabsController buildStrip(String paneId) => PaneTabsController(
-      paneId: paneId,
-      lanes: lanes,
-      newTabTarget: widget.newTabTarget,
-      doubleClickAction: widget.doubleClickAction,
-      confirmClose: _confirmTabClose,
-      // The cross-pane half of a remote tab's last-binding check: read
-      // the workspace lazily — the strips are built before it exists.
-      serverStillShared: (serverId, excluding) =>
-          // Null-workspace is unreachable by close time — but if timing
-          // ever shifted, "assume shared" is the fail-safe direction:
-          // it detaches rather than dropping a pool reference a sibling
-          // might still hold.
-          _workspace?.serverStillBound(serverId, excluding) ?? true,
-      onError: ApplicationErrorReporter().report,
-    );
+    PaneTabsController buildStrip(String paneId) {
+      final strip = PaneTabsController(
+        paneId: paneId,
+        lanes: lanes,
+        newTabTarget: widget.newTabTarget,
+        doubleClickAction: widget.doubleClickAction,
+        confirmClose: _confirmTabClose,
+        // The cross-pane half of a remote tab's last-binding check: read
+        // the workspace lazily — the strips are built before it exists.
+        serverStillShared: (serverId, excluding) =>
+            // Null-workspace is unreachable by close time — but if timing
+            // ever shifted, "assume shared" is the fail-safe direction:
+            // it detaches rather than dropping a pool reference a sibling
+            // might still hold.
+            _workspace?.serverStillBound(serverId, excluding) ?? true,
+        onError: ApplicationErrorReporter().report,
+      );
+      strip.reconnectRestoredTabs = widget.reconnectRestoredTabs;
+      return strip;
+    }
+
     final left = buildStrip(PaneTabsController.leftPaneId);
     final right = buildStrip(PaneTabsController.rightPaneId);
-    final workspace = WorkspaceController(left: left, right: right)
-      ..addListener(_onWorkspaceChanged);
-    // Seed from the controller, not a hardcoded shown: the workspace's
-    // initial visibility is the source of truth for the transition
-    // edge _onWorkspaceChanged tracks.
-    _secondPaneWasShown = workspace.secondPaneShown;
+    final workspace = WorkspaceController(left: left, right: right);
     _workspace = workspace;
+    widget.sessionPersistence?.attach(workspace);
 
-    // The initial binding: each pane opens one tab on the local home —
-    // explicit `home` because the startup tab has no duplicate source and
-    // a launcher's first surface is still a browsing location. The "New
+    // 02 §3's launch restoration wins over the default seed exactly
+    // once: the persisted document seeds both strips (a pane that saved
+    // zero tabs stays on its launcher — restoration never auto-opens),
+    // the pane toggle's user intent, and the active pane. With no
+    // document, each pane opens one tab on the local home — explicit
+    // `home` because the startup tab has no duplicate source and a
+    // launcher's first surface is still a browsing location. The "New
     // tabs open" preference governs ⌘T only (02 §2.1). With no engine
     // the tab stays unbound and renders the no-engine state.
-    left.newTab(target: NewTabTarget.home);
-    right.newTab(target: NewTabTarget.home);
+    final restored = _sessionRestoreConsumed ? null : widget.restoredSession;
+    _sessionRestoreConsumed = true;
+    if (restored != null) {
+      for (final pane in restored.panes) {
+        final strip = switch (pane.paneId) {
+          PaneTabsController.leftPaneId => left,
+          PaneTabsController.rightPaneId => right,
+          _ => null,
+        };
+        strip?.restoreSession(pane);
+      }
+      workspace.setSecondPaneHidden(restored.secondPaneHidden);
+      if (restored.activePaneId == PaneTabsController.rightPaneId) {
+        // Refused while pane B is hidden — the workspace's own rule
+        // parks commands on the survivor (02 §3).
+        workspace.setActivePane(right);
+      }
+    } else {
+      left.newTab(target: NewTabTarget.home);
+      right.newTab(target: NewTabTarget.home);
+    }
+    // The change listener attaches only after the initial state
+    // settles: a launch-time visibility flip is restoration, not a
+    // user-driven hide edge — the synchronous notify inside
+    // setSecondPaneHidden would otherwise fire _onWorkspaceChanged's
+    // focus handoff before the first frame. Seed the tracker from the
+    // settled state, never a hardcoded shown.
+    workspace.addListener(_onWorkspaceChanged);
+    _secondPaneWasShown = workspace.secondPaneShown;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final left = _leftFocus;
       final right = _rightFocus;
@@ -231,6 +297,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   }
 
   void _disposeWorkspace() {
+    // The writer outlives the shell (the app owns it) — detach so a
+    // rebuild's notify storm cannot write a torn-down workspace's doc.
+    widget.sessionPersistence?.detach();
     _workspace?.dispose();
     _workspace = null;
   }

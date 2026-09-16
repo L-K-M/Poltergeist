@@ -97,8 +97,63 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'window.height'",
     "'tabs.newTabTarget'",
     "'panes.doubleClickAction'",
+    "'tabs.reconnectRestored'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
+  // The session-state document's on-disk schema (02 §3): settings.json
+  // keys, record field names, and validation diagnostics — the same
+  // posture as the sibling versioned stores, never rendered UI copy.
+  'lib/services/session_state.dart': {
+    "'pane.left'",
+    "'pane.right'",
+    "'version'",
+    "'activePane'",
+    "'secondPaneHidden'",
+    "'panes'",
+    "'paneId'",
+    "'activeTab'",
+    "'nextTabOrdinal'",
+    "'tabs'",
+    "'kind'",
+    "'local'",
+    "'remote'",
+    "'unbound'",
+    "'id'",
+    "'path'",
+    "'serverId'",
+    "'bookmark'",
+    "'listing'",
+    "'name'",
+    "'type'",
+    "'size'",
+    "'uid'",
+    "'gid'",
+    "'accessedAt'",
+    "'modifiedAt'",
+    "'contentSha256'",
+    "'mode'",
+    r"'bookmark:${bookmarkJson['id']}'",
+    "'Invalid session tab'",
+    "'Invalid session tab kind'",
+    "'Invalid session tab serverId'",
+    "'Invalid session tab bookmark'",
+    "'Invalid session tab path'",
+    "'Invalid session tab listing'",
+    "'Invalid session pane'",
+    "'Invalid session pane id'",
+    "'Invalid session pane counters'",
+    "'Invalid session pane active tab'",
+    "'Invalid session pane tab counter'",
+    "'Invalid session pane tabs'",
+    "'Invalid session state'",
+    "'Unsupported session state schema'",
+    "'Invalid session active pane'",
+    "'Invalid session pane visibility'",
+    "'Invalid session panes'",
+    "'Invalid session entry'",
+  },
+  // The settings.json key the session document lives under (02 §3).
+  'lib/services/session_state_store.dart': {"'session.state'"},
   // Ported Séance contracts (see docs/PORTS.md): the exception messages are
   // frozen port text, kept byte-identical to the source. D20 localization
   // applies where the UI renders them (the prompt-UI slice), not here.
@@ -211,12 +266,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // guard diagnostic — machine data, never rendered UI copy.
   'lib/services/pane_tabs_controller.dart': {
     r"'$paneId.tab${_nextTabOrdinal++}'",
-    // The canonical pane ids — engine-channel identity, not copy.
-    "'pane.left'",
-    "'pane.right'",
     "'tab close guard fired with no presenter wired'",
     "'newTab on a disposed PaneTabsController'",
     "'addTab on a disposed PaneTabsController'",
+    "'restoreSession on a disposed PaneTabsController'",
   },
   // The pane controller's machine data: the home anchor the engine
   // expands, the dotfile filter prefix, the root path, the taxonomy
@@ -353,6 +406,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.banner'",
     "'pane.banner.cancel'",
     "'pane.banner.retry'",
+    "'pane.reconnectBar'",
+    "'pane.reconnectBar.reconnect'",
     "'pane.connect.cancel'",
     "'pane.typeAhead'",
     // The save bar's adhoc-keyed widget key — plumbing, not copy.

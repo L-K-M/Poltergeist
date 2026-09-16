@@ -10,6 +10,9 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_store.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/engine_session.dart';
+import 'services/session_persistence.dart';
+import 'services/session_state.dart';
+import 'services/session_state_store.dart';
 import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
 
@@ -35,8 +38,27 @@ Future<void> main() async {
   final paneRatio = await preferences.loadPaneRatio();
   final newTabTarget = await preferences.loadNewTabTarget();
   final doubleClickAction = await preferences.loadDoubleClickAction();
+  final reconnectRestoredTabs =
+      await preferences.loadReconnectRestoredTabs();
+  // 02 §3's launch restoration: one versioned document inside
+  // settings.json. A malformed or newer-schema document must not fail
+  // startup — the app boots the default session and the document stays
+  // on disk untouched (the store's read-before-write keeps a document
+  // this build cannot decode from ever being overwritten).
+  final sessionStore = SessionStateStore(store: settingsStore);
+  SessionState? restoredSession;
+  try {
+    restoredSession = await sessionStore.load();
+  } on Object catch (error, stack) {
+    errorReporter.report(error, stack);
+  }
+  final sessionPersistence = SessionPersistence(
+    store: sessionStore,
+    onError: errorReporter.report,
+  );
   final windowLifecycle = DesktopWindowLifecycle(
     preferences,
+    onCloseFlush: sessionPersistence.flush,
     onError: errorReporter.report,
   );
   await errorReporter.guard(windowLifecycle.prepare);
@@ -61,6 +83,9 @@ Future<void> main() async {
       initialPaneRatio: paneRatio,
       newTabTarget: newTabTarget,
       doubleClickAction: doubleClickAction,
+      reconnectRestoredTabs: reconnectRestoredTabs,
+      restoredSession: restoredSession,
+      sessionPersistence: sessionPersistence,
       bookmarks: bookmarks,
       engineSession: engineSession,
       navigatorKey: navigatorKey,

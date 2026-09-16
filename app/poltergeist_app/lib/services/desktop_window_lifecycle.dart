@@ -13,6 +13,11 @@ const _initialWindowSize = Size(1180, 760);
 const _minimumContentSize = Size(720, 480);
 const _defaultGeometrySaveDelay = Duration(milliseconds: 250);
 
+/// The close-path session flush's bound (02 §3): the intercepted close
+/// is the last guaranteed wait, but a wedged write must still let the
+/// window destroy — same posture as `onExitRequested`'s flush timeout.
+const _closeFlushTimeout = Duration(seconds: 2);
+
 void Function() _scheduleWithTimer(
   Duration delay,
   Future<void> Function() callback,
@@ -92,6 +97,7 @@ final class DesktopWindowLifecycle {
     Duration geometrySaveDelay = _defaultGeometrySaveDelay,
     void Function() Function(Duration, Future<void> Function())?
     scheduleDebounce,
+    Future<void> Function()? onCloseFlush,
     void Function(Object, StackTrace)? onError,
   }) : _window = window ?? _WindowManagerAdapter(),
        _displays = displays ?? _ScreenRetrieverAdapter(),
@@ -101,6 +107,9 @@ final class DesktopWindowLifecycle {
        // ignore: prefer_initializing_formals
        _geometrySaveDelay = geometrySaveDelay,
        _scheduleDebounce = scheduleDebounce ?? _scheduleWithTimer,
+       // Keep the close-flush seam private to the lifecycle.
+       // ignore: prefer_initializing_formals
+       _onCloseFlush = onCloseFlush,
        // Keep the callback private while allowing test-only error injection.
        // ignore: prefer_initializing_formals
        _onError = onError;
@@ -113,6 +122,12 @@ final class DesktopWindowLifecycle {
   final Duration _geometrySaveDelay;
   final void Function() Function(Duration, Future<void> Function())
   _scheduleDebounce;
+
+  /// 02 §3's app-quit safe point: the session document's flush hook,
+  /// awaited inside [_close] after the geometry save and before the
+  /// window destroys — the intercepted close is the only quit path
+  /// where a wait is guaranteed, so the last session write lands here.
+  final Future<void> Function()? _onCloseFlush;
   final void Function(Object, StackTrace)? _onError;
 
   Rect? _restoredBounds;
@@ -338,6 +353,14 @@ final class DesktopWindowLifecycle {
 
   Future<void> _close() async {
     await _saveCurrentBounds();
+
+    // A wedged or failed flush reports and lets the window destroy —
+    // the quit can never be held hostage by a session write.
+    try {
+      await _onCloseFlush?.call().timeout(_closeFlushTimeout);
+    } catch (error, stack) {
+      _report(error, stack);
+    }
 
     await _window.destroy();
     _window.unregisterCallbacks();
