@@ -5105,7 +5105,7 @@ and hidden-pane no-ops; and both §7 link outcomes. Real-font captures
 under `tasks/run3-task54/captures/` show the hover indicator plus drag
 avatar and the post-drop state.
 
-Validation: `flutter analyze` clean; full app suite green (969 tests);
+Validation: `flutter analyze` clean; full app suite green (971 tests);
 logs under `tasks/run3-task54/`.
 
 ## Open items

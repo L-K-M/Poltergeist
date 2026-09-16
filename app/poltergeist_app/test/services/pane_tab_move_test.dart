@@ -210,20 +210,34 @@ void main() {
       addTearDown(guardedWorkspace.dispose);
 
       final channel = FakePaneChannel('/home/tester')
-        ..listings['/home/tester'] = [_entry('a.txt')];
+        ..listings['/home/tester'] = [_entry('a.txt')]
+        ..listings['/home/tester/sub'] = [
+          _entry('c.txt', parent: '/home/tester/sub'),
+        ];
       lanes.nextLocalChannel = channel;
       final tab = guardedLeft.newTab(target: NewTabTarget.home);
       await settle();
 
       // In-flight navigation + an open rename: both would fire the
       // close guard — the move must proceed without asking.
-      channel.holdNext = Completer<void>();
+      final hold = Completer<void>();
+      channel.holdNext = hold;
       tab.controller.navigate('/home/tester/sub');
       expect(tab.controller.loading, isTrue);
 
       expect(guardedWorkspace.moveTabToPane(tab, guardedRight), isTrue);
       expect(presented, 0);
       expect(guardedRight.tabs, contains(tab));
+
+      // Releasing the held listing settles on the destination — the
+      // move left the navigation, not just the tab, intact.
+      hold.complete();
+      await settle();
+      expect(tab.controller.loading, isFalse);
+      expect(
+        tab.controller.location,
+        const LocalPaneLocation('/home/tester/sub'),
+      );
     });
 
     test('an in-flight navigation settles on the destination pane',
@@ -299,13 +313,48 @@ void main() {
     });
 
     test('a foreign tab moves nowhere', () async {
-      final outsider = PaneTabsController(
+      final otherStrip = PaneTabsController(
         paneId: 'pane.other',
         lanes: lanes,
-      ).newTab(target: NewTabTarget.launcher);
+      );
+      addTearDown(otherStrip.dispose);
+      final outsider = otherStrip.newTab(target: NewTabTarget.launcher);
 
       expect(workspace.moveTabToPane(outsider, right), isFalse);
       expect(right.tabs, isNot(contains(outsider)));
+    });
+
+    test('a foreign strip as TARGET is refused outright', () async {
+      final foreignStrip = PaneTabsController(
+        paneId: 'pane.other',
+        lanes: lanes,
+      );
+      addTearDown(foreignStrip.dispose);
+      final tab = await openLeftTab();
+
+      // The runtime identity guard refuses the call — a foreign target
+      // would misread the sibling lookup as `left` and detach the tab
+      // into another workspace.
+      expect(workspace.moveTabToPane(tab, foreignStrip), isFalse);
+      expect(left.tabs, contains(tab));
+      expect(foreignStrip.tabs, isEmpty);
+    });
+
+    test('a refused adoption re-homes the tab on its source strip', () async {
+      final tab = await openLeftTab();
+      // Disposing the target directly forces adoptMovedTab's guard —
+      // the release-mode path where the assert is stripped.
+      right.dispose();
+
+      expect(workspace.moveTabToPane(tab, right), isFalse);
+      expect(left.tabs, contains(tab), reason: 'the move reports '
+          'failure and the tab lands back on its own strip');
+      expect(identical(left.activeTab, tab), isTrue);
+      expect(
+        tab.controller.location,
+        const LocalPaneLocation('/home/tester'),
+        reason: 'the re-homed controller is still live',
+      );
     });
 
     test('a hidden pane takes no drops and starts no drags', () async {

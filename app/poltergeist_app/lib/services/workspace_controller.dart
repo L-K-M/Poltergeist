@@ -151,15 +151,24 @@ class WorkspaceController extends ChangeNotifier {
   /// within-strip reorder), or pane B is hidden — a hidden pane's tabs
   /// take no drops and start no drags (02 §3).
   bool moveTabToPane(PaneTab tab, PaneTabsController target, {int? index}) {
-    assert(
-      identical(target, left) || identical(target, right),
-      'Move target must be one of this workspace\'s panes.',
-    );
+    // The identity guard is runtime, not an assert: a foreign strip as
+    // target would misread the sibling lookup as `left` and detach the
+    // tab into another workspace, and asserts strip out in release.
+    if (!identical(target, left) && !identical(target, right)) {
+      return false;
+    }
     if (!secondPaneShown) return false;
     final source = identical(target, left) ? right : left;
     if (!source.tabs.contains(tab)) return false;
     source.detachTabForMove(tab);
     target.adoptMovedTab(tab, index: index);
+    if (!target.tabs.contains(tab)) {
+      // Adoption was refused (a disposed target in a release build, where
+      // the assert is stripped): re-home the tab on its source strip
+      // rather than orphan a live PaneController between strips.
+      source.adoptMovedTab(tab);
+      return false;
+    }
     setActivePane(target);
     return true;
   }

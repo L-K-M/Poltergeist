@@ -104,7 +104,9 @@ final class PaneTab {
   /// (`pane.left.tab3`), so channels and strip keys share one identity.
   /// The pane prefix names where the tab was CREATED: a tab dragged to
   /// the other pane keeps its minted id, so the engine channel rides
-  /// the move untouched (02 §3).
+  /// the move untouched (02 §3). Never parse the prefix back out to
+  /// find a tab's current pane — the id names where it was minted,
+  /// not where it lives.
   final String id;
 
   /// The tab's browsing state; owned and disposed by the strip.
@@ -525,12 +527,10 @@ class PaneTabsController extends ChangeNotifier {
   /// source strip — inserts at [index] (clamped; null appends) and
   /// activates, since a dropped tab is the one the user is looking at.
   /// The strip's live settings stamp on arrival like any other tab.
+  /// The guards run in release too — a refused adoption must be
+  /// observable (the workspace re-homes the tab) rather than an
+  /// assert-only invariant.
   void adoptMovedTab(PaneTab tab, {int? index}) {
-    assert(!_disposed, 'adoptMovedTab on a disposed PaneTabsController');
-    assert(
-      !_tabs.contains(tab),
-      'adoptMovedTab of a tab still on a strip',
-    );
     if (_disposed || _tabs.contains(tab)) return;
     final insertion = (index ?? _tabs.length).clamp(0, _tabs.length);
     // Keep the active pointer on its own tab through the insertion.

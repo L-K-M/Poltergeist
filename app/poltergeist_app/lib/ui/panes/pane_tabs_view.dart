@@ -155,10 +155,6 @@ class _TabStrip extends StatefulWidget {
 }
 
 class _TabStripState extends State<_TabStrip> {
-  /// Keys the ACTIVE chip so its context can be scrolled into view; the
-  /// key moves chip-to-chip with the activation.
-  final _activeChipKey = GlobalKey();
-
   /// Keys the strip container so drop positions resolve in strip-local
   /// coordinates.
   final _stripKey = GlobalKey();
@@ -275,8 +271,12 @@ class _TabStripState extends State<_TabStrip> {
                           _lastActive = active;
                           if (active != null) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
+                              // Reads the CURRENT active tab at callback
+                              // time, so activations coalescing in one
+                              // frame scroll to the latest one.
                               final chipContext =
-                                  _activeChipKey.currentContext;
+                                  _chipKeys[tabs.activeTab]
+                                      ?.currentContext;
                               if (chipContext == null) return;
                               // Scroll only when the chip is actually
                               // offscreen — an already-visible
@@ -337,29 +337,23 @@ class _TabStripState extends State<_TabStrip> {
                           child: Row(
                             children: [
                               for (final tab in tabs.tabs)
+                                // The per-tab key doubles as the
+                                // scroll-into-view handle and the
+                                // drop-index geometry anchor — a chip
+                                // keeps its element across activation
+                                // changes (no reparenting wrapper).
                                 KeyedSubtree(
                                   key: _chipKeys.putIfAbsent(
                                     tab,
                                     GlobalKey.new,
                                   ),
-                                  child: identical(tab, active)
-                                      ? KeyedSubtree(
-                                          key: _activeChipKey,
-                                          child: _TabChip(
-                                            key: ValueKey(tab.id),
-                                            tabs: tabs,
-                                            tab: tab,
-                                            workspace: widget.workspace,
-                                            focusNode: widget.focusNode,
-                                          ),
-                                        )
-                                      : _TabChip(
-                                          key: ValueKey(tab.id),
-                                          tabs: tabs,
-                                          tab: tab,
-                                          workspace: widget.workspace,
-                                          focusNode: widget.focusNode,
-                                        ),
+                                  child: _TabChip(
+                                    key: ValueKey(tab.id),
+                                    tabs: tabs,
+                                    tab: tab,
+                                    workspace: widget.workspace,
+                                    focusNode: widget.focusNode,
+                                  ),
                                 ),
                             ],
                           ),
@@ -522,6 +516,9 @@ class _TabChip extends StatelessWidget {
     // the avatar's top-left, and pointer anchoring keeps that equal to
     // the pointer — the drop-index math works on the pointer itself.
     return Draggable<PaneTab>(
+      // One tab can only be under one pointer: a second concurrent drag
+      // of the same chip would carry a payload that is already gone.
+      maxSimultaneousDrags: 1,
       data: tab,
       dragAnchorStrategy: pointerDragAnchorStrategy,
       feedback: _TabDragAvatar(tab: tab),
@@ -544,30 +541,38 @@ class _TabDragAvatar extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final colors = Theme.of(context).colorScheme;
     final bookmark = tab.controller.remoteBookmark;
-    return Material(
-      elevation: 4,
-      color: colors.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(6),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (bookmark != null) ...[
-              ServerBadge(
-                color: bookmark.color,
-                icon: bookmark.icon,
-                size: 14,
+    // The overlay gives the avatar loose constraints: without a cap a
+    // long tab title drags a screen-wide chip and the ellipsis never
+    // engages (a Row needs a bounded Text to ellipsize at all).
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: Material(
+        elevation: 4,
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (bookmark != null) ...[
+                ServerBadge(
+                  color: bookmark.color,
+                  icon: bookmark.icon,
+                  size: 14,
+                ),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text(
+                  paneTabTitle(tab, l10n),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
               ),
-              const SizedBox(width: 6),
             ],
-            Text(
-              paneTabTitle(tab, l10n),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-          ],
+          ),
         ),
       ),
     );

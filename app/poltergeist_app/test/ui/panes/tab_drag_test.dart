@@ -20,8 +20,16 @@ final _captureDir =
     Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
     '../../tasks/run3-task54/captures';
 
-Future<ByteData> _fontBytes(String path) async =>
-    ByteData.view(File(path).readAsBytesSync().buffer);
+Future<ByteData> _fontBytes(String path) async {
+  final bytes = File(path).readAsBytesSync();
+  // Honor the list's window into its buffer — a nonzero offset would
+  // otherwise smear the font bytes.
+  return ByteData.view(
+    bytes.buffer,
+    bytes.offsetInBytes,
+    bytes.lengthInBytes,
+  );
+}
 
 /// Registers a readable face under the names the theme resolves — the
 /// widget-test default font renders hollow boxes in captures.
@@ -375,7 +383,10 @@ void main() {
           final data = await image.toByteData(
             format: ui.ImageByteFormat.png,
           );
-          return data!.buffer.asUint8List();
+          return data!.buffer.asUint8List(
+            data.offsetInBytes,
+            data.lengthInBytes,
+          );
         } finally {
           image.dispose();
         }
