@@ -148,6 +148,8 @@ void main() {
     expect(() => SessionState.fromJson(<String, Object?>{}),
         throwsFormatException);
 
+    final fixturePanes =
+        _fixture().toJson()['panes']! as List<Object?>;
     for (final mutation in <Map<String, Object?>>[
       {..._fixture().toJson(), 'activePane': 7},
       {..._fixture().toJson(), 'secondPaneHidden': 'yes'},
@@ -202,6 +204,44 @@ void main() {
             ],
           },
         ],
+      },
+      // Counter ranges and document shape are schema too: an active
+      // index outside the tab list, an id counter below the first mint,
+      // a truncated or padded pane list, and an active pane naming no
+      // restored strip are all corrupt documents.
+      {
+        ..._fixture().toJson(),
+        'panes': [
+          {
+            'paneId': PaneTabsController.leftPaneId,
+            'activeTab': 5,
+            'nextTabOrdinal': 4,
+            'tabs': [
+              {'kind': 'local', 'path': '/x'},
+            ],
+          },
+          fixturePanes[1],
+        ],
+      },
+      {
+        ..._fixture().toJson(),
+        'panes': [
+          {
+            'paneId': PaneTabsController.leftPaneId,
+            'activeTab': -1,
+            'nextTabOrdinal': 0,
+            'tabs': [],
+          },
+          fixturePanes[1],
+        ],
+      },
+      {
+        ..._fixture().toJson(),
+        'panes': [fixturePanes[0]],
+      },
+      {
+        ..._fixture().toJson(),
+        'activePane': 'pane.middle',
       },
     ]) {
       expect(() => SessionState.fromJson(mutation), throwsFormatException);

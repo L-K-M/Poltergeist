@@ -176,13 +176,23 @@ final class SessionPaneState {
     if (tabs is! List) {
       throw const FormatException('Invalid session pane tabs');
     }
+    final decodedTabs = List<SessionTabState>.unmodifiable([
+      for (final tab in tabs) SessionTabState.fromJson(tab),
+    ]);
+    // Counter ranges are schema too: an active index outside
+    // [-1, tabs.length) or an id counter below the first mint (1) is a
+    // corrupt document, not a value to clamp into plausibility.
+    if (activeTab < -1 || activeTab >= decodedTabs.length) {
+      throw const FormatException('Invalid session pane active tab');
+    }
+    if (nextTabOrdinal < 1) {
+      throw const FormatException('Invalid session pane tab counter');
+    }
     return SessionPaneState(
       paneId: paneId,
       activeTab: activeTab,
       nextTabOrdinal: nextTabOrdinal,
-      tabs: List.unmodifiable([
-        for (final tab in tabs) SessionTabState.fromJson(tab),
-      ]),
+      tabs: decodedTabs,
     );
   }
 }
@@ -231,12 +241,20 @@ final class SessionState {
     if (panes is! List) {
       throw const FormatException('Invalid session panes');
     }
+    final decodedPanes = List<SessionPaneState>.unmodifiable([
+      for (final pane in panes) SessionPaneState.fromJson(pane),
+    ]);
+    // v1 is the two-pane document: anything else (a truncated write, a
+    // foreign pane id, an active pane naming no restored strip) is
+    // corrupt, not a partial restore to improvise around.
+    if (decodedPanes.length != 2 ||
+        !decodedPanes.any((pane) => pane.paneId == activePane)) {
+      throw const FormatException('Invalid session panes');
+    }
     return SessionState(
       activePaneId: activePane,
       secondPaneHidden: secondPaneHidden,
-      panes: List.unmodifiable([
-        for (final pane in panes) SessionPaneState.fromJson(pane),
-      ]),
+      panes: decodedPanes,
     );
   }
 }

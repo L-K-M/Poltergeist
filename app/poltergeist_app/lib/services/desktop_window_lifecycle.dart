@@ -13,6 +13,11 @@ const _initialWindowSize = Size(1180, 760);
 const _minimumContentSize = Size(720, 480);
 const _defaultGeometrySaveDelay = Duration(milliseconds: 250);
 
+/// The close-path session flush's bound (02 §3): the intercepted close
+/// is the last guaranteed wait, but a wedged write must still let the
+/// window destroy — same posture as `onExitRequested`'s flush timeout.
+const _closeFlushTimeout = Duration(seconds: 2);
+
 void Function() _scheduleWithTimer(
   Duration delay,
   Future<void> Function() callback,
@@ -352,7 +357,7 @@ final class DesktopWindowLifecycle {
     // A wedged or failed flush reports and lets the window destroy —
     // the quit can never be held hostage by a session write.
     try {
-      await _onCloseFlush?.call();
+      await _onCloseFlush?.call().timeout(_closeFlushTimeout);
     } catch (error, stack) {
       _report(error, stack);
     }

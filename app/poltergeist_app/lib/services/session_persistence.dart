@@ -84,6 +84,9 @@ final class SessionPersistence {
   void detach() {
     _cancelScheduled?.call();
     _cancelScheduled = null;
+    // The dedupe key attests what's on disk for the DETACHED workspace —
+    // a re-attach must not inherit it and skip the first capture.
+    _lastEncoded = null;
     for (final listened in _listened) {
       listened.removeListener(_scheduleWrite);
     }
@@ -115,10 +118,13 @@ final class SessionPersistence {
   Future<void> _write() async {
     final workspace = _workspace;
     if (workspace == null) return;
-    final state = captureSessionState(workspace);
-    final encoded = jsonEncode(state.toJson());
-    if (encoded == _lastEncoded) return;
+    // Capture and encode sit inside the try too: a controller that
+    // throws mid-capture reports through the same lane rather than
+    // surfacing as an unhandled error on a scheduled write.
     try {
+      final state = captureSessionState(workspace);
+      final encoded = jsonEncode(state.toJson());
+      if (encoded == _lastEncoded) return;
       await _store.save(state);
       _lastEncoded = encoded;
     } catch (error, stack) {

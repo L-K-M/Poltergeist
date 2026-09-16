@@ -223,7 +223,9 @@ void main() {
       strip.restoreSession(
         SessionPaneState(
           paneId: PaneTabsController.leftPaneId,
-          activeTab: 1,
+          // The restored REMOTE tab is the active one: with
+          // auto-reconnect OFF, restoring it must connect nothing.
+          activeTab: 0,
           nextTabOrdinal: 5,
           tabs: [
             _remoteTab('b1'),
@@ -234,12 +236,14 @@ void main() {
 
       expect(strip.tabs.map((t) => t.id),
           ['pane.left.tab1', 'pane.left.tab2']);
-      expect(strip.activeTab?.id, 'pane.left.tab2');
+      expect(strip.activeTab?.id, 'pane.left.tab1');
       // A later mint cannot collide with the persisted ids.
       expect(strip.newTab(target: NewTabTarget.launcher).id,
           'pane.left.tab5');
       // Activation of the restored remote tab with auto-reconnect OFF
-      // must not have connected anything.
+      // must not have connected anything — pump the loop so an issued
+      // call could not still be in flight.
+      await Future<void>.delayed(Duration.zero);
       expect(lanes.calls, isEmpty);
     });
 

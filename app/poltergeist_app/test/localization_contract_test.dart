@@ -140,6 +140,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Invalid session pane'",
     "'Invalid session pane id'",
     "'Invalid session pane counters'",
+    "'Invalid session pane active tab'",
+    "'Invalid session pane tab counter'",
     "'Invalid session pane tabs'",
     "'Invalid session state'",
     "'Unsupported session state schema'",

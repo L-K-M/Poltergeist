@@ -238,12 +238,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     final left = buildStrip(PaneTabsController.leftPaneId);
     final right = buildStrip(PaneTabsController.rightPaneId);
-    final workspace = WorkspaceController(left: left, right: right)
-      ..addListener(_onWorkspaceChanged);
-    // Seed from the controller, not a hardcoded shown: the workspace's
-    // initial visibility is the source of truth for the transition
-    // edge _onWorkspaceChanged tracks.
-    _secondPaneWasShown = workspace.secondPaneShown;
+    final workspace = WorkspaceController(left: left, right: right);
     _workspace = workspace;
     widget.sessionPersistence?.attach(workspace);
 
@@ -277,6 +272,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       left.newTab(target: NewTabTarget.home);
       right.newTab(target: NewTabTarget.home);
     }
+    // The change listener attaches only after the initial state
+    // settles: a launch-time visibility flip is restoration, not a
+    // user-driven hide edge — the synchronous notify inside
+    // setSecondPaneHidden would otherwise fire _onWorkspaceChanged's
+    // focus handoff before the first frame. Seed the tracker from the
+    // settled state, never a hardcoded shown.
+    workspace.addListener(_onWorkspaceChanged);
+    _secondPaneWasShown = workspace.secondPaneShown;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final left = _leftFocus;
       final right = _rightFocus;

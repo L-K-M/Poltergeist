@@ -107,12 +107,12 @@ void main() {
     PaneTabsController strip,
     String path, {
     List<RemoteFileEntry> rows = const [],
-  }) {
+  }) async {
     final channel = FakePaneChannel('/home/tester')..listings[path] = rows;
     lanes.nextLocalChannel = channel;
     strip.newTab(target: NewTabTarget.launcher);
-    strip.activeTab!.controller.openLocalAt(path);
-    return Future.value(channel);
+    await strip.activeTab!.controller.openLocalAt(path);
+    return channel;
   }
 
   test('attach schedules the first write; flush writes immediately',
