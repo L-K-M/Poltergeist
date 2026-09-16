@@ -262,6 +262,8 @@ class EngineHost {
         _guard(request.requestId, () => _listDirectory(request));
       case final RenameEntryRequest request:
         _guard(request.requestId, () => _renameEntry(request));
+      case final SetPermissionsRequest request:
+        _guard(request.requestId, () => _setPermissions(request));
       case final OpenLocalFileRequest request:
         _guard(request.requestId, () => _openLocalFile(request));
       case final WatchServerRequest request:
@@ -471,6 +473,29 @@ class EngineHost {
     final fs = channel.fs;
     try {
       await fs.rename(request.oldPath, request.newPath);
+      return const EngineAck();
+    } on RemoteFileException catch (error) {
+      channel.reportFailure(fs, error);
+      rethrow;
+    }
+  }
+
+  /// Same routing as [_renameEntry]: the channel's VFS performs the chmod
+  /// (02 §2.6, D28), typed failures serialize back, and a disconnected
+  /// failure reports for recovery before the answer crosses the port.
+  Future<EngineResult> _setPermissions(SetPermissionsRequest request) async {
+    final channel = _channels[request.channelId];
+    if (channel == null) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.disconnected,
+        operation: 'change permissions for',
+        message: 'The browse channel is closed.',
+      );
+    }
+
+    final fs = channel.fs;
+    try {
+      await fs.setMode(request.path, request.permissions);
       return const EngineAck();
     } on RemoteFileException catch (error) {
       channel.reportFailure(fs, error);

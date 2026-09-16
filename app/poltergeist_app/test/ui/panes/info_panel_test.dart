@@ -170,10 +170,32 @@ void main() {
     // relative "Yesterday" form, not an absolute date.
     expect(inPanel(find.textContaining('Yesterday')), findsOneWidget);
     expect(inPanel(find.text('Permissions')), findsOneWidget);
-    expect(inPanel(find.text('rw-r--r-- (0644)')), findsOneWidget);
-    expect(inPanel(find.text('Owner')), findsOneWidget);
+    // The D28 editor: the symbolic preview, the octal field seeded
+    // with the listed mode, and the rwx grid — the read-only combined
+    // line only renders for targets the editor cannot touch.
+    expect(inPanel(find.text('rw-r--r--')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('infoPanel.octalField')),
+          )
+          .controller
+          ?.text,
+      '0644',
+    );
+    expect(
+      find.byKey(const ValueKey('infoPanel.permCell.owner.read')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('infoPanel.applyPermissions')),
+      findsOneWidget,
+    );
+    // 'Owner'/'Group' render twice — the metadata row label and the
+    // permission grid's class row.
+    expect(inPanel(find.text('Owner')), findsNWidgets(2));
     expect(inPanel(find.text('501')), findsOneWidget);
-    expect(inPanel(find.text('Group')), findsOneWidget);
+    expect(inPanel(find.text('Group')), findsNWidgets(2));
     expect(inPanel(find.text('20')), findsOneWidget);
     expect(inPanel(find.text('Path')), findsOneWidget);
     expect(
@@ -210,7 +232,16 @@ void main() {
 
     expect(find.byType(InfoPanel), findsOneWidget);
     expect(inPanel(find.text('deploy.sh')), findsOneWidget);
-    expect(inPanel(find.text('rwxr-xr-x (0755)')), findsOneWidget);
+    expect(inPanel(find.text('rwxr-xr-x')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('infoPanel.octalField')),
+          )
+          .controller
+          ?.text,
+      '0755',
+    );
     expect(inPanel(find.text('0')), findsNWidgets(2));
     expect(
       inPanel(find.text('/srv/home/deploy.sh')),
@@ -676,5 +707,308 @@ void main() {
     expect(inPanel(find.text('4 B — 1 item')), findsNothing);
     expect(left.folderSize?.targetPath, '/home/tester/docs');
     expect(left.folderSizeInFlight, isFalse);
+  });
+
+  group('permissions editor (02 §2.6, D28)', () {
+    Finder octalField() =>
+        find.byKey(const ValueKey('infoPanel.octalField'));
+
+    String octalText(WidgetTester tester) =>
+        tester.widget<TextField>(octalField()).controller!.text;
+
+    bool cellValue(WidgetTester tester, String row, String column) =>
+        tester
+            .widget<Checkbox>(
+              find.byKey(ValueKey('infoPanel.permCell.$row.$column')),
+            )
+            .value!;
+
+    testWidgets('the octal field and the rwx grid stay in sync both '
+        'ways, and Apply issues the chmod', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('report.txt', size: 2048, mode: 0x81A4),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      // Checkbox → field: toggling others-write re-seeds the octal.
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.permCell.others.write')),
+      );
+      await tester.pump();
+      expect(octalText(tester), '0646');
+      expect(cellValue(tester, 'others', 'write'), isTrue);
+
+      // Field → checkboxes: a typed value moves the grid.
+      await tester.enterText(octalField(), '0600');
+      await tester.pump();
+      expect(cellValue(tester, 'others', 'write'), isFalse);
+      expect(cellValue(tester, 'owner', 'read'), isTrue);
+      expect(cellValue(tester, 'owner', 'write'), isTrue);
+      expect(cellValue(tester, 'others', 'read'), isFalse);
+      expect(inPanel(find.text('rw-------')), findsOneWidget);
+
+      // Apply writes the draft's exact mode through the channel.
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('infoPanel.applyPermissions')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.applyPermissions')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        channel.permissionsCalls,
+        [('/home/tester/report.txt', 0x180)],
+      );
+    });
+
+    testWidgets('invalid octal shows the inline error and blocks the '
+        'chmod', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('report.txt', size: 2048, mode: 0x81A4),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(octalField());
+      await tester.pump();
+      await tester.enterText(octalField(), '8888');
+      await tester.pump();
+
+      expect(
+        inPanel(find.text('Use four octal digits (0000–7777).')),
+        findsOneWidget,
+      );
+      final apply = tester.widget<TextButton>(
+        find.byKey(const ValueKey('infoPanel.applyPermissions')),
+      );
+      expect(apply.onPressed, isNull);
+      expect(channel.permissionsCalls, isEmpty);
+    });
+
+    testWidgets('a typed refusal renders inline under the editor',
+        (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('report.txt', size: 2048, mode: 0x81A4),
+      ];
+      channel.permissionsFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'setMode',
+        message: 'denied',
+      );
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(octalField());
+      await tester.pump();
+      await tester.enterText(octalField(), '0600');
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('infoPanel.applyPermissions')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.applyPermissions')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        inPanel(
+          find.text('Permission denied — you may not own this item.'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a symbolic-link target renders the display row with '
+        'its read-only reason', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry(
+          'link',
+          type: RemoteFileType.symbolicLink,
+          mode: 0xA1FF,
+        ),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      expect(inPanel(find.text('rwxrwxrwx (0777)')), findsOneWidget);
+      expect(
+        inPanel(
+          find.text("A symbolic link's permissions can't be changed."),
+        ),
+        findsOneWidget,
+      );
+      expect(octalField(), findsNothing);
+    });
+
+    testWidgets('a flagged name renders the display row with its '
+        'read-only reason', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('bad\uFFFDname', mode: 0x81A4),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      expect(
+        inPanel(
+          find.text(
+            "The name is not valid UTF-8 — it can't be sent to the "
+            'server.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(octalField(), findsNothing);
+    });
+
+    testWidgets('Esc in the octal field reverts a pending draft, then '
+        'closes the panel once clean', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('report.txt', size: 2048, mode: 0x81A4),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.tap(octalField());
+      await tester.pump();
+      await tester.enterText(octalField(), '0600');
+      await tester.pump();
+
+      // First Esc reverts the draft in place — never a commit.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(octalText(tester), '0644');
+      expect(find.byType(InfoPanel), findsOneWidget);
+      expect(channel.permissionsCalls, isEmpty);
+
+      // A clean field's Esc falls through to the panel's own tier.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(InfoPanel), findsNothing);
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+    });
+
+    testWidgets('apply to enclosed asks with the counted copy, then '
+        'writes the tree', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
+      ];
+      channel.listings['/home/tester/docs'] = [
+        _entry('a.txt', size: 4, mode: 0x81A4, root: '/home/tester/docs'),
+        _entry('b.txt', size: 8, mode: 0x81A4, root: '/home/tester/docs'),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+      );
+      await tester.pumpAndSettle();
+
+      // The counted confirmation: the mode and the quantified reach.
+      expect(find.text('Apply to enclosed items?'), findsOneWidget);
+      expect(
+        find.text('Apply 0755 to “docs” and the 2 items inside it?'),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.enclosedConfirm')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(channel.permissionsCalls, [
+        ('/home/tester/docs/a.txt', 0x1ED),
+        ('/home/tester/docs/b.txt', 0x1ED),
+        ('/home/tester/docs', 0x1ED),
+      ]);
+      expect(inPanel(find.text('3 items changed')), findsOneWidget);
+    });
+
+    testWidgets('declining the enclosed confirmation touches nothing',
+        (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
+      ];
+      channel.listings['/home/tester/docs'] = [
+        _entry('a.txt', size: 4, mode: 0x81A4, root: '/home/tester/docs'),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Apply to enclosed items?'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.enclosedDecline')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(channel.permissionsCalls, isEmpty);
+      expect(left.enclosedApply, isNull);
+    });
   });
 }

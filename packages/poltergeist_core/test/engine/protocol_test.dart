@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 10;
+const _expectedProtocolVersion = 11;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,
@@ -353,6 +353,16 @@ void main() {
       await _roundTrip(
         incoming,
         engine,
+        const SetPermissionsRequest(
+          requestId: 24,
+          channelId: 5,
+          path: '/home/user/site',
+          permissions: 0x1ED, // 0755 — leading special-bits digit included
+        ),
+      );
+      await _roundTrip(
+        incoming,
+        engine,
         const CloseBrowseChannelRequest(requestId: 2, channelId: 5),
       );
       await _roundTrip(
@@ -595,6 +605,14 @@ Future<void> _roundTrip(
       expect(got.requestId, sent.requestId);
       expect(got.channelId, sent.channelId);
       expect(got.path, sent.path);
+    case (
+      final SetPermissionsRequest sent,
+      final SetPermissionsRequest got,
+    ):
+      expect(got.requestId, sent.requestId);
+      expect(got.channelId, sent.channelId);
+      expect(got.path, sent.path);
+      expect(got.permissions, sent.permissions);
     case (
       final WatchLocalDirectoryRequest sent,
       final WatchLocalDirectoryRequest got,

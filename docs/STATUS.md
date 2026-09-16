@@ -5302,6 +5302,60 @@ capture regression green. Real-font captures inspected:
 and `workspace-toast.png` (toast with Undo over the applied
 workspace).
 
+## M3 — permissions editor (2026-09-16)
+
+02 §2.6's D28 slice completes the Get Info inspector: the permissions
+row is now an editor — a four-digit octal field (leading
+setuid/setgid/sticky digit preserved through the 12-bit domain) in
+lockstep with an owner/group/others × r/w/x checkbox grid. The draft
+is a target-keyed `PermissionsEditSession`: verbatim octal text, the
+parsed mode the grid binds, an inline invalid flag, and a revision
+counter so a programmatic re-seed never lands mid-keystroke. Invalid
+octal stays for correction and blocks Apply; a valid keystroke moves
+the mode and the grid, a checkbox moves the mode and re-seeds the
+field. Esc at the field tier reverts the draft; a clean field's Esc
+falls through to the panel's close slot. Read-only surfaces render
+the symbolic + octal display with a reason note (flagged name,
+symlink, Windows local) — owner/group stay display-only (the D3
+setOwner seam is an upstream dependency, unchanged).
+
+The engine chmod seam did not exist end-to-end: the pinned Séance
+`RemoteFileSystem.setMode` was already there, so the narrowest seam
+was added — `SetPermissionsRequest` (protocol v11) through the engine
+host's dispatch and the client channel, surfaced to the app as
+`AppBrowseChannel.setPermissions`. Apply writes the draft's exact
+masked mode through it — local and remote over the one VFS — with
+typed refusals landing inline under the editor, never modal.
+
+"Apply to enclosed items…" (folders only) runs a read-only count
+pass, then a destructive-class confirmation naming the mode, the
+folder, and the quantified item count (flagged names and links
+disclosed, hedged when the count is incomplete); the confirmed walk
+chmods files during discovery and directories post-order with the
+root last — a mode that strips owner-execute cannot strand its own
+subtree. Flagged names (02 §13) and symlinks are skipped without a
+wire call, path dedupe defeats cycles, nested listing/chmod refusals
+are tallied and the walk continues, while a root listing or root
+chmod refusal fails the run typed. Cancellation is cooperative with
+separate tokens for the count and apply passes; a cancelled run that
+already changed items keeps a terminal cancelled snapshot. The
+in-flight operation joins the tab-close guard's quantified triggers,
+the confirmation resolves false when the operation is invalidated,
+and every invalidation funnel (navigation, rebind, detach, panel
+close, dispose) retires the draft and the run. A completed apply
+refreshes the listing.
+
+Validation: `flutter analyze` clean; `dart analyze` clean; full app
+suite green (1180 tests), core suite green (924). New coverage:
+octal/checkbox sync both directions, invalid rejection, exact-mode
+apply through the fake channel, typed-refusal inline rendering,
+read-only surfaces, count/confirm/cancel/ordering/failure walkers,
+guard triggers, panel-close and rebind invalidation, the
+localization contract, and core protocol/host/client seam tests.
+Real-font captures inspected under `tasks/run3-task59/`: local file
+editor, mid-draft sync, the counted confirmation dialog, the
+settled tally, and remote file/folder inspectors.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

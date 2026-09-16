@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/folder_size.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
+import 'package:poltergeist_app/services/pane_permissions.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
@@ -21,14 +22,14 @@ import '../../support/test_panes.dart';
 /// folder-size states. The widget-test default font renders hollow
 /// boxes, so the capture loads a real face when the host provides one —
 /// set POLTERGEIST_CAPTURE_FONT_DIR or rely on the DejaVu fallback. The
-/// PNGs land in tasks/run3-task56/ at the repo root, and only when the
+/// PNGs land in tasks/run3-task59/ at the repo root, and only when the
 /// run is armed: POLTERGEIST_CAPTURE=1 gates every artifact write so an
 /// ordinary `flutter test` never dirties the checkout; the UI
 /// assertions run regardless. POLTERGEIST_CAPTURE_DIR overrides the
 /// output root — the default only resolves at the repo root when the
 /// test is launched from the app package directory.
 final _captureDir = Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
-    '../../tasks/run3-task56';
+    '../../tasks/run3-task59';
 
 Future<ByteData> _fontBytes(String path) async =>
     ByteData.view(File(path).readAsBytesSync().buffer);
@@ -51,6 +52,12 @@ Future<void> _loadRealFonts() async {
     final monoLoader = FontLoader('DejaVu Sans Mono')
       ..addFont(_fontBytes(mono.path));
     await monoLoader.load();
+    // The widget-test resolver does not walk fontFamilyFallback to a
+    // dynamically loaded family, so register the face under the theme's
+    // primary mono name too — otherwise editor text rasterizes as tofu.
+    final primaryMono = FontLoader('JetBrains Mono')
+      ..addFont(_fontBytes(mono.path));
+    await primaryMono.load();
   }
   // Kind glyphs are MaterialIcons codepoints: without the icon font they
   // rasterize as tofu boxes. It ships inside the Flutter SDK.
@@ -211,42 +218,48 @@ void main() {
           base.primaryTextTheme.apply(fontFamily: 'DejaVu Sans'),
     );
     await tester.pumpWidget(
-      MaterialApp(
-        theme: theme,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: Row(
-            children: [
-              Expanded(
-                child: RepaintBoundary(
-                  key: const ValueKey('capture.paneLeft'),
-                  child: PaneView(
-                    controller: left,
-                    pane: leftStrip,
-                    workspace: workspace,
-                    focusNode: leftNode,
-                    onSwapFocus: () => rightNode.requestFocus(),
-                    onCancelRecovery: () {},
-                    clock: _fixedClock,
+      // The shell-level boundary wraps the MaterialApp so a capture can
+      // include the navigator overlay — the enclosed-apply dialog rides
+      // a route above the Scaffold.
+      RepaintBoundary(
+        key: const ValueKey('capture.shell'),
+        child: MaterialApp(
+          theme: theme,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Row(
+              children: [
+                Expanded(
+                  child: RepaintBoundary(
+                    key: const ValueKey('capture.paneLeft'),
+                    child: PaneView(
+                      controller: left,
+                      pane: leftStrip,
+                      workspace: workspace,
+                      focusNode: leftNode,
+                      onSwapFocus: () => rightNode.requestFocus(),
+                      onCancelRecovery: () {},
+                      clock: _fixedClock,
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: RepaintBoundary(
-                  key: const ValueKey('capture.paneRight'),
-                  child: PaneView(
-                    controller: right,
-                    pane: rightStrip,
-                    workspace: workspace,
-                    focusNode: rightNode,
-                    onSwapFocus: () => leftNode.requestFocus(),
-                    onCancelRecovery: () {},
-                    clock: _fixedClock,
+                Expanded(
+                  child: RepaintBoundary(
+                    key: const ValueKey('capture.paneRight'),
+                    child: PaneView(
+                      controller: right,
+                      pane: rightStrip,
+                      workspace: workspace,
+                      focusNode: rightNode,
+                      onSwapFocus: () => leftNode.requestFocus(),
+                      onCancelRecovery: () {},
+                      clock: _fixedClock,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -260,6 +273,9 @@ void main() {
     );
     final rightBoundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(const ValueKey('capture.paneRight')),
+    );
+    final shellBoundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('capture.shell')),
     );
     final captureEnabled =
         Platform.environment['POLTERGEIST_CAPTURE'] == '1';
@@ -285,11 +301,74 @@ void main() {
       File('${outDir.path}/$name.png').writeAsBytesSync(bytes);
     }
 
-    // The local pane's inspector on a file: full metadata rendered.
+    // The local pane's inspector on a file: full metadata rendered
+    // plus the D28 permissions editor (octal field + rwx grid).
     left.setCursorIndex(3); // report.txt
     leftStrip.toggleInfoPanel();
     await tester.pumpAndSettle();
     await capture(leftBoundary, 'info-local-file');
+
+    // The editor mid-draft: an edited octal value the listing hasn't
+    // applied yet — the grid, Apply, and the enclosed affordance.
+    left.setCursorIndex(0); // docs
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('infoPanel.octalField')),
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const ValueKey('infoPanel.octalField')),
+      '0700',
+    );
+    // pumpAndSettle would hang on the focused field's cursor blink, so
+    // drop focus and then let every animation finish.
+    leftNode.requestFocus();
+    await tester.pumpAndSettle();
+    // The octal edit must have re-driven the whole grid: owner bits
+    // set, group and others cleared (0755 → 0700).
+    for (final cell in const [
+      ('owner', 'read', true),
+      ('owner', 'write', true),
+      ('owner', 'execute', true),
+      ('group', 'read', false),
+      ('group', 'write', false),
+      ('group', 'execute', false),
+      ('others', 'read', false),
+      ('others', 'write', false),
+      ('others', 'execute', false),
+    ]) {
+      expect(
+        tester
+            .widget<Checkbox>(
+              find.byKey(
+                ValueKey('infoPanel.permCell.${cell.$1}.${cell.$2}'),
+              ),
+            )
+            .value,
+        cell.$3,
+        reason: 'permCell.${cell.$1}.${cell.$2}',
+      );
+    }
+    await capture(leftBoundary, 'info-local-permissions-draft');
+
+    // The recursive apply's real confirmation dialog — counted copy —
+    // over the shell it guards. The dialog rides the root navigator,
+    // so the capture uses a shell-level boundary.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('infoPanel.applyEnclosed')));
+    await tester.pumpAndSettle();
+    expect(left.enclosedApply?.stage, EnclosedApplyStage.confirming);
+    await capture(shellBoundary, 'info-enclosed-confirm');
+    await tester.tap(find.byKey(const ValueKey('infoPanel.enclosedConfirm')));
+    await tester.pumpAndSettle();
+    // The walk settles on the fake channel — the panel's terminal
+    // tally is the post-apply render.
+    expect(left.enclosedApply?.stage, EnclosedApplyStage.done);
+    await tester.pump();
+    await capture(leftBoundary, 'info-local-permissions-enclosed-done');
 
     // The folder target's on-demand measure: Calculate, then the
     // settled total.
@@ -312,8 +391,9 @@ void main() {
     await capture(rightBoundary, 'info-remote-file');
 
     // A remote folder mid-inspection — the Calculate affordance.
+    // pumpAndSettle so the retarget's checkbox transitions finish.
     right.setCursorIndex(0); // logs
-    await tester.pump();
+    await tester.pumpAndSettle();
     await capture(rightBoundary, 'info-remote-folder');
   });
 }
