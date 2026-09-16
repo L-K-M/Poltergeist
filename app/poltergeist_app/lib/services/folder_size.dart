@@ -161,13 +161,15 @@ Future<FolderSizeProgress> measureFolderSize(
 /// Only dedupe — the stripped key never reaches the channel.
 String _dedupeKey(String path) {
   var key = path;
-  // '\' is a separator only in Windows-style spellings — on a POSIX
-  // remote it is a legal filename character. Windows accepts '/' and
-  // '\' interchangeably, so the check covers a drive-letter prefix
-  // too (a POSIX absolute path always starts with '/' and can never
-  // match it).
-  final windowsStyle =
-      !key.contains('/') || RegExp(r'^[A-Za-z]:').hasMatch(key);
+  // '\' is a separator only in unambiguously Windows spellings — a
+  // drive letter immediately followed by one, or a UNC head. On POSIX
+  // it is a legal filename character ('C:notes\' ≠ 'C:notes'), and a
+  // bare relative spelling like 'dir\sub\' stays ambiguous rather than
+  // guessed: under-stripping can double-list a misspelled directory,
+  // but over-stripping silently merges distinct names and loses a
+  // subtree — the wrong failure direction for accounting.
+  final windowsStyle = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(key) ||
+      key.startsWith(r'\\');
   while (key.length > 1 &&
       (key.endsWith('/') || (windowsStyle && key.endsWith(r'\')))) {
     key = key.substring(0, key.length - 1);

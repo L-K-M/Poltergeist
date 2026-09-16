@@ -275,6 +275,33 @@ void main() {
     expect(channel.listCalls, ['C:/root', r'C:/root/sub\']);
   });
 
+  test('a POSIX relative name starting with a drive-like prefix keeps '
+      'its trailing backslash', () async {
+    final channel = FakePaneChannel('/root');
+    channel.listings['/root'] = [
+      // A server spelling children RELATIVE to the listing can return
+      // 'C:notes' and 'C:notes\' — distinct POSIX names that only a
+      // colon+separator drive match must not merge.
+      _entry('C:notes', 'C:notes', type: RemoteFileType.directory),
+      _entry(r'C:notes\', r'C:notes\', type: RemoteFileType.directory),
+    ];
+    channel.listings['C:notes'] = const [];
+    channel.listings[r'C:notes\'] = [
+      _entry(r'C:notes\/f.txt', 'f.txt', size: 1),
+    ];
+
+    final result = await measureFolderSize(
+      channel,
+      '/root',
+      cancellation: RemoteTransferCancellation(),
+    );
+
+    expect(result.status, FolderSizeStatus.done);
+    expect(result.bytes, 1);
+    expect(channel.listCalls,
+        containsAll(<String>['C:notes', r'C:notes\']));
+  });
+
   test('an untyped nested fault propagates — only typed refusals '
       'degrade to unreadable', () async {
     final channel = _FaultyChannel('/root');

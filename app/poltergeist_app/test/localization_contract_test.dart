@@ -411,7 +411,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'..'",
     "'/'",
     "r'\\'",
-    r"r'^[A-Za-z]:'",
+    r"r'^[A-Za-z]:[\\/]'",
+    r"r'\\'",
   },
   // The app.dart entry is the engine-seam assert (the demo entries left
   // with the deleted surface).
