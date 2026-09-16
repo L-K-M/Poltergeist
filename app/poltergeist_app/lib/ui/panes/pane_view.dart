@@ -5,14 +5,17 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/bookmark_store.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
+import '../../services/quick_connect_address.dart';
 import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
 import '../../services/sync_browsing_controller.dart';
 import '../../services/workspace_controller.dart';
 import 'pane_format.dart';
+import 'save_favorite_bar.dart';
 import 'sync_browse_chip.dart';
 
 /// 02 §2.8's anti-flash grace: no spinner, dim, footer swap, or cancel
@@ -25,6 +28,17 @@ const _antiFlashGrace = Duration(milliseconds: 150);
 bool _pendingRemoteConnect(PaneController controller) =>
     controller.phase == PanePhase.connectingRemote &&
     controller.remoteBookmark != null;
+
+/// The adhoc bookmark qualifying for 02 §2.7's "Save as favorite…"
+/// bar: a live adhoc session past a successful connect — null while
+/// connecting, failed, local, or bound to a stored favorite.
+Bookmark? _saveBarBookmark(PaneController controller) {
+  final bookmark = controller.remoteBookmark;
+  if (bookmark == null) return null;
+  if (!bookmark.id.startsWith(quickConnectAdhocIdPrefix)) return null;
+  if (controller.phase != PanePhase.browsing) return null;
+  return bookmark;
+}
 
 /// 02 §2.5's type-ahead input filter: the pane's printable text for a
 /// key event, or null when the key produces none. Space never
@@ -82,6 +96,7 @@ class PaneView extends StatefulWidget {
     required this.focusNode,
     required this.onSwapFocus,
     required this.onCancelRecovery,
+    this.bookmarks,
     this.clock = _systemClock,
   });
 
@@ -107,6 +122,11 @@ class PaneView extends StatefulWidget {
   /// (disconnectServer would sever the shared transport); alone it
   /// drops the server reference so recovery stops.
   final VoidCallback onCancelRecovery;
+
+  /// The bookmark persistence seam for the "Save as favorite…" bar
+  /// (02 §2.7): null where no store is wired, and the bar's save then
+  /// posts the honest not-yet notice instead of a fake write.
+  final BookmarkRepository? bookmarks;
 
   /// Injectable clock for deterministic relative-date rendering.
   final DateTime Function() clock;
@@ -678,6 +698,7 @@ class _PaneViewState extends State<PaneView> {
                 graceVisible: _pastGrace,
                 scrollController: _scrollController,
                 clock: widget.clock,
+                bookmarks: widget.bookmarks,
                 onCancelNavigation: widget.controller.cancelNavigation,
                 onRetry: () => unawaited(widget.controller.retry()),
                 onCancelRecovery: widget.onCancelRecovery,
@@ -723,6 +744,7 @@ class _PaneSurface extends StatelessWidget {
     required this.graceVisible,
     required this.scrollController,
     required this.clock,
+    required this.bookmarks,
     required this.onCancelNavigation,
     required this.onRetry,
     required this.onCancelRecovery,
@@ -748,6 +770,10 @@ class _PaneSurface extends StatelessWidget {
   final bool graceVisible;
   final ScrollController scrollController;
   final DateTime Function() clock;
+
+  /// The bookmark persistence seam for the "Save as favorite…" bar
+  /// (02 §2.7) — see [PaneView.bookmarks].
+  final BookmarkRepository? bookmarks;
   final VoidCallback onCancelNavigation;
   final VoidCallback onRetry;
   final VoidCallback onCancelRecovery;
@@ -825,6 +851,21 @@ class _PaneSurface extends StatelessWidget {
         // error — so it strips in under the chrome rather than taking
         // the error overlay.
         if (controller.notice != null) _NoticeStrip(controller: controller),
+        // 02 §2.7's "Save as favorite…" bar: a live adhoc session past
+        // a successful connect, prefilled from that session. Keyed to
+        // the adhoc id so a save hides the bar for good — parent
+        // rebuilds cannot resurrect it.
+        if (_saveBarBookmark(controller) case final adhoc?)
+          SaveFavoriteBar(
+            key: ValueKey('saveFavorite.${adhoc.id}'),
+            bookmark: adhoc,
+            currentPath: switch (controller.location) {
+              RemotePaneLocation(path: final path) => path,
+              _ => null,
+            },
+            store: bookmarks,
+            onNoStore: controller.noteSaveFavoriteUnavailable,
+          ),
         Expanded(child: _body(context, l10n)),
         _PaneFooter(
           controller: controller,
@@ -2456,6 +2497,8 @@ class _NoticeStrip extends StatelessWidget {
                       l10n.paneNoticeOpenRemoteUnavailable,
                     PaneNotice.editLater => l10n.paneNoticeEditLater,
                     PaneNotice.transferLater => l10n.paneNoticeTransferLater,
+                    PaneNotice.saveFavoriteLater =>
+                      l10n.paneNoticeSaveFavoriteLater,
                     null => '',
                   },
                   style: Theme.of(context).textTheme.bodySmall,

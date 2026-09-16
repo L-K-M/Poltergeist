@@ -1,0 +1,199 @@
+import 'package:flutter/material.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../../services/bookmark_store.dart';
+import '../../services/uuid.dart';
+
+/// The post-connect "Save as favorite…" bar (02 §2.7): rendered for a
+/// live adhoc session, prefilled from the live connection — never from
+/// the raw address string (which may have carried a stripped password).
+///
+/// The save writes through [store], the M2 interim bookmark seam: a real
+/// [BookmarkRepository] (the file store in production, in-memory in
+/// tests) persists a promoted favorite with a fresh id, so the stored
+/// record is usable for future connects while the live adhoc session
+/// keeps its own id — 03 §3.5's serverId-migration promotion rides M5's
+/// sidebar work, not this slice. A null [store] means no persistence
+/// path is wired: the save reports through [onNoStore], which the pane
+/// answers with the honest not-yet notice (the #132 pattern) — never a
+/// fake write. A successful save hides the bar (state is keyed to the
+/// adhoc id, so parent rebuilds cannot resurrect it); a throwing store
+/// keeps it mounted with an inline error so the save stays retryable.
+class SaveFavoriteBar extends StatefulWidget {
+  const SaveFavoriteBar({
+    super.key,
+    required this.bookmark,
+    this.currentPath,
+    required this.store,
+    required this.onNoStore,
+  });
+
+  /// The live adhoc bookmark: endpoint identity and landing path source.
+  final Bookmark bookmark;
+
+  /// The tab's current remote path; the stored favorite captures this
+  /// context instead of a form.
+  final String? currentPath;
+
+  final BookmarkRepository? store;
+
+  final VoidCallback onNoStore;
+
+  @override
+  State<SaveFavoriteBar> createState() => _SaveFavoriteBarState();
+}
+
+class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
+  late final TextEditingController _name = TextEditingController(
+    text: _prefill(widget.bookmark),
+  );
+  bool _failed = false;
+  bool _saving = false;
+  bool _saved = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final store = widget.store;
+    if (store == null) {
+      widget.onNoStore();
+      return;
+    }
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _failed = false;
+    });
+    try {
+      await store.upsertAll([
+        _promotedFavorite(
+          live: widget.bookmark,
+          currentPath: widget.currentPath,
+          label: _name.text.trim().isEmpty
+              ? _prefill(widget.bookmark)
+              : _name.text.trim(),
+          now: DateTime.now(),
+        ),
+      ]);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _failed = true;
+      });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _saved = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_saved) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      container: true,
+      child: DecoratedBox(
+        key: const ValueKey('saveFavorite.bar'),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerLow,
+          border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(8, 4, 8, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.saveFavoriteTitle,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  SizedBox(
+                    width: 240,
+                    child: TextField(
+                      key: const ValueKey('saveFavorite.name'),
+                      controller: _name,
+                      decoration: InputDecoration(
+                        labelText: l10n.saveFavoriteNameLabel,
+                        isDense: true,
+                      ),
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _save(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const ValueKey('saveFavorite.save'),
+                    onPressed: _saving ? null : _save,
+                    child: Text(l10n.saveFavoriteSave),
+                  ),
+                ],
+              ),
+              if (_failed)
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(top: 4),
+                  child: Text(
+                    l10n.saveFavoriteFailed,
+                    key: const ValueKey('saveFavorite.error'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colors.error,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The prefill derives from the live authenticated session: the
+/// endpoint with a non-default port, never the raw input string.
+String _prefill(Bookmark live) {
+  final identity = live.server?.identity;
+  if (identity == null) return live.label;
+  final username = identity.username;
+  final host = identity.port == 22
+      ? identity.host
+      : '${identity.host}:${identity.port}';
+  return username.isEmpty ? host : '$username@$host';
+}
+
+/// Promotes the live adhoc session to a stored favorite: a fresh id
+/// (the adhoc id never enters the store), the live endpoint identity,
+/// and the captured context path. Carries no secret — bookmarks hold
+/// `secretRef`s into the vault, and the adhoc identity never had a
+/// password to copy.
+Bookmark _promotedFavorite({
+  required Bookmark live,
+  required String? currentPath,
+  required String label,
+  required DateTime now,
+}) {
+  final id = uuidV4();
+  return Bookmark(
+    id: id,
+    kind: BookmarkKind.remotePath,
+    label: label,
+    server: live.server,
+    remotePath: currentPath ?? live.remotePath,
+    sortKey: id,
+    createdAt: now,
+    updatedAt: now,
+  );
+}

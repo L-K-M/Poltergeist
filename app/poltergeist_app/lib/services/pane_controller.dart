@@ -272,6 +272,10 @@ enum PaneNotice {
   /// "Double-click action: Transfer to other pane" was chosen; the
   /// transfer queue is M4's.
   transferLater,
+
+  /// "Save as favorite…" was pressed where no bookmark store is wired;
+  /// the favorites store is M5's.
+  saveFavoriteLater,
 }
 
 /// A Sync Browsing mirror probe's verdict bound to the pane operation
@@ -612,6 +616,15 @@ class PaneController extends ChangeNotifier {
     _notice = value;
     _noticeTimer = Timer(noticeLifetime, dismissNotice);
     notifyListeners();
+  }
+
+  /// Posts the honest not-yet notice for a "Save as favorite…" press
+  /// with no bookmark store wired (the favorites store is M5's) — the
+  /// #132 pattern: the controller posts the typed notice, the view maps
+  /// it to ARB copy (D20).
+  void noteSaveFavoriteUnavailable() {
+    if (_disposed) return;
+    _postNotice(PaneNotice.saveFavoriteLater);
   }
 
   /// The keyboard cursor row into [entries]; null until the first key

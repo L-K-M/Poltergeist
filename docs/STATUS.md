@@ -5108,6 +5108,58 @@ avatar and the post-drop state.
 Validation: `flutter analyze` clean; full app suite green (971 tests);
 logs under `tasks/run3-task54/`.
 
+## M3 — Quick Connect launcher slice (2026-09-16)
+
+02 §2.7's first parsing slice: the launcher renders Quick Connect as its
+initial content — no Servers/Recent tab scaffolding, which depends on
+M5's sidebar/favorites work. The address grammar lives in
+`quick_connect_address.dart` (pure Dart, no Flutter, no I/O):
+`user@host:port` bare form with scp disambiguation (a purely numeric
+token in 1–65535 is a port with the visible `2222 → port;
+use sftp://host/2222 for a folder named 2222` hint; anything else,
+including `/srv/www`, `22-backup`, and out-of-range numerics, is a
+verbatim scp-style start path on port 22 with a parse hint),
+positional `sftp://` URLs (the unambiguous escape hatch — numeric path
+segments never read as ports; an out-of-range URL port rejects),
+unbracketed multi-colon hosts rejected with the `wrap the IPv6 address
+in [ ]` hint, bracketed IPv6 parsing the port after `]` (the plain
+heuristic never splits the address), and WHATWG-style userinfo (last
+`@`, password after the first `:`) extracted before the colon
+heuristics — the password is stripped with an inline notice and a
+sanitized echo form, never connected with, echoed, or persisted.
+
+Connect mints an ephemeral `adhoc:<uuid>` bookmark (03 §3.5) and binds
+a fresh tab through the existing `connectRemote` seam, so prompts,
+errors, and banner behavior stay owned by the connect flow. After a
+successful connect the "Save as favorite…" bar renders prefilled from
+the live session (endpoint label, captured context path). The save
+writes through the M2 interim `BookmarkRepository` — verified a real
+store (`FileBookmarkStore`, the one production instance main.dart
+shares with import and Connections; in-memory in tests) — persisting a
+promoted favorite under a fresh id while the live adhoc session keeps
+its own; 03 §3.5's serverId-migration promotion rides M5. With no store
+wired the save posts the honest `saveFavoriteLater` notice (the #132
+pattern: typed notice in the controller, ARB copy in the view), and a
+throwing store keeps the bar mounted with an inline retryable error.
+All user copy is ARB (D20, 17 keys); the field is a real TextField so
+02 §8.2's suppression seams apply untouched, the launcher aims mount
+focus at the field (never from an inactive pane), and Enter submits
+while plain Tab still swaps panes. `connect.quickConnect` (⌘K) command
+registration rides the M5 command/menu slice with the tab scaffolding.
+
+Tests pin the contract red-first (`quick_connect_address_test.dart`,
+21 cases; `quick_connect_test.dart`, 12 widget tests: hint rendering,
+seam connect with adhoc identity, Enter submit, focus/suppression,
+save-through-store with no secret in the record, no-store notice,
+failure retry). Real-font captures under `tasks/run3-task55/captures/`
+show the port hint, the IPv6 hint, and the save bar (inspected).
+Follow-ups: `connect.quickConnect` registration + ⌘K/File-menu entry;
+serverId-migration promotion (03 §3.5) with M5.
+
+Validation: `flutter analyze` clean; focused suites green (parser 21,
+widget 12, captures 2, localization contract 10); full app suite green
+(1006 tests, plus core 918); logs under `tasks/run3-task55/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

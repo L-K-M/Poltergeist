@@ -13,6 +13,9 @@ final class FakeBookmarkStore implements BookmarkRepository {
   /// Thrown by [load] instead of returning rows.
   Object? failure;
 
+  /// Thrown by [upsertAll] instead of recording rows.
+  Object? upsertFailure;
+
   int loadCalls = 0;
   final upserted = <Bookmark>[];
 
@@ -34,6 +37,8 @@ final class FakeBookmarkStore implements BookmarkRepository {
 
   @override
   Future<void> upsertAll(Iterable<Bookmark> bookmarks) async {
+    final upsertFailure = this.upsertFailure;
+    if (upsertFailure != null) throw upsertFailure;
     // Materialized once: a lazy or one-shot iterable must not enumerate
     // differently across the recording, the id set, and the rows.
     final incoming = List<Bookmark>.of(bookmarks);

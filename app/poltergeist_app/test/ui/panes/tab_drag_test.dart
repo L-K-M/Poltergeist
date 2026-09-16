@@ -194,11 +194,12 @@ void main() {
       ),
       findsOneWidget,
     );
-    // The source pane sits on the launcher, never blank.
+    // The source pane sits on the launcher, never blank: the Quick
+    // Connect form (02 §2.7's launcher content) renders in its view.
     expect(
       find.descendant(
         of: find.byKey(leftPane),
-        matching: find.text('This pane has no location open.'),
+        matching: find.byKey(const ValueKey('quickConnect.field')),
       ),
       findsOneWidget,
     );

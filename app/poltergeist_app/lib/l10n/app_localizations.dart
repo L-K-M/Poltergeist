@@ -1226,6 +1226,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'right'**
   String get syncBrowsingSideRight;
+
+  /// Heading of the launcher's Quick Connect form (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Connect'**
+  String get quickConnectTitle;
+
+  /// Label of the Quick Connect address field (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Server address'**
+  String get quickConnectAddressLabel;
+
+  /// Placeholder inside the Quick Connect address field showing both accepted forms (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'user@host:port or sftp://user@host/path'**
+  String get quickConnectAddressHint;
+
+  /// Action starting the Quick Connect session (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Connect'**
+  String get quickConnectConnect;
+
+  /// Visible interpretation when an in-range numeric token is read as a port (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'{port} → port; use sftp://{host}/{port} for a folder named {port}'**
+  String quickConnectHintPort(String port, String host);
+
+  /// Visible interpretation when an out-of-range numeric token is read as a folder name (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'{token} is out of the port range, so it connects on port 22 and opens a folder named {token}.'**
+  String quickConnectHintPath(String token);
+
+  /// Rejection hint for an unbracketed multi-colon host (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'The host holds more than one colon. Wrap the IPv6 address in [ ], for example user@[2001:db8::1].'**
+  String get quickConnectHintIpv6;
+
+  /// Inline notice shown when the parser strips a pasted password (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'A pasted password was removed. It is never stored — enter it when prompted.'**
+  String get quickConnectPasswordStripped;
+
+  /// Error shown for an empty Quick Connect address.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a server address, for example user@host.'**
+  String get quickConnectEmptyError;
+
+  /// Error shown for a Quick Connect address without a host.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a host after the @, for example user@host.'**
+  String get quickConnectMissingHostError;
+
+  /// Error shown for a port-position value outside 1–65535 in an sftp:// URL (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'The port in this address is not valid. Use 1–65535.'**
+  String get quickConnectInvalidPortError;
+
+  /// Error shown for a non-sftp URL pasted into Quick Connect (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Only sftp:// addresses are supported here.'**
+  String get quickConnectUnsupportedSchemeError;
+
+  /// Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Save as favorite…'**
+  String get saveFavoriteTitle;
+
+  /// Label of the favorite-name field in the save bar (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get saveFavoriteNameLabel;
+
+  /// Action persisting the live adhoc session as a favorite (02 §2.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get saveFavoriteSave;
+
+  /// Inline error shown when persisting the favorite throws.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the favorite. Try again.'**
+  String get saveFavoriteFailed;
+
+  /// Transient notice strip (02 §10): saving was attempted where no bookmark store is wired (the favorites store is M5's).
+  ///
+  /// In en, this message translates to:
+  /// **'Saving favorites isn\'t available yet — the sidebar arrives in a later milestone.'**
+  String get paneNoticeSaveFavoriteLater;
 }
 
 class _AppLocalizationsDelegate

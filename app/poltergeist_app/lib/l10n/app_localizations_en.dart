@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -673,4 +672,67 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncBrowsingSideRight => 'right';
+
+  @override
+  String get quickConnectTitle => 'Quick Connect';
+
+  @override
+  String get quickConnectAddressLabel => 'Server address';
+
+  @override
+  String get quickConnectAddressHint =>
+      'user@host:port or sftp://user@host/path';
+
+  @override
+  String get quickConnectConnect => 'Connect';
+
+  @override
+  String quickConnectHintPort(String port, String host) {
+    return '$port → port; use sftp://$host/$port for a folder named $port';
+  }
+
+  @override
+  String quickConnectHintPath(String token) {
+    return '$token is out of the port range, so it connects on port 22 and opens a folder named $token.';
+  }
+
+  @override
+  String get quickConnectHintIpv6 =>
+      'The host holds more than one colon. Wrap the IPv6 address in [ ], for example user@[2001:db8::1].';
+
+  @override
+  String get quickConnectPasswordStripped =>
+      'A pasted password was removed. It is never stored — enter it when prompted.';
+
+  @override
+  String get quickConnectEmptyError =>
+      'Enter a server address, for example user@host.';
+
+  @override
+  String get quickConnectMissingHostError =>
+      'Enter a host after the @, for example user@host.';
+
+  @override
+  String get quickConnectInvalidPortError =>
+      'The port in this address is not valid. Use 1–65535.';
+
+  @override
+  String get quickConnectUnsupportedSchemeError =>
+      'Only sftp:// addresses are supported here.';
+
+  @override
+  String get saveFavoriteTitle => 'Save as favorite…';
+
+  @override
+  String get saveFavoriteNameLabel => 'Name';
+
+  @override
+  String get saveFavoriteSave => 'Save';
+
+  @override
+  String get saveFavoriteFailed => 'Could not save the favorite. Try again.';
+
+  @override
+  String get paneNoticeSaveFavoriteLater =>
+      'Saving favorites isn\'t available yet — the sidebar arrives in a later milestone.';
 }

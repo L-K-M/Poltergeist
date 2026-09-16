@@ -343,6 +343,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                               workspace,
                               workspace.left.activeTabController,
                             ),
+                            bookmarks: widget.bookmarks,
                           ),
                           secondary: rightFocus == null
                               ? const SizedBox.shrink()
@@ -355,6 +356,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     workspace,
                                     workspace.right.activeTabController,
                                   ),
+                                  bookmarks: widget.bookmarks,
                                 ),
                         ),
                       ),
