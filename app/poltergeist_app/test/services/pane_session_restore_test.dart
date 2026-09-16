@@ -444,7 +444,10 @@ void main() {
         SessionPaneState(
           paneId: PaneTabsController.leftPaneId,
           activeTab: 1,
-          nextTabOrdinal: 4,
+          // Deliberately not tabs.length + 1: a derived value would
+          // pass even if capture recomputed the counter instead of
+          // preserving the live mint history (closed-tab id gaps).
+          nextTabOrdinal: 9,
           tabs: [
             _remoteTab('b1'),
             const SessionTabState.local(path: '/home/tester'),
@@ -456,7 +459,7 @@ void main() {
       final captured = strip.captureSession();
       expect(captured.paneId, PaneTabsController.leftPaneId);
       expect(captured.activeTab, 1);
-      expect(captured.nextTabOrdinal, 4);
+      expect(captured.nextTabOrdinal, 9);
       expect(captured.tabs.map((t) => t.kind), [
         SessionTabKind.remote,
         SessionTabKind.local,
