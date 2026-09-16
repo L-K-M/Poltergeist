@@ -247,11 +247,14 @@ QuickConnectParse _resolveBracketToken({
   final head = slash < 0 ? token : token.substring(0, slash);
   final tail = slash < 0 ? null : token.substring(slash);
   if (head.isEmpty) {
+    // A bare trailing colon (`[host]:`) names no token at all: like the
+    // unbracketed empty token, it lands on the server home — never an
+    // empty-string path, which the connect flow would list verbatim.
     return _finish(
       username: username,
       host: host,
       port: quickConnectDefaultPort,
-      remotePath: token,
+      remotePath: null,
       passwordStripped: passwordStripped,
     );
   }

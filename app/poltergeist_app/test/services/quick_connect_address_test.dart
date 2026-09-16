@@ -159,6 +159,14 @@ void main() {
       expect(parsed.target?.remotePath, '/srv/www');
     });
 
+    test('an empty bracketed token lands home, like the bare form', () {
+      final parsed = parseQuickConnectAddress('deploy@[2001:db8::1]:');
+
+      expect(parsed.ok, isTrue);
+      expect(parsed.target?.port, 22);
+      expect(parsed.target?.remotePath, isNull);
+    });
+
     test('an unclosed bracket is rejected with the hint', () {
       final parsed = parseQuickConnectAddress('deploy@[2001:db8::1');
 
