@@ -2128,11 +2128,18 @@ class PaneController extends ChangeNotifier {
     if (_disposed || lanes == null) return;
 
     final attempt = ++_bindAttempt;
+    // A restored tab resuming keeps the lenses its restore set — the
+    // replace reset below is scoped to a dying browsing session's
+    // lenses (02 §2.5), but a workspace-restored tab's lenses ARE the
+    // state being restored, so wiping them would lose the saved view
+    // the moment the deferred rebind ran (02 §3).
+    final keepRestoredLenses = _phase == PanePhase.restored;
     _phase = connectingPhase;
     _beginBinding(
       presentation,
       priorRemote: priorRemote,
       priorRemotePath: priorRemotePath,
+      keepLenses: keepRestoredLenses,
     );
     notifyListeners();
 
@@ -2272,6 +2279,7 @@ class PaneController extends ChangeNotifier {
     _BindingPresentation presentation, {
     Bookmark? priorRemote,
     String? priorRemotePath,
+    bool keepLenses = false,
   }) {
     _cancelListing();
     // A binding transition ends the session every in-flight mirror
@@ -2339,12 +2347,16 @@ class PaneController extends ChangeNotifier {
       _sortedListing = const [];
       // A replaced binding drops the transient lenses with its listing —
       // the filter, the hidden override, and the view mode are all
-      // scoped to the browsing session they were set in (02 §2.5).
-      _showHidden = false;
-      _viewMode = PaneViewMode.details;
+      // scoped to the browsing session they were set in (02 §2.5). A
+      // workspace-restored tab's rebind is the exception: its lenses
+      // are the saved view being restored, not a dying session's.
+      if (!keepLenses) {
+        _showHidden = false;
+        _viewMode = PaneViewMode.details;
+        _filterQuery = '';
+        _filterFieldOpen = false;
+      }
       _setListing(const []);
-      _filterQuery = '';
-      _filterFieldOpen = false;
       // No rows at all now — nothing stale is left to guard.
       _staleRows = false;
       _applyEntries(const []);

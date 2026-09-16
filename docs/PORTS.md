@@ -441,6 +441,17 @@ counterpart is ported here.
   glyph contracts against the carried code.
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/top_toast.dart
+
+- Source: app/seance_app/lib/ui/top_toast.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (rev pin, no
+  tag — the live pin this task shipped against)
+- Ported: 2026-09-16
+- Divergences: none — carried verbatim (02 §3's workspace-open toast:
+  top-center card, 12 s duration for the Undo affordance). String
+  arguments stay caller-supplied so labels come from ARB.
+- Port-back candidates: none — Séance already owns the source.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

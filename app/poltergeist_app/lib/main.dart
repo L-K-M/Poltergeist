@@ -15,6 +15,8 @@ import 'services/session_state.dart';
 import 'services/session_state_store.dart';
 import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
+import 'services/workspace_library.dart';
+import 'services/workspace_list_store.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,6 +58,20 @@ Future<void> main() async {
     store: sessionStore,
     onError: errorReporter.report,
   );
+  // The saved-workspace list (02 §3): its own versioned document inside
+  // the same settings.json, clearly separated from the auto session —
+  // the M5 favorites store is its planned home, this is the interim seam.
+  // The same fail-closed rule as the session document applies: a
+  // malformed or newer-schema document reports and boots an empty list,
+  // never partially trusted and never overwritten unread.
+  final workspaces = WorkspaceLibrary(
+    store: WorkspaceListStore(store: settingsStore),
+  );
+  try {
+    await workspaces.load();
+  } on Object catch (error, stack) {
+    errorReporter.report(error, stack);
+  }
   final windowLifecycle = DesktopWindowLifecycle(
     preferences,
     onCloseFlush: sessionPersistence.flush,
@@ -87,6 +103,7 @@ Future<void> main() async {
       restoredSession: restoredSession,
       sessionPersistence: sessionPersistence,
       bookmarks: bookmarks,
+      workspaces: workspaces,
       engineSession: engineSession,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,

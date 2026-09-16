@@ -154,6 +154,65 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The settings.json key the session document lives under (02 §3).
   'lib/services/session_state_store.dart': {"'session.state'"},
+  // The workspace document's on-disk schema (02 §3): the session-shape
+  // tab fields it reuses plus the persisted lens keys — the same
+  // posture as the sibling versioned stores, never rendered UI copy.
+  'lib/services/workspace_state.dart': {
+    "'filterQuery'",
+    "'filterFieldOpen'",
+    "'hiddenFiles'",
+    "'viewMode'",
+    "'list'",
+    "'details'",
+    "'paneId'",
+    "'activeTab'",
+    "'tabs'",
+    "'panes'",
+    "'id'",
+    "'label'",
+    "'savedAt'",
+    "'lastOpenedAt'",
+    "'snapshot'",
+    "'version'",
+    "'workspaces'",
+    "'Invalid workspace tab'",
+    "'Invalid workspace tab filter'",
+    "'Invalid workspace tab flags'",
+    "'Invalid workspace tab view mode'",
+    "'Invalid workspace pane'",
+    "'Invalid workspace pane id'",
+    "'Invalid workspace pane active tab'",
+    "'Invalid workspace pane tabs'",
+    "'Invalid workspace snapshot'",
+    "'Invalid workspace panes'",
+    "'Invalid workspace'",
+    "'Invalid workspace id'",
+    "'Invalid workspace label'",
+    "'Invalid workspace timestamp'",
+    "'Invalid workspace list'",
+    "'Unsupported workspace list schema'",
+    "'Invalid workspace list entries'",
+  },
+  // The settings.json key the workspace list document lives under
+  // (02 §3 — separate from the auto-session key by design).
+  'lib/services/workspace_list_store.dart': {"'workspaces.saved'"},
+  // The disposed-use diagnostic — the strip's assert-message posture.
+  'lib/services/workspace_library.dart': {
+    "'save on a disposed WorkspaceLibrary'",
+    // The blank-label ArgumentError's name and reason — a programming-
+    // error diagnostic, never rendered.
+    "'label'",
+    "'must not be blank'",
+  },
+  // The save dialog's name-field widget key — plumbing, not copy.
+  'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},
+  // The workspace command ids (D21 plumbing) — the open commands key
+  // per-record to the persisted workspace id.
+  'lib/ui/workspace/workspace_commands.dart': {
+    "'workspace.save'",
+    "'workspace.open.empty'",
+    r"'workspace.open.${saved.id}'",
+  },
   // Ported Séance contracts (see docs/PORTS.md): the exception messages are
   // frozen port text, kept byte-identical to the source. D20 localization
   // applies where the UI renders them (the prompt-UI slice), not here.
@@ -267,6 +326,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/pane_tabs_controller.dart': {
     r"'$paneId.tab${_nextTabOrdinal++}'",
     "'tab close guard fired with no presenter wired'",
+    "'tab replacement guard fired with no presenter wired'",
+    "'workspace pane state must match the strip it lands on'",
+    "'state.paneId'",
     "'newTab on a disposed PaneTabsController'",
     "'addTab on a disposed PaneTabsController'",
     "'restoreSession on a disposed PaneTabsController'",

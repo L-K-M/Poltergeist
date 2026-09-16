@@ -1472,6 +1472,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Copy path'**
   String get infoPanelCopyPath;
+
+  /// Title of the Commands menu's Workspaces submenu listing the saved workspaces (02 §3, M3 interim until the M5 sidebar).
+  ///
+  /// In en, this message translates to:
+  /// **'Workspaces'**
+  String get menuWorkspaces;
+
+  /// Commands-menu item that names and saves the current two-pane arrangement as a workspace (02 §9's table slot, 02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Save Workspace…'**
+  String get workspaceSaveCommand;
+
+  /// Title of the workspace-save name prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Save Workspace'**
+  String get workspaceSaveTitle;
+
+  /// Label of the workspace-save prompt's name field.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace name'**
+  String get workspaceNameField;
+
+  /// Confirms the workspace-save prompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get workspaceSaveAction;
+
+  /// Dismisses the workspace-save prompt without saving.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get workspaceSaveCancel;
+
+  /// Transient toast after a workspace snapshot persisted (02 §10: transient outcomes only).
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace \"{name}\" saved'**
+  String workspaceSavedToast(String name);
+
+  /// Transient action toast after a workspace replaced both panes' tabs (02 §3's exact copy); carries the Undo action.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace \"{name}\" opened'**
+  String workspaceOpenedToast(String name);
+
+  /// The workspace-opened toast's action: restores the tab sets the open displaced (02 §3).
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get workspaceUndoAction;
+
+  /// Disabled row inside the Workspaces submenu while no workspace has been saved yet.
+  ///
+  /// In en, this message translates to:
+  /// **'No Saved Workspaces'**
+  String get workspaceMenuEmpty;
 }
 
 class _AppLocalizationsDelegate
