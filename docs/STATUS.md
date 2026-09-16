@@ -5163,8 +5163,8 @@ and the address field takes no autocorrect/suggestions with a URL
 keyboard.
 
 Validation: `flutter analyze` clean; focused suites green (parser 21,
-widget 12, captures 2, localization contract 10); full app suite green
-(1006 tests, plus core 918); logs under `tasks/run3-task55/`.
+widget 14, captures 2, localization contract 10); full app suite green
+(1008 tests, plus core 918); logs under `tasks/run3-task55/`.
 
 ## Open items
 
