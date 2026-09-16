@@ -1010,5 +1010,91 @@ void main() {
       expect(channel.permissionsCalls, isEmpty);
       expect(left.enclosedApply, isNull);
     });
+
+    testWidgets('the enclosed confirmation ignores a scrim tap and '
+        'answers declined on system back', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
+      ];
+      channel.listings['/home/tester/docs'] = [
+        _entry('a.txt', size: 4, mode: 0x81A4, root: '/home/tester/docs'),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('infoPanel.applyEnclosed')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Apply to enclosed items?'), findsOneWidget);
+
+      // The barrier is non-dismissible — a scrim tap must not close
+      // the dialog (an unlatched dismissal would race _settle into a
+      // second pop of the route beneath).
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(find.text('Apply to enclosed items?'), findsOneWidget);
+
+      // System back answers declined through the dialog's own latch —
+      // once, never twice.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Apply to enclosed items?'), findsNothing);
+      expect(channel.permissionsCalls, isEmpty);
+      expect(left.enclosedApply, isNull);
+      expect(find.byType(InfoPanel), findsOneWidget);
+    });
+
+    testWidgets('Esc in the octal field while a write is in flight '
+        'never reverts the draft', (tester) async {
+      final channel = controller_test.FakePaneChannel('/home/tester');
+      channel.listings['/home/tester'] = [
+        _entry('report.txt', size: 2048, mode: 0x81A4),
+      ];
+      lanes.nextLocalChannel = channel;
+      await left.openLocalHome();
+      await pumpShell(tester);
+
+      left.setCursorIndex(0);
+      leftStrip.toggleInfoPanel();
+      await tester.pumpAndSettle();
+
+      await tester.tap(octalField());
+      await tester.pump();
+      await tester.enterText(octalField(), '0700');
+      await tester.pump();
+
+      // Park the write mid-flight, then Esc: the field is disabled, so
+      // its revert tier ignores the key — the draft stands.
+      final held = Completer<void>();
+      channel.heldPermissions = held;
+      unawaited(left.applyPermissions());
+      await tester.pump();
+      expect(left.permissionsEdit?.applying, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(octalText(tester), '0700');
+      expect(left.permissionsEdit?.mode, 0x1C0);
+
+      held.complete();
+      await tester.pump();
+      expect(channel.permissionsCalls, [
+        ('/home/tester/report.txt', 0x1C0),
+      ]);
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+    });
   });
 }

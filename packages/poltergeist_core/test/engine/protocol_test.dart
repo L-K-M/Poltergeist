@@ -357,7 +357,7 @@ void main() {
           requestId: 24,
           channelId: 5,
           path: '/home/user/site',
-          permissions: 0x1ED, // 0755 — leading special-bits digit included
+          permissions: 0x9ED, // 0o4755 — leading special-bits digit included
         ),
       );
       await _roundTrip(

@@ -1617,10 +1617,10 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{Includes 1 symbolic link — it will be skipped.} other{Includes {count} symbolic links — they will be skipped.}}'**
   String infoPanelEnclosedLinksCounted(int count);
 
-  /// Hedged disclosure line of the recursive-permissions confirmation when the count pass could not see every reachable item — flagged names and links are still skipped, but the dialog cannot claim zero (02 §13's never-silent rule).
+  /// Hedged disclosure line of the recursive-permissions confirmation when the count pass could not see every reachable item — flagged names and links are still skipped, unreadable folders leave their subtrees uncounted, and the dialog cannot claim zero (02 §13's never-silent rule).
   ///
   /// In en, this message translates to:
-  /// **'The count was incomplete — items with undecodable names and symbolic links will be skipped.'**
+  /// **'The count was incomplete — items with undecodable names and symbolic links will be skipped, and some folders could not be read.'**
   String get infoPanelEnclosedIncomplete;
 
   /// Decline affordance of the recursive-permissions confirmation, and the cancel affordance of its running apply walk (02 §2.6, D28).

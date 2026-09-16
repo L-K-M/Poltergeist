@@ -549,6 +549,10 @@ class EngineBrowseChannel {
   /// Recursive apply is an app-side walker issuing one of these per
   /// entry, not a flag on this call.
   Future<void> setPermissions(String path, int permissions) async {
+    assert(
+      permissions >= 0 && permissions <= 0xFFF,
+      'permissions must be a twelve-bit mode (0x000-0xFFF).',
+    );
     await _client._call(
       (id) => SetPermissionsRequest(
         requestId: id,

@@ -955,7 +955,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get infoPanelEnclosedIncomplete =>
-      'The count was incomplete — items with undecodable names and symbolic links will be skipped.';
+      'The count was incomplete — items with undecodable names and symbolic links will be skipped, and some folders could not be read.';
 
   @override
   String get infoPanelEnclosedCancel => 'Cancel';

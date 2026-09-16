@@ -28,13 +28,18 @@ RemoteFileEntry _entry(
 
 /// Binds a controller to a scripted local channel listing [entries].
 Future<(PaneController, FakePaneChannel)> _browsedPane(
-  List<RemoteFileEntry> entries,
-) async {
+  List<RemoteFileEntry> entries, {
+  void Function(Object, StackTrace)? onError,
+}) async {
   final lanes = FakePaneLanes();
   final channel = FakePaneChannel('/home/tester');
   channel.listings['/home/tester'] = entries;
   lanes.nextLocalChannel = channel;
-  final controller = PaneController(paneTabId: 'pane.left', lanes: lanes);
+  final controller = PaneController(
+    paneTabId: 'pane.left',
+    lanes: lanes,
+    onError: onError,
+  );
   await controller.openLocalHome();
   await _settle();
   return (controller, channel);
@@ -510,6 +515,100 @@ void main() {
       await controller.applyPermissions();
       expect(channel.permissionsCalls, isEmpty);
     });
+
+    test('a mid-flight draft edit stays dirty against the written '
+        'baseline', () async {
+      final (controller, channel) = await _browsedPane([
+        _entry('plain.txt', mode: 0x81A4),
+      ]);
+      addTearDown(controller.dispose);
+      controller.setCursorIndex(0);
+
+      controller.editPermissionsOctal('0700');
+      final held = Completer<void>();
+      channel.heldPermissions = held;
+      unawaited(controller.applyPermissions());
+      await _settle();
+      final session = controller.permissionsEdit!;
+      expect(session.applying, isTrue);
+
+      // The draft drifts while the 0700 write is in flight.
+      controller.editPermissionsOctal('0640');
+      held.complete();
+      await _settle();
+
+      // The baseline records what was written — never the later draft.
+      expect(session.originalMode, 0x1C0);
+      expect(session.mode, 0x1A0);
+      expect(session.dirty, isTrue);
+    });
+
+    test('a refusal answering after a retarget reports through the pane '
+        'error path, not a dead session', () async {
+      final errors = <Object>[];
+      final (controller, channel) = await _browsedPane(
+        [
+          _entry('a.txt', mode: 0x81A4),
+          _entry('b.txt', mode: 0x81A4),
+        ],
+        onError: (error, _) => errors.add(error),
+      );
+      addTearDown(controller.dispose);
+      _cursorTo(controller, 'a.txt');
+
+      controller.editPermissionsOctal('0700');
+      final held = Completer<void>();
+      channel.heldPermissions = held;
+      unawaited(controller.applyPermissions());
+      await _settle();
+
+      // The inspector retargets while the write is in flight; its
+      // completion is stale and reports like any untyped-adjacent
+      // refusal — never landing on b.txt's fresh session.
+      _cursorTo(controller, 'b.txt');
+      channel.permissionsFailure = const RemoteFileException(
+        kind: RemoteFileErrorKind.permissionDenied,
+        operation: 'setMode',
+        message: 'denied',
+      );
+      held.complete();
+      await _settle();
+
+      expect(errors.single, isA<RemoteFileException>());
+      expect(controller.permissionsEdit!.applyError, isNull);
+    });
+
+    test('a stale completion releases the in-flight flag — the '
+        're-adopted session can apply again', () async {
+      final errors = <Object>[];
+      final (controller, channel) = await _browsedPane(
+        [_entry('plain.txt', mode: 0x81A4)],
+        onError: (error, _) => errors.add(error),
+      );
+      addTearDown(controller.dispose);
+      controller.setCursorIndex(0);
+
+      controller.editPermissionsOctal('0700');
+      final held = Completer<void>();
+      channel.heldPermissions = held;
+      unawaited(controller.applyPermissions());
+      await _settle();
+      expect(controller.permissionsEdit?.applying, isTrue);
+
+      // A refresh mid-flight retires the write; the identical listing
+      // re-adopts the cached session object, so a latched `applying`
+      // would dead Apply permanently without the release.
+      controller.refresh();
+      await _settle();
+      channel.permissionsFailure = StateError('gone');
+      held.complete();
+      await _settle();
+
+      expect(errors.single, isA<StateError>());
+      final session = controller.permissionsEdit!;
+      expect(session.applying, isFalse);
+      expect(session.dirty, isTrue);
+    });
   });
 
   group('apply to enclosed items (02 §2.6, D28)', () {
@@ -563,9 +662,10 @@ void main() {
       _cursorTo(controller, 'docs');
 
       final answer = Completer<bool>();
-      unawaited(
-        controller.requestApplyToEnclosed(confirm: () => answer.future),
+      final apply = controller.requestApplyToEnclosed(
+        confirm: () => answer.future,
       );
+      unawaited(apply);
       await _settle();
 
       // The ask is open on the quantified copy — the count pass saw
@@ -579,6 +679,43 @@ void main() {
       answer.complete(true);
       await _settle();
       expect(controller.enclosedApply?.stage, EnclosedApplyStage.done);
+      await apply;
+    });
+
+    test('the confirmation hedges when the count pass is incomplete',
+        () async {
+      final (controller, channel) = await _browsedPane([
+        _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
+      ]);
+      addTearDown(controller.dispose);
+      channel.listings['/home/tester/docs'] = [
+        _entry('a.txt', root: '/home/tester/docs', mode: 0x81A4),
+        _entry(
+          'locked',
+          type: RemoteFileType.directory,
+          root: '/home/tester/docs',
+        ),
+      ];
+      // 'locked' has no scripted listing — the count pass's nested
+      // list refuses, leaving the pass incomplete.
+      _cursorTo(controller, 'docs');
+
+      final answer = Completer<bool>();
+      final apply = controller.requestApplyToEnclosed(
+        confirm: () => answer.future,
+      );
+      unawaited(apply);
+      await _settle();
+
+      final confirming = controller.enclosedApply!;
+      expect(confirming.stage, EnclosedApplyStage.confirming);
+      expect(confirming.counted, 2);
+      expect(confirming.flagPassComplete, isFalse);
+
+      answer.complete(true);
+      await _settle();
+      expect(controller.enclosedApply?.stage, EnclosedApplyStage.done);
+      await apply;
     });
 
     test('declining touches nothing', () async {
@@ -619,15 +756,17 @@ void main() {
       // A running operation refuses a second request.
       controller.editPermissionsOctal('0700');
       final answer = Completer<bool>();
-      unawaited(
-        controller.requestApplyToEnclosed(confirm: () => answer.future),
+      final apply = controller.requestApplyToEnclosed(
+        confirm: () => answer.future,
       );
+      unawaited(apply);
       await _settle();
       expect(controller.enclosedApply?.stage, EnclosedApplyStage.confirming);
       await controller.requestApplyToEnclosed(confirm: () async => true);
       expect(controller.enclosedApply?.stage, EnclosedApplyStage.confirming);
       answer.complete(false);
-      await _settle();
+      // The abandoned operation must settle rather than hang.
+      await apply;
     });
 
     test('cancel mid-walk settles cancelled with the partial tally, and '
@@ -683,6 +822,7 @@ void main() {
         _entry('docs', type: RemoteFileType.directory, mode: 0x41ED),
       ]);
       var asks = 0;
+      addTearDown(controller.dispose);
       final strip = testPaneStrip(
         controller,
         confirmClose: (tab, triggers) async {
@@ -690,14 +830,14 @@ void main() {
           return triggers.contains(TabCloseTrigger.applyToEnclosed);
         },
       );
-      addTearDown(controller.dispose);
       channel.listings['/home/tester/docs'] = const [];
       _cursorTo(controller, 'docs');
 
       final answer = Completer<bool>();
-      unawaited(
-        controller.requestApplyToEnclosed(confirm: () => answer.future),
+      final apply = controller.requestApplyToEnclosed(
+        confirm: () => answer.future,
       );
+      unawaited(apply);
       await _settle();
       expect(controller.enclosedApply?.stage, EnclosedApplyStage.confirming);
 
@@ -705,7 +845,10 @@ void main() {
       expect(asks, 1);
       expect(outcome, TabCloseOutcome.closed);
       expect(controller.applyToEnclosedInFlight, isFalse);
+      expect(controller.enclosedApply, isNull);
       answer.complete(false);
+      // The abandoned operation must settle rather than hang.
+      await apply;
     });
 
     test('closing the panel ends a pending confirmation untouched',
@@ -722,9 +865,10 @@ void main() {
       strip.toggleInfoPanel();
 
       final answer = Completer<bool>();
-      unawaited(
-        controller.requestApplyToEnclosed(confirm: () => answer.future),
+      final apply = controller.requestApplyToEnclosed(
+        confirm: () => answer.future,
       );
+      unawaited(apply);
       await _settle();
       expect(controller.enclosedApply?.stage, EnclosedApplyStage.confirming);
 
@@ -734,6 +878,8 @@ void main() {
       expect(controller.applyToEnclosedInFlight, isFalse);
       expect(channel.permissionsCalls, isEmpty);
       answer.complete(false);
+      // The abandoned operation must settle rather than hang.
+      await apply;
     });
 
     test('a location-changing navigation ends the operation at issue '
@@ -748,9 +894,10 @@ void main() {
       _cursorTo(controller, 'docs');
 
       final answer = Completer<bool>();
-      unawaited(
-        controller.requestApplyToEnclosed(confirm: () => answer.future),
+      final apply = controller.requestApplyToEnclosed(
+        confirm: () => answer.future,
       );
+      unawaited(apply);
       await _settle();
       expect(controller.applyToEnclosedInFlight, isTrue);
 
@@ -758,7 +905,10 @@ void main() {
       unawaited(controller.openEntry(controller.infoTarget!));
       expect(controller.applyToEnclosedInFlight, isFalse);
       expect(controller.enclosedApply, isNull);
+      expect(channel.permissionsCalls, isEmpty);
       answer.complete(false);
+      // The abandoned operation must settle rather than hang.
+      await apply;
     });
   });
 }

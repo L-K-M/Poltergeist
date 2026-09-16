@@ -220,8 +220,13 @@ final class _EngineClientChannel implements AppBrowseChannel {
       _channel.rename(oldPath, newPath);
 
   @override
-  Future<void> setPermissions(String path, int permissions) =>
-      _channel.setPermissions(path, permissions);
+  Future<void> setPermissions(String path, int permissions) {
+    assert(
+      permissions >= 0 && permissions <= 0xFFF,
+      'permissions must be a twelve-bit mode (0x000-0xFFF)',
+    );
+    return _channel.setPermissions(path, permissions);
+  }
 
   @override
   Future<void> openInDefaultApp(String path) =>

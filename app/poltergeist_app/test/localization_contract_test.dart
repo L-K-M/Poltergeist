@@ -81,6 +81,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
     "'bookmark.id'",
     "'bookmark has no embedded server identity'",
+    // The setPermissions assert's mode-range diagnostic — a programming-
+    // error message, never rendered.
+    "'permissions must be a twelve-bit mode (0x000-0xFFF)'",
   },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:

@@ -1783,20 +1783,28 @@ class PaneController extends ChangeNotifier {
         identical(channel, _channel) &&
         attempt == _bindAttempt &&
         revision == _locationRevision &&
-        location == _location;
+        location == _location &&
+        // An inspector retarget re-mints the edit session — a write
+        // answering after it owns nothing and reports through the
+        // pane's error path rather than stamping a dead session.
+        session.targetPath == infoTarget?.path;
+
+    // Snapshot the written mode before the await — the draft can still
+    // be edited while the write is in flight, and the applied baseline
+    // must record what was written, never a later draft. The mask keeps
+    // the twelve permission bits — the field carries the listed mode's
+    // file-type bits until the first edit.
+    final submittedMode = session.mode & permissionsModeMask;
 
     try {
-      // The draft mode is masked to its twelve permission bits — an
-      // edited draft is already in range, but the field carries the
-      // listed mode's file-type bits until the first edit.
-      await channel.setPermissions(
-        session.targetPath,
-        session.mode & permissionsModeMask,
-      );
+      await channel.setPermissions(session.targetPath, submittedMode);
     } on RemoteFileException catch (error, stackTrace) {
       if (_disposed) return;
+      // Every completion releases the in-flight flag — the cached
+      // session can be re-adopted after an away-and-back, and a latched
+      // `applying` would dead it permanently.
+      session.applying = false;
       if (ownsPresentation()) {
-        session.applying = false;
         session.applyError = error;
         notifyListeners();
       } else {
@@ -1808,8 +1816,8 @@ class PaneController extends ChangeNotifier {
       return;
     } on Object catch (error, stackTrace) {
       if (_disposed) return;
+      session.applying = false;
       if (ownsPresentation()) {
-        session.applying = false;
         notifyListeners();
       }
       _report(error, stackTrace);
@@ -1817,9 +1825,11 @@ class PaneController extends ChangeNotifier {
     }
 
     if (_disposed) return;
+    session.applying = false;
+    // The baseline records the mode that was written — a draft edited
+    // mid-flight stays dirty against it.
+    session.originalMode = submittedMode;
     if (ownsPresentation()) {
-      session.applying = false;
-      session.originalMode = session.mode;
       notifyListeners();
       // The listing's mode column and the inspector re-seed from the
       // accepted refresh — like the rename commit's re-list.
@@ -1937,12 +1947,12 @@ class PaneController extends ChangeNotifier {
     // stage — the count pass's progress line first, the settled copy
     // once it lands (02 §10's family shape). A presenter fault answers
     // declined: destructive-class fails closed.
-    Future<bool> ask() {
+    Future<bool> ask() async {
       try {
-        return confirm();
+        return await confirm();
       } on Object catch (error, stackTrace) {
         _report(error, stackTrace);
-        return Future<bool>.value(false);
+        return false;
       }
     }
 

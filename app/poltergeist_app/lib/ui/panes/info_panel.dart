@@ -404,10 +404,17 @@ class _PermissionsEditorState extends State<_PermissionsEditor> {
     }
     _seededSession = session;
     _seededRevision = session.octalRevision;
-    _octal.value = TextEditingValue(
-      text: session.octalText,
-      selection: TextSelection.collapsed(offset: session.octalText.length),
-    );
+    // Written post-frame: assigning a controller's value notifies the
+    // EditableText, and doing that mid-build only works while the field
+    // stays a strict descendant of this widget — a fragile invariant.
+    final text = session.octalText;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _octal.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    });
   }
 
   @override
@@ -486,7 +493,8 @@ class _PermissionsEditorState extends State<_PermissionsEditor> {
   /// The octal field: four digits, leading special-bits digit included.
   /// Esc is 02 §8.2's field tier — it reverts a pending draft or flags
   /// an invalid one; a clean field lets the key fall through to the
-  /// panel's own close slot.
+  /// panel's own close slot. Enter submits a dirty, valid draft — the
+  /// same commit-on-submit convention the other inline fields use.
   Widget _octalField(
     AppLocalizations l10n,
     PermissionsEditSession session,
@@ -498,8 +506,11 @@ class _PermissionsEditorState extends State<_PermissionsEditor> {
             event.logicalKey != LogicalKeyboardKey.escape) {
           return KeyEventResult.ignored;
         }
+        // The field is disabled while a write is in flight — the revert
+        // tier is gated identically so Esc can't retire the draft
+        // mid-apply.
         final draft = widget.controller.permissionsEdit;
-        if (draft != null && (draft.dirty || draft.octalInvalid)) {
+        if (editable && draft != null && (draft.dirty || draft.octalInvalid)) {
           widget.controller.revertPermissionsEdit();
           return KeyEventResult.handled;
         }
@@ -509,6 +520,7 @@ class _PermissionsEditorState extends State<_PermissionsEditor> {
         key: const ValueKey('infoPanel.octalField'),
         controller: _octal,
         enabled: editable,
+        keyboardType: TextInputType.number,
         style: poltergeistMonoTextStyle.copyWith(fontSize: 12),
         decoration: InputDecoration(
           isDense: true,
@@ -654,11 +666,20 @@ class _PermissionsEditorState extends State<_PermissionsEditor> {
   /// The destructive-class confirmation (02 §10's family): the dialog
   /// renders the operation's live stage — counting progress, then the
   /// quantified or hedged copy. A dismissed dialog answers declined.
-  Future<bool> _confirmEnclosed() => showDialog<bool>(
-    context: context,
-    builder: (dialogContext) =>
-        _EnclosedApplyDialog(controller: widget.controller),
-  ).then((value) => value ?? false);
+  /// The barrier is non-dismissible and system-back routes through the
+  /// dialog's `_answer`, so every dismissal flows through its latch —
+  /// a scrim tap or back gesture can never race `_settle` into a second
+  /// pop of the route beneath.
+  Future<bool> _confirmEnclosed() async {
+    if (!mounted) return false;
+    final granted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) =>
+          _EnclosedApplyDialog(controller: widget.controller),
+    );
+    return granted ?? false;
+  }
 
   /// The enclosed operation's live line: progress with a working Cancel
   /// while the walk runs, the terminal tally block once it settles.
@@ -830,8 +851,16 @@ class _EnclosedApplyDialogState extends State<_EnclosedApplyDialog> {
     final counting = session.stage == EnclosedApplyStage.counting;
     final octal = PermissionsEditSession.octalTextFor(session.mode);
     final colors = Theme.of(context).colorScheme;
-    return AlertDialog(
-      title: Text(l10n.infoPanelEnclosedTitle),
+    // canPop: false routes system-back through _answer — the imperative
+    // Navigator.pop there still force-pops, so every dismissal (button
+    // or back) flows through the _answered latch once.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _answer(false);
+      },
+      child: AlertDialog(
+        title: Text(l10n.infoPanelEnclosedTitle),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -891,7 +920,8 @@ class _EnclosedApplyDialogState extends State<_EnclosedApplyDialog> {
           onPressed: counting ? null : () => _answer(true),
           child: Text(l10n.infoPanelEnclosedApply),
         ),
-      ],
+        ],
+      ),
     );
   }
 }

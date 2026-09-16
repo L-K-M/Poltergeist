@@ -225,7 +225,13 @@ class FakePaneChannel implements AppBrowseChannel {
   Future<void> rename(String oldPath, String newPath) async {}
 
   @override
-  Future<void> setPermissions(String path, int permissions) async {}
+  Future<void> setPermissions(String path, int permissions) async {
+    setPermissionsCalls.add((path, permissions));
+  }
+
+  /// Recorded permission changes (path, permissions) — a cancelled
+  /// operation must never reach the filesystem.
+  final setPermissionsCalls = <(String, int)>[];
 
   /// Recorded default-app opens (paths) and a scripted failure — null
   /// opens succeed silently.

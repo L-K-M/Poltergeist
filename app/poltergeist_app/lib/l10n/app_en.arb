@@ -1291,9 +1291,9 @@
       }
     }
   },
-  "infoPanelEnclosedIncomplete": "The count was incomplete — items with undecodable names and symbolic links will be skipped.",
+  "infoPanelEnclosedIncomplete": "The count was incomplete — items with undecodable names and symbolic links will be skipped, and some folders could not be read.",
   "@infoPanelEnclosedIncomplete": {
-    "description": "Hedged disclosure line of the recursive-permissions confirmation when the count pass could not see every reachable item — flagged names and links are still skipped, but the dialog cannot claim zero (02 §13's never-silent rule)."
+    "description": "Hedged disclosure line of the recursive-permissions confirmation when the count pass could not see every reachable item — flagged names and links are still skipped, unreadable folders leave their subtrees uncounted, and the dialog cannot claim zero (02 §13's never-silent rule)."
   },
   "infoPanelEnclosedCancel": "Cancel",
   "@infoPanelEnclosedCancel": {

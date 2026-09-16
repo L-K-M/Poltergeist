@@ -442,6 +442,9 @@ Future<EnclosedApplyProgress> applyModeToEnclosed(
       visited++;
       if (entry.isDirectory) {
         if (seen.add(_dedupeKey(entry.path))) pending.add(entry.path);
+        // A directory-only stretch emits no file chmods — keep the
+        // progress line moving through the discovery phase.
+        onProgress?.call(snapshot(EnclosedApplyStage.applying));
         continue;
       }
       if (cancellation.isCancelled) {
@@ -478,6 +481,11 @@ Future<EnclosedApplyProgress> applyModeToEnclosed(
   return snapshot(EnclosedApplyStage.done);
 }
 
+/// Matches an unambiguously Windows absolute spelling: a drive letter
+/// immediately followed by a separator. Compiled once — `_dedupeKey`
+/// runs per directory inside both walks.
+final RegExp _windowsAbsoluteHead = RegExp(r'^[A-Za-z]:[\\/]');
+
 /// The visited-set's dedupe key: strips trailing separators so a server
 /// spelling one directory two ways cannot process it twice. Only dedupe
 /// — the stripped key never reaches the channel.
@@ -489,7 +497,7 @@ String _dedupeKey(String path) {
   // stays ambiguous rather than guessed: under-stripping can double-
   // process a misspelled directory, but over-stripping silently merges
   // distinct names and loses a subtree.
-  final windowsStyle = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(key) ||
+  final windowsStyle = _windowsAbsoluteHead.hasMatch(key) ||
       key.startsWith(r'\\');
   while (key.length > 1 &&
       (key.endsWith('/') || (windowsStyle && key.endsWith(r'\')))) {
