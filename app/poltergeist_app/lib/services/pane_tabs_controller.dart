@@ -9,6 +9,7 @@ import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
 import 'session_state.dart';
 import 'view_preferences.dart';
+import 'workspace_state.dart';
 
 /// What `tab.new` (⌘T) binds a fresh tab to — the persisted "New tabs
 /// open" preference's three values (02 §2.1, §3). Read at open time by
@@ -93,6 +94,21 @@ enum TabCloseOutcome {
 /// triggers, answers whether the close proceeds.
 typedef TabCloseConfirm =
     Future<bool> Function(PaneTab tab, List<TabCloseTrigger> triggers);
+
+/// Proof that [PaneTabsController.confirmTabReplacement] asked the
+/// presenter for every triggered tab and the user accepted — the token
+/// [PaneTabsController.replaceTabs] consumes so the workspace open's
+/// close phase never re-asks a question the confirm phase already
+/// settled. Opaque on purpose: callers transport it, only the strip
+/// that minted it reads it.
+final class TabReplacementPermit {
+  TabReplacementPermit._(this._confirmed);
+
+  /// Each confirmed tab's trigger set AT CONFIRM TIME — matched against
+  /// the live probes at close, so in-flight state that materialized
+  /// while the dialogs were up can never ride a stale grant.
+  final Map<PaneTab, List<TabCloseTrigger>> _confirmed;
+}
 
 /// One tab in a pane's strip: strip identity plus the engine-facing
 /// browsing controller. Every per-tab state lives on the controller
@@ -413,6 +429,140 @@ class PaneTabsController extends ChangeNotifier {
       for (final tab in _tabs) tab.controller.captureSessionTab(),
     ]),
   );
+
+  /// The strip's half of a workspace snapshot (02 §3's "Save
+  /// Workspace…"): everything [captureSession] records PLUS the
+  /// transient per-tab lenses — filter, hidden override, view mode —
+  /// which the session document excludes but a workspace must keep
+  /// ("per-tab view state").
+  WorkspacePaneState captureWorkspacePane() => WorkspacePaneState(
+    paneId: paneId,
+    activeTab: _activeIndex,
+    tabs: List.unmodifiable([
+      for (final tab in _tabs)
+        WorkspaceTabState(
+          session: tab.controller.captureSessionTab(),
+          filterQuery: tab.controller.filterQuery,
+          filterFieldOpen: tab.controller.filterFieldOpen,
+          showHidden: tab.controller.showHidden,
+          viewMode: tab.controller.viewMode,
+        ),
+    ]),
+  );
+
+  /// The workspace open's first phase (02 §3): asks [confirmClose] for
+  /// every currently-triggered tab BEFORE anything closes — the
+  /// workspace runs this on BOTH panes first, so a decline on either
+  /// leaves every strip exactly as it stood. Returns the grant
+  /// [replaceTabs] consumes, or null on decline, absent presenter, or
+  /// presenter fault — the same fail-closed rules [requestCloseTab]
+  /// applies to a single close.
+  ///
+  /// This is the batch form of [_closeGuarded]'s ask, not a second
+  /// guard: it reads the same [_closeGuards] registry and the same
+  /// presenter, so the workspace open can never dodge a trigger a ⌘W
+  /// close would surface.
+  Future<TabReplacementPermit?> confirmTabReplacement() async {
+    if (_disposed) return null;
+    final confirmed = <PaneTab, List<TabCloseTrigger>>{};
+    for (final tab in List.of(_tabs)) {
+      // A racing close may have settled the tab while an earlier
+      // confirm was up — nothing to guard anymore.
+      if (!_tabs.contains(tab)) continue;
+      final triggers = closeTriggers(tab);
+      if (triggers.isEmpty) continue;
+      final presenter = confirmClose;
+      if (presenter == null) {
+        // A guard that cannot ask fails closed: in-flight state is
+        // never dropped by a replacement that could not confirm it.
+        _report(
+          StateError('tab replacement guard fired with no presenter wired'),
+          StackTrace.current,
+        );
+        return null;
+      }
+      final bool accepted;
+      try {
+        accepted = await presenter(tab, triggers);
+      } catch (error, stackTrace) {
+        _report(error, stackTrace);
+        return null;
+      }
+      if (_disposed) return null;
+      // A decline before the first close leaves the whole strip — and
+      // the whole workspace — untouched (02 §3).
+      if (!accepted) return null;
+      confirmed[tab] = triggers;
+    }
+    return TabReplacementPermit._(confirmed);
+  }
+
+  /// The workspace open's second phase — reached only after THIS
+  /// strip's [confirmTabReplacement] returned [permit]: closes every
+  /// current tab through [_closeTab] (the same teardown
+  /// [requestCloseTab] ends in — ghost ring, sibling-aware remote
+  /// refcounting, channel release), then seeds [state] like
+  /// [restoreSession], additionally restoring each tab's saved lenses.
+  ///
+  /// A tab whose live trigger set no longer matches its confirmed set —
+  /// in-flight state that materialized while the dialogs were up —
+  /// re-enters the guarded single close instead of dropping under a
+  /// stale grant. A decline there keeps that tab (the user just refused
+  /// to lose it); the rest of the swap still proceeds, and the survivor
+  /// stays at its position ahead of the workspace tabs.
+  Future<void> replaceTabs(
+    WorkspacePaneState state,
+    TabReplacementPermit permit,
+  ) async {
+    assert(
+      state.paneId == paneId,
+      'workspace pane state must match the strip it lands on',
+    );
+    for (final tab in List.of(_tabs)) {
+      if (_disposed || !_tabs.contains(tab)) continue;
+      final granted = permit._confirmed[tab];
+      final current = closeTriggers(tab);
+      if (current.isNotEmpty &&
+          (granted == null || !listEquals(current, granted))) {
+        // New or changed in-flight state since the batch confirm — the
+        // shared single-close operation re-asks rather than dropping it
+        // silently.
+        await requestCloseTab(tab);
+        continue;
+      }
+      await _closeTab(tab);
+    }
+    if (_disposed) return;
+    // Any surviving tabs keep their slots; the workspace tabs append
+    // after them, and the saved active index counts from there.
+    final offset = _tabs.length;
+    for (final tabState in state.tabs) {
+      final controller = PaneController(
+        paneTabId: '$paneId.tab${_nextTabOrdinal++}',
+        lanes: _lanes,
+        onError: _onError,
+      );
+      controller.markRestored(tabState.session);
+      // The lenses apply unconditionally — restoreTransientState is the
+      // ghost ring's seam, and a workspace restores the view the user
+      // saved rather than the keystrokes that produced it.
+      controller.restoreTransientState(
+        filterQuery: tabState.filterQuery,
+        filterFieldOpen: tabState.filterFieldOpen,
+        showHidden: tabState.showHidden,
+        viewMode: tabState.viewMode,
+      );
+      _appendTab(controller);
+    }
+    if (state.tabs.isNotEmpty) {
+      _activeIndex = offset + state.activeTab.clamp(0, state.tabs.length - 1);
+    }
+    notifyListeners();
+    // The workspace's active tab resumes exactly like a launch-restored
+    // one: local rebinds, remote honors reconnectRestoredTabs.
+    final active = activeTab;
+    if (active != null) _resumeRestoredTab(active);
+  }
 
   /// The 02 §3 activation rule for session-restored tabs: a restored
   /// local tab rebinds on activation; a restored remote tab reconnects

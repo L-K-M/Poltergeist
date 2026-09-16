@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'pane_controller.dart';
 import 'pane_tabs_controller.dart';
 import 'sync_browsing_controller.dart';
+import 'workspace_state.dart';
 
 /// 03 §6's per-window workspace state, foundation slice: the pane pair,
 /// the active pane (which pane keyboard pane-scoped commands act on),
@@ -32,6 +33,7 @@ class WorkspaceController extends ChangeNotifier {
   late final SyncBrowsingController syncBrowsing;
 
   PaneTabsController _activePane;
+  bool _disposed = false;
 
   /// The pane that pane-scoped commands and focus chords resolve against;
   /// focus follows the active pane (02 §8.2's one FocusScope per pane).
@@ -179,6 +181,64 @@ class WorkspaceController extends ChangeNotifier {
     return true;
   }
 
+  /// The workspace snapshot `workspace.save` persists (02 §3): both
+  /// panes' tab sets, active tabs, and per-tab view state — each strip's
+  /// [PaneTabsController.captureWorkspacePane] half.
+  WorkspaceSnapshot captureWorkspace() => WorkspaceSnapshot(
+    left: left.captureWorkspacePane(),
+    right: right.captureWorkspacePane(),
+  );
+
+  /// THE workspace-open operation (02 §3): replaces BOTH panes' tab
+  /// sets with [next]'s, and returns the displaced snapshot for the
+  /// caller's `Workspace "X" opened` toast's Undo action.
+  ///
+  /// Both panes' replacement routes through the same tab-scoped-state
+  /// guard ⌘W uses — the strips' shared close-trigger registry and
+  /// presenter — asked for EVERY existing tab BEFORE the first close,
+  /// so a declined confirmation anywhere leaves the whole workspace
+  /// untouched. Once confirmed, each strip swaps through
+  /// [PaneTabsController.replaceTabs], the same teardown the guarded
+  /// single close ends in.
+  ///
+  /// The returned snapshot powers Undo: it restores the prior tab sets
+  /// but can never restore in-flight state — a navigation answer, an
+  /// open rename edit, a running folder-size walk are gone the moment
+  /// their tab closed. That is exactly why the guard runs first
+  /// (02 §3): the user authorizes each loss explicitly before the
+  /// workspace replaces anything. Undo itself routes through this same
+  /// guarded operation — a workspace tab that has since gone in-flight
+  /// is confirmed again rather than dropped silently.
+  ///
+  /// Transfers are unaffected by construction: the queue sits above the
+  /// panes and nothing here touches an engine channel beyond the pane
+  /// seams' own close/release calls.
+  ///
+  /// Returns null when a guard declined, no presenter was wired, or the
+  /// workspace disposed mid-confirm — in every case nothing (or only
+  /// user-approved closes) was applied.
+  Future<WorkspaceSnapshot?> requestApplyWorkspace(
+    WorkspaceSnapshot next,
+  ) async {
+    if (_disposed) return null;
+    // Phase 1 — the batch guard across BOTH panes before the first
+    // close anywhere. Confirming left fully then right keeps the
+    // decline rule intact: a right-pane "don't close" after left's
+    // confirms still leaves every tab standing (nothing closed yet).
+    final leftPermit = await left.confirmTabReplacement();
+    if (leftPermit == null || _disposed) return null;
+    final rightPermit = await right.confirmTabReplacement();
+    if (rightPermit == null || _disposed) return null;
+    // Capture AFTER the confirms: Undo restores the arrangement as it
+    // stood the instant before replacement — including anything that
+    // settled while the dialogs were up.
+    final prior = captureWorkspace();
+    await left.replaceTabs(next.left, leftPermit);
+    if (_disposed) return null;
+    await right.replaceTabs(next.right, rightPermit);
+    return _disposed ? null : prior;
+  }
+
   /// `pane.swapFocus` (Tab inside a listing): activates and returns the
   /// other pane — the shell moves keyboard focus to it. With pane B
   /// hidden there is nothing to swap to (02 §3): the visible pane
@@ -192,6 +252,8 @@ class WorkspaceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     // The link dies first so its anchor flags clear on live controllers
     // and its strip listeners detach before the strips go.
     syncBrowsing.dispose();

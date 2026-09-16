@@ -14,6 +14,7 @@ import 'services/pane_tabs_controller.dart' show NewTabTarget;
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/ssh_config_import_setup.dart';
+import 'services/workspace_library.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_shell.dart';
 import 'ui/workspace_shell.dart';
@@ -34,6 +35,7 @@ class PoltergeistApp extends StatefulWidget {
     this.scaffoldMessengerKey,
     this.sshConfigImport,
     this.bookmarks,
+    this.workspaces,
     this.connectionEngine,
     this.engineSession,
   });
@@ -73,6 +75,12 @@ class PoltergeistApp extends StatefulWidget {
   /// The persisted bookmark store behind the Connections surface (03 §6's
   /// `BookmarkStore` seam). Null leaves that command unregistered.
   final BookmarkRepository? bookmarks;
+
+  /// The saved-workspace list behind `workspace.save` and the
+  /// "Workspaces" submenu (02 §3). Null leaves those commands
+  /// unregistered; `main.dart` supplies it from the app-support settings
+  /// store.
+  final WorkspaceLibrary? workspaces;
 
   /// The engine's connection-state lanes for the Connections surface. A
   /// test seam only: an [engineSession] supplies its own lanes, and no
@@ -214,6 +222,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onPaneRatioSaveError: widget.onPaneRatioSaveError,
       sshConfigImport: widget.sshConfigImport,
       bookmarks: widget.bookmarks,
+      workspaces: widget.workspaces,
       connectionEngine: widget.connectionEngine,
       engineSession: widget.engineSession,
     );

@@ -5251,6 +5251,57 @@ contract green; full app suite green (1094 tests). Inspected real-font
 capture `tasks/run3-task57/captures/session-restore-reconnect-bar.png`:
 restored remote tab under the Reconnect bar with cached rows.
 
+## M3 — Workspaces: save/open/undo (2026-09-16)
+
+02 §3's final bullet: named workspaces persist a snapshot of both
+panes' tab sets, each pane's active tab, and per-tab view state —
+local path or remote identity + remote path, listing snapshot, filter
+query/field state, hidden-file visibility, view mode. Selection,
+history, and in-flight operations are deliberately not captured.
+
+Persistence boundary: per the §4 schema a workspace is a favorite
+KIND, but the favorites store is M5 — this slice persists the named
+list through the versioned session-store layer instead
+(`WorkspaceListStore` over `SettingsStore`, key `workspaces.saved`,
+strict decode, read-before-write, serialized writes — the same
+fail-closed contract as `session.state`). M5 migrates the document
+into the favorites store. `WorkspaceLibrary` keeps records
+newest-first, saves over an existing label case-insensitively while
+preserving its id, and stamps `lastOpenedAt` on open.
+
+Open is transactional per the §3 close-guard contract:
+`WorkspaceController.requestApplyWorkspace` asks each strip to run
+the SAME tab-scoped close triggers ⌘W uses (#123: in-flight
+navigation, folder-size, inline rename, sync anchor) across both
+panes BEFORE replacing anything, captures the displaced snapshot,
+then routes replacement through `PaneTabsController.replaceTabs`.
+Any declined or un-presentable confirmation leaves the entire
+workspace untouched. The toast `Workspace "X" opened` (ported
+`top_toast.dart`, 12 s) carries an Undo action that re-applies the
+displaced snapshot through the same guarded path — undo cannot
+restore in-flight state, hence guard-first (documented in code).
+Restored tabs land in `PanePhase.restored` and keep their saved
+lenses through the deferred rebind (`_beginBinding` skips the lens
+reset only when resuming a restored tab); local tabs rebind live,
+remote tabs honor the existing reconnect preference.
+
+UI: `workspace.save` ("Save Workspace…", Commands menu order 50)
+opens a localized name dialog; `workspace.open.<id>` entries fill a
+Workspaces submenu (order 55+, newest-first, disabled "No saved
+workspaces" row when empty) keyed on persisted ids, never labels.
+The shell re-derives the submenu when the library notifies. All
+strings ARB'd; schema keys and diagnostics registered in the
+localization contract.
+
+Validation: `flutter analyze` clean; focused suites green (state
+codec, list-store fail-closed, library ordering/disposal, 12
+guarded-apply cases incl. per-trigger decline and undo reconfirm,
+command/menu widget tests); localization contract green; menu-bar
+capture regression green. Real-font captures inspected:
+`tasks/run3-task58/workspaces-submenu.png` (submenu, newest-first)
+and `workspace-toast.png` (toast with Undo over the applied
+workspace).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

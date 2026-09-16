@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -844,4 +843,38 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get infoPanelCopyPath => 'Copy path';
+
+  @override
+  String get menuWorkspaces => 'Workspaces';
+
+  @override
+  String get workspaceSaveCommand => 'Save Workspace…';
+
+  @override
+  String get workspaceSaveTitle => 'Save Workspace';
+
+  @override
+  String get workspaceNameField => 'Workspace name';
+
+  @override
+  String get workspaceSaveAction => 'Save';
+
+  @override
+  String get workspaceSaveCancel => 'Cancel';
+
+  @override
+  String workspaceSavedToast(String name) {
+    return 'Workspace \"$name\" saved';
+  }
+
+  @override
+  String workspaceOpenedToast(String name) {
+    return 'Workspace \"$name\" opened';
+  }
+
+  @override
+  String get workspaceUndoAction => 'Undo';
+
+  @override
+  String get workspaceMenuEmpty => 'No Saved Workspaces';
 }

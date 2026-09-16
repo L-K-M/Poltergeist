@@ -17,6 +17,7 @@ import '../services/session_state.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
+import '../services/workspace_library.dart';
 import 'adaptive_shell.dart';
 import 'connections/connections_command.dart';
 import 'import/ssh_config_import_command.dart';
@@ -25,6 +26,7 @@ import 'menus/app_menu_host.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
+import 'workspace/workspace_commands.dart';
 
 /// The production two-pane shell (02 §1, foundation slice): toolbar over
 /// the registered commands (D21), the pane pair in the M1 adaptive shell
@@ -45,6 +47,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPaneRatioSaveError,
     this.sshConfigImport,
     this.bookmarks,
+    this.workspaces,
     this.connectionEngine,
     this.engineSession,
   });
@@ -97,6 +100,13 @@ class WorkspaceShell extends StatefulWidget {
   /// rebuild would churn watches and drop the loaded list.
   final BookmarkRepository? bookmarks;
 
+  /// The saved-workspace list behind `workspace.save` and the
+  /// "Workspaces" submenu (02 §3, M3 slice). Null leaves those commands
+  /// unregistered (tests and alternate boot paths stay opted out). Same
+  /// identity-stability contract as [bookmarks]: the shell subscribes
+  /// once per seam instance so a save or open re-derives the submenu.
+  final WorkspaceLibrary? workspaces;
+
   /// The engine's connection-state lanes; null while no production engine
   /// exists, which leaves every listed server without live truth rather
   /// than guessing at it. Same identity-stability contract as
@@ -141,6 +151,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
     _connections = _buildConnections();
     _buildWorkspace();
+    widget.workspaces?.addListener(_onWorkspacesChanged);
+  }
+
+  /// The command list is built in [build] — a workspace save or open
+  /// must rebuild so the Workspaces submenu re-derives its rows.
+  void _onWorkspacesChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -181,10 +198,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace?.left.reconnectRestoredTabs = widget.reconnectRestoredTabs;
       _workspace?.right.reconnectRestoredTabs = widget.reconnectRestoredTabs;
     }
+    if (!identical(oldWidget.workspaces, widget.workspaces)) {
+      oldWidget.workspaces?.removeListener(_onWorkspacesChanged);
+      widget.workspaces?.addListener(_onWorkspacesChanged);
+    }
   }
 
   @override
   void dispose() {
+    widget.workspaces?.removeListener(_onWorkspacesChanged);
     _connections?.dispose();
     _disposeWorkspace();
     _leftFocus?.dispose();
@@ -339,6 +361,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (sshConfigImport != null)
         buildSshConfigImportCommand(
           setup: sshConfigImport,
+          enabled: () => !_commandSessionActive,
+        ),
+      if (workspace != null && widget.workspaces != null)
+        ...buildWorkspaceCommands(
+          workspace: workspace,
+          library: widget.workspaces!,
           enabled: () => !_commandSessionActive,
         ),
       if (workspace != null && leftFocus != null && rightFocus != null)
