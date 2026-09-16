@@ -168,6 +168,11 @@ class _TabStripState extends State<_TabStrip> {
   final _chipKeys = <PaneTab, GlobalKey>{};
   PaneTab? _lastActive;
 
+  /// The active tab's list position at the last reveal check — a same-
+  /// identity tab whose index shifted (a tab inserted before it, or a
+  /// neighbor closing while scrolled) still needs the reveal pass.
+  int _lastActiveIndex = -1;
+
   /// The pending drop's insertion index into the strip's tab list and
   /// the indicator's strip-local x — non-null only while a foreign tab
   /// hovers the strip.
@@ -192,7 +197,9 @@ class _TabStripState extends State<_TabStrip> {
     final scrollRect = scrollBox.localToGlobal(Offset.zero) & scrollBox.size;
     final tabs = widget.tabs.tabs;
     var index = tabs.length;
-    var x = 8.0;
+    // Empty-strip fallback: the scroll area's own leading edge, so the
+    // indicator tracks the chip row's inset rather than a constant.
+    var x = stripBox.globalToLocal(scrollRect.topLeft).dx;
     for (var i = 0; i < tabs.length; i++) {
       final chip = _chipKeys[tabs[i]]?.currentContext?.findRenderObject();
       if (chip is! RenderBox || !chip.hasSize) continue;
@@ -267,8 +274,15 @@ class _TabStripState extends State<_TabStrip> {
                       listenable: tabs,
                       builder: (context, _) {
                         final active = tabs.activeTab;
-                        if (!identical(active, _lastActive)) {
+                        final activeIndex =
+                            active == null ? -1 : tabs.tabs.indexOf(active);
+                        // Identity OR position change: inserting or
+                        // removing a tab before the active one shifts
+                        // its rendered offset without an activation.
+                        if (!identical(active, _lastActive) ||
+                            activeIndex != _lastActiveIndex) {
                           _lastActive = active;
+                          _lastActiveIndex = activeIndex;
                           if (active != null) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               // Reads the CURRENT active tab at callback
