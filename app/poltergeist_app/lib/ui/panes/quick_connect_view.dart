@@ -97,6 +97,11 @@ class _QuickConnectViewState extends State<QuickConnectView> {
                 key: const ValueKey('quickConnect.field'),
                 controller: _field,
                 focusNode: widget.focusNode,
+                // An address is not prose: no autocorrect, no
+                // suggestions, and the URL keyboard where one exists.
+                autocorrect: false,
+                enableSuggestions: false,
+                keyboardType: TextInputType.url,
                 decoration: InputDecoration(
                   labelText: l10n.quickConnectAddressLabel,
                   hintText: l10n.quickConnectAddressHint,

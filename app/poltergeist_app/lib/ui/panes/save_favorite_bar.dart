@@ -114,32 +114,41 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
+              // A narrow pane must not overflow: the title and the
+              // name/save cluster wrap onto separate runs instead of
+              // forcing one Row wider than the pane.
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 8,
                 children: [
-                  Expanded(
-                    child: Text(
-                      l10n.saveFavoriteTitle,
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
+                  Text(
+                    l10n.saveFavoriteTitle,
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
-                  SizedBox(
-                    width: 240,
-                    child: TextField(
-                      key: const ValueKey('saveFavorite.name'),
-                      controller: _name,
-                      decoration: InputDecoration(
-                        labelText: l10n.saveFavoriteNameLabel,
-                        isDense: true,
+                  Wrap(
+                    spacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 240),
+                        child: TextField(
+                          key: const ValueKey('saveFavorite.name'),
+                          controller: _name,
+                          decoration: InputDecoration(
+                            labelText: l10n.saveFavoriteNameLabel,
+                            isDense: true,
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => _save(),
+                        ),
                       ),
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => _save(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    key: const ValueKey('saveFavorite.save'),
-                    onPressed: _saving ? null : _save,
-                    child: Text(l10n.saveFavoriteSave),
+                      FilledButton(
+                        key: const ValueKey('saveFavorite.save'),
+                        onPressed: _saving ? null : _save,
+                        child: Text(l10n.saveFavoriteSave),
+                      ),
+                    ],
                   ),
                 ],
               ),

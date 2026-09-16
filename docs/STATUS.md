@@ -5148,13 +5148,19 @@ while plain Tab still swaps panes. `connect.quickConnect` (⌘K) command
 registration rides the M5 command/menu slice with the tab scaffolding.
 
 Tests pin the contract red-first (`quick_connect_address_test.dart`,
-21 cases; `quick_connect_test.dart`, 12 widget tests: hint rendering,
+21 cases; `quick_connect_test.dart`, 14 widget tests: hint rendering,
 seam connect with adhoc identity, Enter submit, focus/suppression,
-save-through-store with no secret in the record, no-store notice,
-failure retry). Real-font captures under `tasks/run3-task55/captures/`
+address-field keyboard posture, save-through-store with no secret in
+the record, no-store notice, failure retry, narrow-pane reflow). Real-font captures under `tasks/run3-task55/captures/`
 show the port hint, the IPv6 hint, and the save bar (inspected).
 Follow-ups: `connect.quickConnect` registration + ⌘K/File-menu entry;
 serverId-migration promotion (03 §3.5) with M5.
+
+Review round 1 (applied; the narrow-pane regression failed pre-fix
+with a 48px RenderFlex overflow and passes after): the save bar lays
+out as wrapping runs so a narrow pane reflows instead of overflowing,
+and the address field takes no autocorrect/suggestions with a URL
+keyboard.
 
 Validation: `flutter analyze` clean; focused suites green (parser 21,
 widget 12, captures 2, localization contract 10); full app suite green

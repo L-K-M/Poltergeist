@@ -199,6 +199,17 @@ void main() {
       expect(tester.widget<FilledButton>(connectButton).enabled, isFalse);
     });
 
+    testWidgets('the address field takes no autocorrect or suggestions',
+        (tester) async {
+      final lanes = controller_test.FakePaneLanes();
+      await pumpLauncher(tester, lanes);
+
+      final field = tester.widget<TextField>(addressField);
+      expect(field.autocorrect, isFalse);
+      expect(field.enableSuggestions, isFalse);
+      expect(field.keyboardType, TextInputType.url);
+    });
+
     testWidgets('typing never leaves the field or swaps panes',
         (tester) async {
       final lanes = controller_test.FakePaneLanes();
@@ -344,6 +355,30 @@ void main() {
       expect(store.upserted, isEmpty);
       expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
       expect(find.byKey(const ValueKey('saveFavorite.error')), findsOneWidget);
+    });
+
+    testWidgets('the bar never overflows a narrow pane', (tester) async {
+      final lanes = controller_test.FakePaneLanes();
+      final bookmark = adhocBookmark();
+      final controller = await connectAdhoc(lanes, bookmark);
+      addTearDown(controller.dispose);
+      final strip = testPaneStrip(controller, lanes: lanes);
+      final right = PaneTabsController(paneId: 'pane.right', lanes: lanes);
+      addTearDown(right.dispose);
+      final workspace = WorkspaceController(left: strip, right: right);
+      addTearDown(workspace.dispose);
+
+      // A side-by-side Row of title + 240px field + Save needs ~360px;
+      // at 320 the old shape overflows, the Wrap shape reflows.
+      tester.view.physicalSize = const Size(320, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await pumpPane(tester, controller, strip, workspace,
+          bookmarks: FakeBookmarkStore());
+
+      expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }
