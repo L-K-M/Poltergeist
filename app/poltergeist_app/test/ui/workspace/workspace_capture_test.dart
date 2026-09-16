@@ -151,15 +151,15 @@ void main() {
       await library.save(
         label: 'Archive',
         snapshot: WorkspaceSnapshot(
-          left: _pane('pane.left', ['/srv/archive']),
-          right: _pane('pane.right', const []),
+          left: _pane(sessionLeftPaneId, ['/srv/archive']),
+          right: _pane(sessionRightPaneId, const []),
         ),
       );
       await library.save(
         label: 'Client X',
         snapshot: WorkspaceSnapshot(
-          left: _pane('pane.left', ['/home/tester/work']),
-          right: _pane('pane.right', ['/srv/archive']),
+          left: _pane(sessionLeftPaneId, ['/home/tester/work']),
+          right: _pane(sessionRightPaneId, ['/srv/archive']),
         ),
       );
     });

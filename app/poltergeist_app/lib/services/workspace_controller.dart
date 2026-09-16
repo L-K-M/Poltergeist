@@ -34,6 +34,10 @@ class WorkspaceController extends ChangeNotifier {
 
   PaneTabsController _activePane;
   bool _disposed = false;
+  // One guarded replacement at a time: a second open (or an Undo racing
+  // an open still mid-confirm) fails closed rather than interleaving
+  // confirms and closes across the two runs.
+  bool _applyingWorkspace = false;
 
   /// The pane that pane-scoped commands and focus chords resolve against;
   /// focus follows the active pane (02 §8.2's one FocusScope per pane).
@@ -220,23 +224,28 @@ class WorkspaceController extends ChangeNotifier {
   Future<WorkspaceSnapshot?> requestApplyWorkspace(
     WorkspaceSnapshot next,
   ) async {
-    if (_disposed) return null;
-    // Phase 1 — the batch guard across BOTH panes before the first
-    // close anywhere. Confirming left fully then right keeps the
-    // decline rule intact: a right-pane "don't close" after left's
-    // confirms still leaves every tab standing (nothing closed yet).
-    final leftPermit = await left.confirmTabReplacement();
-    if (leftPermit == null || _disposed) return null;
-    final rightPermit = await right.confirmTabReplacement();
-    if (rightPermit == null || _disposed) return null;
-    // Capture AFTER the confirms: Undo restores the arrangement as it
-    // stood the instant before replacement — including anything that
-    // settled while the dialogs were up.
-    final prior = captureWorkspace();
-    await left.replaceTabs(next.left, leftPermit);
-    if (_disposed) return null;
-    await right.replaceTabs(next.right, rightPermit);
-    return _disposed ? null : prior;
+    if (_disposed || _applyingWorkspace) return null;
+    _applyingWorkspace = true;
+    try {
+      // Phase 1 — the batch guard across BOTH panes before the first
+      // close anywhere. Confirming left fully then right keeps the
+      // decline rule intact: a right-pane "don't close" after left's
+      // confirms still leaves every tab standing (nothing closed yet).
+      final leftPermit = await left.confirmTabReplacement();
+      if (leftPermit == null || _disposed) return null;
+      final rightPermit = await right.confirmTabReplacement();
+      if (rightPermit == null || _disposed) return null;
+      // Capture AFTER the confirms: Undo restores the arrangement as it
+      // stood the instant before replacement — including anything that
+      // settled while the dialogs were up.
+      final prior = captureWorkspace();
+      await left.replaceTabs(next.left, leftPermit);
+      if (_disposed) return null;
+      await right.replaceTabs(next.right, rightPermit);
+      return _disposed ? null : prior;
+    } finally {
+      _applyingWorkspace = false;
+    }
   }
 
   /// `pane.swapFocus` (Tab inside a listing): activates and returns the

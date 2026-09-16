@@ -41,6 +41,9 @@ final class WorkspaceLibrary extends ChangeNotifier {
   /// unread (the store's read-before-write keeps it intact).
   Future<void> load() async {
     final document = await _store.load();
+    // The await above can outlive the library — publishing into a
+    // disposed ChangeNotifier throws.
+    if (_disposed) return;
     _workspaces = document?.workspaces ?? const [];
     notifyListeners();
   }
@@ -58,6 +61,9 @@ final class WorkspaceLibrary extends ChangeNotifier {
     required WorkspaceSnapshot snapshot,
   }) async {
     assert(!_disposed, 'save on a disposed WorkspaceLibrary');
+    if (label.trim().isEmpty) {
+      throw ArgumentError.value(label, 'label', 'must not be blank');
+    }
     final now = _now().toUtc();
     final existing = _workspaces
         .where(
@@ -83,6 +89,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
         if (!identical(workspace, existing)) workspace,
     ];
     await _store.save(WorkspaceListDocument(workspaces: next));
+    if (_disposed) return saved;
     _workspaces = List.unmodifiable(next);
     notifyListeners();
     return saved;
@@ -104,6 +111,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
         if (workspace.id != id) workspace,
     ];
     await _store.save(WorkspaceListDocument(workspaces: next));
+    if (_disposed) return;
     _workspaces = List.unmodifiable(next);
     notifyListeners();
   }

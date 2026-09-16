@@ -41,6 +41,8 @@ final class WorkspaceListStore {
   /// document carries a schema this build cannot decode — overwriting a
   /// newer Poltergeist's workspace list would lose its data.
   Future<void> save(WorkspaceListDocument document) => _serialized(() async {
+    // Never persist a document this build would itself refuse to decode.
+    WorkspaceListDocument.fromJson(document.toJson());
     final stored = await _store.get<Object>(_settingsKey);
     if (stored != null) {
       // Validates the stored schema; throws before touching the file

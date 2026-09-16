@@ -24,16 +24,21 @@ void main() {
   /// [presented] so a test can assert WHICH trigger blocked.
   final presented = <(PaneTab, List<TabCloseTrigger>)>[];
   bool Function(List<TabCloseTrigger>) confirmAnswer = (_) => true;
+  // Set to a pending future to hold the presenter mid-confirm — the
+  // apply stays inside phase 1 until it completes.
+  Future<void>? confirmHold;
 
   setUp(() {
     lanes = FakePaneLanes();
     presented.clear();
     confirmAnswer = (_) => true;
+    confirmHold = null;
     left = PaneTabsController(
       paneId: PaneTabsController.leftPaneId,
       lanes: lanes,
       confirmClose: (tab, triggers) async {
         presented.add((tab, triggers));
+        await confirmHold;
         return confirmAnswer(triggers);
       },
     );
@@ -42,6 +47,7 @@ void main() {
       lanes: lanes,
       confirmClose: (tab, triggers) async {
         presented.add((tab, triggers));
+        await confirmHold;
         return confirmAnswer(triggers);
       },
     );
@@ -288,6 +294,39 @@ void main() {
       expect(calls, 2);
       expect(currentPath(left, 0), '/left');
       expect(currentPath(right, 0), '/right');
+    });
+
+    test('a second open while one is mid-confirm fails closed', () async {
+      final controller = await openLocalTab(left, '/home/tester');
+      lastChannel!.holdNext = Completer<void>();
+      controller.navigate('/home/tester/docs');
+
+      final hold = Completer<void>();
+      confirmHold = hold.future;
+      final first = workspace.requestApplyWorkspace(
+        WorkspaceSnapshot(
+          left: paneState('pane.left', [localTab('/new')]),
+          right: paneState('pane.right', const []),
+        ),
+      );
+      await settle();
+      // The first apply is parked inside the batch confirm — a racing
+      // second open (or a racing Undo) is refused, never interleaved.
+      final second = await workspace.requestApplyWorkspace(
+        WorkspaceSnapshot(
+          left: paneState('pane.left', [localTab('/other')]),
+          right: paneState('pane.right', const []),
+        ),
+      );
+      expect(second, isNull);
+      expect(left.tabs.single.controller, same(controller));
+
+      confirmHold = null;
+      hold.complete();
+      expect(await first, isNotNull);
+      // The restored active tab's local rebind commits asynchronously.
+      await settle();
+      expect(currentPath(left, 0), '/new');
     });
 
     test('each remaining trigger blocks replacement', () async {

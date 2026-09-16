@@ -199,6 +199,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The disposed-use diagnostic — the strip's assert-message posture.
   'lib/services/workspace_library.dart': {
     "'save on a disposed WorkspaceLibrary'",
+    // The blank-label ArgumentError's name and reason — a programming-
+    // error diagnostic, never rendered.
+    "'label'",
+    "'must not be blank'",
   },
   // The save dialog's name-field widget key — plumbing, not copy.
   'lib/ui/workspace/save_workspace_dialog.dart': {"'workspaceSave.name'"},

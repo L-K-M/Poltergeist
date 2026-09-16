@@ -111,6 +111,19 @@ void main() {
       await library.save(label: 'Client X', snapshot: emptySnapshot());
       expect(notified, 1);
     });
+
+    test('rejects a blank label before persisting', () async {
+      await library.load();
+      expect(
+        () => library.save(label: '   ', snapshot: emptySnapshot()),
+        throwsArgumentError,
+      );
+      expect(
+        () => library.save(label: '', snapshot: emptySnapshot()),
+        throwsArgumentError,
+      );
+      expect(library.workspaces, isEmpty);
+    });
   });
 
   group('markOpened', () {

@@ -111,7 +111,8 @@ void main() {
 
   group('strict decode', () {
     test('rejects a newer schema version', () {
-      final json = _fixture.toJson()..['version'] = 2;
+      final json = _fixture.toJson()
+        ..['version'] = WorkspaceListDocument.schemaVersion + 1;
       expect(() => WorkspaceListDocument.fromJson(json), throwsFormatException);
     });
 
