@@ -69,6 +69,7 @@ class WorkspaceController extends ChangeNotifier {
   void setSecondPaneHidden(bool hidden) {
     if (hidden == _secondPaneHidden) return;
     _secondPaneHidden = hidden;
+    _keepActivePaneVisible();
     notifyListeners();
   }
 
@@ -80,16 +81,33 @@ class WorkspaceController extends ChangeNotifier {
   void setSecondPaneLayoutShown(bool shown) {
     if (shown == _secondPaneLayoutShown) return;
     _secondPaneLayoutShown = shown;
+    _keepActivePaneVisible();
     notifyListeners();
   }
 
+  /// 02 §3's rule that a hidden pane's tabs take no commands, applied to
+  /// the workspace's own pointer: the moment pane B leaves the screen —
+  /// user toggle or stage-2 auto-hide, one mechanism — an active right
+  /// pane would leave every pane-scoped command and the focus chords
+  /// aimed at a strip nothing renders. The active pane falls to the
+  /// survivor; re-showing never moves it back on its own (the remembered
+  /// pane is state, not focus).
+  void _keepActivePaneVisible() {
+    if (!secondPaneShown && identical(_activePane, right)) {
+      _activePane = left;
+    }
+  }
+
   /// Marks [pane] active (a pane gained focus or was activated by
-  /// command). Idempotent.
+  /// command). Idempotent; refuses the hidden pane (02 §3) — a focus
+  /// event racing the unmount must not park pane commands on a strip
+  /// nothing renders.
   void setActivePane(PaneTabsController pane) {
     assert(
       identical(pane, left) || identical(pane, right),
       'Active pane must be one of this workspace\'s panes.',
     );
+    if (identical(pane, right) && !secondPaneShown) return;
     if (identical(_activePane, pane)) return;
     _activePane = pane;
     notifyListeners();
@@ -115,8 +133,11 @@ class WorkspaceController extends ChangeNotifier {
   }
 
   /// `pane.swapFocus` (Tab inside a listing): activates and returns the
-  /// other pane — the shell moves keyboard focus to it.
+  /// other pane — the shell moves keyboard focus to it. With pane B
+  /// hidden there is nothing to swap to (02 §3): the visible pane
+  /// answers, so the caller still lands focus on a shown strip.
   PaneTabsController swapFocus() {
+    if (!secondPaneShown) return _activePane;
     final target = identical(_activePane, left) ? right : left;
     setActivePane(target);
     return target;

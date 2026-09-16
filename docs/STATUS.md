@@ -5001,6 +5001,50 @@ suites green (pane_tabs_view, pane_tabs_controller, quick_select,
 pane_view, pane_path_input/pane_controller — 200 tests); full app
 suite green (936 tests). Evidence and logs under `tasks/run3-task52/`.
 
+## M3 — second-pane toggle (2026-09-15)
+
+`view.toggleSecondPane` (⇧⌘D / Ctrl+Shift+D, View menu order 70 per
+02 §8.3/§9) was already registered by the Sync Browsing slice, and
+hiding pane B already ran through one mechanism — the workspace's
+`secondPaneHidden` intent and the AdaptiveShell's stage-2 auto-hide
+converge on `secondPaneShown`. What was missing was the §3 rule that
+a hidden pane's tabs take no keyboard focus or commands: a hide while
+pane B was active left `activePane` — and every pane-scoped command
+resolving it — aimed at an unmounted strip, and keyboard focus dropped
+to nowhere until the next click.
+
+The workspace now parks the active pane on the survivor the moment
+pane B leaves the screen, whichever flag hid it; `setActivePane`
+refuses the hidden pane outright (a focus event racing the unmount
+cannot park commands on it), and `swapFocus`/the focus commands
+resolve to the shown pane. The shell moves keyboard focus to the
+surviving pane's listing node on the shown→hidden transition — before
+the unmount on the user toggle, after the layout's post-frame report
+on the auto-hide. Re-showing restores pane B exactly — the strip and
+every tab object are the same instances, so location, listing,
+selection/cursor, the transient filter, the hidden override, view
+mode, history, Quick Select, and an open rename session all survive
+untouched — and never re-grabs the active pane (the remembered pane
+is state, not focus). No window-title or checked-menu surface exists
+to reflect one-pane mode, so none changes.
+
+Tests pin the contract at every seam: the workspace retarget/refusal/
+swap rules plus the transient-vs-latched intent split
+(`workspace_controller_test.dart`, new); the production shell — chord
+hide, focus handoff, `pane.focusRight`/Tab folding to the survivor,
+and a deep per-tab state assert across hide/show including a two-tab
+strip and a Back that still lands on the pre-hide parent
+(`workspace_panes_test.dart`); the layout's visibility report carrying
+stage hide, regrow, and intent hide on one channel
+(`adaptive_shell_test.dart`); the existing §7 hidden-pane suspend/
+resume test now also proves the refresh chord never reaches pane B's
+channel while hidden (`sync_browse_ui_test.dart`). Real-font captures
+of the two-pane, one-pane, and restored layouts are under
+`tasks/run3-task53/captures/` (`pane_toggle_capture_test.dart`).
+
+Validation: `flutter analyze` clean; full app suite green (948 tests);
+logs under `tasks/run3-task53/logs/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
