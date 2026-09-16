@@ -167,6 +167,17 @@ void main() {
       expect(parsed.target?.remotePath, isNull);
     });
 
+    test('a bracketed host with default port and a path keeps the path',
+        () {
+      final parsed = parseQuickConnectAddress(
+        'deploy@[2001:db8::1]:/srv/www',
+      );
+
+      expect(parsed.ok, isTrue);
+      expect(parsed.target?.port, 22);
+      expect(parsed.target?.remotePath, '/srv/www');
+    });
+
     test('an unclosed bracket is rejected with the hint', () {
       final parsed = parseQuickConnectAddress('deploy@[2001:db8::1');
 

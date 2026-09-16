@@ -5148,7 +5148,7 @@ while plain Tab still swaps panes. `connect.quickConnect` (⌘K) command
 registration rides the M5 command/menu slice with the tab scaffolding.
 
 Tests pin the contract red-first (`quick_connect_address_test.dart`,
-21 cases; `quick_connect_test.dart`, 14 widget tests: hint rendering,
+23 cases; `quick_connect_test.dart`, 14 widget tests: hint rendering,
 seam connect with adhoc identity, Enter submit, focus/suppression,
 address-field keyboard posture, save-through-store with no secret in
 the record, no-store notice, failure retry, narrow-pane reflow). Real-font captures under `tasks/run3-task55/captures/`
@@ -5162,9 +5162,18 @@ out as wrapping runs so a narrow pane reflows instead of overflowing,
 and the address field takes no autocorrect/suggestions with a URL
 keyboard.
 
-Validation: `flutter analyze` clean; focused suites green (parser 21,
+Review round 3 (applied): an empty bracketed token (`[host]:`)
+returned `''` where the bare form lands home — normalized, with a
+regression that failed pre-fix and passes after.
+
+Review round 4 (applied): round 3 over-corrected `[host]:/path`
+(dropped a real path) — an empty head now keeps the slash tail, so
+only a truly empty token lands home; the suggested path regression
+failed pre-fix and passes after.
+
+Validation: `flutter analyze` clean; focused suites green (parser 23,
 widget 14, captures 2, localization contract 10); full app suite green
-(1008 tests, plus core 918); logs under `tasks/run3-task55/`.
+(1010 tests, plus core 918); logs under `tasks/run3-task55/`.
 
 ## Open items
 
