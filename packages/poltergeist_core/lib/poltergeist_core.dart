@@ -163,6 +163,7 @@ export 'src/engine/protocol.dart'
         ResponseEvent,
         ServerIdsListed,
         ServerStateEvent,
+        SetPermissionsRequest,
         SetProbeActivityRequest,
         SetProbeTargetsRequest,
         ShutdownRequest,

@@ -1123,7 +1123,7 @@
   },
   "infoPanelPermissions": "Permissions",
   "@infoPanelPermissions": {
-    "description": "Label of the Get Info inspector's read-only permissions row (02 §2.6). The D28 editor is later work — this row only displays."
+    "description": "Label of the Get Info inspector's permissions section (02 §2.6): a display line for targets the editor cannot touch, the D28 octal+rwx editor otherwise."
   },
   "infoPanelPermissionsValue": "{symbolic} ({octal})",
   "@infoPanelPermissionsValue": {
@@ -1152,6 +1152,226 @@
   "infoPanelCopyPath": "Copy path",
   "@infoPanelCopyPath": {
     "description": "Tooltip of the Get Info inspector's copy affordance beside the full path (02 §2.6)."
+  },
+  "infoPanelPermOctal": "Octal",
+  "@infoPanelPermOctal": {
+    "description": "Label of the Get Info inspector's octal permissions field (02 §2.6, D28) — four octal digits, the leading special-bits digit included."
+  },
+  "infoPanelPermInvalid": "Use four octal digits (0000–7777).",
+  "@infoPanelPermInvalid": {
+    "description": "Inline error under the Get Info inspector's octal field while its text is not exactly four octal digits (02 §2.6, D28)."
+  },
+  "infoPanelPermOwner": "Owner",
+  "@infoPanelPermOwner": {
+    "description": "Row label for the owner rwx checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28)."
+  },
+  "infoPanelPermGroup": "Group",
+  "@infoPanelPermGroup": {
+    "description": "Row label for the group rwx checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28)."
+  },
+  "infoPanelPermOthers": "Others",
+  "@infoPanelPermOthers": {
+    "description": "Row label for the others rwx checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28)."
+  },
+  "infoPanelPermRead": "Read",
+  "@infoPanelPermRead": {
+    "description": "Column tooltip for the read checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28)."
+  },
+  "infoPanelPermWrite": "Write",
+  "@infoPanelPermWrite": {
+    "description": "Column tooltip for the write checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28)."
+  },
+  "infoPanelPermExecute": "Execute",
+  "@infoPanelPermExecute": {
+    "description": "Column tooltip for the execute checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28)."
+  },
+  "infoPanelPermCell": "{who} {what}",
+  "@infoPanelPermCell": {
+    "description": "Accessible name of one checkbox in the Get Info inspector's permissions grid — who is Owner/Group/Others, what is Read/Write/Execute (02 §2.6, D28).",
+    "placeholders": {
+      "who": {
+        "type": "String"
+      },
+      "what": {
+        "type": "String"
+      }
+    }
+  },
+  "infoPanelPermBlockedName": "The name is not valid UTF-8 — it can't be sent to the server.",
+  "@infoPanelPermBlockedName": {
+    "description": "Note under the Get Info inspector's display-only permissions row when the target's name is undecodable (02 §13's flagged-name rule: no path built from it may cross the wire)."
+  },
+  "infoPanelPermBlockedLink": "A symbolic link's permissions can't be changed.",
+  "@infoPanelPermBlockedLink": {
+    "description": "Note under the Get Info inspector's display-only permissions row when the target is a symbolic link (the VFS refuses to chmod a link typed, and following it would change a different file)."
+  },
+  "infoPanelPermBlockedUnsupported": "This filesystem can't change permissions.",
+  "@infoPanelPermBlockedUnsupported": {
+    "description": "Note under the Get Info inspector's display-only permissions row when the pane's filesystem has no POSIX chmod — a Windows local pane (02 §2.6, D28)."
+  },
+  "infoPanelApplyPermissions": "Apply",
+  "@infoPanelApplyPermissions": {
+    "description": "Affordance writing the Get Info inspector's permissions draft to the target (02 §2.6, D28)."
+  },
+  "infoPanelApplyEnclosed": "Apply to enclosed items\u2026",
+  "@infoPanelApplyEnclosed": {
+    "description": "Affordance starting the Get Info inspector's recursive permissions apply on a folder — count, confirm, then walk (02 §2.6, D28). The ellipsis marks that confirmation follows."
+  },
+  "infoPanelPermErrorUnsupported": "This filesystem can't change permissions.",
+  "@infoPanelPermErrorUnsupported": {
+    "description": "Inline refusal when a permissions change reaches a filesystem without POSIX chmod (02 §2.6, D28)."
+  },
+  "infoPanelPermErrorDenied": "Permission denied — you may not own this item.",
+  "@infoPanelPermErrorDenied": {
+    "description": "Inline refusal when the filesystem denies a permissions change (02 §2.6, D28)."
+  },
+  "infoPanelPermErrorNotFound": "The item no longer exists.",
+  "@infoPanelPermErrorNotFound": {
+    "description": "Inline refusal when a permissions change finds the target gone (02 §2.6, D28)."
+  },
+  "infoPanelPermError": "The change could not be completed.",
+  "@infoPanelPermError": {
+    "description": "Generic inline refusal when a permissions change fails for a reason with no authored copy (02 §2.6, D28)."
+  },
+  "infoPanelEnclosedTitle": "Apply to enclosed items?",
+  "@infoPanelEnclosedTitle": {
+    "description": "Title of the Get Info inspector's recursive-permissions confirmation dialog (02 §2.6, D28; 02 §10's destructive family)."
+  },
+  "infoPanelEnclosedCounting": "Counting the items inside \u201c{name}\u201d\u2026",
+  "@infoPanelEnclosedCounting": {
+    "description": "Progress line of the recursive-permissions confirmation while the read-only count pass lists the folder (02 §2.6, D28).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "infoPanelEnclosedBody": "Apply {octal} to \u201c{name}\u201d and the items inside it?",
+  "@infoPanelEnclosedBody": {
+    "description": "Unquantified body of the recursive-permissions confirmation — the fallback when the count pass could not complete (02 §2.6, D28).",
+    "placeholders": {
+      "octal": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "infoPanelEnclosedBodyCounted": "{count, plural, =0{Apply {octal} to \u201c{name}\u201d? It has no changeable items inside.} =1{Apply {octal} to \u201c{name}\u201d and the 1 item inside it?} other{Apply {octal} to \u201c{name}\u201d and the {count} items inside it?}}",
+  "@infoPanelEnclosedBodyCounted": {
+    "description": "Quantified body of the recursive-permissions confirmation once the count pass saw every reachable item (02 §2.6, D28; 02 §10's quantify-then-confirm rule).",
+    "placeholders": {
+      "octal": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedFlaggedCounted": "{count, plural, =1{Includes 1 item with an undecodable name — it will be skipped.} other{Includes {count} items with undecodable names — they will be skipped.}}",
+  "@infoPanelEnclosedFlaggedCounted": {
+    "description": "Disclosure line of the recursive-permissions confirmation counting enclosed items whose names are not valid UTF-8 — the count pass finished, so the count is exact (02 §13).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedLinksCounted": "{count, plural, =1{Includes 1 symbolic link — it will be skipped.} other{Includes {count} symbolic links — they will be skipped.}}",
+  "@infoPanelEnclosedLinksCounted": {
+    "description": "Disclosure line of the recursive-permissions confirmation counting enclosed symbolic links — the count pass finished, so the count is exact (D28's never-follow rule).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedIncomplete": "The count was incomplete — items with undecodable names and symbolic links will be skipped, and some folders could not be read.",
+  "@infoPanelEnclosedIncomplete": {
+    "description": "Hedged disclosure line of the recursive-permissions confirmation when the count pass could not see every reachable item — flagged names and links are still skipped, unreadable folders leave their subtrees uncounted, and the dialog cannot claim zero (02 §13's never-silent rule)."
+  },
+  "infoPanelEnclosedCancel": "Cancel",
+  "@infoPanelEnclosedCancel": {
+    "description": "Decline affordance of the recursive-permissions confirmation, and the cancel affordance of its running apply walk (02 §2.6, D28)."
+  },
+  "infoPanelEnclosedApply": "Apply",
+  "@infoPanelEnclosedApply": {
+    "description": "Confirm affordance of the recursive-permissions confirmation dialog (02 §2.6, D28)."
+  },
+  "infoPanelEnclosedProgress": "Applying {octal}\u2026 {count, plural, =1{1 item changed} other{{count} items changed}}",
+  "@infoPanelEnclosedProgress": {
+    "description": "Live progress line of the recursive permissions apply in the Get Info inspector — the mode being written and the chmods completed so far (02 §2.6, D28).",
+    "placeholders": {
+      "octal": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedDone": "{count, plural, =1{1 item changed} other{{count} items changed}}",
+  "@infoPanelEnclosedDone": {
+    "description": "Terminal line of a completed recursive permissions apply in the Get Info inspector (02 §2.6, D28).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedCancelled": "Cancelled — {count, plural, =1{1 item changed} other{{count} items changed}}",
+  "@infoPanelEnclosedCancelled": {
+    "description": "Terminal line of a cancelled recursive permissions apply — the already-written count stays disclosed so a partial run never reads as clean (02 §2.6, D28).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedFailed": "Could not finish",
+  "@infoPanelEnclosedFailed": {
+    "description": "Terminal line of a recursive permissions apply that ended on the folder's own refusal — its listing or its chmod (02 §2.6, D28)."
+  },
+  "infoPanelEnclosedSkipped": "{count, plural, =1{1 item skipped — name not valid UTF-8} other{{count} items skipped — names not valid UTF-8}}",
+  "@infoPanelEnclosedSkipped": {
+    "description": "Tally line of a settled recursive permissions apply counting enclosed items skipped for undecodable names (02 §13).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedLinks": "{count, plural, =1{1 symbolic link skipped} other{{count} symbolic links skipped}}",
+  "@infoPanelEnclosedLinks": {
+    "description": "Tally line of a settled recursive permissions apply counting enclosed symbolic links skipped (D28's never-follow rule).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedUnreadable": "{count, plural, =1{1 folder could not be read} other{{count} folders could not be read}}",
+  "@infoPanelEnclosedUnreadable": {
+    "description": "Tally line of a settled recursive permissions apply counting folders whose listing refused mid-walk — their subtrees were never reached (02 §2.6, D28).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelEnclosedRefused": "{count, plural, =1{1 item refused the change} other{{count} items refused the change}}",
+  "@infoPanelEnclosedRefused": {
+    "description": "Tally line of a settled recursive permissions apply counting items whose chmod refused typed — the walk continues past them (02 §2.6, D28).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "menuWorkspaces": "Workspaces",
   "@menuWorkspaces": {

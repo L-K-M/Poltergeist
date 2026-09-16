@@ -264,6 +264,18 @@ class FakeAppBrowseChannel implements AppBrowseChannel {
     if (failure != null) throw failure;
   }
 
+  /// Recorded chmod calls (path, permissions) and a scripted failure —
+  /// null succeeds silently.
+  final permissionsCalls = <(String, int)>[];
+  Object? permissionsFailure;
+
+  @override
+  Future<void> setPermissions(String path, int permissions) async {
+    permissionsCalls.add((path, permissions));
+    final failure = permissionsFailure;
+    if (failure != null) throw failure;
+  }
+
   /// Recorded default-app opens (paths) and a scripted failure — null
   /// opens succeed silently.
   final openCalls = <String>[];

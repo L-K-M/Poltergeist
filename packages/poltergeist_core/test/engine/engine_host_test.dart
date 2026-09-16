@@ -80,6 +80,9 @@ class ScriptedFs implements RemoteFileSystem {
   final renameCalls = <(String, String)>[];
   Object? renameFailure;
 
+  final setModeCalls = <(String, int)>[];
+  Object? setModeFailure;
+
   @override
   Future<String> canonicalize(String path) async => '/home/test';
 
@@ -103,9 +106,16 @@ class ScriptedFs implements RemoteFileSystem {
   }
 
   @override
+  Future<void> setMode(String path, int permissions) async {
+    setModeCalls.add((path, permissions));
+    final failure = setModeFailure;
+    if (failure != null) throw failure;
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
-    'ScriptedFs only implements canonicalize, listDirectory, and '
-    'rename, got ${invocation.memberName}.',
+    'ScriptedFs only implements canonicalize, listDirectory, rename, '
+    'and setMode, got ${invocation.memberName}.',
   );
 }
 
@@ -234,6 +244,20 @@ class HostHarness {
       channelId: channelId,
       oldPath: oldPath,
       newPath: newPath,
+    ),
+  );
+
+  /// §2.6/D28's chmod request on [channelId].
+  Future<EngineResult> setPermissions(
+    int channelId,
+    String path,
+    int permissions,
+  ) => call(
+    (id) => SetPermissionsRequest(
+      requestId: id,
+      channelId: channelId,
+      path: path,
+      permissions: permissions,
     ),
   );
 
@@ -724,6 +748,86 @@ void main() {
       h.rename(channel.channelId, '/tmp/a', '/tmp/b'),
     );
     expect(error.kind, RemoteFileErrorKind.conflict);
+    await h.pumping();
+    expect(
+      h.events.whereType<ServerStateEvent>().map((e) => e.state),
+      isNot(contains(ServerConnectionState.reconnecting)),
+    );
+  });
+
+  test('setPermissions routes through the channel fs and acks', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+
+    final channel = await h.openWithDefaults();
+
+    final result = await h.setPermissions(
+      channel.channelId,
+      '/tmp/a',
+      0x1ED, // 0755 — the request carries the exact mode verbatim
+    );
+    expect(result, isA<EngineAck>());
+    expect(h.fs.setModeCalls, [('/tmp/a', 0x1ED)]);
+  });
+
+  test('setPermissions on an unknown channel fails disconnected', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+
+    final error = await expectError(h.setPermissions(42, '/tmp/a', 0x1A4));
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(h.fs.setModeCalls, isEmpty);
+  });
+
+  test('a VFS chmod failure serializes its kind and reports for '
+      'recovery', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    h.fs.setModeFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.disconnected,
+      operation: 'change permissions for',
+      message: 'The connection was lost.',
+    );
+    h.watch('srv-1');
+    await h.pumping();
+
+    final channel = await h.openWithDefaults();
+
+    final error = await expectError(
+      h.setPermissions(channel.channelId, '/tmp/a', 0x1A4),
+    );
+    expect(error.kind, RemoteFileErrorKind.disconnected);
+    expect(error.message, 'The connection was lost.');
+
+    // The report reached the binding: recovery starts (03 §3.3).
+    await h.pumping();
+    expect(
+      h.events.whereType<ServerStateEvent>().map((e) => e.state),
+      contains(ServerConnectionState.reconnecting),
+    );
+  });
+
+  test('a refused chmod serializes the typed refusal without '
+      'triggering recovery', () async {
+    final h = HostHarness();
+    addTearDown(h.dispose);
+    // A chmod refusal (EPERM on an unowned file, an unsupported fs) is
+    // not a transport failure — it must answer typed without reporting
+    // the binding for recovery.
+    h.fs.setModeFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.permissionDenied,
+      operation: 'change permissions for',
+      message: 'Operation not permitted.',
+    );
+    h.watch('srv-1');
+    await h.pumping();
+
+    final channel = await h.openWithDefaults();
+
+    final error = await expectError(
+      h.setPermissions(channel.channelId, '/tmp/a', 0x1A4),
+    );
+    expect(error.kind, RemoteFileErrorKind.permissionDenied);
     await h.pumping();
     expect(
       h.events.whereType<ServerStateEvent>().map((e) => e.state),
@@ -1287,6 +1391,30 @@ void main() {
         ),
       );
       expect(conflict.kind, RemoteFileErrorKind.conflict);
+    });
+
+    test('setPermissions chmods through the local channel fs', () async {
+      final h = HostHarness();
+      addTearDown(h.dispose);
+      final root = _localFixture('pg-local-chmod');
+      final home = await _canonical(root.path);
+
+      final opened = await h.openLocal(root.path);
+      final result = await h.setPermissions(
+        opened.channelId,
+        '$home/a.txt',
+        0x180, // 0600
+      );
+
+      if (Platform.isWindows) {
+        // dart:io owns no chmod on Windows: the local fs answers the
+        // typed refusal — never a silent success (D28).
+        expect(result, isA<EngineError>());
+        expect((result as EngineError).kind, RemoteFileErrorKind.unsupported);
+        return;
+      }
+      expect(result, isA<EngineAck>());
+      expect(File('${root.path}/a.txt').statSync().mode & 0x1FF, 0x180);
     });
 
     test('openLocalFile launches through the opener seam and acks',

@@ -72,6 +72,15 @@ abstract interface class AppBrowseChannel {
   /// exists fails with the typed conflict error — never an overwrite.
   Future<void> rename(String oldPath, String newPath);
 
+  /// Sets [path]'s POSIX permission bits (02 §2.6's Get Info editor,
+  /// D28): [permissions] is the full twelve-bit mode `0..0xFFF`,
+  /// leading octal digit included. The VFS lstat-guards the path — a
+  /// symlink target refuses typed (`unsupported`) rather than being
+  /// followed — and filesystems without POSIX modes refuse
+  /// `unsupported` too. Recursive apply is the app-side walker behind
+  /// "Apply to enclosed items…", not a flag on this call.
+  Future<void> setPermissions(String path, int permissions);
+
   /// Opens [path] in the operating system's default application (02
   /// §2.6's Open on a local file): the engine owns the launcher process
   /// (D8 — the UI isolate never spawns). Local channels only; a remote
@@ -209,6 +218,15 @@ final class _EngineClientChannel implements AppBrowseChannel {
   @override
   Future<void> rename(String oldPath, String newPath) =>
       _channel.rename(oldPath, newPath);
+
+  @override
+  Future<void> setPermissions(String path, int permissions) {
+    assert(
+      permissions >= 0 && permissions <= 0xFFF,
+      'permissions must be a twelve-bit mode (0x000-0xFFF)',
+    );
+    return _channel.setPermissions(path, permissions);
+  }
 
   @override
   Future<void> openInDefaultApp(String path) =>

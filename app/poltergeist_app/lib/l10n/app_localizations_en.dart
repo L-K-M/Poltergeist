@@ -845,6 +845,205 @@ class AppLocalizationsEn extends AppLocalizations {
   String get infoPanelCopyPath => 'Copy path';
 
   @override
+  String get infoPanelPermOctal => 'Octal';
+
+  @override
+  String get infoPanelPermInvalid => 'Use four octal digits (0000–7777).';
+
+  @override
+  String get infoPanelPermOwner => 'Owner';
+
+  @override
+  String get infoPanelPermGroup => 'Group';
+
+  @override
+  String get infoPanelPermOthers => 'Others';
+
+  @override
+  String get infoPanelPermRead => 'Read';
+
+  @override
+  String get infoPanelPermWrite => 'Write';
+
+  @override
+  String get infoPanelPermExecute => 'Execute';
+
+  @override
+  String infoPanelPermCell(String who, String what) {
+    return '$who $what';
+  }
+
+  @override
+  String get infoPanelPermBlockedName =>
+      'The name is not valid UTF-8 — it can\'t be sent to the server.';
+
+  @override
+  String get infoPanelPermBlockedLink =>
+      'A symbolic link\'s permissions can\'t be changed.';
+
+  @override
+  String get infoPanelPermBlockedUnsupported =>
+      'This filesystem can\'t change permissions.';
+
+  @override
+  String get infoPanelApplyPermissions => 'Apply';
+
+  @override
+  String get infoPanelApplyEnclosed => 'Apply to enclosed items…';
+
+  @override
+  String get infoPanelPermErrorUnsupported =>
+      'This filesystem can\'t change permissions.';
+
+  @override
+  String get infoPanelPermErrorDenied =>
+      'Permission denied — you may not own this item.';
+
+  @override
+  String get infoPanelPermErrorNotFound => 'The item no longer exists.';
+
+  @override
+  String get infoPanelPermError => 'The change could not be completed.';
+
+  @override
+  String get infoPanelEnclosedTitle => 'Apply to enclosed items?';
+
+  @override
+  String infoPanelEnclosedCounting(String name) {
+    return 'Counting the items inside “$name”…';
+  }
+
+  @override
+  String infoPanelEnclosedBody(String octal, String name) {
+    return 'Apply $octal to “$name” and the items inside it?';
+  }
+
+  @override
+  String infoPanelEnclosedBodyCounted(String octal, String name, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Apply $octal to “$name” and the $count items inside it?',
+      one: 'Apply $octal to “$name” and the 1 item inside it?',
+      zero: 'Apply $octal to “$name”? It has no changeable items inside.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedFlaggedCounted(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Includes $count items with undecodable names — they will be skipped.',
+      one: 'Includes 1 item with an undecodable name — it will be skipped.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedLinksCounted(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Includes $count symbolic links — they will be skipped.',
+      one: 'Includes 1 symbolic link — it will be skipped.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get infoPanelEnclosedIncomplete =>
+      'The count was incomplete — items with undecodable names and symbolic links will be skipped, and some folders could not be read.';
+
+  @override
+  String get infoPanelEnclosedCancel => 'Cancel';
+
+  @override
+  String get infoPanelEnclosedApply => 'Apply';
+
+  @override
+  String infoPanelEnclosedProgress(String octal, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items changed',
+      one: '1 item changed',
+    );
+    return 'Applying $octal… $_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedDone(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items changed',
+      one: '1 item changed',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedCancelled(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items changed',
+      one: '1 item changed',
+    );
+    return 'Cancelled — $_temp0';
+  }
+
+  @override
+  String get infoPanelEnclosedFailed => 'Could not finish';
+
+  @override
+  String infoPanelEnclosedSkipped(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items skipped — names not valid UTF-8',
+      one: '1 item skipped — name not valid UTF-8',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedLinks(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count symbolic links skipped',
+      one: '1 symbolic link skipped',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedUnreadable(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count folders could not be read',
+      one: '1 folder could not be read',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String infoPanelEnclosedRefused(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items refused the change',
+      one: '1 item refused the change',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get menuWorkspaces => 'Workspaces';
 
   @override

@@ -1437,7 +1437,7 @@ abstract class AppLocalizations {
   /// **'Accessed'**
   String get infoPanelAccessed;
 
-  /// Label of the Get Info inspector's read-only permissions row (02 §2.6). The D28 editor is later work — this row only displays.
+  /// Label of the Get Info inspector's permissions section (02 §2.6): a display line for targets the editor cannot touch, the D28 octal+rwx editor otherwise.
   ///
   /// In en, this message translates to:
   /// **'Permissions'**
@@ -1472,6 +1472,216 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Copy path'**
   String get infoPanelCopyPath;
+
+  /// Label of the Get Info inspector's octal permissions field (02 §2.6, D28) — four octal digits, the leading special-bits digit included.
+  ///
+  /// In en, this message translates to:
+  /// **'Octal'**
+  String get infoPanelPermOctal;
+
+  /// Inline error under the Get Info inspector's octal field while its text is not exactly four octal digits (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Use four octal digits (0000–7777).'**
+  String get infoPanelPermInvalid;
+
+  /// Row label for the owner rwx checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Owner'**
+  String get infoPanelPermOwner;
+
+  /// Row label for the group rwx checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get infoPanelPermGroup;
+
+  /// Row label for the others rwx checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Others'**
+  String get infoPanelPermOthers;
+
+  /// Column tooltip for the read checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Read'**
+  String get infoPanelPermRead;
+
+  /// Column tooltip for the write checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Write'**
+  String get infoPanelPermWrite;
+
+  /// Column tooltip for the execute checkboxes in the Get Info inspector's permissions grid (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Execute'**
+  String get infoPanelPermExecute;
+
+  /// Accessible name of one checkbox in the Get Info inspector's permissions grid — who is Owner/Group/Others, what is Read/Write/Execute (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'{who} {what}'**
+  String infoPanelPermCell(String who, String what);
+
+  /// Note under the Get Info inspector's display-only permissions row when the target's name is undecodable (02 §13's flagged-name rule: no path built from it may cross the wire).
+  ///
+  /// In en, this message translates to:
+  /// **'The name is not valid UTF-8 — it can\'t be sent to the server.'**
+  String get infoPanelPermBlockedName;
+
+  /// Note under the Get Info inspector's display-only permissions row when the target is a symbolic link (the VFS refuses to chmod a link typed, and following it would change a different file).
+  ///
+  /// In en, this message translates to:
+  /// **'A symbolic link\'s permissions can\'t be changed.'**
+  String get infoPanelPermBlockedLink;
+
+  /// Note under the Get Info inspector's display-only permissions row when the pane's filesystem has no POSIX chmod — a Windows local pane (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'This filesystem can\'t change permissions.'**
+  String get infoPanelPermBlockedUnsupported;
+
+  /// Affordance writing the Get Info inspector's permissions draft to the target (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get infoPanelApplyPermissions;
+
+  /// Affordance starting the Get Info inspector's recursive permissions apply on a folder — count, confirm, then walk (02 §2.6, D28). The ellipsis marks that confirmation follows.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply to enclosed items…'**
+  String get infoPanelApplyEnclosed;
+
+  /// Inline refusal when a permissions change reaches a filesystem without POSIX chmod (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'This filesystem can\'t change permissions.'**
+  String get infoPanelPermErrorUnsupported;
+
+  /// Inline refusal when the filesystem denies a permissions change (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Permission denied — you may not own this item.'**
+  String get infoPanelPermErrorDenied;
+
+  /// Inline refusal when a permissions change finds the target gone (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'The item no longer exists.'**
+  String get infoPanelPermErrorNotFound;
+
+  /// Generic inline refusal when a permissions change fails for a reason with no authored copy (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'The change could not be completed.'**
+  String get infoPanelPermError;
+
+  /// Title of the Get Info inspector's recursive-permissions confirmation dialog (02 §2.6, D28; 02 §10's destructive family).
+  ///
+  /// In en, this message translates to:
+  /// **'Apply to enclosed items?'**
+  String get infoPanelEnclosedTitle;
+
+  /// Progress line of the recursive-permissions confirmation while the read-only count pass lists the folder (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Counting the items inside “{name}”…'**
+  String infoPanelEnclosedCounting(String name);
+
+  /// Unquantified body of the recursive-permissions confirmation — the fallback when the count pass could not complete (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Apply {octal} to “{name}” and the items inside it?'**
+  String infoPanelEnclosedBody(String octal, String name);
+
+  /// Quantified body of the recursive-permissions confirmation once the count pass saw every reachable item (02 §2.6, D28; 02 §10's quantify-then-confirm rule).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Apply {octal} to “{name}”? It has no changeable items inside.} =1{Apply {octal} to “{name}” and the 1 item inside it?} other{Apply {octal} to “{name}” and the {count} items inside it?}}'**
+  String infoPanelEnclosedBodyCounted(String octal, String name, int count);
+
+  /// Disclosure line of the recursive-permissions confirmation counting enclosed items whose names are not valid UTF-8 — the count pass finished, so the count is exact (02 §13).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Includes 1 item with an undecodable name — it will be skipped.} other{Includes {count} items with undecodable names — they will be skipped.}}'**
+  String infoPanelEnclosedFlaggedCounted(int count);
+
+  /// Disclosure line of the recursive-permissions confirmation counting enclosed symbolic links — the count pass finished, so the count is exact (D28's never-follow rule).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Includes 1 symbolic link — it will be skipped.} other{Includes {count} symbolic links — they will be skipped.}}'**
+  String infoPanelEnclosedLinksCounted(int count);
+
+  /// Hedged disclosure line of the recursive-permissions confirmation when the count pass could not see every reachable item — flagged names and links are still skipped, unreadable folders leave their subtrees uncounted, and the dialog cannot claim zero (02 §13's never-silent rule).
+  ///
+  /// In en, this message translates to:
+  /// **'The count was incomplete — items with undecodable names and symbolic links will be skipped, and some folders could not be read.'**
+  String get infoPanelEnclosedIncomplete;
+
+  /// Decline affordance of the recursive-permissions confirmation, and the cancel affordance of its running apply walk (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get infoPanelEnclosedCancel;
+
+  /// Confirm affordance of the recursive-permissions confirmation dialog (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get infoPanelEnclosedApply;
+
+  /// Live progress line of the recursive permissions apply in the Get Info inspector — the mode being written and the chmods completed so far (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Applying {octal}… {count, plural, =1{1 item changed} other{{count} items changed}}'**
+  String infoPanelEnclosedProgress(String octal, int count);
+
+  /// Terminal line of a completed recursive permissions apply in the Get Info inspector (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item changed} other{{count} items changed}}'**
+  String infoPanelEnclosedDone(int count);
+
+  /// Terminal line of a cancelled recursive permissions apply — the already-written count stays disclosed so a partial run never reads as clean (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled — {count, plural, =1{1 item changed} other{{count} items changed}}'**
+  String infoPanelEnclosedCancelled(int count);
+
+  /// Terminal line of a recursive permissions apply that ended on the folder's own refusal — its listing or its chmod (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'Could not finish'**
+  String get infoPanelEnclosedFailed;
+
+  /// Tally line of a settled recursive permissions apply counting enclosed items skipped for undecodable names (02 §13).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item skipped — name not valid UTF-8} other{{count} items skipped — names not valid UTF-8}}'**
+  String infoPanelEnclosedSkipped(int count);
+
+  /// Tally line of a settled recursive permissions apply counting enclosed symbolic links skipped (D28's never-follow rule).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 symbolic link skipped} other{{count} symbolic links skipped}}'**
+  String infoPanelEnclosedLinks(int count);
+
+  /// Tally line of a settled recursive permissions apply counting folders whose listing refused mid-walk — their subtrees were never reached (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 folder could not be read} other{{count} folders could not be read}}'**
+  String infoPanelEnclosedUnreadable(int count);
+
+  /// Tally line of a settled recursive permissions apply counting items whose chmod refused typed — the walk continues past them (02 §2.6, D28).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item refused the change} other{{count} items refused the change}}'**
+  String infoPanelEnclosedRefused(int count);
 
   /// Title of the Commands menu's Workspaces submenu listing the saved workspaces (02 §3, M3 interim until the M5 sidebar).
   ///

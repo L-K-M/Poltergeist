@@ -10,6 +10,7 @@ import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
 import 'pane_path_input.dart';
+import 'pane_permissions.dart';
 import 'pane_rename.dart';
 import 'quick_select_state.dart';
 import 'selection_state.dart';
@@ -496,6 +497,32 @@ class PaneController extends ChangeNotifier {
   /// settles. Identity is the session's ownership token: a superseded
   /// or cancelled walk's late progress/result drops itself against it.
   RemoteTransferCancellation? _folderSizeCancellation;
+
+  /// The Get Info inspector's open permissions draft (02 §2.6, D28),
+  /// minted on read by [permissionsEdit] and keyed on the target's path
+  /// and listed mode — a retarget or a refresh-landed mode change
+  /// re-mints it there. No funnel keeps it: it carries no background
+  /// work, so the keyed read is the whole lifecycle.
+  PermissionsEditSession? _permissionsEdit;
+
+  /// The inspector's "Apply to enclosed items…" operation (02 §2.6,
+  /// D28): live or terminal snapshot, keyed by target path so the panel
+  /// only ever shows an operation started for ITS target. One session
+  /// at a time — a new [requestApplyToEnclosed] is inert while one
+  /// runs, and the invalidation funnels end it with its browsing
+  /// session.
+  EnclosedApplyProgress? _enclosedApply;
+
+  /// The running apply walk's cooperative-cancel token — the session's
+  /// ownership token: a superseded or ended operation's late progress
+  /// or result drops itself against it.
+  RemoteTransferCancellation? _enclosedCancellation;
+
+  /// The count pass's token, separate from [_enclosedCancellation]: the
+  /// confirmation deadline cancels the COUNT only — a shared token
+  /// would poison the post-confirm apply walk the moment the deadline
+  /// fired.
+  RemoteTransferCancellation? _enclosedCountCancellation;
 
   /// Whether this tab anchors the workspace's Sync Browsing pair
   /// (02 §7): the workspace's sync controller writes it on enable and
@@ -1624,6 +1651,438 @@ class PaneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The Get Info inspector's permissions draft (02 §2.6, D28): minted
+  /// on read for the current [infoTarget] when it is chmod-able — the
+  /// row carries a mode, its name is wire-safe, it is not a symlink,
+  /// and a Windows local pane never offers it. Keyed on the target's
+  /// path and listed mode: a retarget or a refresh-landed mode change
+  /// re-mints the draft rather than carrying a stale one.
+  PermissionsEditSession? get permissionsEdit {
+    final target = infoTarget;
+    final mode = target?.mode;
+    if (_disposed ||
+        target == null ||
+        mode == null ||
+        _channel == null ||
+        permissionsReadOnly != null) {
+      return _permissionsEdit = null;
+    }
+    final session = _permissionsEdit;
+    if (session != null &&
+        session.targetPath == target.path &&
+        session.originalMode == mode) {
+      return session;
+    }
+    return _permissionsEdit = PermissionsEditSession(
+      targetPath: target.path,
+      originalMode: mode,
+    );
+  }
+
+  /// Why the inspector's permissions editor is unavailable for the
+  /// current target (02 §13's disabled-with-reason rule) — null while
+  /// editing is offered, or while the target carries no mode at all
+  /// (the row renders the plain dash either way).
+  PermissionsReadOnly? get permissionsReadOnly {
+    final target = infoTarget;
+    if (target == null || target.mode == null) return null;
+    if (nameIsFlagged(target.name)) {
+      return PermissionsReadOnly.flaggedName;
+    }
+    if (target.isSymbolicLink) return PermissionsReadOnly.symbolicLink;
+    if (_location is LocalPaneLocation &&
+        defaultTargetPlatform == TargetPlatform.windows) {
+      return PermissionsReadOnly.unsupportedFilesystem;
+    }
+    return null;
+  }
+
+  /// The octal field's keystroke: keeps the text verbatim and re-parses
+  /// on every change — a valid four-digit value moves the draft mode
+  /// (and thereby the checkboxes), an invalid one flags the field's
+  /// inline error and leaves the mode untouched. The two surfaces can
+  /// never disagree (D28).
+  void editPermissionsOctal(String text) {
+    final session = permissionsEdit;
+    if (_disposed || session == null) return;
+    session.octalText = text;
+    final parsed = parsePermissionsOctal(text);
+    session.octalInvalid = parsed == null;
+    if (parsed != null) {
+      session.mode = parsed;
+      session.applyError = null;
+    }
+    notifyListeners();
+  }
+
+  /// One checkbox's toggle: the bit moves in the draft mode and the
+  /// octal text re-seeds — the field mirrors the grid, never the other
+  /// order's drift (D28).
+  void setPermissionBit(int bit, bool set) {
+    final session = permissionsEdit;
+    if (_disposed || session == null) return;
+    session.mode =
+        (set ? session.mode | bit : session.mode & ~bit) &
+        permissionsModeMask;
+    session.octalText = PermissionsEditSession.octalTextFor(session.mode);
+    session.octalInvalid = false;
+    session.applyError = null;
+    session.octalRevision++;
+    notifyListeners();
+  }
+
+  /// Esc inside the octal field (02 §8.2's field tier): the draft
+  /// reverts to the applied baseline — never a commit, and a clean
+  /// field's Esc falls through to the panel's tier because the view
+  /// only consumes the key while a draft or error is pending.
+  void revertPermissionsEdit() {
+    final session = _permissionsEdit;
+    if (_disposed || session == null) return;
+    session.mode = session.originalMode;
+    session.octalText = PermissionsEditSession.octalTextFor(session.mode);
+    session.octalInvalid = false;
+    session.applyError = null;
+    session.octalRevision++;
+    notifyListeners();
+  }
+
+  /// The Apply affordance (02 §2.6): writes the draft's exact mode for
+  /// the info target through the channel — one chmod, the same seam for
+  /// local and remote (D3/D8). Inert off the verb surface, while a
+  /// write is in flight, on invalid text, and for an unchanged draft
+  /// (the silent no-op, like an unchanged rename). Typed refusals land
+  /// inline under the editor — never modal.
+  Future<void> applyPermissions() async {
+    final session = permissionsEdit;
+    final channel = _channel;
+    if (_disposed ||
+        session == null ||
+        channel == null ||
+        !verbsEnabled ||
+        session.applying ||
+        session.octalInvalid ||
+        !session.dirty ||
+        // A running enclosed apply already owns the target's chmod —
+        // a concurrent single write could race the walk's post-order
+        // pass on the same path.
+        applyToEnclosedInFlight) {
+      return;
+    }
+    session.applying = true;
+    session.applyError = null;
+    notifyListeners();
+
+    // The operation's ownership token: channel identity, bind attempt,
+    // and the browsing-session revision at submit time — a rebind or an
+    // away-and-back navigation retires the write, so a late answer can
+    // never mutate a session it no longer owns (the rename commit's
+    // rule).
+    final attempt = _bindAttempt;
+    final revision = _locationRevision;
+    bool ownsPresentation() =>
+        identical(channel, _channel) &&
+        attempt == _bindAttempt &&
+        revision == _locationRevision &&
+        location == _location &&
+        // An inspector retarget re-mints the edit session — a write
+        // answering after it owns nothing and reports through the
+        // pane's error path rather than stamping a dead session.
+        session.targetPath == infoTarget?.path;
+
+    // Snapshot the written mode before the await — the draft can still
+    // be edited while the write is in flight, and the applied baseline
+    // must record what was written, never a later draft. The mask keeps
+    // the twelve permission bits — the field carries the listed mode's
+    // file-type bits until the first edit.
+    final submittedMode = session.mode & permissionsModeMask;
+
+    try {
+      await channel.setPermissions(session.targetPath, submittedMode);
+    } on RemoteFileException catch (error, stackTrace) {
+      if (_disposed) return;
+      // Every completion releases the in-flight flag — the cached
+      // session can be re-adopted after an away-and-back, and a latched
+      // `applying` would dead it permanently.
+      session.applying = false;
+      if (ownsPresentation()) {
+        session.applyError = error;
+        notifyListeners();
+      } else {
+        // A stale write's refusal belongs to the retired session — it
+        // reports through the pane's error path rather than surfacing
+        // on a newer one or dropping silently.
+        _report(error, stackTrace);
+      }
+      return;
+    } on Object catch (error, stackTrace) {
+      if (_disposed) return;
+      session.applying = false;
+      if (ownsPresentation()) {
+        notifyListeners();
+      }
+      _report(error, stackTrace);
+      return;
+    }
+
+    if (_disposed) return;
+    session.applying = false;
+    // The baseline records the mode that was written — a draft edited
+    // mid-flight stays dirty against it.
+    session.originalMode = submittedMode;
+    if (ownsPresentation()) {
+      notifyListeners();
+      // The listing's mode column and the inspector re-seed from the
+      // accepted refresh — like the rename commit's re-list.
+      refresh();
+      return;
+    }
+    // The write landed on a retired binding: the settle notifies (the
+    // close guard re-evaluates) but writes nothing, and a pane still
+    // browsing the same location on the same channel re-fetches the
+    // post-chmod listing.
+    notifyListeners();
+    if (identical(channel, _channel) && location == _location) {
+      refresh();
+    }
+  }
+
+  /// The enclosed-apply operation's current snapshot — live while it
+  /// counts, asks, or runs; the terminal tallies once settled. Keyed by
+  /// [EnclosedApplyProgress.targetPath] so a retargeted inspector never
+  /// shows another folder's operation.
+  EnclosedApplyProgress? get enclosedApply => _enclosedApply;
+
+  /// How long the confirmation's count pass may run before the dialog
+  /// falls back to unquantified, hedged copy (02 §10's count walk gives
+  /// up on a timeout rather than blocking the confirmation). Public so
+  /// tests pin a short deadline.
+  Duration enclosedCountDeadline = const Duration(seconds: 10);
+
+  /// The tab close guard's applyToEnclosed trigger (02 §2.6/§3): true
+  /// while the operation counts, awaits its confirmation, or runs the
+  /// chmod walk — a close can never cut under any phase of it.
+  bool get applyToEnclosedInFlight => _enclosedApply?.inFlight ?? false;
+
+  /// The inspector's "Apply to enclosed items…" affordance (02 §2.6,
+  /// D28): quantifies the draft mode's reach through a cancellable
+  /// count pass (02 §10's quantify-before-confirm — the dialog shows
+  /// its progress line), asks [confirm] — destructive-class means an
+  /// unconfirmed operation never mutates — then walks the target tree
+  /// through the channel, one chmod per entry, posting progress the
+  /// panel renders with a working Cancel.
+  ///
+  /// Inert off the verb surface, for a non-directory or un-editable
+  /// target, on an invalid draft, and while an operation already runs —
+  /// one enclosed apply per tab. A presenter fault or a dismissal
+  /// answers declined: nothing is touched. The mode is snapshot at
+  /// request time, so editing the draft mid-run cannot change what the
+  /// running operation writes.
+  Future<void> requestApplyToEnclosed({
+    required EnclosedApplyConfirmation confirm,
+  }) async {
+    final session = permissionsEdit;
+    final target = infoTarget;
+    final channel = _channel;
+    if (_disposed ||
+        !verbsEnabled ||
+        session == null ||
+        target == null ||
+        !target.isDirectory ||
+        channel == null ||
+        session.octalInvalid ||
+        // A single chmod in flight writes the same root the walk
+        // would — one write at a time.
+        session.applying ||
+        // One enclosed apply per tab while it counts, asks, or runs;
+        // a settled tally never blocks the next request.
+        applyToEnclosedInFlight) {
+      return;
+    }
+
+    // Snapshot the permission bits only — the draft's unedited mode
+    // still carries the listing's file-type bits, and the walk must
+    // write the confirmed octal, nothing else.
+    final mode = session.mode & permissionsModeMask;
+    final targetPath = target.path;
+    final targetName = target.name;
+    final cancellation = RemoteTransferCancellation();
+    final countCancellation = RemoteTransferCancellation();
+    _enclosedCancellation = cancellation;
+    _enclosedCountCancellation = countCancellation;
+    _enclosedApply = EnclosedApplyProgress(
+      targetPath: targetPath,
+      targetName: targetName,
+      mode: mode,
+      stage: EnclosedApplyStage.counting,
+    );
+    notifyListeners();
+
+    // The session's ownership token — a superseded or ended operation's
+    // late progress drops itself against it, like the folder-size
+    // walk's token.
+    bool owns() => identical(cancellation, _enclosedCancellation);
+    void publish(EnclosedApplyProgress progress) {
+      if (_disposed || !owns()) return;
+      _enclosedApply = progress;
+      notifyListeners();
+    }
+
+    EnclosedApplyProgress snapshot(
+      EnclosedApplyStage stage, {
+      EnclosedApplyCount? count,
+      Object? error,
+    }) => EnclosedApplyProgress(
+      targetPath: targetPath,
+      targetName: targetName,
+      mode: mode,
+      stage: stage,
+      counted: count?.items ?? 0,
+      countedFlagged: count?.flagged ?? 0,
+      countedLinks: count?.links ?? 0,
+      flagPassComplete: count != null && !count.cancelled && count.clean,
+      error: error,
+    );
+
+    // The dialog opens at request time and renders the session's live
+    // stage — the count pass's progress line first, the settled copy
+    // once it lands (02 §10's family shape). A presenter fault answers
+    // declined: destructive-class fails closed.
+    Future<bool> ask() async {
+      try {
+        return await confirm();
+      } on Object catch (error, stackTrace) {
+        _report(error, stackTrace);
+        return false;
+      }
+    }
+
+    final answer = ask();
+
+    // The count pass (02 §10's quantify-then-confirm): read-only,
+    // cancellable, and bounded by a deadline — a stalled or endless
+    // tree must not hold the dialog's progress line forever.
+    EnclosedApplyCount count;
+    final deadline = Timer(enclosedCountDeadline, countCancellation.cancel);
+    try {
+      count = await countEnclosedApplyItems(
+        channel,
+        targetPath,
+        cancellation: countCancellation,
+        onProgress: (partial) => publish(
+          snapshot(
+            EnclosedApplyStage.counting,
+            count: EnclosedApplyCount(
+              items: partial.items,
+              flagged: partial.flagged,
+              links: partial.links,
+              clean: false,
+              cancelled: false,
+            ),
+          ),
+        ),
+      );
+    } on RemoteFileException catch (error) {
+      // The root listing's refusal ends the operation typed — there is
+      // nothing to confirm. The failed snapshot renders in the panel;
+      // an already-open dialog closes on the stage leaving counting.
+      publish(snapshot(EnclosedApplyStage.failed, error: error));
+      return;
+    } on Object catch (error, stackTrace) {
+      // An untyped fault reports like every other unexpected fault and
+      // still surfaces a failed snapshot — the operation never leaves
+      // the panel guessing.
+      if (owns()) {
+        _report(error, stackTrace);
+        publish(snapshot(EnclosedApplyStage.failed, error: error));
+      }
+      return;
+    } finally {
+      deadline.cancel();
+    }
+
+    // A session-level cancel during the count (the dialog's Cancel, a
+    // panel close) ends the operation outright — the ask was never
+    // confirmed, nothing was touched.
+    if (!owns()) return;
+    if (cancellation.isCancelled) {
+      _endEnclosedApply();
+      notifyListeners();
+      return;
+    }
+    publish(snapshot(EnclosedApplyStage.confirming, count: count));
+
+    // The ask resolves with the user's answer — or declined the moment
+    // the operation is cancelled under it (a panel close resolves the
+    // dialog rather than stranding it).
+    final confirmed = await Future.any<bool>([
+      answer,
+      cancellation.whenCancelled.then((_) => false),
+    ]);
+    if (!owns() || _disposed) return;
+    if (!confirmed) {
+      _endEnclosedApply();
+      notifyListeners();
+      return;
+    }
+
+    publish(snapshot(EnclosedApplyStage.applying));
+    try {
+      final result = await applyModeToEnclosed(
+        channel,
+        targetPath,
+        targetName: targetName,
+        mode: mode,
+        cancellation: cancellation,
+        onProgress: publish,
+      );
+      if (!owns()) return;
+      _enclosedApply = result;
+      _enclosedCancellation = null;
+      _enclosedCountCancellation = null;
+      if (_disposed) return;
+      notifyListeners();
+      // The applied modes land in the listing on the same refresh the
+      // single apply takes — a same-location re-list, not a navigation.
+      refresh();
+    } on Object catch (error, stackTrace) {
+      // An untyped fault (a dying channel, a broken seam) reports like
+      // every other unexpected fault — typed refusals never reach here,
+      // the walker folds them into its snapshot.
+      if (!owns()) return;
+      _report(error, stackTrace);
+      _enclosedApply = snapshot(EnclosedApplyStage.failed, error: error);
+      _enclosedCancellation = null;
+      _enclosedCountCancellation = null;
+      if (_disposed) return;
+      notifyListeners();
+    }
+  }
+
+  /// The panel's Cancel and every end-of-demand path (panel close):
+  /// the running walk's token fires — its held channel calls settle and
+  /// the loop exits at the next check — and a still-asking confirmation
+  /// resolves declined. A cancelled walk keeps its terminal snapshot so
+  /// a run that already changed items never reads as clean; the session
+  /// clears with the next retarget or re-request.
+  void cancelEnclosedApply() {
+    if (_disposed) return;
+    _enclosedCountCancellation?.cancel();
+    _enclosedCancellation?.cancel();
+    notifyListeners();
+  }
+
+  /// Ends the operation without a notify — the invalidation funnels
+  /// (navigation issue, binding reset, detach, dispose, a declined
+  /// confirmation) call this inside a flow that notifies once for the
+  /// whole transition, mirroring [_endFolderSize].
+  void _endEnclosedApply() {
+    _enclosedCountCancellation?.cancel();
+    _enclosedCancellation?.cancel();
+    _enclosedCountCancellation = null;
+    _enclosedCancellation = null;
+    _enclosedApply = null;
+  }
+
   /// Whether this tab anchors the Sync Browsing pair — the tab close
   /// guard's syncAnchor trigger probe (02 §7); the workspace's sync
   /// controller owns the writes.
@@ -2053,6 +2512,7 @@ class PaneController extends ChangeNotifier {
     // bump — release its in-flight guard with the rest of the state.
     _renameInFlight = false;
     _endFolderSize();
+    _endEnclosedApply();
     _phase = PanePhase.unbound;
     _location = null;
     _committedLocation = null;
@@ -2095,6 +2555,7 @@ class PaneController extends ChangeNotifier {
     _renameSession = null;
     _pendingRenameSelectPath = null;
     _endFolderSize();
+    _endEnclosedApply();
     _noticeTimer?.cancel();
     _noticeTimer = null;
     _notice = null;
@@ -2294,6 +2755,10 @@ class PaneController extends ChangeNotifier {
     // A binding transition ends the folder-size walk too — its channel
     // is being released, so any still-running measure dies with it.
     _endFolderSize();
+    // The enclosed-apply operation dies the same way — its count, its
+    // pending confirmation, and its chmod walk all rode the released
+    // channel.
+    _endEnclosedApply();
     // The notice dies with the browsing session it arose in — a rebind
     // never carries one pane-moment's "not yet" into the next binding.
     _noticeTimer?.cancel();
@@ -2471,6 +2936,10 @@ class PaneController extends ChangeNotifier {
       // it was started on — a location change ends it at issue time,
       // like the rename field above.
       _endFolderSize();
+      // The enclosed-apply operation walks that same directory's tree —
+      // it ends with the location change too, pending confirmation and
+      // running walk alike.
+      _endEnclosedApply();
       _locationRevision++;
       // The revision bump retires a pending commit's ownership token —
       // release its in-flight guard so a stalled request cannot keep

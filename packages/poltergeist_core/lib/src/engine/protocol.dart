@@ -21,8 +21,9 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// [UnwatchLocalDirectoryRequest], and [DirectoryWatchEvent]. v9 adds
 /// [RenameEntryRequest] for the panes' inline rename (02 §2.6). v10 adds
 /// [OpenLocalFileRequest] — §2.6's local-file Open behind the engine's
-/// OS-default-application launcher (D8).
-const engineProtocolVersion = 10;
+/// OS-default-application launcher (D8). v11 adds [SetPermissionsRequest]
+/// for §2.6's Get Info permissions editor (D28).
+const engineProtocolVersion = 11;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -460,6 +461,32 @@ final class RenameEntryRequest extends EngineRequest {
     required this.oldPath,
     required this.newPath,
   });
+}
+
+/// Sets one entry's POSIX permission bits (02 §2.6's Get Info editor, D28):
+/// funnels to `RemoteFileSystem.setMode`, so [permissions] is the full
+/// twelve-bit mode `0..0xFFF` — the leading octal digit carries setuid,
+/// setgid, and sticky. Local and pool channels answer through the same
+/// channel-id routing as [ListDirectoryRequest]. The VFS lstat-guards the
+/// path: a symlink target is refused typed (`unsupported`) rather than
+/// followed, and filesystems without POSIX modes refuse `unsupported` too —
+/// no silent success either way. Recursion is not this request's job:
+/// "Apply to enclosed items…" is an app-side walker that issues one of
+/// these per entry (D28).
+final class SetPermissionsRequest extends EngineRequest {
+  final int channelId;
+  final String path;
+  final int permissions;
+
+  const SetPermissionsRequest({
+    required super.requestId,
+    required this.channelId,
+    required this.path,
+    required this.permissions,
+  }) : assert(
+         permissions >= 0 && permissions <= 0xFFF,
+         'permissions must be a full 12-bit mode (0x000..0xFFF)',
+       );
 }
 
 /// Starts (or retargets) [channelId]'s single non-recursive watch on

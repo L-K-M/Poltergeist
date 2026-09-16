@@ -49,7 +49,8 @@ enum TabCloseTrigger {
   folderSize,
 
   /// An apply-to-enclosed-items permissions change is running (02 §2.6,
-  /// §3). Declared for its slice; nothing produces it yet.
+  /// §3) — the inspector's count pass, pending confirmation, or chmod
+  /// walk.
   applyToEnclosed,
 
   /// The tab anchors a Sync Browsing pair (02 §7). Declared for its
@@ -71,6 +72,7 @@ final _closeGuards = <_CloseGuard>[
   (TabCloseTrigger.navigation, (c) => c.loading),
   (TabCloseTrigger.inlineRename, (c) => c.inlineRenameActive),
   (TabCloseTrigger.folderSize, (c) => c.folderSizeInFlight),
+  (TabCloseTrigger.applyToEnclosed, (c) => c.applyToEnclosedInFlight),
   (TabCloseTrigger.syncAnchor, (c) => c.syncAnchorActive),
 ];
 
@@ -291,8 +293,10 @@ class PaneTabsController extends ChangeNotifier {
   /// `file.getInfo` (⌘I / Alt+Enter): toggles the inspector over this
   /// pane's right edge. Opening needs no target check — the command's
   /// enablement owns that; closing ends every tab's folder-size
-  /// measurement (the panel is their only consumer, so a walk outliving
-  /// it would hold the close-guard trigger for nothing).
+  /// measurement and enclosed-apply operation (the panel is their only
+  /// consumer, so work outliving it would hold the close-guard trigger
+  /// for nothing — and the apply's confirmation dialog would be
+  /// orphaned).
   void toggleInfoPanel() {
     // No listing, no inspector: a chord landing on the launcher must
     // not latch the flag open for the next tab to inherit — the getter
@@ -302,6 +306,7 @@ class PaneTabsController extends ChangeNotifier {
     if (!_infoPanelOpen) {
       for (final tab in _tabs) {
         tab.controller.cancelFolderSize();
+        tab.controller.cancelEnclosedApply();
       }
     }
     notifyListeners();

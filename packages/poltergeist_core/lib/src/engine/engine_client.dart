@@ -541,6 +541,28 @@ class EngineBrowseChannel {
     );
   }
 
+  /// Sets [path]'s POSIX permission bits (02 §2.6's Get Info editor, D28):
+  /// [permissions] is the full twelve-bit mode `0..0xFFF`, leading octal
+  /// digit included. The VFS lstat-guards the path — a symlink target is
+  /// refused typed (`unsupported`) rather than followed — and refusals
+  /// arrive as typed [RemoteFileException]s like any other engine error.
+  /// Recursive apply is an app-side walker issuing one of these per
+  /// entry, not a flag on this call.
+  Future<void> setPermissions(String path, int permissions) async {
+    assert(
+      permissions >= 0 && permissions <= 0xFFF,
+      'permissions must be a twelve-bit mode (0x000-0xFFF).',
+    );
+    await _client._call(
+      (id) => SetPermissionsRequest(
+        requestId: id,
+        channelId: channelId,
+        path: path,
+        permissions: permissions,
+      ),
+    );
+  }
+
   /// Closes the channel; idempotent. A dead engine has closed every
   /// channel by definition — disconnected errors complete normally so
   /// disposal code can close defensively during teardown races.

@@ -39,6 +39,28 @@ class FakePaneChannel implements AppBrowseChannel {
     if (failure != null) throw failure;
   }
 
+  /// Recorded chmod calls (path, permissions) and scripted failures —
+  /// [permissionsFailures] keys a refusal by path (checked first) while
+  /// [permissionsFailure] applies to every call; null calls succeed
+  /// silently. [heldPermissions] parks the next call until completed —
+  /// consumed once, like [heldRename].
+  final permissionsCalls = <(String, int)>[];
+  Object? permissionsFailure;
+  final permissionsFailures = <String, Object>{};
+  Completer<void>? heldPermissions;
+
+  @override
+  Future<void> setPermissions(String path, int permissions) async {
+    permissionsCalls.add((path, permissions));
+    final held = heldPermissions;
+    if (held != null) {
+      heldPermissions = null;
+      await held.future;
+    }
+    final failure = permissionsFailures[path] ?? permissionsFailure;
+    if (failure != null) throw failure;
+  }
+
   /// Recorded default-app opens (paths) and a scripted failure — null
   /// opens succeed silently.
   final openCalls = <String>[];

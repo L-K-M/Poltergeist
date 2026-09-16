@@ -410,6 +410,69 @@ void main() {
       );
     });
 
+    test('setPermissions crosses the boundary and a missing path answers '
+        'typed', () async {
+      final client = await EngineClient.spawn(const EngineConfig());
+      addTearDown(client.shutdown);
+
+      final root = Directory.systemTemp.createTempSync('pg-engine-chmod');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File('${root.path}/a.txt').writeAsStringSync('alpha');
+
+      final channel = await client.openLocalChannel(rootPath: root.path);
+
+      if (Platform.isWindows) {
+        // dart:io owns no chmod on Windows: the channel surfaces the
+        // typed unsupported refusal rather than a silent success (D28).
+        await expectLater(
+          channel.setPermissions('${channel.homePath}/a.txt', 0x180),
+          throwsA(
+            isA<RemoteFileException>().having(
+              (error) => error.kind,
+              'kind',
+              RemoteFileErrorKind.unsupported,
+            ),
+          ),
+        );
+        return;
+      }
+
+      // The exact mode — leading special-bits digit included — crosses
+      // verbatim: 0700 lands as owner-rwx, nothing else.
+      await channel.setPermissions('${channel.homePath}/a.txt', 0x1C0);
+      expect(File('${root.path}/a.txt').statSync().mode & 0xFFF, 0x1C0);
+
+      // The leading special-bits digit crosses verbatim too: setuid
+      // 0o4700 (0x9C0) lands with both halves of the mode intact.
+      await channel.setPermissions('${channel.homePath}/a.txt', 0x9C0);
+      expect(File('${root.path}/a.txt').statSync().mode & 0xFFF, 0x9C0);
+
+      // A symlink target is refused typed rather than followed.
+      Link('${root.path}/link').createSync('${root.path}/a.txt');
+      await expectLater(
+        channel.setPermissions('${channel.homePath}/link', 0x1A4),
+        throwsA(
+          isA<RemoteFileException>().having(
+            (error) => error.kind,
+            'kind',
+            RemoteFileErrorKind.unsupported,
+          ),
+        ),
+      );
+
+      // A chmod on a missing path refuses typed — never silently.
+      await expectLater(
+        channel.setPermissions('${channel.homePath}/missing.txt', 0x1A4),
+        throwsA(
+          isA<RemoteFileException>().having(
+            (error) => error.kind,
+            'kind',
+            RemoteFileErrorKind.notFound,
+          ),
+        ),
+      );
+    });
+
     test('closing a local channel is idempotent and retires it', () async {
       final client = await EngineClient.spawn(const EngineConfig());
       addTearDown(client.shutdown);

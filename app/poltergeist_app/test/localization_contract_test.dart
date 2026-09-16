@@ -81,6 +81,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$supportDirectoryPath$separator$_identityAuditLogFileName'",
     "'bookmark.id'",
     "'bookmark has no embedded server identity'",
+    // The setPermissions assert's mode-range diagnostic — a programming-
+    // error message, never rendered.
+    "'permissions must be a twelve-bit mode (0x000-0xFFF)'",
   },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:
@@ -511,7 +514,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The inspector's widget keys — widget plumbing keyed for tests and
   // the pointer-bounce boundary, never authored copy. '' is the empty
-  // header while no target is selected.
+  // header while no target is selected; 'owner'/'group'/'others' and
+  // 'read'/'write'/'execute' are the permissions grid's key segments,
+  // and their uppercase first letters render the rwx column heads.
   'lib/ui/panes/info_panel.dart': {
     "''",
     "'infoPanel.close'",
@@ -519,6 +524,33 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'infoPanel.cancelSize'",
     "'infoPanel.retrySize'",
     "'infoPanel.copyPath'",
+    "'infoPanel.octalField'",
+    "'infoPanel.applyPermissions'",
+    "'infoPanel.applyEnclosed'",
+    "'infoPanel.cancelEnclosed'",
+    "'infoPanel.enclosedDecline'",
+    "'infoPanel.enclosedConfirm'",
+    r"'infoPanel.permCell.${rowKeys[row]}.${columnKeys[column]}'",
+    "'owner'",
+    "'group'",
+    "'others'",
+    "'read'",
+    "'write'",
+    "'execute'",
+  },
+  // The permissions editor's machine literals: the U+FFFD flagged-name
+  // test (02 §13), the octal pad's fill character, and the path-key
+  // plumbing the enclosed-apply walks share with folder_size.dart —
+  // never rendered copy.
+  'lib/services/pane_permissions.dart': {
+    r"'\uFFFD'",
+    "'0'",
+    "'.'",
+    "'..'",
+    "'/'",
+    "r'\\'",
+    r"r'^[A-Za-z]:[\\/]'",
+    r"r'\\'",
   },
   // The dot-segment sentinels a hostile listing could echo and the
   // separator characters the dedupe key strips — machine path data,
