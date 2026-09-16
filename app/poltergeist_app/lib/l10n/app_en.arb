@@ -65,7 +65,6 @@
   "@readyStatus": {
     "description": "Idle application status."
   },
-
   "hostKeyUnknownTitle": "Unknown host key",
   "@hostKeyUnknownTitle": {
     "description": "Title of the first-use host-key approval dialog."
@@ -119,7 +118,6 @@
   "@hostKeyTrustNewKey": {
     "description": "Re-pins a changed host key after explicit review."
   },
-
   "keyboardAuthTitle": "Authentication",
   "@keyboardAuthTitle": {
     "description": "Fallback title when the server sends no challenge name."
@@ -140,7 +138,6 @@
   "@keyboardHideAnswer": {
     "description": "Tooltip re-obscuring a challenge field."
   },
-
   "credentialTitle": "Authentication required",
   "@credentialTitle": {
     "description": "Title of the connect-time credential dialog."
@@ -149,9 +146,15 @@
   "@credentialEndpoint": {
     "description": "The endpoint the credential prompt is for.",
     "placeholders": {
-      "username": {"type": "String"},
-      "host": {"type": "String"},
-      "port": {"type": "int"}
+      "username": {
+        "type": "String"
+      },
+      "host": {
+        "type": "String"
+      },
+      "port": {
+        "type": "int"
+      }
     }
   },
   "credentialPasswordField": "Password",
@@ -199,7 +202,6 @@
       }
     }
   },
-
   "connectionStateConnecting": "Connecting…",
   "@connectionStateConnecting": {
     "description": "Status while a first connect attempt runs."
@@ -236,12 +238,10 @@
   "@connectionRetry": {
     "description": "Reopens the connection after a failure."
   },
-
   "vaultSaveFailed": "Could not save the secret to the vault. The connection will continue.",
   "@vaultSaveFailed": {
     "description": "Transient notice when saving a prompted secret failed."
   },
-
   "sshImportTitle": "Import servers from ssh config",
   "@sshImportTitle": {
     "description": "Title of the ssh_config import preview dialog (D22)."
@@ -254,7 +254,9 @@
   "@sshImportLoadFailed": {
     "description": "Error when the root ssh config is missing or unreadable.",
     "placeholders": {
-      "path": {"type": "String"}
+      "path": {
+        "type": "String"
+      }
     }
   },
   "sshImportRetry": "Try Again",
@@ -265,7 +267,9 @@
   "@sshImportEmpty": {
     "description": "Shown when the resolved config contains no host blocks.",
     "placeholders": {
-      "path": {"type": "String"}
+      "path": {
+        "type": "String"
+      }
     }
   },
   "sshImportColumnImport": "Import",
@@ -300,21 +304,27 @@
   "@sshImportAuthKey": {
     "description": "Auth cell naming the referenced identity file (reference-style; the key itself is never read at import time).",
     "placeholders": {
-      "path": {"type": "String"}
+      "path": {
+        "type": "String"
+      }
     }
   },
   "sshImportDuplicateExisting": "Duplicate of bookmark “{label}”",
   "@sshImportDuplicateExisting": {
     "description": "Note chip when an existing bookmark already targets the same host+port+username.",
     "placeholders": {
-      "label": {"type": "String"}
+      "label": {
+        "type": "String"
+      }
     }
   },
   "sshImportDuplicateEarlier": "Duplicate of “{alias}” in this import",
   "@sshImportDuplicateEarlier": {
     "description": "Note chip when an earlier row in the same import targets the same endpoint.",
     "placeholders": {
-      "alias": {"type": "String"}
+      "alias": {
+        "type": "String"
+      }
     }
   },
   "sshImportLimitProxyJump": "Won’t behave as in ssh: ProxyJump — connects directly, not through the jump host",
@@ -349,21 +359,27 @@
   "@sshImportNoteCycle": {
     "description": "Note for an include that re-enters a file already on its chain.",
     "placeholders": {
-      "path": {"type": "String"}
+      "path": {
+        "type": "String"
+      }
     }
   },
   "sshImportNoteDepth": "{path}: nested beyond the depth limit",
   "@sshImportNoteDepth": {
     "description": "Note for an include nested past OpenSSH's own recursion cap.",
     "placeholders": {
-      "path": {"type": "String"}
+      "path": {
+        "type": "String"
+      }
     }
   },
   "sshImportNoteUnreadable": "{path}: could not be read",
   "@sshImportNoteUnreadable": {
     "description": "Note for an include target that is missing or unreadable.",
     "placeholders": {
-      "path": {"type": "String"}
+      "path": {
+        "type": "String"
+      }
     }
   },
   "sshImportCancel": "Cancel",
@@ -378,14 +394,18 @@
   "@sshImportActionCount": {
     "description": "Import button label with the number of selected hosts.",
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "sshImportRowSemantics": "Import {alias}",
   "@sshImportRowSemantics": {
     "description": "Accessibility label for a row's import checkbox.",
     "placeholders": {
-      "alias": {"type": "String"}
+      "alias": {
+        "type": "String"
+      }
     }
   },
   "sshImportCommandLabel": "Import from ssh config…",
@@ -396,7 +416,9 @@
   "@sshImportImported": {
     "description": "Confirmation after the imported rows were persisted.",
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "sshImportFavoritesLoadFailed": "Could not read the favorites file.",
@@ -455,8 +477,12 @@
   "@connectionsPaneFailure": {
     "description": "Per-pane attribution of a terminal recovery failure (03 §3.3).",
     "placeholders": {
-      "pane": {"type": "String"},
-      "message": {"type": "String"}
+      "pane": {
+        "type": "String"
+      },
+      "message": {
+        "type": "String"
+      }
     }
   },
   "paneOpeningHome": "Opening home…",
@@ -467,7 +493,9 @@
   "@paneConnectingTo": {
     "description": "State shown while a remote bookmark's connection opens.",
     "placeholders": {
-      "label": {"type": "String"}
+      "label": {
+        "type": "String"
+      }
     }
   },
   "paneEmptyFolder": "This folder is empty.",
@@ -478,14 +506,18 @@
   "@paneItemCount": {
     "description": "Pane footer count of visible entries.",
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "paneLoadingFolder": "Loading {name} — Esc cancels",
   "@paneLoadingFolder": {
     "description": "Pane footer line while a navigation is in flight past the anti-flash grace (02 §2.8). Translator note: Esc is the literal key name and must stay untranslated.",
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "paneCancelLoading": "Cancel loading",
@@ -500,7 +532,9 @@
   "@paneTypeAheadBadge": {
     "description": "Screen-reader announcement for the transient type-ahead badge: the prefix accumulated so far while the 1-second buffer lives.",
     "placeholders": {
-      "buffer": {"type": "String"}
+      "buffer": {
+        "type": "String"
+      }
     }
   },
   "paneErrorNotFound": "The folder could not be found.",
@@ -571,14 +605,18 @@
   "@paneConnectionLost": {
     "description": "Banner shown while the remote transport reconnects (02 §2.7).",
     "placeholders": {
-      "label": {"type": "String"}
+      "label": {
+        "type": "String"
+      }
     }
   },
   "paneConnectionRecoveryFailed": "Connection to {label} could not be restored.",
   "@paneConnectionRecoveryFailed": {
     "description": "A pane could not obtain a usable listing after transport recovery.",
     "placeholders": {
-      "label": { "type": "String" }
+      "label": {
+        "type": "String"
+      }
     }
   },
   "paneConnectionLostCancel": "Cancel",
@@ -605,24 +643,36 @@
   "@paneDateToday": {
     "description": "Relative modified date for today (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.",
     "placeholders": {
-      "time": {"type": "String"}
+      "time": {
+        "type": "String"
+      }
     }
   },
   "paneDateYesterday": "Yesterday at {time}",
   "@paneDateYesterday": {
     "description": "Relative modified date for yesterday (02 §2.3). The time string must be produced with the active locale (locale-aware hour and minute, e.g. DateFormat.jm); never a hard-coded pattern.",
     "placeholders": {
-      "time": {"type": "String"}
+      "time": {
+        "type": "String"
+      }
     }
   },
   "paneRowSemantics": "{name}, {kind}, {size}, {modified}",
   "@paneRowSemantics": {
     "description": "Screen-reader label of one listing row: announced name–kind–size–date in that order regardless of visual column order (D20, 02 §13).",
     "placeholders": {
-      "name": {"type": "String"},
-      "kind": {"type": "String"},
-      "size": {"type": "String"},
-      "modified": {"type": "String"}
+      "name": {
+        "type": "String"
+      },
+      "kind": {
+        "type": "String"
+      },
+      "size": {
+        "type": "String"
+      },
+      "modified": {
+        "type": "String"
+      }
     }
   },
   "paneRowKindFile": "file",
@@ -733,8 +783,12 @@
   "@paneFilterCount": {
     "description": "Helper text beside the pane filter field while a query is active: visible row count of the listing's total (02 §2.5).",
     "placeholders": {
-      "visible": {"type": "int"},
-      "total": {"type": "int"}
+      "visible": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
     }
   },
   "paneFilterClear": "Clear",
@@ -745,7 +799,9 @@
   "@paneFilterNoMatch": {
     "description": "Filtered-to-nothing empty state of a pane listing (02 §2.7): names the active filter query.",
     "placeholders": {
-      "query": {"type": "String"}
+      "query": {
+        "type": "String"
+      }
     }
   },
   "panePathFieldLabel": "Path",
@@ -792,8 +848,12 @@
   "@tabTooltipRemote": {
     "description": "Tooltip of a remote tab chip: the bookmark's label and the tab's full remote path (02 §3).",
     "placeholders": {
-      "server": {"type": "String"},
-      "path": {"type": "String"}
+      "server": {
+        "type": "String"
+      },
+      "path": {
+        "type": "String"
+      }
     }
   },
   "tabCloseConfirmTitle": "Close Tab?",
@@ -804,7 +864,9 @@
   "@tabCloseConfirmBody": {
     "description": "Lead-in of the guarded tab-close confirmation: names the tab, then the active guard triggers follow as a list (02 §3).",
     "placeholders": {
-      "tab": {"type": "String"}
+      "tab": {
+        "type": "String"
+      }
     }
   },
   "tabCloseTriggerNavigation": "A navigation is still in flight.",
@@ -855,8 +917,12 @@
   "@syncBrowsingSuspendedMissing": {
     "description": "Suspended chip for the missing-mirror cause (02 §7): the replayed relative directory does not exist on the named pane.",
     "placeholders": {
-      "name": {"type": "String"},
-      "side": {"type": "String"}
+      "name": {
+        "type": "String"
+      },
+      "side": {
+        "type": "String"
+      }
     }
   },
   "syncBrowsingSuspendedOutside": "Sync browsing suspended — outside the anchor subtree",
@@ -870,5 +936,86 @@
   "syncBrowsingSideRight": "right",
   "@syncBrowsingSideRight": {
     "description": "The right pane named as a word inside the missing-mirror suspension copy (02 §7)."
+  },
+  "quickConnectTitle": "Quick Connect",
+  "@quickConnectTitle": {
+    "description": "Heading of the launcher's Quick Connect form (02 §2.7)."
+  },
+  "quickConnectAddressLabel": "Server address",
+  "@quickConnectAddressLabel": {
+    "description": "Label of the Quick Connect address field (02 §2.7)."
+  },
+  "quickConnectAddressHint": "user@host:port or sftp://user@host/path",
+  "@quickConnectAddressHint": {
+    "description": "Placeholder inside the Quick Connect address field showing both accepted forms (02 §2.7)."
+  },
+  "quickConnectConnect": "Connect",
+  "@quickConnectConnect": {
+    "description": "Action starting the Quick Connect session (02 §2.7)."
+  },
+  "quickConnectHintPort": "{port} → port; use sftp://{host}/{port} for a folder named {port}",
+  "@quickConnectHintPort": {
+    "description": "Visible interpretation when an in-range numeric token is read as a port (02 §2.7).",
+    "placeholders": {
+      "port": {
+        "type": "String"
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "quickConnectHintPath": "{token} is out of the port range, so it connects on port 22 and opens a folder named {token}.",
+  "@quickConnectHintPath": {
+    "description": "Visible interpretation when an out-of-range numeric token is read as a folder name (02 §2.7).",
+    "placeholders": {
+      "token": {
+        "type": "String"
+      }
+    }
+  },
+  "quickConnectHintIpv6": "The host holds more than one colon. Wrap the IPv6 address in [ ], for example user@[2001:db8::1].",
+  "@quickConnectHintIpv6": {
+    "description": "Rejection hint for an unbracketed multi-colon host (02 §2.7)."
+  },
+  "quickConnectPasswordStripped": "A pasted password was removed. It is never stored — enter it when prompted.",
+  "@quickConnectPasswordStripped": {
+    "description": "Inline notice shown when the parser strips a pasted password (02 §2.7)."
+  },
+  "quickConnectEmptyError": "Enter a server address, for example user@host.",
+  "@quickConnectEmptyError": {
+    "description": "Error shown for an empty Quick Connect address."
+  },
+  "quickConnectMissingHostError": "Enter a host after the @, for example user@host.",
+  "@quickConnectMissingHostError": {
+    "description": "Error shown for a Quick Connect address without a host."
+  },
+  "quickConnectInvalidPortError": "The port in this address is not valid. Use 1–65535.",
+  "@quickConnectInvalidPortError": {
+    "description": "Error shown for a port-position value outside 1–65535 in an sftp:// URL (02 §2.7)."
+  },
+  "quickConnectUnsupportedSchemeError": "Only sftp:// addresses are supported here.",
+  "@quickConnectUnsupportedSchemeError": {
+    "description": "Error shown for a non-sftp URL pasted into Quick Connect (02 §2.7)."
+  },
+  "saveFavoriteTitle": "Save as favorite…",
+  "@saveFavoriteTitle": {
+    "description": "Title of the post-connect bar offering to keep the live adhoc session as a favorite (02 §2.7)."
+  },
+  "saveFavoriteNameLabel": "Name",
+  "@saveFavoriteNameLabel": {
+    "description": "Label of the favorite-name field in the save bar (02 §2.7)."
+  },
+  "saveFavoriteSave": "Save",
+  "@saveFavoriteSave": {
+    "description": "Action persisting the live adhoc session as a favorite (02 §2.7)."
+  },
+  "saveFavoriteFailed": "Could not save the favorite. Try again.",
+  "@saveFavoriteFailed": {
+    "description": "Inline error shown when persisting the favorite throws."
+  },
+  "paneNoticeSaveFavoriteLater": "Saving favorites isn't available yet — the sidebar arrives in a later milestone.",
+  "@paneNoticeSaveFavoriteLater": {
+    "description": "Transient notice strip (02 §10): saving was attempted where no bookmark store is wired (the favorites store is M5's)."
   }
 }

@@ -354,6 +354,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'pane.banner.retry'",
     "'pane.connect.cancel'",
     "'pane.typeAhead'",
+    // The save bar's adhoc-keyed widget key — plumbing, not copy.
+    r"'saveFavorite.${adhoc.id}'",
     r"'${controller.paneTabId}.path'",
     r"'${controller.paneTabId}.cancel'",
     r"'${controller.paneTabId}.progress'",
@@ -402,6 +404,49 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'port'",
     "'exposure'",
     "'connected'",
+  },
+  // The Quick Connect address grammar's separators and scheme spellings
+  // (02 §2.7 machine syntax), the adhoc server-id prefix (03 §3.5), and
+  // the password-stripped echo reconstructions — parser mechanics, never
+  // rendered copy (user copy lives in ARB and is mapped at the render
+  // site, D20).
+  'lib/services/quick_connect_address.dart': {
+    "'adhoc:'",
+    "'@'",
+    "':'",
+    "'['",
+    "']'",
+    "'/'",
+    "'://'",
+    "'sftp://'",
+    "''",
+    r"'${split.username}@${split.hostport}'",
+    r"'sftp://${split.username}@${split.hostport}$suffix'",
+    r"'/$path'",
+  },
+  // The Quick Connect form's widget keys, the adhoc-id mint, the tab
+  // label compositions (username@host:port machine data beside
+  // ARB-authored copy), and the empty-string fallbacks — plumbing, never
+  // authored copy.
+  'lib/ui/panes/quick_connect_view.dart': {
+    "'quickConnect.field'",
+    "'quickConnect.connect'",
+    "''",
+    r"'${target.port}'",
+    r"'$quickConnectAdhocIdPrefix${uuidV4()}'",
+    r"'$username@${_hostLabel(target)}'",
+    r"'${target.host}:${target.port}'",
+  },
+  // The save bar's widget keys and the live-session label compositions
+  // (endpoint machine data beside ARB-authored copy) — plumbing, never
+  // authored copy.
+  'lib/ui/panes/save_favorite_bar.dart': {
+    "'saveFavorite.bar'",
+    "'saveFavorite.name'",
+    "'saveFavorite.save'",
+    "'saveFavorite.error'",
+    r"'${identity.host}:${identity.port}'",
+    r"'$username@$host'",
   },
   // The on-disk bookmarks.json shape (keys and quarantine stamp), the
   // pinned model's envelope-id prefix, and the registered command id —

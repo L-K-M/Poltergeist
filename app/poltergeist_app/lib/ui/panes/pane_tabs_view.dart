@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/bookmark_store.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
@@ -12,6 +13,7 @@ import '../../services/workspace_controller.dart';
 import '../server_appearance.dart';
 import '../server_state_indicator.dart';
 import 'pane_view.dart';
+import 'quick_connect_view.dart';
 
 /// A tab's display title (02 §3): the bound folder's last segment — the
 /// `Folder name` default of the title setting, whose other modes land
@@ -65,6 +67,7 @@ class PaneTabsView extends StatelessWidget {
     required this.focusNode,
     required this.onSwapFocus,
     required this.onCancelRecovery,
+    this.bookmarks,
     this.clock,
   });
 
@@ -85,6 +88,10 @@ class PaneTabsView extends StatelessWidget {
   /// The connection-lost banner's cancel, routed by the shell onto the
   /// ACTIVE tab (the only surface that can raise it).
   final VoidCallback onCancelRecovery;
+
+  /// The bookmark persistence seam for the "Save as favorite…" bar
+  /// (02 §2.7) — see [PaneView.bookmarks].
+  final BookmarkRepository? bookmarks;
 
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
@@ -119,6 +126,7 @@ class PaneTabsView extends StatelessWidget {
                 focusNode: focusNode,
                 onSwapFocus: onSwapFocus,
                 onCancelRecovery: onCancelRecovery,
+                bookmarks: bookmarks,
                 clock: clock ?? DateTime.now,
               );
             },
@@ -661,6 +669,15 @@ class _PaneLauncher extends StatefulWidget {
 }
 
 class _PaneLauncherState extends State<_PaneLauncher> {
+  /// The Quick Connect field's focus node, owned here so the mount
+  /// reclaim can aim at the field rather than the pane node.
+  final _addressFocus = FocusNode();
+
+  /// Hit-test boundary for the pane's pointer-down listener: clicks
+  /// inside the form keep the field's focus (mirrors the listing's
+  /// field-strip exclusions).
+  final _quickConnectKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -668,15 +685,23 @@ class _PaneLauncherState extends State<_PaneLauncher> {
     // pane's shared focus node — just unmounted; detaching the node's
     // last attachment drops its focus to the parent scope, so the
     // pane's own keys (Tab swap) would go dead until a click. Reclaim
-    // focus, but only when this pane is the workspace's active one: an
-    // inactive pane's launcher must never steal focus on mount.
+    // focus onto the address field, but only when this pane is the
+    // workspace's active one: an inactive pane's launcher must never
+    // steal focus on mount. A focused field keeps the pane node in its
+    // focus chain, so the Tab swap keeps working.
     if (identical(widget.workspace.activePane, widget.tabs)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !widget.focusNode.hasFocus) {
-          widget.focusNode.requestFocus();
+          _addressFocus.requestFocus();
         }
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _addressFocus.dispose();
+    super.dispose();
   }
 
   @override
@@ -715,19 +740,39 @@ class _PaneLauncherState extends State<_PaneLauncher> {
         },
         child: Listener(
           // Clicking the launcher focuses the pane (activates it) — the
-          // same muscle memory as the listing.
-          onPointerDown: (_) => widget.focusNode.requestFocus(),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                l10n.paneNoLocation,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+          // same muscle memory as the listing — except inside the Quick
+          // Connect form, whose controls keep their own focus.
+          onPointerDown: (event) {
+            final formBox =
+                _quickConnectKey.currentContext?.findRenderObject()
+                    as RenderBox?;
+            if (formBox != null &&
+                formBox.hasSize &&
+                formBox.size.contains(
+                  formBox.globalToLocal(event.position),
+                )) {
+              return;
+            }
+            widget.focusNode.requestFocus();
+          },
+          child: QuickConnectView(
+            key: _quickConnectKey,
+            focusNode: _addressFocus,
+            onConnect: (bookmark, initialPath) {
+              // Quick Connect binds a fresh tab through the existing
+              // remote-connect seam: the tab opens immediately on the
+              // launcher target and the connect flow owns prompts,
+              // errors, and banner behavior from there.
+              final tab = widget.tabs.newTab(
+                target: NewTabTarget.launcher,
+              );
+              unawaited(
+                tab.controller.connectRemote(
+                  bookmark,
+                  initialPath: initialPath,
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),
