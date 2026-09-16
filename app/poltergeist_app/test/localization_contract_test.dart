@@ -328,6 +328,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'tab close guard fired with no presenter wired'",
     "'tab replacement guard fired with no presenter wired'",
     "'workspace pane state must match the strip it lands on'",
+    "'state.paneId'",
     "'newTab on a disposed PaneTabsController'",
     "'addTab on a disposed PaneTabsController'",
     "'restoreSession on a disposed PaneTabsController'",

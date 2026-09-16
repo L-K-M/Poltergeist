@@ -514,10 +514,16 @@ class PaneTabsController extends ChangeNotifier {
     WorkspacePaneState state,
     TabReplacementPermit permit,
   ) async {
-    assert(
-      state.paneId == paneId,
-      'workspace pane state must match the strip it lands on',
-    );
+    // Runtime, not assert-only: the snapshot is decoded external data,
+    // and in release a swapped pane section would otherwise land on the
+    // wrong strip silently.
+    if (state.paneId != paneId) {
+      throw ArgumentError.value(
+        state.paneId,
+        'state.paneId',
+        'workspace pane state must match the strip it lands on',
+      );
+    }
     for (final tab in List.of(_tabs)) {
       if (_disposed || !_tabs.contains(tab)) continue;
       final granted = permit._confirmed[tab];
