@@ -349,6 +349,52 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('Esc order: an error retry outranks the panel close',
+      (tester) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a.txt')];
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    left.setCursorIndex(0);
+    leftStrip.toggleInfoPanel();
+    await tester.pumpAndSettle();
+    expect(find.byType(InfoPanel), findsOneWidget);
+
+    // Drive the pane into its error state with the panel open — the
+    // retry tier sits ABOVE the panel's close slot (02 §8.2).
+    channel.listingFailure = const RemoteFileException(
+      kind: RemoteFileErrorKind.other,
+      operation: 'list',
+      path: '/home/tester',
+      message: 'listing refused',
+    );
+    left.refresh();
+    await tester.pumpAndSettle();
+    expect(left.error, isNotNull);
+    expect(find.byType(InfoPanel), findsOneWidget);
+
+    // First Esc retries the failed operation (cleared fault → the
+    // retry re-lists cleanly); the inspector must survive it.
+    channel.listingFailure = null;
+    leftNode.requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(left.error, isNull);
+    expect(find.byType(InfoPanel), findsOneWidget,
+        reason: 'error-retry owns the first Esc; the panel stays open');
+
+    // The next Esc reaches the panel's own slot.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(InfoPanel), findsNothing);
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+  });
+
   testWidgets('Esc pressed while a panel control holds focus still runs '
       'the tier chain', (tester) async {
     final channel = controller_test.FakePaneChannel('/home/tester');
@@ -356,7 +402,7 @@ void main() {
       _entry('docs', type: RemoteFileType.directory),
     ];
     channel.listings['/home/tester/docs'] = [
-      _entry('inner.txt', size: 4),
+      _entry('inner.txt', size: 4, root: '/home/tester/docs'),
     ];
     lanes.nextLocalChannel = channel;
     await left.openLocalHome();
@@ -369,7 +415,8 @@ void main() {
     // Tapping Calculate starts the walk AND leaves the button focused —
     // Esc from inside the panel must reach the shared tier chain. The
     // listing is held so the walk is still in flight when Esc lands.
-    channel.holdNext = Completer<void>();
+    final held = Completer<void>();
+    channel.holdNext = held;
     await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
     await tester.pump();
     expect(left.folderSizeInFlight, isTrue);
@@ -392,7 +439,11 @@ void main() {
     expect(find.byType(InfoPanel), findsNothing);
     expect(left.folderSizeInFlight, isFalse,
         reason: 'the close cancels the walk it owned');
-    channel.holdNext = null;
+    // Release the held listing so the retired walk can settle — its
+    // late answer must be dropped by the session-token check.
+    held.complete();
+    await tester.pumpAndSettle();
+    expect(left.folderSize, isNull);
   });
 
   testWidgets('the ✕ closes the panel and focus returns to the listing',
@@ -511,7 +562,7 @@ void main() {
       _entry('docs', type: RemoteFileType.directory),
     ];
     channel.listings['/home/tester/docs'] = [
-      _entry('inner.txt', size: 4),
+      _entry('inner.txt', size: 4, root: '/home/tester/docs'),
     ];
     lanes.nextLocalChannel = channel;
     await left.openLocalHome();
@@ -522,7 +573,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Hold the walk's listing so progress is observable.
-    channel.holdNext = Completer<void>();
+    final held = Completer<void>();
+    channel.holdNext = held;
     await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
     await tester.pump();
 
@@ -539,12 +591,14 @@ void main() {
       find.byKey(const ValueKey('infoPanel.calculateSize')),
       findsOneWidget,
     );
-    channel.holdNext = null;
+    // Release the held listing — the cancelled walk's late answer must
+    // not resurrect the session.
+    held.complete();
     await tester.pumpAndSettle();
     expect(left.folderSize, isNull);
   });
 
-  testWidgets('a folder measure started for another target never '
+  testWidgets('a settled folder measure for another target never '
       'displays on retarget', (tester) async {
     final channel = controller_test.FakePaneChannel('/home/tester');
     channel.listings['/home/tester'] = [
@@ -552,7 +606,7 @@ void main() {
       _entry('other', type: RemoteFileType.directory),
     ];
     channel.listings['/home/tester/docs'] = [
-      _entry('inner.txt', size: 4),
+      _entry('inner.txt', size: 4, root: '/home/tester/docs'),
     ];
     channel.listings['/home/tester/other'] = const [];
     lanes.nextLocalChannel = channel;
@@ -576,5 +630,51 @@ void main() {
       find.byKey(const ValueKey('infoPanel.calculateSize')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('an in-flight folder measure for another target never '
+      'displays on retarget', (tester) async {
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [
+      _entry('docs', type: RemoteFileType.directory),
+      _entry('other', type: RemoteFileType.directory),
+    ];
+    channel.listings['/home/tester/docs'] = [
+      _entry('inner.txt', size: 4, root: '/home/tester/docs'),
+    ];
+    channel.listings['/home/tester/other'] = const [];
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await pumpShell(tester);
+
+    left.setCursorIndex(0);
+    leftStrip.toggleInfoPanel();
+    await tester.pumpAndSettle();
+
+    // Hold the first walk's listing, then retarget mid-flight: the new
+    // target shows Calculate, never the in-flight progress of 'docs'.
+    final held = Completer<void>();
+    channel.holdNext = held;
+    await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
+    await tester.pump();
+    expect(left.folderSizeInFlight, isTrue);
+
+    left.setCursorIndex(1);
+    await tester.pump();
+    expect(inPanel(find.text('other')), findsOneWidget);
+    expect(inPanel(find.textContaining('so far')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('infoPanel.calculateSize')),
+      findsOneWidget,
+    );
+
+    // The superseded-for-display walk still runs (a retarget back
+    // rejoins it) — release it and let its result land on 'docs',
+    // never on 'other'.
+    held.complete();
+    await tester.pumpAndSettle();
+    expect(inPanel(find.text('4 B — 1 item')), findsNothing);
+    expect(left.folderSize?.targetPath, '/home/tester/docs');
+    expect(left.folderSizeInFlight, isFalse);
   });
 }

@@ -7,8 +7,9 @@ import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/services/selection_state.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
+import '../support/fake_pane_channel.dart';
 import '../support/test_panes.dart';
-import 'pane_controller_test.dart' show FakePaneChannel, FakePaneLanes;
+import 'pane_controller_test.dart' show FakePaneLanes;
 
 RemoteFileEntry _entry(
   String name, {
@@ -152,7 +153,8 @@ void main() {
       ]);
       addTearDown(controller.dispose);
       // Hold the walk's first listing so the cancel lands mid-flight.
-      channel.holdNext = Completer<void>();
+      final held = Completer<void>();
+      channel.holdNext = held;
       channel.listings['/home/tester/docs'] = const [];
 
       controller.setCursorIndex(0);
@@ -163,9 +165,18 @@ void main() {
       expect(controller.folderSize, isNull);
       expect(controller.folderSizeInFlight, isFalse);
 
-      // The held answer settles; the stale walk's late result must not
-      // resurrect a session.
-      channel.holdNext = null;
+      // Release the held answer — a real late result, not a vacuous
+      // settle — and give it a nonzero total so a resurrected session
+      // would be observable.
+      channel.listings['/home/tester/docs'] = [
+        RemoteFileEntry(
+          path: '/home/tester/docs/late.txt',
+          name: 'late.txt',
+          type: RemoteFileType.file,
+          size: 9,
+        ),
+      ];
+      held.complete();
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
       expect(controller.folderSize, isNull);
@@ -213,12 +224,12 @@ void main() {
       controller.setCursorIndex(0);
 
       // First walk parks on a held listing; the restart supersedes it.
-      channel.holdNext = Completer<void>();
+      final held = Completer<void>();
+      channel.holdNext = held;
       controller.startFolderSize();
       final first = controller.folderSize;
       expect(first?.status, FolderSizeStatus.running);
 
-      channel.holdNext = null;
       controller.startFolderSize();
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
@@ -226,6 +237,23 @@ void main() {
       final settled = controller.folderSize;
       expect(settled?.status, FolderSizeStatus.done);
       expect(settled?.bytes, 7);
+
+      // Release the superseded walk's held listing with a DIFFERENT
+      // total — the channel reads listings after the hold, so the late
+      // answer is observably stale (99 B, not the fresh walk's 7 B).
+      channel.listings['/home/tester/docs'] = [
+        RemoteFileEntry(
+          path: '/home/tester/docs/a.txt',
+          name: 'a.txt',
+          type: RemoteFileType.file,
+          size: 99,
+        ),
+      ];
+      held.complete();
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.folderSize?.bytes, 7,
+          reason: 'the superseded walk\'s late result must be dropped');
     });
   });
 

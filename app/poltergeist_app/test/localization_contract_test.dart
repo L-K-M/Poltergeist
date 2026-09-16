@@ -403,9 +403,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'infoPanel.retrySize'",
     "'infoPanel.copyPath'",
   },
-  // The dot-segment sentinels a hostile listing could echo — machine
-  // path data, never rendered.
-  'lib/services/folder_size.dart': {"'.'", "'..'"},
+  // The dot-segment sentinels a hostile listing could echo and the
+  // separator characters the dedupe key strips — machine path data,
+  // never rendered.
+  'lib/services/folder_size.dart': {"'.'", "'..'", "'/'", "r'\\'"},
   // The app.dart entry is the engine-seam assert (the demo entries left
   // with the deleted surface).
   'lib/app.dart': {

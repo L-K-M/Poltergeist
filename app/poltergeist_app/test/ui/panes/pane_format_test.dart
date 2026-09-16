@@ -131,6 +131,7 @@ void main() {
       // Special bit without execute renders the capital.
       expect(formatPosixModeSymbolic(0x800), '--S------'); // suid, no x
       expect(formatPosixModeSymbolic(0x200), '--------T'); // sticky, no x
+      expect(formatPosixModeSymbolic(0x400), '-----S---'); // sgid, no x
     });
   });
 
@@ -142,6 +143,8 @@ void main() {
       expect(formatPosixModeOctal(0x3FF), '1777');
       // Type bits never leak into the display.
       expect(formatPosixModeOctal(0xA1A4), '0644');
+      // Type and special bits combined: symlink + suid + 0755.
+      expect(formatPosixModeOctal(0xA9ED), '4755');
     });
   });
 }

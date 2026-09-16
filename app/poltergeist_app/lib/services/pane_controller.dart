@@ -1581,8 +1581,10 @@ class PaneController extends ChangeNotifier {
       // every other unexpected fault; the panel's terminal state is a
       // generic failure — the typed refusals never reach here, the
       // walker maps them to [FolderSizeStatus.failed].
-      _report(error, stackTrace);
       if (!identical(cancellation, _folderSizeCancellation)) return;
+      // Only the session's owner reports — a superseded or cancelled
+      // walk's late fault is noise beside the walk that replaced it.
+      _report(error, stackTrace);
       _folderSizeCancellation = null;
       if (_disposed) return;
       _folderSize = FolderSizeProgress(

@@ -11,6 +11,12 @@ import 'package:poltergeist_app/services/pane_location.dart';
 import 'package:poltergeist_app/services/quick_select_state.dart';
 import 'package:poltergeist_app/services/view_preferences.dart';
 
+// The scripted channel lives in support/ so service tests import a
+// double, not another suite — re-exported here for the pane suites
+// that have always pulled it from this file.
+import '../support/fake_pane_channel.dart';
+export '../support/fake_pane_channel.dart';
+
 /// Scripted lanes recording call order so ordering assertions (subscribe
 /// before connect) can run against the fake.
 class FakePaneLanes implements PaneEngineLanes {
@@ -83,82 +89,6 @@ class FakePaneLanes implements PaneEngineLanes {
 
   void emitState(String serverId, ServerStatus status) {
     statesControllers[serverId]?.add(status);
-  }
-}
-
-/// A scripted browse channel: listings answer from [listings] by path, and
-/// in-flight answers can be held back with [holdNext] to test stale
-/// generations.
-class FakePaneChannel implements AppBrowseChannel {
-  FakePaneChannel(this.homePath);
-
-  @override
-  final String homePath;
-
-  final listings = <String, List<RemoteFileEntry>>{};
-  final listCalls = <String>[];
-  int closeCalls = 0;
-  Completer<void>? holdNext;
-
-  /// When set, every listing throws this non-VFS error (drives the
-  /// typed PaneFault list path).
-  Object? listingFailure;
-
-  /// Recorded rename calls (oldPath, newPath) and a scripted failure —
-  /// null renames succeed silently.
-  final renameCalls = <(String, String)>[];
-  Object? renameFailure;
-  Completer<void>? heldRename;
-
-  @override
-  Future<void> rename(String oldPath, String newPath) async {
-    renameCalls.add((oldPath, newPath));
-    final held = heldRename;
-    if (held != null) {
-      heldRename = null;
-      await held.future;
-    }
-    final failure = renameFailure;
-    if (failure != null) throw failure;
-  }
-
-  /// Recorded default-app opens (paths) and a scripted failure — null
-  /// opens succeed silently.
-  final openCalls = <String>[];
-  Object? openFailure;
-
-  @override
-  Future<void> openInDefaultApp(String path) async {
-    openCalls.add(path);
-    final failure = openFailure;
-    if (failure != null) throw failure;
-  }
-
-  @override
-  Future<List<RemoteFileEntry>> listDirectory(String path) async {
-    listCalls.add(path);
-    final hold = holdNext;
-    if (hold != null) {
-      holdNext = null;
-      await hold.future;
-    }
-    final fault = listingFailure;
-    if (fault != null) throw fault;
-    final entries = listings[path];
-    if (entries == null) {
-      throw RemoteFileException(
-        kind: RemoteFileErrorKind.notFound,
-        operation: 'list',
-        path: path,
-        message: 'Could not list "$path": no such directory',
-      );
-    }
-    return entries;
-  }
-
-  @override
-  Future<void> close() async {
-    closeCalls++;
   }
 }
 

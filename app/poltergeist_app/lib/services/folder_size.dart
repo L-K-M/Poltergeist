@@ -60,8 +60,11 @@ final class FolderSizeProgress {
   /// counts them so the result is never silent about being partial.
   final int unreadable;
 
-  /// The failure that ended a [FolderSizeStatus.failed] walk — the
-  /// root listing's typed VFS refusal, or an untyped fault.
+  /// The failure that ended a [FolderSizeStatus.failed] walk. The
+  /// walker only ever records the root listing's typed VFS refusal
+  /// here — an untyped fault (a dying channel, a broken seam) is never
+  /// folded into a snapshot: it propagates to the caller, whose own
+  /// failure path records it (see [measureFolderSize]).
   final Object? error;
 }
 
@@ -78,10 +81,20 @@ final class FolderSizeProgress {
 ///
 /// A nested directory that refuses its listing is skipped and counted
 /// in [FolderSizeProgress.unreadable]; only the ROOT listing's refusal
-/// fails the walk. Entries without a size add nothing to the byte
+/// fails the walk. Both those cases are TYPED [RemoteFileException]s —
+/// an untyped fault (a dying channel, a broken seam) always propagates
+/// out of the walk rather than masquerading as a partial accounting;
+/// the caller's own catch is what records it into a failed snapshot.
+/// Entries without a size add nothing to the byte
 /// total and count toward [FolderSizeProgress.unmeasured]. Symbolic
 /// links are never followed — a link counts its own size, and the
 /// visited-set guards against a pathological listing that recurses.
+/// The set keys on separator-normalized spellings so a server echoing
+/// '/a/b' and '/a/b/' cannot defeat it; case is deliberately NOT
+/// folded, since remote case sensitivity is the server's property.
+/// Beyond cycles, the trust model is cancellability, not a hard cap:
+/// the channel is a trusted peer, and a hostile server minting endless
+/// unique paths is stopped by the user's cancel, not a counter.
 Future<FolderSizeProgress> measureFolderSize(
   AppBrowseChannel channel,
   String path, {
@@ -103,7 +116,7 @@ Future<FolderSizeProgress> measureFolderSize(
         error: error,
       );
 
-  final visited = <String>{path};
+  final visited = <String>{_dedupeKey(path)};
   final pending = <String>[path];
   var first = true;
   while (pending.isNotEmpty) {
@@ -129,7 +142,9 @@ Future<FolderSizeProgress> measureFolderSize(
       if (entry.name == '.' || entry.name == '..') continue;
       entries++;
       if (entry.isDirectory) {
-        if (visited.add(entry.path)) pending.add(entry.path);
+        // Dedupe on the normalized spelling but list the server's own
+        // — the channel may be spelling-sensitive.
+        if (visited.add(_dedupeKey(entry.path))) pending.add(entry.path);
       } else if (entry.size != null) {
         bytes += entry.size!;
       } else {
@@ -139,4 +154,15 @@ Future<FolderSizeProgress> measureFolderSize(
     onProgress?.call(snapshot(FolderSizeStatus.running));
   }
   return snapshot(FolderSizeStatus.done);
+}
+
+/// The visited-set's dedupe key: strips trailing separators so a
+/// server spelling one directory two ways cannot recurse it twice.
+/// Only dedupe — the stripped key never reaches the channel.
+String _dedupeKey(String path) {
+  var key = path;
+  while (key.length > 1 && (key.endsWith('/') || key.endsWith(r'\'))) {
+    key = key.substring(0, key.length - 1);
+  }
+  return key;
 }

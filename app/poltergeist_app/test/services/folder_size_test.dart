@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/folder_size.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
-import 'pane_controller_test.dart' show FakePaneChannel;
+import '../support/fake_pane_channel.dart';
 
 RemoteFileEntry _entry(
   String path,

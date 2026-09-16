@@ -219,6 +219,12 @@ class _PaneViewState extends State<PaneView> {
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
+    // The flag tracks the STRIP's state, not the controller's — a pane
+    // swap without a controller swap adopts the new strip's truth so a
+    // stale true can't fake a just-closed on the next build.
+    if (!identical(oldWidget.pane, widget.pane)) {
+      _infoPanelWasOpen = widget.pane.infoPanelOpen;
+    }
   }
 
   @override

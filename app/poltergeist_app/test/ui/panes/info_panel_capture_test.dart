@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/folder_size.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/workspace_controller.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
@@ -23,8 +24,11 @@ import '../../support/test_panes.dart';
 /// PNGs land in tasks/run3-task56/ at the repo root, and only when the
 /// run is armed: POLTERGEIST_CAPTURE=1 gates every artifact write so an
 /// ordinary `flutter test` never dirties the checkout; the UI
-/// assertions run regardless.
-const _captureDir = '../../tasks/run3-task56';
+/// assertions run regardless. POLTERGEIST_CAPTURE_DIR overrides the
+/// output root — the default only resolves at the repo root when the
+/// test is launched from the app package directory.
+final _captureDir = Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
+    '../../tasks/run3-task56';
 
 Future<ByteData> _fontBytes(String path) async =>
     ByteData.view(File(path).readAsBytesSync().buffer);
@@ -293,7 +297,10 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
     await tester.pumpAndSettle();
-    expect(left.folderSize?.status, isNotNull);
+    // The capture must show the SETTLED total, never a mid-walk
+    // progress line that survived a regression.
+    expect(left.folderSizeInFlight, isFalse);
+    expect(left.folderSize?.status, FolderSizeStatus.done);
     await capture(leftBoundary, 'info-local-folder-size');
 
     // The remote pane's inspector on a file: server-side uid/gid/mode

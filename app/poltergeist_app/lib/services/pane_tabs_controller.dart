@@ -269,7 +269,10 @@ class PaneTabsController extends ChangeNotifier {
   /// measurement (the panel is their only consumer, so a walk outliving
   /// it would hold the close-guard trigger for nothing).
   void toggleInfoPanel() {
-    if (_disposed) return;
+    // No listing, no inspector: a chord landing on the launcher must
+    // not latch the flag open for the next tab to inherit — the getter
+    // masks it, so the toggle would otherwise move hidden state.
+    if (_disposed || activeTab == null) return;
     _infoPanelOpen = !_infoPanelOpen;
     if (!_infoPanelOpen) {
       for (final tab in _tabs) {
@@ -465,6 +468,9 @@ class PaneTabsController extends ChangeNotifier {
     } else if (_activeIndex > index) {
       _activeIndex--;
     }
+    // The launcher has no listing to inspect — drop the flag with the
+    // last tab so the next tab can't inherit a latched-open inspector.
+    if (_tabs.isEmpty) _infoPanelOpen = false;
     notifyListeners();
 
     final controller = tab.controller;
@@ -552,6 +558,8 @@ class PaneTabsController extends ChangeNotifier {
     } else if (_activeIndex > index) {
       _activeIndex--;
     }
+    // A stripped pane lands on the launcher — no listing, no inspector.
+    if (_tabs.isEmpty) _infoPanelOpen = false;
     notifyListeners();
   }
 
