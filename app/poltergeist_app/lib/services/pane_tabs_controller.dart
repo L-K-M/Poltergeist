@@ -177,11 +177,12 @@ class PaneTabsController extends ChangeNotifier {
   /// selects the pane's name in semantics.
   final String paneId;
 
-  /// The canonical pane ids (02 §1's pane A/pane B) — the one place the
-  /// literals live, so surfaces compare against a named constant rather
-  /// than spreading the string.
-  static const leftPaneId = 'pane.left';
-  static const rightPaneId = 'pane.right';
+  /// The canonical pane ids (02 §1's pane A/pane B) — surfaces compare
+  /// against these names rather than spreading the literal. The values
+  /// themselves live with the session document's schema: its decode
+  /// rejects any pane set that isn't exactly these two.
+  static const leftPaneId = sessionLeftPaneId;
+  static const rightPaneId = sessionRightPaneId;
 
   /// Whether this strip is the left pane (02 §1's pane A).
   bool get isLeftPane => paneId == leftPaneId;

@@ -1753,7 +1753,10 @@ class PaneController extends ChangeNotifier {
       return connectRemote(bookmark, initialPath: _location?.path);
     }
     final location = _location;
-    if (location == null) return Future.value();
+    // The type guard, not just null: a restored tab must never hand a
+    // remote path to the local VFS (defense-in-depth — strict decode
+    // already guarantees a remote record carries its bookmark).
+    if (location is! LocalPaneLocation) return Future.value();
     return openLocalAt(location.path);
   }
 

@@ -104,6 +104,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // keys, record field names, and validation diagnostics — the same
   // posture as the sibling versioned stores, never rendered UI copy.
   'lib/services/session_state.dart': {
+    "'pane.left'",
+    "'pane.right'",
     "'version'",
     "'activePane'",
     "'secondPaneHidden'",
@@ -264,9 +266,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // guard diagnostic — machine data, never rendered UI copy.
   'lib/services/pane_tabs_controller.dart': {
     r"'$paneId.tab${_nextTabOrdinal++}'",
-    // The canonical pane ids — engine-channel identity, not copy.
-    "'pane.left'",
-    "'pane.right'",
     "'tab close guard fired with no presenter wired'",
     "'newTab on a disposed PaneTabsController'",
     "'addTab on a disposed PaneTabsController'",

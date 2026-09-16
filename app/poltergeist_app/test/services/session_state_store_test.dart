@@ -36,7 +36,7 @@ void main() {
       SessionPaneState(
         paneId: PaneTabsController.leftPaneId,
         activeTab: -1,
-        nextTabOrdinal: 1,
+        nextTabOrdinal: 2,
         tabs: [SessionTabState.local(path: '/home/tester')],
       ),
       SessionPaneState(

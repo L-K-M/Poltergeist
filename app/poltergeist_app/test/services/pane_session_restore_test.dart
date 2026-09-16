@@ -209,6 +209,33 @@ void main() {
 
       expect(controller.captureSessionTab().kind, SessionTabKind.unbound);
     });
+
+    // A local open clears the retry handle synchronously — a bookmark
+    // left over from a failed connect can never shadow the pane's live
+    // local location in the session document.
+    test('a local open after a failed remote connect captures local',
+        () async {
+      lanes.remoteOpenFailure = StateError('no route');
+      final controller = PaneController(
+        paneTabId: 'pane.left.tab1',
+        lanes: lanes,
+      );
+      addTearDown(controller.dispose);
+      await controller.connectRemote(_bookmark('b1'));
+      // The failed connect keeps the bookmark as its retry handle.
+      expect(controller.remoteBookmark?.id, 'b1');
+
+      final channel = FakePaneChannel('/home/tester')
+        ..listings['/home/tester/docs'] = [_row('doc.md')];
+      lanes.nextLocalChannel = channel;
+      await controller.openLocalAt('/home/tester/docs');
+      await Future<void>.delayed(Duration.zero);
+
+      final captured = controller.captureSessionTab();
+      expect(captured.kind, SessionTabKind.local);
+      expect(captured.path, '/home/tester/docs');
+      expect(controller.remoteBookmark, isNull);
+    });
   });
 
   group('restoreSession', () {

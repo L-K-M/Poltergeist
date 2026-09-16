@@ -243,6 +243,28 @@ void main() {
         ..._fixture().toJson(),
         'activePane': 'pane.middle',
       },
+      // A foreign pane id is corrupt even when it isn't the active
+      // pane, and a duplicated pane id is not a pane pair.
+      {
+        ..._fixture().toJson(),
+        'panes': [
+          fixturePanes[0],
+          {...fixturePanes[1]! as Map, 'paneId': 'pane.middle'},
+        ],
+      },
+      {
+        ..._fixture().toJson(),
+        'panes': [fixturePanes[0], fixturePanes[0]],
+      },
+      // The id counter must sit above the tab count: restored tabs
+      // mint positionally, so counter <= tabs.length would collide.
+      {
+        ..._fixture().toJson(),
+        'panes': [
+          {...fixturePanes[0]! as Map, 'nextTabOrdinal': 3},
+          fixturePanes[1],
+        ],
+      },
     ]) {
       expect(() => SessionState.fromJson(mutation), throwsFormatException);
     }

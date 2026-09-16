@@ -13,6 +13,13 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 /// scoped by the same data-loss rule the ghost ring documents.
 enum SessionTabKind { local, remote, unbound }
 
+/// The two canonical pane ids a v1 session document covers — the
+/// schema's own constants, aliased by [PaneTabsController]'s public
+/// names so the strips and the schema share one source (a foreign or
+/// duplicated pane id fails decode, below).
+const sessionLeftPaneId = 'pane.left';
+const sessionRightPaneId = 'pane.right';
+
 /// One persisted tab: a local folder, a remote binding's path plus its
 /// cached listing (the rows the Reconnect bar covers until activation),
 /// or an unbound launcher tab (02 §2.7 — a legal pane state that must
@@ -185,7 +192,10 @@ final class SessionPaneState {
     if (activeTab < -1 || activeTab >= decodedTabs.length) {
       throw const FormatException('Invalid session pane active tab');
     }
-    if (nextTabOrdinal < 1) {
+    // Restored tabs mint their ids positionally from the counter
+    // (`$paneId.tab${1..}`), so a counter at or below the tab count
+    // would let a later mint collide with a restored id.
+    if (nextTabOrdinal <= decodedTabs.length) {
       throw const FormatException('Invalid session pane tab counter');
     }
     return SessionPaneState(
@@ -244,11 +254,17 @@ final class SessionState {
     final decodedPanes = List<SessionPaneState>.unmodifiable([
       for (final pane in panes) SessionPaneState.fromJson(pane),
     ]);
-    // v1 is the two-pane document: anything else (a truncated write, a
-    // foreign pane id, an active pane naming no restored strip) is
-    // corrupt, not a partial restore to improvise around.
-    if (decodedPanes.length != 2 ||
-        !decodedPanes.any((pane) => pane.paneId == activePane)) {
+    // v1 is the two-pane document: the pane set is exactly the left and
+    // right strips — a truncated write, a duplicate, a foreign pane id,
+    // or an active pane naming no restored strip is corrupt, not a
+    // partial restore to improvise around.
+    final paneIds = decodedPanes.map((pane) => pane.paneId).toSet();
+    if (paneIds.length != 2 ||
+        !paneIds.containsAll(const {
+          sessionLeftPaneId,
+          sessionRightPaneId,
+        }) ||
+        !paneIds.contains(activePane)) {
       throw const FormatException('Invalid session panes');
     }
     return SessionState(
