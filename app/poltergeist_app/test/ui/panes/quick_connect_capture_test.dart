@@ -31,8 +31,14 @@ final _captureDir =
     Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
     '../../tasks/run3-task55/captures';
 
-Future<ByteData> _fontBytes(String path) async =>
-    ByteData.view(File(path).readAsBytesSync().buffer);
+Future<ByteData> _fontBytes(String path) async {
+  final bytes = File(path).readAsBytesSync();
+  return ByteData.view(
+    bytes.buffer,
+    bytes.offsetInBytes,
+    bytes.lengthInBytes,
+  );
+}
 
 /// Registers a readable face under the names the theme resolves: the
 /// default family name for body text plus the mono fallback chain.
