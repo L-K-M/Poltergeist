@@ -371,8 +371,14 @@ void main() {
     await capture(leftBoundary, 'info-local-permissions-enclosed-done');
 
     // The folder target's on-demand measure: Calculate, then the
-    // settled total.
+    // settled total. The panel still sits where the enclosed-apply
+    // capture left it scrolled — ensureVisible before the tap so the
+    // button is on-screen under any font metrics.
     left.setCursorIndex(0); // docs
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('infoPanel.calculateSize')),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('infoPanel.calculateSize')));
     await tester.pumpAndSettle();
