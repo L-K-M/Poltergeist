@@ -113,4 +113,38 @@ void main() {
     // zone; the boundary fix uses calendar-day arithmetic by
     // construction).
   });
+
+  group('formatPosixModeSymbolic', () {
+    test('renders the nine rwx positions with file-type bits ignored', () {
+      // 0644 regular file, 0755 directory, 0600 with a symlink's 0120000
+      // type bits — the render reads only the permission field.
+      expect(formatPosixModeSymbolic(0x81A4), 'rw-r--r--');
+      expect(formatPosixModeSymbolic(0x41ED), 'rwxr-xr-x');
+      expect(formatPosixModeSymbolic(0xA180), 'rw-------');
+      expect(formatPosixModeSymbolic(0x1FF), 'rwxrwxrwx');
+    });
+
+    test('folds suid, sgid, and sticky into the execute slots', () {
+      expect(formatPosixModeSymbolic(0x5ED), 'rwxr-sr-x'); // sgid
+      expect(formatPosixModeSymbolic(0x9ED), 'rwsr-xr-x'); // suid
+      expect(formatPosixModeSymbolic(0x3ED), 'rwxr-xr-t'); // sticky
+      // Special bit without execute renders the capital.
+      expect(formatPosixModeSymbolic(0x800), '--S------'); // suid, no x
+      expect(formatPosixModeSymbolic(0x200), '--------T'); // sticky, no x
+      expect(formatPosixModeSymbolic(0x400), '-----S---'); // sgid, no x
+    });
+  });
+
+  group('formatPosixModeOctal', () {
+    test('renders four digits including the special-bit digit', () {
+      expect(formatPosixModeOctal(0x81A4), '0644');
+      expect(formatPosixModeOctal(0x41ED), '0755');
+      expect(formatPosixModeOctal(0x9ED), '4755');
+      expect(formatPosixModeOctal(0x3FF), '1777');
+      // Type bits never leak into the display.
+      expect(formatPosixModeOctal(0xA1A4), '0644');
+      // Type and special bits combined: symlink + suid + 0755.
+      expect(formatPosixModeOctal(0xA9ED), '4755');
+    });
+  });
 }

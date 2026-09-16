@@ -576,6 +576,75 @@ void main() {
         reason: 'the inactive pane never opens a session');
   });
 
+  testWidgets('file.getInfo is selection-scoped, toggles the active '
+      'pane\'s inspector, and documents its §8.3 keys', (tester) async {
+    final lanes = controller_test.FakePaneLanes();
+    final channel = controller_test.FakePaneChannel('/home/tester');
+    channel.listings['/home/tester'] = [_entry('a'), _entry('b')];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+
+    lanes.nextLocalChannel = channel;
+    await left.openLocalHome();
+    await tester.pump();
+
+    final getInfo = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kFileGetInfoCommandId);
+
+    // 02 §8.3's table: selection scope; ⌘I on macOS, Alt+Enter
+    // elsewhere.
+    expect(getInfo.scope, CommandScope.selection);
+    expect(
+      getInfo.activators!(TargetPlatform.macOS),
+      [const SingleActivator(LogicalKeyboardKey.keyI, meta: true)],
+    );
+    expect(
+      getInfo.activators!(TargetPlatform.linux),
+      [const SingleActivator(LogicalKeyboardKey.enter, alt: true)],
+    );
+    expect(
+      getInfo.activators!(TargetPlatform.windows),
+      [const SingleActivator(LogicalKeyboardKey.enter, alt: true)],
+    );
+    // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
+    // ahead of Rename at 70.
+    expect(getInfo.menuPlacement?.menu, AppMenuId.file);
+    expect(getInfo.menuPlacement?.order, 65);
+    expect(getInfo.menuPlacement?.group, 1);
+
+    // Enablement needs an inspector target — a cursor/selected row —
+    // or an already-open panel (so the same chord toggles it closed).
+    workspace.setActivePane(rightStrip);
+    expect(getInfo.enabled(), isFalse);
+    workspace.setActivePane(leftStrip);
+    expect(getInfo.enabled(), isFalse);
+    left.setCursorIndex(1);
+    expect(getInfo.enabled(), isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    final context = tester.element(find.byType(Scaffold));
+    await getInfo.run(context);
+    expect(leftStrip.infoPanelOpen, isTrue);
+    expect(rightStrip.infoPanelOpen, isFalse,
+        reason: 'the inspector is pane chrome of the ACTIVE pane only');
+    await getInfo.run(context);
+    expect(leftStrip.infoPanelOpen, isFalse);
+  });
+
   testWidgets('go.open is selection-scoped, dispatches openEntry on the '
       'active pane\'s cursor row, and documents its §8.3 keys', (
     tester,

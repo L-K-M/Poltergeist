@@ -520,6 +520,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get fileRenameLabel => 'Rename';
 
   @override
+  String get fileGetInfoLabel => 'Get Info';
+
+  @override
   String get paneRenameFieldLabel => 'Rename';
 
   @override
@@ -735,4 +738,101 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get paneNoticeSaveFavoriteLater =>
       'Saving favorites isn\'t available yet — the sidebar arrives in a later milestone.';
+
+  @override
+  String get paneNoticePathCopied => 'Path copied to clipboard.';
+
+  @override
+  String get infoPanelLabel => 'Info';
+
+  @override
+  String get infoPanelClose => 'Close info panel';
+
+  @override
+  String get infoPanelEmpty => 'Select an item to inspect it.';
+
+  @override
+  String infoPanelSelectedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items selected',
+      one: '1 item selected',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get infoPanelKind => 'Kind';
+
+  @override
+  String get infoPanelSize => 'Size';
+
+  @override
+  String get infoPanelCalculateSize => 'Calculate';
+
+  @override
+  String get infoPanelCancelSize => 'Cancel';
+
+  @override
+  String infoPanelSizeProgress(String size, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return '$size so far — $_temp0';
+  }
+
+  @override
+  String infoPanelSizeResult(String size, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return '$size — $_temp0';
+  }
+
+  @override
+  String infoPanelSizePartial(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items could not be measured',
+      one: '1 item could not be measured',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get infoPanelSizeFailed => 'Could not measure';
+
+  @override
+  String get infoPanelModified => 'Modified';
+
+  @override
+  String get infoPanelAccessed => 'Accessed';
+
+  @override
+  String get infoPanelPermissions => 'Permissions';
+
+  @override
+  String infoPanelPermissionsValue(String symbolic, String octal) {
+    return '$symbolic ($octal)';
+  }
+
+  @override
+  String get infoPanelOwner => 'Owner';
+
+  @override
+  String get infoPanelGroup => 'Group';
+
+  @override
+  String get infoPanelPath => 'Path';
+
+  @override
+  String get infoPanelCopyPath => 'Copy path';
 }

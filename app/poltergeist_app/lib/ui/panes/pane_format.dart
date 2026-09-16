@@ -7,6 +7,11 @@ import 'package:intl/intl.dart';
 const _byteUnits = ['B', 'KB', 'MB', 'GB', 'TB'];
 const _unevaluated = '—';
 
+/// The shared "no value" glyph (02 §2.3's unevaluated dash) for surfaces
+/// beyond the row formatter — the Get Info inspector renders absent VFS
+/// metadata with the same dash the listing uses.
+const paneUnevaluated = _unevaluated;
+
 /// Decimal size for macOS/Linux, binary for Windows — the platform file
 /// managers' convention (02 §2.3). The Linux decimal/binary preference
 /// setting lands with the settings slice.
@@ -77,3 +82,35 @@ String formatPaneModified(
       .add_jm()
       .format(localModified);
 }
+
+/// The `ls -l` symbolic rendering of a POSIX mode's permission bits
+/// (02 §2.6's read-only rwx display): nine positions — user, group,
+/// other — with suid/sgid/sticky folded into the execute slots the
+/// standard way (s/S, s/S, t/T). The mode's file-type bits are ignored;
+/// the kind column already names them. Char codes, not literals, keep
+/// the localization contract free of glyph plumbing.
+String formatPosixModeSymbolic(int mode) {
+  final out = StringBuffer();
+  const shifts = [6, 3, 0];
+  const specials = [0x800, 0x400, 0x200];
+  for (var triplet = 0; triplet < 3; triplet++) {
+    final bits = (mode >> shifts[triplet]) & 7;
+    out.writeCharCode((bits & 4) != 0 ? 0x72 : 0x2D); // r or -
+    out.writeCharCode((bits & 2) != 0 ? 0x77 : 0x2D); // w or -
+    final execute = (bits & 1) != 0;
+    if ((mode & specials[triplet]) == 0) {
+      out.writeCharCode(execute ? 0x78 : 0x2D); // x or -
+    } else if (triplet == 2) {
+      out.writeCharCode(execute ? 0x74 : 0x54); // t or T
+    } else {
+      out.writeCharCode(execute ? 0x73 : 0x53); // s or S
+    }
+  }
+  return out.toString();
+}
+
+/// The mode's permission bits as four-digit octal (02 §2.6's octal
+/// display): 0755, 0644, 4755 — the leading digit carries suid/sgid/
+/// sticky, so nothing the symbolic render folded into its slots is lost.
+String formatPosixModeOctal(int mode) =>
+    (mode & 0xFFF).toRadixString(8).padLeft(4, '0');

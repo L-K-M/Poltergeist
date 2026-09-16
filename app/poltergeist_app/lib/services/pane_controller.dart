@@ -5,6 +5,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'double_click_action.dart';
 import 'engine_session.dart';
+import 'folder_size.dart';
 import 'listing_filter.dart';
 import 'pane_engine_lanes.dart';
 import 'pane_location.dart';
@@ -276,6 +277,9 @@ enum PaneNotice {
   /// "Save as favorite…" was pressed where no bookmark store is wired;
   /// the favorites store is M5's.
   saveFavoriteLater,
+
+  /// The inspector's copy-path press landed on the clipboard (02 §2.6).
+  pathCopied,
 }
 
 /// A Sync Browsing mirror probe's verdict bound to the pane operation
@@ -476,6 +480,17 @@ class PaneController extends ChangeNotifier {
   /// newer navigation issue.
   String? _pendingRenameSelectPath;
 
+  /// The Get Info inspector's on-demand folder-size session (02 §2.6):
+  /// the walk's live or terminal snapshot, keyed by target path so the
+  /// panel only ever shows a measure started for ITS target. One
+  /// session at a time — a new [startFolderSize] retires the old.
+  FolderSizeProgress? _folderSize;
+
+  /// The running walk's cooperative-cancel token; null once the walk
+  /// settles. Identity is the session's ownership token: a superseded
+  /// or cancelled walk's late progress/result drops itself against it.
+  RemoteTransferCancellation? _folderSizeCancellation;
+
   /// Whether this tab anchors the workspace's Sync Browsing pair
   /// (02 §7): the workspace's sync controller writes it on enable and
   /// drop; the tab close guard's syncAnchor probe reads it so closing
@@ -627,6 +642,14 @@ class PaneController extends ChangeNotifier {
     _postNotice(PaneNotice.saveFavoriteLater);
   }
 
+  /// Posts the transient copy confirmation for the inspector's path
+  /// affordance (02 §2.6) — the same notice channel every other
+  /// pane-moment confirmation uses.
+  void notePathCopied() {
+    if (_disposed) return;
+    _postNotice(PaneNotice.pathCopied);
+  }
+
   /// The keyboard cursor row into [entries]; null until the first key
   /// press or row tap. Derived from the selection state's cursor
   /// identity, so the observable cursor API keeps its contract while
@@ -635,6 +658,25 @@ class PaneController extends ChangeNotifier {
 
   /// How many visible rows are selected.
   int get selectedCount => _selection.selectedKeys.length;
+
+  /// The Get Info inspector's target (02 §2.6): the cursor row — the
+  /// selection's primary — or, when no cursor is set but rows are
+  /// selected (a select-all that never touched the cursor), the first
+  /// selected row in listing order. Null while nothing is selected.
+  /// Row identity comes from the selection state, never a captured
+  /// index, so a listing replacement that prunes the selection moves
+  /// the target with it.
+  RemoteFileEntry? get infoTarget {
+    final cursor = cursorIndex;
+    if (cursor != null) return _entries[cursor];
+    if (_selection.selectedKeys.isEmpty) return null;
+    for (var i = 0; i < _rowKeys.length; i++) {
+      if (_selection.selectedKeys.contains(_rowKeys[i])) {
+        return _entries[i];
+      }
+    }
+    return null;
+  }
 
   /// Whether the visible row at [index] is selected.
   bool isRowSelected(int index) =>
@@ -1452,6 +1494,116 @@ class PaneController extends ChangeNotifier {
     _renameSession = null;
   }
 
+  /// The folder-size walk's current snapshot — live progress while
+  /// running, the terminal answer once settled. Keyed by
+  /// [FolderSizeProgress.targetPath]: the inspector displays it only
+  /// while its target still names that path, so a selection retarget
+  /// never shows another folder's measure.
+  FolderSizeProgress? get folderSize => _folderSize;
+
+  /// The tab close guard's folderSize trigger (02 §3): true while a
+  /// measure is in flight. Cleared on settle, cancel, and every
+  /// invalidation funnel, so a close can never be blocked by a dead walk.
+  bool get folderSizeInFlight =>
+      _folderSize?.status == FolderSizeStatus.running;
+
+  /// The inspector's Calculate affordance (02 §2.6): measures the info
+  /// target's contents recursively through the live channel — the same
+  /// `listDirectory` seam the listing uses, never a widget-side
+  /// filesystem touch (D8). Inert for a missing or non-directory
+  /// target and for a dead channel; a re-run retires the prior session.
+  void startFolderSize() {
+    final target = infoTarget;
+    final channel = _channel;
+    if (_disposed ||
+        channel == null ||
+        target == null ||
+        !target.isDirectory) {
+      return;
+    }
+    _endFolderSize();
+    final cancellation = RemoteTransferCancellation();
+    _folderSizeCancellation = cancellation;
+    _folderSize = FolderSizeProgress(
+      targetPath: target.path,
+      status: FolderSizeStatus.running,
+    );
+    notifyListeners();
+    unawaited(_runFolderSize(channel, target.path, cancellation));
+  }
+
+  /// The panel's Cancel and every end-of-demand path (panel close,
+  /// selection's binding going away): the running walk's token fires —
+  /// its held listing answers settle and the loop exits at the next
+  /// check — and the session clears so the panel offers Calculate again
+  /// instead of a stale partial.
+  void cancelFolderSize() {
+    if (_disposed) return;
+    _endFolderSize();
+    notifyListeners();
+  }
+
+  /// Ends the session without a notify — the invalidation funnels
+  /// (navigation issue, binding reset, detach, dispose) call this inside
+  /// a flow that notifies once for the whole transition, mirroring
+  /// [_endRenameSession].
+  void _endFolderSize() {
+    final cancellation = _folderSizeCancellation;
+    _folderSizeCancellation = null;
+    cancellation?.cancel();
+    _folderSize = null;
+  }
+
+  Future<void> _runFolderSize(
+    AppBrowseChannel channel,
+    String path,
+    RemoteTransferCancellation cancellation,
+  ) async {
+    FolderSizeProgress result;
+    try {
+      result = await measureFolderSize(
+        channel,
+        path,
+        cancellation: cancellation,
+        onProgress: (progress) {
+          // A superseded or cancelled walk's progress writes nothing —
+          // the identity check is the stale-answer drop (09 §3).
+          if (_disposed ||
+              !identical(cancellation, _folderSizeCancellation)) {
+            return;
+          }
+          _folderSize = progress;
+          notifyListeners();
+        },
+      );
+    } on Object catch (error, stackTrace) {
+      // An untyped fault (a dying channel, a broken seam) reports like
+      // every other unexpected fault; the panel's terminal state is a
+      // generic failure — the typed refusals never reach here, the
+      // walker maps them to [FolderSizeStatus.failed].
+      if (!identical(cancellation, _folderSizeCancellation)) return;
+      // Only the session's owner reports — a superseded or cancelled
+      // walk's late fault is noise beside the walk that replaced it.
+      _report(error, stackTrace);
+      _folderSizeCancellation = null;
+      if (_disposed) return;
+      _folderSize = FolderSizeProgress(
+        targetPath: path,
+        status: FolderSizeStatus.failed,
+        error: error,
+      );
+      notifyListeners();
+      return;
+    }
+    // A superseded or cancelled session's settle drops its result —
+    // the newer walk (or no walk) owns the field.
+    if (!identical(cancellation, _folderSizeCancellation)) return;
+    _folderSizeCancellation = null;
+    if (_disposed) return;
+    _folderSize = result;
+    notifyListeners();
+  }
+
   /// Whether this tab anchors the Sync Browsing pair — the tab close
   /// guard's syncAnchor trigger probe (02 §7); the workspace's sync
   /// controller owns the writes.
@@ -1793,6 +1945,7 @@ class PaneController extends ChangeNotifier {
     // The detached binding's pending rename is retired by the attempt
     // bump — release its in-flight guard with the rest of the state.
     _renameInFlight = false;
+    _endFolderSize();
     _phase = PanePhase.unbound;
     _location = null;
     _committedLocation = null;
@@ -1834,6 +1987,7 @@ class PaneController extends ChangeNotifier {
     _quickSelect = null;
     _renameSession = null;
     _pendingRenameSelectPath = null;
+    _endFolderSize();
     _noticeTimer?.cancel();
     _noticeTimer = null;
     _notice = null;
@@ -2022,6 +2176,9 @@ class PaneController extends ChangeNotifier {
     // verb closed. The retiring operation's settle leaves the flag
     // untouched once it no longer owns it.
     _renameInFlight = false;
+    // A binding transition ends the folder-size walk too — its channel
+    // is being released, so any still-running measure dies with it.
+    _endFolderSize();
     // The notice dies with the browsing session it arose in — a rebind
     // never carries one pane-moment's "not yet" into the next binding.
     _noticeTimer?.cancel();
@@ -2191,6 +2348,10 @@ class PaneController extends ChangeNotifier {
       // a same-location refresh instead lets the accepted listing's
       // row-presence check decide (02 §2.8's keep-rows-while-loading).
       _endRenameSession();
+      // The inspector's folder-size walk measures rows of the directory
+      // it was started on — a location change ends it at issue time,
+      // like the rename field above.
+      _endFolderSize();
       _locationRevision++;
       // The revision bump retires a pending commit's ownership token —
       // release its in-flight guard so a stalled request cannot keep

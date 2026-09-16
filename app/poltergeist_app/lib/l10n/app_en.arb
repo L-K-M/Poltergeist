@@ -715,6 +715,10 @@
   "@fileRenameLabel": {
     "description": "Command label: rename the selected row inline in the listing (file.rename, 02 §2.6)."
   },
+  "fileGetInfoLabel": "Get Info",
+  "@fileGetInfoLabel": {
+    "description": "Command label: open the non-modal info inspector over the focused pane (file.getInfo, 02 §2.6)."
+  },
   "paneRenameFieldLabel": "Rename",
   "@paneRenameFieldLabel": {
     "description": "Accessible label of the inline-rename text field that replaces the edited row's name (02 §2.6)."
@@ -1017,5 +1021,123 @@
   "paneNoticeSaveFavoriteLater": "Saving favorites isn't available yet — the sidebar arrives in a later milestone.",
   "@paneNoticeSaveFavoriteLater": {
     "description": "Transient notice strip (02 §10): saving was attempted where no bookmark store is wired (the favorites store is M5's)."
+  },
+  "paneNoticePathCopied": "Path copied to clipboard.",
+  "@paneNoticePathCopied": {
+    "description": "Transient notice strip (02 §10): the Get Info inspector's copy-path affordance landed on the clipboard (02 §2.6)."
+  },
+  "infoPanelLabel": "Info",
+  "@infoPanelLabel": {
+    "description": "Accessible name of the Get Info inspector panel (02 §2.6)."
+  },
+  "infoPanelClose": "Close info panel",
+  "@infoPanelClose": {
+    "description": "Tooltip of the Get Info inspector's close affordance (02 §2.6)."
+  },
+  "infoPanelEmpty": "Select an item to inspect it.",
+  "@infoPanelEmpty": {
+    "description": "Body of the Get Info inspector while the pane has no selection or cursor to target (02 §2.6)."
+  },
+  "infoPanelSelectedCount": "{count, plural, =1{1 item selected} other{{count} items selected}}",
+  "@infoPanelSelectedCount": {
+    "description": "Secondary line of the Get Info inspector while a multi-selection is inspected — the panel shows the primary row and counts the rest (02 §2.6).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelKind": "Kind",
+  "@infoPanelKind": {
+    "description": "Label of the Get Info inspector's kind row (file/folder/symbolic link, 02 §2.6)."
+  },
+  "infoPanelSize": "Size",
+  "@infoPanelSize": {
+    "description": "Label of the Get Info inspector's size row (02 §2.6)."
+  },
+  "infoPanelCalculateSize": "Calculate",
+  "@infoPanelCalculateSize": {
+    "description": "Affordance starting the on-demand recursive folder-size measure in the Get Info inspector (02 §2.6)."
+  },
+  "infoPanelCancelSize": "Cancel",
+  "@infoPanelCancelSize": {
+    "description": "Affordance cancelling the in-flight folder-size measure in the Get Info inspector (02 §2.6)."
+  },
+  "infoPanelSizeProgress": "{size} so far — {count, plural, =1{1 item} other{{count} items}}",
+  "@infoPanelSizeProgress": {
+    "description": "Live progress value of the Get Info inspector's folder-size row while the measure runs (02 §2.6).",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelSizeResult": "{size} — {count, plural, =1{1 item} other{{count} items}}",
+  "@infoPanelSizeResult": {
+    "description": "Settled value of the Get Info inspector's folder-size row: the measured total and the entry count (02 §2.6).",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelSizePartial": "{count, plural, =1{1 item could not be measured} other{{count} items could not be measured}}",
+  "@infoPanelSizePartial": {
+    "description": "Sub-line under the Get Info inspector's settled folder-size row counting entries that carried no size or refused their listing — the total is partial (02 §2.6).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "infoPanelSizeFailed": "Could not measure",
+  "@infoPanelSizeFailed": {
+    "description": "Terminal value of the Get Info inspector's folder-size row when the folder's own listing refused (02 §2.6)."
+  },
+  "infoPanelModified": "Modified",
+  "@infoPanelModified": {
+    "description": "Label of the Get Info inspector's modified-date row (02 §2.6)."
+  },
+  "infoPanelAccessed": "Accessed",
+  "@infoPanelAccessed": {
+    "description": "Label of the Get Info inspector's accessed-date row (02 §2.6). The VFS model carries no created date, so accessed is the second date the panel can honestly render."
+  },
+  "infoPanelPermissions": "Permissions",
+  "@infoPanelPermissions": {
+    "description": "Label of the Get Info inspector's read-only permissions row (02 §2.6). The D28 editor is later work — this row only displays."
+  },
+  "infoPanelPermissionsValue": "{symbolic} ({octal})",
+  "@infoPanelPermissionsValue": {
+    "description": "Combined value of the Get Info inspector's permissions row: symbolic rwx rendering followed by the octal form in parentheses (02 §2.6).",
+    "placeholders": {
+      "symbolic": {
+        "type": "String"
+      },
+      "octal": {
+        "type": "String"
+      }
+    }
+  },
+  "infoPanelOwner": "Owner",
+  "@infoPanelOwner": {
+    "description": "Label of the Get Info inspector's read-only owner row (02 §2.6)."
+  },
+  "infoPanelGroup": "Group",
+  "@infoPanelGroup": {
+    "description": "Label of the Get Info inspector's read-only group row (02 §2.6)."
+  },
+  "infoPanelPath": "Path",
+  "@infoPanelPath": {
+    "description": "Label of the Get Info inspector's full-path row (02 §2.6)."
+  },
+  "infoPanelCopyPath": "Copy path",
+  "@infoPanelCopyPath": {
+    "description": "Tooltip of the Get Info inspector's copy affordance beside the full path (02 §2.6)."
   }
 }
