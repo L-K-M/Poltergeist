@@ -254,12 +254,15 @@ final class SessionState {
     final decodedPanes = List<SessionPaneState>.unmodifiable([
       for (final pane in panes) SessionPaneState.fromJson(pane),
     ]);
-    // v1 is the two-pane document: the pane set is exactly the left and
+    // v1 is the two-pane document: the pane list is exactly the left and
     // right strips — a truncated write, a duplicate, a foreign pane id,
     // or an active pane naming no restored strip is corrupt, not a
-    // partial restore to improvise around.
+    // partial restore to improvise around. The raw-length check matters:
+    // the id set alone collapses duplicates, so [left, right, left]
+    // would otherwise pass and decode one pane twice.
     final paneIds = decodedPanes.map((pane) => pane.paneId).toSet();
-    if (paneIds.length != 2 ||
+    if (decodedPanes.length != 2 ||
+        paneIds.length != 2 ||
         !paneIds.containsAll(const {
           sessionLeftPaneId,
           sessionRightPaneId,

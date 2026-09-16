@@ -256,6 +256,12 @@ void main() {
         ..._fixture().toJson(),
         'panes': [fixturePanes[0], fixturePanes[0]],
       },
+      // Three entries whose id-set still collapses to {left, right}:
+      // set validation alone would pass and decode a pane twice.
+      {
+        ..._fixture().toJson(),
+        'panes': [fixturePanes[0], fixturePanes[1], fixturePanes[0]],
+      },
       // The id counter must sit above the tab count: restored tabs
       // mint positionally, so counter <= tabs.length would collide.
       {
