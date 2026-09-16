@@ -162,9 +162,12 @@ Future<FolderSizeProgress> measureFolderSize(
 String _dedupeKey(String path) {
   var key = path;
   // '\' is a separator only in Windows-style spellings — on a POSIX
-  // remote it is a legal filename character, so strip it only when
-  // the path contains no '/'.
-  final windowsStyle = !key.contains('/');
+  // remote it is a legal filename character. Windows accepts '/' and
+  // '\' interchangeably, so the check covers a drive-letter prefix
+  // too (a POSIX absolute path always starts with '/' and can never
+  // match it).
+  final windowsStyle =
+      !key.contains('/') || RegExp(r'^[A-Za-z]:').hasMatch(key);
   while (key.length > 1 &&
       (key.endsWith('/') || (windowsStyle && key.endsWith(r'\')))) {
     key = key.substring(0, key.length - 1);

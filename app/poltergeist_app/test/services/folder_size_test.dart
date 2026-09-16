@@ -252,6 +252,29 @@ void main() {
         containsAll(<String>['/root/sub', r'/root/sub\']));
   });
 
+  test('a mixed-separator Windows spelling still dedupes', () async {
+    final channel = FakePaneChannel('C:/root');
+    channel.listings['C:/root'] = [
+      _entry(r'C:/root/sub\', 'sub', type: RemoteFileType.directory),
+    ];
+    channel.listings[r'C:/root/sub\'] = [
+      // The same directory echoed under the unslashed spelling — the
+      // drive-letter prefix keeps '\' a separator despite the '/'.
+      _entry('C:/root/sub', 'sub', type: RemoteFileType.directory),
+      _entry('C:/root/sub/f.txt', 'f.txt', size: 2),
+    ];
+
+    final result = await measureFolderSize(
+      channel,
+      'C:/root',
+      cancellation: RemoteTransferCancellation(),
+    );
+
+    expect(result.status, FolderSizeStatus.done);
+    expect(result.bytes, 2);
+    expect(channel.listCalls, ['C:/root', r'C:/root/sub\']);
+  });
+
   test('an untyped nested fault propagates — only typed refusals '
       'degrade to unreadable', () async {
     final channel = _FaultyChannel('/root');
