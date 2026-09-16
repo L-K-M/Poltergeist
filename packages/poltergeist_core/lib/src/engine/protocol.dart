@@ -483,7 +483,10 @@ final class SetPermissionsRequest extends EngineRequest {
     required this.channelId,
     required this.path,
     required this.permissions,
-  });
+  }) : assert(
+         permissions >= 0 && permissions <= 0xFFF,
+         'permissions must be a full 12-bit mode (0x000..0xFFF)',
+       );
 }
 
 /// Starts (or retargets) [channelId]'s single non-recursive watch on

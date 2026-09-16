@@ -508,6 +508,32 @@ void main() {
       );
     },
   );
+
+  test('a setPermissions request refuses an out-of-range mode', () {
+    // The constructor's documented contract is the full twelve-bit
+    // mode — a raw st_mode (file-type bits above 0xFFF) or a negative
+    // value fails at construction in checked builds; the host guards
+    // the same range typed for release-mode and wire-deserialized
+    // requests.
+    expect(
+      () => SetPermissionsRequest(
+        requestId: 1,
+        channelId: 5,
+        path: '/tmp/a',
+        permissions: 0x1000,
+      ),
+      throwsA(isA<AssertionError>()),
+    );
+    expect(
+      () => SetPermissionsRequest(
+        requestId: 1,
+        channelId: 5,
+        path: '/tmp/a',
+        permissions: -1,
+      ),
+      throwsA(isA<AssertionError>()),
+    );
+  });
 }
 
 /// Sends [message], awaits the echo, and asserts it reconstructed intact

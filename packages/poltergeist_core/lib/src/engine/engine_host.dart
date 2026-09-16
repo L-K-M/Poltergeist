@@ -492,6 +492,16 @@ class EngineHost {
         message: 'The browse channel is closed.',
       );
     }
+    // The host is the trust boundary for cross-port arguments — refuse
+    // an out-of-range mode typed rather than letting the VFS's
+    // untyped RangeError through.
+    if (request.permissions < 0 || request.permissions > 0xFFF) {
+      throw const RemoteFileException(
+        kind: RemoteFileErrorKind.unsupported,
+        operation: 'change permissions for',
+        message: 'The mode must be a twelve-bit value (0x000-0xFFF).',
+      );
+    }
 
     final fs = channel.fs;
     try {
