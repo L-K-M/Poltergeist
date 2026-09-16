@@ -945,6 +945,12 @@ abstract class AppLocalizations {
   /// **'Rename'**
   String get fileRenameLabel;
 
+  /// Command label: open the non-modal info inspector over the focused pane (file.getInfo, 02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Get Info'**
+  String get fileGetInfoLabel;
+
   /// Accessible label of the inline-rename text field that replaces the edited row's name (02 §2.6).
   ///
   /// In en, this message translates to:
@@ -1328,6 +1334,132 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saving favorites isn\'t available yet — the sidebar arrives in a later milestone.'**
   String get paneNoticeSaveFavoriteLater;
+
+  /// Transient notice strip (02 §10): the Get Info inspector's copy-path affordance landed on the clipboard (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Path copied to clipboard.'**
+  String get paneNoticePathCopied;
+
+  /// Accessible name of the Get Info inspector panel (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Info'**
+  String get infoPanelLabel;
+
+  /// Tooltip of the Get Info inspector's close affordance (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Close info panel'**
+  String get infoPanelClose;
+
+  /// Body of the Get Info inspector while the pane has no selection or cursor to target (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Select an item to inspect it.'**
+  String get infoPanelEmpty;
+
+  /// Secondary line of the Get Info inspector while a multi-selection is inspected — the panel shows the primary row and counts the rest (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item selected} other{{count} items selected}}'**
+  String infoPanelSelectedCount(int count);
+
+  /// Label of the Get Info inspector's kind row (file/folder/symbolic link, 02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Kind'**
+  String get infoPanelKind;
+
+  /// Label of the Get Info inspector's size row (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Size'**
+  String get infoPanelSize;
+
+  /// Affordance starting the on-demand recursive folder-size measure in the Get Info inspector (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Calculate'**
+  String get infoPanelCalculateSize;
+
+  /// Affordance cancelling the in-flight folder-size measure in the Get Info inspector (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get infoPanelCancelSize;
+
+  /// Live progress value of the Get Info inspector's folder-size row while the measure runs (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'{size} so far — {count, plural, =1{1 item} other{{count} items}}'**
+  String infoPanelSizeProgress(String size, int count);
+
+  /// Settled value of the Get Info inspector's folder-size row: the measured total and the entry count (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'{size} — {count, plural, =1{1 item} other{{count} items}}'**
+  String infoPanelSizeResult(String size, int count);
+
+  /// Sub-line under the Get Info inspector's settled folder-size row counting entries that carried no size or refused their listing — the total is partial (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item could not be measured} other{{count} items could not be measured}}'**
+  String infoPanelSizePartial(int count);
+
+  /// Terminal value of the Get Info inspector's folder-size row when the folder's own listing refused (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Could not measure'**
+  String get infoPanelSizeFailed;
+
+  /// Label of the Get Info inspector's modified-date row (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Modified'**
+  String get infoPanelModified;
+
+  /// Label of the Get Info inspector's accessed-date row (02 §2.6). The VFS model carries no created date, so accessed is the second date the panel can honestly render.
+  ///
+  /// In en, this message translates to:
+  /// **'Accessed'**
+  String get infoPanelAccessed;
+
+  /// Label of the Get Info inspector's read-only permissions row (02 §2.6). The D28 editor is later work — this row only displays.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get infoPanelPermissions;
+
+  /// Combined value of the Get Info inspector's permissions row: symbolic rwx rendering followed by the octal form in parentheses (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'{symbolic} ({octal})'**
+  String infoPanelPermissionsValue(String symbolic, String octal);
+
+  /// Label of the Get Info inspector's read-only owner row (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Owner'**
+  String get infoPanelOwner;
+
+  /// Label of the Get Info inspector's read-only group row (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get infoPanelGroup;
+
+  /// Label of the Get Info inspector's full-path row (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Path'**
+  String get infoPanelPath;
+
+  /// Tooltip of the Get Info inspector's copy affordance beside the full path (02 §2.6).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy path'**
+  String get infoPanelCopyPath;
 }
 
 class _AppLocalizationsDelegate

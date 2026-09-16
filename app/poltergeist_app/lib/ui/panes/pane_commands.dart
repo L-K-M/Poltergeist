@@ -13,6 +13,7 @@ const kGoEnclosingCommandId = 'go.enclosing';
 const kGoForwardCommandId = 'go.forward';
 const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
+const kFileGetInfoCommandId = 'file.getInfo';
 const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
 const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
@@ -199,6 +200,37 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 60,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileGetInfoCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.fileGetInfoLabel,
+      icon: Icons.info_outline,
+      // ⌘I on macOS, Alt+Enter elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [SingleActivator(LogicalKeyboardKey.keyI, meta: true)],
+        other: const [SingleActivator(LogicalKeyboardKey.enter, alt: true)],
+      ),
+      // Needs a row to describe — the cursor/primary selected row is the
+      // panel's target. An already-open panel keeps the command live so
+      // the same chord toggles it closed even with the selection empty.
+      enabled: () {
+        final pane = activeTab();
+        return pane != null &&
+            (pane.infoTarget != null || workspace.activePane.infoPanelOpen);
+      },
+      run: (_) async {
+        // The inspector is pane chrome on the FOCUSED pane (02 §2.6):
+        // the active strip toggles it over its own right edge.
+        workspace.activePane.toggleInfoPanel();
+      },
+      // 02 §9's File menu: between Edit in Poltergeist and Duplicate —
+      // the still-unregistered verbs' slots — ahead of Rename.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 65,
         group: 1,
       ),
     ),

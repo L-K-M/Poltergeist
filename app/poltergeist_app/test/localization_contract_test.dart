@@ -319,6 +319,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'go.open'",
     "'go.toFolder'",
     "'file.rename'",
+    "'file.getInfo'",
     "'view.refresh'",
     "'pane.focusLeft'",
     "'pane.focusRight'",
@@ -388,7 +389,23 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'.0'",
     r"'$bytes ${_byteUnits[0]}'",
     r"'$text ${_byteUnits[unit]}'",
+    // The octal pad's fill character — formatting mechanics, not copy.
+    "'0'",
   },
+  // The inspector's widget keys — widget plumbing keyed for tests and
+  // the pointer-bounce boundary, never authored copy. '' is the empty
+  // header while no target is selected.
+  'lib/ui/panes/info_panel.dart': {
+    "''",
+    "'infoPanel.close'",
+    "'infoPanel.calculateSize'",
+    "'infoPanel.cancelSize'",
+    "'infoPanel.retrySize'",
+    "'infoPanel.copyPath'",
+  },
+  // The dot-segment sentinels a hostile listing could echo — machine
+  // path data, never rendered.
+  'lib/services/folder_size.dart': {"'.'", "'..'"},
   // The app.dart entry is the engine-seam assert (the demo entries left
   // with the deleted surface).
   'lib/app.dart': {

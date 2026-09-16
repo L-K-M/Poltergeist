@@ -14,6 +14,7 @@ import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
 import '../../services/sync_browsing_controller.dart';
 import '../../services/workspace_controller.dart';
+import 'info_panel.dart';
 import 'pane_format.dart';
 import 'save_favorite_bar.dart';
 import 'sync_browse_chip.dart';
@@ -149,6 +150,9 @@ class _PaneViewState extends State<PaneView> {
     // 02 §7's link chip state — suspension transitions must repaint the
     // path bar even when the pane's own controller did not change.
     widget.workspace.syncBrowsing,
+    // 02 §2.6's inspector flag lives on the strip — its open/close
+    // notifies here, not through the tab's controller.
+    widget.pane,
   ]);
   Timer? _graceTimer;
   bool _pastGrace = false;
@@ -175,6 +179,11 @@ class _PaneViewState extends State<PaneView> {
   // mirroring the other field strips (02 §2.6).
   final _renameEditorKey = GlobalKey();
   bool _renameWasActive = false;
+  // The inspector's hit-test boundary (a click inside it must not bounce
+  // focus to the listing) and its close bookkeeping — the same shape as
+  // the field strips above.
+  final _infoPanelKey = GlobalKey();
+  bool _infoPanelWasOpen = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
 
@@ -182,11 +191,13 @@ class _PaneViewState extends State<PaneView> {
   void didUpdateWidget(PaneView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
-        !identical(oldWidget.workspace, widget.workspace)) {
+        !identical(oldWidget.workspace, widget.workspace) ||
+        !identical(oldWidget.pane, widget.pane)) {
       _listenable = Listenable.merge([
         widget.controller,
         widget.workspace,
         widget.workspace.syncBrowsing,
+        widget.pane,
       ]);
     }
     if (!identical(oldWidget.controller, widget.controller)) {
@@ -204,6 +215,7 @@ class _PaneViewState extends State<PaneView> {
       _filterFocusSeen = widget.controller.filterFocusGeneration;
       _pathFieldSeen = widget.controller.pathFieldGeneration;
       _renameWasActive = false;
+      _infoPanelWasOpen = false;
       _revealedLocationPath = null;
       _revealedEntries = null;
     }
@@ -509,48 +521,7 @@ class _PaneViewState extends State<PaneView> {
         }
         return KeyEventResult.ignored;
       case LogicalKeyboardKey.escape:
-        if (controller.renameTarget != null) {
-          // 02 §8.2's field-first order: an open rename session owns the
-          // first Esc — a stranded field (its focus lost but the session
-          // still mounted) cancels here too, so the key can never fall
-          // through to navigation-cancel while an edit is open. An
-          // in-flight commit has no field left to cancel; its Esc falls
-          // through to the navigation tiers like any other.
-          controller.cancelRename();
-        } else if (controller.loading) {
-          controller.cancelNavigation();
-        } else if (controller.error != null) {
-          // The inline error's keyboard escape hatch: Esc retries the
-          // failed operation (the overlay's Retry is otherwise
-          // mouse-only in this keyboard-first surface).
-          unawaited(controller.retry());
-        } else if (_pendingRemoteConnect(controller)) {
-          // A pending remote bind is not `loading` (no generation is
-          // issued yet), so it cancels through the shell's
-          // sibling-aware path — detach when a sibling still browses
-          // the server, never a shared disconnect. A held key's
-          // repeats must not cancel a replacement binding.
-          if (event is KeyRepeatEvent) {
-            return KeyEventResult.handled;
-          }
-          widget.onCancelRecovery();
-        } else if (controller.filterActive || controller.filterFieldOpen) {
-          // 02 §8.2's Esc order: an active-but-unfocused filter clears
-          // below navigation-cancel (a filtered loading pane's first
-          // Esc still cancels the load) and above the type-ahead
-          // buffer. The field-focused Esc never reaches here — the
-          // strip's own Focus handles it at the field tier.
-          controller.clearFilter();
-        } else if (controller.typeAheadActive) {
-          // 02 §8.2's Esc order: a pending type-ahead buffer clears
-          // below navigation-cancel and above deselect.
-          controller.clearTypeAhead();
-        } else {
-          // Idle: nothing to cancel here — let Esc reach ancestor
-          // handlers (app shortcuts) instead of swallowing it.
-          return KeyEventResult.ignored;
-        }
-        return KeyEventResult.handled;
+        return _handleEscapeTier(event);
       case LogicalKeyboardKey.tab:
         // Only plain Tab swaps (02 §8.2). Shift+Tab keeps the standard
         // reverse traversal (ignored → traversal); repeats of the owned
@@ -578,6 +549,81 @@ class _PaneViewState extends State<PaneView> {
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
     }
+  }
+
+  /// When the inspector unmounts under a still-focused control — an Esc
+  /// close, the ✕, a ⌘I toggle — primary focus strands at the root.
+  /// Return it to the listing unless a deliberate target claimed it
+  /// (the field strips' rule, 02 §8.2).
+  void _syncInfoPanelFocus() {
+    final open = widget.pane.infoPanelOpen;
+    final justClosed = _infoPanelWasOpen && !open;
+    _infoPanelWasOpen = open;
+    if (!justClosed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      final primary = FocusManager.instance.primaryFocus;
+      if (primary == null ||
+          primary.context == null ||
+          primary is FocusScopeNode) {
+        widget.focusNode.requestFocus();
+      }
+    });
+  }
+
+  /// 02 §8.2's Esc tiers in their total order — the ONE chain both Esc
+  /// entry points run: the listing's own key path (primary focus on the
+  /// pane node) and the inspector's focused-control path (a panel
+  /// button holding focus must not skip the tiers above the panel's
+  /// slot). One press fires one tier.
+  KeyEventResult _handleEscapeTier(KeyEvent event) {
+    final controller = widget.controller;
+    if (controller.renameTarget != null) {
+      // 02 §8.2's field-first order: an open rename session owns the
+      // first Esc — a stranded field (its focus lost but the session
+      // still mounted) cancels here too, so the key can never fall
+      // through to navigation-cancel while an edit is open. An
+      // in-flight commit has no field left to cancel; its Esc falls
+      // through to the navigation tiers like any other.
+      controller.cancelRename();
+    } else if (controller.loading) {
+      controller.cancelNavigation();
+    } else if (controller.error != null) {
+      // The inline error's keyboard escape hatch: Esc retries the
+      // failed operation (the overlay's Retry is otherwise
+      // mouse-only in this keyboard-first surface).
+      unawaited(controller.retry());
+    } else if (_pendingRemoteConnect(controller)) {
+      // A pending remote bind is not `loading` (no generation is
+      // issued yet), so it cancels through the shell's
+      // sibling-aware path — detach when a sibling still browses
+      // the server, never a shared disconnect. A held key's
+      // repeats must not cancel a replacement binding.
+      if (event is KeyRepeatEvent) {
+        return KeyEventResult.handled;
+      }
+      widget.onCancelRecovery();
+    } else if (widget.pane.infoPanelOpen) {
+      // 02 §8.2: the Get Info panel's slot sits below navigation-cancel
+      // and above the unfocused filter.
+      widget.pane.closeInfoPanel();
+    } else if (controller.filterActive || controller.filterFieldOpen) {
+      // 02 §8.2's Esc order: an active-but-unfocused filter clears
+      // below navigation-cancel (a filtered loading pane's first
+      // Esc still cancels the load) and above the type-ahead
+      // buffer. The field-focused Esc never reaches here — the
+      // strip's own Focus handles it at the field tier.
+      controller.clearFilter();
+    } else if (controller.typeAheadActive) {
+      // 02 §8.2's Esc order: a pending type-ahead buffer clears
+      // below navigation-cancel and above deselect.
+      controller.clearTypeAhead();
+    } else {
+      // Idle: nothing to cancel here — let Esc reach ancestor
+      // handlers (app shortcuts) instead of swallowing it.
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
   }
 
   void _openCursor() {
@@ -649,6 +695,7 @@ class _PaneViewState extends State<PaneView> {
         _syncFilterFocus();
         _syncPathFieldFocus();
         _syncRenameFocus();
+        _syncInfoPanelFocus();
         final active = identical(
           widget.workspace.activePane,
           widget.pane,
@@ -678,6 +725,7 @@ class _PaneViewState extends State<PaneView> {
                   _filterStripKey,
                   _pathFieldStripKey,
                   _renameEditorKey,
+                  _infoPanelKey,
                 ]) {
                   final fieldBox =
                       key.currentContext?.findRenderObject() as RenderBox?;
@@ -693,6 +741,7 @@ class _PaneViewState extends State<PaneView> {
               },
               child: _PaneSurface(
                 controller: widget.controller,
+                pane: widget.pane,
                 syncLink: widget.workspace.syncBrowsing,
                 active: active,
                 graceVisible: _pastGrace,
@@ -711,6 +760,9 @@ class _PaneViewState extends State<PaneView> {
                 pathFieldFocusNode: _pathFieldFocusNode,
                 onPathFieldClosed: () => widget.focusNode.requestFocus(),
                 renameEditorKey: _renameEditorKey,
+                infoPanelKey: _infoPanelKey,
+                onCloseInfoPanel: widget.pane.closeInfoPanel,
+                onInfoPanelEscape: _handleEscapeTier,
                 onActivateRow: (index, modifiers) {
                   widget.controller.setCursorIndex(
                     index,
@@ -739,6 +791,7 @@ class _PaneViewState extends State<PaneView> {
 class _PaneSurface extends StatelessWidget {
   const _PaneSurface({
     required this.controller,
+    required this.pane,
     required this.syncLink,
     required this.active,
     required this.graceVisible,
@@ -757,11 +810,18 @@ class _PaneSurface extends StatelessWidget {
     required this.pathFieldFocusNode,
     required this.onPathFieldClosed,
     required this.renameEditorKey,
+    required this.infoPanelKey,
+    required this.onCloseInfoPanel,
+    required this.onInfoPanelEscape,
     required this.onActivateRow,
     required this.onOpenRow,
   });
 
   final PaneController controller;
+
+  /// The strip owning the tab — the inspector's open flag lives on it
+  /// (02 §2.6's pane chrome, retargeted to whichever tab is active).
+  final PaneTabsController pane;
 
   /// The workspace's Sync Browsing link (02 §7) — the path bar's
   /// link chip reads its state.
@@ -807,6 +867,18 @@ class _PaneSurface extends StatelessWidget {
   /// The inline-rename editor's hit-test boundary for the pane's
   /// pointer-down listener (clicks inside it keep the field's focus).
   final GlobalKey renameEditorKey;
+
+  /// The inspector's hit-test boundary — clicks inside the panel keep
+  /// the focus they claim instead of bouncing to the listing.
+  final GlobalKey infoPanelKey;
+
+  /// The inspector's ✕ — the strip's close, at §8.2's panel slot.
+  final VoidCallback onCloseInfoPanel;
+
+  /// Esc pressed while a panel control holds focus still runs the
+  /// pane's shared tier chain.
+  final KeyEventResult Function(KeyEvent event) onInfoPanelEscape;
+
   final ValueChanged<int> onOpenRow;
   final void Function(int index, _PointerModifiers? modifiers) onActivateRow;
 
@@ -962,6 +1034,23 @@ class _PaneSurface extends StatelessWidget {
             bottom: 8,
             child: Center(
               child: _TypeAheadBadge(buffer: controller.typeAheadBuffer),
+            ),
+          ),
+        // 02 §2.6's Get Info inspector: the non-modal slide-over pinned
+        // to the pane's right edge, above the listing and its transient
+        // layers. A Stack sibling, never a route — the rows beneath it
+        // stay live, and selection changes retarget it.
+        if (pane.infoPanelOpen)
+          PositionedDirectional(
+            end: 0,
+            top: 0,
+            bottom: 0,
+            child: InfoPanel(
+              key: infoPanelKey,
+              controller: controller,
+              clock: clock,
+              onClose: onCloseInfoPanel,
+              onEscape: onInfoPanelEscape,
             ),
           ),
       ],
@@ -2499,6 +2588,7 @@ class _NoticeStrip extends StatelessWidget {
                     PaneNotice.transferLater => l10n.paneNoticeTransferLater,
                     PaneNotice.saveFavoriteLater =>
                       l10n.paneNoticeSaveFavoriteLater,
+                    PaneNotice.pathCopied => l10n.paneNoticePathCopied,
                     null => '',
                   },
                   style: Theme.of(context).textTheme.bodySmall,

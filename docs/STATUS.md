@@ -5175,6 +5175,43 @@ Validation: `flutter analyze` clean; focused suites green (parser 23,
 widget 14, captures 2, localization contract 10); full app suite green
 (1010 tests, plus core 918); logs under `tasks/run3-task55/`.
 
+## M3 — Get Info inspector (2026-09-16)
+
+02 §2.6's inspector slice: a non-modal info rail slides over the
+focused pane's right edge on `file.getInfo` (⌘I on macOS, Alt+Enter
+elsewhere — File menu, order 65 group 1, `CommandScope.selection`,
+enabled with an inspectable target or an already-open panel). The
+280px rail is a `Stack` sibling owned by `PaneTabsController`, not a
+route or dialog: rows beneath stay interactive and the panel retargets
+as the cursor/selection moves (cursor row wins; otherwise the first
+selected row in listing order — identity-based, never captured
+indices). It renders the entry's name, kind, size, modified/accessed
+dates (no created date exists in the VFS model — rendered honestly
+where present), permissions in `rwx` + octal, read-only owner/group
+numerics, and the full path with a copy affordance that reuses the
+transient-notice seam. Esc closes it at its 02 §8.2 slot — after
+rename and pending remote-recovery cancellation, before
+filter/type-ahead clearing — and closing returns focus to the listing
+unless another target claimed it. Folder size is calculated on demand
+over the existing `AppBrowseChannel.listDirectory` seam (no new
+engine protocol): an explicit-stack walk with cooperative
+`RemoteTransferCancellation`, progress snapshots, cycle/dot-segment
+protection, no symlink traversal, and partial accounting that counts
+unreadable/sizeless entries instead of presenting an exact total —
+root listing refusals fail, nested typed refusals are counted, and
+untyped channel faults propagate. Sessions are token-identity-gated
+so superseded or cancelled runs cannot overwrite current state, and
+are invalidated on navigation issue, binding reset, remote detach,
+dispose, and session replacement; an in-flight measure participates
+in the tab-close guard.
+
+Validation: `flutter analyze` clean; focused suites green
+(folder-size unit 8, controller session 11, 12 widget, command,
+format, localization contract); full app suite green (1046 tests,
+plus core 918). Inspected real-font captures under `tasks/run3-task56/`:
+inspector over a local file, a local folder's settled size, a remote
+file (uid/gid), and a remote folder's Calculate affordance.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
