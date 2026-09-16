@@ -205,6 +205,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/workspace_controller.dart': {
     "'Workspace panes must be distinct PaneTabsController instances.'",
     "'Active pane must be one of this workspace\\'s panes.'",
+    "'source strip refused to re-home a detached tab'",
   },
   // The tab strip's engine-channel id arithmetic and its fail-closed
   // guard diagnostic — machine data, never rendered UI copy.
@@ -340,6 +341,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/panes/pane_tabs_view.dart': {
     r"'${tabs.paneId}.tab.new'",
     r"'${tab.id}.close'",
+    // The drag-insertion indicator's widget key — plumbing, not copy.
+    "'pane.tabDropIndicator'",
     // Root-path fallback in the remote tooltip — path data, not copy.
     "'/'",
   },

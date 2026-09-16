@@ -132,6 +132,49 @@ class WorkspaceController extends ChangeNotifier {
     return false;
   }
 
+  /// 02 §3's "drag tabs between panes": moves [tab] — object identity
+  /// and all — from the other pane's strip into [target] at [index]
+  /// (null appends). The move is not a close: the close guard does not
+  /// run, no ghost is pushed, and the tab's PaneController — its SFTP
+  /// browse channel (keyed to the tab's stable paneTabId, 03 §3.2), an
+  /// in-flight navigation or rename, selection, the transient lenses,
+  /// and history — crosses untouched. A source pane that loses its last
+  /// tab lands on the launcher (02 §2.7); the dropped tab activates and
+  /// its pane becomes the active one.
+  ///
+  /// An anchored tab that lands on the other pane takes the Sync
+  /// Browsing link down through the strips' notifies — 02 §7's rule
+  /// that both anchors must never share one pane.
+  ///
+  /// Returns false for a no-op drop: the tab is not on the sibling
+  /// strip (a same-strip drop is the cancelled case — there is no
+  /// within-strip reorder), or pane B is hidden — a hidden pane's tabs
+  /// take no drops and start no drags (02 §3).
+  bool moveTabToPane(PaneTab tab, PaneTabsController target, {int? index}) {
+    // The identity guard is runtime, not an assert: a foreign strip as
+    // target would misread the sibling lookup as `left` and detach the
+    // tab into another workspace, and asserts strip out in release.
+    if (!identical(target, left) && !identical(target, right)) {
+      return false;
+    }
+    if (!secondPaneShown) return false;
+    final source = identical(target, left) ? right : left;
+    if (!source.tabs.contains(tab)) return false;
+    source.detachTabForMove(tab);
+    if (!target.adoptMovedTab(tab, index: index)) {
+      // Adoption was refused (e.g. a disposed target in a release build):
+      // re-home the tab on its source strip rather than orphan a live
+      // PaneController between strips. The source just detached it, so
+      // refusal here would itself be a bug — the assert pins that. The
+      // call stays outside the assert so release still re-homes.
+      final rehomed = source.adoptMovedTab(tab);
+      assert(rehomed, 'source strip refused to re-home a detached tab');
+      return false;
+    }
+    setActivePane(target);
+    return true;
+  }
+
   /// `pane.swapFocus` (Tab inside a listing): activates and returns the
   /// other pane — the shell moves keyboard focus to it. With pane B
   /// hidden there is nothing to swap to (02 §3): the visible pane

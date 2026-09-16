@@ -5045,6 +5045,69 @@ of the two-pane, one-pane, and restored layouts are under
 Validation: `flutter analyze` clean; full app suite green (948 tests);
 logs under `tasks/run3-task53/logs/`.
 
+## M3 — inter-pane tab drag (2026-09-16)
+
+02 §3's "drag tabs between panes" is implemented as a genuine MOVE at
+the workspace seam: `WorkspaceController.moveTabToPane` detaches the
+`PaneTab` from the sibling strip and inserts the same object into the
+destination — nothing is copied, closed, or reopened. Because the tab's
+`PaneController` crosses intact, every per-tab state rides with it:
+committed location and listing, selection/cursor, the transient filter
+and filter-field, the hidden-file override, view mode, Quick Select,
+history, and an open rename session. The engine's browse channel
+identity is the tab's minted paneTabId (`pane.left.tab3`), which the
+move leaves unchanged, so the channel is never torn down or rebound —
+the `pane.left`/`pane.right` id prefix names where the tab was CREATED,
+not which strip owns it (PaneTab.id documents this).
+
+Detaching is deliberately NOT routed through `requestCloseTab`: a move
+is not a close, so the close guard never runs, no ghost is pushed (⇧⌘T
+cannot resurrect a tab that still lives), and in-flight work — a held
+navigation or a held rename commit — keeps running and settles on the
+destination pane. The strip→controller listener detaches at the source
+and attaches at the destination, so late controller notifies land on
+the owning strip; the destination strip's live settings (double-click
+action) stamp on arrival like any other tab. A pane that loses its
+last tab lands on the launcher, the same state a guarded last close
+leaves (02 §2.7/§3); the dropped tab activates and its pane becomes
+the active one.
+
+Sync Browsing takes the 02 §7 rule through the strips' notifies alone:
+the sync controller's residency check drops the link silently the
+moment both anchors would share one strip — no move-specific code path.
+A non-anchored tab crossing panes suspends the link `pairNotVisible`,
+the same mechanism as a tab switch, and the anchor flags stay armed.
+
+At the widget layer each chip is a `Draggable` carrying the `PaneTab`
+itself (pointer-anchored avatar: `DragTargetDetails.offset` is the
+avatar's top-left, so pointer anchoring keeps the reported offset equal
+to the pointer for the insertion math). The strip is the `DragTarget`:
+it refuses its own residents — a drop back on the source strip is the
+cancelled case, since within-strip reorder is not this slice — and a
+release anywhere outside a foreign strip cancels with no state
+disturbance. Hovering resolves the insertion index against each chip's
+midpoint clipped to the scroll viewport (a half-scrolled chip's
+offscreen half cannot swallow the strip's trailing drop zone, so
+appending stays reachable) and paints a 2px accent indicator at the
+insertion point, cleared on leave or accept. A hidden pane B's strip is
+unmounted, so it can neither accept drops nor start drags; the service
+seam refuses it too.
+
+Tests pin the contract at both seams (`pane_tab_move_test.dart`,
+`tab_drag_test.dart`): object-and-channel identity with a fake engine
+proving no close and no reopen; location, selection, cursor, filter,
+hidden override, view mode, and history all surviving; the destination
+strip owning listener forwarding and live settings; drop indexes at
+start/middle/end plus the clipped-last-chip append; launcher fallback
+with no ghost; the close guard never consulted; in-flight navigation
+and rename commits settling on the destination; same-strip, foreign,
+and hidden-pane no-ops; and both §7 link outcomes. Real-font captures
+under `tasks/run3-task54/captures/` show the hover indicator plus drag
+avatar and the post-drop state.
+
+Validation: `flutter analyze` clean; full app suite green (971 tests);
+logs under `tasks/run3-task54/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

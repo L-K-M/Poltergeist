@@ -102,6 +102,11 @@ final class PaneTab {
 
   /// The strip's stable id — doubles as the engine channel's paneTabId
   /// (`pane.left.tab3`), so channels and strip keys share one identity.
+  /// The pane prefix names where the tab was CREATED: a tab dragged to
+  /// the other pane keeps its minted id, so the engine channel rides
+  /// the move untouched (02 §3). Never parse the prefix back out to
+  /// find a tab's current pane — the id names where it was minted,
+  /// not where it lives.
   final String id;
 
   /// The tab's browsing state; owned and disposed by the strip.
@@ -492,6 +497,49 @@ class PaneTabsController extends ChangeNotifier {
       viewMode: ghost.viewMode,
     );
     return tab;
+  }
+
+  /// The source half of the workspace's inter-pane move (02 §3's "drag
+  /// tabs between panes"). Detaching is NOT a close: [requestCloseTab]'s
+  /// guard does not run — moving a tab is not closing it, so an
+  /// in-flight navigation, rename, or anchor state travels with the tab
+  /// and settles on the destination pane. No ghost is pushed (⇧⌘T must
+  /// not resurrect a tab that still lives), the controller is never
+  /// disposed, and its engine channel — keyed to the tab's stable
+  /// paneTabId — crosses untouched.
+  ///
+  /// A pane losing its last tab lands on the launcher, exactly as a
+  /// guarded last close leaves it (02 §3): [activeTab] goes null.
+  void detachTabForMove(PaneTab tab) {
+    final index = _tabs.indexOf(tab);
+    if (_disposed || index < 0) return;
+    _tabs.removeAt(index);
+    tab.controller.removeListener(_forwardTabChange);
+    if (_activeIndex == index) {
+      _activeIndex = _tabs.isEmpty ? -1 : index.clamp(0, _tabs.length - 1);
+    } else if (_activeIndex > index) {
+      _activeIndex--;
+    }
+    notifyListeners();
+  }
+
+  /// The destination half of the move: [tab] — already detached by its
+  /// source strip — inserts at [index] (clamped; null appends) and
+  /// activates, since a dropped tab is the one the user is looking at.
+  /// The strip's live settings stamp on arrival like any other tab.
+  /// The guards run in release too, and a refusal is explicit: false
+  /// means the tab was NOT adopted (the workspace re-homes it), so a
+  /// live tab can never sit silently between strips.
+  bool adoptMovedTab(PaneTab tab, {int? index}) {
+    if (_disposed || _tabs.contains(tab)) return false;
+    final insertion = (index ?? _tabs.length).clamp(0, _tabs.length);
+    // Keep the active pointer on its own tab through the insertion.
+    if (_activeIndex >= insertion) _activeIndex++;
+    tab.controller.doubleClickAction = _doubleClickAction;
+    tab.controller.addListener(_forwardTabChange);
+    _tabs.insert(insertion, tab);
+    activateTab(tab);
+    return true;
   }
 
   _GhostTab _ghostOf(PaneTab tab) {
