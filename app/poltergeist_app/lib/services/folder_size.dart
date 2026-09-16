@@ -161,7 +161,12 @@ Future<FolderSizeProgress> measureFolderSize(
 /// Only dedupe — the stripped key never reaches the channel.
 String _dedupeKey(String path) {
   var key = path;
-  while (key.length > 1 && (key.endsWith('/') || key.endsWith(r'\'))) {
+  // '\' is a separator only in Windows-style spellings — on a POSIX
+  // remote it is a legal filename character, so strip it only when
+  // the path contains no '/'.
+  final windowsStyle = !key.contains('/');
+  while (key.length > 1 &&
+      (key.endsWith('/') || (windowsStyle && key.endsWith(r'\')))) {
     key = key.substring(0, key.length - 1);
   }
   return key;

@@ -198,6 +198,60 @@ void main() {
     expect(channel.listCalls, ['/root']);
   });
 
+  test('a directory echoed with a trailing separator is walked once',
+      () async {
+    final channel = FakePaneChannel('/root');
+    channel.listings['/root'] = [
+      // The server spells the child WITH a trailing separator...
+      _entry('/root/sub/', 'sub', type: RemoteFileType.directory),
+    ];
+    channel.listings['/root/sub/'] = [
+      // ...then echoes the same directory without it — a spelling
+      // cycle the dedupe key must collapse (the unkeyed spelling is
+      // never listed; the channel has no entry for it).
+      _entry('/root/sub', 'sub', type: RemoteFileType.directory),
+      _entry('/root/sub/f.txt', 'f.txt', size: 5),
+    ];
+
+    final result = await measureFolderSize(
+      channel,
+      '/root',
+      cancellation: RemoteTransferCancellation(),
+    );
+
+    expect(result.status, FolderSizeStatus.done);
+    expect(result.bytes, 5);
+    expect(result.unreadable, 0);
+    // '/root/sub' must never be listed — the dedupe key collapsed it.
+    expect(channel.listCalls, ['/root', '/root/sub/']);
+  });
+
+  test('a POSIX directory literally named with a trailing backslash '
+      'is not deduped against its unslashed sibling', () async {
+    final channel = FakePaneChannel('/root');
+    channel.listings['/root'] = [
+      // On POSIX 'sub\' and 'sub' are distinct names — the dedupe key
+      // must not merge them (separator-hood of '\' is Windows-only).
+      _entry('/root/sub', 'sub', type: RemoteFileType.directory),
+      _entry(r'/root/sub\', r'sub\', type: RemoteFileType.directory),
+    ];
+    channel.listings['/root/sub'] = const [];
+    channel.listings[r'/root/sub\'] = [
+      _entry(r'/root/sub\/f.txt', 'f.txt', size: 3),
+    ];
+
+    final result = await measureFolderSize(
+      channel,
+      '/root',
+      cancellation: RemoteTransferCancellation(),
+    );
+
+    expect(result.status, FolderSizeStatus.done);
+    expect(result.bytes, 3);
+    expect(channel.listCalls,
+        containsAll(<String>['/root/sub', r'/root/sub\']));
+  });
+
   test('an untyped nested fault propagates — only typed refusals '
       'degrade to unreadable', () async {
     final channel = _FaultyChannel('/root');
