@@ -527,11 +527,11 @@ class PaneTabsController extends ChangeNotifier {
   /// source strip — inserts at [index] (clamped; null appends) and
   /// activates, since a dropped tab is the one the user is looking at.
   /// The strip's live settings stamp on arrival like any other tab.
-  /// The guards run in release too — a refused adoption must be
-  /// observable (the workspace re-homes the tab) rather than an
-  /// assert-only invariant.
-  void adoptMovedTab(PaneTab tab, {int? index}) {
-    if (_disposed || _tabs.contains(tab)) return;
+  /// The guards run in release too, and a refusal is explicit: false
+  /// means the tab was NOT adopted (the workspace re-homes it), so a
+  /// live tab can never sit silently between strips.
+  bool adoptMovedTab(PaneTab tab, {int? index}) {
+    if (_disposed || _tabs.contains(tab)) return false;
     final insertion = (index ?? _tabs.length).clamp(0, _tabs.length);
     // Keep the active pointer on its own tab through the insertion.
     if (_activeIndex >= insertion) _activeIndex++;
@@ -539,6 +539,7 @@ class PaneTabsController extends ChangeNotifier {
     tab.controller.addListener(_forwardTabChange);
     _tabs.insert(insertion, tab);
     activateTab(tab);
+    return true;
   }
 
   _GhostTab _ghostOf(PaneTab tab) {

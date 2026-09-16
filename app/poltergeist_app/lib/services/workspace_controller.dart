@@ -161,12 +161,14 @@ class WorkspaceController extends ChangeNotifier {
     final source = identical(target, left) ? right : left;
     if (!source.tabs.contains(tab)) return false;
     source.detachTabForMove(tab);
-    target.adoptMovedTab(tab, index: index);
-    if (!target.tabs.contains(tab)) {
-      // Adoption was refused (a disposed target in a release build, where
-      // the assert is stripped): re-home the tab on its source strip
-      // rather than orphan a live PaneController between strips.
-      source.adoptMovedTab(tab);
+    if (!target.adoptMovedTab(tab, index: index)) {
+      // Adoption was refused (e.g. a disposed target in a release build):
+      // re-home the tab on its source strip rather than orphan a live
+      // PaneController between strips. The source just detached it, so
+      // refusal here would itself be a bug — the assert pins that. The
+      // call stays outside the assert so release still re-homes.
+      final rehomed = source.adoptMovedTab(tab);
+      assert(rehomed, 'source strip refused to re-home a detached tab');
       return false;
     }
     setActivePane(target);
