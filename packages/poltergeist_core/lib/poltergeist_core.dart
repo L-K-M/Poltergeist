@@ -87,7 +87,8 @@ export 'src/connection/incident_store.dart'
         IncidentStore,
         InMemoryIncidentStore;
 export 'src/connection/pool_key.dart' show PoolKey;
-export 'src/connection/pool_policy.dart' show PoolPolicy;
+export 'src/connection/pool_policy.dart'
+    show PoolPolicy, maxGlobalInFlightTransfers;
 export 'src/connection/ssh_transport.dart'
     show
         AuthChallengeRequiredError,
@@ -105,6 +106,30 @@ export 'src/fs/local_fs_safety.dart'
         restoreOrphanedLocalBackups,
         validateLocalName,
         validatePathComponent;
+export 'src/transfer/transfer_queue.dart'
+    show
+        TransferQueue,
+        TransferQueueEvent,
+        TransferQueueItemEvent,
+        TransferQueueProgressEvent,
+        TransferQueueTaskEvent;
+export 'src/transfer/transfer_task.dart'
+    show
+        ConflictResolution,
+        DestinationStat,
+        FsLocation,
+        LocalFsLocation,
+        PlannedDirectory,
+        PlannedFile,
+        ResolvedConflictPolicy,
+        ServerFsLocation,
+        TransferItem,
+        TransferItemState,
+        TransferOperation,
+        TransferPlan,
+        TransferTask,
+        TransferTaskSpec,
+        TransferTaskState;
 export 'src/import/ssh_config_import.dart'
     show
         SshConfigFileSource,

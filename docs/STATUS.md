@@ -5408,6 +5408,72 @@ comparisons at the recalibrated budgets with exit 0 (or a documented
 fingerprint drift-skip if the runner image rotated). Run id and output
 are recorded with this PR's report.
 
+## M4 — transfer queue core: task model, scan-then-execute, channel leases (2026-09-17)
+
+M4 opens engine-side with the `TransferQueue` in
+`poltergeist_core`'s new `src/transfer/` library (03 §4, 07 §3.5's
+first scope bullet). One `enqueue` is one `TransferTask` over a
+`TransferTaskSpec` (source/destination as the sealed `FsLocation`
+pair, roots, destination directory, resolved conflict policy,
+copy/move verb); the model carries `TransferPlan`/`PlannedFile`/
+`PlannedDirectory`/`DestinationStat`, per-item `TransferItem` rows,
+and enum-only state (`TransferTaskState`, `TransferItemState` — no
+ambiguous booleans, no `cancelling` state since the sticky task token
+trips instantly). Enqueue dedupes and drops nested roots with
+source-aware separator handling (a remote name may contain a
+backslash; `C:\` is never stripped to `C:`).
+
+The scan walks the source under a lease pair held for its duration,
+re-leasing through the pool on `disconnected` inside
+`PoolPolicy.taskRetryLimit` — while the executor already dispatches
+earlier entries, so the first byte flows before `scanComplete` and
+`totalBytes` is a growing floor until then (03 §4.2, 02 §5.3).
+Directories materialize parents-first through a serialized chain and
+only after their listing closed; file children wait on the container
+key so a keep-both-renamed ancestor rebases the subtree. Commits are
+serialized per (endpoint, case-folded path) through a shared registry
+— waiters hold no dispatch slot or lease and re-stat reality on
+release — with Unicode simple fold when the destination reports
+case-insensitive. Every file hop pipes `download` into `upload`
+through `BoundedTransferSink` (03 §4.5's small buffer), and an upload
+that dies early aborts the source read instead of buffering the whole
+file or wedging.
+
+Concurrency rides `leaseTransferChannel` — endpoints leased in sorted
+server-id order, bounded per server by the pool and process-wide by
+`maxGlobalInFlightTransfers = 6` (03 §4.3); leases release exactly
+once on completion, failure, cancel, and dispose, and a lease call
+that blocks past cancellation still releases when it lands. Pause is
+split per the pinned semantics: queue pause stops admission while
+in-flight work completes; task pause cancels each attempt token so
+items return to `pending` and restart from byte zero on resume; task
+cancel trips the sticky token, flips pending items to `cancelled`
+immediately, and drains in-flight work — nothing wedges, including a
+cancel that lands while a lease call or a scan listing is blocked.
+Conflict policy resolves per item at commit time: `skip`/`replace`/
+`replaceIfNewer` (±2 s window) are live, `keepBoth` lands
+`name (n).ext` numbering with the registry consulted per candidate,
+and `ask` plus file-replaces-directory fail honestly as per-item
+conflicts until the prompt machinery lands. `move` deletes each source
+file only after commit and removes source directories deepest-first
+only when their whole subtree completed.
+
+Deferred to later M4 slices, per the task's non-goals: journal/
+persistence/history (03 §4.6), the D14 produce-on-demand hook, the
+token-bucket throttle, remote→remote pipe transport, the conflict
+prompt, and all UI.
+
+Validation: 43 deterministic tests in `test/transfer/` over an
+in-memory `FakeTreeFileSystem` + lease-bounded fake connection manager
+(temp-dir `LocalFileSystem` for local endpoints) — scan-executes-
+before-scan-completes, growing totals, strict queue order, the global
+cap, per-server lease bounding, lease release on every exit, queue and
+task pause/resume, cancel during lease wait/transfer/scan, conflict
+policies, case-folded duplicate serialization, move semantics, retry
+budgeting, early-upload-death abort, and dispose drain. Full core
+suite 958 green (16 fixture skips), analyze clean. No app, protocol,
+pin, or lock change.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
