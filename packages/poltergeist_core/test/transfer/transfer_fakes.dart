@@ -454,9 +454,12 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       directories.remove(dirKey ?? entry.path);
     }
     fileBytes.remove(entry.path);
-    directories[remoteParent(entry.path)]?.removeWhere(
-      (e) => _matches(e.path, entry.path),
-    );
+    final parentKey = _dirKey(remoteParent(entry.path));
+    if (parentKey != null) {
+      directories[parentKey]!.removeWhere(
+        (e) => _matches(e.path, entry.path),
+      );
+    }
   }
 
   @override

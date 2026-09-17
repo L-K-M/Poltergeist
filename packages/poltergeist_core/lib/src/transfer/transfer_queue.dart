@@ -335,10 +335,7 @@ class TransferQueue {
         runtime.scanLeases = null;
         // A pause landing mid-cycle parks the retry lease-free until
         // resume; cancelTask completes the gate, so cancel still unwinds.
-        while (task.state == TransferTaskState.paused &&
-            !task.cancellation.isCancelled) {
-          await runtime.notPaused.future;
-        }
+        await _scanPauseGate(runtime);
         _throwIfTaskCancelled(task);
         _setTaskState(runtime, TransferTaskState.queued);
         runtime.scanLeases = await _leaseEndpoints(
@@ -1915,10 +1912,10 @@ class TransferQueue {
       for (final kept in normalized) {
         // A kept root ending in a separator ('/' or 'C:\') already
         // carries the boundary — a bare prefix test is the containment
-        // check there. An empty kept root is inert, matching the stat-
-        // time failure it produces downstream.
-        if (kept.isNotEmpty &&
-            separators.contains(kept[kept.length - 1])) {
+        // check there. An empty kept root is inert: left in the else
+        // branch it would wrongly prefix-match every absolute path.
+        if (kept.isEmpty) continue;
+        if (separators.contains(kept[kept.length - 1])) {
           nested = path.startsWith(kept);
         } else {
           for (final separator in separators.split('')) {

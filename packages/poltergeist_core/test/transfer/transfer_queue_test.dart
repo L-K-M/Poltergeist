@@ -88,7 +88,12 @@ void main() {
 
   tearDown(() async {
     for (final created in createdQueues) {
-      await created.dispose();
+      try {
+        await created.dispose();
+      } catch (_) {
+        // A dispose that throws already fails this test; don't let it
+        // leak the remaining queues or skip the temp-dir cleanup.
+      }
     }
     createdQueues.clear();
     try {

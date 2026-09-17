@@ -5463,7 +5463,7 @@ persistence/history (03 §4.6), the D14 produce-on-demand hook, the
 token-bucket throttle, remote→remote pipe transport, the conflict
 prompt, and all UI.
 
-Validation: 33 deterministic tests in `test/transfer/` over an
+Validation: 43 deterministic tests in `test/transfer/` over an
 in-memory `FakeTreeFileSystem` + lease-bounded fake connection manager
 (temp-dir `LocalFileSystem` for local endpoints) — scan-executes-
 before-scan-completes, growing totals, strict queue order, the global
