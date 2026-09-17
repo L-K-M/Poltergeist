@@ -669,8 +669,8 @@ void main() {
       expect(task.items.single.destinationPath, '/dst/report (3).pdf');
     });
 
-    test('ask fails the item honestly until the prompt slice lands',
-        () async {
+    test('ask parks the item on the conflict surface — never a silent '
+        'overwrite', () async {
       s1.addFile('/src/f.txt', 'new'.codeUnits);
       s2.addFile('/dst/f.txt', 'old'.codeUnits);
       final task = enqueue(
@@ -682,11 +682,23 @@ void main() {
           files: ConflictResolution.ask,
         ),
       );
-      await awaitTaskDone(task);
-      expect(task.state, TransferTaskState.failed);
-      expect(task.items.single.state, TransferItemState.failed);
-      expect(task.failureKind, RemoteFileErrorKind.conflict);
+      await pumpUntil(
+        () => queue.pendingConflicts.isNotEmpty,
+        reason: 'the collision never surfaced',
+      );
+      final item = task.items.single;
+      expect(item.state, TransferItemState.conflictPending);
+      expect(task.isTerminal, isFalse);
       expect(s2.fileBytes['/dst/f.txt'], 'old'.codeUnits);
+      // The full seam lives in transfer_conflict_test.dart — here the
+      // answer just proves the parked item resumes and settles.
+      expect(
+        queue.resolveConflict(task.id, item.id, ConflictResolution.skip),
+        isTrue,
+      );
+      await awaitTaskDone(task);
+      expect(item.state, TransferItemState.skipped);
+      expect(task.state, TransferTaskState.completed);
     });
 
     test('case-insensitive destination serializes folded duplicates',

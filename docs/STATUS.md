@@ -5601,6 +5601,73 @@ progress, side-named failures, both-lease release, sorted acquisition,
 journal order). Full core suite 1029 green (16 fixture skips), analyze
 clean.
 
+## M4 — conflict model: the §5.2 five-verb decision layer + ask-park seam (2026-09-17)
+
+02 §5.2's conflict model lands in two layers. `conflict_policy.dart` is
+the pure half: `ConflictPolicy` carries the per-direction/per-kind
+settings matrix verbatim (upload/download/local/remote-to-remote ×
+files/folders, all defaulting to `ask`, `merge` normalized out of file
+fields at construction and on decode, enum names persisted — never
+booleans) with `policyFor` resolving a source/destination pair into the
+per-task `ResolvedConflictPolicy`; `resolveTransferConflict` is the
+metadata-only decision function — source/destination kind plus fresh
+destination stat plus source mtime in, one typed disposition out
+(proceed / replace-with-`expectedTarget` / skip / keep-both / merge /
+ask). The ±2 s mtime window governs `replaceIfNewer`; missing or
+in-tolerance mtimes are never newer — files skip, a directory falls
+back to `merge` when the occupant is a directory (recursion is
+possible) and to `ask` when it is not. `numberedConflictName` owns the
+`name (n).ext` scheme (last-dot extension, leading-dot names
+extensionless, existing ` (n)` stripped so retries never stack), and
+`taskScopePolicy` is the apply-to-all mapping — `merge` keeps folders
+merging while its file analog is `replace`.
+
+The queue half turns `ask` from the honest placeholder failure into the
+real §4.1 park: a colliding file or directory lands in the new
+non-terminal `TransferItemState.conflictPending` — no dispatch slot, no
+lease, no registry claim, nothing journaled — and surfaces a
+`PendingConflict` (both sides' name/size/mtime, plus the legal verbs,
+`merge` offered for folders only) through `queue.pendingConflicts` and
+the new `TransferQueueConflictEvent` (`pending: true`/`false` births and
+dismissals). `resolveConflict(taskId, itemId, verb, scope:)` is the
+answer seam the future dialog drives: it rejects `ask` outright and
+`merge` on a file item, returns `false` for stale/cleared/unknown ids,
+records the answer session-scoped, then requeues the item so the
+decision re-runs against a fresh destination stat — a vanished occupant
+proceeds, a freshened one re-decides honestly. `scope: task` is the
+"apply to all remaining" checkbox, installed through `taskScopePolicy`;
+an earlier per-item answer still outranks a later scope. The surfaced
+set is queue-wide bounded (`maxPendingConflicts`, default 256):
+collisions past the cap wait unsurfaced — still holding nothing — and
+promote in queue order as answers free slots, re-statting fresh rather
+than reusing a stale entry. A §3.3 reconnect (task → `queued`)
+invalidates the surface — parked items re-dispatch, re-stat, and
+re-park fresh — and cancel/fail sweeps dismiss it; recorded answers
+survive invalidation since they are decisions, not prompts.
+
+Persistence needs no new record types, per §4.6's session-scoped prompt
+rule: a parked item journals nothing, so a crash mid-prompt replays the
+still-pending plan entry, which re-dispatches, re-stats, and re-surfaces
+the conflict on resume (proven by the new restore test). Resolved items
+journal their outcome at the existing `fileCompleted`/`fileFailed`
+safe points. Deferred unchanged: `replace` that must remove an occupant
+(dir→dir wholesale, either direction onto a kind-mismatched occupant)
+fails honestly — the delete belongs to the D15 trash story — and no
+dialog/panel UI exists; `TransferQueueConflictEvent` is the seam it
+will bind.
+
+Validation: 26 contract tests in `conflict_policy_test.dart` pin the
+decision table (every verb × every source/occupant shape, tolerance and
+missing-mtime fallbacks, numbering scheme, direction matrix, JSON
+round-trip with hostile values); 14 queue tests in the new
+`transfer_conflict_test.dart` cover park posture (slot-free/lease-free,
+sibling items unaffected), every answer verb, fresh-state re-decision,
+validation errors, apply-to-all per kind, surface bounding and
+promotion, cancel dismissal with late-answer rejection, and reconnect
+invalidation with re-prompt; `transfer_persistence_test.dart` gains the
+restart re-prompt. Full core suite 1071 green (16 fixture skips),
+analyze clean. No journal schema, protocol, app, pin, or lock change.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

@@ -105,6 +105,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   Object? Function(RemoteFileEntry entry)? deleteFailure;
 
   /// Gates — return a completer to stall the operation until it completes.
+  Completer<void>? Function(String path)? statGate;
   Completer<void>? Function(String path)? listGate;
   Completer<void>? Function(String path)? downloadGate;
   Completer<void>? Function(String path)? uploadGate;
@@ -250,6 +251,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   }) async {
     statCalls++;
     calls.add('stat:$path');
+    await statGate?.call(path)?.future;
     final failure = statFailure?.call(path);
     if (failure != null) throw failure;
     final entry = entryAt(path);

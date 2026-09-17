@@ -12,6 +12,7 @@ import '../fs/local_file_system.dart';
 import '../fs/local_fs_safety.dart';
 import 'bandwidth_limiter.dart';
 import 'bounded_transfer_sink.dart';
+import 'conflict_policy.dart';
 import 'transfer_journal.dart';
 import 'transfer_task.dart';
 
@@ -43,10 +44,18 @@ import 'transfer_task.dart';
 /// take effect, terminal tasks append history records, and [restore]
 /// rebuilds a crashed session's queue under a forced pause.
 ///
-/// Deferred to later M4 slices: the D14 produce-on-demand hook, the
-/// conflict prompt (`ask`-policy and replace-on-directory decisions
-/// surface as honest per-item conflicts until the prompt machinery
-/// lands), and all UI.
+/// Conflicts follow 02 §5.2's five-verb model: an `ask` (or a `merge`
+/// that cannot recurse) parks the item — [TransferItemState
+/// .conflictPending] — holding no dispatch slot and no lease, and
+/// surfaces a [PendingConflict] through [pendingConflicts] and
+/// [TransferQueueConflictEvent] until [resolveConflict] answers it.
+/// Answers are session-scoped (03 §4.6: prompt state never survives
+/// restart): a restored task re-dispatches the still-pending item, which
+/// re-stats and re-surfaces the conflict fresh.
+///
+/// Deferred to later M4 slices: the D14 produce-on-demand hook, the D15
+/// delete story (a `replace` that must remove an occupant fails the item
+/// honestly rather than deleting unguarded), and all UI.
 class TransferQueue {
   TransferQueue({
     required this.connections,
@@ -54,6 +63,7 @@ class TransferQueue {
     this.poolPolicy = const PoolPolicy(),
     bool Function(FsLocation destination)? isCaseInsensitiveDestination,
     int maxInFlightFiles = maxGlobalInFlightTransfers,
+    int maxPendingConflicts = maxSurfacedPendingConflicts,
     this.pipeBufferBytes = 4 * 1024 * 1024,
     BandwidthLimiter? downloadLimiter,
     BandwidthLimiter? uploadLimiter,
@@ -62,12 +72,20 @@ class TransferQueue {
        _isCaseInsensitiveDestination =
            isCaseInsensitiveDestination ?? _defaultCaseSensitivity,
        _maxInFlightFiles = maxInFlightFiles,
+       _maxPendingConflicts = maxPendingConflicts,
        downloadLimiter = downloadLimiter ?? BandwidthLimiter(),
        uploadLimiter = uploadLimiter ?? BandwidthLimiter() {
     if (maxInFlightFiles < 1) {
       throw ArgumentError.value(
         maxInFlightFiles,
         'maxInFlightFiles',
+        'must be at least 1',
+      );
+    }
+    if (maxPendingConflicts < 1) {
+      throw ArgumentError.value(
+        maxPendingConflicts,
+        'maxPendingConflicts',
         'must be at least 1',
       );
     }
@@ -102,6 +120,14 @@ class TransferQueue {
   /// pays into the network budgets.
   final BandwidthLimiter _localLimiter = BandwidthLimiter();
 
+  /// The surfaced-conflict bound (the task's "bounded pending-conflict
+  /// storage"): at most this many parked items sit in [pendingConflicts]
+  /// queue-wide. Further collisions wait unsurfaced — still holding no
+  /// slot or lease — until an answer frees capacity, so a pathological
+  /// mass-collision cannot grow the surface without bound.
+  final int _maxPendingConflicts;
+  int _pendingConflictCount = 0;
+
   /// The write-ahead journal + history seam (03 §4.6). Null means the
   /// queue runs purely in memory — the #147 behavior, unchanged.
   final TransferPersistence? persistence;
@@ -133,6 +159,84 @@ class TransferQueue {
 
   /// Lifecycle, item-state, and byte-progress events for mirrors/UI.
   Stream<TransferQueueEvent> get events => _events.stream;
+
+  /// The parked conflicts awaiting an answer — the future conflict UI's
+  /// list (02 §5.2's dialog, 03 §4.1's ask-park). Surfaced entries are
+  /// bounded by `_maxPendingConflicts`; collisions beyond the cap wait
+  /// unsurfaced and are promoted in queue order as answers free slots.
+  List<PendingConflict> get pendingConflicts => List.unmodifiable([
+    for (final runtime in _tasks.values)
+      ...runtime.pendingConflicts.values.map((parked) => parked.conflict),
+  ]);
+
+  /// The conflict the future UI is asking about, or null when the item
+  /// is not parked.
+  PendingConflict? pendingConflictFor(String taskId, String itemId) =>
+      _tasks[taskId]?.pendingConflicts[itemId]?.conflict;
+
+  /// Answers one parked conflict (the resolution-submission API the
+  /// conflict dialog drives — 02 §5.2, 03 §4.1's prompt round-trip).
+  /// The answer is recorded session-scoped, the item re-dispatches, and
+  /// the executor re-stats the destination before applying the verb — a
+  /// conflict that disappeared while parked simply proceeds, and a
+  /// changed one resolves against fresh reality, never the stale stat.
+  ///
+  /// [scope] is 02 §5.2's "apply to all remaining conflicts in this
+  /// task" checkbox: [ConflictResolutionScope.task] installs the verb's
+  /// [taskScopePolicy] analogs for every later conflict in the task.
+  ///
+  /// Returns false when no conflict is parked for (taskId, itemId) —
+  /// including one already answered, invalidated by a reconnect, or
+  /// cleared by cancel — which is §4.1's ignored-late-reply rule.
+  /// `ask` is never a valid answer; `merge` on a file item throws —
+  /// 02 §5.2 restricts it to folders.
+  bool resolveConflict(
+    String taskId,
+    String itemId,
+    ConflictResolution verb, {
+    ConflictResolutionScope scope = ConflictResolutionScope.item,
+  }) {
+    final runtime = _tasks[taskId];
+    final parked = runtime?.pendingConflicts[itemId];
+    if (runtime == null || parked == null) return false;
+    if (verb == ConflictResolution.ask) {
+      throw ArgumentError.value(
+        verb,
+        'verb',
+        'ask is the prompt, not an answer',
+      );
+    }
+    if (verb == ConflictResolution.merge && !parked.conflict.isDirectory) {
+      throw ArgumentError.value(
+        verb,
+        'verb',
+        'merge is valid for folders only (02 §5.2)',
+      );
+    }
+    runtime.resolvedAnswers[itemId] = verb;
+    if (scope == ConflictResolutionScope.task) {
+      runtime.applyToAll = taskScopePolicy(verb);
+    }
+    runtime.pendingConflicts.remove(itemId);
+    _pendingConflictCount--;
+    _emit(
+      TransferQueueConflictEvent(
+        taskId,
+        itemId,
+        conflict: parked.conflict,
+        pending: false,
+      ),
+    );
+    if (parked.item.state == TransferItemState.conflictPending) {
+      parked.item.state = TransferItemState.pending;
+      _emit(TransferQueueItemEvent(taskId, itemId, parked.item.state));
+    }
+    _requeueParkedWork(runtime, parked.work);
+    _promoteConflictWaiters();
+    _pump();
+    _maybeFinishTask(runtime);
+    return true;
+  }
 
   /// Enqueues one task and starts its scan. Returns the task; progress is
   /// observed through [events] and the task's mutable fields.
@@ -268,6 +372,7 @@ class TransferQueue {
         _emit(TransferQueueItemEvent(task.id, item.id, item.state));
       }
     }
+    _clearConflicts(runtime);
     runtime.eligible.clear();
     for (final directory in runtime.directories.values) {
       if (!directory.ready.isCompleted) directory.ready.complete();
@@ -850,78 +955,59 @@ class TransferQueue {
       directory.planned.name,
     );
     final existing = await _statOrNull(dstFs, destination);
-    if (existing == null) {
-      await _createDirectoryOrClassify(dstFs, destination);
-      _finishDirectory(
-        runtime,
-        directory,
-        outcome: _DirOutcome.ready,
-        resolvedPath: destination,
-      );
-      return;
-    }
-    if (existing.isDirectory) {
-      switch (task.policy.folders) {
-        case ConflictResolution.merge:
-          _finishDirectory(
-            runtime,
-            directory,
-            outcome: _DirOutcome.ready,
-            resolvedPath: destination,
-          );
-        case ConflictResolution.skip:
-          _finishDirectory(runtime, directory, outcome: _DirOutcome.skipped);
-        case ConflictResolution.keepBoth:
-          await _materializeNumbered(runtime, directory, dstFs, containerPath);
-        case ConflictResolution.replaceIfNewer:
-          // A newer source folder cannot replace the destination's subtree
-          // without the D15 delete story; not-newer degrades to merge.
-          final sourceMtime = directory.planned.source.modifiedAt;
-          final existingMtime = existing.modifiedAt;
-          final newer =
-              sourceMtime != null &&
-              existingMtime != null &&
-              sourceMtime.isAfter(existingMtime.add(_newerThanTolerance));
-          _finishDirectory(
-            runtime,
-            directory,
-            outcome: newer ? _DirOutcome.failed : _DirOutcome.ready,
-            resolvedPath: newer ? null : destination,
-            error: newer
-                ? 'replacing an existing directory requires the conflicts '
-                      'slice (D15 delete story): $destination'
-                : null,
-            failureKind: newer ? RemoteFileErrorKind.conflict : null,
-          );
-        case ConflictResolution.ask || ConflictResolution.replace:
-          _finishDirectory(
-            runtime,
-            directory,
-            outcome: _DirOutcome.failed,
-            error:
-                'folder policy ${task.policy.folders.name} needs the '
-                'conflicts slice (no prompt exists yet): $destination',
-            failureKind: RemoteFileErrorKind.conflict,
-          );
-      }
-      return;
-    }
-    // A non-directory occupies the directory's planned path.
-    switch (task.policy.folders) {
-      case ConflictResolution.skip:
-        _finishDirectory(runtime, directory, outcome: _DirOutcome.skipped);
-      case ConflictResolution.keepBoth:
+    // 02 §5.2's folder semantics at the decision level: `merge` recurses
+    // (the directory resolves to its existing destination and children
+    // land under the file policy), `keepBoth` creates the source under
+    // the first free numbered name, and a non-directory occupant routes
+    // through the same folder verb — `merge` there falls back to `ask`
+    // (03 §4.1) rather than pretending recursion is possible.
+    switch (resolveTransferConflict(
+      verb: _effectiveFolderVerb(runtime, directory.item.id),
+      sourceIsDirectory: true,
+      existing: existing == null
+          ? null
+          : DestinationStat.fromEntry(existing),
+      sourceModifiedAt: directory.planned.source.modifiedAt,
+    )) {
+      case ConflictProceed():
+        await _createDirectoryOrClassify(dstFs, destination);
+        _finishDirectory(
+          runtime,
+          directory,
+          outcome: _DirOutcome.ready,
+          resolvedPath: destination,
+        );
+      case ConflictMerge():
+        _finishDirectory(
+          runtime,
+          directory,
+          outcome: _DirOutcome.ready,
+          resolvedPath: destination,
+        );
+      case ConflictSkip(:final reason):
+        _finishDirectory(
+          runtime,
+          directory,
+          outcome: _DirOutcome.skipped,
+          error: reason,
+        );
+      case ConflictKeepBoth():
         await _materializeNumbered(runtime, directory, dstFs, containerPath);
-      default:
+      case ConflictReplace():
+        // Dir→dir wholesale replace and dir→non-dir occupant removal both
+        // delete through the D15 story — a later M4 slice; the item fails
+        // honestly rather than deleting unguarded.
         _finishDirectory(
           runtime,
           directory,
           outcome: _DirOutcome.failed,
           error:
-              'a non-directory already occupies $destination and folder '
-              'policy ${task.policy.folders.name} cannot resolve it',
+              'replacing $destination removes the existing occupant, '
+              'which requires the D15 delete story (a later M4 slice)',
           failureKind: RemoteFileErrorKind.conflict,
         );
+      case ConflictAsk():
+        _parkDirectoryConflict(runtime, directory, existing!);
     }
   }
 
@@ -935,7 +1021,11 @@ class TransferQueue {
       final candidate = _joinDest(
         runtime.task.destination,
         containerPath,
-        _numberedName(directory.planned.name, attempt, isDirectory: true),
+        numberedConflictName(
+          directory.planned.name,
+          attempt,
+          isDirectory: true,
+        ),
       );
       final existing = await _statOrNull(dstFs, candidate);
       if (existing != null) continue;
@@ -1179,10 +1269,16 @@ class TransferQueue {
           final decision = await _decideFile(
             runtime,
             dstFs,
-            file,
+            work,
             containerPath,
           );
           switch (decision) {
+            case _FileAsk(:final existing):
+              // The §4.1 ask-park: the finally below releases the lease
+              // and the registry claim, so the parked item holds no slot
+              // and no channel while it awaits an answer.
+              _parkFileConflict(runtime, work, existing);
+              return;
             case _FileSkip(:final detail):
               _finishItem(
                 runtime,
@@ -1395,35 +1491,47 @@ class TransferQueue {
     );
   }
 
-  /// Stats the planned destination and resolves the task's file conflict
-  /// policy into a concrete commit — or an honest skip/error. `keepBoth`
+  /// Stats the planned destination and resolves the effective file verb
+  /// (a prior per-item answer, the apply-to-all scope, else the task
+  /// policy) through [resolveTransferConflict] — 02 §5.2's decision table
+  /// applied to fresh reality, never the scan-time hint. `keepBoth`
   /// stat-checks each numbered candidate (03 §4.2: a pre-existing
   /// `report (2).pdf` is itself a name collision, never a silent
-  /// overwrite).
+  /// overwrite); `ask` parks the item for an answer.
   Future<_FileDecision> _decideFile(
     _TaskRuntime runtime,
     RemoteFileSystem dstFs,
-    PlannedFile file,
+    _FileWork work,
     String containerPath,
   ) async {
     final task = runtime.task;
+    final file = work.file;
     final candidate = _joinDest(task.destination, containerPath, file.name);
     final existing = await _statOrNull(dstFs, candidate);
-    if (existing == null) {
-      return _FileCommit(
-        destinationPath: candidate,
-        overwrite: false,
-        expectedTarget: null,
-      );
-    }
-    switch (task.policy.files) {
-      case ConflictResolution.skip:
-        return const _FileSkip('the destination already exists');
-      case ConflictResolution.replace:
-        if (existing.isDirectory) {
+    switch (resolveTransferConflict(
+      verb: _effectiveFileVerb(runtime, work.item.id),
+      sourceIsDirectory: false,
+      existing: existing == null
+          ? null
+          : DestinationStat.fromEntry(existing),
+      sourceModifiedAt: file.source.modifiedAt,
+    )) {
+      case ConflictProceed():
+        return _FileCommit(
+          destinationPath: candidate,
+          overwrite: false,
+          expectedTarget: null,
+        );
+      case ConflictSkip(:final reason):
+        return _FileSkip(reason);
+      case ConflictAsk():
+        // `existing` is non-null — ask only arises on a real collision.
+        return _FileAsk(existing!);
+      case ConflictReplace(:final removesOccupant):
+        if (removesOccupant) {
           return _FileError(
             'a directory occupies $candidate; replacing it requires the '
-            'conflicts slice (D15 delete story)',
+            'D15 delete story, which is a later M4 slice',
           );
         }
         return _FileCommit(
@@ -1431,33 +1539,12 @@ class TransferQueue {
           overwrite: true,
           expectedTarget: existing,
         );
-      case ConflictResolution.replaceIfNewer:
-        final sourceMtime = file.source.modifiedAt;
-        final existingMtime = existing.modifiedAt;
-        final newer =
-            sourceMtime != null &&
-            existingMtime != null &&
-            sourceMtime.isAfter(existingMtime.add(_newerThanTolerance));
-        if (!newer) {
-          return const _FileSkip('the destination is not older');
-        }
-        if (existing.isDirectory) {
-          return _FileError(
-            'a directory occupies $candidate; replacing it requires the '
-            'conflicts slice (D15 delete story)',
-          );
-        }
-        return _FileCommit(
-          destinationPath: candidate,
-          overwrite: true,
-          expectedTarget: existing,
-        );
-      case ConflictResolution.keepBoth:
+      case ConflictKeepBoth():
         for (var n = 2; n <= _maxKeepBothAttempts; n++) {
           final numbered = _joinDest(
             task.destination,
             containerPath,
-            _numberedName(file.name, n, isDirectory: false),
+            numberedConflictName(file.name, n, isDirectory: false),
           );
           // Another in-flight item may already hold this candidate's key;
           // rather than wait with a slot held, take the next number.
@@ -1478,15 +1565,11 @@ class TransferQueue {
           'no free keep-both name after $_maxKeepBothAttempts attempts for '
           '${file.name}',
         );
-      case ConflictResolution.ask || ConflictResolution.merge:
-        // `merge` in a file field was normalized to `ask` by
-        // ResolvedConflictPolicy. No prompt machinery exists in this
-        // slice, so ask is an honest per-item conflict, not a guess.
-        return _FileError(
-          'the destination already exists and file policy "ask" needs '
-          'the conflicts prompt (lands with the conflicts slice): '
-          '$candidate',
-        );
+      case ConflictMerge():
+        // Unreachable — a file verb can never be `merge` (the policy
+        // normalizes it to ask, and resolveConflict rejects merge
+        // answers on file items) — but ask is the honest degradation.
+        return _FileAsk(existing!);
     }
   }
 
@@ -1633,6 +1716,197 @@ class TransferQueue {
       message: 'transfer $side: $error',
       cause: error,
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // Conflict park/resolve — 03 §4.1's ask-park behind 02 §5.2's verbs
+  // ---------------------------------------------------------------------
+
+  /// The verb an item's next decision applies: a per-item answer wins,
+  /// then the apply-to-all scope, then the task policy (02 §5.2 — earlier
+  /// per-item answers outrank a later "apply to all REMAINING").
+  ConflictResolution _effectiveFileVerb(_TaskRuntime runtime, String itemId) =>
+      runtime.resolvedAnswers[itemId] ??
+      runtime.applyToAll?.files ??
+      runtime.task.policy.files;
+
+  ConflictResolution _effectiveFolderVerb(
+    _TaskRuntime runtime,
+    String itemId,
+  ) =>
+      runtime.resolvedAnswers[itemId] ??
+      runtime.applyToAll?.folders ??
+      runtime.task.policy.folders;
+
+  /// Parks a file on its collision: the work leaves `eligible` (it was
+  /// already dequeued) and sits in [pendingConflicts] — or, past the
+  /// surfaced cap, in [conflictWaiters] — holding no slot, lease, or
+  /// registry claim (the caller's finally releases all three). Nothing
+  /// is journaled: a parked item replays as still-pending and re-surfaces
+  /// fresh on resume (03 §4.4/§4.6).
+  void _parkFileConflict(
+    _TaskRuntime runtime,
+    _FileWork work,
+    RemoteFileEntry existing,
+  ) {
+    final task = runtime.task;
+    final item = work.item;
+    if (_pendingConflictCount >= _maxPendingConflicts) {
+      item.state = TransferItemState.pending;
+      _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+      runtime.conflictWaiters.addLast(work);
+      return;
+    }
+    final conflict = PendingConflict(
+      taskId: task.id,
+      itemId: item.id,
+      isDirectory: false,
+      sourcePath: work.file.source.path,
+      destinationPath: item.destinationPath,
+      source: work.file.source,
+      existing: DestinationStat.fromEntry(existing),
+    );
+    runtime.pendingConflicts[item.id] = _ParkedConflict(conflict, item, work);
+    _pendingConflictCount++;
+    item.state = TransferItemState.conflictPending;
+    _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+    _emit(
+      TransferQueueConflictEvent(
+        task.id,
+        item.id,
+        conflict: conflict,
+        pending: true,
+      ),
+    );
+  }
+
+  /// Parks a directory on its collision — same posture as a parked file:
+  /// no slot, no lease, no journal record. Children keep waiting on the
+  /// directory's `ready` gate, so the subtree holds until the answer.
+  void _parkDirectoryConflict(
+    _TaskRuntime runtime,
+    _DirState directory,
+    RemoteFileEntry existing,
+  ) {
+    final task = runtime.task;
+    final item = directory.item;
+    if (_pendingConflictCount >= _maxPendingConflicts) {
+      runtime.conflictWaiters.addLast(directory);
+      return;
+    }
+    final conflict = PendingConflict(
+      taskId: task.id,
+      itemId: item.id,
+      isDirectory: true,
+      sourcePath: directory.planned.source.path,
+      destinationPath: item.destinationPath,
+      source: directory.planned.source,
+      existing: DestinationStat.fromEntry(existing),
+    );
+    runtime.pendingConflicts[item.id] =
+        _ParkedConflict(conflict, item, directory);
+    _pendingConflictCount++;
+    item.state = TransferItemState.conflictPending;
+    _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+    _emit(
+      TransferQueueConflictEvent(
+        task.id,
+        item.id,
+        conflict: conflict,
+        pending: true,
+      ),
+    );
+  }
+
+  /// Returns a parked item to the dispatch path — a file re-enters
+  /// `eligible` (re-statting before its verb applies), a directory
+  /// re-chains its mkdir op.
+  void _requeueParkedWork(_TaskRuntime runtime, Object work) {
+    if (work is _FileWork) {
+      runtime.eligible.addFirst(work);
+    } else if (work is _DirState) {
+      runtime.directoryOpsPending++;
+      runtime.directoryChain = runtime.directoryChain.then(
+        (_) => _runDirectory(runtime, work),
+      );
+      unawaited(runtime.directoryChain.catchError((_) {}));
+    }
+  }
+
+  /// Frees a surfaced slot into the oldest queued waiter — it
+  /// re-dispatches through the normal path, so a still-colliding waiter
+  /// surfaces its own fresh [PendingConflict] (stats are re-read; nothing
+  /// stale is ever presented or answered against).
+  void _promoteConflictWaiters() {
+    while (_pendingConflictCount < _maxPendingConflicts) {
+      _TaskRuntime? next;
+      for (final runtime in _tasks.values) {
+        if (runtime.conflictWaiters.isNotEmpty) {
+          next = runtime;
+          break;
+        }
+      }
+      if (next == null) return;
+      _requeueParkedWork(next, next.conflictWaiters.removeFirst());
+    }
+    _pump();
+  }
+
+  /// Drops a task's parked conflicts and surfaces their dismissal — the
+  /// cancel/fail sweeps' half of §4.1's ask-park teardown. Waiters are
+  /// dropped with them: their items are already terminal under the sweep.
+  void _clearConflicts(_TaskRuntime runtime) {
+    final task = runtime.task;
+    if (runtime.pendingConflicts.isNotEmpty) {
+      for (final parked in runtime.pendingConflicts.values) {
+        _emit(
+          TransferQueueConflictEvent(
+            task.id,
+            parked.conflict.itemId,
+            conflict: parked.conflict,
+            pending: false,
+          ),
+        );
+      }
+      _pendingConflictCount -= runtime.pendingConflicts.length;
+      runtime.pendingConflicts.clear();
+    }
+    runtime.conflictWaiters.clear();
+    _promoteConflictWaiters();
+  }
+
+  /// §4.1's reconnect invalidation: a task flipping back to `queued`
+  /// (a §3.3 disconnect) discards its outstanding conflict surface —
+  /// the prompts are stale because the plan may no longer match reality.
+  /// Parked items return to `pending` and re-dispatch; they re-stat and
+  /// re-park fresh, and a reply arriving for an invalidated entry finds
+  /// no parked conflict and is ignored. Recorded answers (per-item and
+  /// apply-to-all) stay — they are the session's decisions, not prompts.
+  void _invalidateConflicts(_TaskRuntime runtime) {
+    if (runtime.pendingConflicts.isEmpty) return;
+    final task = runtime.task;
+    final parked = runtime.pendingConflicts.values.toList();
+    runtime.pendingConflicts.clear();
+    _pendingConflictCount -= parked.length;
+    for (final entry in parked) {
+      _emit(
+        TransferQueueConflictEvent(
+          task.id,
+          entry.conflict.itemId,
+          conflict: entry.conflict,
+          pending: false,
+        ),
+      );
+      final item = entry.item;
+      if (item.state == TransferItemState.conflictPending &&
+          !item.isTerminal &&
+          !task.isTerminal) {
+        item.state = TransferItemState.pending;
+        _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+        _requeueParkedWork(runtime, entry.work);
+      }
+    }
+    _promoteConflictWaiters();
   }
 
   // ---------------------------------------------------------------------
@@ -1839,6 +2113,11 @@ class TransferQueue {
         failureKind: failureKind,
       ),
     );
+    // A §3.3 disconnect flipping the task back to `queued` invalidates
+    // its outstanding conflicts (03 §4.1): the prompt against them may no
+    // longer match reality, so parked items re-dispatch, re-stat, and
+    // re-surface fresh — a late answer to a stale conflict is ignored.
+    if (state == TransferTaskState.queued) _invalidateConflicts(runtime);
   }
 
   void _failTask(_TaskRuntime runtime, Object error) {
@@ -1876,6 +2155,7 @@ class TransferQueue {
         _emit(TransferQueueItemEvent(task.id, item.id, item.state));
       }
     }
+    _clearConflicts(runtime);
     runtime.eligible.clear();
     for (final directory in runtime.directories.values) {
       if (!directory.ready.isCompleted) directory.ready.complete();
@@ -2314,7 +2594,9 @@ class TransferQueue {
             error: error,
           ),
         );
-      case TransferItemState.pending || TransferItemState.active:
+      case TransferItemState.pending ||
+          TransferItemState.active ||
+          TransferItemState.conflictPending:
         break;
     }
   }
@@ -2595,24 +2877,6 @@ class TransferQueue {
     }
   }
 
-  /// `report (2).pdf` numbering (02 §5.2): the counter inserts before the
-  /// extension (last dot — `archive.tar.gz` becomes `archive.tar (2).gz`),
-  /// a leading-dot name counts as extensionless, and an existing ` (n)`
-  /// suffix strips first so retries never stack.
-  String _numberedName(String name, int attempt, {required bool isDirectory}) {
-    var stem = name;
-    var extension = '';
-    if (!isDirectory) {
-      final dot = name.lastIndexOf('.');
-      if (dot > 0) {
-        stem = name.substring(0, dot);
-        extension = name.substring(dot);
-      }
-    }
-    stem = stem.replaceFirst(RegExp(r' \(\d+\)$'), '');
-    return '$stem ($attempt)$extension';
-  }
-
   /// Trailing separators are stripped and exact duplicates plus roots
   /// nested inside an already-kept root are dropped. Separator handling is
   /// source-aware: a remote path may legitimately contain a backslash in a
@@ -2672,8 +2936,10 @@ class TransferQueue {
   );
 }
 
-/// 02 §5.2's mtime comparison window (D6): ±2 s counts as equal.
-const _newerThanTolerance = Duration(seconds: 2);
+/// Queue-wide cap on surfaced [PendingConflict] entries — the "bounded
+/// pending-conflict storage" rule. Collisions past the cap sit in
+/// `conflictWaiters` instead; they cost a queue entry, not a surface.
+const maxSurfacedPendingConflicts = 256;
 
 /// Upper bound for keep-both numbering so a pathological destination
 /// cannot spin the candidate loop forever.
@@ -2713,6 +2979,25 @@ class _TaskRuntime {
   /// record by planned destination path — reusing the itemId and letting
   /// an already-terminal outcome suppress re-dispatch.
   Map<String, List<RestoredPlanItem>>? restoredIndex;
+
+  /// itemId → the session's answer for a once-parked conflict. Re-read on
+  /// every re-dispatch, so a re-parked item keeps its user's verb. Never
+  /// journaled — 03 §4.6: prompt state does not survive restart.
+  final Map<String, ConflictResolution> resolvedAnswers = {};
+
+  /// The task-scoped answer installed by a "apply to all remaining"
+  /// resolution (02 §5.2's checkbox), via [taskScopePolicy]'s per-kind
+  /// analogs. Session-scoped for the same reason as [resolvedAnswers].
+  ResolvedConflictPolicy? applyToAll;
+
+  /// itemId → parked work behind a surfaced [PendingConflict] — bounded
+  /// queue-wide by `_maxPendingConflicts`.
+  final Map<String, _ParkedConflict> pendingConflicts = {};
+
+  /// Collisions that arrived while the surface was at cap: they hold no
+  /// slot, lease, or pending entry until [TransferQueue
+  /// ._promoteConflictWaiters] re-dispatches them to re-stat fresh.
+  final ListQueue<Object> conflictWaiters = ListQueue();
 
   /// Pops the journaled record for [destinationPath], preferring the
   /// entry whose [sourcePath] also matches — two plan items can share
@@ -2789,6 +3074,15 @@ final class _FileSkip extends _FileDecision {
   final String detail;
 }
 
+/// The decision needs an answer: park the item (03 §4.1's ask-park) and
+/// surface the collision through the conflict seam. Carries the live
+/// occupant so the [PendingConflict] records fresh destination stats.
+final class _FileAsk extends _FileDecision {
+  const _FileAsk(this.existing);
+
+  final RemoteFileEntry existing;
+}
+
 final class _FileError extends _FileDecision {
   const _FileError(this.message);
 
@@ -2805,6 +3099,18 @@ final class _FileCommit extends _FileDecision {
   final String destinationPath;
   final bool overwrite;
   final RemoteFileEntry? expectedTarget;
+}
+
+/// A surfaced conflict plus the work it parks — [work] is a `_FileWork`
+/// or a `_DirState`, requeued by `_requeueParkedWork` on answer,
+/// promotion, or invalidation. [item] is the parked row so invalidation
+/// can flip its state without re-resolving the work's shape.
+final class _ParkedConflict {
+  const _ParkedConflict(this.conflict, this.item, this.work);
+
+  final PendingConflict conflict;
+  final TransferItem item;
+  final Object work;
 }
 
 /// In-process queue events — the engine host maps these onto the §5 wire
@@ -2841,6 +3147,25 @@ final class TransferQueueItemEvent extends TransferQueueEvent {
   final String itemId;
   final TransferItemState state;
   final String? error;
+}
+
+/// A conflict entered or left the parked surface (02 §5.2, 03 §4.1).
+/// `pending: true` carries the fresh [PendingConflict] to render;
+/// `pending: false` dismisses it — answered, invalidated by a reconnect
+/// (a fresh `pending: true` event follows if the collision still stands),
+/// or cleared by cancel/fail. This is the registered seam the future
+/// `EnginePromptKind.conflict` prompt maps onto; no UI lives here.
+final class TransferQueueConflictEvent extends TransferQueueEvent {
+  const TransferQueueConflictEvent(
+    super.taskId,
+    this.itemId, {
+    required this.conflict,
+    required this.pending,
+  });
+
+  final String itemId;
+  final PendingConflict conflict;
+  final bool pending;
 }
 
 /// Byte progress on one item plus the task rollups (02 §5.3's growing

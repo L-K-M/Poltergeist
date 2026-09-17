@@ -108,13 +108,31 @@ export 'src/fs/local_fs_safety.dart'
         validatePathComponent;
 export 'src/transfer/bandwidth_limiter.dart'
     show BandwidthLimiter, maxTransferChunkBytes;
+export 'src/transfer/conflict_policy.dart'
+    show
+        ConflictAsk,
+        ConflictDisposition,
+        ConflictKeepBoth,
+        ConflictMerge,
+        ConflictPolicy,
+        ConflictProceed,
+        ConflictReplace,
+        ConflictResolutionScope,
+        ConflictSkip,
+        PendingConflict,
+        conflictMtimeTolerance,
+        numberedConflictName,
+        resolveTransferConflict,
+        taskScopePolicy;
 export 'src/transfer/transfer_queue.dart'
     show
         TransferQueue,
+        TransferQueueConflictEvent,
         TransferQueueEvent,
         TransferQueueItemEvent,
         TransferQueueProgressEvent,
-        TransferQueueTaskEvent;
+        TransferQueueTaskEvent,
+        maxSurfacedPendingConflicts;
 export 'src/transfer/transfer_task.dart'
     show
         ConflictResolution,

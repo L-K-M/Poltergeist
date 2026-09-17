@@ -35,9 +35,15 @@ enum TransferTaskState {
 /// shape: waiting on its container directory's mkdir, on the shared
 /// destination-key registry, or on a §4.3 dispatch slot — the plan's
 /// "holds no slot and no leased channel" waits all read as pending here.
+/// `conflictPending` is the §4.1 ask-park: the item holds no dispatch
+/// slot and no lease while it waits on a resolution answer, and it is
+/// non-terminal — the task cannot finish beneath it. A parked item
+/// journals nothing (03 §4.4): on replay it is simply still pending and
+/// re-prompts fresh on resume.
 enum TransferItemState {
   pending,
   active,
+  conflictPending,
   completed,
   skipped,
   failed,
@@ -102,6 +108,8 @@ class DestinationStat {
     size: entry.size,
     modifiedAt: entry.modifiedAt,
   );
+
+  bool get isDirectory => type == RemoteFileType.directory;
 }
 
 /// One scanned directory, recorded parents-first (03 §4.1). The queue
@@ -279,6 +287,14 @@ class TransferTask {
 
   /// The first failed item's user-facing message, when any.
   String? error;
+
+  /// True while any item sits parked on an unresolved conflict (02 §5.2's
+  /// "the queue pauses that item"; 03 §4.1's ask-park). The task stays
+  /// `running`/`scanning` — its other items still dispatch — but it cannot
+  /// reach a terminal state until every parked conflict is answered.
+  bool get hasPendingConflicts => items.any(
+    (item) => item.state == TransferItemState.conflictPending,
+  );
 
   /// The first failed item's error kind, when any.
   RemoteFileErrorKind? failureKind;
