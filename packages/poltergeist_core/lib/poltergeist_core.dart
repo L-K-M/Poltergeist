@@ -124,6 +124,17 @@ export 'src/transfer/conflict_policy.dart'
         numberedConflictName,
         resolveTransferConflict,
         taskScopePolicy;
+export 'src/transfer/recursive_walker.dart'
+    show
+        RecursiveWalker,
+        WalkEntryEvent,
+        WalkEvent,
+        WalkItemKind,
+        WalkListingClosedEvent,
+        WalkListingFailedEvent,
+        WalkNode,
+        WalkPurpose,
+        WalkRootFailedEvent;
 export 'src/transfer/transfer_queue.dart'
     show
         TransferQueue,

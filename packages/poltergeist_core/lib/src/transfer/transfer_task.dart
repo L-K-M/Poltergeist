@@ -268,7 +268,16 @@ class TransferTask {
   /// The live per-item rows (directories and files), in discovery order.
   final List<TransferItem> items = [];
 
+  /// Work-item counts discovered by the §3.5 walker so far — floors that
+  /// only grow while the scan runs and are final once [scanComplete]
+  /// flips (02 §5.3's `N of M+` surface). Terminal-at-scan rows (rejected
+  /// names, §13-flagged entries, symlink skips) count too: they are rows
+  /// the user sees.
+  int totalFiles = 0;
+  int totalDirectories = 0;
+
   int completedFiles = 0;
+  int completedDirectories = 0;
   int failedItems = 0;
 
   /// Items that ended `skipped` — conflict-policy skips, subtree skips
