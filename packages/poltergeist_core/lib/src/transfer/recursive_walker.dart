@@ -358,6 +358,11 @@ class RecursiveWalker {
   /// illegal-name shapes (NUL, overlong) are not escapes: the
   /// destination-name rules reject them per item.
   void _checkContainment(WalkNode parent, RemoteFileEntry child) {
+    // §13 dominates: a flagged entry is report-only — never listed,
+    // planned, or acted on — so its lossy name/path cannot cause an
+    // escape. Checking it here would abort the whole walk on a name
+    // that can never round-trip anyway.
+    if (isFlaggedEntry?.call(child) ?? false) return;
     final name = child.name;
     if (name.isEmpty ||
         name == '.' ||

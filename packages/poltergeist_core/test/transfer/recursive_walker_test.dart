@@ -428,6 +428,33 @@ void main() {
         WalkItemKind.file,
       );
     });
+
+    test('a flagged entry whose path trips containment still reports '
+        'flagged — §13 dominates the escape check', () async {
+      remote.addDirectory('/src');
+      // Lossy decode produced a path that does not join under its
+      // container — without the §13-first ordering this aborts the
+      // walk as an escape instead of reporting the bad name.
+      remote.directories['/src']!.add(
+        const RemoteFileEntry(
+          path: '/elsewhere/lossy.txt',
+          name: 'lossy.txt',
+          type: RemoteFileType.file,
+          size: 1,
+        ),
+      );
+
+      final walker = remoteWalker(
+        isFlaggedEntry: (entry) => entry.name == 'lossy.txt',
+      );
+      final entries = entriesOf(await collect(walker, ['/src']));
+      expect(
+        entries.singleWhere((e) => e.entry.name == 'lossy.txt').kind,
+        WalkItemKind.flagged,
+      );
+      expect(walker.flaggedEntries, 1);
+      expect(walker.isComplete, isTrue);
+    });
   });
 
   group('delete enumeration (enumerate + report only — execution is the '

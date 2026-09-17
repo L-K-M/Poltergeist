@@ -115,7 +115,9 @@ void main() {
       // The public event stream carries the same aggregate totals.
       final progress = events
           .whereType<TransferQueueProgressEvent>()
-          .lastWhere((e) => e.taskId == task.id);
+          .lastWhere((e) => e.taskId == task.id,
+              orElse: () =>
+                  fail('no TransferQueueProgressEvent emitted for task'));
       expect(progress.taskTotalFiles, 2);
       expect(progress.taskTotalDirectories, 2);
       expect(progress.taskTotalBytes, 6);
