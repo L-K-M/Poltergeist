@@ -412,7 +412,9 @@ jobs:
         env:
           BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
         run: |
-          if [ -n "$BENCH_ENFORCE_A" ] && [ -f evaluate.log ] && grep -qE '^P[0-9]+[[:space:]]+a[[:space:]].*skipped: hardware drift' evaluate.log; then
+          # -n would warn even when the variable is deliberately falsy;
+          # match the checker's truthy set (1/true, case-insensitive).
+          if { [ "${BENCH_ENFORCE_A,,}" = "true" ] || [ "$BENCH_ENFORCE_A" = "1" ]; } && [ -f evaluate.log ] && grep -qE '^P[0-9]+[[:space:]]+a[[:space:]].*skipped: hardware drift' evaluate.log; then
             echo "::warning::BENCH_ENFORCE_A is set but tier-A rows drift-skipped — enforcement is inert until budgets.json is recalibrated on the rotated fingerprint (08 §6)"
           fi
       - name: Upload bench results
