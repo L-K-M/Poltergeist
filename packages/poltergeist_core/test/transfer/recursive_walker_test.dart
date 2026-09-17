@@ -501,7 +501,6 @@ void main() {
 
     test('a POSIX-local name carrying a backslash is not an escape',
         () async {
-      if (p.style == p.Style.windows) return; // `\` is a separator there
       final root = p.join(tempDir.path, 'd');
       Directory(root).createSync();
       File('$root/a\\b.txt').writeAsBytesSync([1]);
@@ -515,7 +514,10 @@ void main() {
           .map((e) => e.entry.path)
           .toList();
       expect(paths, contains('$root/a\\b.txt'));
-    });
+    },
+        skip: p.style == p.Style.windows
+            ? r'\ is a separator on Windows local sources'
+            : null);
 
     test('a failed listing reports the directory; the walk continues',
         () async {
