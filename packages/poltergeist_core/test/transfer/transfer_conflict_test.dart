@@ -61,7 +61,7 @@ void main() {
   }
 
   setUp(() {
-    s1 = FakeTreeFileSystem()..addDirectory('/dst');
+    s1 = FakeTreeFileSystem();
     s2 = FakeTreeFileSystem()..addDirectory('/dst');
     connections = FakeQueueConnectionManager({'s1': s1, 's2': s2});
     queue = newQueue();
@@ -112,6 +112,7 @@ void main() {
       expect(conflict.isDirectory, isFalse);
       expect(conflict.destinationPath, '/dst/f.txt');
       expect(conflict.existing.size, 3);
+      expect(conflict.existing.modifiedAt, DateTime.utc(2020));
       expect(conflict.availableVerbs, isNot(contains(ConflictResolution.merge)));
       // A parked item holds nothing: no leases, no upload in flight.
       expect(connections.activeLeases('s1'), 0);
@@ -124,7 +125,7 @@ void main() {
       );
       // The sibling file is unaffected — the item pauses, not the task.
       await pumpUntil(
-        () => s2.entryAt('/dst/ok.txt') != null ||
+        () => s2.entryAt('/dst/ok.txt') != null &&
             task.items.any(
               (i) =>
                   i.sourcePath == '/src/ok.txt' &&

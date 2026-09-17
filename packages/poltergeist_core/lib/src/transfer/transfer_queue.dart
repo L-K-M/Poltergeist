@@ -2991,7 +2991,7 @@ class _TaskRuntime {
   ResolvedConflictPolicy? applyToAll;
 
   /// itemId → parked work behind a surfaced [PendingConflict] — bounded
-  /// queue-wide by `_maxPendingConflicts`.
+  /// queue-wide by [maxSurfacedPendingConflicts].
   final Map<String, _ParkedConflict> pendingConflicts = {};
 
   /// Collisions that arrived while the surface was at cap: they hold no

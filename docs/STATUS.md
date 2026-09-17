@@ -5637,7 +5637,7 @@ decision re-runs against a fresh destination stat — a vanished occupant
 proceeds, a freshened one re-decides honestly. `scope: task` is the
 "apply to all remaining" checkbox, installed through `taskScopePolicy`;
 an earlier per-item answer still outranks a later scope. The surfaced
-set is queue-wide bounded (`maxPendingConflicts`, default 256):
+set is queue-wide bounded (`maxSurfacedPendingConflicts`, default 256):
 collisions past the cap wait unsurfaced — still holding nothing — and
 promote in queue order as answers free slots, re-statting fresh rather
 than reusing a stale entry. A §3.3 reconnect (task → `queued`)
