@@ -363,10 +363,12 @@ class RecursiveWalker {
         name == '.' ||
         name == '..' ||
         name.contains('/') ||
-        // `\` is a separator only for a local source — a remote POSIX
-        // name may legitimately carry one (the destination-side rules
-        // still reject it there).
-        (location is LocalFsLocation && name.contains(r'\'))) {
+        // `\` is a separator only for a Windows-style local source —
+        // POSIX names (remote or local) may legitimately carry one
+        // (the destination-side rules still reject it there).
+        (location is LocalFsLocation &&
+            p.style == p.Style.windows &&
+            name.contains(r'\'))) {
       throw _escape(parent, child);
     }
     if (child.path != _joinSource(parent.path, name)) {
@@ -455,7 +457,9 @@ enum WalkItemKind {
   /// skipped; never listed, since the lossy name cannot round-trip.
   flagged,
 
-  /// The destination name rules refused the leaf (transfer only).
+  /// The destination name rules refused the leaf (transfer only). A
+  /// rejected *directory* is never listed: its subtree stays
+  /// undiscovered and none of its descendants are reported or counted.
   rejectedName,
 
   /// A type with no transferable content (fifo, socket, …).

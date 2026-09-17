@@ -499,6 +499,24 @@ void main() {
       expect(tempDir.existsSync(), isTrue); // nothing was deleted
     });
 
+    test('a POSIX-local name carrying a backslash is not an escape',
+        () async {
+      if (p.style == p.Style.windows) return; // `\` is a separator there
+      final root = p.join(tempDir.path, 'd');
+      Directory(root).createSync();
+      File('$root/a\\b.txt').writeAsBytesSync([1]);
+
+      final walker = RecursiveWalker(
+        source: local,
+        location: const LocalFsLocation(),
+        purpose: WalkPurpose.delete,
+      );
+      final paths = entriesOf(await collect(walker, [root]))
+          .map((e) => e.entry.path)
+          .toList();
+      expect(paths, contains('$root/a\\b.txt'));
+    });
+
     test('a failed listing reports the directory; the walk continues',
         () async {
       remote.addDirectory('/t/locked');
