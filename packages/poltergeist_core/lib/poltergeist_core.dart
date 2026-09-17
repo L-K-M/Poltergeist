@@ -130,6 +130,35 @@ export 'src/transfer/transfer_task.dart'
         TransferTask,
         TransferTaskSpec,
         TransferTaskState;
+export 'src/transfer/transfer_journal.dart'
+    show
+        FileCompletedRecord,
+        FileFailedRecord,
+        ItemRemovedRecord,
+        PlanEntryRecord,
+        RestoredItemOutcome,
+        RestoredPlanItem,
+        RestoredTransferTask,
+        ScanCompleteRecord,
+        TaskEnqueuedRecord,
+        TaskRemovedRecord,
+        TaskStateRecord,
+        TransferHistoryEntry,
+        TransferJournalIo,
+        TransferJournalRecord,
+        TransferJournalReplay,
+        TransferPersistence,
+        transferHistoryFileName,
+        transferHistoryLimit,
+        transferJournalFileName,
+        transferJournalSchemaVersion;
+export 'src/transfer/file_transfer_persistence.dart'
+    show
+        FileTransferPersistence,
+        journalCompactBytes,
+        journalCompactFinishedTasks,
+        journalFsyncEveryRecords,
+        journalFsyncInterval;
 export 'src/import/ssh_config_import.dart'
     show
         SshConfigFileSource,

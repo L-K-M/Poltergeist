@@ -5474,6 +5474,68 @@ budgeting, early-upload-death abort, and dispose drain. Full core
 suite 958 green (16 fixture skips), analyze clean. No app, protocol,
 pin, or lock change.
 
+## M4 — transfer persistence: journal + history store (D16) (2026-09-17)
+
+D16 lands on the queue core: `FileTransferPersistence` in
+`src/transfer/` keeps two append-only JSONL files under a
+caller-provided directory — `transfer_queue.jsonl` (the live queue's
+write-ahead journal) and `transfer_history.jsonl` (finished-task
+records for the activity panel's History tab). The queue takes the
+store as an optional seam: `persistence == null` runs the #147
+in-memory behavior unchanged.
+
+The journal vocabulary is the §4.6 set — `taskEnqueued` (full spec),
+`planEntry` (per scanned item, with the itemId minted at scan time so
+replay upserts on (taskId, itemId) and a re-scan reuses journaled ids
+via destination-path merge), `scanComplete`, `taskState`,
+`fileCompleted`, `fileFailed` (with error text + failure kind),
+`itemRemoved`, `taskRemoved`. Every transition is journaled before the
+in-memory effect it describes (a fault-injection test records the
+journal tail at append time and asserts the state is not yet visible).
+Appends funnel through one serialized writer chain shared with the
+compaction rewrites, so no record can land on a pre-rename inode;
+fsync runs on the §4.6 boundary (every ~64 records or ~250 ms, always
+before a task's history append).
+
+Recovery replays the journal at open: a torn non-newline tail is
+truncated with its dropped bytes counted; a complete-but-unparseable
+line or an unknown record type/schema version quarantines the file
+(timestamped copy), replays the intact prefix, and atomically rewrites
+the journal to that prefix so no quarantine loop. `TransferTask` now
+carries a constructor-taken stable `id`/`enqueuedAt` plus
+`startedAt`/`finishedAt` so restored tasks keep their identity and
+history durations span the pre-crash work. Restored tasks map
+journaled state per §4.6 — `paused` survives, `running`/`scanning`
+become `queued` — while `restore()` sets the runtime-only queue-level
+pause flag (only when the replay is non-empty) so nothing dispatches
+before Resume; a journaled-paused task additionally waits for its own
+`resumeTask`. A task that crashed mid-scan re-scans on resume and
+merges journaled items by destination path — a file the user watched
+fail or removed never silently resurrects — while a fully-scanned task
+rebuilds its plan from journaled records with no re-scan. Restore also
+sweeps `.poltergeist-*.tmp`/`.seance-upload-*.tmp` debris in
+directories the journal names, scoped by the journaled paths only.
+
+Compaction runs at startup after replay, at clean `shutdown` (which
+suppresses I/O failures — `flush` stays the error-propagating
+durability boundary), and whenever finished-task count or journal
+bytes cross a threshold: finished tasks append to history first
+(idempotent by task id), then the journal atomically rewrites to the
+pending tasks' full record sets, preserving unknown additive fields
+verbatim via raw-line passthrough. Rewrite temps are exclusive-owned,
+fsynced before rename with a directory fsync after; crash debris older
+than an hour is swept at open. History appends one record per terminal
+task at completion (mid-session live) and trims to the 10 000-record
+cap only once the 10 % slack is crossed, keeping the newest.
+
+Validation: 25 new tests in `test/transfer/transfer_persistence_test.dart`
+— recovery/torn-tail/quarantine/schema-version, single-writer ordering
+across a gated rewrite, compaction and history-cap retention,
+write-before-effect ordering, full journal lifecycle, restore mapping
+(paused survival, mid-scan re-scan merge, completed-item suppression),
+`removeTask`, journaled-path temp sweep, and the persistence-disabled
+no-op. Full core suite 993 green (16 fixture skips), analyze clean.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
