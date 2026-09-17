@@ -23,12 +23,13 @@ TransferTaskSpec localToRemoteSpec({
   required List<String> rootPaths,
   String destinationDir = '/dest',
   String serverId = 's1',
+  ConflictResolution files = ConflictResolution.skip,
 }) => TransferTaskSpec(
   source: const LocalFsLocation(),
   destination: ServerFsLocation(serverId),
   rootPaths: rootPaths,
   destinationDir: destinationDir,
-  policy: ResolvedConflictPolicy(files: ConflictResolution.skip),
+  policy: ResolvedConflictPolicy(files: files),
 );
 
 /// A `TransferJournalIo` that counts calls and can gate/fsync-fail on
@@ -888,6 +889,52 @@ void main() {
       expect(restored.state, TransferTaskState.completed);
       expect(s1.uploadCalls - uploadsBefore, 1);
       expect(s1.entryAt('/dest/a.txt'), isNotNull);
+    });
+
+    test('a still-pending conflict re-prompts fresh after restart — '
+        'session prompt state is never journaled (03 §4.6)', () async {
+      // A crashed session mid-prompt: the journaled record set is just
+      // the still-pending item — the prompt itself was runtime state.
+      final crashed = await openStore();
+      final f1 = File('${localSrc.path}/a.txt')..writeAsStringSync('new');
+      s1.addFile('/dest/a.txt', 'old'.codeUnits);
+      crashed.appendJournal(
+        enqueued(
+          'task-1',
+          localToRemoteSpec(
+            rootPaths: [f1.path],
+            files: ConflictResolution.ask,
+          ),
+        ),
+      );
+      crashed.appendJournal(
+        fileEntry('task-1', 'i1', f1.path, '/dest/a.txt', size: 3),
+      );
+      crashed.appendJournal(
+        ScanCompleteRecord(taskId: 'task-1', totalBytes: 3, skippedSymlinks: 0),
+      );
+      await crashed.flush();
+
+      final store = await openStore();
+      final queue = newQueue(persistence: store);
+      await queue.restore();
+      queue.resumeQueue();
+      final restored = queue.tasks.single;
+      // The journaled-pending item re-dispatched, re-stat'd the occupant,
+      // and parked on a fresh prompt — not a remembered answer.
+      await pumpUntil(
+        () => queue.pendingConflicts.isNotEmpty,
+        reason: 'the restored conflict never re-surfaced',
+      );
+      final item = restored.items.single;
+      expect(item.state, TransferItemState.conflictPending);
+      expect(
+        queue.resolveConflict(restored.id, item.id, ConflictResolution.skip),
+        isTrue,
+      );
+      await awaitTaskDone(restored);
+      expect(item.state, TransferItemState.skipped);
+      expect(s1.fileBytes['/dest/a.txt'], 'old'.codeUnits);
     });
 
     test('a cancelled task does not restore', () async {
