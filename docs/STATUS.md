@@ -5356,6 +5356,58 @@ Real-font captures inspected under `tasks/run3-task59/`: local file
 editor, mid-draft sync, the counted confirmation dialog, the
 settled tally, and remote file/folder inspectors.
 
+## M3 — D12 tier-A recalibration, landed flip, enforcement (2026-09-17)
+
+Owner ruling on open item 22 (Option 1, recommendation accepted): the
+P3/P5 tier-A budgets are recalibrated to CI-fingerprint reference
+values, all three tier-A scenarios flip `landed`, and `BENCH_ENFORCE_A`
+is enabled. P7 keeps its plan budget (≥ 1 000 entries/s — it passes at
+~2 280/s). An upstream pipelined READDIR stays explicitly non-blocking.
+
+The recorded calibration is the fingerprint the current bench job
+actually emits: `ubuntu-latest@20260907.300.1`, `linux_x64`, Dart
+3.13.4 (the job SDK's stable, AOT collectors), `aot` mode, `AMD EPYC
+7763 64-Core Processor`, with each scenario's
+`calibratedScenarioConfig` carrying the exact config string its
+collector emitted. The pool is the five main-branch runs matching that
+fingerprint in full — 35005140193, 35028604913, 35033568776,
+35086417157, 35125183171; 25 `ok` repetitions per scenario, within-pool
+spread < 0.4 %. The earlier same-image runs on Dart 3.13.3
+(34920829912, 34925105848, 34925201167, 34937535607 — the set #122
+analyzed) corroborate within ~1.5 % but sit across the controlled
+`dartVersion` axis, and the mixed-fleet CPU runs (9V74, 9V45, Xeon
+6973P-C/8573C) are different environments — neither is pooled.
+
+Policy: observed pooled median × 1.2 headroom, rounded up to the next
+500 ms — P3 < 5 500 ms (median 4 451.6), P5 < 6 000 ms (median
+4 775.8); 02 §12's P3/P5 rows carry the new values with the provenance
+note, and the README gained the full calibration record. The 02 §12 P7
+row, every tier-B row, and the tier-B baseline are untouched.
+
+`ci.yml`'s bench job now forwards `vars.BENCH_ENFORCE_A` into the
+checker's environment — the wiring #119 did not need while every
+scenario was unlanded — and the repo variable `BENCH_ENFORCE_A=true`
+is set via the Actions variables API. Landed tier-A overruns on the
+calibrated fingerprint now gate; drift skips stay exit-zero in every
+mode per 08 §6. `BENCH_ENFORCE_B` is not forwarded or set — tier B
+remains trend-only until M9.
+
+Checker coverage (existing suites extended, no new schemas):
+`check_cli_test.dart` drives the committed catalog end to end —
+in-budget medians pass enforced, an over-budget landed median fails
+enforced and notices soft, a missing/errored landed scenario fails in
+both modes, a per-scenario config mismatch drift-skips only that
+scenario, and a controlled-axis mismatch drift-skips tier A even
+enforced. `check_test.dart` re-pins the catalog: landed flags, the
+recorded fingerprint, the per-scenario config strings, and the new
+P3/P5 values.
+
+Post-merge verification: the first main-branch `bench` run after this
+lands must show the three tier-A rows evaluated as enforced
+comparisons at the recalibrated budgets with exit 0 (or a documented
+fingerprint drift-skip if the runner image rotated). Run id and output
+are recorded with this PR's report.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -5997,6 +6049,14 @@ settled tally, and remote file/folder inspectors.
     upstream pipelined-READDIR change (D2-gated). P7's pass is the same
     bottleneck's ceiling, not health — do not read it as evidence the
     budgets are calibrated.
+    **Closed 2026-09-17:** the owner ruled Option 1 (recalibrate to the
+    CI-fingerprint reference values, flip tier-A `landed`, enable
+    `BENCH_ENFORCE_A`; upstream pipelined READDIR explicitly
+    non-blocking). Implemented in the dated section above: P3 < 5 500 ms
+    and P5 < 6 000 ms (pooled median × 1.2, rounded up to the next
+    500 ms), P7's ≥ 1 000 entries/s unchanged, all three landed with
+    per-scenario calibrated configs, and the repo variable plus
+    `vars.BENCH_ENFORCE_A` forwarding arm enforcement.
 
 ## Independent audit
 

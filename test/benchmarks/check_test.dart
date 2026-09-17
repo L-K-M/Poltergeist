@@ -1094,13 +1094,12 @@ void main() {
   });
 
   group('the committed budgets catalog mirrors 02 §12', () {
-    test('parses and carries P1-P7 unlanded with no calibration', () {
+    test('parses with tier A landed under the recorded calibration', () {
       final catalog = _committedCatalog();
       catalog.validateCatalog();
       // The committed catalog uses the canonical per-scenario-config
       // schema; the legacy -1 form stays readable for old files.
       expect(catalog.schemaId, budgetsSchemaV2Id);
-      expect(catalog.calibratedFingerprint, isNull);
       expect(catalog.scenarios.keys, [
         'P1',
         'P2',
@@ -1110,26 +1109,93 @@ void main() {
         'P6',
         'P7',
       ]);
-      for (final budget in catalog.scenarios.values) {
+      // Tier A landed 2026-09-17 under the owner ruling on STATUS item
+      // 22: the recorded fingerprint is the one the pooled main-branch
+      // bench artifacts actually carried (provenance in
+      // test/benchmarks/README.md). The fingerprint pins are deliberate —
+      // a recalibration must update this test in the same commit.
+      final calibration = catalog.calibratedFingerprint;
+      expect(calibration, isNotNull);
+      expect(
+        calibration!.runnerImage,
+        'ubuntu-latest@20260907.300.1',
+      );
+      expect(calibration.arch, 'linux_x64');
+      expect(
+        calibration.dartVersion,
+        '3.13.4 (stable) (Tue Sep 15 01:01:15 2026 -0700) '
+        'on "linux_x64"',
+      );
+      expect(calibration.flutterVersion, isNull);
+      expect(calibration.mode, 'aot');
+      expect(calibration.cpuModel, 'AMD EPYC 7763 64-Core Processor');
+      expect(calibration.scenarioConfig, isNull);
+      for (final id in ['P3', 'P5', 'P7']) {
+        final budget = catalog.scenarios[id]!;
         expect(
           budget.landed,
-          isFalse,
-          reason:
-              '${budget.id} must stay unlanded until the real '
-              'harness/job introduction (07 §1)',
+          isTrue,
+          reason: '$id landed with the 2026-09-17 tier-A flip',
+        );
+        expect(
+          budget.calibratedScenarioConfig,
+          isNotNull,
+          reason: 'a landed tier-A scenario records the config its '
+              'budget was calibrated under',
         );
       }
+      for (final budget in catalog.scenarios.values) {
+        if (budget.tier == BenchTier.b) {
+          expect(
+            budget.landed,
+            isFalse,
+            reason:
+                '${budget.id} must stay unlanded until the real '
+                'harness/job introduction (07 §1)',
+          );
+        }
+      }
+    });
+
+    test('records the per-scenario configs the pooled artifacts carried',
+        () {
+      final catalog = _committedCatalog();
+      // The exact strings the cited main-branch artifacts recorded;
+      // check_cli_test.dart exercises comparison against them.
+      expect(
+        catalog.scenarios['P3']!.calibratedScenarioConfig,
+        'p3/v1;target=/home/poltergeist/bench/fixtures/entries-10000;'
+        'control=/home/poltergeist/bench;target-entries=10000;'
+        'control-entries=2;warmups=2;repetitions=5;'
+        'pairing=control-then-target-one-channel',
+      );
+      expect(
+        catalog.scenarios['P5']!.calibratedScenarioConfig,
+        'p5/v1;drop=/home/poltergeist/bench/fixtures/entries-10000;'
+        'kind=directory;root-entries=10000;'
+        'first-file=/home/poltergeist/bench/fixtures/entries-10000/'
+        'entry-08368.txt;warmups=2;repetitions=5;start=lease+first-byte;'
+        'hash=off',
+      );
+      expect(
+        catalog.scenarios['P7']!.calibratedScenarioConfig,
+        'p7/v1;root=/home/poltergeist/bench/fixtures;entries=10813;'
+        'directories=10;warmups=2;repetitions=5;readdir-depth=8;'
+        'traversal=recursive-pipelined-one-channel',
+      );
     });
 
     // The values, tiers, operators, and repetition floors, one row per
     // 02 §12 budget (08 §6 assigns the tiers; 07 §3.4 sets P3's median
     // of >= 5 warm runs; 08 §6 sets the tier-B >= 3 repetition floor).
+    // P3/P5 carry the 2026-09-17 CI-fingerprint recalibration (pooled
+    // median × 1.2, rounded up to the next 500 ms — STATUS item 22).
     for (final entry in {
       'P1': ('b', 'lessThan', 150.0, 'ms', 3),
       'P2': ('b', 'lessThan', 1000.0, 'ms', 3),
-      'P3': ('a', 'lessThan', 50.0, 'ms', 5),
+      'P3': ('a', 'lessThan', 5500.0, 'ms', 5),
       'P4': ('b', 'lessThan', 100.0, 'ms', 3),
-      'P5': ('a', 'lessThan', 500.0, 'ms', 3),
+      'P5': ('a', 'lessThan', 6000.0, 'ms', 3),
       'P6': ('b', 'atMost', 0.2, '%', 3),
       'P7': ('a', 'atLeast', 1000.0, 'entries/s', 3),
     }.entries) {

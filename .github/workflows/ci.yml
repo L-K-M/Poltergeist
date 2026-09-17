@@ -318,13 +318,17 @@ jobs:
   # real app in profile mode under Xvfb (`flutter drive --profile`) and
   # capture raster timing through SchedulerBinding.addTimingsCallback.
   # Both legs merge their per-scenario documents into one
-  # bench-results.json that check.dart grades. Every scenario is still
-  # unlanded in budgets.json, so the job reports rather than gates: no
-  # BENCH_ENFORCE_* flag is set here, calibration is the dedicated
-  # baseline-refresh procedure (08 §6), and PR runs never touch drift
-  # state — which is also why the tier-B leg runs only on main pushes and
-  # manual dispatch, never on PRs, and why the evaluate step scopes
-  # --tiers to what the event actually ran.
+  # bench-results.json that check.dart grades. The tier-A scenarios are
+  # landed and calibrated against the CI fingerprint, and the evaluate
+  # step forwards the BENCH_ENFORCE_A repo variable to the checker, so
+  # tier-A budget overruns gate once that variable is set (tier-A drift
+  # skips stay exit-zero in every mode per 08 §6). Tier-B scenarios stay
+  # unlanded and trend-only until M9: no BENCH_ENFORCE_B is forwarded.
+  # Calibration changes ride the dedicated baseline-refresh procedure
+  # (08 §6), and PR runs never touch drift state — which is also why the
+  # tier-B leg runs only on main pushes and manual dispatch, never on
+  # PRs, and why the evaluate step scopes --tiers to what the event
+  # actually ran.
   bench:
     name: D12 benchmarks
     needs: detect_bench
@@ -386,6 +390,10 @@ jobs:
       # `ab` on main pushes and dispatch.
       - name: Evaluate results
         if: always()
+        env:
+          # Repo Actions variable; unset/empty reads as unenforced, and a
+          # non-boolean value fails closed in the checker (usage exit).
+          BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
         run: >-
           dart run test/benchmarks/check.dart
           --results bench-results.json
