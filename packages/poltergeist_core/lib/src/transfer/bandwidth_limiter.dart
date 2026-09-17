@@ -64,12 +64,15 @@ class BandwidthLimiter {
     _bytesPerSecond = normalized;
     _capacity =
         normalized == null ? maxChunkBytes : max(normalized, maxChunkBytes);
-    if (_tokens > _capacity) {
+    if (normalized == null) {
+      // "Off" banks nothing — a later enable must not release a stale
+      // burst banked under the previous rate.
+      _tokens = 0;
+    } else if (_tokens > _capacity) {
+      // Clamp, never top up: a rate landing on an empty bucket starts
+      // empty and a decrease can only shrink the bank.
       _tokens = _capacity.toDouble();
     }
-    // Nothing else tops tokens up: a rate landing on an empty bucket
-    // starts empty, and enabling then disabling leaves no stale burst
-    // for the next enable.
     _pumpWaiters();
   }
 

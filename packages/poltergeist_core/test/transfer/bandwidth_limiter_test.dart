@@ -336,5 +336,30 @@ void main() {
         expect(time.pendingTimers, isEmpty);
       });
     });
+
+    test('disabling then re-enabling carries no stale banked tokens', () {
+      fakeAsync((time) {
+        final limiter = BandwidthLimiter(
+          maxChunkBytes: 100,
+          bytesPerSecond: 100,
+        );
+        // Bank a full bucket, switch the limit off, switch it back on.
+        time.elapse(const Duration(seconds: 5));
+        limiter.bytesPerSecond = null;
+        limiter.bytesPerSecond = 100;
+        // The 100 banked under the first rate must not survive the
+        // off/on cycle — 300 bytes waits the full 3 s, not 2.
+        final outcome = _Outcome()..watch(limiter.acquire(300));
+        time.flushMicrotasks();
+        expect(outcome.done, isFalse);
+        time.elapse(const Duration(milliseconds: 2999));
+        time.flushMicrotasks();
+        expect(outcome.done, isFalse);
+        time.elapse(const Duration(milliseconds: 1));
+        time.flushMicrotasks();
+        expect(outcome.done, isTrue);
+        expect(time.pendingTimers, isEmpty);
+      });
+    });
   });
 }
