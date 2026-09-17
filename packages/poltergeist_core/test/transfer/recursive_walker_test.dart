@@ -455,6 +455,40 @@ void main() {
       expect(walker.flaggedEntries, 1);
       expect(walker.isComplete, isTrue);
     });
+
+    test('a flagged directory with an escaping path is terminal — '
+        'its children are never enumerated', () async {
+      remote.addDirectory('/src');
+      remote.addDirectory('/elsewhere/evil');
+      remote.directories['/src']!.add(
+        const RemoteFileEntry(
+          path: '/elsewhere/evil',
+          name: 'evil',
+          type: RemoteFileType.directory,
+        ),
+      );
+      remote.directories['/elsewhere/evil']!.add(
+        const RemoteFileEntry(
+          path: '/elsewhere/evil/innocent.txt',
+          name: 'innocent.txt',
+          type: RemoteFileType.file,
+          size: 1,
+        ),
+      );
+
+      final walker = remoteWalker(
+        isFlaggedEntry: (entry) => entry.path == '/elsewhere/evil',
+      );
+      final entries = entriesOf(await collect(walker, ['/src']));
+      expect(
+        entries.any((e) => e.entry.name == 'innocent.txt'),
+        isFalse,
+        reason: 'descending into a flagged directory would enumerate '
+            'outside the requested root and re-open the escape',
+      );
+      expect(walker.flaggedEntries, 1);
+      expect(walker.isComplete, isTrue);
+    });
   });
 
   group('delete enumeration (enumerate + report only — execution is the '

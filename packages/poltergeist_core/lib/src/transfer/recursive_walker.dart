@@ -90,8 +90,10 @@ class RecursiveWalker {
   /// [validatePathComponent] for remote ones).
   final FsLocation? destination;
 
-  /// The §13 flag detector — null until the upstream raw-name metadata
-  /// lands (STATUS item 13), in which case nothing is flagged.
+  /// The §13 flag detector — consulted once per enumerated entry, with
+  /// the result shared by the containment guard and classification.
+  /// Null until the upstream raw-name metadata lands (STATUS item 13),
+  /// in which case nothing is flagged.
   final bool Function(RemoteFileEntry entry)? isFlaggedEntry;
 
   /// Optional cancellation token — the same `RemoteTransferCancellation`
@@ -157,6 +159,7 @@ class RecursiveWalker {
       yield* _emitTransferEntry(
         WalkNode._(entry: entry, parent: null, depth: 0),
         pending,
+        flagged: isFlaggedEntry?.call(entry) ?? false,
       );
     }
     while (pending.isNotEmpty) {
@@ -173,10 +176,17 @@ class RecursiveWalker {
       }
       for (final child in children) {
         _throwIfCancelled();
-        _checkContainment(node, child);
+        // §13 is consulted once per entry and feeds both the
+        // containment guard and classification, so the two cannot
+        // diverge. A flagged entry is report-only — never listed,
+        // planned, or acted on — so its lossy name/path cannot cause
+        // an escape.
+        final flagged = isFlaggedEntry?.call(child) ?? false;
+        if (!flagged) _checkContainment(node, child);
         yield* _emitTransferEntry(
           WalkNode._(entry: child, parent: node, depth: node.depth + 1),
           pending,
+          flagged: flagged,
         );
       }
       // The listing closed — the directory's planned children are final
@@ -188,9 +198,10 @@ class RecursiveWalker {
 
   Stream<WalkEvent> _emitTransferEntry(
     WalkNode node,
-    Queue<WalkNode> pending,
-  ) async* {
-    final classified = _classify(node.entry);
+    Queue<WalkNode> pending, {
+    required bool flagged,
+  }) async* {
+    final classified = _classify(node.entry, flagged: flagged);
     if (classified.kind == WalkItemKind.directory) {
       pending.addLast(node);
     }
@@ -221,7 +232,8 @@ class RecursiveWalker {
         continue;
       }
       final node = WalkNode._(entry: entry, parent: null, depth: 0);
-      final classified = _classify(entry);
+      final classified =
+          _classify(entry, flagged: isFlaggedEntry?.call(entry) ?? false);
       if (classified.kind != WalkItemKind.directory) {
         yield WalkEntryEvent(
           node: node,
@@ -263,13 +275,15 @@ class RecursiveWalker {
         }
         final child = frame.children![frame.index++];
         _throwIfCancelled();
-        _checkContainment(frame.node, child);
+        // Same once-per-entry §13 contract as the transfer walk.
+        final flagged = isFlaggedEntry?.call(child) ?? false;
+        if (!flagged) _checkContainment(frame.node, child);
         final childNode = WalkNode._(
           entry: child,
           parent: frame.node,
           depth: frame.node.depth + 1,
         );
-        final childClassified = _classify(child);
+        final childClassified = _classify(child, flagged: flagged);
         if (childClassified.kind == WalkItemKind.directory) {
           stack.addLast(_WalkFrame(childNode));
         } else {
@@ -291,11 +305,14 @@ class RecursiveWalker {
   /// Per-entry classification, run at discovery time so the totals grow
   /// as entries arrive. [WalkItemKind.directory] defers emission for
   /// [WalkPurpose.delete] (post-order) — everything else emits inline.
-  ({WalkItemKind kind, String? detail}) _classify(RemoteFileEntry entry) {
+  ({WalkItemKind kind, String? detail}) _classify(
+    RemoteFileEntry entry, {
+    required bool flagged,
+  }) {
     // §13 before everything: a flagged name cannot round-trip, so the
     // entry is reported and never listed or planned. (A flagged symlink
     // reports as flagged — the name problem dominates the link skip.)
-    if (isFlaggedEntry?.call(entry) ?? false) {
+    if (flagged) {
       flaggedEntries++;
       return (
         kind: WalkItemKind.flagged,
@@ -358,11 +375,6 @@ class RecursiveWalker {
   /// illegal-name shapes (NUL, overlong) are not escapes: the
   /// destination-name rules reject them per item.
   void _checkContainment(WalkNode parent, RemoteFileEntry child) {
-    // §13 dominates: a flagged entry is report-only — never listed,
-    // planned, or acted on — so its lossy name/path cannot cause an
-    // escape. Checking it here would abort the whole walk on a name
-    // that can never round-trip anyway.
-    if (isFlaggedEntry?.call(child) ?? false) return;
     final name = child.name;
     if (name.isEmpty ||
         name == '.' ||
