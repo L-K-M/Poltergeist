@@ -5668,6 +5668,65 @@ invalidation with re-prompt; `transfer_persistence_test.dart` gains the
 restart re-prompt. Full core suite 1071 green (16 fixture skips),
 analyze clean. No journal schema, protocol, app, pin, or lock change.
 
+## M4 — recursive walker: streaming enumeration for upload/download/delete (2026-09-17)
+
+07 §3.5's recursive-operations bullet lands as the app-level
+`RecursiveWalker` (`src/transfer/recursive_walker.dart`), and the
+queue's scan now consumes it instead of owning the inline walk. The
+walker enumerates the source tree over the one VFS (D3 — local and
+remote endpoints alike) as a pull-driven `Stream<WalkEvent>`: the
+generator suspends at every yielded event, so pending discovery stays
+bounded at the in-flight listing plus the not-yet-listed directory
+backlog — a stopped consumer stops all further listing work, and a huge
+tree never materializes. Two purposes share the machinery:
+`WalkPurpose.transfer` keeps the queue's parents-first breadth order
+with a `WalkListingClosedEvent` marking each directory's planned
+children final (03 §4.2's closed-listing rule), and
+`WalkPurpose.delete` enumerates post-order (children before their
+container, symlinks as leaf targets — never followed) for the D15 trash
+follow-up; the walker itself never deletes — enumeration and reporting
+only.
+
+Safety is the walker's, ported from Séance's RemoteFilesController
+boundary rules: destination leaf names validate per the destination
+endpoint (`validateLocalName` for local — the full Windows reserved
+table, forbidden characters, trailing dot/space — `validatePathComponent`
+for remote), traversal containment requires every listed child to be a
+bare name joined under its container (`..`, separator-carrying, and
+path-mismatched entries fail the walk loudly instead of escaping the
+root — symlink loops cannot form since links are never followed), and
+§13 flagged names report as `WalkItemKind.flagged` rows — never
+silently dropped; a flagged directory is never listed because its lossy
+name cannot round-trip to the wire. Flag detection rides the injected
+`isFlaggedEntry` seam until the pinned `RemoteFileEntry` exposes
+raw-name metadata (open item 13); nothing is flagged by default, and a
+literal U+FFFD is never treated as flag evidence.
+
+The queue's `_walkRoots` consumes the stream with the pause/cancel gate
+ahead of every pull (a paused task runs zero listings; cancel unwinds
+at the next check point — an in-flight listing may still drain
+engine-side since the VFS has no cancellable listing, open item 12).
+Report kinds land as terminal rows (symlink skips, flagged skips,
+rejected-name and unsupported-type failures), files/dirs plan, journal,
+and arm exactly as before, and the per-item conflict check still runs
+at dispatch on fresh destination stats. `TransferTask` gains growing
+`totalFiles`/`totalDirectories`/`completedDirectories` counters and
+`TransferQueueProgressEvent` surfaces them alongside the existing byte
+totals and `scanComplete` marker (02 §5.3's `N+` floor).
+
+Validation: 18 walker tests in `recursive_walker_test.dart` (order and
+container linkage, pull-bound enumeration, growing totals, root/listing
+failures, the exact reserved-name table for both destination kinds,
+traversal escapes, flagged reporting, both cancel shapes, delete
+post-order and enumerate-only boundary) plus 7 queue-integration tests
+in `transfer_walker_test.dart` (upload and download direction, conflict
+handoff through `ask`, per-item rejections with siblings transferring,
+escape loud-failure, flagged row, mid-walk cancel admitting no new
+listings or items). Full core suite 1096 green (16 fixture skips),
+analyze clean. No journal schema, protocol, app, pin, or lock change.
+Recursive delete *execution* remains the D15 follow-up's — the walker
+only enumerates and reports delete candidates.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

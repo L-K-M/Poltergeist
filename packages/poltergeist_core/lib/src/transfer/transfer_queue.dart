@@ -13,6 +13,7 @@ import '../fs/local_fs_safety.dart';
 import 'bandwidth_limiter.dart';
 import 'bounded_transfer_sink.dart';
 import 'conflict_policy.dart';
+import 'recursive_walker.dart';
 import 'transfer_journal.dart';
 import 'transfer_task.dart';
 
@@ -62,6 +63,7 @@ class TransferQueue {
     RemoteFileSystem? localFileSystem,
     this.poolPolicy = const PoolPolicy(),
     bool Function(FsLocation destination)? isCaseInsensitiveDestination,
+    bool Function(RemoteFileEntry entry)? isFlaggedEntry,
     int maxInFlightFiles = maxGlobalInFlightTransfers,
     int maxPendingConflicts = maxSurfacedPendingConflicts,
     this.pipeBufferBytes = 4 * 1024 * 1024,
@@ -71,6 +73,7 @@ class TransferQueue {
   }) : _localFileSystem = localFileSystem ?? LocalFileSystem(),
        _isCaseInsensitiveDestination =
            isCaseInsensitiveDestination ?? _defaultCaseSensitivity,
+       _isFlaggedEntry = isFlaggedEntry ?? _noFlags,
        _maxInFlightFiles = maxInFlightFiles,
        _maxPendingConflicts = maxPendingConflicts,
        downloadLimiter = downloadLimiter ?? BandwidthLimiter(),
@@ -100,6 +103,15 @@ class TransferQueue {
   /// `taskRetryLimit` (the §3.3 reconnect-cycle bound per task).
   final PoolPolicy poolPolicy;
   final bool Function(FsLocation destination) _isCaseInsensitiveDestination;
+
+  /// The §13 flag detector handed to the scan's [RecursiveWalker] —
+  /// null until the upstream `RemoteFileEntry` exposes raw-name
+  /// metadata (docs/STATUS.md open item 13), in which case nothing is
+  /// flagged. Never wired to a decoded-name heuristic: a literal U+FFFD
+  /// in an otherwise valid name is real data, not a flag.
+  final bool Function(RemoteFileEntry entry) _isFlaggedEntry;
+
+  static bool _noFlags(RemoteFileEntry _) => false;
   final int _maxInFlightFiles;
 
   /// High-water mark for the in-memory pipe buffer between a source
@@ -527,86 +539,74 @@ class TransferQueue {
     }
   }
 
+  /// The §3.5 app-level walker drives the scan (03 §4.2): enumeration
+  /// is pull-driven — the pause/cancel gate runs before every pull, so
+  /// a paused task holds the whole walk (no listings run behind it) and
+  /// a cancelled task unwinds at the walker's next check point. The
+  /// pending-entry bound is the stream itself: a directory's children
+  /// only exist while its listing is being consumed, and the
+  /// not-yet-listed directory backlog is the only retained state.
   Future<void> _walkRoots(_TaskRuntime runtime) async {
     final task = runtime.task;
-    final pendingListings = <_DirState>[];
-
-    for (final rootPath in task.rootPaths) {
-      _throwIfTaskCancelled(task);
-      await _scanPauseGate(runtime);
-      try {
-        final entry = await _scanOp(
-          runtime,
-          (fs) => fs.stat(rootPath, followLinks: false),
-        );
-        await _scanEntry(
-          runtime,
-          entry,
-          containerKey: null,
-          containerPlanned: task.destinationDir,
-          pendingListings: pendingListings,
-        );
-      } on RemoteFileException catch (error) {
-        if (error.kind == RemoteFileErrorKind.disconnected ||
-            error.kind == RemoteFileErrorKind.cancelled) {
-          rethrow;
-        }
-        _addTerminalItem(
-          runtime,
-          sourcePath: rootPath,
-          destinationPath: _joinDest(
-            task.destination,
-            task.destinationDir,
-            _leafName(task.source, rootPath),
-          ),
-          state: TransferItemState.failed,
-          error: error.message,
-          failureKind: error.kind,
-        );
-      }
-    }
-
-    var next = 0;
-    while (next < pendingListings.length) {
-      _throwIfTaskCancelled(task);
-      await _scanPauseGate(runtime);
-      final directory = pendingListings[next++];
-      List<RemoteFileEntry> children;
-      try {
-        children = await _scanOp(
-          runtime,
-          (fs) => fs.listDirectory(directory.planned.source.path),
-        );
-      } on RemoteFileException catch (error) {
-        if (error.kind == RemoteFileErrorKind.disconnected ||
-            error.kind == RemoteFileErrorKind.cancelled) {
-          rethrow;
-        }
-        // The listing failed atomically: the directory item fails and no
-        // children were ever discovered.
-        _finishDirectory(
-          runtime,
-          directory,
-          outcome: _DirOutcome.failed,
-          error: error.message,
-          failureKind: error.kind,
-        );
-        continue;
-      }
-      for (final child in children) {
+    final walker = RecursiveWalker(
+      location: task.source,
+      purpose: WalkPurpose.transfer,
+      destination: task.destination,
+      isFlaggedEntry: _isFlaggedEntry,
+      cancellation: task.cancellation,
+      // Each VFS op rides the scan leases and the `disconnected`
+      // re-lease seam, exactly as the pre-walker inline walk did.
+      stat: (path) =>
+          _scanOp(runtime, (fs) => fs.stat(path, followLinks: false)),
+      listDirectory: (path) =>
+          _scanOp(runtime, (fs) => fs.listDirectory(path)),
+    );
+    final events = StreamIterator(walker.walk(task.rootPaths));
+    try {
+      while (true) {
         _throwIfTaskCancelled(task);
         await _scanPauseGate(runtime);
-        await _scanEntry(
-          runtime,
-          child,
-          containerKey: directory.planned.itemId,
-          containerPlanned: directory.planned.destinationPath,
-          pendingListings: pendingListings,
-        );
+        if (!await events.moveNext()) break;
+        final event = events.current;
+        switch (event) {
+          case WalkEntryEvent():
+            await _scanWalkEntry(runtime, event);
+          // The listing closed: this directory's mkdir and its file
+          // children become usable now (03 §4.2).
+          case WalkListingClosedEvent():
+            _scheduleDirectory(
+              runtime,
+              runtime.walkDirectories[event.directory]!,
+            );
+          // The listing failed atomically: the directory item fails and
+          // no children were ever discovered.
+          case WalkListingFailedEvent():
+            _finishDirectory(
+              runtime,
+              runtime.walkDirectories[event.directory]!,
+              outcome: _DirOutcome.failed,
+              error: event.error.message,
+              failureKind: event.error.kind,
+            );
+          case WalkRootFailedEvent():
+            _addTerminalItem(
+              runtime,
+              sourcePath: event.rootPath,
+              destinationPath: _joinDest(
+                task.destination,
+                task.destinationDir,
+                _leafName(task.source, event.rootPath),
+              ),
+              state: TransferItemState.failed,
+              error: event.error.message,
+              failureKind: event.error.kind,
+            );
+        }
       }
-      // The listing closed: this directory's mkdir and its file children
-      // become usable now (03 §4.2).
-      _scheduleDirectory(runtime, directory);
+    } finally {
+      // Dropping the subscription suspends the generator — a cancelled
+      // or failed walk performs no further listings.
+      await events.cancel();
     }
   }
 
@@ -622,49 +622,86 @@ class TransferQueue {
     }
   }
 
-  Future<void> _scanEntry(
+  /// Consumes one walker-classified entry (07 §3.5): the report kinds
+  /// land as terminal rows — symlink skips, §13 flagged names, and
+  /// destination-name rejections are scan-time outcomes the walker
+  /// already classified — while files and directories plan, journal,
+  /// and arm exactly as the pre-walker scan did. The per-item conflict
+  /// check still happens at dispatch time on fresh destination stats.
+  Future<void> _scanWalkEntry(
     _TaskRuntime runtime,
-    RemoteFileEntry entry, {
-    required String? containerKey,
-    required String containerPlanned,
-    required List<_DirState> pendingListings,
-  }) async {
+    WalkEntryEvent event,
+  ) async {
     final task = runtime.task;
+    final entry = event.entry;
+    final containerDir = event.container == null
+        ? null
+        : runtime.walkDirectories[event.container]!;
+    final containerKey = containerDir?.planned.itemId;
+    final containerPlanned =
+        containerDir?.planned.destinationPath ?? task.destinationDir;
     final plannedDest = _joinDest(
       task.destination,
       containerPlanned,
       entry.name,
     );
-    if (entry.isSymbolicLink) {
-      task.plan!.skippedSymlinks++;
-      _addTerminalItem(
-        runtime,
-        sourcePath: entry.path,
-        destinationPath: plannedDest,
-        size: entry.size,
-        state: TransferItemState.skipped,
-        error: 'symbolic links are not transferred',
-      );
-      return;
+    switch (event.kind) {
+      case WalkItemKind.symbolicLink:
+        task.plan!.skippedSymlinks++;
+        _addTerminalItem(
+          runtime,
+          sourcePath: entry.path,
+          destinationPath: plannedDest,
+          size: entry.size,
+          state: TransferItemState.skipped,
+          error: 'symbolic links are not transferred',
+        );
+        return;
+      case WalkItemKind.flagged:
+        // §13: a flagged name can never round-trip to the wire — the
+        // row reports the skip with its reason; nothing dispatches.
+        _addTerminalItem(
+          runtime,
+          sourcePath: entry.path,
+          destinationPath: plannedDest,
+          size: entry.size,
+          isDirectory: entry.isDirectory,
+          state: TransferItemState.skipped,
+          error: event.detail ?? 'the entry name is not valid UTF-8',
+        );
+        return;
+      case WalkItemKind.rejectedName:
+        _addTerminalItem(
+          runtime,
+          sourcePath: entry.path,
+          destinationPath: plannedDest,
+          size: entry.size,
+          isDirectory: entry.isDirectory,
+          state: TransferItemState.failed,
+          error: event.detail,
+          failureKind: RemoteFileErrorKind.other,
+        );
+        return;
+      case WalkItemKind.unsupported:
+        _addTerminalItem(
+          runtime,
+          sourcePath: entry.path,
+          destinationPath: plannedDest,
+          size: entry.size,
+          state: TransferItemState.failed,
+          error: event.detail ??
+              'unsupported source entry type ${entry.type.name}',
+          failureKind: RemoteFileErrorKind.unsupported,
+        );
+        return;
+      case WalkItemKind.file || WalkItemKind.directory:
+        break;
     }
-    String name;
-    try {
-      name = _validatedDestinationName(task.destination, entry.name);
-    } on FormatException catch (error) {
-      _addTerminalItem(
-        runtime,
-        sourcePath: entry.path,
-        destinationPath: plannedDest,
-        size: entry.size,
-        state: TransferItemState.failed,
-        error: error.message,
-        failureKind: RemoteFileErrorKind.other,
-      );
-      return;
-    }
+    // The walker already applied the destination's name rules.
+    final name = entry.name;
     final existing = await _scanStatDestination(runtime, plannedDest);
-    switch (entry.type) {
-      case RemoteFileType.file:
+    switch (event.kind) {
+      case WalkItemKind.file:
         // A restored mid-scan task merges onto its journaled item by
         // destination path: the re-scan reuses the itemId and an
         // already-terminal outcome suppresses re-dispatch (03 §4.6).
@@ -711,7 +748,7 @@ class TransferQueue {
           destinationPath: plannedDest,
         );
         _armFile(runtime, _FileWork(item: item, file: planned));
-      case RemoteFileType.directory:
+      case WalkItemKind.directory:
         final restored = runtime.takeRestored(plannedDest, entry.path);
         final planned = PlannedDirectory(
           source: entry,
@@ -763,19 +800,16 @@ class TransferQueue {
           dirState.resolvedPath = restored.resolvedPath;
           dirState.ready.complete();
         }
-        pendingListings.add(dirState);
-      case RemoteFileType.symbolicLink || RemoteFileType.other:
-        // symbolicLink already returned above; `other` (fifos, sockets)
-        // has no bytes to move and fails honestly.
-        _addTerminalItem(
-          runtime,
-          sourcePath: entry.path,
-          destinationPath: plannedDest,
-          size: entry.size,
-          state: TransferItemState.failed,
-          error: 'unsupported source entry type ${entry.type.name}',
-          failureKind: RemoteFileErrorKind.unsupported,
-        );
+        // Node-keyed so the walker's container link resolves back to the
+        // planned directory; the node itself holds the listing order.
+        runtime.walkDirectories[event.node] = dirState;
+      // The report kinds returned above — file/directory are the only
+      // kinds that reach the plan.
+      case WalkItemKind.symbolicLink ||
+          WalkItemKind.flagged ||
+          WalkItemKind.rejectedName ||
+          WalkItemKind.unsupported:
+        throw StateError('unreachable: ${event.kind} returned above');
     }
   }
 
@@ -1112,6 +1146,7 @@ class TransferQueue {
     switch (outcome) {
       case _DirOutcome.ready:
         item.state = TransferItemState.completed;
+        task.completedDirectories++;
       case _DirOutcome.skipped:
         item.state = TransferItemState.skipped;
         item.error = error ?? 'the containing directory was skipped';
@@ -1486,6 +1521,10 @@ class TransferQueue {
         total: total,
         taskTransferredBytes: task.transferredBytes,
         taskTotalBytes: task.totalBytes ?? 0,
+        taskTotalFiles: task.totalFiles,
+        taskTotalDirectories: task.totalDirectories,
+        taskCompletedFiles: task.completedFiles,
+        taskCompletedDirectories: task.completedDirectories,
         scanComplete: task.scanComplete,
       ),
     );
@@ -2206,6 +2245,11 @@ class TransferQueue {
       size: entry.size,
     );
     runtime.task.items.add(item);
+    if (isDirectory) {
+      runtime.task.totalDirectories++;
+    } else {
+      runtime.task.totalFiles++;
+    }
     _emit(TransferQueueItemEvent(runtime.task.id, item.id, item.state));
     return item;
   }
@@ -2634,6 +2678,11 @@ class TransferQueue {
         task.skippedItems++;
     }
     task.items.add(item);
+    if (isDirectory) {
+      task.totalDirectories++;
+    } else {
+      task.totalFiles++;
+    }
     _emit(
       TransferQueueItemEvent(task.id, item.id, item.state, error: item.error),
     );
@@ -2658,6 +2707,7 @@ class TransferQueue {
     required String sourcePath,
     required String destinationPath,
     required TransferItemState state,
+    bool isDirectory = false,
     int? size,
     String? error,
     RemoteFileErrorKind? failureKind,
@@ -2666,7 +2716,7 @@ class TransferQueue {
     final item = TransferItem(
       id: uuidV4(),
       sourcePath: sourcePath,
-      isDirectory: false,
+      isDirectory: isDirectory,
       destinationPath: destinationPath,
       size: size,
     );
@@ -2677,7 +2727,7 @@ class TransferQueue {
       PlanEntryRecord(
         taskId: task.id,
         itemId: item.id,
-        isDirectory: false,
+        isDirectory: isDirectory,
         sourcePath: sourcePath,
         destinationPath: destinationPath,
         sourceSize: size,
@@ -2694,6 +2744,11 @@ class TransferQueue {
     item.error = error;
     item.failureKind = failureKind;
     task.items.add(item);
+    if (isDirectory) {
+      task.totalDirectories++;
+    } else {
+      task.totalFiles++;
+    }
     if (state == TransferItemState.failed) runtime.task.failedItems++;
     if (state == TransferItemState.skipped) runtime.task.skippedItems++;
     _emit(
@@ -2849,15 +2904,6 @@ class TransferQueue {
           ? simpleCaseFold(path)
           : path;
 
-  String _validatedDestinationName(FsLocation destination, String name) {
-    if (destination is ServerFsLocation) {
-      validatePathComponent(name);
-    } else {
-      validateLocalName(name);
-    }
-    return name;
-  }
-
   String _leafName(FsLocation location, String path) =>
       location is ServerFsLocation
           ? path.replaceAll(RegExp(r'/+$'), '').split('/').last
@@ -2957,6 +3003,11 @@ class _TaskRuntime {
 
   /// Plan-directory state by `PlannedDirectory.itemId`.
   final Map<String, _DirState> directories = {};
+
+  /// Plan-directory state keyed by the §3.5 walker's node — the scan
+  /// resolves a child entry's container (and a closed/failed listing's
+  /// directory) through this identity link.
+  final Map<WalkNode, _DirState> walkDirectories = {};
 
   /// itemId → per-attempt token (03 §4.4: pause cancels attempts, never
   /// the sticky task token).
@@ -3169,7 +3220,9 @@ final class TransferQueueConflictEvent extends TransferQueueEvent {
 }
 
 /// Byte progress on one item plus the task rollups (02 §5.3's growing
-/// totals — `taskTotalBytes` is a floor while `scanComplete` is false).
+/// totals — `taskTotalBytes` and the `taskTotal*` counts are floors
+/// while `scanComplete` is false; `scanComplete` is the marker that
+/// makes them final).
 final class TransferQueueProgressEvent extends TransferQueueEvent {
   const TransferQueueProgressEvent(
     super.taskId, {
@@ -3178,6 +3231,10 @@ final class TransferQueueProgressEvent extends TransferQueueEvent {
     required this.total,
     required this.taskTransferredBytes,
     required this.taskTotalBytes,
+    required this.taskTotalFiles,
+    required this.taskTotalDirectories,
+    required this.taskCompletedFiles,
+    required this.taskCompletedDirectories,
     required this.scanComplete,
   });
 
@@ -3186,5 +3243,13 @@ final class TransferQueueProgressEvent extends TransferQueueEvent {
   final int? total;
   final int taskTransferredBytes;
   final int taskTotalBytes;
+
+  /// Planned file work items — the §3.5 walker's discovery count.
+  final int taskTotalFiles;
+
+  /// Planned directory entries.
+  final int taskTotalDirectories;
+  final int taskCompletedFiles;
+  final int taskCompletedDirectories;
   final bool scanComplete;
 }
