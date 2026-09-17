@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
@@ -474,24 +475,26 @@ void main() {
     });
 
     test('delete walks run over the local filesystem too', () async {
-      Directory('${tempDir.path}/d/sub').createSync(recursive: true);
-      File('${tempDir.path}/d/f.txt').writeAsBytesSync([1]);
-      File('${tempDir.path}/d/sub/g.txt').writeAsBytesSync([2, 3]);
+      // p.join throughout: local paths carry the platform separator.
+      final root = p.join(tempDir.path, 'd');
+      Directory(p.join(root, 'sub')).createSync(recursive: true);
+      File(p.join(root, 'f.txt')).writeAsBytesSync([1]);
+      File(p.join(root, 'sub', 'g.txt')).writeAsBytesSync([2, 3]);
 
       final walker = RecursiveWalker(
         source: local,
         location: const LocalFsLocation(),
         purpose: WalkPurpose.delete,
       );
-      final events = await collect(walker, ['${tempDir.path}/d']);
+      final events = await collect(walker, [root]);
       final paths =
           entriesOf(events).map((e) => e.entry.path).toList();
-      expect(paths.last, '${tempDir.path}/d');
-      expect(paths, contains('${tempDir.path}/d/f.txt'));
-      expect(paths, contains('${tempDir.path}/d/sub/g.txt'));
+      expect(paths.last, root);
+      expect(paths, contains(p.join(root, 'f.txt')));
+      expect(paths, contains(p.join(root, 'sub', 'g.txt')));
       expect(
-        paths.indexOf('${tempDir.path}/d/sub/g.txt'),
-        lessThan(paths.indexOf('${tempDir.path}/d/sub')),
+        paths.indexOf(p.join(root, 'sub', 'g.txt')),
+        lessThan(paths.indexOf(p.join(root, 'sub'))),
       );
       expect(tempDir.existsSync(), isTrue); // nothing was deleted
     });
