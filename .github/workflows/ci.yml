@@ -411,6 +411,9 @@ jobs:
         if: always()
         env:
           BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
+        # ${var,,} is a Bash >= 4 expansion — pin the shell rather than
+        # relying on the runner's implicit default.
+        shell: bash
         run: |
           # -n would warn even when the variable is deliberately falsy;
           # match the checker's truthy set (1/true, case-insensitive).
