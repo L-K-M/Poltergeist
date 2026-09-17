@@ -292,6 +292,35 @@ void main() {
       );
     });
 
+    test('a mid-scan disconnect rides the re-lease seam, then fails the '
+        'task — never a per-item failure', () async {
+      s1.addDirectory('/src/broken');
+      s1.addFile('/src/ok.txt', 'o'.codeUnits);
+      s1.listFailure = (path) => path == '/src/broken'
+          ? const RemoteFileException(
+              kind: RemoteFileErrorKind.disconnected,
+              operation: 'list',
+              message: 'connection dropped',
+            )
+          : null;
+
+      final task = queue.enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src'],
+          destinationDir: '/dst',
+        ),
+      );
+      await awaitTaskDone(task);
+
+      expect(task.state, TransferTaskState.failed);
+      // The retry/re-lease seam ran — the failure is one clean abort,
+      // not a failed directory row while siblings kept scanning.
+      expect(task.retryCount, greaterThan(0));
+      expect(task.scanComplete, isFalse);
+    });
+
     test('mid-walk cancel stops enumeration: no new listings, no new '
         'items', () async {
       s1.addDirectory('/src/a');

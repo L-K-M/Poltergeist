@@ -579,8 +579,16 @@ class TransferQueue {
               runtime.walkDirectories[event.directory]!,
             );
           // The listing failed atomically: the directory item fails and
-          // no children were ever discovered.
+          // no children were ever discovered. `disconnected`/`cancelled`
+          // are walk-ending, never per-item — the walker's contract is to
+          // propagate them as stream errors; rethrow defensively so a
+          // wrapped one cannot degrade into a failed row while siblings
+          // keep listing against a dead connection.
           case WalkListingFailedEvent():
+            if (event.error.kind == RemoteFileErrorKind.disconnected ||
+                event.error.kind == RemoteFileErrorKind.cancelled) {
+              throw event.error;
+            }
             _finishDirectory(
               runtime,
               runtime.walkDirectories[event.directory]!,
@@ -589,6 +597,10 @@ class TransferQueue {
               failureKind: event.error.kind,
             );
           case WalkRootFailedEvent():
+            if (event.error.kind == RemoteFileErrorKind.disconnected ||
+                event.error.kind == RemoteFileErrorKind.cancelled) {
+              throw event.error;
+            }
             _addTerminalItem(
               runtime,
               sourcePath: event.rootPath,
@@ -605,8 +617,13 @@ class TransferQueue {
       }
     } finally {
       // Dropping the subscription suspends the generator — a cancelled
-      // or failed walk performs no further listings.
-      await events.cancel();
+      // or failed walk performs no further listings. The await is kept
+      // so the generator finishes unwinding before teardown continues,
+      // but a cleanup error must not mask the exception that unwound
+      // the walk (the caller classifies task state off it).
+      try {
+        await events.cancel();
+      } catch (_) {}
     }
   }
 
