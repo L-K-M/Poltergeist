@@ -139,6 +139,15 @@ void main() {
         entriesOf(events).map((e) => e.entry.path),
         contains('/b/file.txt'),
       );
+      // The failed directory emitted exactly one entry event — its
+      // discovery row. The post-failure delete-target emission is
+      // delete-mode only; transfer mode never double-reports.
+      expect(
+        entriesOf(events)
+            .where((e) => e.entry.path == '/a/childless')
+            .length,
+        1,
+      );
     });
 
     test('enumeration is pull-bound: no listing runs ahead of the '

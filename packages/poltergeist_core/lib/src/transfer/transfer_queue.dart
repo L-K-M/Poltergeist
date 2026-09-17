@@ -105,10 +105,11 @@ class TransferQueue {
   final bool Function(FsLocation destination) _isCaseInsensitiveDestination;
 
   /// The §13 flag detector handed to the scan's [RecursiveWalker] —
-  /// null until the upstream `RemoteFileEntry` exposes raw-name
-  /// metadata (docs/STATUS.md open item 13), in which case nothing is
-  /// flagged. Never wired to a decoded-name heuristic: a literal U+FFFD
-  /// in an otherwise valid name is real data, not a flag.
+  /// it defaults to [_noFlags] until the upstream `RemoteFileEntry`
+  /// exposes raw-name metadata (docs/STATUS.md open item 13), so
+  /// nothing is flagged today. Never wire it to a decoded-name
+  /// heuristic: a literal U+FFFD in an otherwise valid name is real
+  /// data, not a flag.
   final bool Function(RemoteFileEntry entry) _isFlaggedEntry;
 
   static bool _noFlags(RemoteFileEntry _) => false;
@@ -705,7 +706,8 @@ class TransferQueue {
           size: entry.size,
           isDirectory: entry.isDirectory,
           state: TransferItemState.failed,
-          error: event.detail,
+          error: event.detail ??
+              'the entry name is not valid for the destination',
           failureKind: RemoteFileErrorKind.other,
         );
         return;
