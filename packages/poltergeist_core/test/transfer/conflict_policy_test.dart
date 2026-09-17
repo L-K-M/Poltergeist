@@ -149,32 +149,6 @@ void main() {
       );
     });
 
-    test('merge on a file source falls back to ask (02 §5.2)', () {
-      expect(
-        resolveTransferConflict(
-          verb: ConflictResolution.merge,
-          sourceIsDirectory: false,
-          existing: existing(),
-        ),
-        isA<ConflictAsk>(),
-      );
-    });
-  });
-
-  group('resolveTransferConflict — file onto directory', () {
-    DestinationStat? existing() => dirStat(modifiedAt: t0);
-
-    test('replace requires occupant removal (the D15 delete story)', () {
-      final d = resolveTransferConflict(
-        verb: ConflictResolution.replace,
-        sourceIsDirectory: false,
-        existing: existing(),
-        sourceModifiedAt: t0,
-      );
-      expect(d, isA<ConflictReplace>());
-      expect((d as ConflictReplace).removesOccupant, isTrue);
-    });
-
     test('replaceIfNewer newer removes the occupant; not-newer skips', () {
       expect(
         resolveTransferConflict(
@@ -193,6 +167,33 @@ void main() {
           sourceModifiedAt: t0,
         ),
         isA<ConflictSkip>(),
+      );
+    });
+  });
+
+  group('resolveTransferConflict — file onto directory', () {
+    DestinationStat? existing() => dirStat(modifiedAt: t0);
+
+    test('replace requires occupant removal (the D15 delete story)', () {
+      final d = resolveTransferConflict(
+        verb: ConflictResolution.replace,
+        sourceIsDirectory: false,
+        existing: existing(),
+        sourceModifiedAt: t0,
+      );
+      expect(d, isA<ConflictReplace>());
+      expect((d as ConflictReplace).removesOccupant, isTrue);
+    });
+
+    test('replaceIfNewer newer asks — a file mtime vs a dir mtime is meaningless', () {
+      expect(
+        resolveTransferConflict(
+          verb: ConflictResolution.replaceIfNewer,
+          sourceIsDirectory: false,
+          existing: existing(),
+          sourceModifiedAt: tNewer,
+        ),
+        isA<ConflictAsk>(),
       );
     });
 

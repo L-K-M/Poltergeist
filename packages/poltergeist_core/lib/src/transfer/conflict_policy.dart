@@ -246,10 +246,13 @@ ConflictDisposition resolveTransferConflict({
       if (!newer) {
         return const ConflictSkip('the destination is not older');
       }
-      return ConflictReplace(
-        existing: existing,
-        removesOccupant: occupantIsDirectory,
-      );
+      // A file's mtime vs a directory's mtime proves nothing about the
+      // directory's contents (POSIX dir mtimes track entry churn, not
+      // child edits) — surface the kind mismatch instead of deleting
+      // on it, the same fallback the merge verb takes.
+      return occupantIsDirectory
+          ? const ConflictAsk()
+          : ConflictReplace(existing: existing, removesOccupant: false);
     case ConflictResolution.merge:
       // Folders only, and only against a directory occupant: merging a
       // directory into a file is impossible, so §4.1 falls back to ask;
