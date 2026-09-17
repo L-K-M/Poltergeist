@@ -491,8 +491,9 @@ class FileTransferPersistence implements TransferPersistence {
         content.write('\n');
       }
     }
-    await _io.atomicRewrite(journalFile, content.toString());
-    _journalBytes = utf8.encode(content.toString()).length;
+    final text = content.toString();
+    await _io.atomicRewrite(journalFile, text);
+    _journalBytes = utf8.encode(text).length;
     _liveTasks.removeWhere((_, task) => task.isFinished);
     _finishedSinceCompact = 0;
     _recordsSinceFsync = 0;
