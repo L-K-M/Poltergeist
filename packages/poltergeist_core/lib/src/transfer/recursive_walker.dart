@@ -190,7 +190,9 @@ class RecursiveWalker {
         );
       }
       // The listing closed — the directory's planned children are final
-      // (03 §4.2's case-collision window rule).
+      // (03 §4.2's case-collision window rule). A listing completed
+      // while cancelled is discarded before this marker can emit.
+      _throwIfCancelled();
       yield WalkListingClosedEvent(directory: node);
     }
     isComplete = true;
@@ -264,6 +266,9 @@ class RecursiveWalker {
           }
         }
         if (frame.index >= frame.children!.length) {
+          // A listing completed while cancelled is discarded — no
+          // event derived from it may reach the consumer.
+          _throwIfCancelled();
           stack.removeLast();
           // Post-order: the container's own delete entry lands after
           // every descendant it still holds.
@@ -350,7 +355,11 @@ class RecursiveWalker {
         unsupportedEntries++;
         return (
           kind: WalkItemKind.unsupported,
-          detail: 'unsupported source entry type ${entry.type.name}',
+          // Transfer-centric reason; in a delete enumeration such an
+          // entry is simply a leaf the consumer may still remove.
+          detail: purpose == WalkPurpose.transfer
+              ? 'unsupported source entry type ${entry.type.name}'
+              : null,
         );
     }
   }

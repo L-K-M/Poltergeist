@@ -585,8 +585,7 @@ class TransferQueue {
           // wrapped one cannot degrade into a failed row while siblings
           // keep listing against a dead connection.
           case WalkListingFailedEvent():
-            if (event.error.kind == RemoteFileErrorKind.disconnected ||
-                event.error.kind == RemoteFileErrorKind.cancelled) {
+            if (_isWalkEndingError(event.error)) {
               throw event.error;
             }
             _finishDirectory(
@@ -597,8 +596,7 @@ class TransferQueue {
               failureKind: event.error.kind,
             );
           case WalkRootFailedEvent():
-            if (event.error.kind == RemoteFileErrorKind.disconnected ||
-                event.error.kind == RemoteFileErrorKind.cancelled) {
+            if (_isWalkEndingError(event.error)) {
               throw event.error;
             }
             _addTerminalItem(
@@ -623,9 +621,21 @@ class TransferQueue {
       // the walk (the caller classifies task state off it).
       try {
         await events.cancel();
-      } catch (_) {}
+      } catch (_) {
+        // Swallow deliberately: a teardown failure must not mask the
+        // exception that unwound the walk, and must not fail a walk
+        // that already completed successfully.
+      }
     }
   }
+
+  /// `disconnected` and `cancelled` are walk-ending conditions, never
+  /// per-item outcomes — the walker's contract is to propagate them as
+  /// stream errors; this guard keeps that contract enforced even if a
+  /// walker event ever carries one.
+  static bool _isWalkEndingError(RemoteFileException error) =>
+      error.kind == RemoteFileErrorKind.disconnected ||
+      error.kind == RemoteFileErrorKind.cancelled;
 
   /// Parks the scan while its task is paused (03 §4.4): pauseTask swaps
   /// in an incomplete gate, resumeTask and cancelTask both complete it —

@@ -292,17 +292,23 @@ void main() {
       );
     });
 
-    test('a mid-scan disconnect rides the re-lease seam, then fails the '
-        'task — never a per-item failure', () async {
+    test('a transient mid-scan disconnect rides the re-lease seam — '
+        'the directory lists on retry, never a per-item failure',
+        () async {
       s1.addDirectory('/src/broken');
+      s1.addFile('/src/broken/deep.txt', 'd'.codeUnits);
       s1.addFile('/src/ok.txt', 'o'.codeUnits);
-      s1.listFailure = (path) => path == '/src/broken'
-          ? const RemoteFileException(
-              kind: RemoteFileErrorKind.disconnected,
-              operation: 'list',
-              message: 'connection dropped',
-            )
-          : null;
+      // One drop, then the reconnect succeeds — the walk must retry
+      // through _scanOp rather than record a failed directory row.
+      var brokenListings = 0;
+      s1.listFailure = (path) =>
+          path == '/src/broken' && brokenListings++ == 0
+              ? const RemoteFileException(
+                  kind: RemoteFileErrorKind.disconnected,
+                  operation: 'list',
+                  message: 'connection dropped',
+                )
+              : null;
 
       final task = queue.enqueue(
         copySpec(
@@ -314,11 +320,15 @@ void main() {
       );
       await awaitTaskDone(task);
 
-      expect(task.state, TransferTaskState.failed);
-      // The retry/re-lease seam ran — the failure is one clean abort,
-      // not a failed directory row while siblings kept scanning.
-      expect(task.retryCount, greaterThan(0));
-      expect(task.scanComplete, isFalse);
+      expect(task.state, TransferTaskState.completed);
+      // The re-lease seam retried the listing (retryCount resets on
+      // success, so the call count is the observable proof).
+      expect(brokenListings, 2);
+      expect(task.failedItems, 0);
+      expect(task.scanComplete, isTrue);
+      // The retried listing's children transferred — nothing was lost.
+      expect(s2.fileBytes['/dst/src/broken/deep.txt'], 'd'.codeUnits);
+      expect(s2.fileBytes['/dst/src/ok.txt'], 'o'.codeUnits);
     });
 
     test('mid-walk cancel stops enumeration: no new listings, no new '
