@@ -255,13 +255,18 @@ class RecursiveWalker {
             _rethrowIfWalkEnding(error);
             failedEntries++;
             // The directory could not be listed — it is reported failed
-            // (its delete is the consumer's call) and its subtree stays
-            // undiscovered.
+            // and its subtree stays undiscovered. It still emits as a
+            // post-order delete target: the consumer can attempt the
+            // delete and fail honestly rather than never see the node.
             yield WalkListingFailedEvent(
               directory: frame.node,
               error: error,
             );
             stack.removeLast();
+            yield WalkEntryEvent(
+              node: frame.node,
+              kind: WalkItemKind.directory,
+            );
             continue;
           }
         }
@@ -355,13 +360,7 @@ class RecursiveWalker {
         unsupportedEntries++;
         return (
           kind: WalkItemKind.unsupported,
-          // In a delete enumeration such an entry is still a leaf the
-          // consumer may remove — the detail keeps the entry type
-          // visible either way.
-          detail: purpose == WalkPurpose.transfer
-              ? 'unsupported source entry type ${entry.type.name}'
-              : 'unsupported source entry type ${entry.type.name} '
-                  '(deletable as a leaf)',
+          detail: 'unsupported source entry type ${entry.type.name}',
         );
     }
   }

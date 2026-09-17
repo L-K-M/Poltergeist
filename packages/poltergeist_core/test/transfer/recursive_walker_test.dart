@@ -635,8 +635,9 @@ void main() {
         '/t/locked',
       );
       final paths = entriesOf(events).map((e) => e.entry.path).toList();
-      // /t/locked itself is still reported (its delete is the
-      // consumer's call — it may fail honestly), /t last.
+      // /t/locked itself is still reported as a delete target (its
+      // delete is the consumer's call — it may fail honestly), /t last.
+      expect(paths, contains('/t/locked'));
       expect(paths.last, '/t');
       expect(paths, contains('/t/ok.txt'));
     });

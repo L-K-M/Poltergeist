@@ -335,13 +335,16 @@ void main() {
         'and fails the task — never a per-item failure', () async {
       s1.addDirectory('/src/broken');
       s1.addFile('/src/ok.txt', 'o'.codeUnits);
-      s1.listFailure = (path) => path == '/src/broken'
-          ? const RemoteFileException(
-              kind: RemoteFileErrorKind.disconnected,
-              operation: 'list',
-              message: 'connection dropped',
-            )
-          : null;
+      var brokenListAttempts = 0;
+      s1.listFailure = (path) {
+        if (path != '/src/broken') return null;
+        brokenListAttempts++;
+        return const RemoteFileException(
+          kind: RemoteFileErrorKind.disconnected,
+          operation: 'list',
+          message: 'connection dropped',
+        );
+      };
 
       final task = queue.enqueue(
         copySpec(
@@ -354,6 +357,10 @@ void main() {
       await awaitTaskDone(task);
 
       expect(task.state, TransferTaskState.failed);
+      // The seam retried before giving up, and the recorded failure is
+      // the disconnect itself.
+      expect(brokenListAttempts, greaterThan(1));
+      expect(task.error, contains('connection dropped'));
       // failedItems counts scan-produced failure rows; the teardown
       // mass-failure assigns state without bumping it, so zero pins
       // "no per-item failure while the seam gave up".
