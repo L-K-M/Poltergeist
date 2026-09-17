@@ -1220,9 +1220,11 @@ void main() {
         'results.json',
         _resultsJson(rows: landedRows()),
       );
+      // 'true' is the spelling the production repo variable carries; the
+      // '1' spelling stays covered by the over-budget test below.
       final (exitCodeValue, stdoutText, _) = await runChecker(
         arguments: ['--results', results, '--tiers', 'a'],
-        environment: {'BENCH_ENFORCE_A': '1'},
+        environment: {'BENCH_ENFORCE_A': 'true'},
       );
       expect(exitCodeValue, 0, reason: stdoutText);
       for (final id in ['P3', 'P5', 'P7']) {
