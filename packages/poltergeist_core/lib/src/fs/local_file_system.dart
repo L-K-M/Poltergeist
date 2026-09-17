@@ -66,6 +66,7 @@ class LocalFileSystem implements RemoteFileSystem {
   static const int _eperm = 1;
   static const int _eacces = 13;
   static const int _eexist = 17;
+  static const int _exdev = 18;
   static const int _enotdir = 20;
   static const int _enotemptyLinux = 39;
   static const int _enotemptyDarwin = 66;
@@ -438,7 +439,16 @@ class LocalFileSystem implements RemoteFileSystem {
     };
     try {
       await entity.rename(newPath);
-    } on FileSystemException {
+    } on FileSystemException catch (error) {
+      // EXDEV — the paths sit on different mounted filesystems — is not
+      // a rename failure: it is the one outcome the caller degrades to
+      // a durable copy+delete (00 D26). It must stay a distinct type,
+      // or the generic guard below would flatten it into `other` and
+      // the engine could never tell "use the pipe" from "the move
+      // failed".
+      if (error.osError?.errorCode == _exdev) {
+        throw LocalCrossDeviceRenameException(path: oldPath, newPath: newPath);
+      }
       // POSIX rename replaces an existing target atomically; Windows
       // cannot, so an overwrite of a regular file falls back to the
       // backup-rename dance — never delete-then-rename, which strands
@@ -1096,6 +1106,29 @@ class LocalPathTypeChangedException extends RemoteFileException {
          message:
              'Could not $operation "$path": the item changed type while '
              'being changed, and the write landed on "$targetPath"',
+       );
+}
+
+/// `rename(2)` refused because [path] and [newPath] live on different
+/// mounted filesystems (EXDEV). Not a failure — the one rename outcome
+/// the transfer engine degrades to a durable copy+delete inside the
+/// same queue task (00 D26), so it must survive the adapter's guard as
+/// a distinct type instead of flattening into `other`. `kind` stays
+/// `other` on purpose: it is not a name collision, and the conflict
+/// model must never auto-resolve it.
+class LocalCrossDeviceRenameException extends RemoteFileException {
+  /// The destination the same-device rename could not reach.
+  final String newPath;
+
+  LocalCrossDeviceRenameException({
+    required super.path,
+    required this.newPath,
+  }) : super(
+         kind: RemoteFileErrorKind.other,
+         operation: 'rename',
+         message:
+             'Could not rename "$path" to "$newPath": the paths are on '
+             'different filesystems',
        );
 }
 

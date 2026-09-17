@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
@@ -69,11 +69,14 @@ class TransferQueue {
     this.pipeBufferBytes = 4 * 1024 * 1024,
     BandwidthLimiter? downloadLimiter,
     BandwidthLimiter? uploadLimiter,
+    Future<void> Function(String destinationPath)? flushLocalDestination,
     this.persistence,
   }) : _localFileSystem = localFileSystem ?? LocalFileSystem(),
        _isCaseInsensitiveDestination =
            isCaseInsensitiveDestination ?? _defaultCaseSensitivity,
        _isFlaggedEntry = isFlaggedEntry ?? _noFlags,
+       flushLocalDestination =
+           flushLocalDestination ?? _flushLocalDestinationDefault,
        _maxInFlightFiles = maxInFlightFiles,
        _maxPendingConflicts = maxPendingConflicts,
        downloadLimiter = downloadLimiter ?? BandwidthLimiter(),
@@ -132,6 +135,25 @@ class TransferQueue {
   /// pipe path stays literal) but unlimited, so a local→local hop never
   /// pays into the network budgets.
   final BandwidthLimiter _localLimiter = BandwidthLimiter();
+
+  /// The durability barrier a move landing on a local destination runs
+  /// before its source is unlinked (00 D26): fsync the landed file's
+  /// data, then the destination's containing directory, so a failure or
+  /// crash leaves either the original or a durable copy — never
+  /// neither. Injectable for tests; the production default is
+  /// [_flushLocalDestinationDefault].
+  final Future<void> Function(String destinationPath) flushLocalDestination;
+
+  /// The default [flushLocalDestination]: the journal's own fsync
+  /// primitives (03 §4.6's durability rule, borrowed for D26's move) —
+  /// file data first, then the parent directory so the rename that
+  /// committed the file survives power loss. The directory fsync is a
+  /// no-op on Windows, where dart:io cannot open a directory handle.
+  static Future<void> _flushLocalDestinationDefault(String destinationPath) {
+    const io = TransferJournalIo();
+    final file = File(destinationPath);
+    return io.fsyncFile(file).then((_) => io.fsyncDirectory(file.parent));
+  }
 
   /// The surfaced-conflict bound (the task's "bounded pending-conflict
   /// storage"): at most this many parked items sit in [pendingConflicts]
@@ -1018,6 +1040,32 @@ class TransferQueue {
       directory.planned.name,
     );
     final existing = await _statOrNull(dstFs, destination);
+    // D26's directory self-move, ahead of the conflict verbs: a local→
+    // local move whose resolved destination IS the source directory —
+    // the same path, or a spelling this volume folds/resolves to it —
+    // leaves the tree in place. The file children resolve onto their
+    // own source paths and self-complete in `_decideFile`; marking the
+    // state here keeps `_removeMovedDirectories` from unlinking the
+    // source afterward.
+    if (existing != null &&
+        existing.isDirectory &&
+        task.operation == TransferOperation.move &&
+        task.source is LocalFsLocation &&
+        task.destination is LocalFsLocation &&
+        await _isSelfTarget(
+          dstFs,
+          directory.planned.source.path,
+          destination,
+        )) {
+      directory.selfTarget = true;
+      _finishDirectory(
+        runtime,
+        directory,
+        outcome: _DirOutcome.ready,
+        resolvedPath: destination,
+      );
+      return;
+    }
     // 02 §5.2's folder semantics at the decision level: `merge` recurses
     // (the directory resolves to its existing destination and children
     // land under the file policy), `keepBoth` creates the source under
@@ -1360,6 +1408,16 @@ class TransferQueue {
                 failureKind: RemoteFileErrorKind.conflict,
               );
               return;
+            case _FileSelfTarget(:final destinationPath):
+              // The resolved destination IS the source (a move into the
+              // file's own directory, or a folded spelling of it on a
+              // case-insensitive volume): the move's end state already
+              // holds — complete in place instead of piping the file
+              // onto itself and then unlinking the only copy (00 D26's
+              // never-self-overwrite rule).
+              item.destinationPath = destinationPath;
+              _finishItem(runtime, item, TransferItemState.completed);
+              return;
             case _FileCommit(
               destinationPath: final commitPath,
               overwrite: final overwrite,
@@ -1369,6 +1427,29 @@ class TransferQueue {
               // keep-both item reports its numbered path mid-transfer.
               item.destinationPath = commitPath;
               try {
+                if (await _commitLocalMove(
+                  task,
+                  dstFs,
+                  file,
+                  commitPath,
+                  overwrite: overwrite,
+                  expectedTarget: expectedTarget,
+                )) {
+                  // rename(2) moved the entry atomically — mtime and
+                  // mode ride along, nothing was piped, and there is
+                  // no post-copy source unlink. The file counts as
+                  // fully transferred for progress parity with the
+                  // piped path.
+                  _onFileProgress(
+                    runtime,
+                    item,
+                    file.source.size ?? 0,
+                    file.source.size,
+                  );
+                  task.retryCount = 0;
+                  _finishItem(runtime, item, TransferItemState.completed);
+                  return;
+                }
                 await _pipe(
                   source: srcFs,
                   destination: dstFs,
@@ -1455,6 +1536,14 @@ class TransferQueue {
   /// without setStat reports `unsupported`, which is absorbed); the move
   /// verb then deletes the source file — a delete failure fails the item
   /// because a move that leaves its source is not complete (02 §5.2).
+  ///
+  /// For a move landing on local storage the delete is gated on 00 D26's
+  /// durability barrier: the piped copy is byte-verified but only
+  /// page-cache durable until [flushLocalDestination] fsyncs the file's
+  /// data and then its containing directory — a crash must leave either
+  /// the original or a durable copy, never neither. A same-device local
+  /// move never reaches here: `_commitLocalMove` renamed the entry
+  /// atomically instead.
   Future<void> _postCommit(
     _TaskRuntime runtime,
     RemoteFileSystem srcFs,
@@ -1471,7 +1560,63 @@ class TransferQueue {
       }
     }
     if (runtime.task.operation == TransferOperation.move) {
+      if (runtime.task.destination is LocalFsLocation) {
+        await flushLocalDestination(destinationPath);
+      }
       await srcFs.delete(file.source);
+    }
+  }
+
+  /// D26's same-device local move: rename(2) through the VFS seam — one
+  /// atomic directory-entry swap carrying mtime and mode, with no bytes
+  /// through the pipe and no post-copy unlink. Returns true when the
+  /// rename committed; false only on [LocalCrossDeviceRenameException]
+  /// (EXDEV), where the caller falls back to the durable piped
+  /// copy+delete — [flushLocalDestination] then runs before the source
+  /// unlink. Any other throw is a real rename error and propagates for
+  /// the caller's conflict-retry or item failure.
+  Future<bool> _commitLocalMove(
+    TransferTask task,
+    RemoteFileSystem dstFs,
+    PlannedFile file,
+    String destinationPath, {
+    required bool overwrite,
+    RemoteFileEntry? expectedTarget,
+  }) async {
+    if (task.operation != TransferOperation.move ||
+        task.source is! LocalFsLocation ||
+        task.destination is! LocalFsLocation) {
+      return false;
+    }
+    if (overwrite && expectedTarget != null) {
+      // The piped path re-verifies the occupant at commit; the rename
+      // must do the same — POSIX rename clobbers whatever is there, so
+      // an occupant that changed between decide and commit conflicts
+      // here instead of being silently overwritten. The caller's
+      // conflict-retry then re-decides on fresh reality (03 §4.2).
+      final latest = await _statOrNull(dstFs, destinationPath);
+      if (latest == null ||
+          latest.size != expectedTarget.size ||
+          latest.modifiedAt != expectedTarget.modifiedAt) {
+        throw RemoteFileException(
+          kind: RemoteFileErrorKind.conflict,
+          operation: 'rename',
+          path: destinationPath,
+          message:
+              '"$destinationPath" changed on disk before the move '
+              'committed.',
+        );
+      }
+    }
+    try {
+      await dstFs.rename(
+        file.source.path,
+        destinationPath,
+        overwrite: overwrite,
+      );
+      return true;
+    } on LocalCrossDeviceRenameException {
+      return false;
     }
   }
 
@@ -1576,6 +1721,19 @@ class TransferQueue {
     final file = work.file;
     final candidate = _joinDest(task.destination, containerPath, file.name);
     final existing = await _statOrNull(dstFs, candidate);
+    // D26's self-target rule, ahead of the conflict verbs: a local→local
+    // move whose resolved destination names the source itself — the same
+    // path, or a spelling that folds/resolves to it on this volume —
+    // must never pipe onto itself and then unlink the only copy. The
+    // move's end state already holds, so the item completes in place.
+    if (existing != null &&
+        !existing.isDirectory &&
+        task.operation == TransferOperation.move &&
+        task.source is LocalFsLocation &&
+        task.destination is LocalFsLocation &&
+        await _isSelfTarget(dstFs, file.source.path, candidate)) {
+      return _FileSelfTarget(candidate);
+    }
     switch (resolveTransferConflict(
       verb: _effectiveFileVerb(runtime, work.item.id),
       sourceIsDirectory: false,
@@ -2091,6 +2249,9 @@ class TransferQueue {
         if (dirState == null || dirState.outcome != _DirOutcome.ready) {
           continue;
         }
+        // A D26 self-move resolved the directory to its own path — the
+        // tree it would delete is the destination.
+        if (dirState.selfTarget) continue;
         if (!_subtreeFullyCompleted(runtime, directory)) continue;
         try {
           await srcFs.delete(directory.source);
@@ -2952,6 +3113,27 @@ class TransferQueue {
     }
   }
 
+  /// Whether the planned destination names the source entry itself —
+  /// the same path, or a spelling that canonicalizes to it on this
+  /// volume (a case-insensitive filesystem folds `SRC/` onto `src/`, and
+  /// a symlink at the destination resolves through to the source).
+  /// Only the local→local move path asks: everywhere else the conflict
+  /// model's view of the occupant is authoritative. A canonicalize
+  /// failure is inconclusive, not proof — the normal rules then apply.
+  Future<bool> _isSelfTarget(
+    RemoteFileSystem fs,
+    String sourcePath,
+    String destinationPath,
+  ) async {
+    if (sourcePath == destinationPath) return true;
+    try {
+      return await fs.canonicalize(sourcePath) ==
+          await fs.canonicalize(destinationPath);
+    } on RemoteFileException {
+      return false;
+    }
+  }
+
   /// Trailing separators are stripped and exact duplicates plus roots
   /// nested inside an already-kept root are dropped. Separator handling is
   /// source-aware: a remote path may legitimately contain a backslash in a
@@ -3122,6 +3304,12 @@ class _DirState {
   final Completer<void> ready = Completer();
   String? resolvedPath;
   _DirOutcome outcome = _DirOutcome.pending;
+
+  /// 00 D26's directory self-move: the resolved destination canonicalizes
+  /// to the source directory itself, so the tree stays in place — the
+  /// file children self-complete, and `_removeMovedDirectories` must
+  /// not unlink the source.
+  bool selfTarget = false;
 }
 
 enum _DirOutcome { pending, ready, skipped, failed, cancelled }
@@ -3167,6 +3355,17 @@ final class _FileError extends _FileDecision {
   const _FileError(this.message);
 
   final String message;
+}
+
+/// The resolved destination IS the source entry (00 D26): a local→local
+/// move into the file's own directory — possibly through a spelling a
+/// case-insensitive volume folds onto it — is already satisfied. The
+/// item completes in place rather than piping onto itself and then
+/// unlinking the only copy.
+final class _FileSelfTarget extends _FileDecision {
+  const _FileSelfTarget(this.destinationPath);
+
+  final String destinationPath;
 }
 
 final class _FileCommit extends _FileDecision {

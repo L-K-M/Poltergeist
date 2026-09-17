@@ -98,7 +98,10 @@ export 'src/connection/ssh_transport.dart'
         SshTransportOpener,
         openDartSshTransport;
 export 'src/fs/local_file_system.dart'
-    show LocalFileSystem, LocalPathTypeChangedException;
+    show
+        LocalFileSystem,
+        LocalCrossDeviceRenameException,
+        LocalPathTypeChangedException;
 export 'src/fs/local_fs_safety.dart'
     show
         ensureSafeLocalDirectory,
