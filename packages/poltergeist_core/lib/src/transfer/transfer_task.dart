@@ -115,11 +115,14 @@ class PlannedDirectory {
     required this.containerKey,
     required this.destinationPath,
     this.existing,
-  });
+    String? itemId,
+  }) : itemId = itemId ?? uuidV4();
 
   /// Identity of this plan item (a scan-minted uuid — 03 §4.6 keys journal
-  /// records on it, never on the destination path).
-  final String itemId = uuidV4();
+  /// records on it, never on the destination path). Journal restore passes
+  /// the journaled id back in so a re-scan merges onto the records the
+  /// crashed scan wrote (03 §4.6's upsert rule).
+  final String itemId;
 
   /// The source directory entry as the scan saw it.
   final RemoteFileEntry source;
@@ -153,9 +156,12 @@ class PlannedFile {
     required this.containerKey,
     required this.destinationPath,
     this.existing,
-  });
+    String? itemId,
+  }) : itemId = itemId ?? uuidV4();
 
-  final String itemId = uuidV4();
+  /// See [PlannedDirectory.itemId] — journal restore reuses the journaled
+  /// id so re-scanned entries collapse onto their crashed-scan records.
+  final String itemId;
   final RemoteFileEntry source;
   final String name;
   final String? containerKey;
@@ -208,10 +214,20 @@ class TransferTaskSpec {
 /// created by `TransferQueue.enqueue`, advanced by the queue, and reported
 /// through `TransferQueue.events`.
 class TransferTask {
-  TransferTask(this.spec);
+  TransferTask(this.spec)
+    : id = uuidV4(),
+      enqueuedAt = DateTime.now();
+
+  /// Journal restore (03 §4.6): a replayed task keeps its journaled
+  /// identity so its records still key on it.
+  TransferTask.restored(
+    this.spec, {
+    required this.id,
+    required this.enqueuedAt,
+  });
 
   /// `uuidV4()` from seance_protocol.
-  final String id = uuidV4();
+  final String id;
 
   final TransferTaskSpec spec;
 
@@ -222,7 +238,15 @@ class TransferTask {
   ResolvedConflictPolicy get policy => spec.policy;
   TransferOperation get operation => spec.operation;
 
-  final DateTime enqueuedAt = DateTime.now();
+  final DateTime enqueuedAt;
+
+  /// When work on the task actually started (the scan phase's launch) —
+  /// the history record's `startedAt` (03 §4.6). Null until then.
+  DateTime? startedAt;
+
+  /// When the task reached a terminal state — the history record's
+  /// `finishedAt`. Null while live.
+  DateTime? finishedAt;
 
   TransferTaskState state = TransferTaskState.queued;
 

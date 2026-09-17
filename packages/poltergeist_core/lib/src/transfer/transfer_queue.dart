@@ -11,6 +11,7 @@ import '../connection/pool_policy.dart';
 import '../fs/local_file_system.dart';
 import '../fs/local_fs_safety.dart';
 import 'bounded_transfer_sink.dart';
+import 'transfer_journal.dart';
 import 'transfer_task.dart';
 
 /// The engine-side transfer queue (03 §4).
@@ -35,11 +36,16 @@ import 'transfer_task.dart';
 /// from byte zero on resume, which is why the sticky task token is
 /// reserved for real cancel.
 ///
-/// Deferred to later M4 slices: journal/persistence (03 §4.6), the D14
-/// produce-on-demand hook, the token-bucket throttle, remote-to-remote
-/// piping, history, the conflict prompt (`ask`-policy and
-/// replace-on-directory decisions surface as honest per-item conflicts
-/// until the prompt machinery lands), and all UI.
+/// Persistence (03 §4.6) rides the [persistence] seam: when it is null
+/// the queue keeps exactly the in-memory behavior above; when a store is
+/// injected, lifecycle and item transitions are journaled before they
+/// take effect, terminal tasks append history records, and [restore]
+/// rebuilds a crashed session's queue under a forced pause.
+///
+/// Deferred to later M4 slices: the D14 produce-on-demand hook, the
+/// token-bucket throttle, remote-to-remote piping, the conflict prompt
+/// (`ask`-policy and replace-on-directory decisions surface as honest
+/// per-item conflicts until the prompt machinery lands), and all UI.
 class TransferQueue {
   TransferQueue({
     required this.connections,
@@ -48,6 +54,7 @@ class TransferQueue {
     bool Function(FsLocation destination)? isCaseInsensitiveDestination,
     int maxInFlightFiles = maxGlobalInFlightTransfers,
     this.pipeBufferBytes = 4 * 1024 * 1024,
+    this.persistence,
   }) : _localFileSystem = localFileSystem ?? LocalFileSystem(),
        _isCaseInsensitiveDestination =
            isCaseInsensitiveDestination ?? _defaultCaseSensitivity,
@@ -76,6 +83,10 @@ class TransferQueue {
   /// `download` and a destination `upload` (03 §4.5's small-buffer rule).
   final int pipeBufferBytes;
 
+  /// The write-ahead journal + history seam (03 §4.6). Null means the
+  /// queue runs purely in memory — the #147 behavior, unchanged.
+  final TransferPersistence? persistence;
+
   /// Insertion order is queue order — dispatch scans this map front to back.
   final LinkedHashMap<String, _TaskRuntime> _tasks = LinkedHashMap();
   final StreamController<TransferQueueEvent> _events =
@@ -89,6 +100,10 @@ class TransferQueue {
   int _inFlightFiles = 0;
   bool _paused = false;
   bool _disposed = false;
+
+  /// Set once [restore] ran — repeat calls are no-ops so the engine host
+  /// can fire it unconditionally at startup.
+  bool _restored = false;
   Completer<void> _notPaused = Completer()..complete();
 
   /// Queue-order snapshot of tasks (unmodifiable).
@@ -129,6 +144,16 @@ class TransferQueue {
       ),
     );
     final runtime = _TaskRuntime(task);
+    // Journal the enqueue before the task becomes visible to dispatch —
+    // the write-ahead rule that makes a crash between "the user hit
+    // transfer" and the first scan recoverable (03 §4.6).
+    persistence?.appendJournal(
+      TaskEnqueuedRecord(
+        taskId: task.id,
+        spec: task.spec,
+        enqueuedAt: task.enqueuedAt,
+      ),
+    );
     _tasks[task.id] = runtime;
     _emit(TransferQueueTaskEvent(task.id, task.state));
     unawaited(_runTask(runtime));
@@ -166,6 +191,7 @@ class TransferQueue {
         task.state != TransferTaskState.running) {
       return;
     }
+    _journalState(task, TransferTaskState.paused);
     task.state = TransferTaskState.paused;
     _emit(TransferQueueTaskEvent(task.id, task.state));
     assert(
@@ -178,17 +204,25 @@ class TransferQueue {
     }
   }
 
+  /// Resume one task. For a task restored from the journal in `paused`
+  /// state this ends its surviving journaled pause; the queue-level
+  /// restore pause still gates admission until `resumeQueue` (03 §4.6).
   void resumeTask(String taskId) {
     final runtime = _tasks[taskId];
     if (runtime == null) return;
     final task = runtime.task;
     if (task.state != TransferTaskState.paused) return;
-    task.state = task.scanComplete
+    final next = task.scanComplete
         ? TransferTaskState.queued
         : TransferTaskState.scanning;
+    _journalState(task, next);
+    task.state = next;
     _emit(TransferQueueTaskEvent(task.id, task.state));
     if (!runtime.notPaused.isCompleted) runtime.notPaused.complete();
     _pump();
+    // A restored task whose every item already finished (its terminal
+    // record was the torn tail) drains to its terminal state here.
+    _maybeFinishTask(runtime);
   }
 
   /// Per-task cancel (03 §4.4): stops new work via the sticky token and
@@ -201,7 +235,9 @@ class TransferQueue {
     final task = runtime.task;
     if (task.isTerminal) return;
     task.cancellation.cancel();
+    _journalState(task, TransferTaskState.cancelled);
     task.state = TransferTaskState.cancelled;
+    task.finishedAt ??= DateTime.now();
     _emit(TransferQueueTaskEvent(task.id, task.state));
     if (!runtime.notPaused.isCompleted) runtime.notPaused.complete();
     for (final attempt in runtime.attempts.values) {
@@ -231,6 +267,10 @@ class TransferQueue {
       cancelTask(runtime.task.id);
     }
     await Future.wait(_tasks.values.map((rt) => rt.done.future));
+    // Every lifecycle append is already queued on the writer chain —
+    // shutdown runs the clean-shutdown compaction and final fsync behind
+    // them (03 §4.6).
+    await persistence?.shutdown();
     await _events.close();
   }
 
@@ -240,6 +280,7 @@ class TransferQueue {
 
   Future<void> _runTask(_TaskRuntime runtime) async {
     final task = runtime.task;
+    task.startedAt ??= DateTime.now();
     _setTaskState(runtime, TransferTaskState.scanning);
     try {
       await _scan(runtime);
@@ -269,9 +310,20 @@ class TransferQueue {
     task.totalBytes = 0;
     runtime.scanning = true;
     try {
+      // Gate before leasing: a task restored in its journaled `paused`
+      // state (03 §4.6) parks here holding no channels instead of
+      // acquiring scan leases and then sitting on them.
+      await _scanPauseGate(runtime);
       runtime.scanLeases = await _leaseEndpoints(task.spec, task.cancellation);
       await _ensureDestinationRoot(runtime);
       await _walkRoots(runtime);
+      persistence?.appendJournal(
+        ScanCompleteRecord(
+          taskId: task.id,
+          totalBytes: task.totalBytes ?? 0,
+          skippedSymlinks: task.plan?.skippedSymlinks ?? 0,
+        ),
+      );
       task.scanComplete = true;
       // A state-refresh event so mirrors learn totals are now final even
       // when no progress event ever fires (an empty transfer).
@@ -485,7 +537,22 @@ class TransferQueue {
     final existing = await _scanStatDestination(runtime, plannedDest);
     switch (entry.type) {
       case RemoteFileType.file:
+        // A restored mid-scan task merges onto its journaled item by
+        // destination path: the re-scan reuses the itemId and an
+        // already-terminal outcome suppresses re-dispatch (03 §4.6).
+        final restored = runtime.takeRestored(plannedDest);
         final planned = PlannedFile(
+          source: entry,
+          name: name,
+          containerKey: containerKey,
+          destinationPath: plannedDest,
+          existing: existing,
+          itemId: restored?.itemId,
+        );
+        _journalPlanEntry(
+          task,
+          itemId: planned.itemId,
+          isDirectory: false,
           source: entry,
           name: name,
           containerKey: containerKey,
@@ -494,6 +561,16 @@ class TransferQueue {
         );
         task.plan!.files.add(planned);
         task.totalBytes = (task.totalBytes ?? 0) + (entry.size ?? 0);
+        if (restored?.outcome != null) {
+          _addRestoredTerminalItem(
+            runtime,
+            restored!,
+            entry,
+            plannedDest,
+            isDirectory: false,
+          );
+          return;
+        }
         final item = _addPendingItem(
           runtime,
           id: planned.itemId,
@@ -502,7 +579,19 @@ class TransferQueue {
         );
         _armFile(runtime, _FileWork(item: item, file: planned));
       case RemoteFileType.directory:
+        final restored = runtime.takeRestored(plannedDest);
         final planned = PlannedDirectory(
+          source: entry,
+          name: name,
+          containerKey: containerKey,
+          destinationPath: plannedDest,
+          existing: existing,
+          itemId: restored?.itemId,
+        );
+        _journalPlanEntry(
+          task,
+          itemId: planned.itemId,
+          isDirectory: true,
           source: entry,
           name: name,
           containerKey: containerKey,
@@ -510,15 +599,35 @@ class TransferQueue {
           existing: existing,
         );
         task.plan!.directoriesInOrder.add(planned);
-        final item = _addPendingItem(
-          runtime,
-          id: planned.itemId,
-          entry: entry,
-          destinationPath: plannedDest,
-          isDirectory: true,
-        );
+        final item = restored?.outcome != null
+            ? _addRestoredTerminalItem(
+                runtime,
+                restored!,
+                entry,
+                plannedDest,
+                isDirectory: true,
+              )
+            : _addPendingItem(
+                runtime,
+                id: planned.itemId,
+                entry: entry,
+                destinationPath: plannedDest,
+                isDirectory: true,
+              );
         final dirState = _DirState(planned: planned, item: item);
         runtime.directories[planned.itemId] = dirState;
+        // A journaled terminal outcome carries the mkdir result forward:
+        // `_scheduleDirectory` skips the op, but the listing still walks
+        // so children merge onto their own journaled records.
+        if (restored?.outcome != null) {
+          dirState.outcome = restored!.outcome == RestoredItemOutcome.completed
+              ? _DirOutcome.ready
+              : restored.outcome == RestoredItemOutcome.failed
+                  ? _DirOutcome.failed
+                  : _DirOutcome.skipped;
+          dirState.resolvedPath = restored.resolvedPath;
+          dirState.ready.complete();
+        }
         pendingListings.add(dirState);
       case RemoteFileType.symbolicLink || RemoteFileType.other:
         // symbolicLink already returned above; `other` (fifos, sockets)
@@ -613,6 +722,9 @@ class TransferQueue {
   // ---------------------------------------------------------------------
 
   void _scheduleDirectory(_TaskRuntime runtime, _DirState directory) {
+    // A restored directory whose journaled outcome is already terminal
+    // runs no mkdir — the listing above still walked its children.
+    if (directory.outcome != _DirOutcome.pending) return;
     runtime.directoryOpsPending++;
     runtime.directoryChain = runtime.directoryChain.then(
       (_) => _runDirectory(runtime, directory),
@@ -859,6 +971,24 @@ class TransferQueue {
     directory.resolvedPath = resolvedPath;
     directory.outcome = outcome;
     if (resolvedPath != null) item.destinationPath = resolvedPath;
+    // Journal the directory's terminal record before the item state
+    // takes effect — a completed mkdir's resolvedPath is what rebases
+    // restored children after a crash (03 §4.6).
+    _journalItemOutcome(
+      task,
+      item,
+      switch (outcome) {
+        _DirOutcome.ready => TransferItemState.completed,
+        _DirOutcome.skipped => TransferItemState.skipped,
+        _DirOutcome.failed => TransferItemState.failed,
+        _DirOutcome.cancelled => TransferItemState.cancelled,
+        _DirOutcome.pending =>
+          throw StateError('a directory cannot finish pending'),
+      },
+      error: error,
+      failureKind: failureKind,
+      resolvedPath: resolvedPath,
+    );
     switch (outcome) {
       case _DirOutcome.ready:
         item.state = TransferItemState.completed;
@@ -1566,6 +1696,14 @@ class TransferQueue {
       return;
     }
     _releaseRegistryClaims(runtime.task.id);
+    final task = runtime.task;
+    if (task.isTerminal) {
+      // The task's journal records precede this append on the writer
+      // chain, and the store fsyncs the journal before the history line
+      // lands (03 §4.6's ordering rule).
+      task.finishedAt ??= DateTime.now();
+      persistence?.appendHistory(TransferHistoryEntry.fromTask(task));
+    }
     runtime.done.complete();
   }
 
@@ -1580,6 +1718,15 @@ class TransferQueue {
     // (cancelTask/_failTask, pauseTask/resumeTask); the engine never
     // overrides them implicitly.
     if (task.isTerminal || task.state == TransferTaskState.paused) return;
+    // Terminal transitions journal before they take effect; the
+    // transient queued/scanning/running churn is replay-neutral (a live
+    // task restores as paused-pending regardless) and stays unjournaled.
+    if (state == TransferTaskState.completed ||
+        state == TransferTaskState.failed ||
+        state == TransferTaskState.cancelled) {
+      _journalState(task, state, error: error, failureKind: failureKind);
+      task.finishedAt ??= DateTime.now();
+    }
     task.state = state;
     if (error != null) task.error = error;
     if (failureKind != null) task.failureKind = failureKind;
@@ -1602,9 +1749,16 @@ class TransferQueue {
     final kind = error is RemoteFileException
         ? error.kind
         : RemoteFileErrorKind.other;
+    _journalState(
+      task,
+      TransferTaskState.failed,
+      error: '$error',
+      failureKind: kind,
+    );
     task.error = '$error';
     task.failureKind = kind;
     task.state = TransferTaskState.failed;
+    task.finishedAt ??= DateTime.now();
     _emit(
       TransferQueueTaskEvent(
         task.id,
@@ -1637,6 +1791,13 @@ class TransferQueue {
     RemoteFileErrorKind? failureKind,
   }) {
     if (item.isTerminal) return;
+    _journalItemOutcome(
+      runtime.task,
+      item,
+      state,
+      error: error,
+      failureKind: failureKind,
+    );
     item.state = state;
     item.error = error;
     item.failureKind = failureKind;
@@ -1668,6 +1829,428 @@ class TransferQueue {
     return item;
   }
 
+  // ---------------------------------------------------------------------
+  // Persistence (03 §4.6) — journal calls always precede the in-memory
+  // transition they describe; a null store keeps the #147 behavior.
+  // ---------------------------------------------------------------------
+
+  /// Removes a terminal task from the queue listing (the activity
+  /// panel's clear-finished gesture). Journaled as `taskRemoved` so a
+  /// restart neither restores a dismissed task nor rewrites its journal
+  /// prefix — the task's history record is unaffected.
+  bool removeTask(String taskId) {
+    final runtime = _tasks[taskId];
+    if (runtime == null || !runtime.task.isTerminal) return false;
+    persistence?.appendJournal(TaskRemovedRecord(taskId: taskId));
+    _tasks.remove(taskId);
+    return true;
+  }
+
+  /// Rebuilds the crashed session's queue from the journal (03 §4.6):
+  /// every non-terminal journaled task re-enters with its journaled
+  /// state — a per-task `paused` survives, `running`/`scanning` map to
+  /// `queued` — and restoration forces §4.4's queue-level pause flag on
+  /// (runtime-only, never journaled), so no restored work can dispatch
+  /// before the user resumes the queue. Pending items re-dispatch from
+  /// byte zero; journaled terminal items never resurrect. Prompt state
+  /// does not survive. No-op without a store and idempotent on repeat
+  /// calls.
+  Future<void> restore() async {
+    if (_disposed || _restored) return;
+    _restored = true;
+    final store = persistence;
+    if (store == null) return;
+    // The forced pause lands before any adoption so a mid-scan task's
+    // `_runTask` and a rebuilt plan's `_pump` both see it. An empty
+    // replay has no restored queue to pause — flagging it would wedge
+    // fresh enqueues behind a Resume nobody is waiting for.
+    if (store.replay.tasks.isNotEmpty) pauseQueue();
+    final adoptedAt = DateTime.now();
+    for (final restored in store.replay.tasks) {
+      final task = _adoptRestored(restored);
+      await _sweepRestoredTemps(restored, task, adoptedAt);
+    }
+  }
+
+  /// Adopts one replayed task: rebuilds its plan, items, and dispatch
+  /// state under the journaled-or-mapped state (03 §4.6).
+  TransferTask _adoptRestored(RestoredTransferTask restored) {
+    final task = TransferTask.restored(
+      restored.spec,
+      id: restored.taskId,
+      enqueuedAt: restored.enqueuedAt,
+    );
+    // Work began before the crash — the history record's duration and
+    // the user's sense of "when did I start this" both span it.
+    task.startedAt = restored.enqueuedAt;
+    final runtime = _TaskRuntime(task);
+    _tasks[task.id] = runtime;
+
+    // The state mapping lands BEFORE any dispatch state is built —
+    // `_rebuildScannedPlan` arms eligible work and `_pump` must see the
+    // task already in its journaled state.
+    final mapped = restored.wasPaused
+        ? TransferTaskState.paused
+        : TransferTaskState.queued;
+    _journalState(task, mapped);
+    task.state = mapped;
+    if (mapped == TransferTaskState.paused) {
+      runtime.notPaused = Completer();
+    }
+
+    if (restored.scanComplete) {
+      _rebuildScannedPlan(runtime, restored);
+      task.plan!.skippedSymlinks = restored.skippedSymlinks;
+      task.scanComplete = true;
+      task.totalBytes = restored.totalBytes;
+    } else {
+      // A mid-scan crash re-scans on resume; the merge index suppresses
+      // re-dispatch of journaled terminal items by destination path.
+      final index = <String, List<RestoredPlanItem>>{};
+      for (final item in restored.items) {
+        (index[item.destinationPath] ??= []).add(item);
+      }
+      runtime.restoredIndex = index;
+    }
+    _emit(TransferQueueTaskEvent(task.id, task.state));
+
+    if (!restored.scanComplete) {
+      // The scan parks at the pre-lease gate until resume.
+      unawaited(_runTask(runtime));
+    }
+    return task;
+  }
+
+  /// Rebuilds a fully-scanned task's plan and dispatch state from the
+  /// journaled records (no re-scan — `scanComplete` survived).
+  void _rebuildScannedPlan(
+    _TaskRuntime runtime,
+    RestoredTransferTask restored,
+  ) {
+    final task = runtime.task;
+    task.plan = TransferPlan();
+    final pendingDirs = <_DirState>[];
+    final pendingFiles = <_FileWork>[];
+    for (final entry in restored.items) {
+      final item = TransferItem(
+        id: entry.itemId,
+        sourcePath: entry.sourcePath,
+        isDirectory: entry.isDirectory,
+        destinationPath: entry.resolvedPath ?? entry.destinationPath,
+        size: entry.source?.size,
+      );
+      task.items.add(item);
+      if (entry.isDirectory) {
+        final planned = PlannedDirectory(
+          source:
+              entry.source ??
+              _placeholderEntry(entry, RemoteFileType.directory),
+          name:
+              entry.name ?? _leafName(task.destination, entry.destinationPath),
+          containerKey: entry.containerKey,
+          destinationPath: entry.destinationPath,
+          existing: entry.existing,
+          itemId: entry.itemId,
+        );
+        task.plan!.directoriesInOrder.add(planned);
+        final dirState = _DirState(planned: planned, item: item);
+        runtime.directories[planned.itemId] = dirState;
+        switch (entry.outcome) {
+          case RestoredItemOutcome.completed:
+            dirState.outcome = _DirOutcome.ready;
+            dirState.resolvedPath =
+                entry.resolvedPath ?? entry.destinationPath;
+            dirState.ready.complete();
+            item.state = TransferItemState.completed;
+          case RestoredItemOutcome.failed:
+            dirState.outcome = _DirOutcome.failed;
+            dirState.ready.complete();
+            item.state = TransferItemState.failed;
+            item.error = entry.error;
+            item.failureKind = entry.failureKind;
+            task.failedItems++;
+          case RestoredItemOutcome.removed:
+            dirState.outcome = _DirOutcome.skipped;
+            dirState.ready.complete();
+            item.state = TransferItemState.skipped;
+            item.error = entry.error;
+            task.skippedItems++;
+          case null:
+            if (entry.source == null) {
+              // The planEntry's source detail was lost (a quarantined
+              // journal tail) — the mkdir cannot re-run, so the item
+              // fails honestly rather than dispatching blind.
+              dirState.outcome = _DirOutcome.failed;
+              dirState.ready.complete();
+              item.state = TransferItemState.failed;
+              item.error = 'the journal lost this item\'s source detail';
+              item.failureKind = RemoteFileErrorKind.other;
+              task.failedItems++;
+            } else {
+              pendingDirs.add(dirState);
+            }
+        }
+      } else {
+        switch (entry.outcome) {
+          case RestoredItemOutcome.completed:
+            item.state = TransferItemState.completed;
+            task.completedFiles++;
+            task.transferredBytes += entry.source?.size ?? 0;
+          case RestoredItemOutcome.failed:
+            item.state = TransferItemState.failed;
+            item.error = entry.error;
+            item.failureKind = entry.failureKind;
+            task.failedItems++;
+          case RestoredItemOutcome.removed:
+            item.state = TransferItemState.skipped;
+            item.error = entry.error;
+            task.skippedItems++;
+          case null:
+            final source = entry.source;
+            if (source == null) {
+              item.state = TransferItemState.failed;
+              item.error = 'the journal lost this item\'s source detail';
+              item.failureKind = RemoteFileErrorKind.other;
+              task.failedItems++;
+            } else {
+              final planned = PlannedFile(
+                source: source,
+                name: entry.name ??
+                    _leafName(task.destination, entry.destinationPath),
+                containerKey: entry.containerKey,
+                destinationPath: entry.destinationPath,
+                existing: entry.existing,
+                itemId: entry.itemId,
+              );
+              task.plan!.files.add(planned);
+              pendingFiles.add(_FileWork(item: item, file: planned));
+            }
+        }
+      }
+    }
+    // Directories arm before files so a pending file can look its
+    // container up in `runtime.directories`.
+    for (final dirState in pendingDirs) {
+      _scheduleDirectory(runtime, dirState);
+    }
+    for (final work in pendingFiles) {
+      _armRestoredFile(runtime, work);
+    }
+  }
+
+  /// `_armFile` with the journal-loss guard: a pending file whose
+  /// container's planEntry never survived cannot wait on a `ready` that
+  /// never completes — it skips honestly.
+  void _armRestoredFile(_TaskRuntime runtime, _FileWork work) {
+    final containerKey = work.file.containerKey;
+    if (containerKey != null &&
+        !runtime.directories.containsKey(containerKey)) {
+      _finishItem(
+        runtime,
+        work.item,
+        TransferItemState.skipped,
+        error: 'the journal lost the item\'s containing directory',
+      );
+      _maybeFinishTask(runtime);
+      return;
+    }
+    _armFile(runtime, work);
+  }
+
+  /// Deletes abandoned upload temps (the `.poltergeist-*.tmp` /
+  /// `.seance-upload-*.tmp` siblings the VFS writes before rename),
+  /// scoped to the directories the journal names — never a general
+  /// sweep (03 §4.6). Entries modified at/after [adoptedAt] are left
+  /// alone: a user resuming mid-sweep may have just minted them.
+  Future<void> _sweepRestoredTemps(
+    RestoredTransferTask restored,
+    TransferTask task,
+    DateTime adoptedAt,
+  ) async {
+    if (restored.sweepDirectories.isEmpty) return;
+    final Map<String, TransferChannelLease> leases;
+    try {
+      leases = await _leaseServerIds(
+        _serverIds({task.destination}),
+        task.cancellation,
+      );
+    } on Object {
+      // No channels — the sweep retries on next launch.
+      return;
+    }
+    try {
+      final fs = _fsFor(task.destination, leases);
+      for (final directory in restored.sweepDirectories) {
+        final List<RemoteFileEntry> entries;
+        try {
+          entries = await fs.listDirectory(directory);
+        } on Object {
+          continue;
+        }
+        for (final entry in entries) {
+          if (!_isTransferTemp(entry.name)) continue;
+          final modified = entry.modifiedAt;
+          if (modified != null && !modified.isBefore(adoptedAt)) continue;
+          try {
+            await fs.delete(entry);
+          } on Object {
+            // Best-effort hygiene — a stubborn temp is retried next time.
+          }
+        }
+      }
+    } finally {
+      await _releaseLeases(leases);
+    }
+  }
+
+  static bool _isTransferTemp(String name) =>
+      (name.startsWith('.poltergeist-') || name.startsWith('.seance-upload-')) &&
+      name.endsWith('.tmp');
+
+  /// Journals a lifecycle transition before its caller mutates
+  /// `task.state` (write-before-effect, 03 §4.6).
+  void _journalState(
+    TransferTask task,
+    TransferTaskState state, {
+    String? error,
+    RemoteFileErrorKind? failureKind,
+  }) {
+    persistence?.appendJournal(
+      TaskStateRecord(
+        taskId: task.id,
+        state: state,
+        error: error,
+        failureKind: failureKind,
+      ),
+    );
+  }
+
+  /// Journals one scanned plan entry before it lands in the plan — a
+  /// crash mid-scan must find every dispatched item in the journal.
+  void _journalPlanEntry(
+    TransferTask task, {
+    required String itemId,
+    required bool isDirectory,
+    required RemoteFileEntry source,
+    required String name,
+    required String? containerKey,
+    required String destinationPath,
+    DestinationStat? existing,
+  }) {
+    persistence?.appendJournal(
+      PlanEntryRecord(
+        taskId: task.id,
+        itemId: itemId,
+        isDirectory: isDirectory,
+        sourcePath: source.path,
+        destinationPath: destinationPath,
+        sourceType: source.type,
+        sourceSize: source.size,
+        sourceModifiedAt: source.modifiedAt,
+        sourceMode: source.mode,
+        name: name,
+        containerKey: containerKey,
+        existing: existing,
+      ),
+    );
+  }
+
+  /// Journals an item's terminal outcome before `item.state` mutates.
+  /// Skipped and cancelled both record `itemRemoved` (03 §4.6's
+  /// vocabulary) — the item must not re-dispatch after a restart.
+  void _journalItemOutcome(
+    TransferTask task,
+    TransferItem item,
+    TransferItemState state, {
+    String? error,
+    RemoteFileErrorKind? failureKind,
+    String? resolvedPath,
+  }) {
+    final store = persistence;
+    if (store == null) return;
+    switch (state) {
+      case TransferItemState.completed:
+        store.appendJournal(
+          FileCompletedRecord(
+            taskId: task.id,
+            itemId: item.id,
+            resolvedPath: resolvedPath ?? item.destinationPath,
+          ),
+        );
+      case TransferItemState.failed:
+        store.appendJournal(
+          FileFailedRecord(
+            taskId: task.id,
+            itemId: item.id,
+            error: error,
+            failureKind: failureKind,
+          ),
+        );
+      case TransferItemState.skipped || TransferItemState.cancelled:
+        store.appendJournal(
+          ItemRemovedRecord(
+            taskId: task.id,
+            itemId: item.id,
+            error: error,
+          ),
+        );
+      case TransferItemState.pending || TransferItemState.active:
+        break;
+    }
+  }
+
+  /// A re-scanned entry whose journaled outcome is already terminal
+  /// enters as a finished row — never re-dispatched (03 §4.6's
+  /// no-resurrection rule).
+  TransferItem _addRestoredTerminalItem(
+    _TaskRuntime runtime,
+    RestoredPlanItem restored,
+    RemoteFileEntry entry,
+    String destinationPath, {
+    required bool isDirectory,
+  }) {
+    final task = runtime.task;
+    final item = TransferItem(
+      id: restored.itemId,
+      sourcePath: entry.path,
+      isDirectory: isDirectory,
+      destinationPath: restored.resolvedPath ?? destinationPath,
+      size: entry.size,
+    );
+    switch (restored.outcome!) {
+      case RestoredItemOutcome.completed:
+        item.state = TransferItemState.completed;
+        if (!isDirectory) task.completedFiles++;
+      case RestoredItemOutcome.failed:
+        item.state = TransferItemState.failed;
+        item.error = restored.error;
+        item.failureKind = restored.failureKind;
+        task.failedItems++;
+      case RestoredItemOutcome.removed:
+        item.state = TransferItemState.skipped;
+        item.error = restored.error;
+        task.skippedItems++;
+    }
+    task.items.add(item);
+    _emit(
+      TransferQueueItemEvent(task.id, item.id, item.state, error: item.error),
+    );
+    return item;
+  }
+
+  /// A placeholder `RemoteFileEntry` for a journaled directory whose
+  /// source detail was lost — the item is terminal either way, so the
+  /// entry is never dispatched, only carried for the plan record.
+  RemoteFileEntry _placeholderEntry(
+    RestoredPlanItem item,
+    RemoteFileType type,
+  ) => RemoteFileEntry(
+    path: item.sourcePath,
+    name: item.name ?? item.sourcePath,
+    type: type,
+    size: item.source?.size,
+  );
+
   void _addTerminalItem(
     _TaskRuntime runtime, {
     required String sourcePath,
@@ -1677,16 +2260,38 @@ class TransferQueue {
     String? error,
     RemoteFileErrorKind? failureKind,
   }) {
+    final task = runtime.task;
     final item = TransferItem(
       id: uuidV4(),
       sourcePath: sourcePath,
       isDirectory: false,
       destinationPath: destinationPath,
       size: size,
-    )..state = state;
+    );
+    // Journal the entry and its terminal outcome before the row exists —
+    // a scan-time terminal item (skipped symlink, failed root stat) is
+    // part of the task's record like any other (03 §4.6).
+    persistence?.appendJournal(
+      PlanEntryRecord(
+        taskId: task.id,
+        itemId: item.id,
+        isDirectory: false,
+        sourcePath: sourcePath,
+        destinationPath: destinationPath,
+        sourceSize: size,
+      ),
+    );
+    _journalItemOutcome(
+      task,
+      item,
+      state,
+      error: error,
+      failureKind: failureKind,
+    );
+    item.state = state;
     item.error = error;
     item.failureKind = failureKind;
-    runtime.task.items.add(item);
+    task.items.add(item);
     if (state == TransferItemState.failed) runtime.task.failedItems++;
     if (state == TransferItemState.skipped) runtime.task.skippedItems++;
     _emit(
@@ -1982,6 +2587,20 @@ class _TaskRuntime {
   /// reconnect-retry path.
   Map<String, TransferChannelLease>? scanLeases;
   bool scanning = false;
+
+  /// Mid-scan-restart merge index (03 §4.6): a restored task that crashed
+  /// mid-scan re-scans, and each rediscovered entry pops its journaled
+  /// record by planned destination path — reusing the itemId and letting
+  /// an already-terminal outcome suppress re-dispatch.
+  Map<String, List<RestoredPlanItem>>? restoredIndex;
+
+  RestoredPlanItem? takeRestored(String destinationPath) {
+    final queue = restoredIndex?[destinationPath];
+    if (queue == null || queue.isEmpty) return null;
+    final item = queue.removeAt(0);
+    if (queue.isEmpty) restoredIndex!.remove(destinationPath);
+    return item;
+  }
 
   /// Set once `_finishTask` starts so concurrent `_maybeFinishTask` calls
   /// cannot double-run the terminal path.
