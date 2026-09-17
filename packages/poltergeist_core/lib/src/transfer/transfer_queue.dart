@@ -1529,10 +1529,12 @@ class TransferQueue {
     // Bytes flow through the pipe once; whichever side reports the
     // larger cumulative figure is the truth so far.
     var reported = 0;
+    int? reportedTotal;
     void pipeProgress(int transferred, int? total) {
+      if (total != null) reportedTotal = total;
       if (transferred <= reported) return;
       reported = transferred;
-      onProgress(transferred, total);
+      onProgress(transferred, total ?? reportedTotal);
     }
 
     Object? uploadError;

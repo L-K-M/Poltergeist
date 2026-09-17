@@ -112,12 +112,16 @@ class BandwidthLimiter {
     if (cancellation != null) {
       unawaited(
         cancellation.whenCancelled.then((_) {
-          if (_waiters.remove(waiter) && !waiter.completer.isCompleted) {
+          if (waiter.completer.isCompleted) return;
+          if (_waiters.remove(waiter)) {
             waiter.completer.completeError(_cancelledError());
           }
           // A removed head may have been blocking grantable waiters
           // behind it — release what now fits.
           _pumpWaiters();
+        }, onError: (Object _) {
+          // A failed cancellation signal must not become an unhandled
+          // async error; the waiter simply stays parked until granted.
         }),
       );
     }
@@ -176,6 +180,10 @@ class BandwidthLimiter {
     _wakeTimer = null;
     final rate = _bytesPerSecond;
     if (rate == null || _waiters.isEmpty) return;
+    // acquire() enqueues behind a live queue without refilling — refresh
+    // first or the deficit is computed against stale tokens and the
+    // re-armed timer slides later than the rate requires.
+    _refill();
     final head = _waiters.first;
     final deficit = min(head.remaining, _capacity) - _tokens;
     if (deficit <= 0) {
