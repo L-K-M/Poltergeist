@@ -106,6 +106,8 @@ export 'src/fs/local_fs_safety.dart'
         restoreOrphanedLocalBackups,
         validateLocalName,
         validatePathComponent;
+export 'src/transfer/bandwidth_limiter.dart'
+    show BandwidthLimiter, maxTransferChunkBytes;
 export 'src/transfer/transfer_queue.dart'
     show
         TransferQueue,

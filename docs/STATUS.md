@@ -5459,9 +5459,10 @@ file only after commit and removes source directories deepest-first
 only when their whole subtree completed.
 
 Deferred to later M4 slices, per the task's non-goals: journal/
-persistence/history (03 §4.6), the D14 produce-on-demand hook, the
-token-bucket throttle, remote→remote pipe transport, the conflict
-prompt, and all UI.
+persistence/history (03 §4.6 — landed, next section), the D14
+produce-on-demand hook, the conflict prompt, and all UI. The
+token-bucket throttle and remote→remote pipe transport landed in the
+third M4 slice below.
 
 Validation: 43 deterministic tests in `test/transfer/` over an
 in-memory `FakeTreeFileSystem` + lease-bounded fake connection manager
@@ -5535,6 +5536,70 @@ write-before-effect ordering, full journal lifecycle, restore mapping
 (paused survival, mid-scan re-scan merge, completed-item suppression),
 `removeTask`, journaled-path temp sweep, and the persistence-disabled
 no-op. Full core suite 993 green (16 fixture skips), analyze clean.
+
+## M4 — token-bucket throttle + remote→remote piping (2026-09-17)
+
+The queue's remaining engine-side concurrency features land per 03 §4.3
+and §4.5. `BandwidthLimiter` (`src/transfer/bandwidth_limiter.dart`) is
+the §4.3 token bucket: capacity `max(rate, maxChunkBytes)` with
+`maxChunkBytes` injected (default `maxTransferChunkBytes` = 64 KiB, the
+largest chunk a VFS stream read hands the pipe), a full initial bucket
+for the bounded start burst, capacity-sized grants for oversized
+acquires, FIFO waiter release, and a `bytesPerSecond` setter that is the
+dynamic rate-change API — a decrease clamps the banked tokens (never a
+fresh burst), an increase is observed by parked acquires, and `<= 0`
+normalizes to unlimited so a hand-edited zero can never build a stuck
+bucket. Waits ride zone `Timer`s on `clock.now()`, so `fake_async`
+drives the whole contract and no acquire ever blocks the event loop; a
+parked acquire takes an optional cancellation token and fails with a
+typed `cancelled` error. The queue owns one bucket per direction,
+engine-global exactly as §4.3 specifies — every remote-bound file hop
+acquires per chunk, and a local leg rides a shared always-unlimited
+instance so the pipe path stays literal.
+
+The pipe itself is the existing `download` → `BoundedTransferSink` →
+`upload` hop, now exercised for remote→remote: `BoundedTransferSink`
+gains optional read/write chunk gates that park each chunk on the bucket
+grant (the read gate also on free buffer space, so the high-water bound
+holds under throttle) and unwind on abort or attempt cancel through a
+sink-owned gate token. Both endpoint leases come from the sorted
+server-id acquisition order already in `_leaseEndpoints` — a cross-server
+pipe holds one channel per connection and releases both on success,
+failure, cancel, and pause. Progress is counted once: both VFS calls
+report cumulative bytes into a max-of-sides combiner, so a silent source
+still progresses through upload reports and a reporting pair never
+double-charges. Either side's failure cancels the other — an early
+upload death aborts the read, a source failure poisons the consumer
+stream — and the thrown error names the failing side (`transfer source:
+…` / `transfer destination: …`) while preserving the typed
+`RemoteFileErrorKind` for conflict-retry and cancelled-requeue
+classification. One latent defect the new coverage exposed and fixed: a
+source error relayed through the sink into the upload stream was
+previously indistinguishable from an upload failure, which cancelled the
+attempt token and laundered the failure into a silent requeue; the sink
+now records `sourceError` and the upload watcher skips relayed errors.
+
+No journal schema change: pause/cancel/complete milestones ride the
+existing `taskState`/`fileCompleted`/`fileFailed` records (a piped task
+journals enqueued → planEntry → scanComplete → fileCompleted →
+taskState, asserted in order), and throttle rate changes are engine
+configuration, not queue state — the settings layer persists them, the
+journal never replays them. Same-server rename stays a separate
+server-side operation per §4.5's carve-out; this slice pipes
+byte-for-byte for every remote→remote combination.
+
+Validation: 13 `fake_async` limiter tests in
+`test/transfer/bandwidth_limiter_test.dart` (burst-then-sustain pacing,
+window bound, capacity-sized grants, waiter FIFO, unlimited release,
+cancel eviction, clamp-on-decrease, observe-on-increase, no banked burst
+on enable, zero/negative normalization) plus 15 queue-level tests in
+`test/transfer/transfer_throttle_test.dart` (per-direction bucket
+charging across all four location pairs, parked-acquire stall/resume,
+pause eviction and lease release, bounded in-flight bytes via a
+production/consumption probe, counted-once progress, silent-source
+progress, side-named failures, both-lease release, sorted acquisition,
+journal order). Full core suite 1029 green (16 fixture skips), analyze
+clean.
 
 ## Open items
 

@@ -10,6 +10,7 @@ import '../connection/connection_manager.dart';
 import '../connection/pool_policy.dart';
 import '../fs/local_file_system.dart';
 import '../fs/local_fs_safety.dart';
+import 'bandwidth_limiter.dart';
 import 'bounded_transfer_sink.dart';
 import 'transfer_journal.dart';
 import 'transfer_task.dart';
@@ -43,9 +44,9 @@ import 'transfer_task.dart';
 /// rebuilds a crashed session's queue under a forced pause.
 ///
 /// Deferred to later M4 slices: the D14 produce-on-demand hook, the
-/// token-bucket throttle, remote-to-remote piping, the conflict prompt
-/// (`ask`-policy and replace-on-directory decisions surface as honest
-/// per-item conflicts until the prompt machinery lands), and all UI.
+/// conflict prompt (`ask`-policy and replace-on-directory decisions
+/// surface as honest per-item conflicts until the prompt machinery
+/// lands), and all UI.
 class TransferQueue {
   TransferQueue({
     required this.connections,
@@ -54,11 +55,15 @@ class TransferQueue {
     bool Function(FsLocation destination)? isCaseInsensitiveDestination,
     int maxInFlightFiles = maxGlobalInFlightTransfers,
     this.pipeBufferBytes = 4 * 1024 * 1024,
+    BandwidthLimiter? downloadLimiter,
+    BandwidthLimiter? uploadLimiter,
     this.persistence,
   }) : _localFileSystem = localFileSystem ?? LocalFileSystem(),
        _isCaseInsensitiveDestination =
            isCaseInsensitiveDestination ?? _defaultCaseSensitivity,
-       _maxInFlightFiles = maxInFlightFiles {
+       _maxInFlightFiles = maxInFlightFiles,
+       downloadLimiter = downloadLimiter ?? BandwidthLimiter(),
+       uploadLimiter = uploadLimiter ?? BandwidthLimiter() {
     if (maxInFlightFiles < 1) {
       throw ArgumentError.value(
         maxInFlightFiles,
@@ -82,6 +87,20 @@ class TransferQueue {
   /// High-water mark for the in-memory pipe buffer between a source
   /// `download` and a destination `upload` (03 §4.5's small-buffer rule).
   final int pipeBufferBytes;
+
+  /// The engine-global token buckets, one per direction (03 §4.3): every
+  /// remote-bound file hop charges them per chunk. A null rate is
+  /// unlimited; the future throttle UI (02 §6) drives the
+  /// [BandwidthLimiter.bytesPerSecond] setters — those setters are the
+  /// dynamic rate-change API. Queue and task pause never reset them:
+  /// §4.4 lets in-flight work finish at the set rate.
+  final BandwidthLimiter downloadLimiter;
+  final BandwidthLimiter uploadLimiter;
+
+  /// The no-op bucket a local leg rides: the acquires still run (the
+  /// pipe path stays literal) but unlimited, so a local→local hop never
+  /// pays into the network budgets.
+  final BandwidthLimiter _localLimiter = BandwidthLimiter();
 
   /// The write-ahead journal + history seam (03 §4.6). Null means the
   /// queue runs purely in memory — the #147 behavior, unchanged.
@@ -1193,6 +1212,12 @@ class TransferQueue {
                 await _pipe(
                   source: srcFs,
                   destination: dstFs,
+                  readLimiter: task.source is ServerFsLocation
+                      ? downloadLimiter
+                      : _localLimiter,
+                  writeLimiter: task.destination is ServerFsLocation
+                      ? uploadLimiter
+                      : _localLimiter,
                   sourcePath: file.source.path,
                   destinationPath: commitPath,
                   length: file.source.size,
@@ -1469,9 +1494,19 @@ class TransferQueue {
   /// (03 §4.5's pipe; both sides honour the attempt token). An upload
   /// that dies early aborts the source read through the sink so it cannot
   /// buffer unboundedly or wedge.
+  ///
+  /// Throttling rides the sink's chunk gates: a remote source charges
+  /// [readLimiter], a remote destination [writeLimiter] — for
+  /// remote→remote that is one acquire per chunk on each directional
+  /// bucket (03 §4.3). Both VFS calls report cumulative progress; the
+  /// max-of-sides combiner counts each byte once even when the two
+  /// sides report in lockstep, and still progresses when one side
+  /// stays silent.
   Future<void> _pipe({
     required RemoteFileSystem source,
     required RemoteFileSystem destination,
+    required BandwidthLimiter readLimiter,
+    required BandwidthLimiter writeLimiter,
     required String sourcePath,
     required String destinationPath,
     int? length,
@@ -1485,7 +1520,23 @@ class TransferQueue {
     final sink = BoundedTransferSink(
       controller,
       maxBufferedBytes: pipeBufferBytes,
+      readGate: (bytes, token) =>
+          readLimiter.acquire(bytes, cancellation: token),
+      writeGate: (bytes, token) =>
+          writeLimiter.acquire(bytes, cancellation: token),
+      cancellation: cancellation,
     );
+    // Bytes flow through the pipe once; whichever side reports the
+    // larger cumulative figure is the truth so far.
+    var reported = 0;
+    int? reportedTotal;
+    void pipeProgress(int transferred, int? total) {
+      if (total != null) reportedTotal = total;
+      if (transferred <= reported) return;
+      reported = transferred;
+      onProgress(transferred, total ?? reportedTotal);
+    }
+
     Object? uploadError;
     final uploadFuture = destination.upload(
       destinationPath,
@@ -1495,6 +1546,7 @@ class TransferQueue {
       preserveMode: preserveMode,
       expectedTarget: expectedTarget,
       cancellation: cancellation,
+      onProgress: pipeProgress,
       computeHash: false,
     );
     unawaited(
@@ -1503,6 +1555,12 @@ class TransferQueue {
         // outcome — the upload's incidental unwinding error must not
         // masquerade as the failure reason.
         if (cancellation.isCancelled) return;
+        // The sink relays source errors into the upload stream — once a
+        // source failure is recorded, anything the upload surfaces is
+        // downstream noise (or an adapter's wrapped copy of it), not an
+        // independent upload failure; treating it as one would cancel
+        // the attempt and launder the real error into a silent requeue.
+        if (sink.sourceError != null) return;
         uploadError = error;
         // Early upload death stops the source read; without this a fast
         // producer would buffer the whole file in memory.
@@ -1510,12 +1568,19 @@ class TransferQueue {
         cancellation.cancel();
       }),
     );
-    unawaited(cancellation.whenCancelled.then((_) => sink.abort()));
+    unawaited(
+      cancellation.whenCancelled.then(
+        (_) => sink.abort(),
+        // abort() is pure cleanup — fail closed: even an errored
+        // cancellation signal must still release the sink.
+        onError: (Object _) => sink.abort(),
+      ),
+    );
     try {
       await source.download(
         sourcePath,
         sink,
-        onProgress: onProgress,
+        onProgress: pipeProgress,
         cancellation: cancellation,
         computeHash: false,
       );
@@ -1529,9 +1594,13 @@ class TransferQueue {
       // would surface as "cancelled" and requeue forever; and a pause's
       // abort errors the upload stream, so without the second branch a
       // paused item would fail on a StateError instead of requeueing.
-      if (uploadError != null) throw uploadError!;
+      // `uploadError` is only ever a genuine upload failure — the
+      // handler above skips errors relayed from the source side.
+      if (uploadError != null) {
+        throw _sideError('destination', uploadError!);
+      }
       if (cancellation.isCancelled) throw _cancelledException();
-      rethrow;
+      throw _sideError('source', error);
     }
     try {
       await sink.close();
@@ -1540,9 +1609,30 @@ class TransferQueue {
       // A real upload failure beats the sink's incidental close error on
       // an already-aborted sink — surface the remote cause, not the
       // unwind artifact.
-      if (uploadError != null) throw uploadError!;
+      if (uploadError != null) throw _sideError('destination', uploadError!);
       rethrow;
     }
+  }
+
+  /// 03 §4.5: a piped failure fails the file with the failing side
+  /// named. The typed kind survives the wrap so conflict-retry and
+  /// cancelled-requeue classification above still apply.
+  RemoteFileException _sideError(String side, Object error) {
+    if (error is RemoteFileException) {
+      return RemoteFileException(
+        kind: error.kind,
+        operation: error.operation,
+        path: error.path,
+        message: 'transfer $side: ${error.message}',
+        cause: error,
+      );
+    }
+    return RemoteFileException(
+      kind: RemoteFileErrorKind.other,
+      operation: 'transfer',
+      message: 'transfer $side: $error',
+      cause: error,
+    );
   }
 
   // ---------------------------------------------------------------------
