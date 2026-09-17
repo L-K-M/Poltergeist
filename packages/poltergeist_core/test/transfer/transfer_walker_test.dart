@@ -112,6 +112,14 @@ void main() {
       expect(task.totalDirectories, 2); // tree + tree/sub
       expect(task.totalBytes, 6);
       expect(task.scanComplete, isTrue);
+      // The public event stream carries the same aggregate totals.
+      final progress = events
+          .whereType<TransferQueueProgressEvent>()
+          .lastWhere((e) => e.taskId == task.id);
+      expect(progress.taskTotalFiles, 2);
+      expect(progress.taskTotalDirectories, 2);
+      expect(progress.taskTotalBytes, 6);
+      expect(progress.scanComplete, isTrue);
     });
 
     test('download direction: a remote tree walks into local work items',
