@@ -394,10 +394,27 @@ jobs:
           # Repo Actions variable; unset/empty reads as unenforced, and a
           # non-boolean value fails closed in the checker (usage exit).
           BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
+        # `bash` on Actions is -eo pipefail: the tee below captures the
+        # report for the annotation step without swallowing the checker's
+        # exit code.
+        shell: bash
         run: >-
           dart run test/benchmarks/check.dart
           --results bench-results.json
           --tiers ${{ github.event_name == 'pull_request' && 'a' || 'ab' }}
+          2>&1 | tee evaluate.log
+      # A landed tier-A row that drift-skips is a green job with an inert
+      # gate — the only signal would otherwise be text in the log. Surface
+      # it as an annotation so a fingerprint rotation is visible without
+      # changing 08 §6's exit-zero drift policy.
+      - name: Annotate inert tier-A enforcement
+        if: always()
+        env:
+          BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
+        run: |
+          if [ -n "$BENCH_ENFORCE_A" ] && [ -f evaluate.log ] && grep -qE '^P[0-9]+[[:space:]]+a[[:space:]].*skipped: hardware drift' evaluate.log; then
+            echo "::warning::BENCH_ENFORCE_A is set but tier-A rows drift-skipped — enforcement is inert until budgets.json is recalibrated on the rotated fingerprint (08 §6)"
+          fi
       - name: Upload bench results
         if: always()
         uses: actions/upload-artifact@v4

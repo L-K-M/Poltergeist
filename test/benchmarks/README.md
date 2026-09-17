@@ -365,6 +365,14 @@ fixture is remarkably stable. The same four named 3.13.3 runs put P3 at
 4 448–4 521 ms and P5 at 4 774–4 843 ms, corroborating the calibration
 independently of the pooled set.
 
+The committed `calibratedScenarioConfig` strings are part of the
+calibration record — including the absolute `/home/poltergeist/bench`
+fixture paths and P5's enumerated `first-file` — so fixture generation
+and the bench checkout layout must stay deterministic (identical across
+all 20 sampled runs on four CPU models). A regeneration or path change
+shows up as a `scenarioConfig` drift-skip, not a budget failure; the
+evaluate step annotates that state while `BENCH_ENFORCE_A` is set.
+
 ## Tests
 
 `check_test.dart` covers the pure arithmetic/validation (medians, exact

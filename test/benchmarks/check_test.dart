@@ -1093,7 +1093,9 @@ void main() {
     );
   });
 
-  group('the committed budgets catalog mirrors 02 §12', () {
+  // 02 §12 values as amended by the 2026-09-17 CI-fingerprint
+  // recalibration (STATUS item 22); spec and catalog must move together.
+  group('the committed budgets catalog mirrors 02 §12 as amended', () {
     test('parses with tier A landed under the recorded calibration', () {
       final catalog = _committedCatalog();
       catalog.validateCatalog();
@@ -1130,7 +1132,15 @@ void main() {
       expect(calibration.mode, 'aot');
       expect(calibration.cpuModel, 'AMD EPYC 7763 64-Core Processor');
       expect(calibration.scenarioConfig, isNull);
-      for (final id in ['P3', 'P5', 'P7']) {
+      // Derive the tier-A ids from the catalog and pin the set: a future
+      // tier-A scenario added unlanded must fail here, not slip past a
+      // remembered literal list.
+      final tierAIds = catalog.scenarios.values
+          .where((budget) => budget.tier == BenchTier.a)
+          .map((budget) => budget.id)
+          .toSet();
+      expect(tierAIds, {'P3', 'P5', 'P7'});
+      for (final id in tierAIds) {
         final budget = catalog.scenarios[id]!;
         expect(
           budget.landed,
@@ -1161,7 +1171,10 @@ void main() {
         () {
       final catalog = _committedCatalog();
       // The exact strings the cited main-branch artifacts recorded;
-      // check_cli_test.dart exercises comparison against them.
+      // check_cli_test.dart exercises comparison against them. These
+      // embed the calibration machine's absolute paths, so config
+      // comparison only matches an identical checkout layout until the
+      // collector's config generator emits fixture-relative paths.
       expect(
         catalog.scenarios['P3']!.calibratedScenarioConfig,
         'p3/v1;target=/home/poltergeist/bench/fixtures/entries-10000;'
@@ -1197,6 +1210,9 @@ void main() {
       'P4': ('b', 'lessThan', 100.0, 'ms', 3),
       'P5': ('a', 'lessThan', 6000.0, 'ms', 3),
       'P6': ('b', 'atMost', 0.2, '%', 3),
+      // P7 landed unrecalibrated: the pooled median (2 280.1 entries/s)
+      // clears 1 000 with 128 % headroom — the throughput equivalent of
+      // the 1.2× latency margin needs only 1 899 entries/s.
       'P7': ('a', 'atLeast', 1000.0, 'entries/s', 3),
     }.entries) {
       test('${entry.key} mirrors 02 §12', () {
