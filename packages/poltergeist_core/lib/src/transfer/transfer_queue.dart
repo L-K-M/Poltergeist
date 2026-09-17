@@ -1571,7 +1571,9 @@ class TransferQueue {
     unawaited(
       cancellation.whenCancelled.then(
         (_) => sink.abort(),
-        onError: (Object _) {},
+        // abort() is pure cleanup — fail closed: even an errored
+        // cancellation signal must still release the sink.
+        onError: (Object _) => sink.abort(),
       ),
     );
     try {
