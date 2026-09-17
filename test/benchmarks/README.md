@@ -3,13 +3,13 @@
 Offline evaluation of Poltergeist's D12 performance budgets. The CI
 `bench` job (08 §8) produces the inputs; this checker only
 consumes files, prints an honest table plus notices, and exits with the
-plan's status. Every
-scenario in `budgets.json` stays `landed: false` until the real harness/job
-introduces its surface
-(07 §1), and the tier-A `calibratedFingerprint` stays `null` until real
-calibration — the tier-A scenarios P3/P5/P7 crossed both gates on
-2026-09-17 (owner decision on STATUS item 22; provenance under
-"Tier-A calibration and the landed flip" below). The tier-B baseline **is** committed
+plan's status. The
+tier-A scenarios P3/P5/P7 are `landed: true` under a populated
+`calibratedFingerprint` — they crossed both gates on 2026-09-17 (owner
+decision on STATUS item 22; provenance under "Tier-A calibration and
+the landed flip" below) — while every tier-B scenario stays
+`landed: false` until the M9 harness/job introduces its surface (07 §1).
+The tier-B baseline **is** committed
 (`tier-b-baseline.json`, measured from real main-branch bench artifacts —
 provenance below), so a declared tier-B scope now runs the per-run
 fingerprint-drift evaluation against it instead of printing the
