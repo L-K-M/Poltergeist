@@ -236,7 +236,9 @@ class FileTransferPersistence implements TransferPersistence {
     _enqueue(() async {
       final line = jsonEncode(record.toJson());
       await _io.appendLine(journalFile, line);
-      _journalBytes += line.length + 1;
+      // Byte-accurate accounting: String.length is UTF-16 code units and
+      // journaled paths are commonly non-ASCII.
+      _journalBytes += utf8.encode(line).length + 1;
       _recordsSinceFsync++;
       _applyToLive(record, line);
       if (record is TaskStateRecord &&
@@ -292,6 +294,9 @@ class FileTransferPersistence implements TransferPersistence {
   /// deterministic synchronization point tests (and any caller that must
   /// observe a durable boundary) use instead of the interval timer.
   Future<void> flush() {
+    // Post-shutdown a flush must not reopen a handle — the same
+    // discipline `_armFsyncTimer` guards.
+    if (_closed) return _pending;
     _fsyncTimer?.cancel();
     _fsyncTimer = null;
     return _enqueue(() async {
@@ -487,7 +492,7 @@ class FileTransferPersistence implements TransferPersistence {
       }
     }
     await _io.atomicRewrite(journalFile, content.toString());
-    _journalBytes = content.length;
+    _journalBytes = utf8.encode(content.toString()).length;
     _liveTasks.removeWhere((_, task) => task.isFinished);
     _finishedSinceCompact = 0;
     _recordsSinceFsync = 0;
@@ -552,7 +557,7 @@ class FileTransferPersistence implements TransferPersistence {
       rootPaths: spec?.rootPaths ?? const [],
       destinationDir: spec?.destinationDir ?? '',
       operation: spec?.operation ?? TransferOperation.copy,
-      outcome: task.lastState ?? TransferTaskState.cancelled,
+      outcome: _terminalOutcome(task.lastState),
       startedAt: task.enqueuedAt ?? task.firstRecordAt,
       finishedAt: task.lastStateAt ?? DateTime.now(),
       completedFiles: completedFiles,
@@ -564,6 +569,16 @@ class FileTransferPersistence implements TransferPersistence {
       failureKind: task.failureKind,
     );
   }
+
+  /// A history row's outcome is always terminal — a task `taskRemoved`
+  /// before its terminal state journaled reports cancelled rather than
+  /// leaving the History tab showing a transient state forever.
+  static TransferTaskState _terminalOutcome(TransferTaskState? state) =>
+      switch (state) {
+        TransferTaskState.completed => TransferTaskState.completed,
+        TransferTaskState.failed => TransferTaskState.failed,
+        _ => TransferTaskState.cancelled,
+      };
 
   // ── Recovery ───────────────────────────────────────────────────────
 
@@ -580,12 +595,35 @@ class FileTransferPersistence implements TransferPersistence {
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return const _RecoveredLog(entries: []);
 
-    final String decoded;
+    // Strict-decode first. A crash mid-append commonly ends inside a
+    // multi-byte UTF-8 sequence, so a failed whole-file decode retries
+    // on the intact line prefix — byte-level, to the last newline —
+    // before the damage is treated as file corruption.
+    String? decoded;
     try {
       decoded = utf8.decode(bytes);
     } on FormatException {
-      // Invalid UTF-8 is a torn write's artifact mid-file: quarantine the
-      // whole file rather than guess at a decode boundary.
+      decoded = null;
+    }
+    var tornBytes = 0;
+    if (decoded == null) {
+      final lastNewline = bytes.lastIndexOf(0x0a);
+      if (lastNewline >= 0) {
+        try {
+          decoded = utf8.decode(bytes.sublist(0, lastNewline + 1));
+        } on FormatException {
+          decoded = null;
+        }
+        if (decoded != null) {
+          tornBytes = bytes.length - lastNewline - 1;
+          await io.truncateTo(file, lastNewline + 1);
+        }
+      }
+    }
+    if (decoded == null) {
+      // Invalid UTF-8 beyond the last complete line is mid-file
+      // corruption, not a torn append: quarantine the whole file rather
+      // than guess at a decode boundary.
       final quarantinedTo = await _quarantine(file, io);
       return _RecoveredLog(
         entries: const [],
@@ -598,14 +636,17 @@ class FileTransferPersistence implements TransferPersistence {
 
     // A crash mid-append leaves a torn tail (no terminating newline):
     // drop it and truncate before the log reopens so malformed bytes are
-    // never buried mid-log.
+    // never buried mid-log. Offsets are BYTES — String.length counts
+    // UTF-16 code units and non-ASCII paths desynchronize the two, so
+    // the truncate length comes from re-encoding the kept prefix.
     var content = decoded;
-    var tornBytes = 0;
     if (!content.endsWith('\n')) {
       final lastNewline = content.lastIndexOf('\n');
-      tornBytes = content.length - lastNewline - 1;
-      content = content.substring(0, lastNewline + 1);
-      await io.truncateTo(file, content.length);
+      final prefix = content.substring(0, lastNewline + 1);
+      final prefixBytes = utf8.encode(prefix).length;
+      tornBytes = bytes.length - prefixBytes;
+      content = prefix;
+      await io.truncateTo(file, prefixBytes);
     }
 
     final rawLines = [
@@ -677,6 +718,8 @@ class FileTransferPersistence implements TransferPersistence {
   }
 
   static RestoredTransferTask _restoredTask(_LiveTask live) {
+    // `open` already routed spec-less tasks into the orphaned-record
+    // count — the `!` documents that filter, not a blind unwrap.
     final spec = live.spec!;
     final items = [
       for (final item in live.entries.values)
@@ -760,8 +803,9 @@ class _LiveTask {
   int skippedSymlinks = 0;
   bool removed = false;
 
-  DateTime get firstRecordAt =>
-      records.isEmpty ? DateTime.now() : records.first.$1.at;
+  /// Every `_LiveTask` carries at least the record that created it —
+  /// an empty list is an invariant violation, not a wall-clock guess.
+  DateTime get firstRecordAt => records.first.$1.at;
 
   /// A removed or terminal task migrates to history at compaction.
   bool get isFinished =>
@@ -774,8 +818,10 @@ class _LiveTask {
   /// "terminal" for restore purposes is the same set.
   bool get isTerminal => isFinished;
 
-  int get encodedBytes =>
-      records.fold(0, (sum, record) => sum + record.$2.length + 1);
+  int get encodedBytes => records.fold(
+    0,
+    (sum, record) => sum + utf8.encode(record.$2).length + 1,
+  );
 }
 
 class _RestoredItemMutable {

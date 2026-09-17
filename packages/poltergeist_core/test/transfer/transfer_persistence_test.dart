@@ -40,6 +40,10 @@ class ScriptedIo extends TransferJournalIo {
   int rewriteCalls = 0;
   int dirFsyncCalls = 0;
 
+  /// Ordered operation log ('append:journal', 'fsync:history', …) — the
+  /// ordering tests assert interleavings, not just counts.
+  final List<String> ops = [];
+
   /// Completes while a rewrite is in flight (for exclusivity tests).
   final Completer<void> rewriteStarted = Completer();
   Completer<void>? rewriteGate;
@@ -47,9 +51,13 @@ class ScriptedIo extends TransferJournalIo {
   /// Throw on the Nth appendLine (1-based) to script write failures.
   int? failOnAppend;
 
+  static String _tag(File file) =>
+      file.path.endsWith(transferJournalFileName) ? 'journal' : 'history';
+
   @override
   Future<void> appendLine(File file, String line) async {
     appendCalls++;
+    ops.add('append:${_tag(file)}');
     if (appendCalls == failOnAppend) {
       throw const FileSystemException('scripted append failure');
     }
@@ -59,18 +67,21 @@ class ScriptedIo extends TransferJournalIo {
   @override
   Future<void> fsyncFile(File file) async {
     fsyncCalls++;
+    ops.add('fsync:${_tag(file)}');
     return super.fsyncFile(file);
   }
 
   @override
   Future<void> fsyncDirectory(Directory directory) async {
     dirFsyncCalls++;
+    ops.add('dirfsync');
     return super.fsyncDirectory(directory);
   }
 
   @override
   Future<void> atomicRewrite(File file, String contents) async {
     rewriteCalls++;
+    ops.add('rewrite:${_tag(file)}');
     if (!rewriteStarted.isCompleted) rewriteStarted.complete();
     await rewriteGate?.future;
     return super.atomicRewrite(file, contents);
@@ -105,6 +116,22 @@ class RecordingPersistence implements TransferPersistence {
   Future<void> shutdown() async {
     shutdownCalled = true;
   }
+}
+
+/// A persistence seam whose shutdown fails — the dispose-path test
+/// asserts the queue still closes its event stream.
+class ThrowingShutdownPersistence implements TransferPersistence {
+  @override
+  TransferJournalReplay get replay => TransferJournalReplay(tasks: []);
+
+  @override
+  void appendJournal(TransferJournalRecord record) {}
+
+  @override
+  void appendHistory(TransferHistoryEntry entry) {}
+
+  @override
+  Future<void> shutdown() => Future.error(StateError('disk gone'));
 }
 
 TransferJournalRecord enqueued(String taskId, TransferTaskSpec spec) =>
@@ -311,6 +338,70 @@ void main() {
       await reopened.shutdown();
     });
 
+    test('a torn tail after non-ASCII records truncates at the byte '
+        'offset — String.length is UTF-16 units, not bytes', () async {
+      final store = await openStore();
+      // Multi-byte paths desynchronize the two measures.
+      store.appendJournal(
+        enqueued('t1', localToRemoteSpec(rootPaths: ['/étage/файл.txt'])),
+      );
+      await store.flush();
+      final intactBytes = store.journalFile.lengthSync();
+      await store.journalFile.writeAsString(
+        '{"v":1,"type":"taskState","taskId":"t1","state":"paus',
+        mode: FileMode.append,
+        flush: true,
+      );
+
+      final reopened = await openStore();
+      expect(reopened.replay.tornJournalBytes, greaterThan(0));
+      expect(reopened.replay.tasks.single.taskId, 't1');
+      // A UTF-16-length truncate would have cut inside the live record.
+      expect(store.journalFile.lengthSync(), intactBytes);
+      expect(journalLines(store.journalFile), hasLength(1));
+      await reopened.shutdown();
+    });
+
+    test('a tail torn mid-UTF-8-sequence truncates instead of '
+        'quarantining the file', () async {
+      final store = await openStore();
+      store.appendJournal(enqueued('t1', localToRemoteSpec(rootPaths: ['/r'])));
+      await store.flush();
+      // 'é' is two UTF-8 bytes — drop the last so the tail is
+      // undecodable. The intact prefix must still survive.
+      final tail = utf8.encode(
+        '{"v":1,"type":"taskState","taskId":"t1","state":"paused",'
+        '"at":"2026-01-01T00:00:00Z","note":"é',
+      );
+      final raf = await store.journalFile.open(mode: FileMode.append);
+      await raf.writeFrom(tail.sublist(0, tail.length - 1));
+      await raf.close();
+
+      final reopened = await openStore();
+      expect(reopened.replay.tornJournalBytes, greaterThan(0));
+      expect(reopened.replay.quarantinedJournalPath, isNull);
+      expect(reopened.replay.tasks.single.taskId, 't1');
+      await reopened.shutdown();
+    });
+
+    test('a record missing its at timestamp quarantines', () async {
+      final store = await openStore();
+      store.appendJournal(enqueued('t1', localToRemoteSpec(rootPaths: ['/r'])));
+      await store.flush();
+      await store.journalFile.writeAsString(
+        '{"v":1,"type":"taskState","taskId":"t1","state":"paused"}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+
+      final reopened = await openStore();
+      // The intact prefix replays; the timestamp-less line quarantines.
+      expect(reopened.replay.quarantinedJournalPath, isNotNull);
+      expect(reopened.replay.quarantinedJournalRecords, 1);
+      expect(reopened.replay.tasks.single.taskId, 't1');
+      await reopened.shutdown();
+    });
+
     test('a complete-but-unparseable line quarantines and replays the '
         'prefix', () async {
       final store = await openStore();
@@ -354,12 +445,13 @@ void main() {
       final store = await openStore();
       store.appendHistory(historyEntry('h1'));
       await store.flush();
+      // A crash mid-append — no shutdown (a clean shutdown's compaction
+      // would append behind the torn tail, burying it mid-file).
       await store.historyFile.writeAsString(
         '{"v":1,"type":"transferHis',
         mode: FileMode.append,
         flush: true,
       );
-      await store.shutdown();
 
       final reopened = await openStore();
       expect(reopened.replay.tornHistoryBytes, greaterThan(0));
@@ -512,13 +604,41 @@ void main() {
       final store = await openStore(io: io, fsyncEveryRecords: 2);
       store.appendJournal(enqueued('t1', localToRemoteSpec(rootPaths: ['/r'])));
       await store.flush();
-      final afterFirst = io.fsyncCalls;
+      io.ops.clear();
+
+      // The second record's boundary fsync fires inside the writer
+      // chain — no explicit flush needed.
       store.appendJournal(
         TaskStateRecord(taskId: 't1', state: TransferTaskState.paused),
       );
+      await pumpUntil(
+        () => io.ops.contains('fsync:journal'),
+        reason: 'record-boundary fsync never fired',
+      );
+
+      // 03 §4.6 ordering: a task's history row is never durable before
+      // the journal describing it — the journal fsync precedes the
+      // history append inside the serialized chain.
+      io.ops.clear();
+      store.appendHistory(historyEntry('t1'));
       await store.flush();
-      expect(io.fsyncCalls, greaterThan(afterFirst));
+      final historyAppend = io.ops.indexOf('append:history');
+      expect(historyAppend, greaterThan(0));
+      expect(io.ops[historyAppend - 1], 'fsync:journal');
       await store.shutdown();
+    });
+
+    test('flush after shutdown performs no I/O', () async {
+      final io = ScriptedIo();
+      final store = await openStore(io: io);
+      store.appendJournal(enqueued('t1', localToRemoteSpec(rootPaths: ['/r'])));
+      await store.flush();
+      await store.shutdown();
+      final opsAfterShutdown = io.ops.length;
+      await store.flush();
+      // Post-shutdown a flush must not resurrect the write chain —
+      // Windows temp-dir teardown is where a stray handle bites.
+      expect(io.ops, hasLength(opsAfterShutdown));
     });
   });
 
@@ -717,17 +837,24 @@ void main() {
       final queue = newQueue(persistence: store);
       await queue.restore();
       final restored = queue.tasks.single;
-      // Not journaled-paused → maps to queued under the forced queue
-      // pause; the re-scan may run (scan ≠ dispatch) but the pump holds
-      // every armed item at admission until Resume.
+      // §4.6: not journaled-paused → queued under the forced queue-level
+      // pause; the re-scan waits for Resume too, so the task visibly
+      // stays queued and acquires no leases while restored-parked.
       expect(queue.isPaused, isTrue);
-      for (var i = 0; i < 200 && !restored.scanComplete; i++) {
+      expect(restored.state, TransferTaskState.queued);
+      expect(restored.scanComplete, isFalse);
+      for (var i = 0; i < 20; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
-      expect(restored.scanComplete, isTrue);
+      expect(restored.state, TransferTaskState.queued);
+      expect(restored.scanComplete, isFalse);
       expect(s1.uploadCalls - uploadsBefore, 0);
 
       queue.resumeQueue();
+      await pumpUntil(
+        () => restored.scanComplete,
+        reason: 're-scan never completed after resumeQueue',
+      );
       await awaitTaskDone(restored);
       expect(restored.state, TransferTaskState.completed);
       // The re-scan rediscovered both files; only the journaled-pending
@@ -816,22 +943,16 @@ void main() {
 
     test('removeTask journals the removal and the task does not restore',
         () async {
-      final crashed = await openStore();
-      crashed.appendJournal(
-        enqueued('task-1', localToRemoteSpec(rootPaths: ['/r'])),
-      );
-      crashed.appendJournal(
-        TaskStateRecord(
-          taskId: 'task-1',
-          state: TransferTaskState.completed,
-        ),
-      );
-      await crashed.flush();
-
+      // Drive the production API: a completed task removed from the
+      // listing, not a hand-appended record.
       final store = await openStore();
-      // Startup compaction migrated the terminal task to history; a
-      // taskRemoved then drops it from the journal entirely.
-      store.appendJournal(TaskRemovedRecord(taskId: 'task-1'));
+      final queue = newQueue(persistence: store);
+      File('${localSrc.path}/a.txt').writeAsStringSync('bye!');
+      final task = queue.enqueue(
+        localToRemoteSpec(rootPaths: ['${localSrc.path}/a.txt']),
+      );
+      await awaitTaskDone(task);
+      queue.removeTask(task.id);
       await store.flush();
       expect(
         journalLines(store.journalFile)
@@ -839,12 +960,13 @@ void main() {
             .whereType<TaskRemovedRecord>(),
         hasLength(1),
       );
-      // History still holds the record — removal is a listing gesture.
-      expect(store.history.single.taskId, 'task-1');
+      // Clean-shutdown compaction writes the history row.
+      await store.shutdown();
 
       final reopened = await openStore();
       expect(reopened.replay.tasks, isEmpty);
-      expect(reopened.history.single.taskId, 'task-1');
+      expect(reopened.history.single.taskId, task.id);
+      expect(reopened.history.single.outcome, TransferTaskState.completed);
     });
 
     test('restore sweeps orphaned upload temps in journaled directories '
@@ -871,13 +993,125 @@ void main() {
       final queue = newQueue(persistence: store);
       await queue.restore();
 
-      expect(s1.entryAt('/dest/.seance-upload-deadbeef.tmp'), isNull);
+      // Sweeps are fire-and-forget — they land shortly after restore,
+      // not inside it.
+      await pumpUntil(
+        () => s1.entryAt('/dest/.seance-upload-deadbeef.tmp') == null,
+        reason: 'orphaned temp never swept',
+      );
       expect(s1.entryAt('/dest/.poltergeist-12345678.tmp'), isNull);
       expect(s1.entryAt('/dest/keep.txt'), isNotNull);
       expect(
         s1.entryAt('/elsewhere/.seance-upload-99999999.tmp'),
         isNotNull,
       );
+    });
+
+    test('a queued restore whose items all ended terminal drains to '
+        'completed without a resume', () async {
+      // The task's terminal record was the torn tail — every journaled
+      // item already finished, so restore drains the task to its honest
+      // terminal state instead of stranding it queued forever.
+      final crashed = await openStore();
+      final f1 = File('${localSrc.path}/a.txt')..writeAsStringSync('done');
+      crashed.appendJournal(
+        enqueued('task-1', localToRemoteSpec(rootPaths: [f1.path])),
+      );
+      crashed.appendJournal(
+        fileEntry('task-1', 'item-a', f1.path, '/dest/a.txt', size: 4),
+      );
+      crashed.appendJournal(
+        ScanCompleteRecord(taskId: 'task-1', totalBytes: 4, skippedSymlinks: 0),
+      );
+      crashed.appendJournal(
+        FileCompletedRecord(taskId: 'task-1', itemId: 'item-a'),
+      );
+      // No taskState:completed — that record died with the crash.
+      await crashed.flush();
+
+      final store = await openStore();
+      final queue = newQueue(persistence: store);
+      await queue.restore();
+      final restored = queue.tasks.single;
+      await awaitTaskDone(restored);
+      expect(restored.state, TransferTaskState.completed);
+      await pumpUntil(
+        () => store.history.isNotEmpty,
+        reason: 'history row never written',
+      );
+      expect(store.history.single.taskId, 'task-1');
+      // Set before the rebuild — the row carries the real totals.
+      expect(store.history.single.totalBytes, 4);
+      // Nothing re-transferred — every journaled item was already done.
+      expect(s1.uploadCalls, 0);
+    });
+
+    test('a mid-scan merge keys on source path too — same-destination '
+        'items do not cross-wire', () async {
+      // Two roots with the same leaf name both plan to /dest/f.txt.
+      final dirA = Directory('${tempDir.path}/dirA')..createSync();
+      final dirB = Directory('${tempDir.path}/dirB')..createSync();
+      File('${dirA.path}/f.txt').writeAsStringSync('AAA');
+      File('${dirB.path}/f.txt').writeAsStringSync('BBBB');
+      final spec = localToRemoteSpec(
+        rootPaths: ['${dirA.path}/f.txt', '${dirB.path}/f.txt'],
+      );
+      final crashed = await openStore();
+      crashed.appendJournal(enqueued('task-1', spec));
+      // Journal order opposes scan order: pending i2 first, completed
+      // i1 second — a destination-only merge would pop i2 for A's file.
+      crashed.appendJournal(
+        fileEntry(
+          'task-1',
+          'i2',
+          '${dirB.path}/f.txt',
+          '/dest/f.txt',
+          size: 4,
+        ),
+      );
+      crashed.appendJournal(
+        fileEntry(
+          'task-1',
+          'i1',
+          '${dirA.path}/f.txt',
+          '/dest/f.txt',
+          size: 3,
+        ),
+      );
+      crashed.appendJournal(
+        FileCompletedRecord(taskId: 'task-1', itemId: 'i1'),
+      );
+      // Mid-scan: no scanComplete.
+      await crashed.flush();
+
+      final store = await openStore();
+      final queue = newQueue(persistence: store);
+      await queue.restore();
+      queue.resumeQueue();
+      final restored = queue.tasks.single;
+      await awaitTaskDone(restored);
+      expect(restored.state, TransferTaskState.completed);
+      // i1 kept its completed outcome under ITS source — only i2's
+      // source actually uploaded.
+      expect(s1.uploadCalls, 1);
+      expect(s1.entryAt('/dest/f.txt')!.size, 4);
+      expect(
+        restored.items.where((i) => i.id == 'i1').single.state,
+        TransferItemState.completed,
+      );
+      expect(
+        restored.items.where((i) => i.id == 'i2').single.state,
+        TransferItemState.completed,
+      );
+    });
+
+    test('dispose still closes the event stream when persistence '
+        'shutdown throws', () async {
+      final queue = newQueue(persistence: ThrowingShutdownPersistence());
+      var streamClosed = false;
+      queue.events.listen((_) {}, onDone: () => streamClosed = true);
+      await expectLater(queue.dispose(), throwsStateError);
+      await pumpUntil(() => streamClosed, reason: 'events never closed');
     });
 
     test('with no persistence the queue runs exactly the in-memory '

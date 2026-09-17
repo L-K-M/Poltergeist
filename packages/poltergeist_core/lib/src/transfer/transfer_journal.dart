@@ -103,7 +103,10 @@ sealed class TransferJournalRecord {
     if (taskId is! String || taskId.isEmpty) {
       throw const FormatException('journal record is missing taskId');
     }
-    final at = _parseInstant(json['at']) ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final at = _parseInstant(json['at']);
+    if (at == null) {
+      throw const FormatException('journal record is missing at');
+    }
     final type = json['type'];
     switch (type) {
       case TaskEnqueuedRecord.wireType:
@@ -688,7 +691,7 @@ final class TransferHistoryEntry {
       error: error as String?,
       failureKind: _parseErrorKind(json['failureKind']),
       at: _parseInstant(json['at']) ??
-          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+          (throw const FormatException('history record is missing at')),
     );
   }
 }
@@ -939,9 +942,19 @@ String? _optionalString(Object? value, String record) {
   return value as String?;
 }
 
+/// Absent keys decode to null (optional fields stay optional); a
+/// present-but-unparseable value throws like every sibling decoder so a
+/// corrupt timestamp routes to quarantine instead of silently degrading.
 DateTime? _parseInstant(Object? value) {
-  if (value is! String) return null;
-  return DateTime.tryParse(value)?.toUtc();
+  if (value == null) return null;
+  if (value is! String) {
+    throw const FormatException('malformed timestamp');
+  }
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) {
+    throw FormatException('malformed timestamp: $value');
+  }
+  return parsed.toUtc();
 }
 
 RemoteFileType? _parseFileType(Object? value) {
@@ -1001,13 +1014,16 @@ RemoteFileErrorKind? _parseErrorKind(Object? value) {
 class TransferJournalIo {
   const TransferJournalIo();
 
-  /// Append one complete line (OS-level flush — survives process death;
-  /// fsync rides the store's bounded interval). A fresh open per append
-  /// is deliberate: the handle can never point at an inode a rewrite
-  /// already replaced (03 §4.6's stale-handle hazard).
+  /// Append one complete line. A fresh open per append is deliberate:
+  /// the handle can never point at an inode a rewrite already replaced
+  /// (03 §4.6's stale-handle hazard). The write reaches the OS on close —
+  /// survives process death — while fsync stays on the store's bounded
+  /// interval: `writeAsString`'s `flush: true` would be a full fsync per
+  /// record, defeating the batching and slipping past the seam's
+  /// `fsyncFile` accounting.
   Future<void> appendLine(File file, String line) async {
     await file.parent.create(recursive: true);
-    await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
+    await file.writeAsString('$line\n', mode: FileMode.append);
   }
 
   /// fsync — `RandomAccessFile.flush` forces the file's data and metadata
@@ -1052,10 +1068,12 @@ class TransferJournalIo {
     await fsyncDirectory(file.parent);
   }
 
-  /// Atomic replacement (the #110 pattern, hardened per 03 §4.6): an
-  /// exclusively-created sibling temp is written, fsynced, renamed over
-  /// the target, and the containing directory fsynced so the rename
-  /// itself survives power loss.
+  /// Atomic replacement (the #110 pattern, hardened per 03 §4.6): a
+  /// sibling temp with a random-hex name (dart:io has no O_EXCL — the
+  /// suffix makes collisions vanishingly unlikely rather than
+  /// impossible) is written, fsynced, renamed over the target, and the
+  /// containing directory fsynced so the rename itself survives power
+  /// loss.
   Future<void> atomicRewrite(File file, String contents) async {
     await file.parent.create(recursive: true);
     final temporary = File(

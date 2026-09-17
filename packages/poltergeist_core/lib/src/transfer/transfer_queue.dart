@@ -269,9 +269,13 @@ class TransferQueue {
     await Future.wait(_tasks.values.map((rt) => rt.done.future));
     // Every lifecycle append is already queued on the writer chain —
     // shutdown runs the clean-shutdown compaction and final fsync behind
-    // them (03 §4.6).
-    await persistence?.shutdown();
-    await _events.close();
+    // them (03 §4.6). The events stream closes even when a foreign
+    // persistence implementation lets shutdown throw.
+    try {
+      await persistence?.shutdown();
+    } finally {
+      await _events.close();
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -540,7 +544,7 @@ class TransferQueue {
         // A restored mid-scan task merges onto its journaled item by
         // destination path: the re-scan reuses the itemId and an
         // already-terminal outcome suppresses re-dispatch (03 §4.6).
-        final restored = runtime.takeRestored(plannedDest);
+        final restored = runtime.takeRestored(plannedDest, entry.path);
         final planned = PlannedFile(
           source: entry,
           name: name,
@@ -549,16 +553,21 @@ class TransferQueue {
           existing: existing,
           itemId: restored?.itemId,
         );
-        _journalPlanEntry(
-          task,
-          itemId: planned.itemId,
-          isDirectory: false,
-          source: entry,
-          name: name,
-          containerKey: containerKey,
-          destinationPath: plannedDest,
-          existing: existing,
-        );
+        // A still-pending restored item re-journals with fresh fields;
+        // a terminal one's pre-crash planEntry already stands — a repeat
+        // would be churn at best and an outcome reset at worst.
+        if (restored?.outcome == null) {
+          _journalPlanEntry(
+            task,
+            itemId: planned.itemId,
+            isDirectory: false,
+            source: entry,
+            name: name,
+            containerKey: containerKey,
+            destinationPath: plannedDest,
+            existing: existing,
+          );
+        }
         task.plan!.files.add(planned);
         task.totalBytes = (task.totalBytes ?? 0) + (entry.size ?? 0);
         if (restored?.outcome != null) {
@@ -579,7 +588,7 @@ class TransferQueue {
         );
         _armFile(runtime, _FileWork(item: item, file: planned));
       case RemoteFileType.directory:
-        final restored = runtime.takeRestored(plannedDest);
+        final restored = runtime.takeRestored(plannedDest, entry.path);
         final planned = PlannedDirectory(
           source: entry,
           name: name,
@@ -588,16 +597,18 @@ class TransferQueue {
           existing: existing,
           itemId: restored?.itemId,
         );
-        _journalPlanEntry(
-          task,
-          itemId: planned.itemId,
-          isDirectory: true,
-          source: entry,
-          name: name,
-          containerKey: containerKey,
-          destinationPath: plannedDest,
-          existing: existing,
-        );
+        if (restored?.outcome == null) {
+          _journalPlanEntry(
+            task,
+            itemId: planned.itemId,
+            isDirectory: true,
+            source: entry,
+            name: name,
+            containerKey: containerKey,
+            destinationPath: plannedDest,
+            existing: existing,
+          );
+        }
         task.plan!.directoriesInOrder.add(planned);
         final item = restored?.outcome != null
             ? _addRestoredTerminalItem(
@@ -1868,7 +1879,9 @@ class TransferQueue {
     final adoptedAt = DateTime.now();
     for (final restored in store.replay.tasks) {
       final task = _adoptRestored(restored);
-      await _sweepRestoredTemps(restored, task, adoptedAt);
+      // Best-effort hygiene — never serialized into startup latency:
+      // an unreachable server's sweep retries on next launch (03 §4.6).
+      unawaited(_sweepRestoredTemps(restored, task, adoptedAt));
     }
   }
 
@@ -1899,10 +1912,13 @@ class TransferQueue {
     }
 
     if (restored.scanComplete) {
-      _rebuildScannedPlan(runtime, restored);
-      task.plan!.skippedSymlinks = restored.skippedSymlinks;
+      // Totals land BEFORE the rebuild: terminal-item bookkeeping inside
+      // `_rebuildScannedPlan` can finish the task, and the finish path
+      // needs scanComplete + totalBytes for an honest history row.
       task.scanComplete = true;
       task.totalBytes = restored.totalBytes;
+      _rebuildScannedPlan(runtime, restored);
+      task.plan!.skippedSymlinks = restored.skippedSymlinks;
     } else {
       // A mid-scan crash re-scans on resume; the merge index suppresses
       // re-dispatch of journaled terminal items by destination path.
@@ -1913,10 +1929,22 @@ class TransferQueue {
       runtime.restoredIndex = index;
     }
     _emit(TransferQueueTaskEvent(task.id, task.state));
+    // A queued restore whose every journaled item already ended
+    // terminal (its task-terminal record was the torn tail) drains to
+    // its honest terminal state here; a paused restore still waits for
+    // resumeTask to end the surviving pause (03 §4.6).
+    if (mapped != TransferTaskState.paused) _maybeFinishTask(runtime);
 
     if (!restored.scanComplete) {
-      // The scan parks at the pre-lease gate until resume.
-      unawaited(_runTask(runtime));
+      // The re-scan waits out both pauses — the queue-level restore
+      // flag (resumeQueue) and a surviving per-task pause (resumeTask)
+      // — so nothing surfaces `scanning` or acquires scan leases before
+      // the user resumes.
+      unawaited(() async {
+        await _notPaused.future;
+        await runtime.notPaused.future;
+        if (!_disposed && !task.isTerminal) unawaited(_runTask(runtime));
+      }());
     }
     return task;
   }
@@ -2098,6 +2126,8 @@ class TransferQueue {
           }
         }
       }
+    } on Object {
+      // Sweeps are fire-and-forget from restore() — nothing may throw.
     } finally {
       await _releaseLeases(leases);
     }
@@ -2594,10 +2624,22 @@ class _TaskRuntime {
   /// an already-terminal outcome suppress re-dispatch.
   Map<String, List<RestoredPlanItem>>? restoredIndex;
 
-  RestoredPlanItem? takeRestored(String destinationPath) {
+  /// Pops the journaled record for [destinationPath], preferring the
+  /// entry whose [sourcePath] also matches — two plan items can share
+  /// a destination — but falling back to the bucket head so a terminal
+  /// outcome still suppresses re-dispatch when the source moved (the
+  /// no-resurrection rule outranks an exact match, 03 §4.6).
+  RestoredPlanItem? takeRestored(String destinationPath, String sourcePath) {
     final queue = restoredIndex?[destinationPath];
     if (queue == null || queue.isEmpty) return null;
-    final item = queue.removeAt(0);
+    var index = 0;
+    for (var i = 0; i < queue.length; i++) {
+      if (queue[i].sourcePath == sourcePath) {
+        index = i;
+        break;
+      }
+    }
+    final item = queue.removeAt(index);
     if (queue.isEmpty) restoredIndex!.remove(destinationPath);
     return item;
   }
