@@ -3,11 +3,13 @@
 Offline evaluation of Poltergeist's D12 performance budgets. The CI
 `bench` job (08 §8) produces the inputs; this checker only
 consumes files, prints an honest table plus notices, and exits with the
-plan's status. Every
-scenario in `budgets.json` stays `landed: false` until the real harness/job
-introduces its surface
-(07 §1), and the tier-A `calibratedFingerprint` stays `null` until real
-calibration. The tier-B baseline **is** committed
+plan's status. The
+tier-A scenarios P3/P5/P7 are `landed: true` under a populated
+`calibratedFingerprint` — they crossed both gates on 2026-09-17 (owner
+decision on STATUS item 22; provenance under "Tier-A calibration and
+the landed flip" below) — while every tier-B scenario stays
+`landed: false` until the M9 harness/job introduces its surface (07 §1).
+The tier-B baseline **is** committed
 (`tier-b-baseline.json`, measured from real main-branch bench artifacts —
 provenance below), so a declared tier-B scope now runs the per-run
 fingerprint-drift evaluation against it instead of printing the
@@ -147,8 +149,12 @@ The `bench` job in `.github/workflows/ci.yml` writes
 `test/integration/run.sh --lifecycle-only`; `scripts/bench-tier-b.sh`
 for P1/P2/P4/P6 — see below), evaluates it here with `if: always()` so
 partial results are graded, and uploads it as the always-present
-`bench-results` artifact. With every scenario unlanded the run is a
-report, not a gate; no `BENCH_ENFORCE_*` flag is set by the job.
+`bench-results` artifact. The evaluate step forwards the
+`BENCH_ENFORCE_A` repo variable into the checker's environment (set
+2026-09-17 with the tier-A landed flip — an unset/empty variable reads
+as unenforced), so landed tier-A rows now gate on their calibrated
+fingerprint. `BENCH_ENFORCE_B` is not forwarded: tier B stays
+trend-only until M9.
 
 **Tier-B leg (M3 spike).** On pushes to `main` and manual dispatch the
 job additionally runs the profile-mode UI benchmarks under Xvfb:
@@ -318,9 +324,54 @@ not health.
 
 Consequence: the absolute P3/P5 budgets are unreachable by construction
 on this environment (≈104 sequential round trips would need < 0.5 ms
-each). Landing them needs the 08 §6 calibration path or an owner-level
-budget/protocol decision — see the dated STATUS.md section and open
-item. Nothing here flips `landed`.
+each). Landing them needed the 08 §6 calibration path plus an
+owner-level budget decision — resolved 2026-09-17 (STATUS item 22); see
+the next section.
+
+## Tier-A calibration and the landed flip (2026-09-17)
+
+Owner ruling on STATUS item 22 (Option 1, recommendation accepted):
+recalibrate the P3/P5 budgets to the CI-fingerprint reference values,
+flip the tier-A scenarios `landed`, and enable `BENCH_ENFORCE_A`. P7
+kept its plan budget (≥ 1 000 entries/s — it passes at ~2 280/s
+observed). An upstream pipelined READDIR is explicitly not a blocker.
+
+**Calibration pool.** The five main-branch `ci.yml` runs matching the
+recorded tier-A fingerprint in full — 35005140193, 35028604913,
+35033568776, 35086417157, 35125183171 (2026-09-15/16) — 25 `ok`
+repetitions per scenario. Recorded fingerprint: runner image
+`ubuntu-latest@20260907.300.1`, `linux_x64`, Dart `3.13.4` (the job
+SDK's stable, AOT collectors), `aot` mode, `AMD EPYC 7763 64-Core
+Processor`, no job-wide `scenarioConfig` (each scenario records its own
+`calibratedScenarioConfig` — the strings the artifacts actually carry).
+Earlier same-image runs on Dart 3.13.3 (34920829912, 34925105848,
+34925201167, 34937535607) corroborate within ~1.5 % but sit on the other
+side of the controlled `dartVersion` axis, so they are not pooled. Runs
+on the fleet's other CPUs (9V74, 9V45, Xeon 6973P-C/8573C) are likewise
+excluded — a different environment, per the pooling rule.
+
+**Policy and derived budgets.** observed pooled median × 1.2 headroom,
+rounded up to the next 500 ms:
+
+| Scenario | Pooled median (n=25) | × 1.2 | Budget |
+|---|---|---|---|
+| P3 | 4 451.612 ms | 5 341.9 ms | < 5 500 ms |
+| P5 | 4 775.815 ms | 5 731.0 ms | < 6 000 ms |
+| P7 | 2 280.1 entries/s | — | ≥ 1 000 entries/s (unchanged) |
+
+Within-pool spread is < 0.4 % per scenario; the pooled runs' per-run
+medians sit within ~0.1 % of the pooled value — the serialized-READDIR
+fixture is remarkably stable. The same four named 3.13.3 runs put P3 at
+4 448–4 521 ms and P5 at 4 774–4 843 ms, corroborating the calibration
+independently of the pooled set.
+
+The committed `calibratedScenarioConfig` strings are part of the
+calibration record — including the absolute `/home/poltergeist/bench`
+fixture paths and P5's enumerated `first-file` — so fixture generation
+and the bench checkout layout must stay deterministic (identical across
+all 20 sampled runs on four CPU models). A regeneration or path change
+shows up as a `scenarioConfig` drift-skip, not a budget failure; the
+evaluate step annotates that state while `BENCH_ENFORCE_A` is set.
 
 ## Tests
 

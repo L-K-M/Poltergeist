@@ -318,13 +318,17 @@ jobs:
   # real app in profile mode under Xvfb (`flutter drive --profile`) and
   # capture raster timing through SchedulerBinding.addTimingsCallback.
   # Both legs merge their per-scenario documents into one
-  # bench-results.json that check.dart grades. Every scenario is still
-  # unlanded in budgets.json, so the job reports rather than gates: no
-  # BENCH_ENFORCE_* flag is set here, calibration is the dedicated
-  # baseline-refresh procedure (08 §6), and PR runs never touch drift
-  # state — which is also why the tier-B leg runs only on main pushes and
-  # manual dispatch, never on PRs, and why the evaluate step scopes
-  # --tiers to what the event actually ran.
+  # bench-results.json that check.dart grades. The tier-A scenarios are
+  # landed and calibrated against the CI fingerprint, and the evaluate
+  # step forwards the BENCH_ENFORCE_A repo variable to the checker, so
+  # tier-A budget overruns gate once that variable is set (tier-A drift
+  # skips stay exit-zero in every mode per 08 §6). Tier-B scenarios stay
+  # unlanded and trend-only until M9: no BENCH_ENFORCE_B is forwarded.
+  # Calibration changes ride the dedicated baseline-refresh procedure
+  # (08 §6), and PR runs never touch drift state — which is also why the
+  # tier-B leg runs only on main pushes and manual dispatch, never on
+  # PRs, and why the evaluate step scopes --tiers to what the event
+  # actually ran.
   bench:
     name: D12 benchmarks
     needs: detect_bench
@@ -386,10 +390,36 @@ jobs:
       # `ab` on main pushes and dispatch.
       - name: Evaluate results
         if: always()
+        env:
+          # Repo Actions variable; unset/empty reads as unenforced, and a
+          # non-boolean value fails closed in the checker (usage exit).
+          BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
+        # `bash` on Actions is -eo pipefail: the tee below captures the
+        # report for the annotation step without swallowing the checker's
+        # exit code.
+        shell: bash
         run: >-
           dart run test/benchmarks/check.dart
           --results bench-results.json
           --tiers ${{ github.event_name == 'pull_request' && 'a' || 'ab' }}
+          2>&1 | tee evaluate.log
+      # A landed tier-A row that drift-skips is a green job with an inert
+      # gate — the only signal would otherwise be text in the log. Surface
+      # it as an annotation so a fingerprint rotation is visible without
+      # changing 08 §6's exit-zero drift policy.
+      - name: Annotate inert tier-A enforcement
+        if: always()
+        env:
+          BENCH_ENFORCE_A: ${{ vars.BENCH_ENFORCE_A }}
+        # ${var,,} is a Bash >= 4 expansion — pin the shell rather than
+        # relying on the runner's implicit default.
+        shell: bash
+        run: |
+          # -n would warn even when the variable is deliberately falsy;
+          # match the checker's truthy set (1/true, case-insensitive).
+          if { [ "${BENCH_ENFORCE_A,,}" = "true" ] || [ "$BENCH_ENFORCE_A" = "1" ]; } && [ -f evaluate.log ] && grep -qE '^P[0-9]+[[:space:]]+a[[:space:]].*skipped: hardware drift' evaluate.log; then
+            echo "::warning::BENCH_ENFORCE_A is set but tier-A rows drift-skipped — enforcement is inert until budgets.json is recalibrated on the rotated fingerprint (08 §6)"
+          fi
       - name: Upload bench results
         if: always()
         uses: actions/upload-artifact@v4

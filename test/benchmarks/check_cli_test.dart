@@ -1152,6 +1152,235 @@ void main() {
     expect(stdoutText, contains('controlled axis runnerImage'));
   });
 
+  group('the committed tier-A catalog (landed 2026-09-17, STATUS item 22)',
+      () {
+    // These runs drive the real committed budgets.json through the
+    // default --budgets path — the same evaluation the bench job's
+    // `--tiers a` invocation applies. The fingerprint and per-scenario
+    // calibrated configs are read back out of the committed catalog, so
+    // a future recalibration PR re-pins the recorded values in
+    // check_test.dart rather than this fixture.
+    late BudgetCatalog committedCatalog;
+
+    setUp(() {
+      committedCatalog = BudgetCatalog.fromJson(
+        jsonDecode(File(defaultBudgetsPath).readAsStringSync()),
+      );
+    });
+
+    Map<String, Object?> committedFingerprint(String scenario) {
+      final calibrated = committedCatalog.calibratedFingerprint!;
+      return {
+        'runnerImage': calibrated.runnerImage,
+        'arch': calibrated.arch,
+        'dartVersion': calibrated.dartVersion,
+        'flutterVersion': calibrated.flutterVersion,
+        'mode': calibrated.mode,
+        'cpuModel': calibrated.cpuModel,
+        'scenarioConfig':
+            committedCatalog.scenarios[scenario]!.calibratedScenarioConfig,
+      };
+    }
+
+    /// One full job's worth of landed tier-A rows at the calibrated
+    /// fingerprint: P3 keeps its 5-repetition floor, P5/P7 their 3.
+    List<Map<String, Object?>> landedRows({
+      double p3 = 4451,
+      double p5 = 4775,
+      double p7 = 2280,
+      Map<String, Object?> Function(String scenario)? fingerprint,
+    }) => [
+      for (var i = 0; i < 5; i++)
+        _rowJson(
+          scenario: 'P3',
+          repetition: i,
+          value: p3,
+          fingerprint: (fingerprint ?? committedFingerprint)('P3'),
+        ),
+      for (var i = 0; i < 3; i++)
+        _rowJson(
+          scenario: 'P5',
+          repetition: i,
+          value: p5,
+          fingerprint: (fingerprint ?? committedFingerprint)('P5'),
+        ),
+      for (var i = 0; i < 3; i++)
+        _rowJson(
+          scenario: 'P7',
+          repetition: i,
+          value: p7,
+          unit: 'entries/s',
+          fingerprint: (fingerprint ?? committedFingerprint)('P7'),
+        ),
+    ];
+
+    test('in-budget medians at the calibrated fingerprint pass under '
+        'enforcement', () async {
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(rows: landedRows()),
+      );
+      // 'true' is the spelling the production repo variable carries; the
+      // '1' spelling stays covered by the over-budget test below.
+      final (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: ['--results', results, '--tiers', 'a'],
+        environment: {'BENCH_ENFORCE_A': 'true'},
+      );
+      expect(exitCodeValue, 0, reason: stdoutText);
+      for (final id in ['P3', 'P5', 'P7']) {
+        expect(
+          stdoutText,
+          contains(RegExp('^$id\\s+a\\s.*\\spass\$', multiLine: true)),
+        );
+      }
+      expect(stdoutText, isNot(contains('skipped: hardware drift')));
+      expect(stdoutText, isNot(contains('reported (unlanded)')));
+    });
+
+    test('an over-budget landed median fails once enforced and notices '
+        'while soft', () async {
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(rows: landedRows(p5: 6500)),
+      );
+      var (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: ['--results', results, '--tiers', 'a'],
+        environment: {'BENCH_ENFORCE_A': '1'},
+      );
+      expect(exitCodeValue, 1, reason: stdoutText);
+      expect(stdoutText, contains('FAIL: scenario P5'));
+      expect(stdoutText, contains('overrun (fail: enforced)'));
+
+      (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: ['--results', results, '--tiers', 'a'],
+      );
+      expect(exitCodeValue, 0, reason: stdoutText);
+      expect(stdoutText, contains('overrun (notice: not enforced)'));
+    });
+
+    test('a missing or errored landed scenario fails in every mode',
+        () async {
+      // P5 absent from the file entirely — soft mode softens overruns
+      // only, never a missing expected scenario.
+      var results = await writeFixture(
+        'results.json',
+        _resultsJson(
+          rows: landedRows()
+              .where((row) => row['scenario'] != 'P5')
+              .toList(),
+        ),
+      );
+      for (final environment in [
+        const <String, String>{},
+        const {'BENCH_ENFORCE_A': '1'},
+      ]) {
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a'],
+          environment: environment,
+        );
+        expect(exitCodeValue, 1, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains(
+            'FAIL: expected scenario P5 (tier a) is missing from the '
+            'results file',
+          ),
+        );
+      }
+
+      // P5 present but every repetition errored.
+      results = await writeFixture(
+        'results-errored.json',
+        _resultsJson(
+          rows: [
+            ...landedRows().where((row) => row['scenario'] != 'P5'),
+            for (var i = 0; i < 3; i++)
+              _rowJson(
+                scenario: 'P5',
+                repetition: i,
+                status: 'error',
+                error: 'fixture died',
+                fingerprint: committedFingerprint('P5'),
+              ),
+          ],
+        ),
+      );
+      for (final environment in [
+        const <String, String>{},
+        const {'BENCH_ENFORCE_A': '1'},
+      ]) {
+        final (exitCodeValue, stdoutText, _) = await runChecker(
+          arguments: ['--results', results, '--tiers', 'a'],
+          environment: environment,
+        );
+        expect(exitCodeValue, 1, reason: stdoutText);
+        expect(
+          stdoutText,
+          contains('FAIL: expected scenario P5 (tier a) repetition 0 '
+              'errored: fixture died'),
+        );
+      }
+    });
+
+    test('a per-scenario config mismatch drift-skips only that scenario',
+        () async {
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(
+          rows: landedRows(
+            fingerprint: (scenario) => {
+              ...committedFingerprint(scenario),
+              if (scenario == 'P3')
+                'scenarioConfig': 'p3/v1;target=/elsewhere;changed=true',
+            },
+          ),
+        ),
+      );
+      final (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: ['--results', results, '--tiers', 'a'],
+        environment: {'BENCH_ENFORCE_A': '1'},
+      );
+      // Tier-A drift never reddens, even enforced.
+      expect(exitCodeValue, 0, reason: stdoutText);
+      expect(stdoutText, contains('controlled axis scenarioConfig'));
+      expect(stdoutText, contains('for scenario P3'));
+      expect(
+        stdoutText,
+        contains(RegExp(r'^P3\s+a\s.*skipped: hardware drift$',
+            multiLine: true)),
+      );
+      for (final id in ['P5', 'P7']) {
+        expect(
+          stdoutText,
+          contains(RegExp('^$id\\s+a\\s.*\\spass\$', multiLine: true)),
+        );
+      }
+    });
+
+    test('a controlled-axis mismatch drift-skips tier A, exit zero even '
+        'enforced', () async {
+      final results = await writeFixture(
+        'results.json',
+        _resultsJson(
+          rows: landedRows(
+            fingerprint: (scenario) => {
+              ...committedFingerprint(scenario),
+              'dartVersion': '9.9.9 (stable) on "linux_x64"',
+            },
+          ),
+        ),
+      );
+      final (exitCodeValue, stdoutText, _) = await runChecker(
+        arguments: ['--results', results, '--tiers', 'a'],
+        environment: {'BENCH_ENFORCE_A': '1'},
+      );
+      expect(exitCodeValue, 0, reason: stdoutText);
+      expect(stdoutText, contains('controlled axis dartVersion'));
+      expect(stdoutText, contains('skipped: hardware drift'));
+      expect(stdoutText, isNot(contains('FAIL:')));
+    });
+  });
+
   group('drift-state progression (tier-B CPU axis)', () {
     test('six runs stay green, the seventh reddens once enforced, and a '
         'clean run resets', () async {
