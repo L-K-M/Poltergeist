@@ -62,7 +62,11 @@ void main() {
   TransferTask enqueue(TransferTaskSpec spec) => queue.enqueue(spec);
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('poltergeist-tq-');
+    // Resolve the fixture root: on macOS, systemTemp lives under /var,
+    // a symlink to /private/var — the destination-side safety walk must
+    // see the real path or it fails on the rule, not a bug.
+    final temp = await Directory.systemTemp.createTemp('poltergeist-tq-');
+    tempDir = Directory(temp.resolveSymbolicLinksSync());
     localSrc = Directory('${tempDir.path}/src')..createSync();
     s1 = FakeTreeFileSystem()..addDirectory('/dst');
     s2 = FakeTreeFileSystem()..addDirectory('/dst');

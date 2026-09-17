@@ -16,6 +16,14 @@ Future<void> pump([int times = 8]) async {
 
 /// Pumps until [condition] holds; fails the test (rather than hanging) when
 /// it never does.
+///
+/// The pump budget counts event-loop turns, not wall-clock — but tests
+/// whose destination is the real [LocalFileSystem] spend turns waiting on
+/// the dart:io threadpool, and a turn loop outruns real disk I/O (Windows
+/// CI: create/write/rename ops are an order of magnitude slower than the
+/// fake VFS and the loop finishes its budget before the first write
+/// lands). A small real delay per unmet iteration gives the threadpool
+/// wall-clock to deliver.
 Future<void> pumpUntil(
   bool Function() condition, {
   String reason = '',
@@ -24,6 +32,7 @@ Future<void> pumpUntil(
   for (var i = 0; i < maxPumps; i++) {
     if (condition()) return;
     await pump();
+    await Future<void>.delayed(const Duration(milliseconds: 5));
   }
   fail('pumpUntil timed out${reason.isEmpty ? '' : ': $reason'}');
 }
