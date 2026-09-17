@@ -355,11 +355,13 @@ class RecursiveWalker {
         unsupportedEntries++;
         return (
           kind: WalkItemKind.unsupported,
-          // Transfer-centric reason; in a delete enumeration such an
-          // entry is simply a leaf the consumer may still remove.
+          // In a delete enumeration such an entry is still a leaf the
+          // consumer may remove — the detail keeps the entry type
+          // visible either way.
           detail: purpose == WalkPurpose.transfer
               ? 'unsupported source entry type ${entry.type.name}'
-              : null,
+              : 'unsupported source entry type ${entry.type.name} '
+                  '(deletable as a leaf)',
         );
     }
   }

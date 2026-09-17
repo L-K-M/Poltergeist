@@ -331,6 +331,36 @@ void main() {
       expect(s2.fileBytes['/dst/src/ok.txt'], 'o'.codeUnits);
     });
 
+    test('a persistent mid-scan disconnect exhausts the re-lease seam '
+        'and fails the task — never a per-item failure', () async {
+      s1.addDirectory('/src/broken');
+      s1.addFile('/src/ok.txt', 'o'.codeUnits);
+      s1.listFailure = (path) => path == '/src/broken'
+          ? const RemoteFileException(
+              kind: RemoteFileErrorKind.disconnected,
+              operation: 'list',
+              message: 'connection dropped',
+            )
+          : null;
+
+      final task = queue.enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src'],
+          destinationDir: '/dst',
+        ),
+      );
+      await awaitTaskDone(task);
+
+      expect(task.state, TransferTaskState.failed);
+      // failedItems counts scan-produced failure rows; the teardown
+      // mass-failure assigns state without bumping it, so zero pins
+      // "no per-item failure while the seam gave up".
+      expect(task.failedItems, 0);
+      expect(task.scanComplete, isFalse);
+    });
+
     test('mid-walk cancel stops enumeration: no new listings, no new '
         'items', () async {
       s1.addDirectory('/src/a');

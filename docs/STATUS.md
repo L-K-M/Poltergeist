@@ -5719,12 +5719,12 @@ container linkage, pull-bound enumeration, growing totals, root/listing
 failures, the exact reserved-name table for both destination kinds,
 traversal escapes, flagged reporting including flagged-directory
 terminality in both walk modes, both cancel shapes, delete
-post-order and enumerate-only boundary) plus 8 queue-integration tests
+post-order and enumerate-only boundary) plus 9 queue-integration tests
 in `transfer_walker_test.dart` (upload and download direction, conflict
 handoff through `ask`, per-item rejections with siblings transferring,
-escape loud-failure, flagged row, mid-scan disconnect riding the
-re-lease seam, mid-walk cancel admitting no new
-listings or items). Full core suite 1101 green (16 fixture skips),
+escape loud-failure, flagged row, transient and persistent mid-scan
+disconnects riding the re-lease seam, mid-walk cancel admitting no new
+listings or items). Full core suite 1102 green (16 fixture skips),
 analyze clean. No journal schema, protocol, app, pin, or lock change.
 Recursive delete *execution* remains the D15 follow-up's — the walker
 only enumerates and reports delete candidates.
