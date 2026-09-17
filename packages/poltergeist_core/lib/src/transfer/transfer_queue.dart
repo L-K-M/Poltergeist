@@ -1568,7 +1568,12 @@ class TransferQueue {
         cancellation.cancel();
       }),
     );
-    unawaited(cancellation.whenCancelled.then((_) => sink.abort()));
+    unawaited(
+      cancellation.whenCancelled.then(
+        (_) => sink.abort(),
+        onError: (Object _) {},
+      ),
+    );
     try {
       await source.download(
         sourcePath,

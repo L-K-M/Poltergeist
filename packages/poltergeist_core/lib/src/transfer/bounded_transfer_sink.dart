@@ -41,7 +41,10 @@ class BoundedTransferSink implements StreamSink<List<int>> {
   }) {
     if (cancellation != null) {
       unawaited(
-        cancellation.whenCancelled.then((_) => _gateToken.cancel()),
+        cancellation.whenCancelled.then(
+          (_) => _gateToken.cancel(),
+          onError: (Object _) {},
+        ),
       );
     }
   }
