@@ -92,6 +92,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   Object? Function(String path)? listFailure;
   Object? Function(String path)? downloadFailure;
   Object? Function(String path)? uploadFailure;
+  Object? Function(RemoteFileEntry entry)? deleteFailure;
 
   /// Gates — return a completer to stall the operation until it completes.
   Completer<void>? Function(String path)? listGate;
@@ -108,6 +109,17 @@ class FakeTreeFileSystem implements RemoteFileSystem {
 
   bool _matches(String a, String b) =>
       caseInsensitive ? a.toLowerCase() == b.toLowerCase() : a == b;
+
+  /// The real map key for a directory path — folds when [caseInsensitive]
+  /// models a case-insensitive remote (e.g. a Windows server).
+  String? _dirKey(String path) {
+    if (directories.containsKey(path)) return path;
+    if (!caseInsensitive) return null;
+    for (final key in directories.keys) {
+      if (_matches(key, path)) return key;
+    }
+    return null;
+  }
 
   FakeTreeFileSystem() {
     directories['/'] = [];
@@ -242,9 +254,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     await listGate?.call(path)?.future;
     final failure = listFailure?.call(path);
     if (failure != null) throw failure;
-    final children = directories[path];
-    if (children == null) throw _notFound('list', path);
-    return List.of(children);
+    final dirKey = _dirKey(path);
+    if (dirKey == null) throw _notFound('list', path);
+    return List.of(directories[dirKey]!);
   }
 
   @override
@@ -311,7 +323,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
           message: 'Transfer cancelled.',
         );
       }
-      return entryAt(path)!;
+      // A mid-transfer deletion hook may have removed the source —
+      // surface the typed error a real adapter produces, not a null-check.
+      return entryAt(path) ?? (throw _notFound('download', path));
     } finally {
       activeDownloads--;
     }
@@ -369,6 +383,26 @@ class FakeTreeFileSystem implements RemoteFileSystem {
         // Nothing lands: the partial file lives on the (implicit) temp
         // side and is discarded, exactly like the real adapter.
       }
+      if (length != null && received != length) {
+        throw RemoteFileException(
+          kind: RemoteFileErrorKind.other,
+          operation: 'upload',
+          path: path,
+          message: 'length mismatch: sent $received of $length',
+        );
+      }
+      // Commit-time re-verification: the target may have changed while
+      // the stream was gated or being consumed — the open-time checks
+      // above are advisory, the real adapter re-checks at commit.
+      final atCommit = entryAt(path);
+      if (atCommit != null && !overwrite) throw _conflict('upload', path);
+      if (overwrite &&
+          expectedTarget != null &&
+          atCommit != null &&
+          (expectedTarget.size != atCommit.size ||
+              expectedTarget.modifiedAt != atCommit.modifiedAt)) {
+        throw _conflict('upload', path);
+      }
       addFile(path, collected.toBytes());
       if (preserveMode != null) modes[path] = preserveMode;
       return entryAt(path)!;
@@ -383,20 +417,33 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     calls.add('mkdir:$path');
     if (entryAt(path) != null) throw _conflict('mkdir', path);
     final parent = remoteParent(path);
-    if (!directories.containsKey(parent)) {
+    final parentKey = _dirKey(parent);
+    if (parentKey == null) {
       throw _notFound('mkdir', parent);
     }
-    addDirectory(path);
+    directories.putIfAbsent(path, () => <RemoteFileEntry>[]);
+    directories[parentKey]!
+      ..removeWhere((e) => _matches(e.path, path))
+      ..add(
+        RemoteFileEntry(
+          path: path,
+          name: remoteBasename(path),
+          type: RemoteFileType.directory,
+        ),
+      );
   }
 
   @override
   Future<void> delete(RemoteFileEntry entry) async {
     deleteCalls++;
     calls.add('delete:${entry.path}');
+    final failure = deleteFailure?.call(entry);
+    if (failure != null) throw failure;
     final existing = entryAt(entry.path);
     if (existing == null) throw _notFound('delete', entry.path);
     if (existing.isDirectory) {
-      if ((directories[entry.path] ?? const []).isNotEmpty) {
+      final dirKey = _dirKey(entry.path);
+      if ((dirKey != null ? directories[dirKey]! : const []).isNotEmpty) {
         throw RemoteFileException(
           kind: RemoteFileErrorKind.other,
           operation: 'delete',
@@ -404,11 +451,11 @@ class FakeTreeFileSystem implements RemoteFileSystem {
           message: 'directory not empty: ${entry.path}',
         );
       }
-      directories.remove(entry.path);
+      directories.remove(dirKey ?? entry.path);
     }
     fileBytes.remove(entry.path);
     directories[remoteParent(entry.path)]?.removeWhere(
-      (e) => e.path == entry.path,
+      (e) => _matches(e.path, entry.path),
     );
   }
 
@@ -467,6 +514,9 @@ class FakeTransferLease implements TransferChannelLease {
 
   @override
   Future<void> release() async {
+    // A lease is single-release: a second call is a queue-side bug the
+    // fake must surface, not silently absorb into the pool accounting.
+    assert(releaseCount == 0, 'transfer lease released more than once');
     releaseCount++;
     _onRelease();
   }
@@ -530,7 +580,15 @@ class FakeQueueConnectionManager implements ConnectionManager {
       _waiters.putIfAbsent(serverId, ListQueue.new).add(waiter);
       await waiter.future;
       final retryFailure = leaseFailure?.call(serverId);
-      if (retryFailure != null) throw retryFailure;
+      if (retryFailure != null) {
+        // The wake was consumed but the slot wasn't taken — pass it to
+        // the next waiter or the freed capacity is stranded.
+        final queue = _waiters[serverId];
+        if (queue != null && queue.isNotEmpty) {
+          queue.removeFirst().complete();
+        }
+        throw retryFailure;
+      }
     }
     _active[serverId] = (_active[serverId] ?? 0) + 1;
     if (_active[serverId]! > (_peak[serverId] ?? 0)) {

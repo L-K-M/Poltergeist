@@ -140,14 +140,17 @@ class TransferQueue {
   void pauseQueue() {
     if (_disposed || _paused) return;
     _paused = true;
-    if (!_notPaused.isCompleted) _notPaused.complete();
+    // Invariant: notPaused is complete iff the queue is unpaused — a
+    // still-open completer here means a state/completer drift bug, not
+    // something to paper over.
+    assert(_notPaused.isCompleted, 'notPaused was incomplete pre-pause');
     _notPaused = Completer();
   }
 
   void resumeQueue() {
     if (_disposed || !_paused) return;
     _paused = false;
-    _notPaused.complete();
+    if (!_notPaused.isCompleted) _notPaused.complete();
     _pump();
   }
 
@@ -165,7 +168,10 @@ class TransferQueue {
     }
     task.state = TransferTaskState.paused;
     _emit(TransferQueueTaskEvent(task.id, task.state));
-    if (!runtime.notPaused.isCompleted) runtime.notPaused.complete();
+    assert(
+      runtime.notPaused.isCompleted,
+      'notPaused was incomplete pre-pause',
+    );
     runtime.notPaused = Completer();
     for (final attempt in runtime.attempts.values) {
       attempt.cancel();
@@ -181,7 +187,7 @@ class TransferQueue {
         ? TransferTaskState.queued
         : TransferTaskState.scanning;
     _emit(TransferQueueTaskEvent(task.id, task.state));
-    runtime.notPaused.complete();
+    if (!runtime.notPaused.isCompleted) runtime.notPaused.complete();
     _pump();
   }
 
@@ -323,6 +329,17 @@ class TransferQueue {
         task.retryCount++;
         if (task.retryCount > poolPolicy.taskRetryLimit) rethrow;
         await _releaseLeases(runtime.scanLeases);
+        // Null before the re-lease so a throwing acquire can't leave the
+        // released leases in the field for _scan's finally to release a
+        // second time.
+        runtime.scanLeases = null;
+        // A pause landing mid-cycle parks the retry lease-free until
+        // resume; cancelTask completes the gate, so cancel still unwinds.
+        while (task.state == TransferTaskState.paused &&
+            !task.cancellation.isCancelled) {
+          await runtime.notPaused.future;
+        }
+        _throwIfTaskCancelled(task);
         _setTaskState(runtime, TransferTaskState.queued);
         runtime.scanLeases = await _leaseEndpoints(
           task.spec,
@@ -339,6 +356,7 @@ class TransferQueue {
 
     for (final rootPath in task.rootPaths) {
       _throwIfTaskCancelled(task);
+      await _scanPauseGate(runtime);
       try {
         final entry = await _scanOp(
           runtime,
@@ -374,6 +392,7 @@ class TransferQueue {
     var next = 0;
     while (next < pendingListings.length) {
       _throwIfTaskCancelled(task);
+      await _scanPauseGate(runtime);
       final directory = pendingListings[next++];
       List<RemoteFileEntry> children;
       try {
@@ -399,6 +418,7 @@ class TransferQueue {
       }
       for (final child in children) {
         _throwIfTaskCancelled(task);
+        await _scanPauseGate(runtime);
         await _scanEntry(
           runtime,
           child,
@@ -410,6 +430,18 @@ class TransferQueue {
       // The listing closed: this directory's mkdir and its file children
       // become usable now (03 §4.2).
       _scheduleDirectory(runtime, directory);
+    }
+  }
+
+  /// Parks the scan while its task is paused (03 §4.4): pauseTask swaps
+  /// in an incomplete gate, resumeTask and cancelTask both complete it —
+  /// the surrounding loop's `_throwIfTaskCancelled` handles the cancel
+  /// case, so this returns on either.
+  Future<void> _scanPauseGate(_TaskRuntime runtime) async {
+    final task = runtime.task;
+    while (task.state == TransferTaskState.paused &&
+        !task.cancellation.isCancelled) {
+      await runtime.notPaused.future;
     }
   }
 
@@ -549,7 +581,21 @@ class TransferQueue {
     if (existing == null) {
       await _scanOp(
         runtime,
-        (fs) => fs.createDirectory(task.destinationDir),
+        (fs) async {
+          try {
+            await fs.createDirectory(task.destinationDir);
+          } on RemoteFileException catch (error) {
+            // A concurrent creator won the stat→mkdir race: merging is
+            // correct when the occupant is a directory — the same
+            // classification _materializeDirectory applies per entry.
+            if (error.kind != RemoteFileErrorKind.conflict) rethrow;
+            final raced = await fs.stat(
+              task.destinationDir,
+              followLinks: false,
+            );
+            if (!raced.isDirectory) rethrow;
+          }
+        },
         destination: true,
       );
     } else if (!existing.isDirectory) {
@@ -598,6 +644,9 @@ class TransferQueue {
       try {
         final dstFs = _fsFor(task.destination, leases);
         await _materializeDirectory(runtime, directory, dstFs, containerPath);
+        // A completed op proves connectivity — the retry budget bounds
+        // consecutive losses, not lifetime cumulative ones (03 §3.3).
+        task.retryCount = 0;
       } finally {
         await _releaseLeases(leases);
       }
@@ -804,7 +853,12 @@ class TransferQueue {
   }) {
     final task = runtime.task;
     final item = directory.item;
-    if (item.isTerminal) return;
+    if (item.isTerminal) {
+      // An externally terminalized directory (cancel/fail sweep) still
+      // owes its armed children the ready signal.
+      if (!directory.ready.isCompleted) directory.ready.complete();
+      return;
+    }
     directory.resolvedPath = resolvedPath;
     directory.outcome = outcome;
     if (resolvedPath != null) item.destinationPath = resolvedPath;
@@ -814,6 +868,7 @@ class TransferQueue {
       case _DirOutcome.skipped:
         item.state = TransferItemState.skipped;
         item.error = error ?? 'the containing directory was skipped';
+        task.skippedItems++;
       case _DirOutcome.failed:
         item.state = TransferItemState.failed;
         item.error = error;
@@ -942,7 +997,7 @@ class TransferQueue {
     final claim = _RegistryClaim(task.id);
     _registry[key] = claim;
 
-    final attempt = RemoteTransferCancellation();
+    var attempt = RemoteTransferCancellation();
     runtime.attempts[item.id] = attempt;
     item.transferredBytes = 0;
     item.state = TransferItemState.active;
@@ -961,6 +1016,9 @@ class TransferQueue {
         final srcFs = _fsFor(task.source, leases);
         final dstFs = _fsFor(task.destination, leases);
         for (var commitTry = 0; ; commitTry++) {
+          // The token is one-shot: a dead upload or a pause in the gap
+          // cancelled it — never feed a cancelled token to the next pipe.
+          if (attempt.isCancelled) throw _cancelledException();
           final decision = await _decideFile(
             runtime,
             dstFs,
@@ -990,6 +1048,9 @@ class TransferQueue {
               overwrite: final overwrite,
               expectedTarget: final expectedTarget,
             ):
+              // Point at the actual commit target before the pipe so a
+              // keep-both item reports its numbered path mid-transfer.
+              item.destinationPath = commitPath;
               try {
                 await _pipe(
                   source: srcFs,
@@ -1010,6 +1071,19 @@ class TransferQueue {
                 // keep-both that is simply the next number (03 §4.2).
                 if (error.kind == RemoteFileErrorKind.conflict &&
                     commitTry < _maxCommitRetries) {
+                  // A pause that landed while the pipe unwound already
+                  // cancelled the attempt — requeue, don't restart on a
+                  // fresh token the pause could never reach.
+                  if (task.cancellation.isCancelled ||
+                      task.state == TransferTaskState.paused) {
+                    throw _cancelledException();
+                  }
+                  // _pipe cancelled the token when its upload died —
+                  // retry on a fresh one or the next pipe aborts
+                  // instantly. Keep runtime.attempts pointing at the
+                  // live token so pause/cancel still reach it.
+                  attempt = RemoteTransferCancellation();
+                  runtime.attempts[item.id] = attempt;
                   continue;
                 }
                 rethrow;
@@ -1022,6 +1096,9 @@ class TransferQueue {
                 file,
                 commitPath,
               );
+              // A landed file proves connectivity — the retry budget
+              // bounds consecutive losses, not cumulative ones (03 §3.3).
+              task.retryCount = 0;
               _finishItem(runtime, item, TransferItemState.completed);
               return;
           }
@@ -1041,17 +1118,12 @@ class TransferQueue {
       );
     } finally {
       runtime.attempts.remove(item.id);
-      if (item.isTerminal) {
-        // The claim outlives the item until the task ends so the registry
-        // can serialize same-key commits across the task's lifetime; the
-        // waiters it releases re-stat reality anyway. A task-level claim
-        // sweep (cancel/fail) may have completed it already.
-        if (!claim.committed.isCompleted) claim.committed.complete();
-      } else {
-        // Requeued (pause/disconnect): drop the claim entirely — the item
-        // re-claims on its next dispatch.
-        _releaseClaim(key, claim);
-      }
+      // Complete any waiters, then drop the claim: a completed claim
+      // serializes nothing (the holder check requires an incomplete
+      // completer), so retaining it would grow the registry per unique
+      // destination key for the task's lifetime. Requeued items simply
+      // re-claim on their next dispatch.
+      _releaseClaim(key, claim);
       _maybeFinishTask(runtime);
     }
   }
@@ -1323,8 +1395,16 @@ class TransferQueue {
       if (cancellation.isCancelled) throw _cancelledException();
       rethrow;
     }
-    await sink.close();
-    await uploadFuture;
+    try {
+      await sink.close();
+      await uploadFuture;
+    } catch (error) {
+      // A real upload failure beats the sink's incidental close error on
+      // an already-aborted sink — surface the remote cause, not the
+      // unwind artifact.
+      if (uploadError != null) throw uploadError!;
+      rethrow;
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1434,6 +1514,9 @@ class TransferQueue {
     try {
       final srcFs = _fsFor(task.source, leases);
       for (final directory in ordered) {
+        // A cancel landing mid-cleanup stops source mutation — the loop
+        // must not keep deleting directories for an abandoned task.
+        if (task.cancellation.isCancelled) break;
         final dirState = runtime.directories[directory.itemId];
         if (dirState == null || dirState.outcome != _DirOutcome.ready) {
           continue;
@@ -1446,6 +1529,14 @@ class TransferQueue {
           dirState.item.error =
               'copied, but the source directory could not be removed: '
               '${error.message}';
+          _emit(
+            TransferQueueItemEvent(
+              task.id,
+              dirState.item.id,
+              dirState.item.state,
+              error: dirState.item.error,
+            ),
+          );
           task.error ??= dirState.item.error;
           task.failureKind ??= error.kind;
         }
@@ -1557,6 +1648,7 @@ class TransferQueue {
       task.completedFiles++;
     }
     if (state == TransferItemState.failed) task.failedItems++;
+    if (state == TransferItemState.skipped) task.skippedItems++;
     _emit(TransferQueueItemEvent(task.id, item.id, state, error: error));
   }
 
@@ -1599,6 +1691,7 @@ class TransferQueue {
     item.failureKind = failureKind;
     runtime.task.items.add(item);
     if (state == TransferItemState.failed) runtime.task.failedItems++;
+    if (state == TransferItemState.skipped) runtime.task.skippedItems++;
     _emit(
       TransferQueueItemEvent(runtime.task.id, item.id, state, error: error),
     );
@@ -1726,9 +1819,15 @@ class TransferQueue {
       ? leases[location.serverId]!.fs
       : _localFileSystem;
 
+  /// Server ids are deduped: FsLocation has no value equality, so a
+  /// same-server transfer (two ServerFsLocation instances naming one
+  /// server) would otherwise double-lease — the map overwrite would then
+  /// strand the first lease forever.
   List<String> _serverIds(Set<FsLocation> locations) => [
-    for (final location in locations)
-      if (location is ServerFsLocation) location.serverId,
+    ...{
+      for (final location in locations)
+        if (location is ServerFsLocation) location.serverId,
+    },
   ]..sort();
 
   String _endpointKey(FsLocation location) =>
@@ -1814,10 +1913,19 @@ class TransferQueue {
       if (normalized.contains(path)) continue;
       var nested = false;
       for (final kept in normalized) {
-        for (final separator in separators.split('')) {
-          if (path.startsWith('$kept$separator')) {
-            nested = true;
-            break;
+        // A kept root ending in a separator ('/' or 'C:\') already
+        // carries the boundary — a bare prefix test is the containment
+        // check there. An empty kept root is inert, matching the stat-
+        // time failure it produces downstream.
+        if (kept.isNotEmpty &&
+            separators.contains(kept[kept.length - 1])) {
+          nested = path.startsWith(kept);
+        } else {
+          for (final separator in separators.split('')) {
+            if (path.startsWith('$kept$separator')) {
+              nested = true;
+              break;
+            }
           }
         }
         if (nested) break;

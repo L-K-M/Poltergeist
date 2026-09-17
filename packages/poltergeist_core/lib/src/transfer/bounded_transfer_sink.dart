@@ -26,7 +26,9 @@ class BoundedTransferSink implements StreamSink<List<int>> {
 
   /// The upload-side view: each chunk the consumer pulls frees space and
   /// completes the pending drain waiter so a paused `addStream` resumes.
-  Stream<List<int>> get stream => _controller.stream.map((chunk) {
+  /// Cached — a fresh `.map` per access would hand callers distinct
+  /// wrappers over a single-subscription stream.
+  late final Stream<List<int>> stream = _controller.stream.map((chunk) {
     _buffered -= chunk.length;
     final drained = _drained;
     if (drained != null && _buffered < maxBufferedBytes) {
@@ -72,10 +74,19 @@ class BoundedTransferSink implements StreamSink<List<int>> {
         }
       },
       onError: (Object error, StackTrace stackTrace) {
+        // A failed source read is terminal for the hop: stop relaying so
+        // no chunks flow after addStream has reported the failure.
+        _subscriptions.remove(subscription);
+        _pendingAddStreams.remove(done);
+        unawaited(
+          subscription.cancel().then<void>((_) {}, onError: (_) {}),
+        );
         _controller.addError(error, stackTrace);
         if (!done.isCompleted) done.completeError(error);
       },
       onDone: () {
+        _subscriptions.remove(subscription);
+        _pendingAddStreams.remove(done);
         if (!done.isCompleted) done.complete();
       },
       cancelOnError: cancelOnError ?? false,
@@ -125,7 +136,14 @@ class BoundedTransferSink implements StreamSink<List<int>> {
       );
     }
     for (final pending in _pendingAddStreams) {
-      if (!pending.isCompleted) pending.complete();
+      // Closing while a source stream is still producing is a truncated
+      // relay, not a success — abort() is the path that swallows partial
+      // work deliberately.
+      if (!pending.isCompleted) {
+        pending.completeError(
+          StateError('transfer sink closed while addStream was pending'),
+        );
+      }
     }
     _pendingAddStreams.clear();
     _drained?.complete();

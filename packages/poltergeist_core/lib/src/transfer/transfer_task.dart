@@ -238,6 +238,11 @@ class TransferTask {
 
   int completedFiles = 0;
   int failedItems = 0;
+
+  /// Items that ended `skipped` — conflict-policy skips, subtree skips
+  /// under a failed/skipped container, and per-item safety skips. The
+  /// symlink subset is counted separately in [TransferPlan.skippedSymlinks].
+  int skippedItems = 0;
   int transferredBytes = 0;
 
   /// Bytes discovered so far — a running total while scanning (the UI's

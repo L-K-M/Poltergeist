@@ -45,19 +45,29 @@ void main() {
   late TransferQueue queue;
   late List<TransferQueueEvent> events;
 
+  // Every queue the harness creates — several tests replace the setUp
+  // queue mid-test; tearDown disposes them all so none leaks its event
+  // sink or pause completers.
+  final createdQueues = <TransferQueue>[];
+
   TransferQueue newQueue({
     int? leaseCap,
     int? maxInFlightFiles,
     int? pipeBufferBytes,
     int taskRetryLimit = 5,
     bool Function(FsLocation)? isCaseInsensitiveDestination,
-  }) => TransferQueue(
-    connections: connections,
-    poolPolicy: PoolPolicy(taskRetryLimit: taskRetryLimit),
-    maxInFlightFiles: maxInFlightFiles ?? maxGlobalInFlightTransfers,
-    pipeBufferBytes: pipeBufferBytes ?? 4 * 1024 * 1024,
-    isCaseInsensitiveDestination: isCaseInsensitiveDestination,
-  );
+  }) {
+    connections.leaseCap = leaseCap;
+    final created = TransferQueue(
+      connections: connections,
+      poolPolicy: PoolPolicy(taskRetryLimit: taskRetryLimit),
+      maxInFlightFiles: maxInFlightFiles ?? maxGlobalInFlightTransfers,
+      pipeBufferBytes: pipeBufferBytes ?? 4 * 1024 * 1024,
+      isCaseInsensitiveDestination: isCaseInsensitiveDestination,
+    );
+    createdQueues.add(created);
+    return created;
+  }
 
   TransferTask enqueue(TransferTaskSpec spec) => queue.enqueue(spec);
 
@@ -77,7 +87,10 @@ void main() {
   });
 
   tearDown(() async {
-    await queue.dispose();
+    for (final created in createdQueues) {
+      await created.dispose();
+    }
+    createdQueues.clear();
     try {
       await tempDir.delete(recursive: true);
     } on FileSystemException {
@@ -355,7 +368,7 @@ void main() {
 
     test('per-server lease capacity blocks admission and frees on release',
         () async {
-      connections.leaseCap = 2;
+      queue = newQueue(leaseCap: 2);
       for (var i = 0; i < 4; i++) {
         s1.addFile('/src/f$i.bin', List.filled(4, i));
       }
@@ -814,7 +827,11 @@ void main() {
       );
       await awaitTaskDone(task);
       expect(task.state, TransferTaskState.completed);
-      expect(task.retryCount, 1);
+      // The retry re-downloaded the file; a landed commit resets the
+      // counter — the budget bounds consecutive losses, not lifetime
+      // cumulative ones (03 §3.3).
+      expect(s1.downloadCalls, 2);
+      expect(task.retryCount, 0);
       expect(s2.fileBytes['/dst/f.bin'], List.filled(8, 9));
     });
 
@@ -1013,4 +1030,206 @@ void main() {
       expect(s2.uploadCalls, 2);
     });
   });
+
+  group('review regressions', () {
+    test('a same-server transfer holds one lease and strands none',
+        () async {
+      // FsLocation has no value equality — source and destination naming
+      // one server must still dedupe to a single server id, or the
+      // double-lease's overwritten map entry never releases.
+      s1.addFile('/src/f.txt', 'x'.codeUnits);
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s1'),
+          rootPaths: ['/src/f.txt'],
+          destinationDir: '/dst',
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s1.fileBytes['/dst/f.txt'], 'x'.codeUnits);
+      // Scan lease + file lease at most — never scan + two file leases.
+      expect(connections.maxActiveLeases('s1'), lessThanOrEqualTo(2));
+      expect(connections.activeLeases('s1'), 0);
+    });
+
+    test('a commit-time conflict retries on a fresh cancellation token',
+        () async {
+      // The first upload loses the decide→commit race; the retry must not
+      // reuse the attempt token _pipe cancelled when its upload died —
+      // a dead token would abort the retry instantly and bounce the item
+      // through a pointless requeue.
+      s1.addFile('/src/f.txt', 'new'.codeUnits);
+      var failOnce = true;
+      s2.uploadFailure = (path) {
+        if (path != '/dst/f.txt' || !failOnce) return null;
+        failOnce = false;
+        return const RemoteFileException(
+          kind: RemoteFileErrorKind.conflict,
+          operation: 'upload',
+          path: '/dst/f.txt',
+          message: 'appeared mid-transfer',
+        );
+      };
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src/f.txt'],
+          destinationDir: '/dst',
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s2.fileBytes['/dst/f.txt'], 'new'.codeUnits);
+      // Exactly two commits: the raced one plus its in-place retry.
+      expect(s2.uploadCalls, 2);
+    });
+
+    test('a pause landing in the scan disconnect retry parks lease-free',
+        () async {
+      s1.addDirectory('/src');
+      s1.addFile('/src/f.txt', 'x'.codeUnits);
+      late TransferTask task;
+      var failOnce = true;
+      s1.listFailure = (path) {
+        if (path != '/src' || !failOnce) return null;
+        failOnce = false;
+        // Pause inside the failing op: the retry must release the scan
+        // leases and park on notPaused rather than re-leasing under a
+        // paused task.
+        queue.pauseTask(task.id);
+        return const RemoteFileException(
+          kind: RemoteFileErrorKind.disconnected,
+          operation: 'list',
+          message: 'transport dropped',
+        );
+      };
+      task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src'],
+          destinationDir: '/dst',
+        ),
+      );
+      await pumpUntil(() => task.state == TransferTaskState.paused);
+      await pump(16);
+      // Parked: no retry listing ran and no lease is held while paused.
+      expect(s1.listCalls, 1);
+      expect(connections.activeLeases('s1'), 0);
+
+      queue.resumeTask(task.id);
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(s2.fileBytes['/dst/src/f.txt'], 'x'.codeUnits);
+    });
+
+    test('a mkdir-conflict on the destination root merges the raced '
+        'directory', () async {
+      // A concurrent creator wins the stat→mkdir race on /dst: mkdir
+      // throws conflict but a re-stat sees a directory — the correct
+      // answer is merge, not a scan failure.
+      final racing = _RacingMkdirFileSystem('/dst');
+      connections = FakeQueueConnectionManager({'s1': s1, 's2': racing});
+      queue = newQueue();
+      events = [];
+      queue.events.listen(events.add);
+
+      s1.addFile('/src/f.txt', 'x'.codeUnits);
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src/f.txt'],
+          destinationDir: '/dst',
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(racing.fileBytes['/dst/f.txt'], 'x'.codeUnits);
+    });
+
+    test('skipped items roll up on the task', () async {
+      s1.addFile('/src/f.txt', 'new'.codeUnits);
+      s2.addFile('/dst/f.txt', 'old'.codeUnits);
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src/f.txt'],
+          destinationDir: '/dst',
+          // files: skip is the copySpec default.
+        ),
+      );
+      await awaitTaskDone(task);
+      expect(task.state, TransferTaskState.completed);
+      expect(task.skippedItems, 1);
+      expect(s2.fileBytes['/dst/f.txt'], 'old'.codeUnits);
+    });
+
+    test('a failed source-directory removal reports an item event',
+        () async {
+      s1.addDirectory('/src/dir');
+      s1.addFile('/src/dir/f.txt', 'x'.codeUnits);
+      s1.deleteFailure = (entry) => entry.isDirectory
+          ? const RemoteFileException(
+              kind: RemoteFileErrorKind.permissionDenied,
+              operation: 'delete',
+              message: 'denied',
+            )
+          : null;
+      final task = enqueue(
+        copySpec(
+          source: const ServerFsLocation('s1'),
+          destination: const ServerFsLocation('s2'),
+          rootPaths: ['/src/dir'],
+          destinationDir: '/dst',
+          operation: TransferOperation.move,
+        ),
+      );
+      await awaitTaskDone(task);
+      // A move that leaves its source behind is not complete — the copy
+      // landed but the surviving source directory fails the task.
+      expect(task.state, TransferTaskState.failed);
+      expect(s2.fileBytes['/dst/dir/f.txt'], 'x'.codeUnits);
+      expect(s1.entryAt('/src/dir/f.txt'), isNull);
+      expect(s1.entryAt('/src/dir'), isNotNull);
+      final dir = task.items.firstWhere((i) => i.sourcePath == '/src/dir');
+      expect(dir.error, contains('could not be removed'));
+      expect(task.error, isNotNull);
+      expect(
+        events
+            .whereType<TransferQueueItemEvent>()
+            .any((e) => e.itemId == dir.id && e.error != null),
+        isTrue,
+        reason: 'the dir-removal failure must surface as an item event',
+      );
+    });
+  });
+}
+
+/// A destination whose `createDirectory` loses the stat→mkdir race on
+/// [racePath]: the entry materializes between the queue's absent-stat and
+/// its mkdir, so mkdir throws conflict even though a later stat sees the
+/// directory a "concurrent creator" made.
+final class _RacingMkdirFileSystem extends FakeTreeFileSystem {
+  _RacingMkdirFileSystem(this.racePath);
+
+  final String racePath;
+
+  @override
+  Future<void> createDirectory(String path) async {
+    if (path == racePath) {
+      addDirectory(path);
+      throw RemoteFileException(
+        kind: RemoteFileErrorKind.conflict,
+        operation: 'mkdir',
+        path: path,
+        message: 'already exists: $path',
+      );
+    }
+    return super.createDirectory(path);
+  }
 }
