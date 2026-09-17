@@ -1,3 +1,9 @@
+/// 03 §4.3's process-wide cap on files in flight across every task and
+/// server — the transfer queue's dispatch bound. Per-server capacity is
+/// what `leaseTransferChannel` grants (`effectiveTransports ×
+/// maxTransferChannelsPerTransport`); this is the ceiling above it.
+const maxGlobalInFlightTransfers = 6;
+
 /// Pool policy for the connection layer — the one file every transport and
 /// channel budget constant lives in (03 §3.2).
 ///
