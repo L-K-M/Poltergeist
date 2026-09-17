@@ -442,8 +442,15 @@ class FileTransferPersistence implements TransferPersistence {
   }
 
   void _armFsyncTimer() {
+    // A closed store must not arm — and a timer fired before shutdown
+    // must not enqueue — or a post-shutdown fsync would open a file
+    // handle against a store whose owner already walked away (on
+    // Windows that open handle fails a racing directory delete with
+    // ERROR_SHARING_VIOLATION).
+    if (_closed) return;
     _fsyncTimer ??= Timer(_fsyncInterval, () {
       _fsyncTimer = null;
+      if (_closed) return;
       _enqueue(() async {
         if (await journalFile.exists()) await _fsyncJournal();
       });

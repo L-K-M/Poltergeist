@@ -151,6 +151,11 @@ void main() {
   late Directory tempDir;
   late Directory storeDir;
   late List<String> notices;
+  // Every store this test opened — including ones deliberately
+  // abandoned mid-test to simulate a crash. TearDown shuts them all
+  // down so no writer-chain op or fsync timer can still hold a file
+  // handle when the fixture directory is deleted (errno 32 on Windows).
+  final openedStores = <FileTransferPersistence>[];
 
   Future<FileTransferPersistence> openStore({
     ScriptedIo? io,
@@ -158,15 +163,19 @@ void main() {
     int compactFinishedTasks = journalCompactFinishedTasks,
     int compactBytes = journalCompactBytes,
     int fsyncEveryRecords = journalFsyncEveryRecords,
-  }) => FileTransferPersistence.open(
-    storeDir,
-    io: io ?? const TransferJournalIo(),
-    onNotice: notices.add,
-    historyLimit: historyLimit,
-    compactFinishedTasks: compactFinishedTasks,
-    compactBytes: compactBytes,
-    fsyncEveryRecords: fsyncEveryRecords,
-  );
+  }) async {
+    final store = await FileTransferPersistence.open(
+      storeDir,
+      io: io ?? const TransferJournalIo(),
+      onNotice: notices.add,
+      historyLimit: historyLimit,
+      compactFinishedTasks: compactFinishedTasks,
+      compactBytes: compactBytes,
+      fsyncEveryRecords: fsyncEveryRecords,
+    );
+    openedStores.add(store);
+    return store;
+  }
 
   List<String> journalLines(File file) => file
       .readAsStringSync()
@@ -182,6 +191,10 @@ void main() {
   });
 
   tearDown(() async {
+    for (final store in openedStores) {
+      await store.shutdown();
+    }
+    openedStores.clear();
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
@@ -514,7 +527,6 @@ void main() {
     late FakeQueueConnectionManager connections;
     late Directory localSrc;
     final createdQueues = <TransferQueue>[];
-    final createdStores = <FileTransferPersistence>[];
 
     TransferQueue newQueue({TransferPersistence? persistence}) {
       final created = TransferQueue(
@@ -537,7 +549,6 @@ void main() {
         await queue.dispose();
       }
       createdQueues.clear();
-      createdStores.clear();
     });
 
     test('journal calls precede the state transitions they describe',
@@ -585,7 +596,6 @@ void main() {
     test('a completed transfer journals lifecycle + writes history',
         () async {
       final store = await openStore();
-      createdStores.add(store);
       final queue = newQueue(persistence: store);
       File('${localSrc.path}/a.txt').writeAsStringSync('hello');
       final task = queue.enqueue(
@@ -648,7 +658,6 @@ void main() {
       final uploadsBefore = s1.uploadCalls;
 
       final store = await openStore();
-      createdStores.add(store);
       expect(store.replay.tasks, hasLength(1));
 
       final queue = newQueue(persistence: store);
@@ -705,7 +714,6 @@ void main() {
       final uploadsBefore = s1.uploadCalls;
 
       final store = await openStore();
-      createdStores.add(store);
       final queue = newQueue(persistence: store);
       await queue.restore();
       final restored = queue.tasks.single;
@@ -763,7 +771,6 @@ void main() {
       final uploadsBefore = s1.uploadCalls;
 
       final store = await openStore();
-      createdStores.add(store);
       final queue = newQueue(persistence: store);
       await queue.restore();
       final restored = queue.tasks.single;
@@ -800,7 +807,6 @@ void main() {
       await crashed.flush();
 
       final store = await openStore();
-      createdStores.add(store);
       expect(store.replay.tasks, isEmpty);
       final queue = newQueue(persistence: store);
       await queue.restore();
@@ -823,7 +829,6 @@ void main() {
       await crashed.flush();
 
       final store = await openStore();
-      createdStores.add(store);
       // Startup compaction migrated the terminal task to history; a
       // taskRemoved then drops it from the journal entirely.
       store.appendJournal(TaskRemovedRecord(taskId: 'task-1'));
@@ -838,7 +843,6 @@ void main() {
       expect(store.history.single.taskId, 'task-1');
 
       final reopened = await openStore();
-      createdStores.add(reopened);
       expect(reopened.replay.tasks, isEmpty);
       expect(reopened.history.single.taskId, 'task-1');
     });
@@ -864,7 +868,6 @@ void main() {
       await crashed.flush();
 
       final store = await openStore();
-      createdStores.add(store);
       final queue = newQueue(persistence: store);
       await queue.restore();
 
