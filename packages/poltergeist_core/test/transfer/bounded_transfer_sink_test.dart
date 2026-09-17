@@ -8,6 +8,8 @@ library;
 
 import 'dart:async';
 
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show RemoteFileErrorKind, RemoteFileException;
 import 'package:poltergeist_core/src/transfer/bounded_transfer_sink.dart';
 import 'package:test/test.dart';
 
@@ -63,6 +65,68 @@ void main() {
       await relayAssertion;
       await consumerAssertion;
       unawaited(source.close());
+    });
+
+    test('a read gate parks a chunk on its grant and frees on abort',
+        () async {
+      final gate = Completer<void>();
+      final sink = BoundedTransferSink(
+        StreamController<List<int>>(),
+        maxBufferedBytes: 8,
+        readGate: (bytes, token) => Future.any<void>([
+          gate.future,
+          token.whenCancelled.then<void>(
+            (_) => throw const RemoteFileException(
+              kind: RemoteFileErrorKind.cancelled,
+              operation: 'throttle',
+              message: 'throttle wait cancelled',
+            ),
+          ),
+        ]),
+      );
+      final received = <int>[];
+      final consumer = sink.stream.listen((c) => received.addAll(c));
+      final source = StreamController<List<int>>()..add([1, 2, 3]);
+      final relay = sink.addStream(source.stream);
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      // The chunk is parked on the grant — nothing reaches the consumer.
+      expect(received, isEmpty);
+      expect(sink.bufferedBytes, 0);
+
+      // Abort releases the parked wait instead of wedging the relay.
+      sink.abort();
+      await expectLater(relay, throwsStateError);
+      await consumer.cancel();
+      unawaited(source.close());
+    });
+
+    test('close still drains a chunk parked on the write gate', () async {
+      final gate = Completer<void>();
+      final sink = BoundedTransferSink(
+        StreamController<List<int>>(),
+        maxBufferedBytes: 8,
+        writeGate: (bytes, token) => gate.future,
+      );
+      final received = <int>[];
+      final done = Completer<void>();
+      sink.stream.listen(
+        (c) => received.addAll(c),
+        onDone: done.complete,
+      );
+      final source = StreamController<List<int>>();
+      final relay = sink.addStream(source.stream);
+      source.add([1, 2, 3]);
+      unawaited(source.close());
+      await relay;
+      unawaited(sink.close());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      // Parked mid-gate: the chunk must not be dropped by close().
+      expect(received, isEmpty);
+      gate.complete();
+      await done.future;
+      expect(received, [1, 2, 3]);
     });
   });
 }

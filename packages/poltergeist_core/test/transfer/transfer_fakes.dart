@@ -87,6 +87,16 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   /// sink's backpressure.
   int downloadChunkSize = 16 * 1024;
 
+  /// When false, `download` reports no progress — models a source VFS
+  /// that stays silent so the pipe's progress must come from the
+  /// destination side (03 §4.5's counted-once rule).
+  bool downloadReportsProgress = true;
+
+  /// Optional shared byte probe: `download` credits each emitted chunk,
+  /// `upload` debits each received chunk — [PipeProbe.peak] is the
+  /// largest byte count ever in flight through the pipe.
+  PipeProbe? pipeProbe;
+
   // Scripting — each hook returns the error to throw, or null to proceed.
   Object? Function(String path)? statFailure;
   Object? Function(String path)? listFailure;
@@ -297,8 +307,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
             end > bytes.length ? bytes.length : end,
           );
           sent += chunk.length;
+          pipeProbe?.sent(chunk.length);
           yield chunk;
-          onProgress?.call(sent, bytes.length);
+          if (downloadReportsProgress) onProgress?.call(sent, bytes.length);
         }
       }
 
@@ -377,6 +388,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
           }
           collected.add(chunk);
           received += chunk.length;
+          pipeProbe?.received(chunk.length);
           onProgress?.call(received, length);
         }
       } finally {
@@ -503,6 +515,53 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   );
 }
 
+/// Shared in-flight byte counter for the remote→remote pipe tests: the
+/// source fake's `download` credits every produced chunk and the
+/// destination fake's `upload` debits every consumed chunk, so [peak] is
+/// the largest number of bytes ever between the two VFS calls — the
+/// quantity 03 §4.5's bounded buffer must keep small.
+class PipeProbe {
+  int inFlight = 0;
+  int peak = 0;
+
+  void sent(int bytes) {
+    inFlight += bytes;
+    if (inFlight > peak) peak = inFlight;
+  }
+
+  void received(int bytes) => inFlight -= bytes;
+}
+
+/// A persistence seam that records every call — the ordering tests read
+/// what the queue's in-memory state looked like *at append time*.
+class RecordingPersistence implements TransferPersistence {
+  final List<TransferJournalRecord> journal = [];
+  final List<TransferHistoryEntry> historyEntries = [];
+  TransferJournalReplay replayValue = TransferJournalReplay(tasks: []);
+  bool shutdownCalled = false;
+
+  /// Runs inside `appendJournal` — captures state before the caller's
+  /// mutation lands.
+  void Function(TransferJournalRecord record)? onAppend;
+
+  @override
+  TransferJournalReplay get replay => replayValue;
+
+  @override
+  void appendJournal(TransferJournalRecord record) {
+    onAppend?.call(record);
+    journal.add(record);
+  }
+
+  @override
+  void appendHistory(TransferHistoryEntry entry) => historyEntries.add(entry);
+
+  @override
+  Future<void> shutdown() async {
+    shutdownCalled = true;
+  }
+}
+
 /// A transfer-channel lease over [FakeTreeFileSystem]; [releaseCount]
 /// makes the deterministic-release contract observable.
 class FakeTransferLease implements TransferChannelLease {
@@ -551,6 +610,10 @@ class FakeQueueConnectionManager implements ConnectionManager {
   Object? Function(String serverId)? leaseFailure;
 
   int leaseCalls = 0;
+
+  /// Server ids in the order `leaseTransferChannel` was invoked — the
+  /// sorted-acquisition-order assertion (03 §4.3/§4.5's deadlock rule).
+  final List<String> leaseOrder = [];
   final List<FakeTransferLease> allLeases = [];
   final Map<String, int> _active = {};
   final Map<String, int> _peak = {};
@@ -567,6 +630,7 @@ class FakeQueueConnectionManager implements ConnectionManager {
   @override
   Future<TransferChannelLease> leaseTransferChannel(String serverId) async {
     leaseCalls++;
+    leaseOrder.add(serverId);
     await leaseGate?.future;
     final failure = leaseFailure?.call(serverId);
     if (failure != null) throw failure;

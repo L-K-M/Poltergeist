@@ -88,36 +88,6 @@ class ScriptedIo extends TransferJournalIo {
   }
 }
 
-/// A persistence seam that records every call — the ordering tests read
-/// what the queue's in-memory state looked like *at append time*.
-class RecordingPersistence implements TransferPersistence {
-  final List<TransferJournalRecord> journal = [];
-  final List<TransferHistoryEntry> historyEntries = [];
-  TransferJournalReplay replayValue = TransferJournalReplay(tasks: []);
-  bool shutdownCalled = false;
-
-  /// Runs inside `appendJournal` — captures state before the caller's
-  /// mutation lands.
-  void Function(TransferJournalRecord record)? onAppend;
-
-  @override
-  TransferJournalReplay get replay => replayValue;
-
-  @override
-  void appendJournal(TransferJournalRecord record) {
-    onAppend?.call(record);
-    journal.add(record);
-  }
-
-  @override
-  void appendHistory(TransferHistoryEntry entry) => historyEntries.add(entry);
-
-  @override
-  Future<void> shutdown() async {
-    shutdownCalled = true;
-  }
-}
-
 /// A persistence seam whose shutdown fails — the dispose-path test
 /// asserts the queue still closes its event stream.
 class ThrowingShutdownPersistence implements TransferPersistence {
