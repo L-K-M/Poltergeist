@@ -1212,7 +1212,7 @@ void main() {
       'P6': ('b', 'atMost', 0.2, '%', 3),
       // P7 landed unrecalibrated: the pooled median (2 280.1 entries/s)
       // clears 1 000 with 128 % headroom — the throughput equivalent of
-      // the 1.2× latency margin needs only 1 899 entries/s.
+      // the 1.2× latency margin needs only 1 900 entries/s.
       'P7': ('a', 'atLeast', 1000.0, 'entries/s', 3),
     }.entries) {
       test('${entry.key} mirrors 02 §12', () {
