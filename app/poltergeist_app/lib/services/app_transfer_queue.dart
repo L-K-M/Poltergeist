@@ -10,8 +10,9 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 ///
 /// Production wiring lands with the engine-host slice: the queue runs
 /// engine-side (03 §4) and the host maps these verbs and events onto
-/// the §5 protocol. Until then no producer enqueues work, so the panel
-/// mounts empty over a null seam rather than simulating activity.
+/// the §5 protocol. Producers (pane drops, a future paste) enqueue one
+/// task per gesture via [enqueue]; while no queue is wired the panel
+/// still mounts empty over a null seam rather than simulating activity.
 abstract interface class AppTransferQueue {
   /// 02 §5.1's enqueue: one user gesture (a pane drop, a future paste)
   /// = one task. The UI composes the [TransferTaskSpec] — endpoints,

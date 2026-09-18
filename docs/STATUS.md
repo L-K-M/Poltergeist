@@ -5990,8 +5990,9 @@ moves ride server-side rename when the engine path lands.
 `PaneDropArea` (`ui/panes/pane_drop_area.dart`) wraps each pane's listing:
 it owns the in-app `DragTarget<PaneEntryDrag>`, the OS `DropTarget`,
 folder-row vs current-directory resolution, the target border and action
-pill ("Move to …" / "Copy to …"), and the 1 s spring-load that activates a
-hovered tab or opens a hovered folder row. Drop position decides the
+pill ("Move to …" / "Copy to …"), and the spring-load dwell — a folder row
+held 1 s opens in place, a tab chip held 700 ms activates. Drop position
+decides the
 destination — a rendered folder row means that folder, background means
 the pane's current directory — and hit testing works on rendered row
 rects inside the virtualized list rather than model indices, so a

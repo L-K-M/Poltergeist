@@ -399,6 +399,10 @@ class _TabStripState extends State<_TabStrip> {
                                   // entry-drop target — the chip stays
                                   // the 02 §3 tab-drag source inside.
                                   child: _TabEntryDrop(
+                                    // Keyed by tab id: a reorder must
+                                    // move the hover timer and target
+                                    // ring with the tab, not the slot.
+                                    key: ValueKey('entry-drop-${tab.id}'),
                                     tabs: tabs,
                                     tab: tab,
                                     delegate: widget.dropDelegate,
@@ -644,6 +648,7 @@ class _TabDragAvatar extends StatelessWidget {
 /// containment) keeps the chip plain.
 class _TabEntryDrop extends StatefulWidget {
   const _TabEntryDrop({
+    super.key,
     required this.tabs,
     required this.tab,
     required this.delegate,
@@ -776,7 +781,11 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
       // the drop legal); the honest resolution rides onMove/onAccept.
       onWillAcceptWithDetails: (details) {
         _accepts(details.data);
-        return widget.delegate != null && _destination != null;
+        // Not gated on _destination: willAccept runs at entry only, so
+        // a chip that becomes eligible mid-hover (tab finished
+        // loading) must still accept the release; _accept re-resolves
+        // the destination honestly at drop time.
+        return widget.delegate != null;
       },
       onMove: (details) => _accepts(details.data),
       onLeave: (_) => _disarm(),

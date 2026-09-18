@@ -272,12 +272,25 @@ class _PaneDropAreaState extends State<PaneDropArea> {
     final row = _springRow;
     if (row == null) return;
     final controller = widget.controller;
-    if (!controller.verbsEnabled || row >= controller.entries.length) {
+    if (!controller.verbsEnabled) return;
+    // Re-resolve under the last pointer position: a listing refresh or
+    // re-sort during the hold can make [row] point at an entry the user
+    // never hovered, so the armed index alone proves nothing — open
+    // whatever the pointer rests on now.
+    final global = _activeHoverGlobal;
+    if (global != null) {
+      final resolved = _resolveDrop(global);
+      if (resolved == null || resolved.folderRow != row) return;
+    } else if (row >= controller.entries.length) {
       return;
     }
     final entry = controller.entries[row];
     if (entry.type != RemoteFileType.directory) return;
     unawaited(controller.openEntry(entry));
+    // The listing changes under the drag — the row highlight and label
+    // describe the old folder; clear them until the next move or
+    // modifier event re-resolves against the new rows.
+    _setHover(label: null, folderRow: null);
   }
 
   /// The drop lands: resolve once more at release time — the pointer
@@ -335,6 +348,9 @@ class _PaneDropAreaState extends State<PaneDropArea> {
   /// carries no move intent the app can honor), the position still
   /// deciding hovered-folder vs current directory.
   void _updateOsHover(Offset global) {
+    // Recorded so the spring-load timer can re-resolve under the
+    // pointer at fire time, same as the in-app path.
+    _activeHoverGlobal = global;
     final resolved = _resolveDrop(global);
     _setHover(
       label: resolved == null

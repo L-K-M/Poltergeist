@@ -569,7 +569,8 @@ void main() {
     await pumpShell(tester);
 
     // Park the right pane's next listing mid-flight.
-    rightChannel.holdNext = Completer<void>();
+    final hold = Completer<void>();
+    rightChannel.holdNext = hold;
     right.navigate('/srv/other/images');
     await tester.pump();
 
@@ -581,6 +582,9 @@ void main() {
     await endDrag(tester, gesture);
 
     expect(queue.enqueuedSpecs, isEmpty);
+    // Let the parked listing settle before teardown disposes the pane.
+    hold.complete();
+    await tester.pump();
   });
 
   dndWidgets('no queue seam mounts no row Draggables and accepts '
@@ -800,7 +804,11 @@ void main() {
       find.text('report.txt'),
       tester.getCenter(find.text('else')),
     );
-    await tester.pump(const Duration(milliseconds: 800));
+    // Below the 700 ms dwell the tab must NOT have switched — an
+    // instant switch under a passing drag is the regression this pins.
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(rightStrip.activeTab, isNot(secondTab));
+    await tester.pump(const Duration(milliseconds: 200));
     await tester.pump();
 
     expect(rightStrip.activeTab, secondTab);

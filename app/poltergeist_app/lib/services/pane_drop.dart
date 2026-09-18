@@ -19,7 +19,8 @@ import 'pane_location.dart';
 /// so a mid-drag listing change on the source pane (a spring-load, a
 /// refresh) cannot retroactively alter what the user picked up.
 class PaneEntryDrag {
-  PaneEntryDrag({required this.source, required this.rootPaths});
+  PaneEntryDrag({required this.source, required List<String> rootPaths})
+    : rootPaths = List.unmodifiable(rootPaths);
 
   /// The endpoint the dragged rows live on (03 §4.1's `FsLocation`).
   final FsLocation source;
@@ -65,12 +66,12 @@ bool paneDropSameFilesystem(FsLocation a, FsLocation b) =>
 /// filesystem namespace from the pane's view (mount boundaries are the
 /// executor's business, not the gesture's).
 String? localVolumeOf(String path) {
-  if (path.length >= 2 && path[1] == ':') {
+  if (_windowsDrivePattern.hasMatch(path)) {
     return path.substring(0, 2).toUpperCase();
   }
   if (path.startsWith(r'\\')) {
     final shareEnd = path.indexOf(r'\', 2);
-    if (shareEnd < 0) return path; // '\\server' — a server root alone
+    if (shareEnd < 0) return path.toLowerCase(); // '\\server' alone
     final shareTail = path.indexOf(r'\', shareEnd + 1);
     return (shareTail < 0 ? path : path.substring(0, shareTail))
         .toLowerCase();
@@ -134,23 +135,36 @@ bool paneDropAllowed({
     if (root == dest) return false;
     if (dest.startsWith('$root$separator')) return false;
     if (operation == TransferOperation.move &&
-        paneParentPath(root) == dest) {
+        _normalizedPath(paneParentPath(root)) == dest) {
       return false;
     }
   }
   return true;
 }
 
+/// A drive-letter or UNC path — Windows naming where comparisons must
+/// case-fold. The bare-drive spelling ('C:') carries no backslash, so
+/// shape, not [paneSeparator], is the test.
+final _windowsPathPattern = RegExp(r'^([A-Za-z]:|\\\\)');
+
+final _windowsDrivePattern = RegExp(r'^[A-Za-z]:');
+
 /// Trailing-separator normalization for the equality/prefix checks —
 /// pane paths arrive canonical, but a root spelling ('/', 'C:\') must
-/// keep its separator while a directory's redundant tail goes.
+/// keep its separator while a directory's redundant tail goes. Windows
+/// names compare case-insensitively (NTFS/FAT/UNC), so those fold —
+/// 'C:\Stuff' and 'c:\stuff' must resolve to one directory or the
+/// self-containment guard can be spelled around. Case-insensitive APFS
+/// volumes share the hazard; volume-level case knowledge is follow-up.
 String _normalizedPath(String path) {
   final separator = paneSeparator(path);
   var trimmed = path;
   while (trimmed.length > 1 && trimmed.endsWith(separator)) {
     trimmed = trimmed.substring(0, trimmed.length - 1);
   }
-  return trimmed;
+  return _windowsPathPattern.hasMatch(trimmed)
+      ? trimmed.toLowerCase()
+      : trimmed;
 }
 
 /// The enqueue seam every drop target funnels through (02 §5.1: "every

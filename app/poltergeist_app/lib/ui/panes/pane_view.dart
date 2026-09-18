@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -1033,7 +1034,11 @@ class _PaneSurface extends StatelessWidget {
   /// `defaultTargetPlatform` (not dart:io) so tests can drive the
   /// wiring. The [supportsOsDrop] override applies only to the OS
   /// `DropTarget`, never to in-app row drags.
-  bool _isDesktopPlatform() => switch (defaultTargetPlatform) {
+  bool _isDesktopPlatform() =>
+      // defaultTargetPlatform reports the HOST OS on web builds, where
+      // desktop_drop's channels don't exist — exclude it explicitly.
+      !kIsWeb &&
+      switch (defaultTargetPlatform) {
     TargetPlatform.macOS ||
     TargetPlatform.linux ||
     TargetPlatform.windows => true,
@@ -1281,6 +1286,10 @@ class _PaneSurface extends StatelessWidget {
           // The drop zone's hit-testing anchor (D14): row extents are
           // fixed, so position math against this box's render size maps
           // a drop onto the rendered rows — never an unrendered index.
+          // Zero padding keeps the box's origin coincident with row 0;
+          // the default MediaQuery padding would shift every index by
+          // padding/rowExtent.
+          padding: EdgeInsets.zero,
           key: listAreaKey,
           controller: scrollController,
           itemExtent: extent,
@@ -1350,8 +1359,12 @@ class _PaneSurface extends StatelessWidget {
       return row;
     }
     final entry = controller.entries[index];
+    // verbsEnabled does not promise a bound location — a stale listing
+    // can outlive it; rows without one stay undraggable.
+    final location = controller.location;
+    if (location == null) return row;
     final drag = PaneEntryDrag(
-      source: fsLocationForLocation(controller.location!),
+      source: fsLocationForLocation(location),
       rootPaths:
           controller.isRowSelected(index) && controller.selectedCount > 1
           ? [

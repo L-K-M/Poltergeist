@@ -54,14 +54,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The empty query starts a transient selection session; it is not UI copy.
   'lib/services/quick_select_state.dart': {"''"},
-  // The DnD verb/containment rules' path mechanics: drive-letter colon,
-  // UNC and POSIX separators, and the root-join — string surgery, never
-  // rendered UI copy.
+  // The DnD verb/containment rules' path mechanics: UNC and POSIX
+  // separators, the root-join, and the Windows path-shape patterns —
+  // string surgery, never rendered UI copy.
   'lib/services/pane_drop.dart': {
-    "':'",
     r"r'\\'",
     r"r'\'",
     r"'$root$separator'",
+    // Windows path-shape patterns for the case-fold and volume checks —
+    // regex machinery, never rendered.
+    r"r'^([A-Za-z]:|\\\\)'",
+    r"r'^[A-Za-z]:'",
   },
   // Selection-model validation diagnostics for programmer errors (unknown
   // targets, duplicate row identities); never rendered UI copy.
@@ -491,6 +494,8 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${tab.id}.close'",
     // The drag-insertion indicator's widget key — plumbing, not copy.
     "'pane.tabDropIndicator'",
+    // The entry-drop wrapper's reorder key — plumbing, not copy.
+    r"'entry-drop-${tab.id}'",
     // Root-path fallback in the remote tooltip — path data, not copy.
     "'/'",
   },

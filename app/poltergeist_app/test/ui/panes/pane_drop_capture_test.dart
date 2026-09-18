@@ -116,161 +116,176 @@ void main() {
     final queue = FakeAppTransferQueue();
     final delegate = PaneDropDelegate(queue: queue);
 
-    final leftChannel = controller_test.FakePaneChannel('/home/tester');
-    leftChannel.listings['/home/tester'] = [
-      _entryAt('/home/tester', 'docs', type: RemoteFileType.directory),
-      _entryAt('/home/tester', 'report.txt', size: 2048),
-      _entryAt('/home/tester', 'link', type: RemoteFileType.symbolicLink),
-      _entryAt('/home/tester', 'photo.png', size: 812345),
-    ];
-    lanes.nextLocalChannel = leftChannel;
-    await left.openLocalHome();
+    // Cleanup must run even when an assertion fails — and the platform
+    // override must reset inside the test BODY: the debug-variable
+    // invariant runs before addTearDown callbacks, so a tearDown reset
+    // would trip it. try/finally covers both.
+    try {
+        final leftChannel = controller_test.FakePaneChannel('/home/tester');
+      leftChannel.listings['/home/tester'] = [
+        _entryAt('/home/tester', 'docs', type: RemoteFileType.directory),
+        _entryAt('/home/tester', 'report.txt', size: 2048),
+        _entryAt('/home/tester', 'link', type: RemoteFileType.symbolicLink),
+        _entryAt('/home/tester', 'photo.png', size: 812345),
+      ];
+      lanes.nextLocalChannel = leftChannel;
+      await left.openLocalHome();
 
-    final rightChannel = controller_test.FakePaneChannel('/home/tester');
-    rightChannel.listings['/srv/other'] = [
-      _entryAt('/srv/other', 'images', type: RemoteFileType.directory),
-      _entryAt('/srv/other', 'archive', type: RemoteFileType.directory),
-      _entryAt('/srv/other', 'index.html', size: 512),
-      _entryAt('/srv/other', 'notes.txt', size: 128),
-    ];
-    lanes.nextLocalChannel = rightChannel;
-    await right.openLocalAt('/srv/other');
+      final rightChannel = controller_test.FakePaneChannel('/home/tester');
+      rightChannel.listings['/srv/other'] = [
+        _entryAt('/srv/other', 'images', type: RemoteFileType.directory),
+        _entryAt('/srv/other', 'archive', type: RemoteFileType.directory),
+        _entryAt('/srv/other', 'index.html', size: 512),
+        _entryAt('/srv/other', 'notes.txt', size: 128),
+      ];
+      lanes.nextLocalChannel = rightChannel;
+      await right.openLocalAt('/srv/other');
 
-    tester.view.physicalSize = const Size(1400, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
 
-    final base = buildPoltergeistTheme(Brightness.dark);
-    final theme = base.copyWith(
-      textTheme: base.textTheme.apply(fontFamily: 'DejaVu Sans'),
-      primaryTextTheme: base.primaryTextTheme.apply(
-        fontFamily: 'DejaVu Sans',
-      ),
-    );
-    await tester.pumpWidget(
-      RepaintBoundary(
-        key: const ValueKey('capture.shell'),
-        child: MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: theme,
-          localizationsDelegates:
-              AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: Row(
-              children: [
-                Expanded(
-                  child: PaneView(
-                    controller: left,
-                    pane: leftStrip,
-                    workspace: workspace,
-                    focusNode: FocusNode(),
-                    onSwapFocus: () {},
-                    onCancelRecovery: () {},
-                    dropDelegate: delegate,
-                    clock: () => DateTime(2026, 9, 15, 10),
+      final base = buildPoltergeistTheme(Brightness.dark);
+      final theme = base.copyWith(
+        textTheme: base.textTheme.apply(fontFamily: 'DejaVu Sans'),
+        primaryTextTheme: base.primaryTextTheme.apply(
+          fontFamily: 'DejaVu Sans',
+        ),
+      );
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const ValueKey('capture.shell'),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: theme,
+            localizationsDelegates:
+                AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Row(
+                children: [
+                  Expanded(
+                    child: PaneView(
+                      controller: left,
+                      pane: leftStrip,
+                      workspace: workspace,
+                      focusNode: FocusNode(),
+                      onSwapFocus: () {},
+                      onCancelRecovery: () {},
+                      dropDelegate: delegate,
+                      clock: () => DateTime(2026, 9, 15, 10),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: PaneView(
-                    controller: right,
-                    pane: rightStrip,
-                    workspace: workspace,
-                    focusNode: FocusNode(),
-                    onSwapFocus: () {},
-                    onCancelRecovery: () {},
-                    dropDelegate: delegate,
-                    clock: () => DateTime(2026, 9, 15, 10),
+                  Expanded(
+                    child: PaneView(
+                      controller: right,
+                      pane: rightStrip,
+                      workspace: workspace,
+                      focusNode: FocusNode(),
+                      onSwapFocus: () {},
+                      onCancelRecovery: () {},
+                      dropDelegate: delegate,
+                      clock: () => DateTime(2026, 9, 15, 10),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    final boundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byKey(const ValueKey('capture.shell')),
-    );
-    final captureOn = Platform.environment['POLTERGEIST_CAPTURE'] == '1';
-    final outDir = Directory(_captureDir);
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(const ValueKey('capture.shell')),
+      );
+      final captureOn = Platform.environment['POLTERGEIST_CAPTURE'] == '1';
+      final outDir = Directory(_captureDir);
 
-    Future<void> capture(String name) async {
-      if (!captureOn) return;
-      final bytes = (await tester.runAsync(() async {
-        final image = await boundary.toImage(pixelRatio: 2);
-        try {
-          final data = await image.toByteData(
-            format: ui.ImageByteFormat.png,
-          );
-          return data!.buffer.asUint8List();
-        } finally {
-          image.dispose();
-        }
-      }))!;
-      outDir.createSync(recursive: true);
-      final file = File('${outDir.path}/$name.png');
-      // The default dir is relative to the test runner's CWD; print
-      // where the PNG actually landed so a run launched from another
-      // directory is obvious instead of silently writing elsewhere.
-      // ignore: avoid_print
-      print('capture: ${file.absolute.path}');
-      file.writeAsBytesSync(bytes);
+      Future<void> capture(String name) async {
+        if (!captureOn) return;
+        final bytes = (await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 2);
+          try {
+            final data = await image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            return data!.buffer.asUint8List();
+          } finally {
+            image.dispose();
+          }
+        }))!;
+        outDir.createSync(recursive: true);
+        final file = File('${outDir.path}/$name.png');
+        // The default dir is relative to the test runner's CWD; print
+        // where the PNG actually landed so a run launched from another
+        // directory is obvious instead of silently writing elsewhere.
+        // ignore: avoid_print
+        print('capture: ${file.absolute.path}');
+        file.writeAsBytesSync(bytes);
+      }
+
+      final rightRect = tester.getRect(find.byType(PaneView).last);
+      final rightBackground = Offset(
+        rightRect.center.dx,
+        rightRect.bottom - 60,
+      );
+
+      // 1. Idle baseline — no affordances without a drag.
+      await capture('dnd-idle');
+
+      // 2. In-app drag over the other pane's background: zone border,
+      //    "Move to" action pill, stacked-icon avatar (same filesystem →
+      //    move, no `+` badge).
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('report.txt')),
+      );
+      await tester.pump();
+      await gesture.moveTo(rightBackground);
+      await tester.pump();
+      expect(find.text('Move to /srv/other'), findsOneWidget);
+      await capture('dnd-hover-move-current-dir');
+
+      // 3. Hover the 'images' folder row: the row highlights and the
+      //    pill names the folder destination.
+      await gesture.moveTo(tester.getCenter(find.text('images')));
+      await tester.pump();
+      expect(find.text('Move to /srv/other/images'), findsOneWidget);
+      await capture('dnd-hover-move-folder-row');
+
+      // 4. Ctrl held mid-drag: the verb flips to copy, the avatar grows
+      //    the `+` badge.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(find.text('Copy to /srv/other/images'), findsOneWidget);
+      await capture('dnd-hover-copy-modifier');
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+
+      // The completed drop: the overlay clears and the queue recorded
+      // the move — report.txt onto the 'images' folder row.
+      expect(find.text('Move to /srv/other/images'), findsNothing);
+      expect(queue.enqueuedSpecs, hasLength(1));
+      final spec = queue.enqueuedSpecs.single;
+      expect(spec.operation, TransferOperation.move);
+      expect(spec.rootPaths, ['/home/tester/report.txt']);
+      expect(spec.destinationDir, '/srv/other/images');
+
+      // 5. OS drop-in hover: always a copy (D14), same overlay.
+      await _osChannel(tester, 'entered', [
+        rightBackground.dx,
+        rightBackground.dy,
+      ]);
+      expect(find.text('Copy to /srv/other'), findsOneWidget);
+      await capture('dnd-os-drop-hover');
+      await _osChannel(tester, 'exited', null);
+    } finally {
+      workspace.dispose();
+      debugDefaultTargetPlatformOverride = null;
     }
-
-    final rightRect = tester.getRect(find.byType(PaneView).last);
-    final rightBackground = Offset(
-      rightRect.center.dx,
-      rightRect.bottom - 60,
-    );
-
-    // 1. Idle baseline — no affordances without a drag.
-    await capture('dnd-idle');
-
-    // 2. In-app drag over the other pane's background: zone border,
-    //    "Move to" action pill, stacked-icon avatar (same filesystem →
-    //    move, no `+` badge).
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.text('report.txt')),
-    );
-    await tester.pump();
-    await gesture.moveTo(rightBackground);
-    await tester.pump();
-    expect(find.text('Move to /srv/other'), findsOneWidget);
-    await capture('dnd-hover-move-current-dir');
-
-    // 3. Hover the 'images' folder row: the row highlights and the
-    //    pill names the folder destination.
-    await gesture.moveTo(tester.getCenter(find.text('images')));
-    await tester.pump();
-    expect(find.text('Move to /srv/other/images'), findsOneWidget);
-    await capture('dnd-hover-move-folder-row');
-
-    // 4. Ctrl held mid-drag: the verb flips to copy, the avatar grows
-    //    the `+` badge.
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pump();
-    expect(find.text('Copy to /srv/other/images'), findsOneWidget);
-    await capture('dnd-hover-copy-modifier');
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pump();
-
-    await gesture.up();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 60));
-
-    // 5. OS drop-in hover: always a copy (D14), same overlay.
-    await _osChannel(tester, 'entered', [
-      rightBackground.dx,
-      rightBackground.dy,
-    ]);
-    expect(find.text('Copy to /srv/other'), findsOneWidget);
-    await capture('dnd-os-drop-hover');
-    await _osChannel(tester, 'exited', null);
-
-    workspace.dispose();
-    debugDefaultTargetPlatformOverride = null;
   });
 }

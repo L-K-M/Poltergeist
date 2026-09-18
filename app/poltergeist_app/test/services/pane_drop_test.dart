@@ -71,8 +71,24 @@ void main() {
     });
 
     test('POSIX paths carry no volume boundary', () {
+      // Path shape alone cannot see mount points: a local drop onto a
+      // different mount (e.g. /home -> /mnt/usb) still defaults to move,
+      // unlike the Windows cross-drive default of copy. Same-server
+      // "rename" moves have the same blindness across server mounts.
+      // An engine-side cross-device check (statfs) is follow-up if
+      // parity is wanted; until then this is the POSIX simplification.
       expect(localVolumeOf('/home/tester'), isNull);
       expect(localVolumeOf('/mnt/usb/x'), isNull);
+    });
+
+    test('a colon in position 1 does not make a POSIX volume', () {
+      // '/:notes/sub' is a root-level POSIX entry, not drive ':'.
+      expect(localVolumeOf('/:notes/sub'), isNull);
+      expect(localVolumeOf('c:\\x'), 'C:');
+    });
+
+    test('a bare UNC server root folds case like a share', () {
+      expect(localVolumeOf(r'\\SERVER'), r'\\server');
     });
   });
 
@@ -142,6 +158,26 @@ void main() {
         verb(
           sourceRoots: const [r'C:\Users\x\a.txt'],
           destinationDir: r'C:\Users\x\docs',
+        ),
+        TransferOperation.move,
+      );
+    });
+
+    test('a UNC drop inside one share folds server case to move', () {
+      expect(
+        verb(
+          sourceRoots: const [r'\\SERVER\share\file'],
+          destinationDir: r'\\server\share\sub',
+        ),
+        TransferOperation.move,
+      );
+    });
+
+    test('a POSIX colon-named directory is not a volume boundary', () {
+      expect(
+        verb(
+          sourceRoots: const ['/home/x'],
+          destinationDir: '/:notes/sub',
         ),
         TransferOperation.move,
       );
@@ -228,6 +264,45 @@ void main() {
           dir: '/home/tester/docs/',
         ),
         isFalse,
+      );
+    });
+
+    test('Windows containment folds case — a respelled subtree refuses', () {
+      // NTFS is case-insensitive: 'c:\stuff\Backup' IS inside 'C:\Stuff'.
+      expect(
+        allowed(
+          roots: const [r'C:\Stuff'],
+          dir: r'c:\stuff\Backup',
+        ),
+        isFalse,
+      );
+      expect(
+        allowed(roots: const [r'C:\Stuff'], dir: r'C:\STUFF'),
+        isFalse,
+      );
+      // The move-to-own-parent no-op holds across case too.
+      expect(
+        allowed(
+          roots: const [r'C:\Stuff\x'],
+          dir: r'c:\stuff',
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('PaneEntryDrag', () {
+    test('snapshots rootPaths — a mutating caller cannot alter it', () {
+      final roots = ['/home/tester/a.txt'];
+      final drag = PaneEntryDrag(
+        source: const LocalFsLocation(),
+        rootPaths: roots,
+      );
+      roots.add('/home/tester/evil.txt');
+      expect(drag.rootPaths, ['/home/tester/a.txt']);
+      expect(
+        () => drag.rootPaths.add('/x'),
+        throwsUnsupportedError,
       );
     });
   });
