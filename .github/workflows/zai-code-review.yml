@@ -24,12 +24,14 @@ jobs:
   review:
     name: Review PR with GLM 5.3
     runs-on: ubuntu-latest
-    # Backstop only. The review step below carries the real budget and is
-    # shorter, so it always fires first. That keeps running out of time a step
-    # failure, which the reporting step can act on, and leaves "cancelled" to
-    # mean only what the concurrency group above means by it: a newer push took
-    # over.
-    timeout-minutes: 180
+    # Backstop only. Each review attempt below carries the real budget and is
+    # shorter, so a step timeout always fires first. That keeps running out of
+    # time a step failure, which the retry/reporting steps can act on, and
+    # leaves "cancelled" to mean only what the concurrency group above means
+    # by it: a newer push took over. Sized for two full attempts (2 x 170)
+    # plus reporting overhead; 350 stays under the 360 minute ceiling for
+    # GitHub-hosted runners.
+    timeout-minutes: 350
     # pull_request_target exposes repository secrets and a write-capable token.
     # Never run this privileged job for branches from untrusted forks.
     if: >-
@@ -53,7 +55,13 @@ jobs:
         # former 90 min budget twice in a row while posting nothing. 170 min
         # covers roughly 27 chunks at that mean, so a diff half again the size
         # of #89 still fits.
+        #
+        # continue-on-error lets the single bounded retry below run after a
+        # failure or timeout; the step itself still fails (non-zero), and a
+        # loud final failure is enforced by the reporting step when both
+        # attempts fail.
         timeout-minutes: 170
+        continue-on-error: true
         # Pin privileged third-party actions to an immutable commit.
         # 8e718ac = v0.0.13. Verify before bumping:
         #   git ls-remote https://github.com/L-K-M/zai-code-review 'refs/tags/v0.0.13^{}'
@@ -83,18 +91,45 @@ jobs:
           ZAI_REVIEWER_NAME: GLM 5.3 Code Review
           GITHUB_TOKEN: ${{ github.token }}
 
+      - name: Z.ai Code Review (retry)
+        id: review_retry
+        # Bounded retry: exactly one automatic second attempt after the first
+        # attempt fails or times out. Two attempts max, matching the
+        # reviewer-integration stopping rule; a second failure is final and
+        # reaches the reporting step below, while a success posts findings
+        # normally and leaves the job green. Same budget, pin, and inputs as
+        # the first attempt — no review-semantics change.
+        if: ${{ env.ZAI_API_KEY != '' && steps.review.outcome == 'failure' }}
+        timeout-minutes: 170
+        # Same immutable pin as the first attempt (8e718ac = v0.0.13).
+        uses: L-K-M/zai-code-review@8e718ac45f13c5ae0e57b19a00afd54d42e5b8f7
+        with:
+          ZAI_API_KEY: ${{ env.ZAI_API_KEY }}
+          ZAI_MODEL: glm-5.3
+          ZAI_REASONING_EFFORT: high
+          ZAI_MAX_OUTPUT_TOKENS: 32768
+          ZAI_REQUEST_TIMEOUT_SECONDS: 900
+          # Same hybrid mode as the first attempt (see above).
+          ZAI_REVIEW_MODE: hybrid
+          # Same chunk size as the first attempt (see above).
+          MAX_CHUNK_CHARS: 25000
+          ZAI_REVIEWER_NAME: GLM 5.3 Code Review
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Report an unfinished review on the PR
-        # A failed review step means this revision got no findings, whether the
-        # budget ran out or every chunk failed. Say so on the PR: silence is
-        # otherwise indistinguishable from a reviewer that found nothing.
-        # Cancellations are excluded deliberately, because the concurrency group
-        # cancels a superseded run on every new push and that is not a failure.
-        if: ${{ !cancelled() && steps.review.outcome == 'failure' }}
+        # Both review attempts failed, so this revision got no findings — say
+        # so on the PR: silence is otherwise indistinguishable from a reviewer
+        # that found nothing. Cancellations are excluded deliberately, because
+        # the concurrency group cancels a superseded run on every new push
+        # and that is not a failure. A retry success skips this step, since
+        # that revision did get its findings. The not-success comparison
+        # fails closed if the retry is ever skipped rather than failed.
+        if: ${{ !cancelled() && steps.review.outcome == 'failure' && steps.review_retry.outcome != 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          # Keep in step with the review step's timeout-minutes above.
+          # Keep in step with each review attempt's timeout-minutes above.
           REVIEW_BUDGET_MINUTES: "170"
         run: |
           set -euo pipefail
@@ -102,13 +137,14 @@ jobs:
           started_at="${REVIEW_STARTED_AT:-}"
           if [ -n "$started_at" ]; then
             elapsed_minutes=$(( ( $(date -u +%s) - started_at ) / 60 ))
-            if [ "$elapsed_minutes" -ge "$(( REVIEW_BUDGET_MINUTES - 2 ))" ]; then
-              summary="ran out of time after ${elapsed_minutes} minutes, against its ${REVIEW_BUDGET_MINUTES} minute budget"
+            total_budget_minutes=$(( REVIEW_BUDGET_MINUTES * 2 ))
+            if [ "$elapsed_minutes" -ge "$(( total_budget_minutes - 2 ))" ]; then
+              summary="ran out of time after ${elapsed_minutes} minutes across both attempts, against a ${REVIEW_BUDGET_MINUTES} minute per-attempt budget"
             else
-              summary="failed after ${elapsed_minutes} minutes"
+              summary="failed after ${elapsed_minutes} minutes (attempt 1 and the retry attempt both failed)"
             fi
           else
-            summary="did not finish"
+            summary="did not finish (attempt 1 and the retry attempt both failed)"
           fi
 
           notice="${RUNNER_TEMP}/review-unfinished.md"
@@ -119,7 +155,7 @@ jobs:
             echo
             echo "[Workflow run](${RUN_URL})"
             echo
-            echo "The reviewer sends one model request per chunk of the diff and waits each one out, so its wall clock tracks the size of the change. If this repeats, split the pull request or raise the budget in \`.github/workflows/zai-code-review.yml\`."
+            echo "The reviewer sends one model request per chunk of the diff and waits each one out, so its wall clock tracks the size of the change. If this repeats, split the pull request or raise the per-attempt budget in \`.github/workflows/zai-code-review.yml\`."
           } > "$notice"
 
           cat "$notice" >> "$GITHUB_STEP_SUMMARY"
@@ -128,6 +164,11 @@ jobs:
           gh api --method POST \
             "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             -F "body=@${notice}"
+
+          # Fail loudly: the missing review must never look green. Only the
+          # retry step can fail the job directly (attempt 1 runs with
+          # continue-on-error), so this exit keeps the failure explicit here.
+          exit 1
 
       - name: Skip when Z.ai API key is unavailable
         if: ${{ env.ZAI_API_KEY == '' }}
