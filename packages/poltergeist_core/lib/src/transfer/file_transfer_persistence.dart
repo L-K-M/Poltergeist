@@ -308,7 +308,23 @@ class FileTransferPersistence implements TransferPersistence {
 
   /// Read-only view of the loaded history (the activity panel's History
   /// tab reads this file; the in-memory copy is what the cap trims).
-  List<TransferHistoryEntry> get history => List.unmodifiable(_historyRecords);
+  @override
+  List<TransferHistoryEntry> get history =>
+      List.unmodifiable(_historyRecords);
+
+  /// 02 §6's Clear History: empties the in-memory copy and atomically
+  /// rewrites the file to empty, ordered behind every earlier append.
+  /// [_historyIds] is deliberately retained — it de-dupes journal→
+  /// history migration during compaction, so a still-journaled finished
+  /// task cannot resurrect its row after the user cleared.
+  @override
+  Future<void> clearHistory() {
+    if (_closed) return _pending;
+    return _enqueue(() async {
+      _historyRecords.clear();
+      await _io.atomicRewrite(historyFile, '');
+    });
+  }
 
   // ── Internals ──────────────────────────────────────────────────────
 

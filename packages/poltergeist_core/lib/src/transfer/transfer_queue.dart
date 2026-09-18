@@ -784,6 +784,25 @@ class TransferQueue {
         await _ensureDestinationRoot(runtime);
         await _walkRoots(runtime);
       }
+      // Entries the walk never re-discovered — a source deleted between
+      // the journaled plan and this (re-)scan — still hold a pending
+      // record. Without a terminal record a later restore would
+      // resurrect them, so each gets an explicit removal (03 §4.6's
+      // no-resurrection rule needs the record, not silence).
+      for (final bucket in runtime.restoredIndex?.values ?? <List<RestoredPlanItem>>[]) {
+        for (final item in bucket) {
+          if (item.outcome == null) {
+            persistence?.appendJournal(
+              ItemRemovedRecord(
+                taskId: task.id,
+                itemId: item.itemId,
+                error: 'the source no longer exists',
+              ),
+            );
+          }
+        }
+      }
+      runtime.restoredIndex = null;
       persistence?.appendJournal(
         ScanCompleteRecord(
           taskId: task.id,
@@ -914,9 +933,15 @@ class TransferQueue {
             if (_isWalkEndingError(event.error)) {
               throw event.error;
             }
+            final directory = runtime.walkDirectories[event.directory]!;
+            // A listing failure is not per-item retryable: the subtree
+            // was never discovered, so re-arming the mkdir would claim
+            // success over children that were never planned. The flag
+            // routes the retry through `retryTask`'s re-scan instead.
+            directory.listingFailed = true;
             _finishDirectory(
               runtime,
-              runtime.walkDirectories[event.directory]!,
+              directory,
               outcome: _DirOutcome.failed,
               error: event.error.message,
               failureKind: event.error.kind,
@@ -1408,14 +1433,20 @@ class TransferQueue {
   Future<void> _runDirectory(_TaskRuntime runtime, _DirState directory) async {
     final task = runtime.task;
     try {
+      // A cancel/fail sweep settled the item while its op waited on the
+      // chain — the chain drains quickly rather than re-acting on it.
+      if (directory.item.isTerminal) return;
       await _waitForAdmission(runtime);
+      if (directory.item.isTerminal) return;
       final containerPath = _resolvedContainer(
         runtime,
         directory.planned.containerKey,
       );
       if (containerPath == null) {
         // The containing directory was skipped or failed: the subtree is
-        // skipped with the reason recorded.
+        // skipped with the reason recorded. Collateral — a retried
+        // ancestor re-arms this row with it.
+        runtime.containerSkips.add(directory.item.id);
         _finishDirectory(runtime, directory, outcome: _DirOutcome.skipped);
         return;
       }
@@ -1709,6 +1740,9 @@ class TransferQueue {
 
   void _armDelete(_TaskRuntime runtime, _DeleteWork work) {
     runtime.deleteOpsPending++;
+    // The work order outlives the arm: a failed delete item retries from
+    // this record (there is no plan object to recover it from).
+    runtime.deleteWork[work.item.id] = work;
     runtime.deleteChain = runtime.deleteChain.then(
       (_) => _runDeleteItem(runtime, work),
     );
@@ -1901,6 +1935,8 @@ class TransferQueue {
     if (work.item.isTerminal) return;
     final directory = runtime.directories[work.file.containerKey];
     if (directory == null || directory.outcome != _DirOutcome.ready) {
+      // Collateral skip: a retried container re-arms this row with it.
+      runtime.containerSkips.add(work.item.id);
       _finishItem(
         runtime,
         work.item,
@@ -1949,10 +1985,19 @@ class TransferQueue {
     final item = work.item;
     final file = work.file;
 
+    // A cancel/skip/requeue that settled the item while it sat in
+    // `eligible` owns the row — dispatch must not resurrect it.
+    if (item.isTerminal) {
+      _maybeFinishTask(runtime);
+      return;
+    }
+
     // Resolve the actual destination through the container key so a
     // keep-both-renamed ancestor rebases this item (03 §4.1).
     final containerPath = _resolvedContainer(runtime, file.containerKey);
     if (containerPath == null) {
+      // Collateral skip: a retried container re-arms this row with it.
+      runtime.containerSkips.add(item.id);
       _finishItem(
         runtime,
         item,
@@ -2278,6 +2323,10 @@ class TransferQueue {
   ) {
     final task = runtime.task;
     final item = work.item;
+    // The item's row already settled (per-item cancel/skip, or a sweep)
+    // while the attempt unwound — its outcome is owned, and the
+    // cancelled-requeue branch below must never re-pend it.
+    if (item.isTerminal) return;
     if (error.kind == RemoteFileErrorKind.cancelled ||
         task.cancellation.isCancelled) {
       if (task.cancellation.isCancelled) {
@@ -3118,6 +3167,405 @@ class TransferQueue {
     return true;
   }
 
+  // ---------------------------------------------------------------------
+  // Activity-panel verbs (02 §6) — the panel's query/mutation surface:
+  // history reads, pending-task reorder, per-item cancel, and retry.
+  // ---------------------------------------------------------------------
+
+  /// The capped persisted history — the History tab's source (02 §6),
+  /// oldest first. Null persistence means no durable log exists; the
+  /// seam reports empty rather than synthesizing rows the journal never
+  /// kept.
+  List<TransferHistoryEntry> get history => persistence?.history ?? const [];
+
+  /// The History tab's Clear History (02 §6): drops every persisted
+  /// record through the store's writer chain; the journal is untouched.
+  Future<void> clearHistory() =>
+      persistence?.clearHistory() ?? Future.value();
+
+  /// Reorders one not-yet-running task in admission order — 02 §6's
+  /// drag. `queued` and `scanning` both move (a scanning task has
+  /// dispatched no file yet — the first dispatch flips it to
+  /// `running`, which pins it); running, paused, and terminal rows are
+  /// pinned: reordering them would lie about dispatch reality. The drop
+  /// target is another movable task — or null, which lands the task
+  /// behind the last movable one. Returns false when the move is not
+  /// legal; emits [TransferQueueOrderEvent] on success.
+  bool moveTask(String taskId, {String? beforeTaskId}) {
+    final runtime = _tasks[taskId];
+    if (runtime == null || !_isReorderable(runtime.task)) return false;
+    if (beforeTaskId == taskId) return true;
+    final entries = _tasks.entries.toList();
+    entries.removeWhere((entry) => entry.key == taskId);
+    final int index;
+    if (beforeTaskId != null) {
+      final target = _tasks[beforeTaskId];
+      if (target == null || !_isReorderable(target.task)) return false;
+      index = entries.indexWhere((entry) => entry.key == beforeTaskId);
+    } else {
+      // End of the movable run — behind the last reorderable task.
+      final lastMovable = entries.lastIndexWhere(
+        (entry) => _isReorderable(entry.value.task),
+      );
+      index = lastMovable < 0 ? entries.length : lastMovable + 1;
+    }
+    entries.insert(index, MapEntry(taskId, runtime));
+    _tasks
+      ..clear()
+      ..addEntries(entries);
+    _emit(TransferQueueOrderEvent(taskId));
+    return true;
+  }
+
+  /// The reorderable states — 02 §6's "queued" as the panel renders it:
+  /// admission has not reached the task's file work yet.
+  static bool _isReorderable(TransferTask task) =>
+      task.state == TransferTaskState.queued ||
+      task.state == TransferTaskState.scanning;
+
+  /// Cancels one item — 02 §6's per-row Cancel, and the queued row's
+  /// Skip (same verb: the row leaves the queue either way). Pending
+  /// work is pulled from the dispatch backlog, a parked conflict
+  /// dismisses its surface, an in-flight attempt's token trips so the
+  /// unwinding pipe cannot re-pend the row, and a directory's cancel
+  /// cascades to its subtree through the `ready` gate — children skip
+  /// as collateral, and a later retry of the directory re-arms them.
+  /// Journaled as `itemRemoved` before the state flips.
+  bool cancelItem(String taskId, String itemId) {
+    final runtime = _tasks[taskId];
+    if (runtime == null || runtime.task.isTerminal) return false;
+    final item = _itemOf(runtime.task, itemId);
+    if (item == null || item.isTerminal) return false;
+
+    // Dismiss the parked-conflict surface first so a mirror's stream
+    // never shows a row that vanished and progressed at once (the same
+    // ordering resolveConflict keeps).
+    final parked = runtime.pendingConflicts.remove(itemId);
+    if (parked != null) {
+      _pendingConflictCount--;
+      _emit(
+        TransferQueueConflictEvent(
+          taskId,
+          itemId,
+          conflict: parked.conflict,
+          pending: false,
+        ),
+      );
+    }
+    runtime.conflictWaiters.removeWhere(
+      (work) => _workItemId(work) == itemId,
+    );
+    runtime.eligible.removeWhere((work) => work.item.id == itemId);
+    runtime.deleteWork.remove(itemId);
+
+    final directory = item.isDirectory ? runtime.directories[itemId] : null;
+    if (directory != null) {
+      // `_finishDirectory` completes `ready`, which cascades the cancel
+      // to every armed child through `_fileContainerReady`.
+      _finishDirectory(runtime, directory, outcome: _DirOutcome.cancelled);
+    } else {
+      _finishItem(runtime, item, TransferItemState.cancelled);
+    }
+    runtime.attempts.remove(itemId)?.cancel();
+    _promoteConflictWaiters();
+    _maybeFinishTask(runtime);
+    return true;
+  }
+
+  /// Whether [retryItem] can re-arm this row: it failed, it still has a
+  /// work order (a scan-time terminal row — a failed root stat, a
+  /// rejected name — has none to re-dispatch), and a terminal task's
+  /// scan completed. A mid-scan failure instead retries through
+  /// [retryTask]'s re-scan, which rebuilds every row at once.
+  bool canRetryItem(String taskId, String itemId) {
+    final runtime = _tasks[taskId];
+    if (runtime == null) return false;
+    final task = runtime.task;
+    if (task.isTerminal && !task.scanComplete) return false;
+    final item = _itemOf(task, itemId);
+    if (item == null || item.state != TransferItemState.failed) {
+      return false;
+    }
+    return _retryWork(runtime, item) != null;
+  }
+
+  /// Re-enqueues one failed item in place — 02 §6's per-row Retry. The
+  /// row keeps its itemId (the journaled outcome already records the
+  /// failed attempt; a re-run appends the fresh outcome behind it), and
+  /// a directory's retry re-arms the children that skipped as
+  /// collateral — the user's own per-item skips stay removed. On a
+  /// terminal failed task the retry re-queues the task itself.
+  bool retryItem(String taskId, String itemId) {
+    final runtime = _tasks[taskId];
+    if (runtime == null || !canRetryItem(taskId, itemId)) return false;
+    _retryItemInPlace(runtime, _itemOf(runtime.task, itemId)!);
+    if (runtime.task.isTerminal) _requeueTask(runtime);
+    _pump();
+    _maybeFinishTask(runtime);
+    return true;
+  }
+
+  /// Whether [retryTask] can re-run the task: it failed, and either the
+  /// scan never completed (the retry re-scans) or at least one failed
+  /// row still has a work order to re-arm.
+  bool canRetryTask(String taskId) {
+    final runtime = _tasks[taskId];
+    if (runtime == null ||
+        runtime.task.state != TransferTaskState.failed) {
+      return false;
+    }
+    if (!runtime.task.scanComplete) return true;
+    return runtime.task.items.any((item) => canRetryItem(taskId, item.id));
+  }
+
+  /// 02 §6's per-task Retry — failed items only. With a completed scan
+  /// every retryable row re-arms in place (a directory's retry carries
+  /// its collateral-skipped subtree with it); a task that died mid-scan
+  /// re-runs the whole scan, merging onto the journaled rows so no
+  /// duplicate items appear and terminal outcomes still suppress
+  /// re-dispatch.
+  bool retryTask(String taskId) {
+    final runtime = _tasks[taskId];
+    if (runtime == null || !canRetryTask(taskId)) return false;
+    if (!runtime.task.scanComplete) {
+      _rescanRetry(runtime);
+      return true;
+    }
+    // `_retryItemInPlace` flips each row to pending, so a descendant
+    // re-armed by its directory's retry reads as non-failed when the
+    // outer loop reaches it — no double arm.
+    for (final item in runtime.task.items.toList()) {
+      if (canRetryItem(taskId, item.id)) _retryItemInPlace(runtime, item);
+    }
+    _requeueTask(runtime);
+    _pump();
+    _maybeFinishTask(runtime);
+    return true;
+  }
+
+  /// The shared body of [retryItem]/[retryTask] for one item: reset the
+  /// row, re-arm its work order, and — for a directory — cascade the
+  /// retry through the subtree it took down (collateral skips and
+  /// failed children with work orders).
+  void _retryItemInPlace(_TaskRuntime runtime, TransferItem item) {
+    _resetItemForRetry(runtime, item);
+    final work = _retryWork(runtime, item)!;
+    if (work is _DirState) {
+      for (final descendant in _descendantsOf(runtime, item.id)) {
+        final retriable =
+            descendant.state == TransferItemState.failed &&
+            _retryWork(runtime, descendant) != null;
+        final collateral = runtime.containerSkips.contains(descendant.id);
+        if (!retriable && !collateral) continue;
+        _resetItemForRetry(runtime, descendant);
+        final descendantWork = _retryWork(runtime, descendant);
+        if (descendantWork != null) {
+          _rearmWork(runtime, descendantWork);
+        }
+      }
+    }
+    _rearmWork(runtime, work);
+  }
+
+  /// Flips one terminal row back to `pending`: the aggregate debits its
+  /// partial bytes (02 §5.3's floor rule — the re-transfer reports them
+  /// again), the counters release it, and a directory's `ready` gate
+  /// re-arms so its re-dispatching children wait on the fresh mkdir.
+  void _resetItemForRetry(_TaskRuntime runtime, TransferItem item) {
+    final task = runtime.task;
+    _debitItemProgress(runtime, item);
+    if (item.state == TransferItemState.failed) {
+      task.failedItems--;
+    } else if (runtime.containerSkips.remove(item.id)) {
+      task.skippedItems--;
+    }
+    item.state = TransferItemState.pending;
+    item.error = null;
+    item.failureKind = null;
+    final directory = runtime.directories[item.id];
+    if (directory != null) {
+      directory.outcome = _DirOutcome.pending;
+      directory.resolvedPath = null;
+      directory.selfTarget = false;
+      directory.ready = Completer();
+    }
+    _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+  }
+
+  /// Re-arms one work order — the dispatch path each shape already owns.
+  void _rearmWork(_TaskRuntime runtime, Object work) => switch (work) {
+    _FileWork() => _armFile(runtime, work),
+    _DirState() => _scheduleDirectory(runtime, work),
+    _DeleteWork() => _armDelete(runtime, work),
+    _ => throw StateError('unknown work order: $work'),
+  };
+
+  /// The work order a failed item re-arms with, or null when there is
+  /// nothing to re-dispatch — a scan-time terminal row (failed root
+  /// stat, rejected name, unsupported type) planned no work.
+  Object? _retryWork(_TaskRuntime runtime, TransferItem item) {
+    if (runtime.task.operation == TransferOperation.delete) {
+      return runtime.deleteWork[item.id];
+    }
+    if (item.isDirectory) {
+      final directory = runtime.directories[item.id];
+      // A listing failure discovered no children — re-arming the mkdir
+      // alone would "complete" the subtree with nothing in it.
+      if (directory == null || directory.listingFailed) return null;
+      return directory;
+    }
+    for (final file in runtime.task.plan?.files ?? const <PlannedFile>[]) {
+      if (file.itemId == item.id) return _FileWork(item: item, file: file);
+    }
+    return null;
+  }
+
+  /// The items whose container chain runs through [dirItemId] — the
+  /// subtree a retried directory re-arms (03 §4.1's containerKey links).
+  List<TransferItem> _descendantsOf(_TaskRuntime runtime, String dirItemId) {
+    final plan = runtime.task.plan;
+    final parentByItemId = <String, String?>{
+      for (final file in plan?.files ?? const <PlannedFile>[])
+        file.itemId: file.containerKey,
+      for (final dir
+          in plan?.directoriesInOrder ?? const <PlannedDirectory>[])
+        dir.itemId: dir.containerKey,
+    };
+    return [
+      for (final item in runtime.task.items)
+        if (_isDescendant(parentByItemId, item.id, dirItemId)) item,
+    ];
+  }
+
+  static bool _isDescendant(
+    Map<String, String?> parentByItemId,
+    String itemId,
+    String dirItemId,
+  ) {
+    var key = parentByItemId[itemId];
+    while (key != null) {
+      if (key == dirItemId) return true;
+      key = parentByItemId[key];
+    }
+    return false;
+  }
+
+  /// Flips a terminal task back to `queued` for a retry: the journal
+  /// records the re-queue before the state flips, and the runtime's
+  /// one-shot latches (`done`, `finishing`, a stranded `notPaused` from
+  /// a pause that landed before the failure) re-arm so the second run's
+  /// finish path still fires.
+  void _requeueTask(_TaskRuntime runtime) {
+    final task = runtime.task;
+    _journalState(task, TransferTaskState.queued);
+    task.state = TransferTaskState.queued;
+    task.error = null;
+    task.failureKind = null;
+    task.finishedAt = null;
+    task.retryCount = 0;
+    runtime.finishing = false;
+    runtime.done = Completer();
+    if (!runtime.notPaused.isCompleted) runtime.notPaused.complete();
+    _emit(TransferQueueTaskEvent(task.id, task.state));
+  }
+
+  /// The mid-scan retry: clears the plan and dispatch state and re-runs
+  /// `_runTask`, seeding `restoredIndex` with the live rows so the
+  /// re-walk merges onto the journaled itemIds instead of minting
+  /// duplicate rows — the same merge 03 §4.6's crash restore runs.
+  /// Terminal outcomes carry through: completed rows suppress
+  /// re-dispatch, user-removed rows stay removed, failed rows with a
+  /// work order get a fresh dispatch.
+  void _rescanRetry(_TaskRuntime runtime) {
+    final task = runtime.task;
+    final plan = task.plan;
+    final filesById = {
+      for (final file in plan?.files ?? const <PlannedFile>[])
+        file.itemId: file,
+    };
+    final dirsById = {
+      for (final dir
+          in plan?.directoriesInOrder ?? const <PlannedDirectory>[])
+        dir.itemId: dir,
+    };
+    final index = <String, List<RestoredPlanItem>>{};
+    for (final item in task.items) {
+      final file = filesById[item.id];
+      final dir = dirsById[item.id];
+      final delete = runtime.deleteWork[item.id];
+      final RestoredItemOutcome? outcome = switch (item.state) {
+        TransferItemState.completed => RestoredItemOutcome.completed,
+        // Collateral of a failed container — the retried container's
+        // re-scan re-discovers and re-dispatches it.
+        _ when runtime.containerSkips.contains(item.id) => null,
+        TransferItemState.skipped ||
+        TransferItemState.cancelled => RestoredItemOutcome.removed,
+        _ =>
+          (file != null || dir != null || delete != null)
+              ? null
+              : RestoredItemOutcome.failed,
+      };
+      final destinationPath =
+          file?.destinationPath ??
+          dir?.destinationPath ??
+          delete?.entry.path ??
+          item.destinationPath;
+      (index[destinationPath] ??= []).add(
+        RestoredPlanItem(
+          itemId: item.id,
+          isDirectory: item.isDirectory,
+          sourcePath: item.sourcePath,
+          destinationPath: destinationPath,
+          containerKey: file?.containerKey ?? dir?.containerKey,
+          name: file?.name ?? dir?.name,
+          source: file?.source ?? dir?.source ?? delete?.entry,
+          existing: file?.existing ?? dir?.existing,
+          outcome: outcome,
+          error: item.error,
+          failureKind: item.failureKind,
+          resolvedPath: outcome == RestoredItemOutcome.completed
+              ? item.destinationPath
+              : null,
+          disposition: item.disposition,
+        ),
+      );
+    }
+    task.items.clear();
+    task.plan = null;
+    task.scanComplete = false;
+    task.totalBytes = null;
+    task.totalFiles = 0;
+    task.totalDirectories = 0;
+    task.completedFiles = 0;
+    task.completedDirectories = 0;
+    task.failedItems = 0;
+    task.skippedItems = 0;
+    task.transferredBytes = 0;
+    runtime.directories.clear();
+    runtime.walkDirectories.clear();
+    runtime.deleteWork.clear();
+    runtime.containerSkips.clear();
+    runtime.eligible.clear();
+    runtime.restoredIndex = index;
+    _requeueTask(runtime);
+    unawaited(_runTask(runtime));
+  }
+
+  /// The item id a conflict-waiter entry parks — `_FileWork` and
+  /// `_DirState` are the only shapes `conflictWaiters` holds.
+  static String? _workItemId(Object work) => switch (work) {
+    _FileWork(:final item) => item.id,
+    _DirState(:final item) => item.id,
+    _ => null,
+  };
+
+  static TransferItem? _itemOf(TransferTask task, String itemId) {
+    for (final item in task.items) {
+      if (item.id == itemId) return item;
+    }
+    return null;
+  }
+
   /// Rebuilds the crashed session's queue from the journal (03 §4.6):
   /// every non-terminal journaled task re-enters with its journaled
   /// state — a per-task `paused` survives, `running`/`scanning` map to
@@ -3628,8 +4076,13 @@ class TransferQueue {
     RemoteFileErrorKind? failureKind,
   }) {
     final task = runtime.task;
+    // A re-scanned report-kind row merges onto its journaled record by
+    // path, exactly like planned items do — reusing the itemId instead
+    // of minting a duplicate row (and a duplicate journal prefix) for
+    // the same entry.
+    final restored = runtime.takeRestored(destinationPath, sourcePath);
     final item = TransferItem(
-      id: uuidV4(),
+      id: restored?.itemId ?? uuidV4(),
       sourcePath: sourcePath,
       isDirectory: isDirectory,
       destinationPath: destinationPath,
@@ -3637,17 +4090,20 @@ class TransferQueue {
     );
     // Journal the entry and its terminal outcome before the row exists —
     // a scan-time terminal item (skipped symlink, failed root stat) is
-    // part of the task's record like any other (03 §4.6).
-    persistence?.appendJournal(
-      PlanEntryRecord(
-        taskId: task.id,
-        itemId: item.id,
-        isDirectory: isDirectory,
-        sourcePath: sourcePath,
-        destinationPath: destinationPath,
-        sourceSize: size,
-      ),
-    );
+    // part of the task's record like any other (03 §4.6). A merged row's
+    // planEntry already stands from the first scan.
+    if (restored == null) {
+      persistence?.appendJournal(
+        PlanEntryRecord(
+          taskId: task.id,
+          itemId: item.id,
+          isDirectory: isDirectory,
+          sourcePath: sourcePath,
+          destinationPath: destinationPath,
+          sourceSize: size,
+        ),
+      );
+    }
     _journalItemOutcome(
       task,
       item,
@@ -4054,9 +4510,21 @@ class _TaskRuntime {
   /// Completed whenever the task is not paused; recreated on pause.
   Completer<void> notPaused = Completer()..complete();
 
+  /// Live arm records for delete-task items — the retry seam needs the
+  /// original [RemoteFileEntry] to re-arm a failed item; transfer items
+  /// recover theirs from the plan/`_DirState` instead.
+  final Map<String, _DeleteWork> deleteWork = {};
+
+  /// Items skipped as collateral of an unreachable container (02 §6's
+  /// per-item Skip abandoning a directory abandons its whole subtree).
+  /// A retried directory re-arms these children with it; the user's own
+  /// per-item skip is NOT in this set and stays removed.
+  final Set<String> containerSkips = {};
+
   /// Completes when the task is terminal and every in-flight attempt and
-  /// scan operation has drained.
-  final Completer<void> done = Completer();
+  /// scan operation has drained. The retry re-queue recreates it — a
+  /// completed completer cannot un-complete.
+  Completer<void> done = Completer();
 }
 
 class _DirState {
@@ -4066,10 +4534,19 @@ class _DirState {
   final TransferItem item;
 
   /// Completes when this directory's mkdir resolved (any outcome), which
-  /// releases its file children to dispatch — or skips them.
-  final Completer<void> ready = Completer();
+  /// releases its file children to dispatch — or skips them. The retry
+  /// seam recreates it: a retried directory's children must wait on the
+  /// fresh attempt, not a completer that already fired.
+  Completer<void> ready = Completer();
   String? resolvedPath;
   _DirOutcome outcome = _DirOutcome.pending;
+
+  /// The scan's listing for this directory failed atomically — its
+  /// children were never discovered, so re-arming just the mkdir would
+  /// "complete" the subtree with nothing in it. Such a row is not
+  /// per-item retryable; only a re-scan (`retryTask` mid-scan path, or
+  /// a fresh enqueue) can rediscover it.
+  bool listingFailed = false;
 
   /// 00 D26's directory self-move: the resolved destination canonicalizes
   /// to the source directory itself, so the tree stays in place — the
@@ -4228,6 +4705,13 @@ final class TransferQueueConflictEvent extends TransferQueueEvent {
   final String itemId;
   final PendingConflict conflict;
   final bool pending;
+}
+
+/// Queue-admission order changed — 02 §6's drag-to-reorder moved
+/// [taskId]. Carries no position; `tasks` order is the truth and
+/// mirrors re-render it verbatim.
+final class TransferQueueOrderEvent extends TransferQueueEvent {
+  const TransferQueueOrderEvent(super.taskId);
 }
 
 /// Byte progress on one item plus the task rollups (02 §5.3's growing

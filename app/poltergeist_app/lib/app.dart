@@ -1,3 +1,4 @@
+import 'dart:async' show FutureOr;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 
 import 'l10n/app_localizations.dart';
+import 'services/app_transfer_queue.dart';
 import 'services/bookmark_store.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
@@ -38,6 +40,15 @@ class PoltergeistApp extends StatefulWidget {
     this.workspaces,
     this.connectionEngine,
     this.engineSession,
+    this.transferQueue,
+    this.initialActivityPanelHeight = 200,
+    this.onActivityPanelHeightChanged,
+    this.onActivityPanelHeightSaveError,
+    this.initialDownloadLimit,
+    this.initialUploadLimit,
+    this.onDownloadLimitChanged,
+    this.onUploadLimitChanged,
+    this.autoClearCompletedTransfers = true,
   });
 
   final double initialPaneRatio;
@@ -93,6 +104,26 @@ class PoltergeistApp extends StatefulWidget {
   /// shutdown rides app exit. Null leaves the app running engine-less —
   /// every surface reads "no engine" instead of failing to boot.
   final EngineSession? engineSession;
+
+  /// The transfer queue behind the activity panel (02 §6, D16). Null
+  /// until the engine-host transfer slice binds one — the panel mounts
+  /// empty chrome rather than simulating activity.
+  final AppTransferQueue? transferQueue;
+
+  /// The activity panel's persisted pixel height (02 §1).
+  final double initialActivityPanelHeight;
+  final PaneRatioSaver? onActivityPanelHeightChanged;
+  final void Function(Object, StackTrace)? onActivityPanelHeightSaveError;
+
+  /// The persisted throttle limits seeded onto the queue's limiters.
+  final int? initialDownloadLimit;
+  final int? initialUploadLimit;
+  final FutureOr<void> Function(int? bytesPerSecond)?
+  onDownloadLimitChanged;
+  final FutureOr<void> Function(int? bytesPerSecond)? onUploadLimitChanged;
+
+  /// 02 §6's "auto-remove on success" setting (default on).
+  final bool autoClearCompletedTransfers;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
@@ -225,6 +256,16 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       workspaces: widget.workspaces,
       connectionEngine: widget.connectionEngine,
       engineSession: widget.engineSession,
+      transferQueue: widget.transferQueue,
+      initialActivityPanelHeight: widget.initialActivityPanelHeight,
+      onActivityPanelHeightChanged: widget.onActivityPanelHeightChanged,
+      onActivityPanelHeightSaveError:
+          widget.onActivityPanelHeightSaveError,
+      initialDownloadLimit: widget.initialDownloadLimit,
+      initialUploadLimit: widget.initialUploadLimit,
+      onDownloadLimitChanged: widget.onDownloadLimitChanged,
+      onUploadLimitChanged: widget.onUploadLimitChanged,
+      autoClearCompletedTransfers: widget.autoClearCompletedTransfers,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

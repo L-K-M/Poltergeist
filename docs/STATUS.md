@@ -5884,6 +5884,92 @@ on demand, so the next genuine stall converting to an actionable
 failure is the proof. After merge the review is re-requested on #154
 without merging it, for supervisor verification.
 
+## M4 — activity panel: the queue's window (D16) (2026-09-18)
+
+02 §6's transfer surface lands over the #147–#153 engine as optional
+bottom-panel chrome — hideable by intent, never by omission: rows are
+the queue's only representation while tasks exist (the status bar's
+transfer chip is a summary, not a substitute), and the empty→live edge
+re-opens a hidden panel for new work.
+
+The app-facing seam is `AppTransferQueue` (`services/app_transfer_queue.dart`)
+— the queue's snapshot/query surface plus its verbs, with a
+`TransferQueueAdapter` for in-process fakes. `EngineClient` still
+exposes no transfer verbs (protocol v11's placeholder seams), so the
+shell takes a nullable queue and mounts the panel empty rather than
+fabricating activity; the engine-host transfer slice owns the
+production wiring when it lands. `ActivityPanelController`
+(`services/activity_panel_controller.dart`) mirrors the queue into a
+`ChangeNotifier`, owns presentation state only — tab, linger timers,
+the §5.3 smoothed rates (`TransferRateTracker`: 5 s window, ETA gated
+on 3 s of data and refreshing at most 1 Hz, non-monotonic byte counts
+reset the window) — and delegates every mutation to the seam.
+
+The panel itself (`ui/activity/`): Activity/History tabs, queue
+pause/resume, a bandwidth popover (Off/256 KB/s/1 MB/s/5 MB/s/custom
+with `parseTransferRate` validation — bad input is an inline error,
+never a clamp), the restored-queue banner (Resume/Discard over
+`TransferTask.wasRestored`), the pending-conflict strip fed by the
+queue's `pendingConflicts` query, and the §5.2 chooser dialog with
+apply-to-all scope. Task rows band live/pending/terminal — only the
+pending band drags (`ReorderableListView.onReorderItem` mapped onto
+`beforeTaskId`) — and carry per-state verbs: cancel on live, retry +
+remove + copy-error on terminal, reveal-in-pane. Item sub-rows offer
+Skip/Cancel/Retry/Resolve by state. Completed rows linger 10 s before
+auto-removal (the persisted auto-clear preference, default on); failed
+and cancelled rows wait for explicit removal. The growing-totals
+footer shows `N of M+` while any scan is still discovering work.
+
+Persistence: `activityPanelHidden` joins `SessionState` (optional,
+decode-safe on old documents), and `AppPreferences` gains panel height
+(default 200, floor 120), per-direction throttle limits (non-positive
+decodes unlimited), and the auto-clear flag — keys
+`layout.activityPanelHeight`, `transfer.{download,upload}LimitBytesPerSecond`,
+`transfer.autoClearCompleted`.
+
+D21: `queue.togglePause` (Commands menu, order 70) and
+`view.toggleActivityPanel` (View menu, order 80 — the §8.1 reserved
+slot, ⌥⌘A / Ctrl+Alt+A) are registered commands, not palette-only.
+
+The narrow core seam the panel needed: `TransferQueue` grew
+`moveTask` (queued/scanning only), `cancelItem`, `retryItem`/`retryTask`
+(re-enqueue from journaled records — a missing record refuses rather
+than resurrecting), `history`/`clearHistory` on `TransferPersistence`,
+the `TransferQueueOrderEvent`, and `TransferTask.wasRestored` (03 §4.6's
+journaled provenance marker the banner keys on).
+
+Validation: 20 new core tests (`transfer_queue_panel_ops_test.dart`),
+30 app tests across `activity_panel_controller_test.dart`,
+`activity_panel_test.dart`, `activity_shell_test.dart` (D21 menu
+reachability, auto-show, splitter persistence), and
+`activity_panel_capture_test.dart` (three real-font PNGs under
+`tasks/run3-task68/captures/`). Review round 1 dispositions landed in
+the same PR: `parseTransferRate` rejects an infinity product before
+rounding, `TransferRateTracker.bytesPerSecond` expires the window
+read-side once the newest sample ages out, the fake queue's
+`cancelItem`/`cancelTask` drop parked conflicts with dismissals (the
+real queue's exact semantics), the panel-resize clamp guards a
+sub-240px window, `commonParentPath` seeds at the first path, the
+bandwidth popover seeds its Custom prefill in `didChangeDependencies`,
+`conflictApplyToAll` pluralizes, and `addTask(id:)` without
+`wasRestored` throws rather than silently dropping the key. Round 2
+added the `_loadLimit` non-finite guard (a corrupt settings file's
+`1e999` decoded to Infinity and `toInt()` threw outside the try) and
+widened the parser guard to `!isFinite`; the `clearCompleted`
+iterate-while-removing suggestion was declined with evidence
+(`List.unmodifiable` already snapshots on both seam implementations —
+the `tasks` doc now says so). Round 3 fixed the retry-debit check to
+compare against the previous sample rather than the window's oldest —
+a partial debit above the floor had evaded the reset and misreported
+a stale rate. Round 4: `commonParentPath` treats `/` as an ancestor of
+every absolute path (reproduced red-first — `['/a', '/b']` returned
+`''` since `'/a/'.startsWith('//')` is never true), the popover barrier
+is `HitTestBehavior.opaque` (translucent leaked tap-down/ripple and
+hover to the panel behind; the tap arena had already protected
+`onTap`), and the tabs carry `Semantics(selected:)`. Full suites: app
+1242 green, core 1170 green (16 fixture skips), both analyzers clean,
+localization contract green.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

@@ -1422,5 +1422,371 @@
   "workspaceMenuEmpty": "No Saved Workspaces",
   "@workspaceMenuEmpty": {
     "description": "Disabled row inside the Workspaces submenu while no workspace has been saved yet."
+  },
+  "viewToggleActivityPanelLabel": "Show/Hide Activity",
+  "@viewToggleActivityPanelLabel": {
+    "description": "Menu label for view.toggleActivityPanel (02 §9's View table: Show/Hide Activity)."
+  },
+  "queueTogglePauseLabel": "Pause/Resume Transfers",
+  "@queueTogglePauseLabel": {
+    "description": "Commands-menu label for queue.togglePause (02 §9's Commands table names it verbatim)."
+  },
+  "activityTabActivity": "Activity",
+  "@activityTabActivity": {
+    "description": "The activity panel's live-queue tab (02 §6)."
+  },
+  "activityTabHistory": "History",
+  "@activityTabHistory": {
+    "description": "The activity panel's persistent-log tab (02 §6)."
+  },
+  "queuePauseTooltip": "Pause stops new transfers; current files finish",
+  "@queuePauseTooltip": {
+    "description": "Tooltip on the queue pause toggle (02 §6's stated copy, verbatim)."
+  },
+  "queueResumeTooltip": "Resume the transfer queue",
+  "@queueResumeTooltip": {
+    "description": "Tooltip on the queue toggle while the queue is paused."
+  },
+  "activityBandwidthButton": "Bandwidth",
+  "@activityBandwidthButton": {
+    "description": "Tooltip for the activity header's bandwidth-limit button (02 §6)."
+  },
+  "activityBandwidthUnlimited": "∞",
+  "@activityBandwidthUnlimited": {
+    "description": "Glyph the bandwidth button shows while no limit is set (02 §6's header button shows ∞)."
+  },
+  "activityClearCompleted": "Clear completed",
+  "@activityClearCompleted": {
+    "description": "The header's Clear-completed button: removes completed task rows (02 §6)."
+  },
+  "activityClosePanel": "Close panel",
+  "@activityClosePanel": {
+    "description": "Tooltip for the activity panel's hide affordance; equivalent to view.toggleActivityPanel."
+  },
+  "activityEmpty": "No transfers in progress.",
+  "@activityEmpty": {
+    "description": "The Activity tab's empty state (02 §2.7's never-blank rule applies here too)."
+  },
+  "activityHistoryEmpty": "No transfer history yet.",
+  "@activityHistoryEmpty": {
+    "description": "The History tab's empty state."
+  },
+  "activityHistoryFilter": "Filter history",
+  "@activityHistoryFilter": {
+    "description": "Hint for the History tab's filter field (02 §6)."
+  },
+  "activityHistoryClear": "Clear History",
+  "@activityHistoryClear": {
+    "description": "The History tab's clear action (02 §6 names it verbatim)."
+  },
+  "activityRestoredBanner": "{count, plural, =1{1 transfer from your last session is paused} other{{count} transfers from your last session are paused}}",
+  "@activityRestoredBanner": {
+    "description": "Banner over a queue restored from the journal (02 §6's exact copy).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "activityRestoredResume": "Resume",
+  "@activityRestoredResume": {
+    "description": "The restored-queue banner's resume action (02 §6)."
+  },
+  "activityRestoredDiscard": "Discard",
+  "@activityRestoredDiscard": {
+    "description": "The restored-queue banner's discard action (02 §6): cancels the restored tasks."
+  },
+  "activityCancelTask": "Cancel",
+  "@activityCancelTask": {
+    "description": "Per-task row action: cancels the transfer (02 §6)."
+  },
+  "activityRetryTask": "Retry",
+  "@activityRetryTask": {
+    "description": "Per-task and per-item row action: re-runs the failed work (02 §6)."
+  },
+  "activityRemoveTask": "Remove",
+  "@activityRemoveTask": {
+    "description": "Per-task row action: drops a finished row from the listing (02 §6)."
+  },
+  "activityRevealInPane": "Reveal in pane",
+  "@activityRevealInPane": {
+    "description": "Per-task row action: opens the task's destination in the active pane (02 §6)."
+  },
+  "activityCopyError": "Copy error",
+  "@activityCopyError": {
+    "description": "Per-task row action: copies the failure text to the clipboard (02 §6)."
+  },
+  "activitySkipItem": "Skip",
+  "@activitySkipItem": {
+    "description": "Per-file sub-row action while the file is queued: pulls it from the task (02 §6)."
+  },
+  "activityCancelItem": "Cancel",
+  "@activityCancelItem": {
+    "description": "Per-file sub-row action while the file is in flight: aborts that file only."
+  },
+  "activityExpandTask": "Show files",
+  "@activityExpandTask": {
+    "description": "Tooltip for a multi-file task row's expand chevron (02 §6)."
+  },
+  "activityCollapseTask": "Hide files",
+  "@activityCollapseTask": {
+    "description": "Tooltip for an expanded task row's collapse chevron."
+  },
+  "activityConflictsTitle": "{count, plural, =1{1 item needs an answer} other{{count} items need answers}}",
+  "@activityConflictsTitle": {
+    "description": "The pending-conflict strip's summary line (02 §5.2/§6).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "conflictResolve": "Resolve…",
+  "@conflictResolve": {
+    "description": "Opens the 5-verb conflict chooser for one parked item (02 §5.2)."
+  },
+  "conflictDialogTitle": "{name} already exists in {destination}",
+  "@conflictDialogTitle": {
+    "description": "The conflict dialog's title line (02 §5.2's example copy).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictExistingLine": "Existing: {details}",
+  "@conflictExistingLine": {
+    "description": "The conflict dialog's destination-side summary (02 §5.2).",
+    "placeholders": {
+      "details": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictReplacingLine": "Replacing it with: {details}",
+  "@conflictReplacingLine": {
+    "description": "The conflict dialog's source-side summary (02 §5.2).",
+    "placeholders": {
+      "details": {
+        "type": "String"
+      }
+    }
+  },
+  "conflictVerbReplace": "Replace",
+  "@conflictVerbReplace": {
+    "description": "Conflict verb: overwrite the destination (02 §5.2)."
+  },
+  "conflictVerbReplaceIfNewer": "Replace if newer",
+  "@conflictVerbReplaceIfNewer": {
+    "description": "Conflict verb: overwrite only when the source is newer by more than the mtime tolerance (02 §5.2)."
+  },
+  "conflictVerbKeepBoth": "Keep both",
+  "@conflictVerbKeepBoth": {
+    "description": "Conflict verb: land under an auto-numbered name (02 §5.2)."
+  },
+  "conflictVerbSkip": "Skip",
+  "@conflictVerbSkip": {
+    "description": "Conflict verb: leave the destination untouched (02 §5.2)."
+  },
+  "conflictVerbMerge": "Merge",
+  "@conflictVerbMerge": {
+    "description": "Conflict verb, folders only: recurse, preserving destination-only entries (02 §5.2)."
+  },
+  "conflictStop": "Stop",
+  "@conflictStop": {
+    "description": "The conflict dialog's stop button: cancels the rest of the task (02 §5.2)."
+  },
+  "conflictNotNow": "Not now",
+  "@conflictNotNow": {
+    "description": "Dismisses the conflict dialog without answering — the item stays parked."
+  },
+  "conflictApplyToAll": "Apply to all {count, plural, =1{1 remaining conflict} other{{count} remaining conflicts}} in this task",
+  "@conflictApplyToAll": {
+    "description": "The conflict dialog's task-scope checkbox (02 §5.2's exact wording).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "transferStateQueued": "Queued",
+  "@transferStateQueued": {
+    "description": "Task state: waiting behind the queue's admission order."
+  },
+  "transferStateScanning": "Scanning…",
+  "@transferStateScanning": {
+    "description": "Task state: the discovery walk is still enumerating items."
+  },
+  "transferStateRunning": "Running",
+  "@transferStateRunning": {
+    "description": "Task state: items are in flight."
+  },
+  "transferStatePaused": "Paused",
+  "@transferStatePaused": {
+    "description": "Task state: held by the queue pause or a task pause."
+  },
+  "transferStateCompleted": "Completed",
+  "@transferStateCompleted": {
+    "description": "Task/history outcome: finished successfully."
+  },
+  "transferStateFailed": "Failed",
+  "@transferStateFailed": {
+    "description": "Task/history outcome: ended with failures."
+  },
+  "transferStateCancelled": "Cancelled",
+  "@transferStateCancelled": {
+    "description": "Task/history outcome: stopped by the user."
+  },
+  "transferItemPending": "Waiting",
+  "@transferItemPending": {
+    "description": "Item state: queued behind dispatch or a container."
+  },
+  "transferItemConflict": "Needs an answer",
+  "@transferItemConflict": {
+    "description": "Item state: parked on an unresolved name conflict (02 §5.2)."
+  },
+  "transferItemSkipped": "Skipped",
+  "@transferItemSkipped": {
+    "description": "Item state: left out of the transfer."
+  },
+  "activityTaskRouteLocal": "This computer",
+  "@activityTaskRouteLocal": {
+    "description": "The local endpoint's name in a task's source → destination line."
+  },
+  "activityTaskTitleMulti": "{count, plural, =1{1 item} other{{count} items}} to {destination}",
+  "@activityTaskTitleMulti": {
+    "description": "Multi-root task title (02 §6's '214 items to /var/www').",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "destination": {
+        "type": "String"
+      }
+    }
+  },
+  "activityTaskTitleDelete": "Delete {count, plural, =1{1 item} other{{count} items}}",
+  "@activityTaskTitleDelete": {
+    "description": "Multi-root delete task title.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "activityDeleteTrashed": "Moved to trash",
+  "@activityDeleteTrashed": {
+    "description": "Delete item outcome detail: delivered to the OS or remote trash (D15)."
+  },
+  "activityDeletePermanent": "Deleted permanently",
+  "@activityDeletePermanent": {
+    "description": "Delete item outcome detail: unlinked without a trash hop (D15)."
+  },
+  "activityFooterTotals": "{done} of {total} items · {bytes} of {totalBytes} so far",
+  "@activityFooterTotals": {
+    "description": "The activity footer's growing totals (02 §5.3's 'so far' semantics; a trailing + marks still-scanning counts).",
+    "placeholders": {
+      "done": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      },
+      "bytes": {
+        "type": "String"
+      },
+      "totalBytes": {
+        "type": "String"
+      }
+    }
+  },
+  "statusTransferChip": "{rate} · {count, plural, =1{{count} task} other{{count} tasks}}",
+  "@statusTransferChip": {
+    "description": "The status bar's transfer summary chip (02 §1: rate plus live task count).",
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "statusLimitChip": "Limited: ↓{down} ↑{up}",
+  "@statusLimitChip": {
+    "description": "The status bar's bandwidth chip while any direction is limited (02 §6); a side shows ∞ when only the other is limited.",
+    "placeholders": {
+      "down": {
+        "type": "String"
+      },
+      "up": {
+        "type": "String"
+      }
+    }
+  },
+  "bandwidthPopoverTitle": "Bandwidth limits",
+  "@bandwidthPopoverTitle": {
+    "description": "Title of the throttle popover (02 §6)."
+  },
+  "bandwidthDownLabel": "Download",
+  "@bandwidthDownLabel": {
+    "description": "The popover's per-direction limit label (02 §6)."
+  },
+  "bandwidthUpLabel": "Upload",
+  "@bandwidthUpLabel": {
+    "description": "The popover's per-direction limit label (02 §6)."
+  },
+  "bandwidthOff": "Off",
+  "@bandwidthOff": {
+    "description": "Limit choice: no rate cap (02 §6)."
+  },
+  "bandwidthCustom": "Custom…",
+  "@bandwidthCustom": {
+    "description": "Limit choice that opens the free-form rate field (02 §6)."
+  },
+  "bandwidthCustomHint": "e.g. 2 MB/s",
+  "@bandwidthCustomHint": {
+    "description": "Hint inside the custom-rate field."
+  },
+  "bandwidthInvalid": "Enter a rate like 500 KB/s (up to {max})",
+  "@bandwidthInvalid": {
+    "description": "Inline error under the custom-rate field — invalid input is rejected, never silently clamped.",
+    "placeholders": {
+      "max": {
+        "type": "String"
+      }
+    }
+  },
+  "bandwidthSet": "Set",
+  "@bandwidthSet": {
+    "description": "Applies the custom-rate field's value."
+  },
+  "historyVerbCopy": "Copy",
+  "@historyVerbCopy": {
+    "description": "History verb for a copy task (02 §6)."
+  },
+  "historyVerbMove": "Move",
+  "@historyVerbMove": {
+    "description": "History verb for a move task (02 §6)."
+  },
+  "historyVerbDelete": "Delete",
+  "@historyVerbDelete": {
+    "description": "History verb for a delete task (02 §6)."
+  },
+  "resizeActivityPanel": "Resize activity panel",
+  "@resizeActivityPanel": {
+    "description": "Accessibility label for the panes↔activity-panel splitter (02 §1)."
+  },
+  "activityPanelHeightPx": "{value} px",
+  "@activityPanelHeightPx": {
+    "description": "The activity splitter's current height as whole pixels.",
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
   }
 }

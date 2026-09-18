@@ -778,6 +778,12 @@ class RecordingPersistence implements TransferPersistence {
   void appendHistory(TransferHistoryEntry entry) => historyEntries.add(entry);
 
   @override
+  List<TransferHistoryEntry> get history => List.unmodifiable(historyEntries);
+
+  @override
+  Future<void> clearHistory() async => historyEntries.clear();
+
+  @override
   Future<void> shutdown() async {
     shutdownCalled = true;
   }

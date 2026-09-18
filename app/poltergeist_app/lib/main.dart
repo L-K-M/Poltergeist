@@ -42,6 +42,14 @@ Future<void> main() async {
   final doubleClickAction = await preferences.loadDoubleClickAction();
   final reconnectRestoredTabs =
       await preferences.loadReconnectRestoredTabs();
+  // The activity panel's persisted chrome state (02 §1/§6): height,
+  // per-direction throttle limits, and the auto-remove setting — all
+  // plain settings keys beside the pane ratio.
+  final activityPanelHeight = await preferences.loadActivityPanelHeight();
+  final downloadLimit = await preferences.loadDownloadLimit();
+  final uploadLimit = await preferences.loadUploadLimit();
+  final autoClearCompleted =
+      await preferences.loadAutoClearCompletedTransfers();
   // 02 §3's launch restoration: one versioned document inside
   // settings.json. A malformed or newer-schema document must not fail
   // startup — the app boots the default session and the document stays
@@ -115,6 +123,17 @@ Future<void> main() async {
       ),
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
+      // No production queue seam exists yet (the engine-host transfer
+      // slice owns it) — the panel mounts with null and stays empty.
+      initialActivityPanelHeight: activityPanelHeight,
+      onActivityPanelHeightChanged:
+          preferences.saveActivityPanelHeight,
+      onActivityPanelHeightSaveError: errorReporter.report,
+      initialDownloadLimit: downloadLimit,
+      initialUploadLimit: uploadLimit,
+      onDownloadLimitChanged: preferences.saveDownloadLimit,
+      onUploadLimitChanged: preferences.saveUploadLimit,
+      autoClearCompletedTransfers: autoClearCompleted,
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

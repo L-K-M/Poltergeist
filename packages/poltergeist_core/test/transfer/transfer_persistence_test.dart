@@ -102,6 +102,12 @@ class ThrowingShutdownPersistence implements TransferPersistence {
   void appendHistory(TransferHistoryEntry entry) {}
 
   @override
+  List<TransferHistoryEntry> get history => const [];
+
+  @override
+  Future<void> clearHistory() async {}
+
+  @override
   Future<void> shutdown() => Future.error(StateError('disk gone'));
 }
 

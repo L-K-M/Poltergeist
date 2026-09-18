@@ -14,6 +14,7 @@ SessionState captureSessionState(WorkspaceController workspace) =>
     SessionState(
       activePaneId: workspace.activePane.paneId,
       secondPaneHidden: workspace.secondPaneHidden,
+      activityPanelHidden: workspace.activityPanelHidden,
       panes: [
         workspace.left.captureSession(),
         workspace.right.captureSession(),

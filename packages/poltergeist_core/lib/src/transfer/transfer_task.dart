@@ -250,7 +250,10 @@ class TransferTaskSpec {
 /// created by `TransferQueue.enqueue`, advanced by the queue, and reported
 /// through `TransferQueue.events`.
 class TransferTask {
-  TransferTask(this.spec) : id = uuidV4(), enqueuedAt = DateTime.now();
+  TransferTask(this.spec)
+    : id = uuidV4(),
+      enqueuedAt = DateTime.now(),
+      wasRestored = false;
 
   /// Journal restore (03 §4.6): a replayed task keeps its journaled
   /// identity so its records still key on it.
@@ -258,10 +261,16 @@ class TransferTask {
     this.spec, {
     required this.id,
     required this.enqueuedAt,
-  });
+  }) : wasRestored = true;
 
   /// `uuidV4()` from seance_protocol.
   final String id;
+
+  /// True when this task was adopted from the journal at startup (03
+  /// §4.6) — the activity panel's restored-queue banner (02 §6) keys on
+  /// it, since journaled provenance is what makes "from your last
+  /// session" honest.
+  final bool wasRestored;
 
   final TransferTaskSpec spec;
 

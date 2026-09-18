@@ -17,6 +17,7 @@ const kFileGetInfoCommandId = 'file.getInfo';
 const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
 const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
+const kViewToggleActivityPanelCommandId = 'view.toggleActivityPanel';
 const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
 const kPaneFocusLeftCommandId = 'pane.focusLeft';
 const kPaneFocusRightCommandId = 'pane.focusRight';
@@ -315,10 +316,36 @@ List<RegisteredCommand> buildPaneCommands({
         workspace.toggleSecondPane();
       },
       // 02 §9's View menu: between Show/Hide Sidebar (60) and Show/Hide
-      // Activity (80) — both unregistered slots for later slices.
+      // Activity (80) — the sidebar slot stays open for its slice.
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 70,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewToggleActivityPanelCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.viewToggleActivityPanelLabel,
+      icon: Icons.vertical_align_bottom_outlined,
+      // ⌥⌘A on macOS, Ctrl+Alt+A elsewhere (02 §8.3's table). Hiding is
+      // user intent — the panel un-hides on the first-task edge again
+      // (02 §6: rows are the queue's only window, D16).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyA, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyA, control: true, alt: true),
+        ],
+      ),
+      run: (_) async {
+        workspace.toggleActivityPanel();
+      },
+      // 02 §9's View menu: the Show/Hide Activity slot the §8.1 note
+      // reserves between Show/Hide Second Pane and Customize Sidebar.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 80,
       ),
     ),
     RegisteredCommand(

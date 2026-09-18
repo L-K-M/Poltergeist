@@ -124,6 +124,22 @@ void main() {
     );
   });
 
+  test('a non-finite persisted transfer limit decodes as unlimited',
+      () async {
+    // jsonDecode saturates an over-range literal to Infinity, and
+    // toInt() throws on it outside the get's try — a corrupt settings
+    // file must not crash the loader (the panel-height loader already
+    // guards the same way).
+    await settingsFile.writeAsString(
+      '{"transfer.downloadLimitBytesPerSecond":1e999}',
+    );
+    final preferences = AppPreferences(
+      store: SettingsStore(path: settingsFile.path),
+    );
+
+    expect(await preferences.loadDownloadLimit(), isNull);
+  });
+
   test('does not persist invalid window bounds', () async {
     const invalidBounds = <({String name, Rect bounds})>[
       (
