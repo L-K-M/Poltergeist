@@ -29,20 +29,22 @@ class TransferRateTracker {
   /// debit) resets the task's window so a stale rate cannot misreport.
   void record(String taskId, int cumulativeBytes) {
     final now = _clock();
-    final queue =
-        _samples.putIfAbsent(taskId, () => ListQueue())..addLast((
-          at: now,
-          bytes: cumulativeBytes,
-        ));
-    while (queue.length > 1 &&
-        now.difference(queue.first.at) > window) {
-      queue.removeFirst();
-    }
-    if (queue.length > 1 && queue.last.bytes < queue.first.bytes) {
+    final queue = _samples.putIfAbsent(taskId, () => ListQueue());
+    // A drop vs the previous sample is a retry debit: window deltas
+    // are no longer trustworthy, so reset before appending. Comparing
+    // against the window's oldest sample instead would miss a debit
+    // that stays above it.
+    if (queue.isNotEmpty && cumulativeBytes < queue.last.bytes) {
       queue
         ..clear()
         ..addLast((at: now, bytes: cumulativeBytes));
       _etas.remove(taskId);
+      return;
+    }
+    queue.addLast((at: now, bytes: cumulativeBytes));
+    while (queue.length > 1 &&
+        now.difference(queue.first.at) > window) {
+      queue.removeFirst();
     }
   }
 

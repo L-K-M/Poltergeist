@@ -99,6 +99,20 @@ void main() {
       expect(tracker.dataSpan('t'), Duration.zero);
     });
 
+    test('a debit below the previous sample resets even above the '
+        'window floor', () {
+      tracker.record('t', 1000);
+      tick(const Duration(seconds: 1));
+      tracker.record('t', 2000);
+      // The debit drops below the PREVIOUS sample but stays above the
+      // window's oldest — comparing against the window floor would let
+      // a stale rate misreport.
+      tick(const Duration(seconds: 1));
+      tracker.record('t', 1500);
+      expect(tracker.bytesPerSecond('t'), isNull);
+      expect(tracker.dataSpan('t'), Duration.zero);
+    });
+
     test('prune drops unknown tasks; remove drops one', () {
       tracker.record('a', 0);
       tracker.record('b', 0);

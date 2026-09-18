@@ -5958,9 +5958,11 @@ added the `_loadLimit` non-finite guard (a corrupt settings file's
 widened the parser guard to `!isFinite`; the `clearCompleted`
 iterate-while-removing suggestion was declined with evidence
 (`List.unmodifiable` already snapshots on both seam implementations —
-the `tasks` doc now says so). Full suites: app 1238 green, core 1170
-green (16 fixture skips), both analyzers clean, localization contract
-green.
+the `tasks` doc now says so). Round 3 fixed the retry-debit check to
+compare against the previous sample rather than the window's oldest —
+a partial debit above the floor had evaded the reset and misreported
+a stale rate. Full suites: app 1239 green, core 1170 green (16
+fixture skips), both analyzers clean, localization contract green.
 
 ## Open items
 
