@@ -13,7 +13,27 @@ import 'package:seance_core/seance_core.dart';
 /// `move` deletes each source only after its copy committed (02 §5.2's
 /// per-verb source disposition — the engine, never the UI, owns it so no
 /// entry point can silently degrade a move into a copy).
-enum TransferOperation { copy, move }
+///
+/// `delete` is the D15 destructive verb: the source entries are trashed or
+/// permanently removed by the trash layer (`trash_service.dart`), in
+/// post-order under the walker's delete enumeration. A delete task has no
+/// transfer destination — its spec's `destination` mirrors `source` (the
+/// endpoint the delete acts within) and `destinationDir` carries the
+/// remote trash's run directory (remote-trash disposition) or the roots'
+/// common parent (display).
+enum TransferOperation { copy, move, delete }
+
+/// The delete story's requested disposition (00 D15, 02 §2.6): the
+/// standard delete prefers [trash] — OS trash locally,
+/// `.poltergeist-trash/` remotely when the server opted in — and the
+/// permanent shortcut (⌥⌘⌫ / Shift+Delete) asks for [permanent] and
+/// carries its own confirmation.
+enum DeleteDisposition { trash, permanent }
+
+/// How one deleted item actually ended — the journal/history vocabulary.
+/// `osTrash` is a local OS-trash delivery; `remoteTrash` a
+/// `.poltergeist-trash/` rename; `permanent` a VFS `delete`.
+enum ItemDisposition { osTrash, remoteTrash, permanent }
 
 /// Per-task state (03 §4.1).
 ///
@@ -97,11 +117,7 @@ class DestinationStat {
   final int? size;
   final DateTime? modifiedAt;
 
-  const DestinationStat({
-    required this.type,
-    this.size,
-    this.modifiedAt,
-  });
+  const DestinationStat({required this.type, this.size, this.modifiedAt});
 
   factory DestinationStat.fromEntry(RemoteFileEntry entry) => DestinationStat(
     type: entry.type,
@@ -201,6 +217,7 @@ class TransferTaskSpec {
     required this.destinationDir,
     required this.policy,
     this.operation = TransferOperation.copy,
+    this.disposition,
   });
 
   final FsLocation source;
@@ -211,20 +228,26 @@ class TransferTaskSpec {
   /// so a task's destination paths are unique within the task.
   final List<String> rootPaths;
 
-  /// Absolute path of the destination directory.
+  /// Absolute path of the destination directory. For [TransferOperation
+  /// .delete] this is the remote trash run directory
+  /// (`<common parent>/.poltergeist-trash/<runId>`) under a `trash`
+  /// disposition on a server source, else the roots' common parent for
+  /// display/history.
   final String destinationDir;
 
   final ResolvedConflictPolicy policy;
   final TransferOperation operation;
+
+  /// The delete story's disposition (D15): required iff [operation] is
+  /// [TransferOperation.delete], null otherwise.
+  final DeleteDisposition? disposition;
 }
 
 /// One queued transfer task (03 §4.1). Mutable fields are engine-owned:
 /// created by `TransferQueue.enqueue`, advanced by the queue, and reported
 /// through `TransferQueue.events`.
 class TransferTask {
-  TransferTask(this.spec)
-    : id = uuidV4(),
-      enqueuedAt = DateTime.now();
+  TransferTask(this.spec) : id = uuidV4(), enqueuedAt = DateTime.now();
 
   /// Journal restore (03 §4.6): a replayed task keeps its journaled
   /// identity so its records still key on it.
@@ -301,9 +324,8 @@ class TransferTask {
   /// "the queue pauses that item"; 03 §4.1's ask-park). The task stays
   /// `running`/`scanning` — its other items still dispatch — but it cannot
   /// reach a terminal state until every parked conflict is answered.
-  bool get hasPendingConflicts => items.any(
-    (item) => item.state == TransferItemState.conflictPending,
-  );
+  bool get hasPendingConflicts =>
+      items.any((item) => item.state == TransferItemState.conflictPending);
 
   /// The first failed item's error kind, when any.
   RemoteFileErrorKind? failureKind;
@@ -342,6 +364,12 @@ class TransferItem {
 
   TransferItemState state = TransferItemState.pending;
   int transferredBytes = 0;
+
+  /// D15: how a completed delete item ended — os-trash delivery, a
+  /// `.poltergeist-trash/` rename, or a permanent unlink. Null on
+  /// copy/move items and on non-terminal items; the journal's
+  /// `fileCompleted` record carries the same value.
+  ItemDisposition? disposition;
 
   /// Item failure text — or, on a `skipped`/`completed` row, a detail
   /// worth showing (e.g. why a move's source directory stayed behind).

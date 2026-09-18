@@ -16,6 +16,7 @@ import 'conflict_policy.dart';
 import 'recursive_walker.dart';
 import 'transfer_journal.dart';
 import 'transfer_task.dart';
+import 'trash_service.dart';
 
 /// The engine-side transfer queue (03 §4).
 ///
@@ -54,9 +55,17 @@ import 'transfer_task.dart';
 /// restart): a restored task re-dispatches the still-pending item, which
 /// re-stats and re-surfaces the conflict fresh.
 ///
-/// Deferred to later M4 slices: the D14 produce-on-demand hook, the D15
-/// delete story (a `replace` that must remove an occupant fails the item
-/// honestly rather than deleting unguarded), and all UI.
+/// The delete verb (00 D15) runs through this queue too:
+/// [prepareDelete] builds the confirmation's disclosure model and
+/// [enqueueDelete] enqueues the confirmed task — the walker's post-order
+/// delete enumeration feeds a serialized executor that routes every item
+/// through the trash layer (OS trash locally, `.poltergeist-trash/`
+/// remotely when the server opted in, raw `delete` only on the
+/// confirmed-permanent path). A `replace` that must remove an occupant
+/// still fails the item honestly rather than deleting unguarded.
+///
+/// Deferred to later M4 slices: the D14 produce-on-demand hook, the
+/// occupant-replacement integration of D15, and all UI.
 class TransferQueue {
   TransferQueue({
     required this.connections,
@@ -70,11 +79,18 @@ class TransferQueue {
     BandwidthLimiter? downloadLimiter,
     BandwidthLimiter? uploadLimiter,
     Future<void> Function(String destinationPath)? flushLocalDestination,
+    LocalTrashService? localTrash,
+    RemoteTrash? remoteTrash,
+    bool Function(String serverId)? remoteTrashEnabled,
+    this.deleteQuantifyTimeout = const Duration(seconds: 10),
     this.persistence,
   }) : _localFileSystem = localFileSystem ?? LocalFileSystem(),
        _isCaseInsensitiveDestination =
            isCaseInsensitiveDestination ?? _defaultCaseSensitivity,
        _isFlaggedEntry = isFlaggedEntry ?? _noFlags,
+       localTrash = localTrash ?? LocalTrashService(),
+       remoteTrash = remoteTrash ?? RemoteTrash(),
+       _remoteTrashEnabled = remoteTrashEnabled ?? _trashOptedOut,
        flushLocalDestination =
            flushLocalDestination ?? _flushLocalDestinationDefault,
        _maxInFlightFiles = maxInFlightFiles,
@@ -117,6 +133,22 @@ class TransferQueue {
 
   static bool _noFlags(RemoteFileEntry _) => false;
   final int _maxInFlightFiles;
+
+  /// The D15 trash layer (03 §7.1/§7.3): [localTrash] dispatches to the
+  /// platform's OS-trash mechanism, [remoteTrash] owns the
+  /// `.poltergeist-trash/<runId>` layout, and [_remoteTrashEnabled] is
+  /// the per-server opt-in (00 D15: remote deletion is
+  /// confirm-then-permanent unless enabled).
+  final LocalTrashService localTrash;
+  final RemoteTrash remoteTrash;
+  final bool Function(String serverId) _remoteTrashEnabled;
+
+  static bool _trashOptedOut(String _) => false;
+
+  /// The confirmation quantification budget (02 §10's "may fall back to
+  /// unquantified copy on timeout/error" — the dialog's count/size
+  /// disclosure degrades, never the delete itself).
+  final Duration deleteQuantifyTimeout;
 
   /// High-water mark for the in-memory pipe buffer between a source
   /// `download` and a destination `upload` (03 §4.5's small-buffer rule).
@@ -291,6 +323,19 @@ class TransferQueue {
         'must contain at least one source path',
       );
     }
+    // A delete spec must carry its disposition — the destructive verb
+    // never defaults in (the journal decoder enforces the same rule on
+    // replay). [enqueueDelete] is the guarded front door: it is where
+    // the confirmation/opt-in checks live; a hand-built spec through
+    // here is journaled verbatim.
+    if (spec.operation == TransferOperation.delete &&
+        spec.disposition == null) {
+      throw ArgumentError.value(
+        spec.disposition,
+        'disposition',
+        'a delete task requires its trash-or-permanent disposition',
+      );
+    }
     final task = TransferTask(
       TransferTaskSpec(
         source: spec.source,
@@ -299,6 +344,7 @@ class TransferQueue {
         destinationDir: spec.destinationDir,
         policy: spec.policy,
         operation: spec.operation,
+        disposition: spec.disposition,
       ),
     );
     final runtime = _TaskRuntime(task);
@@ -316,6 +362,240 @@ class TransferQueue {
     _emit(TransferQueueTaskEvent(task.id, task.state));
     unawaited(_runTask(runtime));
     return task;
+  }
+
+  // ---------------------------------------------------------------------
+  // Delete (00 D15) — 03 §7.1/§7.3's trash layer driving 02 §2.6's verbs
+  // ---------------------------------------------------------------------
+
+  /// Builds the disclosure model a destructive delete's confirmation
+  /// renders (02 §10, §13): up to three leading names, the quantified
+  /// count and size, the flagged-descendant disclosure, and the
+  /// disposition the confirmed action would actually run — `trash` only
+  /// where trash can serve (OS backend present locally, or the server's
+  /// `.poltergeist-trash/` opt-in on), `permanent` otherwise, so the
+  /// dialog's wording can never promise trash it cannot deliver.
+  ///
+  /// Quantification walks the source through the D15 delete
+  /// enumeration and falls back to unquantified values on timeout or
+  /// error — §10's stated fallback; the delete itself is unaffected.
+  /// [preferTrash] is the gesture's verb: the standard delete passes
+  /// true, the permanent shortcut (⌥⌘⌫ / Shift+Delete) false — either
+  /// way the model feeds one confirmation surface with its own wording.
+  /// Throws `cancelled` when [cancellation] trips mid-quantify.
+  Future<DeleteConfirmation> prepareDelete({
+    required FsLocation source,
+    required List<String> rootPaths,
+    bool preferTrash = true,
+    RemoteTransferCancellation? cancellation,
+  }) async {
+    if (_disposed) {
+      throw StateError('the transfer queue is disposed');
+    }
+    final roots = _normalizeRoots(rootPaths, source);
+    if (roots.isEmpty) {
+      throw ArgumentError.value(
+        rootPaths,
+        'rootPaths',
+        'must contain at least one source path',
+      );
+    }
+
+    // The effective disposition is resolved BEFORE the dialog shows —
+    // "Move to Trash" and "Delete permanently" are different promises.
+    // A remote delete is permanent by default (00 D15); the per-server
+    // opt-in is the only thing that changes that, never a failed move.
+    final remoteOptIn =
+        source is ServerFsLocation && _remoteTrashEnabled(source.serverId);
+    final DeleteDisposition effective;
+    var trashUnavailable = false;
+    if (!preferTrash) {
+      effective = DeleteDisposition.permanent;
+    } else if (source is LocalFsLocation) {
+      if (await localTrash.isAvailable()) {
+        effective = DeleteDisposition.trash;
+      } else {
+        effective = DeleteDisposition.permanent;
+        trashUnavailable = true;
+      }
+    } else {
+      effective = remoteOptIn
+          ? DeleteDisposition.trash
+          : DeleteDisposition.permanent;
+      trashUnavailable = !remoteOptIn;
+    }
+
+    // Quantify through the same post-order enumeration the task runs —
+    // a listing that lies to the dialog is worse than no count at all.
+    var quantified = true;
+    int? totalItems;
+    int? totalBytes;
+    var flaggedCount = 0;
+    final token = cancellation ?? RemoteTransferCancellation();
+    final leases = await _leaseServerIds(_serverIds({source}), token);
+    try {
+      final fs = _fsFor(source, leases);
+      final walker = RecursiveWalker(
+        location: source,
+        purpose: WalkPurpose.delete,
+        source: fs,
+        isFlaggedEntry: _isFlaggedEntry,
+        cancellation: token,
+      );
+      final clock = Stopwatch()..start();
+      final events = StreamIterator(walker.walk(roots));
+      try {
+        while (clock.elapsed <= deleteQuantifyTimeout &&
+            await events.moveNext()) {}
+      } on RemoteFileException {
+        // A quantification walk error degrades to unquantified copy —
+        // §10's fallback. `cancelled` still propagates (the dialog is
+        // being dismissed); everything else the task's own scan reports
+        // again per item.
+        if (token.isCancelled) rethrow;
+        quantified = false;
+      } finally {
+        try {
+          await events.cancel();
+        } catch (_) {}
+      }
+      if (quantified && (walker.isComplete && walker.failedEntries == 0)) {
+        totalItems =
+            walker.discoveredFiles +
+            walker.discoveredDirectories +
+            walker.discoveredSymlinks +
+            walker.unsupportedEntries +
+            walker.flaggedEntries;
+        totalBytes = walker.discoveredBytes;
+      } else {
+        // Timed out or partially enumerated — counts are a floor; the
+        // flagged count already seen is still an honest disclosure.
+        quantified = false;
+      }
+      flaggedCount = walker.flaggedEntries;
+    } finally {
+      await _releaseLeases(leases);
+    }
+
+    return DeleteConfirmation(
+      source: source,
+      rootPaths: roots,
+      names: [for (final root in roots.take(3)) _leafName(source, root)],
+      effectiveDisposition: effective,
+      quantified: quantified,
+      remoteTrashOptIn: remoteOptIn,
+      trashUnavailable: trashUnavailable,
+      totalItems: totalItems,
+      totalBytes: totalBytes,
+      flaggedCount: flaggedCount,
+    );
+  }
+
+  /// Enqueues one confirmed delete task (02 §2.6, 03 §7.3). The scan
+  /// enumerates the roots post-order through the D15 delete walk; the
+  /// executor then routes every item through the trash layer:
+  /// [DeleteDisposition.trash] delivers to the OS trash locally or
+  /// renames into `.poltergeist-trash/<runId>/` on an opted-in server;
+  /// [permanent] calls the VFS's raw `delete` — and may only arrive
+  /// here with [DeleteRequest.confirmed] set (the engine-owned guard
+  /// every entry point shares: no silent unlink, ever).
+  ///
+  /// Throws [ArgumentError] for an unconfirmed permanent delete, for a
+  /// remote `trash` request against a server whose opt-in is off, or for
+  /// a filesystem-root path (it has no parent to trash under); throws
+  /// [TrashException] when a local `trash` request finds the OS trash
+  /// unavailable — the caller re-confirms permanent, per D15's
+  /// confirm-then-permanent fallback.
+  Future<TransferTask> enqueueDelete(DeleteRequest request) async {
+    if (_disposed) {
+      throw StateError('the transfer queue is disposed');
+    }
+    final source = request.source;
+    final roots = _normalizeRoots(request.rootPaths, source);
+    if (roots.isEmpty) {
+      throw ArgumentError.value(
+        request.rootPaths,
+        'rootPaths',
+        'must contain at least one source path',
+      );
+    }
+    for (final root in roots) {
+      // A filesystem root has no parent to trash beneath — and a
+      // permanent walk of `/` is never something a gesture meant.
+      if (_parentOf(source, root) == root) {
+        throw ArgumentError.value(
+          root,
+          'rootPaths',
+          'a filesystem root cannot be deleted',
+        );
+      }
+    }
+    final commonParent = _commonParentPath(source, roots);
+
+    final String destinationDir;
+    switch (request.disposition) {
+      case DeleteDisposition.permanent:
+        if (!request.confirmed) {
+          throw ArgumentError.value(
+            request.confirmed,
+            'confirmed',
+            'a permanent delete requires an explicit confirmation — '
+                'D15 forbids an unconfirmed unlink (03 §7.3)',
+          );
+        }
+        // The roots' common parent, for display and history — there is
+        // no transfer destination.
+        destinationDir = commonParent;
+      case DeleteDisposition.trash:
+        if (source is ServerFsLocation) {
+          if (!_remoteTrashEnabled(source.serverId)) {
+            throw ArgumentError.value(
+              request.disposition,
+              'disposition',
+              'remote trash (.poltergeist-trash/) is not enabled for '
+                  'this server — remote deletes are confirm-then-'
+                  'permanent by default (00 D15)',
+            );
+          }
+          // The run directory lands under the roots' common parent —
+          // same-directory placement keeps the trash rename on one
+          // filesystem (03 §7.3).
+          destinationDir = remoteJoin(
+            remoteJoin(commonParent, RemoteTrash.rootDirectoryName),
+            remoteTrash.newRunId(),
+          );
+        } else {
+          if (!await localTrash.isAvailable()) {
+            throw const TrashException(
+              kind: TrashErrorKind.unavailable,
+              message:
+                  'the OS trash is unavailable on this platform; '
+                  'confirm permanent deletion instead',
+            );
+          }
+          destinationDir = commonParent;
+        }
+    }
+    return enqueue(
+      TransferTaskSpec(
+        source: source,
+        // A delete has no transfer destination — the spec's destination
+        // mirrors the source endpoint (leases key on it; journals and
+        // history record where the delete acted).
+        destination: source,
+        rootPaths: roots,
+        destinationDir: destinationDir,
+        // Conflict policy is never consulted by the delete executor —
+        // `skip` is the fail-safe should a bug ever route a delete item
+        // through the transfer conflict machinery.
+        policy: ResolvedConflictPolicy(
+          files: ConflictResolution.skip,
+          folders: ConflictResolution.skip,
+        ),
+        operation: TransferOperation.delete,
+        disposition: request.disposition,
+      ),
+    );
   }
 
   /// Queue-level pause (03 §4.4): stops new work admission; in-flight VFS
@@ -352,10 +632,7 @@ class TransferQueue {
     _journalState(task, TransferTaskState.paused);
     task.state = TransferTaskState.paused;
     _emit(TransferQueueTaskEvent(task.id, task.state));
-    assert(
-      runtime.notPaused.isCompleted,
-      'notPaused was incomplete pre-pause',
-    );
+    assert(runtime.notPaused.isCompleted, 'notPaused was incomplete pre-pause');
     runtime.notPaused = Completer();
     for (final attempt in runtime.attempts.values) {
       attempt.cancel();
@@ -478,8 +755,24 @@ class TransferQueue {
       // acquiring scan leases and then sitting on them.
       await _scanPauseGate(runtime);
       runtime.scanLeases = await _leaseEndpoints(task.spec, task.cancellation);
-      await _ensureDestinationRoot(runtime);
-      await _walkRoots(runtime);
+      if (task.operation == TransferOperation.delete) {
+        // D15: no destination to ensure — the remote-trash disposition
+        // materializes its `.poltergeist-trash/<runId>/` target here
+        // instead (created 0700, repaired or refused per 03 §7.3), then
+        // the post-order delete walk enumerates the roots.
+        if (task.spec.disposition == DeleteDisposition.trash &&
+            task.source is ServerFsLocation) {
+          await _scanOp(
+            runtime,
+            (fs) =>
+                remoteTrash.ensureExistingRunDirectory(fs, task.destinationDir),
+          );
+        }
+        await _walkDeleteRoots(runtime);
+      } else {
+        await _ensureDestinationRoot(runtime);
+        await _walkRoots(runtime);
+      }
       persistence?.appendJournal(
         ScanCompleteRecord(
           taskId: task.id,
@@ -581,8 +874,7 @@ class TransferQueue {
       // re-lease seam, exactly as the pre-walker inline walk did.
       stat: (path) =>
           _scanOp(runtime, (fs) => fs.stat(path, followLinks: false)),
-      listDirectory: (path) =>
-          _scanOp(runtime, (fs) => fs.listDirectory(path)),
+      listDirectory: (path) => _scanOp(runtime, (fs) => fs.listDirectory(path)),
     );
     final events = StreamIterator(walker.walk(task.rootPaths));
     try {
@@ -660,6 +952,166 @@ class TransferQueue {
       error.kind == RemoteFileErrorKind.disconnected ||
       error.kind == RemoteFileErrorKind.cancelled;
 
+  /// The D15 delete enumeration (07 §3.5): the walker's post-order
+  /// delete walk — children before their container, symlinks as leaf
+  /// targets — journals and arms one delete op per entry. Nothing here
+  /// deletes; the destructive action is the serialized delete executor's
+  /// ([_armDelete]). A §13 flagged entry is a terminal skipped row —
+  /// disclosed, never acted on: its lossy name can never round-trip, so
+  /// even a permanent delete cannot safely address it. (A flagged entry
+  /// inside a trashed directory still moves with its container — the
+  /// server-side rename is byte-preserving.)
+  Future<void> _walkDeleteRoots(_TaskRuntime runtime) async {
+    final task = runtime.task;
+    final walker = RecursiveWalker(
+      location: task.source,
+      purpose: WalkPurpose.delete,
+      isFlaggedEntry: _isFlaggedEntry,
+      cancellation: task.cancellation,
+      // Each VFS op rides the scan leases and the `disconnected`
+      // re-lease seam, exactly as the transfer walk does.
+      stat: (path) =>
+          _scanOp(runtime, (fs) => fs.stat(path, followLinks: false)),
+      listDirectory: (path) => _scanOp(runtime, (fs) => fs.listDirectory(path)),
+    );
+    // A directory whose listing failed still emits its post-order delete
+    // entry — keying the failure by node lets the item carry it (a
+    // permanent delete then fails non-empty; a trash move succeeds and
+    // discloses the listing failure on its completed row).
+    final listingErrors = <WalkNode, RemoteFileException>{};
+    final events = StreamIterator(walker.walk(task.rootPaths));
+    try {
+      while (true) {
+        _throwIfTaskCancelled(task);
+        await _scanPauseGate(runtime);
+        if (!await events.moveNext()) break;
+        final event = events.current;
+        switch (event) {
+          case WalkEntryEvent():
+            _scanDeleteEntry(runtime, event, listingErrors);
+          case WalkListingFailedEvent():
+            if (_isWalkEndingError(event.error)) {
+              throw event.error;
+            }
+            listingErrors[event.directory] = event.error;
+          case WalkRootFailedEvent():
+            if (_isWalkEndingError(event.error)) {
+              throw event.error;
+            }
+            _addTerminalItem(
+              runtime,
+              sourcePath: event.rootPath,
+              destinationPath: event.rootPath,
+              state: TransferItemState.failed,
+              error: event.error.message,
+              failureKind: event.error.kind,
+            );
+          case WalkListingClosedEvent():
+            // Transfer-only marker — a delete walk never emits it.
+            break;
+        }
+      }
+    } finally {
+      try {
+        await events.cancel();
+      } catch (_) {
+        // Same teardown rule as the transfer walk: a cleanup error must
+        // not mask the exception unwinding the walk.
+      }
+    }
+  }
+
+  /// Journals and arms one delete-walk entry. The destination path
+  /// records the source path — a delete has no transfer destination;
+  /// the item's `resolvedPath` at completion carries where it actually
+  /// went (the `.poltergeist-trash/` or OS-reported path).
+  void _scanDeleteEntry(
+    _TaskRuntime runtime,
+    WalkEntryEvent event,
+    Map<WalkNode, RemoteFileException> listingErrors,
+  ) {
+    final task = runtime.task;
+    final entry = event.entry;
+    switch (event.kind) {
+      case WalkItemKind.flagged:
+        _addTerminalItem(
+          runtime,
+          sourcePath: entry.path,
+          destinationPath: entry.path,
+          isDirectory: entry.isDirectory,
+          size: entry.size,
+          state: TransferItemState.skipped,
+          error: event.detail ?? 'the entry name is not valid UTF-8',
+        );
+        return;
+      case WalkItemKind.rejectedName:
+        // Unreachable — the walker validates destination names for
+        // transfer walks only. A failed row beats a silent skip if that
+        // ever changes.
+        _addTerminalItem(
+          runtime,
+          sourcePath: entry.path,
+          destinationPath: entry.path,
+          isDirectory: entry.isDirectory,
+          size: entry.size,
+          state: TransferItemState.failed,
+          error: event.detail ?? 'the entry name was rejected',
+          failureKind: RemoteFileErrorKind.other,
+        );
+        return;
+      case WalkItemKind.file ||
+          WalkItemKind.directory ||
+          WalkItemKind.symbolicLink ||
+          WalkItemKind.unsupported:
+        break;
+    }
+    // A restored mid-scan task merges by source path — a delete item's
+    // destination path IS its source path (03 §4.6's no-resurrection
+    // rule applies unchanged: a journaled terminal outcome suppresses
+    // re-dispatch, so a crash cannot re-delete or re-trash an entry).
+    final restored = runtime.takeRestored(entry.path, entry.path);
+    final itemId = restored?.itemId ?? uuidV4();
+    if (restored?.outcome == null) {
+      _journalPlanEntry(
+        task,
+        itemId: itemId,
+        isDirectory: entry.isDirectory,
+        source: entry,
+        name: entry.name,
+        containerKey: null,
+        destinationPath: entry.path,
+      );
+    }
+    if (!entry.isDirectory) {
+      task.totalBytes = (task.totalBytes ?? 0) + (entry.size ?? 0);
+    }
+    if (restored?.outcome != null) {
+      _addRestoredTerminalItem(
+        runtime,
+        restored!,
+        entry,
+        entry.path,
+        isDirectory: entry.isDirectory,
+      );
+      return;
+    }
+    final item = _addPendingItem(
+      runtime,
+      id: itemId,
+      entry: entry,
+      destinationPath: entry.path,
+      isDirectory: entry.isDirectory,
+    );
+    _armDelete(
+      runtime,
+      _DeleteWork(
+        item: item,
+        entry: entry,
+        listingError: listingErrors[event.node],
+      ),
+    );
+  }
+
   /// Parks the scan while its task is paused (03 §4.4): pauseTask swaps
   /// in an incomplete gate, resumeTask and cancelTask both complete it —
   /// the surrounding loop's `_throwIfTaskCancelled` handles the cancel
@@ -728,8 +1180,8 @@ class TransferQueue {
           size: entry.size,
           isDirectory: entry.isDirectory,
           state: TransferItemState.failed,
-          error: event.detail ??
-              'the entry name is not valid for the destination',
+          error:
+              event.detail ?? 'the entry name is not valid for the destination',
           failureKind: RemoteFileErrorKind.other,
         );
         return;
@@ -740,7 +1192,8 @@ class TransferQueue {
           destinationPath: plannedDest,
           size: entry.size,
           state: TransferItemState.failed,
-          error: event.detail ??
+          error:
+              event.detail ??
               'unsupported source entry type ${entry.type.name}',
           failureKind: RemoteFileErrorKind.unsupported,
         );
@@ -846,8 +1299,8 @@ class TransferQueue {
           dirState.outcome = restored!.outcome == RestoredItemOutcome.completed
               ? _DirOutcome.ready
               : restored.outcome == RestoredItemOutcome.failed
-                  ? _DirOutcome.failed
-                  : _DirOutcome.skipped;
+              ? _DirOutcome.failed
+              : _DirOutcome.skipped;
           dirState.resolvedPath = restored.resolvedPath;
           dirState.ready.complete();
         }
@@ -892,38 +1345,27 @@ class TransferQueue {
       await ensureSafeLocalDirectory(task.destinationDir);
       return;
     }
-    final existing = await _scanOp(
-      runtime,
-      (fs) async {
-        try {
-          return await fs.stat(task.destinationDir, followLinks: false);
-        } on RemoteFileException catch (error) {
-          if (error.kind == RemoteFileErrorKind.notFound) return null;
-          rethrow;
-        }
-      },
-      destination: true,
-    );
+    final existing = await _scanOp(runtime, (fs) async {
+      try {
+        return await fs.stat(task.destinationDir, followLinks: false);
+      } on RemoteFileException catch (error) {
+        if (error.kind == RemoteFileErrorKind.notFound) return null;
+        rethrow;
+      }
+    }, destination: true);
     if (existing == null) {
-      await _scanOp(
-        runtime,
-        (fs) async {
-          try {
-            await fs.createDirectory(task.destinationDir);
-          } on RemoteFileException catch (error) {
-            // A concurrent creator won the stat→mkdir race: merging is
-            // correct when the occupant is a directory — the same
-            // classification _materializeDirectory applies per entry.
-            if (error.kind != RemoteFileErrorKind.conflict) rethrow;
-            final raced = await fs.stat(
-              task.destinationDir,
-              followLinks: false,
-            );
-            if (!raced.isDirectory) rethrow;
-          }
-        },
-        destination: true,
-      );
+      await _scanOp(runtime, (fs) async {
+        try {
+          await fs.createDirectory(task.destinationDir);
+        } on RemoteFileException catch (error) {
+          // A concurrent creator won the stat→mkdir race: merging is
+          // correct when the occupant is a directory — the same
+          // classification _materializeDirectory applies per entry.
+          if (error.kind != RemoteFileErrorKind.conflict) rethrow;
+          final raced = await fs.stat(task.destinationDir, followLinks: false);
+          if (!raced.isDirectory) rethrow;
+        }
+      }, destination: true);
     } else if (!existing.isDirectory) {
       throw RemoteFileException(
         kind: RemoteFileErrorKind.conflict,
@@ -952,14 +1394,14 @@ class TransferQueue {
     unawaited(runtime.directoryChain.catchError((_) {}));
   }
 
-  Future<void> _runDirectory(
-    _TaskRuntime runtime,
-    _DirState directory,
-  ) async {
+  Future<void> _runDirectory(_TaskRuntime runtime, _DirState directory) async {
     final task = runtime.task;
     try {
       await _waitForAdmission(runtime);
-      final containerPath = _resolvedContainer(runtime, directory.planned.containerKey);
+      final containerPath = _resolvedContainer(
+        runtime,
+        directory.planned.containerKey,
+      );
       if (containerPath == null) {
         // The containing directory was skipped or failed: the subtree is
         // skipped with the reason recorded.
@@ -1075,9 +1517,7 @@ class TransferQueue {
     switch (resolveTransferConflict(
       verb: _effectiveFolderVerb(runtime, directory.item.id),
       sourceIsDirectory: true,
-      existing: existing == null
-          ? null
-          : DestinationStat.fromEntry(existing),
+      existing: existing == null ? null : DestinationStat.fromEntry(existing),
       sourceModifiedAt: directory.planned.source.modifiedAt,
     )) {
       case ConflictProceed():
@@ -1105,16 +1545,18 @@ class TransferQueue {
       case ConflictKeepBoth():
         await _materializeNumbered(runtime, directory, dstFs, containerPath);
       case ConflictReplace():
-        // Dir→dir wholesale replace and dir→non-dir occupant removal both
-        // delete through the D15 story — a later M4 slice; the item fails
-        // honestly rather than deleting unguarded.
+        // Dir→dir wholesale replace and dir→non-dir occupant removal
+        // route through the D15 trash layer — that integration is a
+        // later M4 slice; the item fails honestly rather than deleting
+        // unguarded.
         _finishDirectory(
           runtime,
           directory,
           outcome: _DirOutcome.failed,
           error:
               'replacing $destination removes the existing occupant, '
-              'which requires the D15 delete story (a later M4 slice)',
+              'which requires the D15 occupant-replacement integration '
+              '(a later M4 slice)',
           failureKind: RemoteFileErrorKind.conflict,
         );
       case ConflictAsk():
@@ -1213,8 +1655,9 @@ class TransferQueue {
         _DirOutcome.skipped => TransferItemState.skipped,
         _DirOutcome.failed => TransferItemState.failed,
         _DirOutcome.cancelled => TransferItemState.cancelled,
-        _DirOutcome.pending =>
-          throw StateError('a directory cannot finish pending'),
+        _DirOutcome.pending => throw StateError(
+          'a directory cannot finish pending',
+        ),
       },
       error: error,
       failureKind: failureKind,
@@ -1242,6 +1685,177 @@ class TransferQueue {
       TransferQueueItemEvent(task.id, item.id, item.state, error: item.error),
     );
     if (!directory.ready.isCompleted) directory.ready.complete();
+  }
+
+  // ---------------------------------------------------------------------
+  // Delete executor (00 D15) — serialized per task so post-order holds:
+  // a permanent delete must unlink children before their container, and
+  // a remote-trash move must never let a retried child land after its
+  // parent already moved. Each item routes through the trash layer —
+  // never straight at `fs.delete` unless the disposition is the
+  // confirmed-permanent one.
+  // ---------------------------------------------------------------------
+
+  void _armDelete(_TaskRuntime runtime, _DeleteWork work) {
+    runtime.deleteOpsPending++;
+    runtime.deleteChain = runtime.deleteChain.then(
+      (_) => _runDeleteItem(runtime, work),
+    );
+    unawaited(runtime.deleteChain.catchError((_) {}));
+  }
+
+  Future<void> _runDeleteItem(_TaskRuntime runtime, _DeleteWork work) async {
+    final task = runtime.task;
+    final item = work.item;
+    try {
+      // A cancel/fail sweep settled the item while it waited on the
+      // chain — the chain drains quickly rather than re-acting on it.
+      if (item.isTerminal) return;
+      await _waitForAdmission(runtime);
+      if (item.isTerminal) return;
+      item.state = TransferItemState.active;
+      _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+      if (task.state == TransferTaskState.queued ||
+          task.state == TransferTaskState.scanning) {
+        _setTaskState(runtime, TransferTaskState.running);
+      }
+      while (true) {
+        final leases = await _leaseServerIds(
+          _serverIds({task.source}),
+          task.cancellation,
+        );
+        try {
+          final fs = _fsFor(task.source, leases);
+          final outcome = await _executeDelete(runtime, fs, work);
+          // A completed op proves connectivity — the retry budget
+          // bounds consecutive losses, not lifetime ones (03 §3.3).
+          task.retryCount = 0;
+          _finishDeleteItem(runtime, work, outcome);
+          return;
+        } on RemoteFileException catch (error) {
+          if (error.kind != RemoteFileErrorKind.disconnected) rethrow;
+          task.retryCount++;
+          if (task.retryCount > poolPolicy.taskRetryLimit) rethrow;
+          // Retry in place — re-chaining at the tail would let the
+          // item's parent run first and break the post-order the
+          // permanent path relies on.
+        } finally {
+          await _releaseLeases(leases);
+        }
+      }
+    } on TrashException catch (error) {
+      _finishItem(
+        runtime,
+        item,
+        TransferItemState.failed,
+        error: error.message,
+        failureKind: switch (error.kind) {
+          TrashErrorKind.unsupportedPlatform => RemoteFileErrorKind.unsupported,
+          TrashErrorKind.unavailable ||
+          TrashErrorKind.failed => RemoteFileErrorKind.other,
+        },
+      );
+    } on RemoteFileException catch (error) {
+      if (error.kind == RemoteFileErrorKind.cancelled ||
+          task.cancellation.isCancelled) {
+        _finishItem(runtime, item, TransferItemState.cancelled);
+      } else {
+        _finishItem(
+          runtime,
+          item,
+          TransferItemState.failed,
+          error: error.message,
+          failureKind: error.kind,
+        );
+      }
+    } catch (error) {
+      _finishItem(
+        runtime,
+        item,
+        TransferItemState.failed,
+        error: '$error',
+        failureKind: RemoteFileErrorKind.other,
+      );
+    } finally {
+      runtime.deleteOpsPending--;
+      _maybeFinishTask(runtime);
+    }
+  }
+
+  /// One item through the trash layer — the outcome's `resolvedPath` is
+  /// the trash path (remote) or the OS-reported trashed location (Put
+  /// Back anchor — best-effort, often null); for the permanent path it
+  /// is the source path itself.
+  Future<({String resolvedPath, ItemDisposition disposition})> _executeDelete(
+    _TaskRuntime runtime,
+    RemoteFileSystem fs,
+    _DeleteWork work,
+  ) async {
+    final task = runtime.task;
+    final entry = work.entry;
+    switch (task.spec.disposition!) {
+      case DeleteDisposition.permanent:
+        await fs.delete(entry);
+        return (
+          resolvedPath: entry.path,
+          disposition: ItemDisposition.permanent,
+        );
+      case DeleteDisposition.trash:
+        if (task.source is LocalFsLocation) {
+          // The OS trash — `trash` throws TrashException on failure;
+          // nothing here ever falls back to unlinking.
+          final trashed = await localTrash.trash(entry.path);
+          return (
+            resolvedPath: trashed ?? entry.path,
+            disposition: ItemDisposition.osTrash,
+          );
+        }
+        final target = await remoteTrash.moveToTrash(
+          fs,
+          entry,
+          task.destinationDir,
+          () => runtime.nextTrashSequence++,
+        );
+        return (resolvedPath: target, disposition: ItemDisposition.remoteTrash);
+    }
+  }
+
+  /// A delete item's completion: journal the trashed-vs-permanent
+  /// outcome before the row flips (D15's per-item disposition record —
+  /// [resolvedPath] is where the entry actually went).
+  void _finishDeleteItem(
+    _TaskRuntime runtime,
+    _DeleteWork work,
+    ({String resolvedPath, ItemDisposition disposition}) outcome,
+  ) {
+    final task = runtime.task;
+    final item = work.item;
+    _journalItemOutcome(
+      task,
+      item,
+      TransferItemState.completed,
+      resolvedPath: outcome.resolvedPath,
+      disposition: outcome.disposition,
+    );
+    item.state = TransferItemState.completed;
+    item.disposition = outcome.disposition;
+    item.destinationPath = outcome.resolvedPath;
+    // A trashed directory whose listing failed moved wholesale anyway —
+    // the completed row still discloses the enumeration gap.
+    if (work.listingError != null) {
+      item.error =
+          'moved to trash; its listing failed earlier: '
+          '${work.listingError!.message}';
+    }
+    if (item.isDirectory) {
+      task.completedDirectories++;
+    } else {
+      task.completedFiles++;
+      _onFileProgress(runtime, item, item.size ?? 0, item.size);
+    }
+    _emit(
+      TransferQueueItemEvent(task.id, item.id, item.state, error: item.error),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -1337,10 +1951,7 @@ class TransferQueue {
     // The shared destination-key registry serializes commits onto one
     // (endpoint, folded path). A waiter holds no slot and no lease: it
     // re-queues behind the holder's commit instead.
-    final key = (
-      _endpointKey(task.destination),
-      _fold(task, destinationPath),
-    );
+    final key = (_endpointKey(task.destination), _fold(task, destinationPath));
     final holder = _registry[key];
     if (holder != null && !holder.committed.isCompleted) {
       unawaited(
@@ -1503,13 +2114,7 @@ class TransferQueue {
                 rethrow;
               }
               item.destinationPath = commitPath;
-              await _postCommit(
-                runtime,
-                srcFs,
-                dstFs,
-                file,
-                commitPath,
-              );
+              await _postCommit(runtime, srcFs, dstFs, file, commitPath);
               // A landed file proves connectivity — the retry budget
               // bounds consecutive losses, not cumulative ones (03 §3.3).
               task.retryCount = 0;
@@ -1762,9 +2367,7 @@ class TransferQueue {
     switch (resolveTransferConflict(
       verb: _effectiveFileVerb(runtime, work.item.id),
       sourceIsDirectory: false,
-      existing: existing == null
-          ? null
-          : DestinationStat.fromEntry(existing),
+      existing: existing == null ? null : DestinationStat.fromEntry(existing),
       sourceModifiedAt: file.source.modifiedAt,
     )) {
       case ConflictProceed():
@@ -1782,7 +2385,7 @@ class TransferQueue {
         if (removesOccupant) {
           return _FileError(
             'a directory occupies $candidate; replacing it requires the '
-            'D15 delete story, which is a later M4 slice',
+            'D15 occupant-replacement integration (a later M4 slice)',
           );
         }
         return _FileCommit(
@@ -1884,23 +2487,26 @@ class TransferQueue {
       computeHash: false,
     );
     unawaited(
-      uploadFuture.then((_) {}, onError: (Object error) {
-        // An attempt token already cancelled (pause/cancel) owns the
-        // outcome — the upload's incidental unwinding error must not
-        // masquerade as the failure reason.
-        if (cancellation.isCancelled) return;
-        // The sink relays source errors into the upload stream — once a
-        // source failure is recorded, anything the upload surfaces is
-        // downstream noise (or an adapter's wrapped copy of it), not an
-        // independent upload failure; treating it as one would cancel
-        // the attempt and launder the real error into a silent requeue.
-        if (sink.sourceError != null) return;
-        uploadError = error;
-        // Early upload death stops the source read; without this a fast
-        // producer would buffer the whole file in memory.
-        sink.abort();
-        cancellation.cancel();
-      }),
+      uploadFuture.then(
+        (_) {},
+        onError: (Object error) {
+          // An attempt token already cancelled (pause/cancel) owns the
+          // outcome — the upload's incidental unwinding error must not
+          // masquerade as the failure reason.
+          if (cancellation.isCancelled) return;
+          // The sink relays source errors into the upload stream — once a
+          // source failure is recorded, anything the upload surfaces is
+          // downstream noise (or an adapter's wrapped copy of it), not an
+          // independent upload failure; treating it as one would cancel
+          // the attempt and launder the real error into a silent requeue.
+          if (sink.sourceError != null) return;
+          uploadError = error;
+          // Early upload death stops the source read; without this a fast
+          // producer would buffer the whole file in memory.
+          sink.abort();
+          cancellation.cancel();
+        },
+      ),
     );
     unawaited(
       cancellation.whenCancelled.then(
@@ -2054,8 +2660,11 @@ class TransferQueue {
       source: directory.planned.source,
       existing: DestinationStat.fromEntry(existing),
     );
-    runtime.pendingConflicts[item.id] =
-        _ParkedConflict(conflict, item, directory);
+    runtime.pendingConflicts[item.id] = _ParkedConflict(
+      conflict,
+      item,
+      directory,
+    );
     _pendingConflictCount++;
     item.state = TransferItemState.conflictPending;
     _emit(TransferQueueItemEvent(task.id, item.id, item.state));
@@ -2194,7 +2803,8 @@ class TransferQueue {
     if (!task.scanComplete || runtime.scanning || runtime.finishing) return;
     if (runtime.attempts.isNotEmpty ||
         runtime.eligible.isNotEmpty ||
-        runtime.directoryOpsPending > 0) {
+        runtime.directoryOpsPending > 0 ||
+        runtime.deleteOpsPending > 0) {
       return;
     }
     for (final item in task.items) {
@@ -2321,7 +2931,8 @@ class TransferQueue {
     if (runtime.done.isCompleted) return;
     if (runtime.scanning ||
         runtime.attempts.isNotEmpty ||
-        runtime.directoryOpsPending > 0) {
+        runtime.directoryOpsPending > 0 ||
+        runtime.deleteOpsPending > 0) {
       return;
     }
     _releaseRegistryClaims(runtime.task.id);
@@ -2546,7 +3157,11 @@ class TransferQueue {
       // needs scanComplete + totalBytes for an honest history row.
       task.scanComplete = true;
       task.totalBytes = restored.totalBytes;
-      _rebuildScannedPlan(runtime, restored);
+      if (restored.spec.operation == TransferOperation.delete) {
+        _rebuildScannedDeletePlan(runtime, restored);
+      } else {
+        _rebuildScannedPlan(runtime, restored);
+      }
       task.plan!.skippedSymlinks = restored.skippedSymlinks;
     } else {
       // A mid-scan crash re-scans on resume; the merge index suppresses
@@ -2615,8 +3230,7 @@ class TransferQueue {
         switch (entry.outcome) {
           case RestoredItemOutcome.completed:
             dirState.outcome = _DirOutcome.ready;
-            dirState.resolvedPath =
-                entry.resolvedPath ?? entry.destinationPath;
+            dirState.resolvedPath = entry.resolvedPath ?? entry.destinationPath;
             dirState.ready.complete();
             item.state = TransferItemState.completed;
           case RestoredItemOutcome.failed:
@@ -2672,7 +3286,8 @@ class TransferQueue {
             } else {
               final planned = PlannedFile(
                 source: source,
-                name: entry.name ??
+                name:
+                    entry.name ??
                     _leafName(task.destination, entry.destinationPath),
                 containerKey: entry.containerKey,
                 destinationPath: entry.destinationPath,
@@ -2692,6 +3307,69 @@ class TransferQueue {
     }
     for (final work in pendingFiles) {
       _armRestoredFile(runtime, work);
+    }
+  }
+
+  /// Rebuilds a fully-scanned delete task from its journaled records —
+  /// the D15 analog of [_rebuildScannedPlan]. Journaled append order is
+  /// the walk's post-order, so arming the pending items in iteration
+  /// order preserves children-before-container on the serialized chain.
+  /// A journaled `fileCompleted` (with its trashed-vs-permanent
+  /// disposition) or a terminal skip/fail replays as the finished row —
+  /// a crash can never re-delete or re-trash an entry.
+  void _rebuildScannedDeletePlan(
+    _TaskRuntime runtime,
+    RestoredTransferTask restored,
+  ) {
+    final task = runtime.task;
+    task.plan = TransferPlan();
+    for (final entry in restored.items) {
+      final item = TransferItem(
+        id: entry.itemId,
+        sourcePath: entry.sourcePath,
+        isDirectory: entry.isDirectory,
+        destinationPath: entry.resolvedPath ?? entry.destinationPath,
+        size: entry.source?.size,
+      );
+      task.items.add(item);
+      if (entry.isDirectory) {
+        task.totalDirectories++;
+      } else {
+        task.totalFiles++;
+      }
+      switch (entry.outcome) {
+        case RestoredItemOutcome.completed:
+          item.state = TransferItemState.completed;
+          item.disposition = entry.disposition;
+          if (entry.isDirectory) {
+            task.completedDirectories++;
+          } else {
+            task.completedFiles++;
+            task.transferredBytes += entry.source?.size ?? 0;
+          }
+        case RestoredItemOutcome.failed:
+          item.state = TransferItemState.failed;
+          item.error = entry.error;
+          item.failureKind = entry.failureKind;
+          task.failedItems++;
+        case RestoredItemOutcome.removed:
+          item.state = TransferItemState.skipped;
+          item.error = entry.error;
+          task.skippedItems++;
+        case null:
+          final source = entry.source;
+          if (source == null) {
+            // The planEntry's source detail was lost (a quarantined
+            // journal tail) — the delete cannot re-run blind, so the
+            // item fails honestly rather than dispatching on a guess.
+            item.state = TransferItemState.failed;
+            item.error = 'the journal lost this item\'s source detail';
+            item.failureKind = RemoteFileErrorKind.other;
+            task.failedItems++;
+          } else {
+            _armDelete(runtime, _DeleteWork(item: item, entry: source));
+          }
+      }
     }
   }
 
@@ -2724,6 +3402,8 @@ class TransferQueue {
     TransferTask task,
     DateTime adoptedAt,
   ) async {
+    // A delete task writes no upload temps — there is nothing to sweep.
+    if (task.operation == TransferOperation.delete) return;
     if (restored.sweepDirectories.isEmpty) return;
     final Map<String, TransferChannelLease> leases;
     try {
@@ -2763,7 +3443,8 @@ class TransferQueue {
   }
 
   static bool _isTransferTemp(String name) =>
-      (name.startsWith('.poltergeist-') || name.startsWith('.seance-upload-')) &&
+      (name.startsWith('.poltergeist-') ||
+          name.startsWith('.seance-upload-')) &&
       name.endsWith('.tmp');
 
   /// Journals a lifecycle transition before its caller mutates
@@ -2824,6 +3505,7 @@ class TransferQueue {
     String? error,
     RemoteFileErrorKind? failureKind,
     String? resolvedPath,
+    ItemDisposition? disposition,
   }) {
     final store = persistence;
     if (store == null) return;
@@ -2834,6 +3516,7 @@ class TransferQueue {
             taskId: task.id,
             itemId: item.id,
             resolvedPath: resolvedPath ?? item.destinationPath,
+            disposition: disposition,
           ),
         );
       case TransferItemState.failed:
@@ -2847,11 +3530,7 @@ class TransferQueue {
         );
       case TransferItemState.skipped || TransferItemState.cancelled:
         store.appendJournal(
-          ItemRemovedRecord(
-            taskId: task.id,
-            itemId: item.id,
-            error: error,
-          ),
+          ItemRemovedRecord(taskId: task.id, itemId: item.id, error: error),
         );
       case TransferItemState.pending ||
           TransferItemState.active ||
@@ -2986,10 +3665,7 @@ class TransferQueue {
     TransferTaskSpec spec,
     RemoteTransferCancellation token,
   ) {
-    return _leaseServerIds(
-      _serverIds({spec.source, spec.destination}),
-      token,
-    );
+    return _leaseServerIds(_serverIds({spec.source, spec.destination}), token);
   }
 
   Future<Map<String, TransferChannelLease>> _leaseServerIds(
@@ -3041,9 +3717,7 @@ class TransferQueue {
     throw _cancelledException();
   }
 
-  Future<void> _releaseLeases(
-    Map<String, TransferChannelLease>? leases,
-  ) async {
+  Future<void> _releaseLeases(Map<String, TransferChannelLease>? leases) async {
     if (leases == null) return;
     for (final lease in leases.values) {
       try {
@@ -3109,25 +3783,56 @@ class TransferQueue {
 
   String _joinDest(FsLocation destination, String directory, String name) =>
       destination is ServerFsLocation
-          ? remoteJoin(directory, name)
-          : p.join(directory, name);
+      ? remoteJoin(directory, name)
+      : p.join(directory, name);
 
   /// The registry's case-fold rule (03 §4.2): destinations resolved
   /// case-insensitive fold with the browse layer's Unicode simple fold.
   String _fold(TransferTask task, String path) =>
       _isCaseInsensitiveDestination(task.destination)
-          ? simpleCaseFold(path)
-          : path;
+      ? simpleCaseFold(path)
+      : path;
 
   String _leafName(FsLocation location, String path) =>
       location is ServerFsLocation
-          ? path.replaceAll(RegExp(r'/+$'), '').split('/').last
-          : p.basename(path.replaceAll(RegExp(r'[/\\]+$'), ''));
+      ? path.replaceAll(RegExp(r'/+$'), '').split('/').last
+      : p.basename(path.replaceAll(RegExp(r'[/\\]+$'), ''));
+
+  /// The containing path of [path] — `remoteParent` on a server, the
+  /// platform's dirname locally. A filesystem root answers itself, which
+  /// is how [enqueueDelete] refuses to delete one.
+  String _parentOf(FsLocation location, String path) =>
+      location is ServerFsLocation ? remoteParent(path) : p.dirname(path);
+
+  /// The deepest directory containing every root — where a remote trash
+  /// run directory lands (the rename then stays on one filesystem) and
+  /// what history records for a permanent delete. On Windows both
+  /// separators split, matching [_normalizeRoots]'s source-aware rule.
+  String _commonParentPath(FsLocation location, List<String> roots) {
+    final remote = location is ServerFsLocation;
+    List<String> segmentsOf(String path) => path
+        .split(remote ? '/' : RegExp(r'[/\\]'))
+        .where((s) => s.isNotEmpty)
+        .toList();
+    String join(List<String> segments) => remote
+        ? '/${segments.join('/')}'
+        : (Platform.isWindows ? segments.join('\\') : '/${segments.join('/')}');
+    final common = segmentsOf(_parentOf(location, roots.first));
+    for (final root in roots.skip(1)) {
+      final parent = segmentsOf(_parentOf(location, root));
+      var shared = 0;
+      while (shared < common.length &&
+          shared < parent.length &&
+          common[shared] == parent[shared]) {
+        shared++;
+      }
+      common.removeRange(shared, common.length);
+    }
+    return join(common);
+  }
 
   String _sourceChildPrefix(FsLocation location, String directory) =>
-      location is ServerFsLocation
-          ? '$directory/'
-          : '$directory${p.separator}';
+      location is ServerFsLocation ? '$directory/' : '$directory${p.separator}';
 
   Future<RemoteFileEntry?> _statOrNull(RemoteFileSystem fs, String path) async {
     try {
@@ -3170,8 +3875,7 @@ class TransferQueue {
     final normalized = <String>[];
     for (final root in roots) {
       var path = root;
-      while (path.length > 1 &&
-          separators.contains(path[path.length - 1])) {
+      while (path.length > 1 && separators.contains(path[path.length - 1])) {
         final trimmed = path.substring(0, path.length - 1);
         // Never strip a drive root to its bare letter (`C:` is a
         // different, relative path on Windows).
@@ -3255,6 +3959,19 @@ class _TaskRuntime {
   /// Serializes this task's directory operations parents-first.
   Future<void> directoryChain = Future.value();
   int directoryOpsPending = 0;
+
+  /// Serializes a delete task's destructive ops in the walk's
+  /// post-order — children before containers (00 D15). A task is either
+  /// a transfer or a delete, never both.
+  Future<void> deleteChain = Future.value();
+  int deleteOpsPending = 0;
+
+  /// The remote-trash run's name uniquifier (03 §7.3's
+  /// `<seq>-<basename>` collision policy): monotonic within the task so
+  /// same-basename entries from different directories can never collide,
+  /// and a collision retry consumes a fresh value rather than
+  /// overwriting a foreign occupant.
+  int nextTrashSequence = 1;
 
   /// Channels held for the scan's duration; swapped by the
   /// reconnect-retry path.
@@ -3344,6 +4061,23 @@ class _FileWork {
 
   final TransferItem item;
   final PlannedFile file;
+}
+
+/// One armed delete op — the walked entry plus its item row. Unlike the
+/// file path there is no plan object: the entry IS the whole work order
+/// (a delete has no destination to decide against). [listingError]
+/// carries a directory's earlier listing failure so the completed
+/// trash-move row can still disclose it.
+final class _DeleteWork {
+  const _DeleteWork({
+    required this.item,
+    required this.entry,
+    this.listingError,
+  });
+
+  final TransferItem item;
+  final RemoteFileEntry entry;
+  final RemoteFileException? listingError;
 }
 
 /// One in-flight commit's hold on a (endpoint, folded path) registry key.

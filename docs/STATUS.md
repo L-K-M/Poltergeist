@@ -5794,6 +5794,70 @@ Win32 ERROR_NOT_SAME_DEVICE (17, platform-gated so POSIX EEXIST never
 misfires). Full core suite 1122 green (16 fixture skips),
 analyze clean. No UI, no trash/D15, no DnD, no pin or lock change.
 
+## M4 — trash service + delete tasks (D15) (2026-09-18)
+
+07 §3.5's D15 bullet lands the delete half of the VFS: every user-facing
+destructive action now routes through one trash service above the raw
+`RemoteFileSystem.delete` primitive, which stays one-entry,
+nonrecursive, and unreachable from the UI layer (03 §7.1/§7.3).
+
+`trash_service.dart` carries the boundary. Local deletes dispatch by
+platform: macOS and Windows ride the new `poltergeist/trash` channel
+(`ChannelTrashBackend` over an injected `TrashChannelInvoker` — the app
+binds `FileManager.trashItem` and `IFileOperation` +
+`FOF_ALLOWUNDO|FOFX_ADDUNDORECORD` in the apartment-threaded COM
+initialisation; with no invoker wired the backend reports unavailable).
+Linux spawns `gio trash` through an injectable `ProcessRunner` — arg
+list, never a shell — with the `gio --version` capability probe run
+once and cached. `LocalTrashService.withBackend` is the test seam.
+Unsupported platforms and absent backends throw typed `TrashException`s
+(`unavailable`, `unsupportedPlatform`, `failed`) — never a silent
+fallback unlink.
+
+Remote trash is opt-in per server (`remoteTrashEnabled`): a confirmed
+trash request moves entries into `<common parent>/.poltergeist-trash/
+<runId>/` under flat sequence-prefixed names (`000001-basename`), so
+same-basename roots cannot collide and a collision in the shared folder
+just bumps the sequence. Both directory levels are created (or
+repaired) to `0700`; a server that cannot `setMode` or where a file
+squats on the trash name refuses rather than degrading. Moves are VFS
+`rename`s — a rename failure fails the item, never falls through to
+permanent delete.
+
+The queue gains `TransferOperation.delete`: `prepareDelete` walks the
+roots for the confirmation sheet (names, item/byte totals, flagged-descendant
+count, the effective disposition after opt-in and availability checks)
+and `enqueueDelete` builds a journaled task. Roots are normalised,
+deduped, nested roots dropped, and filesystem roots refused. The scan
+runs `WalkPurpose.delete` — post-order, symlinks as leaves, listing
+failures preserved — and execution is a single serial chain so children
+always precede their container. Permanent delete additionally requires
+`DeleteConfirmation.confirmed`; anything else throws before touching
+the VFS. Journal `FileCompletedRecord`s now carry the per-item
+`ItemDisposition` (`osTrash`/`remoteTrash`/`permanent`) and history
+rows the task-level `DeleteDisposition`, so a restored task replays
+terminal delete rows without re-trashing them and a delete spec missing
+its disposition fails strict decode rather than defaulting. Flagged
+descendants (safety filter) surface as skipped rows and are never
+unlinked — a partially-flagged directory then fails its permanent
+delete honestly instead of emptying around the flag. Occupant
+replacement inside the normal copy/move conflict verbs is still the
+declared later slice: `replace` on an existing directory occupant
+continues to fail with the explicit later-slice message.
+
+Validation: 24 new tests in `trash_delete_test.dart` — channel dispatch
+and argv shape for all three platforms, unavailable/unsupported typing,
+the cached gio probe, 0700 creation and repair, seq naming, collision
+bump without clobbering trash, post-order unlink ordering, opt-in
+refusal, confirmation gating, backend delivery vs raw unlink, flagged
+disclosure, prepareDelete quantified/unquantified, and a journaled
+delete task replaying terminal items without re-dispatching.
+`FakeTreeFileSystem` grew `setMode` and directory rename with subtree
+rebase to support it. Full core suite 1146 green (16 fixture skips),
+analyze clean. No UI wiring, no engine protocol surface yet — the pane
+delete gesture and the app-side channel binding land with their own
+slices.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

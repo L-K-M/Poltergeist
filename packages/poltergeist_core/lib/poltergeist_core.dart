@@ -150,8 +150,10 @@ export 'src/transfer/transfer_queue.dart'
 export 'src/transfer/transfer_task.dart'
     show
         ConflictResolution,
+        DeleteDisposition,
         DestinationStat,
         FsLocation,
+        ItemDisposition,
         LocalFsLocation,
         PlannedDirectory,
         PlannedFile,
@@ -164,6 +166,21 @@ export 'src/transfer/transfer_task.dart'
         TransferTask,
         TransferTaskSpec,
         TransferTaskState;
+export 'src/transfer/trash_service.dart'
+    show
+        ChannelTrashBackend,
+        DeleteConfirmation,
+        DeleteRequest,
+        GioTrashBackend,
+        LocalTrashBackend,
+        LocalTrashService,
+        RemoteTrash,
+        TrashChannelInvoker,
+        TrashErrorKind,
+        TrashException,
+        TrashProcessRunner,
+        trashChannelMethod,
+        trashChannelName;
 export 'src/transfer/transfer_journal.dart'
     show
         FileCompletedRecord,

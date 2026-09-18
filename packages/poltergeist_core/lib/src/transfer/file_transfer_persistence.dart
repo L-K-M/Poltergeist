@@ -198,9 +198,7 @@ class FileTransferPersistence implements TransferPersistence {
       fsyncEveryRecords: fsyncEveryRecords,
       fsyncInterval: fsyncInterval,
       liveTasks: liveTasks,
-      historyRecords: [
-        for (final (entry, _) in history.entries) entry,
-      ],
+      historyRecords: [for (final (entry, _) in history.entries) entry],
       replay: TransferJournalReplay(
         tasks: tasks,
         tornJournalBytes: journal.tornBytes,
@@ -229,8 +227,10 @@ class FileTransferPersistence implements TransferPersistence {
   @override
   void appendJournal(TransferJournalRecord record) {
     if (_closed) {
-      _notice('journal record dropped: persistence is shut down '
-          '(${record.type} for ${record.taskId})');
+      _notice(
+        'journal record dropped: persistence is shut down '
+        '(${record.type} for ${record.taskId})',
+      );
       return;
     }
     _enqueue(() async {
@@ -259,8 +259,10 @@ class FileTransferPersistence implements TransferPersistence {
   @override
   void appendHistory(TransferHistoryEntry entry) {
     if (_closed) {
-      _notice('history record dropped: persistence is shut down '
-          '(${entry.taskId})');
+      _notice(
+        'history record dropped: persistence is shut down '
+        '(${entry.taskId})',
+      );
       return;
     }
     _enqueue(() async {
@@ -306,9 +308,7 @@ class FileTransferPersistence implements TransferPersistence {
 
   /// Read-only view of the loaded history (the activity panel's History
   /// tab reads this file; the in-memory copy is what the cap trims).
-  List<TransferHistoryEntry> get history => List.unmodifiable(
-    _historyRecords,
-  );
+  List<TransferHistoryEntry> get history => List.unmodifiable(_historyRecords);
 
   // ── Internals ──────────────────────────────────────────────────────
 
@@ -370,6 +370,7 @@ class FileTransferPersistence implements TransferPersistence {
           error: existing?.error,
           failureKind: existing?.failureKind,
           resolvedPath: existing?.resolvedPath,
+          disposition: existing?.disposition,
         );
       case ScanCompleteRecord():
         task.scanComplete = true;
@@ -386,6 +387,7 @@ class FileTransferPersistence implements TransferPersistence {
           record.itemId,
           RestoredItemOutcome.completed,
           resolvedPath: record.resolvedPath,
+          disposition: record.disposition,
         );
       case FileFailedRecord():
         _applyOutcome(
@@ -414,6 +416,7 @@ class FileTransferPersistence implements TransferPersistence {
     String? error,
     RemoteFileErrorKind? failureKind,
     String? resolvedPath,
+    ItemDisposition? disposition,
   }) {
     // An outcome can arrive for an item whose planEntry never journaled
     // (the record landed in a quarantined tail): a placeholder keeps the
@@ -436,6 +439,7 @@ class FileTransferPersistence implements TransferPersistence {
     item.error = error;
     item.failureKind = failureKind;
     item.resolvedPath = resolvedPath;
+    item.disposition = disposition;
   }
 
   Future<void> _fsyncJournal() async {
@@ -568,6 +572,7 @@ class FileTransferPersistence implements TransferPersistence {
       totalBytes: task.scanComplete ? task.totalBytes : null,
       error: task.error,
       failureKind: task.failureKind,
+      disposition: spec?.disposition,
     );
   }
 
@@ -737,6 +742,7 @@ class FileTransferPersistence implements TransferPersistence {
           error: item.error,
           failureKind: item.failureKind,
           resolvedPath: item.resolvedPath,
+          disposition: item.disposition,
         ),
     ];
     return RestoredTransferTask(
@@ -819,10 +825,8 @@ class _LiveTask {
   /// "terminal" for restore purposes is the same set.
   bool get isTerminal => isFinished;
 
-  int get encodedBytes => records.fold(
-    0,
-    (sum, record) => sum + utf8.encode(record.$2).length + 1,
-  );
+  int get encodedBytes =>
+      records.fold(0, (sum, record) => sum + utf8.encode(record.$2).length + 1);
 }
 
 class _RestoredItemMutable {
@@ -839,6 +843,7 @@ class _RestoredItemMutable {
     this.error,
     this.failureKind,
     this.resolvedPath,
+    this.disposition,
   });
 
   final String itemId;
@@ -853,6 +858,11 @@ class _RestoredItemMutable {
   String? error;
   RemoteFileErrorKind? failureKind;
   String? resolvedPath;
+
+  /// D15: the journaled per-item delete outcome (osTrash/remoteTrash/
+  /// permanent) — carried so a restored task's items keep their
+  /// trashed-vs-permanent record.
+  ItemDisposition? disposition;
 }
 
 class _RecoveredLog<T> {
