@@ -5858,6 +5858,32 @@ analyze clean. No UI wiring, no engine protocol surface yet — the pane
 delete gesture and the app-side channel binding land with their own
 slices.
 
+## Review-workflow stall hardening (2026-09-18)
+
+The GLM review workflow's Z.ai step hung silently three times in ~12
+hours (run 35138309899 on #145; run 35309295043 twice on #154 — each
+frozen ~60 min with no status update, manual cancel required),
+blocking the merge gate of green PRs each time (task68 review gap).
+The per-attempt 170 min step timeout and unfinished-review report
+already on the workflow convert a hang to a loud failure; this slice
+adds the one automatic retry (two attempts max, per the
+reviewer-integration stopping rule) and makes the final failure
+explicit: first attempt runs with `continue-on-error` so a failure or
+timeout reaches the retry, a retry success posts findings and leaves
+the job green, and only a second failure reaches the reporting step,
+which posts the "review did not complete" comment naming both
+attempts and exits non-zero. The 170 min per-attempt value is kept
+with its Seance PR #89 data (healthy revisions took 76 and 105 min;
+170 covers ~27 chunks at that mean) — sizing to Poltergeist's ~50-65
+min healthy range would falsely fail large-diff reviews. Job backstop
+rises 180 to 350 min (2 x 170 plus reporting; under the 360 min
+GitHub-hosted ceiling). No prompt, model, trigger, or semantics
+change. Validation is config review (actionlint clean) plus
+simulated path reasoning in the PR body; a real hang cannot be forced
+on demand, so the next genuine stall converting to an actionable
+failure is the proof. After merge the review is re-requested on #154
+without merging it, for supervisor verification.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
