@@ -16,6 +16,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show ProcessException, ProcessResult;
 
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -124,9 +125,10 @@ void main() {
       expect(await backend.isAvailable(), isTrue);
       await backend.trash('/data/x.txt');
       expect(spawns.map((s) => s.$1), ['gio', 'gio']);
+      // `--` keeps a dash-prefixed filename out of GOption parsing.
       expect(spawns.map((s) => s.$2).toList(), [
         ['--version'],
-        ['trash', '/data/x.txt'],
+        ['trash', '--', '/data/x.txt'],
       ]);
     });
 
@@ -304,6 +306,70 @@ void main() {
       );
       // No rename storm — the failure surfaced on the first attempt.
       expect(seq, 1);
+    });
+  });
+
+  group('journal strict decode of the disposition pair', () {
+    Map<String, Object?> enqueuedJson(TransferTaskSpec spec) =>
+        TaskEnqueuedRecord(
+          taskId: 't1',
+          spec: spec,
+          enqueuedAt: DateTime.utc(2026, 9, 18),
+        ).toJson();
+
+    Map<String, Object?> specJson(Map<String, Object?> record) =>
+        (record['spec']! as Map).cast<String, Object?>();
+
+    TransferTaskSpec copySpec() => TransferTaskSpec(
+      source: const ServerFsLocation('srv1'),
+      destination: const ServerFsLocation('srv1'),
+      rootPaths: const ['/a'],
+      destinationDir: '/dst',
+      policy: ResolvedConflictPolicy(
+        files: ConflictResolution.skip,
+        folders: ConflictResolution.skip,
+      ),
+    );
+
+    TransferTaskSpec deleteSpec() => TransferTaskSpec(
+      source: const ServerFsLocation('srv1'),
+      destination: const ServerFsLocation('srv1'),
+      rootPaths: const ['/a'],
+      destinationDir: '/',
+      policy: ResolvedConflictPolicy(
+        files: ConflictResolution.skip,
+        folders: ConflictResolution.skip,
+      ),
+      operation: TransferOperation.delete,
+      disposition: DeleteDisposition.trash,
+    );
+
+    test('a delete spec round-trips operation and disposition', () {
+      final decoded =
+          TransferJournalRecord.parse(jsonEncode(enqueuedJson(deleteSpec())))
+              as TaskEnqueuedRecord;
+      expect(decoded.spec.operation, TransferOperation.delete);
+      expect(decoded.spec.disposition, DeleteDisposition.trash);
+    });
+
+    test('a delete spec missing its disposition is malformed — never '
+        'defaulted to a copy', () {
+      final json = enqueuedJson(deleteSpec());
+      specJson(json).remove('disposition');
+      expect(
+        () => TransferJournalRecord.parse(jsonEncode(json)),
+        throwsFormatException,
+      );
+    });
+
+    test('a copy spec carrying a disposition is malformed — the field is '
+        'never silently dropped', () {
+      final json = enqueuedJson(copySpec());
+      specJson(json)['disposition'] = 'trash';
+      expect(
+        () => TransferJournalRecord.parse(jsonEncode(json)),
+        throwsFormatException,
+      );
     });
   });
 
@@ -576,6 +642,18 @@ void main() {
       );
       // The file survives — unavailable never degrades to unlink.
       expect(localSide.entryAt('/tmp/poltergeist/a.txt'), isNotNull);
+      expect(localSide.deleteCalls, 0);
+      // The test's name promises this: permanent demands its own confirm.
+      await expectLater(
+        queue.enqueueDelete(
+          const DeleteRequest(
+            source: LocalFsLocation(),
+            rootPaths: ['/tmp/poltergeist/a.txt'],
+            disposition: DeleteDisposition.permanent,
+          ),
+        ),
+        throwsA(isA<ArgumentError>()),
+      );
       expect(localSide.deleteCalls, 0);
     });
 

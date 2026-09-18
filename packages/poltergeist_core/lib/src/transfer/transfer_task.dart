@@ -218,7 +218,10 @@ class TransferTaskSpec {
     required this.policy,
     this.operation = TransferOperation.copy,
     this.disposition,
-  });
+  }) : assert(
+         (operation == TransferOperation.delete) == (disposition != null),
+         'disposition must be set exactly when operation is delete',
+       );
 
   final FsLocation source;
   final FsLocation destination;
@@ -228,8 +231,8 @@ class TransferTaskSpec {
   /// so a task's destination paths are unique within the task.
   final List<String> rootPaths;
 
-  /// Absolute path of the destination directory. For [TransferOperation
-  /// .delete] this is the remote trash run directory
+  /// Absolute path of the destination directory. For
+  /// [TransferOperation.delete] this is the remote trash run directory
   /// (`<common parent>/.poltergeist-trash/<runId>`) under a `trash`
   /// disposition on a server source, else the roots' common parent for
   /// display/history.

@@ -922,7 +922,14 @@ TransferTaskSpec _specFromJson(Map<String, Object?> json) {
   final operation = _parseOperation(json['operation']);
   final disposition = _parseDeleteDisposition(json['disposition']);
   // A delete spec without its disposition is malformed, not a copy —
-  // the destructive verb must never default in silently.
+  // the destructive verb must never default in silently; symmetrically,
+  // a disposition on a copy/move spec is dropped data, so strict decode
+  // refuses both directions.
+  if (disposition != null && operation != TransferOperation.delete) {
+    throw FormatException(
+      'a ${operation.name} spec must not carry a disposition',
+    );
+  }
   if (operation == TransferOperation.delete && disposition == null) {
     throw const FormatException('a delete spec is missing disposition');
   }

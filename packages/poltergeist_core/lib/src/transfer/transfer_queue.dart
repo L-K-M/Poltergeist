@@ -336,6 +336,17 @@ class TransferQueue {
         'a delete task requires its trash-or-permanent disposition',
       );
     }
+    // Symmetric strictness — a copy/move spec carrying a disposition
+    // would journal a field the decoder refuses, quarantining its own
+    // records on replay.
+    if (spec.operation != TransferOperation.delete &&
+        spec.disposition != null) {
+      throw ArgumentError.value(
+        spec.disposition,
+        'disposition',
+        'only a delete task carries a disposition',
+      );
+    }
     final task = TransferTask(
       TransferTaskSpec(
         source: spec.source,
@@ -1793,7 +1804,13 @@ class TransferQueue {
   ) async {
     final task = runtime.task;
     final entry = work.entry;
-    switch (task.spec.disposition!) {
+    final disposition = task.spec.disposition;
+    if (disposition == null) {
+      throw StateError(
+        'delete task ${task.id} has no disposition; refusing to guess',
+      );
+    }
+    switch (disposition) {
       case DeleteDisposition.permanent:
         await fs.delete(entry);
         return (
@@ -1830,6 +1847,10 @@ class TransferQueue {
   ) {
     final task = runtime.task;
     final item = work.item;
+    // A cancel/fail sweep that settled the item while its VFS op was in
+    // flight owns the row — never overwrite a terminal state (the same
+    // rule `_finishItem` applies).
+    if (item.isTerminal) return;
     _journalItemOutcome(
       task,
       item,
@@ -3810,8 +3831,11 @@ class TransferQueue {
   /// separators split, matching [_normalizeRoots]'s source-aware rule.
   String _commonParentPath(FsLocation location, List<String> roots) {
     final remote = location is ServerFsLocation;
+    // Match p.dirname's own rule: Windows accepts both separators, POSIX
+    // only '/' — a backslash is a legal filename character there, and
+    // splitting on it would invent a parent that does not exist.
     List<String> segmentsOf(String path) => path
-        .split(remote ? '/' : RegExp(r'[/\\]'))
+        .split(remote || !Platform.isWindows ? '/' : RegExp(r'[/\\]'))
         .where((s) => s.isNotEmpty)
         .toList();
     String join(List<String> segments) => remote

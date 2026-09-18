@@ -204,7 +204,8 @@ class GioTrashBackend implements LocalTrashBackend {
     }
     final ProcessResult result;
     try {
-      result = await _runner('gio', ['trash', path]);
+      // `--` keeps a dash-prefixed filename out of GOption parsing.
+      result = await _runner('gio', ['trash', '--', path]);
     } on ProcessException catch (error) {
       throw TrashException(
         kind: TrashErrorKind.unavailable,
