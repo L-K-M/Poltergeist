@@ -502,6 +502,59 @@
   "@paneEmptyFolder": {
     "description": "Empty-folder state of a pane listing (02 §2.7)."
   },
+  "paneDropHintLocal": "Drop files here to copy them",
+  "@paneDropHintLocal": {
+    "description": "Empty-folder drop hint on a local pane (02 §2.7): OS files dropped on the empty listing copy into it."
+  },
+  "paneDropHintRemote": "Drop files here to upload them",
+  "@paneDropHintRemote": {
+    "description": "Empty-folder drop hint on a remote pane (02 §2.7): OS files dropped on the empty listing upload into it."
+  },
+  "dropMoveTo": "Move to {dir}",
+  "@dropMoveTo": {
+    "description": "Drop-hover overlay line for a move verb (02 §5.1); {dir} is the destination directory.",
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      }
+    }
+  },
+  "dropCopyTo": "Copy to {dir}",
+  "@dropCopyTo": {
+    "description": "Drop-hover overlay line for a same-filesystem copy (02 §5.1); {dir} is the destination directory.",
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      }
+    }
+  },
+  "dropUploadTo": "Upload to {dir}",
+  "@dropUploadTo": {
+    "description": "Drop-hover overlay line for a local→remote copy (02 §5.1); {dir} is the destination directory.",
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      }
+    }
+  },
+  "dropDownloadTo": "Download to {dir}",
+  "@dropDownloadTo": {
+    "description": "Drop-hover overlay line for a remote→local copy (02 §5.1); {dir} is the destination directory.",
+    "placeholders": {
+      "dir": {
+        "type": "String"
+      }
+    }
+  },
+  "dropItemCount": "{count, plural, =1{1 item} other{{count} items}}",
+  "@dropItemCount": {
+    "description": "Drag-avatar label for a multi-row drag (02 §5.1).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "paneItemCount": "{count, plural, =1{1 item} other{{count} items}}",
   "@paneItemCount": {
     "description": "Pane footer count of visible entries.",

@@ -8,6 +8,8 @@ environment:
   flutter: '>=3.47.2'
 
 dependencies:
+  # OS file drop-in for the panes (02 §5.1, D14); desktop platforms only.
+  desktop_drop: 0.7.1
   flutter:
     sdk: flutter
   flutter_localizations:

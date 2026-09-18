@@ -13,6 +13,13 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 /// the §5 protocol. Until then no producer enqueues work, so the panel
 /// mounts empty over a null seam rather than simulating activity.
 abstract interface class AppTransferQueue {
+  /// 02 §5.1's enqueue: one user gesture (a pane drop, a future paste)
+  /// = one task. The UI composes the [TransferTaskSpec] — endpoints,
+  /// roots, destination, resolved policy, verb — and the queue owns
+  /// everything after admission; conflicts ride the existing ask-park
+  /// flow, never a drop-time pre-check.
+  TransferTask enqueue(TransferTaskSpec spec);
+
   /// Queue-order task snapshot — insertion order is admission order.
   /// Implementations return a detached copy, so callers may iterate
   /// while the verbs below mutate the queue (clearCompleted does).
@@ -95,6 +102,9 @@ final class TransferQueueAdapter implements AppTransferQueue {
   TransferQueueAdapter(this._queue);
 
   final TransferQueue _queue;
+
+  @override
+  TransferTask enqueue(TransferTaskSpec spec) => _queue.enqueue(spec);
 
   @override
   List<TransferTask> get tasks => _queue.tasks;

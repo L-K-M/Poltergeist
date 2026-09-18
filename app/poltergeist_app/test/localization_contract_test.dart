@@ -54,6 +54,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The empty query starts a transient selection session; it is not UI copy.
   'lib/services/quick_select_state.dart': {"''"},
+  // The DnD verb/containment rules' path mechanics: drive-letter colon,
+  // UNC and POSIX separators, and the root-join — string surgery, never
+  // rendered UI copy.
+  'lib/services/pane_drop.dart': {
+    "':'",
+    r"r'\\'",
+    r"r'\'",
+    r"'$root$separator'",
+  },
   // Selection-model validation diagnostics for programmer errors (unknown
   // targets, duplicate row identities); never rendered UI copy.
   'lib/services/selection_state.dart': {
@@ -848,6 +857,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${chipKeyPrefix}custom'",
     r"'${chipKeyPrefix}set'",
   },
+  // The drag avatar's badges are glyphs, not authored copy: the `+`
+  // copy badge (Finder's convention — a move carries none) and the
+  // multi-selection count, which is a bare number.
+  'lib/ui/panes/pane_drop_area.dart': {r"'$count'", "'+'"},
 };
 
 void main() {

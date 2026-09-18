@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
@@ -7,6 +8,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../l10n/app_localizations.dart';
 import '../../services/bookmark_store.dart';
 import '../../services/pane_controller.dart';
+import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/quick_connect_address.dart';
@@ -15,6 +17,7 @@ import '../../services/selection_state.dart';
 import '../../services/sync_browsing_controller.dart';
 import '../../services/workspace_controller.dart';
 import 'info_panel.dart';
+import 'pane_drop_area.dart';
 import 'pane_format.dart';
 import 'save_favorite_bar.dart';
 import 'sync_browse_chip.dart';
@@ -98,6 +101,8 @@ class PaneView extends StatefulWidget {
     required this.onSwapFocus,
     required this.onCancelRecovery,
     this.bookmarks,
+    this.dropDelegate,
+    this.supportsOsDrop,
     this.clock = _systemClock,
   });
 
@@ -128,6 +133,15 @@ class PaneView extends StatefulWidget {
   /// (02 §2.7): null where no store is wired, and the bar's save then
   /// posts the honest not-yet notice instead of a fake write.
   final BookmarkRepository? bookmarks;
+
+  /// The drop enqueue seam (02 §5.1, D14): null leaves rows undraggable
+  /// and both drop targets refusing — no queue means nowhere to land a
+  /// task.
+  final PaneDropDelegate? dropDelegate;
+
+  /// Whether the OS drop-in `DropTarget` mounts — null defers to the
+  /// platform default (desktop_drop serves Linux/macOS/Windows only).
+  final bool? supportsOsDrop;
 
   /// Injectable clock for deterministic relative-date rendering.
   final DateTime Function() clock;
@@ -186,6 +200,19 @@ class _PaneViewState extends State<PaneView> {
   bool _infoPanelWasOpen = false;
   String? _revealedLocationPath;
   List<RemoteFileEntry>? _revealedEntries;
+  // D14's drop plumbing: the listing's ListView key (row hit-testing
+  // resolves through its render box) and the folder row a live drag
+  // hover targets, reported up from the drop zone so the row paints
+  // the highlight (02 §5.1).
+  final _listAreaKey = GlobalKey();
+  int? _dropTargetRow;
+
+  /// The drop zone's hovered-folder report — the row highlight is view
+  /// state, so the zone never reaches into the listing directly.
+  void _onDropHoverRow(int? row) {
+    if (_dropTargetRow == row) return;
+    setState(() => _dropTargetRow = row);
+  }
 
   @override
   void didUpdateWidget(PaneView oldWidget) {
@@ -218,6 +245,9 @@ class _PaneViewState extends State<PaneView> {
       _infoPanelWasOpen = false;
       _revealedLocationPath = null;
       _revealedEntries = null;
+      // A pane that swaps controllers mid-drag keeps no hover row — the
+      // index belongs to the old listing's geometry.
+      _dropTargetRow = null;
     }
     // The flag tracks the STRIP's state, not the controller's — a pane
     // swap without a controller swap adopts the new strip's truth so a
@@ -754,6 +784,11 @@ class _PaneViewState extends State<PaneView> {
                 scrollController: _scrollController,
                 clock: widget.clock,
                 bookmarks: widget.bookmarks,
+                dropDelegate: widget.dropDelegate,
+                supportsOsDrop: widget.supportsOsDrop,
+                listAreaKey: _listAreaKey,
+                dropTargetRow: _dropTargetRow,
+                onDropHoverRow: _onDropHoverRow,
                 onCancelNavigation: widget.controller.cancelNavigation,
                 onRetry: () => unawaited(widget.controller.retry()),
                 onCancelRecovery: widget.onCancelRecovery,
@@ -804,6 +839,11 @@ class _PaneSurface extends StatelessWidget {
     required this.scrollController,
     required this.clock,
     required this.bookmarks,
+    required this.dropDelegate,
+    required this.supportsOsDrop,
+    required this.listAreaKey,
+    required this.dropTargetRow,
+    required this.onDropHoverRow,
     required this.onCancelNavigation,
     required this.onRetry,
     required this.onCancelRecovery,
@@ -840,6 +880,24 @@ class _PaneSurface extends StatelessWidget {
   /// The bookmark persistence seam for the "Save as favorite…" bar
   /// (02 §2.7) — see [PaneView.bookmarks].
   final BookmarkRepository? bookmarks;
+
+  /// The drop enqueue seam (02 §5.1) — see [PaneView.dropDelegate].
+  final PaneDropDelegate? dropDelegate;
+
+  /// See [PaneView.supportsOsDrop].
+  final bool? supportsOsDrop;
+
+  /// Keys the listing's `ListView` for drop hit-testing — see
+  /// [PaneDropArea.listAreaKey].
+  final GlobalKey listAreaKey;
+
+  /// The folder row a live drag hover targets (02 §5.1's highlight);
+  /// null for current-directory or no hover.
+  final int? dropTargetRow;
+
+  /// The drop zone's hovered-folder report — see [_PaneViewState].
+  final ValueChanged<int?> onDropHoverRow;
+
   final VoidCallback onCancelNavigation;
   final VoidCallback onRetry;
   final VoidCallback onCancelRecovery;
@@ -944,7 +1002,22 @@ class _PaneSurface extends StatelessWidget {
             store: bookmarks,
             onNoStore: controller.noteSaveFavoriteUnavailable,
           ),
-        Expanded(child: _body(context, l10n)),
+        // D14's drop zone wraps the listing body only — the path bar,
+        // field strips, and footer stay outside it. The OS-drop gate
+        // resolves per build: a busy or unbound pane advertises no
+        // droppable bounds at all.
+        Expanded(
+          child: PaneDropArea(
+            controller: controller,
+            delegate: dropDelegate,
+            scrollController: scrollController,
+            listAreaKey: listAreaKey,
+            rowExtent: scaledPaneRowExtent(context),
+            onHoverFolderRow: onDropHoverRow,
+            supportsOsDrop: supportsOsDrop ?? _isDesktopPlatform(),
+            child: _body(context, l10n),
+          ),
+        ),
         _PaneFooter(
           controller: controller,
           graceVisible: graceVisible && !controller.connectionLost,
@@ -952,6 +1025,20 @@ class _PaneSurface extends StatelessWidget {
       ],
     );
   }
+
+  /// Whether pointer drags are this platform's gesture (02 §5.1):
+  /// `desktop_drop` serves the desktop platforms only, and the in-app
+  /// row drag's immediate recognizer would hijack touch scrolling on
+  /// mobile — so both halves of D14 are desktop gestures.
+  /// `defaultTargetPlatform` (not dart:io) so tests can drive the
+  /// wiring. The [supportsOsDrop] override applies only to the OS
+  /// `DropTarget`, never to in-app row drags.
+  bool _isDesktopPlatform() => switch (defaultTargetPlatform) {
+    TargetPlatform.macOS ||
+    TargetPlatform.linux ||
+    TargetPlatform.windows => true,
+    _ => false,
+  };
 
   Widget _body(BuildContext context, AppLocalizations l10n) {
     if (!controller.hasEngine) {
@@ -1136,7 +1223,32 @@ class _PaneSurface extends StatelessWidget {
       // the Clear affordance — never a blank pane.
       final Widget emptyState = controller.filterActive
           ? _FilteredEmpty(controller: controller)
-          : Center(child: Text(l10n.paneEmptyFolder));
+          : Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(l10n.paneEmptyFolder),
+                  // §2.7's drop hint — only while a drop could actually
+                  // land: no queue seam means no target, and a busy or
+                  // inert listing refuses them anyway.
+                  if (dropDelegate != null && controller.verbsEnabled)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        controller.location is RemotePaneLocation
+                            ? l10n.paneDropHintRemote
+                            : l10n.paneDropHintLocal,
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ),
+                ],
+              ),
+            );
       // A detached rename session (its row left the visible listing —
       // e.g. the last row vanished) has no row to anchor on: it floats
       // at the top of the empty state so the renameTargetGone
@@ -1166,18 +1278,14 @@ class _PaneSurface extends StatelessWidget {
     return Stack(
       children: [
         ListView.builder(
+          // The drop zone's hit-testing anchor (D14): row extents are
+          // fixed, so position math against this box's render size maps
+          // a drop onto the rendered rows — never an unrendered index.
+          key: listAreaKey,
           controller: scrollController,
           itemExtent: extent,
           itemCount: controller.entries.length,
-          itemBuilder: (context, index) => _PaneRow(
-            entry: controller.entries[index],
-            highlighted: controller.cursorIndex == index,
-            selected: controller.isRowSelected(index),
-            active: active,
-            clock: clock,
-            onTap: (modifiers) => onActivateRow(index, modifiers),
-            onDoubleTap: () => onOpenRow(index),
-          ),
+          itemBuilder: (context, index) => _buildRow(context, index),
         ),
         // 02 §2.6's inline editor: it floats over the edited row at the
         // row's scroll offset, so it rides the row through scrolling
@@ -1213,6 +1321,54 @@ class _PaneSurface extends StatelessWidget {
             },
           ),
       ],
+    );
+  }
+
+  /// One listing row (02 §2.3), plus the D14 drag wiring: while a queue
+  /// seam exists and the pane's verbs are live, each row is a
+  /// `Draggable` whose payload snapshots the selection at grab time —
+  /// a grabbed row inside a multi-selection drags the whole selection
+  /// (02 §5.1). `childWhenDragging` leaves the dimmed ghost in place —
+  /// the move is not committed until a target accepts it.
+  Widget _buildRow(BuildContext context, int index) {
+    final row = _PaneRow(
+      entry: controller.entries[index],
+      highlighted: controller.cursorIndex == index,
+      selected: controller.isRowSelected(index),
+      dropTargeted: dropTargetRow == index,
+      active: active,
+      clock: clock,
+      onTap: (modifiers) => onActivateRow(index, modifiers),
+      onDoubleTap: () => onOpenRow(index),
+    );
+    // Rows drag only where a pointer drag is the platform's gesture —
+    // on touch platforms the immediate recognizer would steal the
+    // listing's scroll. Drops still land via DragTarget on the zone.
+    if (dropDelegate == null ||
+        !controller.verbsEnabled ||
+        !_isDesktopPlatform()) {
+      return row;
+    }
+    final entry = controller.entries[index];
+    final drag = PaneEntryDrag(
+      source: fsLocationForLocation(controller.location!),
+      rootPaths:
+          controller.isRowSelected(index) && controller.selectedCount > 1
+          ? [
+              for (final selected in controller.selectedEntries)
+                selected.path,
+            ]
+          : [entry.path],
+    );
+    return Draggable<PaneEntryDrag>(
+      data: drag,
+      // The pointer anchor keeps DragTargetDetails.offset equal to the
+      // pointer — the drop zone's row math works on the pointer itself.
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      maxSimultaneousDrags: 1,
+      feedback: PaneEntryDragAvatar(drag: drag),
+      childWhenDragging: Opacity(opacity: 0.4, child: row),
+      child: row,
     );
   }
 }
@@ -1789,6 +1945,7 @@ class _PaneRow extends StatefulWidget {
     required this.entry,
     required this.highlighted,
     required this.selected,
+    required this.dropTargeted,
     required this.active,
     required this.clock,
     required this.onTap,
@@ -1802,6 +1959,11 @@ class _PaneRow extends StatefulWidget {
 
   /// Whether this row is in the selection (02 §2.5).
   final bool selected;
+
+  /// Whether a live drag hover names this folder row its destination
+  /// (02 §5.1's target highlight) — a ringed tint, distinct from both
+  /// cursor and selection.
+  final bool dropTargeted;
 
   final bool active;
   final DateTime Function() clock;
@@ -1838,7 +2000,9 @@ class _PaneRowState extends State<_PaneRow> {
     // neutral tone. Selected rows keep a quieter tint than the cursor
     // row so the cursor stays identifiable inside a multi-selection
     // (02 §2.5's visible-selection rule).
-    final Color? rowColor = widget.highlighted
+    final Color? rowColor = widget.dropTargeted
+        ? colors.primaryContainer
+        : widget.highlighted
         ? (widget.active
               ? colors.primaryContainer
               : colors.surfaceContainerHighest)
@@ -1959,6 +2123,19 @@ class _PaneRowState extends State<_PaneRow> {
                       color: widget.active
                           ? colors.primary
                           : colors.onSurfaceVariant,
+                    ),
+                  ),
+                // 02 §5.1's folder-row target highlight: a ring over the
+                // tint, so the destination row reads unambiguously even
+                // inside a selection.
+                if (widget.dropTargeted)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: colors.primary, width: 2),
+                        ),
+                      ),
                     ),
                   ),
               ],

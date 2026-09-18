@@ -3,15 +3,18 @@ import 'dart:async';
 import 'package:flutter/gestures.dart' show kMiddleMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:poltergeist_core/poltergeist_core.dart' show FsLocation;
 
 import '../../l10n/app_localizations.dart';
 import '../../services/bookmark_store.dart';
 import '../../services/pane_controller.dart';
+import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/workspace_controller.dart';
 import '../server_appearance.dart';
 import '../server_state_indicator.dart';
+import 'pane_drop_area.dart';
 import 'pane_view.dart';
 import 'quick_connect_view.dart';
 
@@ -68,6 +71,8 @@ class PaneTabsView extends StatelessWidget {
     required this.onSwapFocus,
     required this.onCancelRecovery,
     this.bookmarks,
+    this.dropDelegate,
+    this.supportsOsDrop,
     this.clock,
   });
 
@@ -93,6 +98,15 @@ class PaneTabsView extends StatelessWidget {
   /// (02 §2.7) — see [PaneView.bookmarks].
   final BookmarkRepository? bookmarks;
 
+  /// The drop enqueue seam (02 §5.1, D14) — forwarded to the tab view's
+  /// drop zone and the strip's tab-header targets. Null refuses every
+  /// drop and leaves rows undraggable.
+  final PaneDropDelegate? dropDelegate;
+
+  /// Whether the OS drop-in `DropTarget` mounts — see
+  /// [PaneView.supportsOsDrop].
+  final bool? supportsOsDrop;
+
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
 
@@ -101,7 +115,12 @@ class PaneTabsView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _TabStrip(tabs: tabs, workspace: workspace, focusNode: focusNode),
+        _TabStrip(
+          tabs: tabs,
+          workspace: workspace,
+          focusNode: focusNode,
+          dropDelegate: dropDelegate,
+        ),
         Expanded(
           child: ListenableBuilder(
             listenable: tabs,
@@ -127,6 +146,8 @@ class PaneTabsView extends StatelessWidget {
                 onSwapFocus: onSwapFocus,
                 onCancelRecovery: onCancelRecovery,
                 bookmarks: bookmarks,
+                dropDelegate: dropDelegate,
+                supportsOsDrop: supportsOsDrop,
                 clock: clock ?? DateTime.now,
               );
             },
@@ -152,11 +173,16 @@ class _TabStrip extends StatefulWidget {
     required this.tabs,
     required this.workspace,
     required this.focusNode,
+    required this.dropDelegate,
   });
 
   final PaneTabsController tabs;
   final WorkspaceController workspace;
   final FocusNode focusNode;
+
+  /// The drop enqueue seam (02 §5.1) — the tab chips' entry-drop
+  /// targets route through it; null leaves the chips refusing drops.
+  final PaneDropDelegate? dropDelegate;
 
   @override
   State<_TabStrip> createState() => _TabStripState();
@@ -369,12 +395,20 @@ class _TabStripState extends State<_TabStrip> {
                                     tab,
                                     GlobalKey.new,
                                   ),
-                                  child: _TabChip(
-                                    key: ValueKey(tab.id),
+                                  // 02 §5.1: a tab header is also an
+                                  // entry-drop target — the chip stays
+                                  // the 02 §3 tab-drag source inside.
+                                  child: _TabEntryDrop(
                                     tabs: tabs,
                                     tab: tab,
-                                    workspace: widget.workspace,
-                                    focusNode: widget.focusNode,
+                                    delegate: widget.dropDelegate,
+                                    child: _TabChip(
+                                      key: ValueKey(tab.id),
+                                      tabs: tabs,
+                                      tab: tab,
+                                      workspace: widget.workspace,
+                                      focusNode: widget.focusNode,
+                                    ),
                                   ),
                                 ),
                             ],
@@ -596,6 +630,167 @@ class _TabDragAvatar extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// A tab header as an entry-drop target (02 §5.1): hovering a chip with
+/// dragged rows arms the 700 ms activation timer (the tab then accepts
+/// the drop through its listing), and a direct drop on the chip lands
+/// in that tab's current directory — same verb and containment rules as
+/// the listing zone. While a payload can land here the chip shows the
+/// target ring; a refused drop (no queue, unbound or inert tab,
+/// containment) keeps the chip plain.
+class _TabEntryDrop extends StatefulWidget {
+  const _TabEntryDrop({
+    required this.tabs,
+    required this.tab,
+    required this.delegate,
+    required this.child,
+  });
+
+  final PaneTabsController tabs;
+  final PaneTab tab;
+  final PaneDropDelegate? delegate;
+  final Widget child;
+
+  @override
+  State<_TabEntryDrop> createState() => _TabEntryDropState();
+}
+
+class _TabEntryDropState extends State<_TabEntryDrop> {
+  /// The hover timer behind §5.1's "hover 700 ms switches to that tab"
+  /// — armed once per hover, disarmed on leave/accept/dispose.
+  Timer? _activateTimer;
+
+  /// Whether the currently hovering payload may land (drives the ring).
+  bool _accepting = false;
+
+  /// The chip's destination endpoint + directory: the tab's bound
+  /// location, null while the tab is unbound or its pane is inert
+  /// (loading, error, connection-lost — same eligibility as the
+  /// listing's own drop zone).
+  ({FsLocation fs, String dir})? get _destination {
+    final controller = widget.tab.controller;
+    if (!controller.verbsEnabled) return null;
+    final location = controller.location;
+    if (location == null) return null;
+    return (fs: fsLocationForLocation(location), dir: location.path);
+  }
+
+  /// Whether this payload may land on the chip right now — verb and
+  /// containment resolved exactly as the listing zone resolves them.
+  bool _accepts(PaneEntryDrag drag) {
+    final delegate = widget.delegate;
+    final destination = _destination;
+    var allowed = false;
+    if (delegate != null && destination != null) {
+      final modifiers = paneDropModifiers(context);
+      final verb = paneDropVerb(
+        source: drag.source,
+        sourceRoots: drag.rootPaths,
+        destination: destination.fs,
+        destinationDir: destination.dir,
+        copyModifier: modifiers.copy,
+        moveModifier: modifiers.move,
+      );
+      allowed = paneDropAllowed(
+        source: drag.source,
+        sourceRoots: drag.rootPaths,
+        destination: destination.fs,
+        destinationDir: destination.dir,
+        operation: verb,
+      );
+      drag.verb.value = allowed ? verb : null;
+    } else {
+      drag.verb.value = null;
+    }
+    _armActivation(allowed);
+    if (allowed != _accepting) setState(() => _accepting = allowed);
+    return allowed;
+  }
+
+  /// Arms the activation timer while an accepting payload hovers — a
+  /// refused hover never switches the tab.
+  void _armActivation(bool allowed) {
+    if (!allowed || _activateTimer != null) return;
+    _activateTimer = Timer(const Duration(milliseconds: 700), () {
+      _activateTimer = null;
+      widget.tabs.activateTab(widget.tab);
+    });
+  }
+
+  void _disarm() {
+    _activateTimer?.cancel();
+    _activateTimer = null;
+    if (_accepting) setState(() => _accepting = false);
+  }
+
+  /// The direct chip drop: the tab's current directory is the target —
+  /// the verb reads the modifiers held at release, like the listing.
+  void _accept(PaneEntryDrag drag) {
+    final delegate = widget.delegate;
+    final destination = _destination;
+    drag.verb.value = null;
+    if (delegate == null || destination == null) return;
+    final modifiers = paneDropModifiers(context);
+    final verb = paneDropVerb(
+      source: drag.source,
+      sourceRoots: drag.rootPaths,
+      destination: destination.fs,
+      destinationDir: destination.dir,
+      copyModifier: modifiers.copy,
+      moveModifier: modifiers.move,
+    );
+    if (!paneDropAllowed(
+      source: drag.source,
+      sourceRoots: drag.rootPaths,
+      destination: destination.fs,
+      destinationDir: destination.dir,
+      operation: verb,
+    )) {
+      return;
+    }
+    delegate.enqueue(
+      source: drag.source,
+      rootPaths: drag.rootPaths,
+      destination: destination.fs,
+      destinationDir: destination.dir,
+      operation: verb,
+    );
+  }
+
+  @override
+  void dispose() {
+    _activateTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DragTarget<PaneEntryDrag>(
+      // Same posture as the listing zone: willAccept gates on the type
+      // only (a refused chip would lock out a modifier flip that turns
+      // the drop legal); the honest resolution rides onMove/onAccept.
+      onWillAcceptWithDetails: (details) {
+        _accepts(details.data);
+        return widget.delegate != null && _destination != null;
+      },
+      onMove: (details) => _accepts(details.data),
+      onLeave: (_) => _disarm(),
+      onAcceptWithDetails: (details) {
+        _disarm();
+        _accept(details.data);
+      },
+      builder: (context, candidateData, rejectedData) => Container(
+        decoration: _accepting
+            ? BoxDecoration(
+                border: Border.all(color: colors.primary, width: 2),
+              )
+            : null,
+        child: widget.child,
       ),
     );
   }
