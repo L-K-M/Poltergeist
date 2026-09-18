@@ -5870,8 +5870,8 @@ adds the one automatic retry (two attempts max, per the
 reviewer-integration stopping rule) and makes the final failure
 explicit: first attempt runs with `continue-on-error` so a failure or
 timeout reaches the retry, a retry success posts findings and leaves
-the job green, and only a second failure reaches the reporting step,
-which posts the "review did not complete" comment naming both
+the job green, and only a retry failure or skip reaches the reporting
+step, which posts the "review did not complete" comment naming both
 attempts and exits non-zero. The 170 min per-attempt value is kept
 with its Seance PR #89 data (healthy revisions took 76 and 105 min;
 170 covers ~27 chunks at that mean) — sizing to Poltergeist's ~50-65
