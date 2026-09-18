@@ -284,6 +284,23 @@ void main() {
       expect(fs.fileBytes['$runDir/000001-a.txt'], [9]);
     });
 
+    test('a directory cannot rename into its own subtree', () async {
+      fs.addFile('/data/dir/x.txt', [1]);
+      await expectLater(
+        fs.rename('/data/dir', '/data/dir/nested'),
+        throwsA(
+          isA<RemoteFileException>().having(
+            (e) => e.kind,
+            'kind',
+            RemoteFileErrorKind.conflict,
+          ),
+        ),
+      );
+      // The tables survive intact — no mid-move corruption.
+      expect(fs.fileBytes['/data/dir/x.txt'], [1]);
+      expect(fs.entryAt('/data/dir'), isNotNull);
+    });
+
     test('a non-conflict rename error propagates, not a bump', () async {
       fs.addDirectory('/data');
       final runDir = await trash.ensureRunDirectory(fs, '/data', 'run-1');

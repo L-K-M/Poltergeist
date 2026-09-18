@@ -550,6 +550,12 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   }) {
     final sourceKey = _dirKey(oldPath);
     if (sourceKey == null) throw _notFound('rename', oldPath);
+    if (newPath.startsWith('$oldPath/')) {
+      // POSIX rename() fails up front (EINVAL) when the destination sits
+      // inside the source subtree; without this the rebase rewrites the
+      // key destinationParentKey resolved to and crashes mid-move.
+      throw _conflict('rename', newPath);
+    }
     final occupant = _matches(oldPath, newPath) ? null : entryAt(newPath);
     if (occupant != null) {
       if (!overwrite) throw _conflict('rename', newPath);
