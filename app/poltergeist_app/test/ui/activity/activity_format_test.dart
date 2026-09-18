@@ -26,5 +26,11 @@ void main() {
       expect(commonParentPath(const ['/a/x', '/a/y']), '/a');
       expect(commonParentPath(const ['/a/b/c', '/a/b/d']), '/a/b');
     });
+
+    test('the filesystem root counts as a shared ancestor', () {
+      // '/a/' never starts with '//', so an unguarded prefix check
+      // would ascend past the root and report nothing at all.
+      expect(commonParentPath(const ['/a', '/b']), '/');
+    });
   });
 }

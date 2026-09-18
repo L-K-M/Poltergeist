@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
@@ -328,6 +330,58 @@ void main() {
       find.byKey(const ValueKey('bandwidth.down.field')),
     );
     expect(field.controller!.text, isNotEmpty);
+  });
+
+  testWidgets('the popover barrier absorbs taps instead of leaking '
+      'them to the panel', (tester) async {
+    await pumpPanel(tester);
+    queue.addTask(state: TransferTaskState.running, totalBytes: 4000);
+    await settle(tester);
+
+    await tester.tap(find.byKey(const ValueKey('activity.bandwidth')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('activity.bandwidthPopover')),
+      findsOneWidget,
+    );
+
+    // Tap-outside dismisses — and must not also fire the control
+    // behind the barrier (modal semantics, not translucent). The tap
+    // misses the button's render object entirely under an opaque
+    // barrier, which is exactly the behavior under test.
+    await tester.tap(
+      find.byKey(const ValueKey('activity.pause')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(queue.pauseQueueCalls, 0);
+    expect(
+      find.byKey(const ValueKey('activity.bandwidthPopover')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the tabs expose their selected state to screen readers',
+      (tester) async {
+    await pumpPanel(tester);
+    expect(
+      tester
+          .getSemantics(
+            find.byKey(const ValueKey('activity.tab.activity')),
+          )
+          .flagsCollection
+          .isSelected,
+      Tristate.isTrue,
+    );
+    expect(
+      tester
+          .getSemantics(
+            find.byKey(const ValueKey('activity.tab.history')),
+          )
+          .flagsCollection
+          .isSelected,
+      Tristate.isFalse,
+    );
   });
 
   testWidgets('the conflict strip renders parked conflicts and the '

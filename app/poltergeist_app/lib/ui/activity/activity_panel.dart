@@ -156,21 +156,27 @@ class _PanelTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(end: 4),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: selected ? colors.surfaceContainerHighest : null,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: selected ? null : colors.onSurfaceVariant,
+    return Semantics(
+      selected: selected,
+      child: Padding(
+        padding: const EdgeInsetsDirectional.only(end: 4),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 4,
+            ),
+            decoration: BoxDecoration(
+              color: selected ? colors.surfaceContainerHighest : null,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: selected ? null : colors.onSurfaceVariant,
+              ),
             ),
           ),
         ),
@@ -207,9 +213,11 @@ class _BandwidthButtonState extends State<_BandwidthButton> {
         overlayChildBuilder: (context) => Stack(
           children: [
             // Tap-outside dismissal — modal semantics without a route.
+            // Opaque: translucent would leak tap-down/ripple and hover
+            // to the widgets behind the barrier.
             Positioned.fill(
               child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
+                behavior: HitTestBehavior.opaque,
                 onTap: _portal.hide,
               ),
             ),

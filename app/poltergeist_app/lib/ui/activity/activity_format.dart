@@ -123,9 +123,11 @@ String commonParentPath(List<String> paths) {
   var candidate = paths.first;
   for (final path in paths.skip(1)) {
     // Ascend the candidate until it is an ancestor directory of this
-    // path (prefix comparison on a separator boundary).
+    // path (prefix comparison on a separator boundary). The root is
+    // an ancestor of every absolute path — '/a/' never starts with
+    // '//', so it needs the explicit case.
     while (candidate.isNotEmpty &&
-        !'$path/'.startsWith('$candidate/') &&
+        !(candidate == '/' || '$path/'.startsWith('$candidate/')) &&
         path != candidate) {
       final parent = pathDirname(candidate);
       if (parent == null || parent == candidate) {

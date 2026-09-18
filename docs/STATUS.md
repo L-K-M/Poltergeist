@@ -5961,8 +5961,14 @@ iterate-while-removing suggestion was declined with evidence
 the `tasks` doc now says so). Round 3 fixed the retry-debit check to
 compare against the previous sample rather than the window's oldest —
 a partial debit above the floor had evaded the reset and misreported
-a stale rate. Full suites: app 1239 green, core 1170 green (16
-fixture skips), both analyzers clean, localization contract green.
+a stale rate. Round 4: `commonParentPath` treats `/` as an ancestor of
+every absolute path (reproduced red-first — `['/a', '/b']` returned
+`''` since `'/a/'.startsWith('//')` is never true), the popover barrier
+is `HitTestBehavior.opaque` (translucent leaked tap-down/ripple and
+hover to the panel behind; the tap arena had already protected
+`onTap`), and the tabs carry `Semantics(selected:)`. Full suites: app
+1242 green, core 1170 green (16 fixture skips), both analyzers clean,
+localization contract green.
 
 ## Open items
 
