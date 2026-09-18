@@ -139,8 +139,11 @@ void main() {
 
         expect(task.state, TransferTaskState.completed);
         expect(dstFile('big.bin').readAsBytesSync(), bytes);
-        // The pipe's bound held: the whole file was never in flight.
-        expect(probe.peak, lessThan(bytes.length));
+        // The pipe's bound held: in-flight bytes never exceeded the
+        // configured bound plus one dart:io read chunk — addStream
+        // counts a whole chunk before pausing the source, and openRead
+        // delivers 64 KiB blocks (measured: peak == 64 KiB here).
+        expect(probe.peak, lessThanOrEqualTo(8 * 1024 + 64 * 1024));
         expect(probe.peak, greaterThan(0));
         final progress = events
             .whereType<TransferQueueProgressEvent>()
