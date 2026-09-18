@@ -1423,6 +1423,9 @@ class TransferQueue {
                 file.source.size ?? 0,
                 file.source.size,
               );
+              // A completed item is a success — reset the consecutive-
+              // failure budget like the piped and rename paths do.
+              task.retryCount = 0;
               _finishItem(runtime, item, TransferItemState.completed);
               return;
             case _FileCommit(
