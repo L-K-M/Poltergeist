@@ -5729,6 +5729,71 @@ analyze clean. No journal schema, protocol, app, pin, or lock change.
 Recursive delete *execution* remains the D15 follow-up's — the walker
 only enumerates and reports delete candidates.
 
+## M4 — local↔local first-class ops (D26) (2026-09-17)
+
+07 §3.5's D26 bullet lands on the #147–#151 engine with no second code
+path: a local→local copy already rides the one task pipeline — scan,
+conflict decide, the bounded `BoundedTransferSink` pipe, per-item
+progress, and the same sticky/per-attempt cancellation as the remote
+directions, with both legs charging `_localLimiter` so neither network
+bucket pays. What this slice adds is the move semantics.
+
+A same-device local move now commits as rename(2) through the VFS seam
+(`RemoteFileSystem.rename` on the injected local fs) — one atomic
+directory-entry swap per file carrying mtime and mode (directory trees
+are still materialized at the destination and removed entry by entry,
+never renamed whole), with the same expected-target re-verification the
+piped upload performs, and full-size progress on completion for parity
+with the piped path. A rename that
+reports EXDEV — surfaced as the new typed
+`LocalCrossDeviceRenameException` out of `LocalFileSystem` so the
+generic guard cannot flatten it — degrades to the piped copy+delete
+inside the same task: the copy is byte-verified by the pipe, then the
+new `flushLocalDestination` seam fsyncs the landed file's data and its
+containing directory (reusing the journal's `TransferJournalIo`
+primitives, 03 §4.6's durability rule) before the source unlinks. A
+partial or cancelled copy therefore leaves the source fully intact and
+nothing committed at the destination — either the original or a durable
+copy, never neither (00 D26). The barrier also covers remote→local
+moves; a same-device rename needs none (the atomic swap is itself the
+either/or).
+
+Case rules: a move whose resolved destination IS the source — the same
+path, or a spelling that canonicalizes to it on a case-insensitive
+volume — completes in place instead of piping onto itself and unlinking
+the only copy (the pre-change code destroyed the file under `replace`).
+The check lives at file level in `_decideFile` and at directory level in
+`_materializeDirectory` (`_DirState.selfTarget` exempts the tree from
+`_removeMovedDirectories`), ahead of the conflict verbs, so an
+in-place move reports completed rather than colliding with itself.
+Case-only renames still ride `LocalFileSystem`'s two-step sibling path
+(unchanged); on a case-sensitive volume a case-only target is simply a
+new name — the folded-destination registry and the #150 conflict model
+decide collisions as before, and both behaviors are pinned by tests
+driving a case-folding `FakeTreeFileSystem` as the local side.
+
+Preserved vs dropped metadata (D26 v1, unchanged from the pipe's
+existing contract): mtime via `setTimes` post-commit and the POSIX mode
+bits via `preserveMode` on upload; rename carries both natively.
+xattrs, ACLs, ownership, and birth time are dropped — explicitly out of
+v1 scope per the decision; the native fast-path spike (APFS clonefile,
+Linux FICLONE, Windows CopyFileEx) remains scheduled in 07.
+
+Validation: 19 new tests in `local_ops_test.dart` — bounded streamed
+copy with a byte probe, progress events, mid-copy cancel with no orphan
+temps, mtime+mode preservation, throttle-bucket isolation, journal
+milestones; rename-path move (no bytes piped); EXDEV move ordering
+(flush before unlink), mid-copy failure and cancel both preserving the
+source, flush-failure pinned to the durability barrier with the source
+intact; file and directory self-moves; keepBoth self-copy; a same-device
+directory move asserting rename(2) stays file-only;
+case-insensitive self/occupant folding and case-sensitive distinct-name
+behavior on the fake plus an adaptive real-fs probe — plus one
+`isCrossDeviceRenameError` predicate test covering POSIX EXDEV and
+Win32 ERROR_NOT_SAME_DEVICE (17, platform-gated so POSIX EEXIST never
+misfires). Full core suite 1122 green (16 fixture skips),
+analyze clean. No UI, no trash/D15, no DnD, no pin or lock change.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

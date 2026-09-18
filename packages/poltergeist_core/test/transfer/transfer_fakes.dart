@@ -75,6 +75,12 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   int mkdirCalls = 0;
   int deleteCalls = 0;
   int setTimesCalls = 0;
+  int renameCalls = 0;
+
+  /// The entry type of every rename source — the queue's contract is
+  /// file-only renames, so tests can assert this never saw a directory
+  /// instead of relying on the [UnimplementedError] being loud enough.
+  final List<RemoteFileType> renameSourceTypes = [];
 
   /// Currently inside a `download` — the global-cap assertion reads the
   /// peak.
@@ -103,6 +109,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   Object? Function(String path)? downloadFailure;
   Object? Function(String path)? uploadFailure;
   Object? Function(RemoteFileEntry entry)? deleteFailure;
+  Object? Function(String oldPath, String newPath)? renameFailure;
 
   /// Gates — return a completer to stall the operation until it completes.
   Completer<void>? Function(String path)? statGate;
@@ -203,7 +210,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     }
     if (directories.keys.any((k) => _matches(k, path))) {
       final parent = remoteParent(path);
-      for (final child in directories[parent] ?? const <RemoteFileEntry>[]) {
+      for (final child
+          in directories[_dirKey(parent) ?? parent] ??
+              const <RemoteFileEntry>[]) {
         if (_matches(child.path, path)) return child;
       }
       // An ancestor-created directory nobody listed into a parent (e.g. a
@@ -215,7 +224,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       );
     }
     final parent = remoteParent(path);
-    for (final child in directories[parent] ?? const <RemoteFileEntry>[]) {
+    for (final child
+        in directories[_dirKey(parent) ?? parent] ??
+            const <RemoteFileEntry>[]) {
       if (_matches(child.path, path)) return child;
     }
     return null;
@@ -242,7 +253,10 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   // ---------------------------------------------------------------------
 
   @override
-  Future<String> canonicalize(String path) async => path;
+  Future<String> canonicalize(String path) async =>
+      // A case-insensitive volume resolves both spellings to one entry —
+      // the fake folds like the queue's `_isSelfTarget` probe expects.
+      caseInsensitive ? path.toLowerCase() : path;
 
   @override
   Future<RemoteFileEntry> stat(
@@ -445,6 +459,76 @@ class FakeTreeFileSystem implements RemoteFileSystem {
           type: RemoteFileType.directory,
         ),
       );
+  }
+
+  /// rename(2) over the in-memory tree — the same-device move the D26
+  /// path drives. File-only: the queue never routes a directory through
+  /// rename (dir moves are mkdir + per-child ops + rmdir). [renameFailure]
+  /// scripts the refusals — an EXDEV stands in for a cross-device mount.
+  @override
+  Future<void> rename(
+    String oldPath,
+    String newPath, {
+    bool overwrite = false,
+  }) async {
+    renameCalls++;
+    calls.add('rename:$oldPath->$newPath');
+    final failure = renameFailure?.call(oldPath, newPath);
+    if (failure != null) throw failure;
+    final source = entryAt(oldPath);
+    if (source == null) throw _notFound('rename', oldPath);
+    renameSourceTypes.add(source.type);
+    if (source.isDirectory) {
+      throw UnimplementedError('the fake rename is file-only');
+    }
+    // rename(2) succeeds as a no-op when old and new name the same
+    // entry (identical paths, or case variants on a case-insensitive
+    // volume — where it also refreshes the stored spelling). Treating
+    // the source as its own occupant would raise a bogus conflict or,
+    // under overwrite, delete the file's bytes before re-adding them.
+    final occupant = _matches(oldPath, newPath) ? null : entryAt(newPath);
+    // Real rename(file → dir) fails with EISDIR regardless of
+    // overwrite — an occupant directory must never be clobbered.
+    if (occupant != null && occupant.isDirectory) {
+      throw _conflict('rename', newPath);
+    }
+    if (occupant != null && !overwrite) throw _conflict('rename', newPath);
+    final destinationParentKey = _dirKey(remoteParent(newPath));
+    if (destinationParentKey == null) {
+      throw _notFound('rename', remoteParent(newPath));
+    }
+    final sourceParentKey = _dirKey(remoteParent(oldPath));
+    if (sourceParentKey != null) {
+      directories[sourceParentKey]!.removeWhere(
+        (e) => _matches(e.path, source.path),
+      );
+    }
+    if (occupant != null) {
+      directories[destinationParentKey]!.removeWhere(
+        (e) => _matches(e.path, occupant.path),
+      );
+      fileBytes.remove(occupant.path);
+      // The overwritten entry's metadata must not bleed onto the moved
+      // file if the source carried none of its own.
+      mtimes.remove(occupant.path);
+      modes.remove(occupant.path);
+    }
+    directories[destinationParentKey]!.add(
+      RemoteFileEntry(
+        path: newPath,
+        name: remoteBasename(newPath),
+        type: source.type,
+        size: source.size,
+        modifiedAt: source.modifiedAt,
+        mode: source.mode,
+      ),
+    );
+    final bytes = fileBytes.remove(source.path);
+    if (bytes != null) fileBytes[newPath] = bytes;
+    final mtime = mtimes.remove(source.path);
+    if (mtime != null) mtimes[newPath] = mtime;
+    final mode = modes.remove(source.path);
+    if (mode != null) modes[newPath] = mode;
   }
 
   @override

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
@@ -66,6 +67,7 @@ class LocalFileSystem implements RemoteFileSystem {
   static const int _eperm = 1;
   static const int _eacces = 13;
   static const int _eexist = 17;
+  static const int _exdev = 18;
   static const int _enotdir = 20;
   static const int _enotemptyLinux = 39;
   static const int _enotemptyDarwin = 66;
@@ -75,6 +77,9 @@ class LocalFileSystem implements RemoteFileSystem {
   static const int _winFileNotFound = 2;
   static const int _winPathNotFound = 3;
   static const int _winAccessDenied = 5;
+  // Numerically POSIX EEXIST — the platform gate in
+  // [isCrossDeviceRenameError] keeps the two apart.
+  static const int _winNotSameDevice = 17;
   static const int _winSharingViolation = 32;
   static const int _winFileExists = 80;
   static const int _winPrivilegeNotHeld = 1314;
@@ -438,7 +443,19 @@ class LocalFileSystem implements RemoteFileSystem {
     };
     try {
       await entity.rename(newPath);
-    } on FileSystemException {
+    } on FileSystemException catch (error) {
+      // EXDEV — the paths sit on different mounted filesystems — is not
+      // a rename failure: it is the one outcome the caller degrades to
+      // a durable copy+delete (00 D26). It must stay a distinct type,
+      // or the generic guard below would flatten it into `other` and
+      // the engine could never tell "use the pipe" from "the move
+      // failed".
+      if (isCrossDeviceRenameError(
+        error.osError?.errorCode,
+        windows: Platform.isWindows,
+      )) {
+        throw LocalCrossDeviceRenameException(path: oldPath, newPath: newPath);
+      }
       // POSIX rename replaces an existing target atomically; Windows
       // cannot, so an overwrite of a regular file falls back to the
       // backup-rename dance — never delete-then-rename, which strands
@@ -1070,6 +1087,22 @@ class LocalFileSystem implements RemoteFileSystem {
     }
     return error.osError?.message ?? error.message;
   }
+
+  /// Whether a failed `rename`'s error code means "the paths sit on
+  /// different filesystems": POSIX EXDEV, or — on Windows only — the
+  /// raw Win32 ERROR_NOT_SAME_DEVICE that dart:io surfaces unmapped.
+  /// The Win32 code numerically equals POSIX EEXIST, so it must never
+  /// match off Windows, where 17 is a name collision. `_exdev` is
+  /// deliberately still matched on Windows: raw Win32 18 is
+  /// ERROR_NO_MORE_FILES, which `MoveFileEx` never produces, and the
+  /// match preserves coverage if dart:io ever errno-maps the failure.
+  @visibleForTesting
+  static bool isCrossDeviceRenameError(
+    int? errorCode, {
+    required bool windows,
+  }) =>
+      errorCode == _exdev ||
+      (windows && errorCode == _winNotSameDevice);
 }
 
 /// An attribute write (setMode/setOwner/setTimes) whose path was swapped
@@ -1096,6 +1129,29 @@ class LocalPathTypeChangedException extends RemoteFileException {
          message:
              'Could not $operation "$path": the item changed type while '
              'being changed, and the write landed on "$targetPath"',
+       );
+}
+
+/// `rename(2)` refused because [path] and [newPath] live on different
+/// mounted filesystems (EXDEV). Not a failure — the one rename outcome
+/// the transfer engine degrades to a durable copy+delete inside the
+/// same queue task (00 D26), so it must survive the adapter's guard as
+/// a distinct type instead of flattening into `other`. `kind` stays
+/// `other` on purpose: it is not a name collision, and the conflict
+/// model must never auto-resolve it.
+class LocalCrossDeviceRenameException extends RemoteFileException {
+  /// The destination the same-device rename could not reach.
+  final String newPath;
+
+  LocalCrossDeviceRenameException({
+    required super.path,
+    required this.newPath,
+  }) : super(
+         kind: RemoteFileErrorKind.other,
+         operation: 'rename',
+         message:
+             'Could not rename "$path" to "$newPath": the paths are on '
+             'different filesystems',
        );
 }
 

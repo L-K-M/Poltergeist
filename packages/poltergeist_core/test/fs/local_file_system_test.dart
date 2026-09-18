@@ -827,6 +827,33 @@ void main() {
       expect(File(lower.path).readAsStringSync(), 'lower');
       expect(File(upper.path).readAsStringSync(), 'upper');
     });
+
+    test('cross-device detection covers POSIX EXDEV and Win32 NOT_SAME_DEVICE', () {
+      // POSIX EXDEV (18) means cross-device on every host.
+      expect(
+        LocalFileSystem.isCrossDeviceRenameError(18, windows: false),
+        isTrue,
+      );
+      expect(
+        LocalFileSystem.isCrossDeviceRenameError(18, windows: true),
+        isTrue,
+      );
+      // Windows surfaces a cross-volume rename as raw Win32
+      // ERROR_NOT_SAME_DEVICE (17) — unmapped by dart:io.
+      expect(
+        LocalFileSystem.isCrossDeviceRenameError(17, windows: true),
+        isTrue,
+      );
+      // …but 17 on POSIX is EEXIST — a name collision, never EXDEV.
+      expect(
+        LocalFileSystem.isCrossDeviceRenameError(17, windows: false),
+        isFalse,
+      );
+      expect(
+        LocalFileSystem.isCrossDeviceRenameError(null, windows: true),
+        isFalse,
+      );
+    });
   });
 
   group('delete', () {
