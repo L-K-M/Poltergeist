@@ -77,6 +77,11 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   int setTimesCalls = 0;
   int renameCalls = 0;
 
+  /// The entry type of every rename source — the queue's contract is
+  /// file-only renames, so tests can assert this never saw a directory
+  /// instead of relying on the [UnimplementedError] being loud enough.
+  final List<RemoteFileType> renameSourceTypes = [];
+
   /// Currently inside a `download` — the global-cap assertion reads the
   /// peak.
   int activeDownloads = 0;
@@ -472,10 +477,16 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     if (failure != null) throw failure;
     final source = entryAt(oldPath);
     if (source == null) throw _notFound('rename', oldPath);
+    renameSourceTypes.add(source.type);
     if (source.isDirectory) {
       throw UnimplementedError('the fake rename is file-only');
     }
     final occupant = entryAt(newPath);
+    // Real rename(file → dir) fails with EISDIR regardless of
+    // overwrite — an occupant directory must never be clobbered.
+    if (occupant != null && occupant.isDirectory) {
+      throw _conflict('rename', newPath);
+    }
     if (occupant != null && !overwrite) throw _conflict('rename', newPath);
     final destinationParentKey = _dirKey(remoteParent(newPath));
     if (destinationParentKey == null) {
@@ -492,6 +503,10 @@ class FakeTreeFileSystem implements RemoteFileSystem {
         (e) => _matches(e.path, occupant.path),
       );
       fileBytes.remove(occupant.path);
+      // The overwritten entry's metadata must not bleed onto the moved
+      // file if the source carried none of its own.
+      mtimes.remove(occupant.path);
+      modes.remove(occupant.path);
     }
     directories[destinationParentKey]!.add(
       RemoteFileEntry(

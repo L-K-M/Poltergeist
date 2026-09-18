@@ -1112,8 +1112,10 @@ non-negotiable:
 Local→local tasks run the same two phases over two `LocalFileSystem`
 endpoints — D26's streamed copy with progress, cancellation, and mtime
 preservation falls out of the one code path. A local→local *move* tries
-`rename` first (same-device semantics: one atomic entry swap, mtime and
-mode carried natively); an EXDEV answer — the typed
+`rename` first at each file entry (same-device semantics: one atomic
+entry swap per file, mtime and mode carried natively — directory trees
+are still materialized at the destination and removed entry by entry,
+never renamed whole); an EXDEV answer — the typed
 `LocalCrossDeviceRenameException` — degrades to the piped copy+delete
 inside the same item, where the source unlink is gated on the
 `flushLocalDestination` barrier (fsync the file's data, then the

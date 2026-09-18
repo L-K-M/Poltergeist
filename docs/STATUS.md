@@ -5740,9 +5740,11 @@ bucket pays. What this slice adds is the move semantics.
 
 A same-device local move now commits as rename(2) through the VFS seam
 (`RemoteFileSystem.rename` on the injected local fs) — one atomic
-directory-entry swap carrying mtime and mode, with the same
-expected-target re-verification the piped upload performs, and full-size
-progress on completion for parity with the piped path. A rename that
+directory-entry swap per file carrying mtime and mode (directory trees
+are still materialized at the destination and removed entry by entry,
+never renamed whole), with the same expected-target re-verification the
+piped upload performs, and full-size progress on completion for parity
+with the piped path. A rename that
 reports EXDEV — surfaced as the new typed
 `LocalCrossDeviceRenameException` out of `LocalFileSystem` so the
 generic guard cannot flatten it — degrades to the piped copy+delete
@@ -5777,15 +5779,19 @@ xattrs, ACLs, ownership, and birth time are dropped — explicitly out of
 v1 scope per the decision; the native fast-path spike (APFS clonefile,
 Linux FICLONE, Windows CopyFileEx) remains scheduled in 07.
 
-Validation: 17 new tests in `local_ops_test.dart` — bounded streamed
+Validation: 18 new tests in `local_ops_test.dart` — bounded streamed
 copy with a byte probe, progress events, mid-copy cancel with no orphan
 temps, mtime+mode preservation, throttle-bucket isolation, journal
 milestones; rename-path move (no bytes piped); EXDEV move ordering
 (flush before unlink), mid-copy failure and cancel both preserving the
-source, flush-failure failing the move with the source intact; file and
-directory self-moves; keepBoth self-copy; case-insensitive self/occupant
-folding and case-sensitive distinct-name behavior on the fake plus an
-adaptive real-fs probe. Full core suite 1119 green (16 fixture skips),
+source, flush-failure pinned to the durability barrier with the source
+intact; file and directory self-moves; keepBoth self-copy; a same-device
+directory move asserting rename(2) stays file-only;
+case-insensitive self/occupant folding and case-sensitive distinct-name
+behavior on the fake plus an adaptive real-fs probe — plus one
+`isCrossDeviceRenameError` predicate test covering POSIX EXDEV and
+Win32 ERROR_NOT_SAME_DEVICE (17, platform-gated so POSIX EEXIST never
+misfires). Full core suite 1121 green (16 fixture skips),
 analyze clean. No UI, no trash/D15, no DnD, no pin or lock change.
 
 ## Open items

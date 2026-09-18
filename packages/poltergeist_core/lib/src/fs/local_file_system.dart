@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
@@ -76,6 +77,9 @@ class LocalFileSystem implements RemoteFileSystem {
   static const int _winFileNotFound = 2;
   static const int _winPathNotFound = 3;
   static const int _winAccessDenied = 5;
+  // Numerically POSIX EEXIST — the platform gate in
+  // [isCrossDeviceRenameError] keeps the two apart.
+  static const int _winNotSameDevice = 17;
   static const int _winSharingViolation = 32;
   static const int _winFileExists = 80;
   static const int _winPrivilegeNotHeld = 1314;
@@ -446,7 +450,10 @@ class LocalFileSystem implements RemoteFileSystem {
       // or the generic guard below would flatten it into `other` and
       // the engine could never tell "use the pipe" from "the move
       // failed".
-      if (error.osError?.errorCode == _exdev) {
+      if (isCrossDeviceRenameError(
+        error.osError?.errorCode,
+        windows: Platform.isWindows,
+      )) {
         throw LocalCrossDeviceRenameException(path: oldPath, newPath: newPath);
       }
       // POSIX rename replaces an existing target atomically; Windows
@@ -1080,6 +1087,19 @@ class LocalFileSystem implements RemoteFileSystem {
     }
     return error.osError?.message ?? error.message;
   }
+
+  /// Whether a failed `rename`'s error code means "the paths sit on
+  /// different filesystems": POSIX EXDEV, or — on Windows only — the
+  /// raw Win32 ERROR_NOT_SAME_DEVICE that dart:io surfaces unmapped.
+  /// The Win32 code numerically equals POSIX EEXIST, so it must never
+  /// match off Windows, where 17 is a name collision.
+  @visibleForTesting
+  static bool isCrossDeviceRenameError(
+    int? errorCode, {
+    required bool windows,
+  }) =>
+      errorCode == _exdev ||
+      (windows && errorCode == _winNotSameDevice);
 }
 
 /// An attribute write (setMode/setOwner/setTimes) whose path was swapped

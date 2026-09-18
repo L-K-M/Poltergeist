@@ -1414,8 +1414,15 @@ class TransferQueue {
               // case-insensitive volume): the move's end state already
               // holds — complete in place instead of piping the file
               // onto itself and then unlinking the only copy (00 D26's
-              // never-self-overwrite rule).
+              // never-self-overwrite rule). The file counts as fully
+              // transferred for progress parity with the piped path.
               item.destinationPath = destinationPath;
+              _onFileProgress(
+                runtime,
+                item,
+                file.source.size ?? 0,
+                file.source.size,
+              );
               _finishItem(runtime, item, TransferItemState.completed);
               return;
             case _FileCommit(

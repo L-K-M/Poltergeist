@@ -19,6 +19,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
@@ -56,6 +57,10 @@ void main() {
       uploadLimiter: uploadLimiter,
     );
     createdQueues.add(created);
+    // The queue↔events subscription lives here so call sites can't
+    // forget it and assert against a silently empty list.
+    events = [];
+    created.events.listen(events.add);
     return created;
   }
 
@@ -104,8 +109,6 @@ void main() {
     localFs = InstrumentedLocalFs();
     connections = FakeQueueConnectionManager({});
     queue = newQueue();
-    events = [];
-    queue.events.listen(events.add);
   });
 
   tearDown(() async {
@@ -125,8 +128,6 @@ void main() {
         final probe = PipeProbe();
         localFs.pipeProbe = probe;
         queue = newQueue(pipeBufferBytes: 8 * 1024);
-        events = [];
-        queue.events.listen(events.add);
 
         final task = queue.enqueue(
           localSpec(
@@ -157,7 +158,8 @@ void main() {
       final mtime = DateTime.utc(2020, 1, 2, 3, 4, 5);
       await file.setLastModified(mtime);
       if (!Platform.isWindows) {
-        await Process.run('chmod', ['640', file.path]);
+        final chmod = await Process.run('chmod', ['640', file.path]);
+        expect(chmod.exitCode, 0, reason: 'chmod failed: ${chmod.stderr}');
       }
 
       final task = queue.enqueue(
@@ -188,8 +190,6 @@ void main() {
         final file = writeLocal('cancel.bin', bytes);
         localFs.downloadGate = Completer<void>();
         queue = newQueue();
-        events = [];
-        queue.events.listen(events.add);
 
         final task = queue.enqueue(
           localSpec(
@@ -217,8 +217,6 @@ void main() {
         downloadLimiter: BandwidthLimiter(bytesPerSecond: 1),
         uploadLimiter: BandwidthLimiter(bytesPerSecond: 1),
       );
-      events = [];
-      queue.events.listen(events.add);
 
       final task = queue.enqueue(
         localSpec(
@@ -235,8 +233,6 @@ void main() {
     test('records the same journal milestones as remote copies', () async {
       final persistence = RecordingPersistence();
       queue = newQueue(persistence: persistence);
-      events = [];
-      queue.events.listen(events.add);
       writeLocal('j.txt', 'j'.codeUnits);
 
       final task = queue.enqueue(
@@ -309,8 +305,6 @@ void main() {
             localFs.operationLog.add('flush:$path');
           },
         );
-        events = [];
-        queue.events.listen(events.add);
 
         final task = queue.enqueue(
           localSpec(
@@ -402,14 +396,14 @@ void main() {
       'a failed durability flush fails the move with the source intact',
       () async {
         localFs.renameCrossDevice = true;
+        var flushReached = false;
         queue = newQueue(
           flushLocalDestination: (path) async {
             localFs.operationLog.add('flush:$path');
+            flushReached = true;
             throw StateError('fsync failed');
           },
         );
-        events = [];
-        queue.events.listen(events.add);
         final bytes = List<int>.filled(2048, 11);
         final file = writeLocal('nofsync.bin', bytes);
 
@@ -423,8 +417,14 @@ void main() {
         await awaitTaskDone(task);
 
         expect(task.state, TransferTaskState.failed);
+        expect(
+          flushReached,
+          isTrue,
+          reason: 'task must fail at the durability flush',
+        );
         expect(file.readAsBytesSync(), bytes);
         expect(localFs.deleteCalls, 0);
+        await expectNoOrphanTemps();
       },
     );
 
@@ -472,6 +472,54 @@ void main() {
         );
       },
     );
+
+    test(
+      'a same-device directory move renames only files, never the tree',
+      () async {
+        // FakeTreeFileSystem models a posix tree — path joining is
+        // platform-native, so this can't run where '\' is the
+        // separator.
+        final local = FakeTreeFileSystem();
+        local.addDirectory(localDst.path);
+        local.addDirectory(p.join(localSrc.path, 'sub'));
+        local.addFile(
+          p.join(localSrc.path, 'sub', 'a.txt'),
+          'a'.codeUnits,
+        );
+        local.addFile(
+          p.join(localSrc.path, 'sub', 'b.txt'),
+          'bb'.codeUnits,
+        );
+        queue = newQueue(localFileSystem: local);
+
+        final task = queue.enqueue(
+          localSpec(
+            rootPaths: [p.join(localSrc.path, 'sub')],
+            destinationDir: localDst.path,
+            operation: TransferOperation.move,
+          ),
+        );
+        await awaitTaskDone(task);
+
+        expect(task.state, TransferTaskState.completed);
+        // Directory moves are mkdir + per-child ops + rmdir: rename(2)
+        // is the per-FILE fast path — the contract the fake's
+        // file-only UnimplementedError can't be trusted to prove
+        // under the queue's broad failure handling.
+        expect(local.renameCalls, 2);
+        expect(local.renameSourceTypes, everyElement(RemoteFileType.file));
+        expect(
+          local.entryAt(p.join(localDst.path, 'sub', 'a.txt')),
+          isNotNull,
+        );
+        expect(
+          local.entryAt(p.join(localDst.path, 'sub', 'b.txt')),
+          isNotNull,
+        );
+        expect(local.entryAt(p.join(localSrc.path, 'sub')), isNull);
+      },
+      skip: Platform.isWindows,
+    );
   });
 
   group('D26 case-only rules', () {
@@ -492,8 +540,6 @@ void main() {
           localFileSystem: local,
           isCaseInsensitiveDestination: (_) => true,
         );
-        events = [];
-        queue.events.listen(events.add);
 
         final task = queue.enqueue(
           localSpec(
@@ -532,8 +578,6 @@ void main() {
           localFileSystem: local,
           isCaseInsensitiveDestination: (_) => true,
         );
-        events = [];
-        queue.events.listen(events.add);
 
         final task = queue.enqueue(
           localSpec(
@@ -574,8 +618,6 @@ void main() {
           localFileSystem: local,
           isCaseInsensitiveDestination: (_) => true,
         );
-        events = [];
-        queue.events.listen(events.add);
 
         // skip → the folded occupant wins; nothing moves.
         final skipped = queue.enqueue(
@@ -645,8 +687,6 @@ void main() {
           localFileSystem: local,
           isCaseInsensitiveDestination: (_) => false,
         );
-        events = [];
-        queue.events.listen(events.add);
 
         final task = queue.enqueue(
           localSpec(
@@ -812,11 +852,19 @@ class InstrumentedLocalFs extends LocalFileSystem {
       destination.add(chunk);
       onProgress?.call(sent, bytes.length);
     }
+    // Return the same stat-backed entry shape the real adapter does —
+    // verify-after-transfer must not be silently untested on the
+    // scripted mid-stream paths.
+    final stat = await FileStat.stat(path);
     return RemoteFileEntry(
       path: path,
       name: p.basename(path),
       type: RemoteFileType.file,
       size: bytes.length,
+      accessedAt: stat.accessed.toUtc(),
+      modifiedAt: stat.modified.toUtc(),
+      mode: stat.mode,
+      contentSha256: computeHash ? sha256.convert(bytes).toString() : null,
     );
   }
 
