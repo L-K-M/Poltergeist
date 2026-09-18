@@ -381,12 +381,15 @@ final class TaskStateRecord extends TransferJournalRecord {
 
 /// `fileCompleted` — a file reached its committed destination. Also used
 /// for a directory whose mkdir resolved (`resolvedPath` carries the
-/// keep-both-renamed path so restored children dispatch into it).
+/// keep-both-renamed path so restored children dispatch into it), and
+/// for a delete task's per-item outcome ([disposition] records
+/// trashed-vs-permanent per item — D15).
 final class FileCompletedRecord extends TransferJournalRecord {
   FileCompletedRecord({
     required super.taskId,
     required this.itemId,
     this.resolvedPath,
+    this.disposition,
     super.at,
   });
 
@@ -395,8 +398,14 @@ final class FileCompletedRecord extends TransferJournalRecord {
   final String itemId;
 
   /// The path the item actually committed to, when the conflict decision
-  /// relocated it (keep-both numbering). Null when it is the planned path.
+  /// relocated it (keep-both numbering) — or the trash path a remote
+  /// delete moved to / the OS-reported trashed path (D15). Null when it
+  /// is the planned path.
   final String? resolvedPath;
+
+  /// D15: how a completed delete item ended (`osTrash`, `remoteTrash`,
+  /// or `permanent`). Null on copy/move completions.
+  final ItemDisposition? disposition;
 
   @override
   String get type => wireType;
@@ -406,6 +415,7 @@ final class FileCompletedRecord extends TransferJournalRecord {
     ..._baseJson(),
     'itemId': itemId,
     if (resolvedPath != null) 'resolvedPath': resolvedPath,
+    if (disposition != null) 'disposition': disposition!.name,
   };
 
   static FileCompletedRecord _fromJson(
@@ -416,6 +426,7 @@ final class FileCompletedRecord extends TransferJournalRecord {
     taskId: taskId,
     itemId: _itemId(json),
     resolvedPath: _optionalString(json['resolvedPath'], 'fileCompleted'),
+    disposition: _parseDisposition(json['disposition']),
     at: at,
   );
 }
@@ -551,6 +562,7 @@ final class TransferHistoryEntry {
     required this.skippedItems,
     required this.transferredBytes,
     required this.totalBytes,
+    this.disposition,
     this.error,
     this.failureKind,
     DateTime? at,
@@ -583,6 +595,12 @@ final class TransferHistoryEntry {
   final String? error;
   final RemoteFileErrorKind? failureKind;
 
+  /// D15: a delete task's requested trashed-vs-permanent disposition —
+  /// the task-level truth; each item's actual outcome (`osTrash` /
+  /// `remoteTrash` / `permanent`) is journaled on its `fileCompleted`
+  /// record. Null on copy/move rows.
+  final DeleteDisposition? disposition;
+
   /// The queue-facing builder: snapshots the task at its terminal moment.
   factory TransferHistoryEntry.fromTask(TransferTask task) =>
       TransferHistoryEntry(
@@ -602,6 +620,7 @@ final class TransferHistoryEntry {
         totalBytes: task.totalBytes,
         error: task.error,
         failureKind: task.failureKind,
+        disposition: task.spec.disposition,
       );
 
   Duration get duration => finishedAt.difference(startedAt);
@@ -624,6 +643,7 @@ final class TransferHistoryEntry {
     'skippedItems': skippedItems,
     'transferredBytes': transferredBytes,
     'totalBytes': totalBytes,
+    if (disposition != null) 'disposition': disposition!.name,
     if (error != null) 'error': error,
     if (failureKind != null) 'failureKind': failureKind!.name,
   };
@@ -641,8 +661,10 @@ final class TransferHistoryEntry {
     }
     final json = decoded.cast<String, Object?>();
     if (json['v'] != transferJournalSchemaVersion) {
-      throw FormatException('unsupported history schema version: '
-          '${json['v']}');
+      throw FormatException(
+        'unsupported history schema version: '
+        '${json['v']}',
+      );
     }
     if (json['type'] != wireType) {
       throw FormatException('unknown history record type: ${json['type']}');
@@ -690,7 +712,9 @@ final class TransferHistoryEntry {
       totalBytes: totalBytes as int?,
       error: error as String?,
       failureKind: _parseErrorKind(json['failureKind']),
-      at: _parseInstant(json['at']) ??
+      disposition: _parseDeleteDisposition(json['disposition']),
+      at:
+          _parseInstant(json['at']) ??
           (throw const FormatException('history record is missing at')),
     );
   }
@@ -719,6 +743,7 @@ final class RestoredPlanItem {
     required this.error,
     required this.failureKind,
     required this.resolvedPath,
+    this.disposition,
   });
 
   final String itemId;
@@ -740,8 +765,14 @@ final class RestoredPlanItem {
   final String? error;
   final RemoteFileErrorKind? failureKind;
 
-  /// The committed path when keep-both relocated the item.
+  /// The committed path when keep-both relocated the item — or the
+  /// trash path a completed delete item moved to (D15).
   final String? resolvedPath;
+
+  /// D15: the completed delete item's outcome — os-trash delivery, a
+  /// `.poltergeist-trash/` rename, or a permanent unlink. Null on
+  /// copy/move items and non-completed rows.
+  final ItemDisposition? disposition;
 }
 
 /// One non-terminal task reconstructed from the journal.
@@ -846,14 +877,10 @@ abstract interface class TransferPersistence {
 
 // ── Codec helpers ───────────────────────────────────────────────────────
 
-Map<String, Object?> _locationToJson(FsLocation location) =>
-    switch (location) {
-      ServerFsLocation(:final serverId) => {
-        'kind': 'server',
-        'serverId': serverId,
-      },
-      LocalFsLocation() => {'kind': 'local'},
-    };
+Map<String, Object?> _locationToJson(FsLocation location) => switch (location) {
+  ServerFsLocation(:final serverId) => {'kind': 'server', 'serverId': serverId},
+  LocalFsLocation() => {'kind': 'local'},
+};
 
 FsLocation _locationFromJson(Object? json) {
   if (json is! Map) {
@@ -881,6 +908,7 @@ Map<String, Object?> _specToJson(TransferTaskSpec spec) => {
   'files': spec.policy.files.name,
   'folders': spec.policy.folders.name,
   'operation': spec.operation.name,
+  if (spec.disposition != null) 'disposition': spec.disposition!.name,
 };
 
 TransferTaskSpec _specFromJson(Map<String, Object?> json) {
@@ -891,6 +919,20 @@ TransferTaskSpec _specFromJson(Map<String, Object?> json) {
       destinationDir is! String) {
     throw const FormatException('malformed task spec');
   }
+  final operation = _parseOperation(json['operation']);
+  final disposition = _parseDeleteDisposition(json['disposition']);
+  // A delete spec without its disposition is malformed, not a copy —
+  // the destructive verb must never default in silently; symmetrically,
+  // a disposition on a copy/move spec is dropped data, so strict decode
+  // refuses both directions.
+  if (disposition != null && operation != TransferOperation.delete) {
+    throw FormatException(
+      'a ${operation.name} spec must not carry a disposition',
+    );
+  }
+  if (operation == TransferOperation.delete && disposition == null) {
+    throw const FormatException('a delete spec is missing disposition');
+  }
   return TransferTaskSpec(
     source: _locationFromJson(json['source']),
     destination: _locationFromJson(json['destination']),
@@ -900,7 +942,8 @@ TransferTaskSpec _specFromJson(Map<String, Object?> json) {
       files: _parseConflictResolution(json['files']),
       folders: _parseConflictResolution(json['folders']),
     ),
-    operation: _parseOperation(json['operation']),
+    operation: operation,
+    disposition: disposition,
   );
 }
 
@@ -995,6 +1038,30 @@ TransferOperation _parseOperation(Object? value) {
   throw FormatException('unknown transfer operation: $value');
 }
 
+/// Per-item delete outcomes (D15): absent is null (a copy/move
+/// completion); a present-but-unknown value throws like every sibling
+/// decoder.
+ItemDisposition? _parseDisposition(Object? value) {
+  if (value == null) return null;
+  if (value is String) {
+    for (final disposition in ItemDisposition.values) {
+      if (disposition.name == value) return disposition;
+    }
+  }
+  throw FormatException('unknown item disposition: $value');
+}
+
+/// The spec's delete disposition: absent is null; unknown values throw.
+DeleteDisposition? _parseDeleteDisposition(Object? value) {
+  if (value == null) return null;
+  if (value is String) {
+    for (final disposition in DeleteDisposition.values) {
+      if (disposition.name == value) return disposition;
+    }
+  }
+  throw FormatException('unknown delete disposition: $value');
+}
+
 RemoteFileErrorKind? _parseErrorKind(Object? value) {
   if (value == null) return null;
   if (value is! String) {
@@ -1076,9 +1143,7 @@ class TransferJournalIo {
   /// loss.
   Future<void> atomicRewrite(File file, String contents) async {
     await file.parent.create(recursive: true);
-    final temporary = File(
-      '${file.path}.tmp-${_randomHexSuffix()}',
-    );
+    final temporary = File('${file.path}.tmp-${_randomHexSuffix()}');
     try {
       final raf = await temporary.open(mode: FileMode.writeOnly);
       try {
@@ -1104,9 +1169,7 @@ class TransferJournalIo {
   /// younger temp may belong to a writer in flight).
   Future<void> sweepAbandonedTemps(File target) async {
     final prefix = '${p.basename(target.path)}.tmp-';
-    final abandonedBefore = DateTime.now().subtract(
-      const Duration(hours: 1),
-    );
+    final abandonedBefore = DateTime.now().subtract(const Duration(hours: 1));
     try {
       final parent = target.parent;
       if (!await parent.exists()) return;

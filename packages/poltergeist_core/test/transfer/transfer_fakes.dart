@@ -75,6 +75,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   int mkdirCalls = 0;
   int deleteCalls = 0;
   int setTimesCalls = 0;
+  int setModeCalls = 0;
   int renameCalls = 0;
 
   /// The entry type of every rename source — the queue's contract is
@@ -110,6 +111,10 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   Object? Function(String path)? uploadFailure;
   Object? Function(RemoteFileEntry entry)? deleteFailure;
   Object? Function(String oldPath, String newPath)? renameFailure;
+
+  /// `setMode` refusals — e.g. a server that cannot chmod, which the
+  /// remote-trash 0700 rule must refuse rather than absorb.
+  Object? Function(String path)? setModeFailure;
 
   /// Gates — return a completer to stall the operation until it completes.
   Completer<void>? Function(String path)? statGate;
@@ -259,10 +264,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       caseInsensitive ? path.toLowerCase() : path;
 
   @override
-  Future<RemoteFileEntry> stat(
-    String path, {
-    bool followLinks = true,
-  }) async {
+  Future<RemoteFileEntry> stat(String path, {bool followLinks = true}) async {
     statCalls++;
     calls.add('stat:$path');
     await statGate?.call(path)?.future;
@@ -306,7 +308,11 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       if (bytes == null) throw _notFound('download', path);
       var sent = 0;
       Stream<List<int>> chunks() async* {
-        for (var offset = 0; offset < bytes.length; offset += downloadChunkSize) {
+        for (
+          var offset = 0;
+          offset < bytes.length;
+          offset += downloadChunkSize
+        ) {
           if (cancellation?.isCancelled ?? false) {
             throw RemoteFileException(
               kind: RemoteFileErrorKind.cancelled,
@@ -462,8 +468,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
   }
 
   /// rename(2) over the in-memory tree — the same-device move the D26
-  /// path drives. File-only: the queue never routes a directory through
-  /// rename (dir moves are mkdir + per-child ops + rmdir). [renameFailure]
+  /// path drives, and the directory move the D15 remote-trash path
+  /// drives (the queue's transfer side still never renames a directory;
+  /// tests assert that via [renameSourceTypes]). [renameFailure]
   /// scripts the refusals — an EXDEV stands in for a cross-device mount.
   @override
   Future<void> rename(
@@ -479,7 +486,8 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     if (source == null) throw _notFound('rename', oldPath);
     renameSourceTypes.add(source.type);
     if (source.isDirectory) {
-      throw UnimplementedError('the fake rename is file-only');
+      _renameDirectory(oldPath, newPath, overwrite: overwrite);
+      return;
     }
     // rename(2) succeeds as a no-op when old and new name the same
     // entry (identical paths, or case variants on a case-insensitive
@@ -531,6 +539,102 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     if (mode != null) modes[newPath] = mode;
   }
 
+  /// Directory rename — moves the whole subtree: every directory table
+  /// entry, listing path, and byte/mode/mtime key under [oldPath]
+  /// re-roots at [newPath], the way a server-side SFTP rename moves a
+  /// directory intact (the D15 remote-trash path relies on it).
+  void _renameDirectory(
+    String oldPath,
+    String newPath, {
+    required bool overwrite,
+  }) {
+    final sourceKey = _dirKey(oldPath);
+    if (sourceKey == null) throw _notFound('rename', oldPath);
+    if (newPath.startsWith('$oldPath/')) {
+      // POSIX rename() fails up front (EINVAL) when the destination sits
+      // inside the source subtree; without this the rebase rewrites the
+      // key destinationParentKey resolved to and crashes mid-move.
+      throw _conflict('rename', newPath);
+    }
+    final occupant = _matches(oldPath, newPath) ? null : entryAt(newPath);
+    if (occupant != null) {
+      if (!overwrite) throw _conflict('rename', newPath);
+      // POSIX rename(dir → dir) replaces only an empty occupant;
+      // anything else is ENOTEMPTY/EEXIST — never a silent clobber.
+      if (!occupant.isDirectory) throw _conflict('rename', newPath);
+      final occupantKey = _dirKey(occupant.path);
+      if ((occupantKey != null ? directories[occupantKey]! : const [])
+          .isNotEmpty) {
+        throw _conflict('rename', newPath);
+      }
+      directories.remove(occupantKey ?? occupant.path);
+      final occupantParentKey = _dirKey(remoteParent(occupant.path));
+      if (occupantParentKey != null) {
+        directories[occupantParentKey]!.removeWhere(
+          (e) => _matches(e.path, occupant.path),
+        );
+      }
+    }
+    final destinationParentKey = _dirKey(remoteParent(newPath));
+    if (destinationParentKey == null) {
+      throw _notFound('rename', remoteParent(newPath));
+    }
+    String rebase(String path) =>
+        path == oldPath ? newPath : '$newPath${path.substring(oldPath.length)}';
+
+    // Re-root the directory tables and every entry path beneath them.
+    final movedDirs = <String, List<RemoteFileEntry>>{};
+    for (final key in directories.keys.toList()) {
+      if (key == oldPath || key.startsWith('$oldPath/')) {
+        movedDirs[rebase(key)] = [
+          for (final child in directories.remove(key)!)
+            RemoteFileEntry(
+              path: rebase(child.path),
+              name: child.name,
+              type: child.type,
+              size: child.size,
+              uid: child.uid,
+              gid: child.gid,
+              accessedAt: child.accessedAt,
+              modifiedAt: child.modifiedAt,
+              contentSha256: child.contentSha256,
+              mode: child.mode,
+            ),
+        ];
+      }
+    }
+    directories.addAll(movedDirs);
+    void rebaseTable<T extends Object>(Map<String, T> table) {
+      final moved = <String, T>{};
+      for (final key in table.keys.toList()) {
+        if (key == oldPath || key.startsWith('$oldPath/')) {
+          final value = table.remove(key);
+          if (value != null) moved[rebase(key)] = value;
+        }
+      }
+      table.addAll(moved);
+    }
+
+    rebaseTable(fileBytes);
+    rebaseTable(mtimes);
+    rebaseTable(modes);
+    final sourceParentKey = _dirKey(remoteParent(oldPath));
+    if (sourceParentKey != null) {
+      directories[sourceParentKey]!.removeWhere(
+        (e) => _matches(e.path, oldPath),
+      );
+    }
+    directories[destinationParentKey]!.add(
+      RemoteFileEntry(
+        path: newPath,
+        name: remoteBasename(newPath),
+        type: RemoteFileType.directory,
+        modifiedAt: mtimes[newPath],
+        mode: modes[newPath],
+      ),
+    );
+  }
+
   @override
   Future<void> delete(RemoteFileEntry entry) async {
     deleteCalls++;
@@ -554,9 +658,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     fileBytes.remove(entry.path);
     final parentKey = _dirKey(remoteParent(entry.path));
     if (parentKey != null) {
-      directories[parentKey]!.removeWhere(
-        (e) => _matches(e.path, entry.path),
-      );
+      directories[parentKey]!.removeWhere((e) => _matches(e.path, entry.path));
     }
   }
 
@@ -591,6 +693,39 @@ class FakeTreeFileSystem implements RemoteFileSystem {
             mode: e.mode,
           );
         }
+      }
+    }
+  }
+
+  /// chmod over the in-memory tree — the remote-trash 0700 rule's
+  /// lever. Records into [modes] and reflects the new mode on the
+  /// parent's listing entry.
+  @override
+  Future<void> setMode(String path, int permissions) async {
+    setModeCalls++;
+    calls.add('setMode:$path=$permissions');
+    final failure = setModeFailure?.call(path);
+    if (failure != null) throw failure;
+    final existing = entryAt(path);
+    if (existing == null) throw _notFound('setMode', path);
+    modes[path] = permissions;
+    final parent = remoteParent(path);
+    final children = directories[_dirKey(parent) ?? parent];
+    if (children != null) {
+      final index = children.indexWhere((e) => _matches(e.path, path));
+      if (index >= 0) {
+        final e = children[index];
+        children[index] = RemoteFileEntry(
+          path: e.path,
+          name: e.name,
+          type: e.type,
+          size: e.size,
+          uid: e.uid,
+          gid: e.gid,
+          accessedAt: e.accessedAt,
+          modifiedAt: e.modifiedAt,
+          mode: permissions,
+        );
       }
     }
   }
