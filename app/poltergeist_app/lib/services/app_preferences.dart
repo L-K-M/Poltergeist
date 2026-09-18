@@ -152,7 +152,10 @@ class AppPreferences {
     } catch (_) {
       return null;
     }
-    if (stored == null) return null;
+    // A corrupt file can carry a non-finite double (jsonDecode
+    // saturates over-range literals), and toInt() throws on it —
+    // same guard the panel-height loader keeps.
+    if (stored == null || !stored.isFinite) return null;
     final value = stored.toInt();
     return value > 0 ? value : null;
   }

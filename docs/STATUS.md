@@ -5952,9 +5952,15 @@ real queue's exact semantics), the panel-resize clamp guards a
 sub-240px window, `commonParentPath` seeds at the first path, the
 bandwidth popover seeds its Custom prefill in `didChangeDependencies`,
 `conflictApplyToAll` pluralizes, and `addTask(id:)` without
-`wasRestored` throws rather than silently dropping the key. Full
-suites: app 1237 green, core 1170 green (16 fixture skips), both
-analyzers clean, localization contract green.
+`wasRestored` throws rather than silently dropping the key. Round 2
+added the `_loadLimit` non-finite guard (a corrupt settings file's
+`1e999` decoded to Infinity and `toInt()` threw outside the try) and
+widened the parser guard to `!isFinite`; the `clearCompleted`
+iterate-while-removing suggestion was declined with evidence
+(`List.unmodifiable` already snapshots on both seam implementations —
+the `tasks` doc now says so). Full suites: app 1238 green, core 1170
+green (16 fixture skips), both analyzers clean, localization contract
+green.
 
 ## Open items
 

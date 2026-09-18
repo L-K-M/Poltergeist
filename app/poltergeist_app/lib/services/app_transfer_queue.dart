@@ -14,6 +14,8 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 /// mounts empty over a null seam rather than simulating activity.
 abstract interface class AppTransferQueue {
   /// Queue-order task snapshot — insertion order is admission order.
+  /// Implementations return a detached copy, so callers may iterate
+  /// while the verbs below mutate the queue (clearCompleted does).
   List<TransferTask> get tasks;
 
   /// The queue-level pause gate (02 §6's header toggle): paused stops

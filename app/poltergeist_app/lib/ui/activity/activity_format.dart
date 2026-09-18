@@ -69,7 +69,7 @@ int? parseTransferRate(String input) {
   // product to Infinity, and Infinity.round() throws — an invalid
   // entry must surface the inline error, never crash or clamp.
   final product = value * multiplier;
-  if (product.isInfinite || product > maxTransferRateBytesPerSecond) {
+  if (!product.isFinite || product > maxTransferRateBytesPerSecond) {
     return null;
   }
   final bytes = product.round();
