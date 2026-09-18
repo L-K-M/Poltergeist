@@ -1092,7 +1092,10 @@ class LocalFileSystem implements RemoteFileSystem {
   /// different filesystems": POSIX EXDEV, or — on Windows only — the
   /// raw Win32 ERROR_NOT_SAME_DEVICE that dart:io surfaces unmapped.
   /// The Win32 code numerically equals POSIX EEXIST, so it must never
-  /// match off Windows, where 17 is a name collision.
+  /// match off Windows, where 17 is a name collision. `_exdev` is
+  /// deliberately still matched on Windows: raw Win32 18 is
+  /// ERROR_NO_MORE_FILES, which `MoveFileEx` never produces, and the
+  /// match preserves coverage if dart:io ever errno-maps the failure.
   @visibleForTesting
   static bool isCrossDeviceRenameError(
     int? errorCode, {

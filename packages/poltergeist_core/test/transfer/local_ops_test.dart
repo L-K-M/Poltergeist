@@ -509,16 +509,20 @@ void main() {
         expect(local.renameCalls, 2);
         expect(local.renameSourceTypes, everyElement(RemoteFileType.file));
         expect(
-          local.entryAt(p.join(localDst.path, 'sub', 'a.txt')),
-          isNotNull,
+          local.entryAt(p.join(localDst.path, 'sub', 'a.txt'))?.size,
+          1,
+          reason: 'moved file must retain its bytes',
         );
         expect(
-          local.entryAt(p.join(localDst.path, 'sub', 'b.txt')),
-          isNotNull,
+          local.entryAt(p.join(localDst.path, 'sub', 'b.txt'))?.size,
+          2,
+          reason: 'moved file must retain its bytes',
         );
         expect(local.entryAt(p.join(localSrc.path, 'sub')), isNull);
       },
-      skip: Platform.isWindows,
+      skip: Platform.isWindows
+          ? 'FakeTreeFileSystem models posix separators only'
+          : null,
     );
   });
 
