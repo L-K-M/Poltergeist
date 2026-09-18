@@ -1742,6 +1742,431 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No Saved Workspaces'**
   String get workspaceMenuEmpty;
+
+  /// Menu label for view.toggleActivityPanel (02 §9's View table: Show/Hide Activity).
+  ///
+  /// In en, this message translates to:
+  /// **'Show/Hide Activity'**
+  String get viewToggleActivityPanelLabel;
+
+  /// Commands-menu label for queue.togglePause (02 §9's Commands table names it verbatim).
+  ///
+  /// In en, this message translates to:
+  /// **'Pause/Resume Transfers'**
+  String get queueTogglePauseLabel;
+
+  /// The activity panel's live-queue tab (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Activity'**
+  String get activityTabActivity;
+
+  /// The activity panel's persistent-log tab (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get activityTabHistory;
+
+  /// Tooltip on the queue pause toggle (02 §6's stated copy, verbatim).
+  ///
+  /// In en, this message translates to:
+  /// **'Pause stops new transfers; current files finish'**
+  String get queuePauseTooltip;
+
+  /// Tooltip on the queue toggle while the queue is paused.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume the transfer queue'**
+  String get queueResumeTooltip;
+
+  /// Tooltip for the activity header's bandwidth-limit button (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Bandwidth'**
+  String get activityBandwidthButton;
+
+  /// Glyph the bandwidth button shows while no limit is set (02 §6's header button shows ∞).
+  ///
+  /// In en, this message translates to:
+  /// **'∞'**
+  String get activityBandwidthUnlimited;
+
+  /// The header's Clear-completed button: removes completed task rows (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Clear completed'**
+  String get activityClearCompleted;
+
+  /// Tooltip for the activity panel's hide affordance; equivalent to view.toggleActivityPanel.
+  ///
+  /// In en, this message translates to:
+  /// **'Close panel'**
+  String get activityClosePanel;
+
+  /// The Activity tab's empty state (02 §2.7's never-blank rule applies here too).
+  ///
+  /// In en, this message translates to:
+  /// **'No transfers in progress.'**
+  String get activityEmpty;
+
+  /// The History tab's empty state.
+  ///
+  /// In en, this message translates to:
+  /// **'No transfer history yet.'**
+  String get activityHistoryEmpty;
+
+  /// Hint for the History tab's filter field (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Filter history'**
+  String get activityHistoryFilter;
+
+  /// The History tab's clear action (02 §6 names it verbatim).
+  ///
+  /// In en, this message translates to:
+  /// **'Clear History'**
+  String get activityHistoryClear;
+
+  /// Banner over a queue restored from the journal (02 §6's exact copy).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer from your last session is paused} other{{count} transfers from your last session are paused}}'**
+  String activityRestoredBanner(int count);
+
+  /// The restored-queue banner's resume action (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get activityRestoredResume;
+
+  /// The restored-queue banner's discard action (02 §6): cancels the restored tasks.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get activityRestoredDiscard;
+
+  /// Per-task row action: cancels the transfer (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get activityCancelTask;
+
+  /// Per-task and per-item row action: re-runs the failed work (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get activityRetryTask;
+
+  /// Per-task row action: drops a finished row from the listing (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get activityRemoveTask;
+
+  /// Per-task row action: opens the task's destination in the active pane (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal in pane'**
+  String get activityRevealInPane;
+
+  /// Per-task row action: copies the failure text to the clipboard (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy error'**
+  String get activityCopyError;
+
+  /// Per-file sub-row action while the file is queued: pulls it from the task (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get activitySkipItem;
+
+  /// Per-file sub-row action while the file is in flight: aborts that file only.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get activityCancelItem;
+
+  /// Tooltip for a multi-file task row's expand chevron (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Show files'**
+  String get activityExpandTask;
+
+  /// Tooltip for an expanded task row's collapse chevron.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide files'**
+  String get activityCollapseTask;
+
+  /// The pending-conflict strip's summary line (02 §5.2/§6).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item needs an answer} other{{count} items need answers}}'**
+  String activityConflictsTitle(int count);
+
+  /// Opens the 5-verb conflict chooser for one parked item (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Resolve…'**
+  String get conflictResolve;
+
+  /// The conflict dialog's title line (02 §5.2's example copy).
+  ///
+  /// In en, this message translates to:
+  /// **'{name} already exists in {destination}'**
+  String conflictDialogTitle(String name, String destination);
+
+  /// The conflict dialog's destination-side summary (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Existing: {details}'**
+  String conflictExistingLine(String details);
+
+  /// The conflict dialog's source-side summary (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Replacing it with: {details}'**
+  String conflictReplacingLine(String details);
+
+  /// Conflict verb: overwrite the destination (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Replace'**
+  String get conflictVerbReplace;
+
+  /// Conflict verb: overwrite only when the source is newer by more than the mtime tolerance (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Replace if newer'**
+  String get conflictVerbReplaceIfNewer;
+
+  /// Conflict verb: land under an auto-numbered name (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep both'**
+  String get conflictVerbKeepBoth;
+
+  /// Conflict verb: leave the destination untouched (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get conflictVerbSkip;
+
+  /// Conflict verb, folders only: recurse, preserving destination-only entries (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Merge'**
+  String get conflictVerbMerge;
+
+  /// The conflict dialog's stop button: cancels the rest of the task (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get conflictStop;
+
+  /// Dismisses the conflict dialog without answering — the item stays parked.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get conflictNotNow;
+
+  /// The conflict dialog's task-scope checkbox (02 §5.2's exact wording).
+  ///
+  /// In en, this message translates to:
+  /// **'Apply to all {count} remaining conflicts in this task'**
+  String conflictApplyToAll(int count);
+
+  /// Task state: waiting behind the queue's admission order.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get transferStateQueued;
+
+  /// Task state: the discovery walk is still enumerating items.
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning…'**
+  String get transferStateScanning;
+
+  /// Task state: items are in flight.
+  ///
+  /// In en, this message translates to:
+  /// **'Running'**
+  String get transferStateRunning;
+
+  /// Task state: held by the queue pause or a task pause.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get transferStatePaused;
+
+  /// Task/history outcome: finished successfully.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get transferStateCompleted;
+
+  /// Task/history outcome: ended with failures.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get transferStateFailed;
+
+  /// Task/history outcome: stopped by the user.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get transferStateCancelled;
+
+  /// Item state: queued behind dispatch or a container.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting'**
+  String get transferItemPending;
+
+  /// Item state: parked on an unresolved name conflict (02 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Needs an answer'**
+  String get transferItemConflict;
+
+  /// Item state: left out of the transfer.
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped'**
+  String get transferItemSkipped;
+
+  /// The local endpoint's name in a task's source → destination line.
+  ///
+  /// In en, this message translates to:
+  /// **'This computer'**
+  String get activityTaskRouteLocal;
+
+  /// Multi-root task title (02 §6's '214 items to /var/www').
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item} other{{count} items}} to {destination}'**
+  String activityTaskTitleMulti(int count, String destination);
+
+  /// Multi-root delete task title.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count, plural, =1{1 item} other{{count} items}}'**
+  String activityTaskTitleDelete(int count);
+
+  /// Delete item outcome detail: delivered to the OS or remote trash (D15).
+  ///
+  /// In en, this message translates to:
+  /// **'Moved to trash'**
+  String get activityDeleteTrashed;
+
+  /// Delete item outcome detail: unlinked without a trash hop (D15).
+  ///
+  /// In en, this message translates to:
+  /// **'Deleted permanently'**
+  String get activityDeletePermanent;
+
+  /// The activity footer's growing totals (02 §5.3's 'so far' semantics; a trailing + marks still-scanning counts).
+  ///
+  /// In en, this message translates to:
+  /// **'{done} of {total} items · {bytes} of {totalBytes} so far'**
+  String activityFooterTotals(
+    String done,
+    String total,
+    String bytes,
+    String totalBytes,
+  );
+
+  /// The status bar's transfer summary chip (02 §1: rate plus live task count).
+  ///
+  /// In en, this message translates to:
+  /// **'{rate} · {count, plural, =1{{count} task} other{{count} tasks}}'**
+  String statusTransferChip(String rate, int count);
+
+  /// The status bar's bandwidth chip while any direction is limited (02 §6); a side shows ∞ when only the other is limited.
+  ///
+  /// In en, this message translates to:
+  /// **'Limited: ↓{down} ↑{up}'**
+  String statusLimitChip(String down, String up);
+
+  /// Title of the throttle popover (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Bandwidth limits'**
+  String get bandwidthPopoverTitle;
+
+  /// The popover's per-direction limit label (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get bandwidthDownLabel;
+
+  /// The popover's per-direction limit label (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get bandwidthUpLabel;
+
+  /// Limit choice: no rate cap (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get bandwidthOff;
+
+  /// Limit choice that opens the free-form rate field (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Custom…'**
+  String get bandwidthCustom;
+
+  /// Hint inside the custom-rate field.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. 2 MB/s'**
+  String get bandwidthCustomHint;
+
+  /// Inline error under the custom-rate field — invalid input is rejected, never silently clamped.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a rate like 500 KB/s (up to {max})'**
+  String bandwidthInvalid(String max);
+
+  /// Applies the custom-rate field's value.
+  ///
+  /// In en, this message translates to:
+  /// **'Set'**
+  String get bandwidthSet;
+
+  /// History verb for a copy task (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get historyVerbCopy;
+
+  /// History verb for a move task (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Move'**
+  String get historyVerbMove;
+
+  /// History verb for a delete task (02 §6).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get historyVerbDelete;
+
+  /// Accessibility label for the panes↔activity-panel splitter (02 §1).
+  ///
+  /// In en, this message translates to:
+  /// **'Resize activity panel'**
+  String get resizeActivityPanel;
+
+  /// The activity splitter's current height as whole pixels.
+  ///
+  /// In en, this message translates to:
+  /// **'{value} px'**
+  String activityPanelHeightPx(int value);
 }
 
 class _AppLocalizationsDelegate

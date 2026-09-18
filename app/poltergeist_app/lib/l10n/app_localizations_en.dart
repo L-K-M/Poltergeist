@@ -1076,4 +1076,276 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workspaceMenuEmpty => 'No Saved Workspaces';
+
+  @override
+  String get viewToggleActivityPanelLabel => 'Show/Hide Activity';
+
+  @override
+  String get queueTogglePauseLabel => 'Pause/Resume Transfers';
+
+  @override
+  String get activityTabActivity => 'Activity';
+
+  @override
+  String get activityTabHistory => 'History';
+
+  @override
+  String get queuePauseTooltip =>
+      'Pause stops new transfers; current files finish';
+
+  @override
+  String get queueResumeTooltip => 'Resume the transfer queue';
+
+  @override
+  String get activityBandwidthButton => 'Bandwidth';
+
+  @override
+  String get activityBandwidthUnlimited => '∞';
+
+  @override
+  String get activityClearCompleted => 'Clear completed';
+
+  @override
+  String get activityClosePanel => 'Close panel';
+
+  @override
+  String get activityEmpty => 'No transfers in progress.';
+
+  @override
+  String get activityHistoryEmpty => 'No transfer history yet.';
+
+  @override
+  String get activityHistoryFilter => 'Filter history';
+
+  @override
+  String get activityHistoryClear => 'Clear History';
+
+  @override
+  String activityRestoredBanner(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transfers from your last session are paused',
+      one: '1 transfer from your last session is paused',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get activityRestoredResume => 'Resume';
+
+  @override
+  String get activityRestoredDiscard => 'Discard';
+
+  @override
+  String get activityCancelTask => 'Cancel';
+
+  @override
+  String get activityRetryTask => 'Retry';
+
+  @override
+  String get activityRemoveTask => 'Remove';
+
+  @override
+  String get activityRevealInPane => 'Reveal in pane';
+
+  @override
+  String get activityCopyError => 'Copy error';
+
+  @override
+  String get activitySkipItem => 'Skip';
+
+  @override
+  String get activityCancelItem => 'Cancel';
+
+  @override
+  String get activityExpandTask => 'Show files';
+
+  @override
+  String get activityCollapseTask => 'Hide files';
+
+  @override
+  String activityConflictsTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items need answers',
+      one: '1 item needs an answer',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get conflictResolve => 'Resolve…';
+
+  @override
+  String conflictDialogTitle(String name, String destination) {
+    return '$name already exists in $destination';
+  }
+
+  @override
+  String conflictExistingLine(String details) {
+    return 'Existing: $details';
+  }
+
+  @override
+  String conflictReplacingLine(String details) {
+    return 'Replacing it with: $details';
+  }
+
+  @override
+  String get conflictVerbReplace => 'Replace';
+
+  @override
+  String get conflictVerbReplaceIfNewer => 'Replace if newer';
+
+  @override
+  String get conflictVerbKeepBoth => 'Keep both';
+
+  @override
+  String get conflictVerbSkip => 'Skip';
+
+  @override
+  String get conflictVerbMerge => 'Merge';
+
+  @override
+  String get conflictStop => 'Stop';
+
+  @override
+  String get conflictNotNow => 'Not now';
+
+  @override
+  String conflictApplyToAll(int count) {
+    return 'Apply to all $count remaining conflicts in this task';
+  }
+
+  @override
+  String get transferStateQueued => 'Queued';
+
+  @override
+  String get transferStateScanning => 'Scanning…';
+
+  @override
+  String get transferStateRunning => 'Running';
+
+  @override
+  String get transferStatePaused => 'Paused';
+
+  @override
+  String get transferStateCompleted => 'Completed';
+
+  @override
+  String get transferStateFailed => 'Failed';
+
+  @override
+  String get transferStateCancelled => 'Cancelled';
+
+  @override
+  String get transferItemPending => 'Waiting';
+
+  @override
+  String get transferItemConflict => 'Needs an answer';
+
+  @override
+  String get transferItemSkipped => 'Skipped';
+
+  @override
+  String get activityTaskRouteLocal => 'This computer';
+
+  @override
+  String activityTaskTitleMulti(int count, String destination) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return '$_temp0 to $destination';
+  }
+
+  @override
+  String activityTaskTitleDelete(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return 'Delete $_temp0';
+  }
+
+  @override
+  String get activityDeleteTrashed => 'Moved to trash';
+
+  @override
+  String get activityDeletePermanent => 'Deleted permanently';
+
+  @override
+  String activityFooterTotals(
+    String done,
+    String total,
+    String bytes,
+    String totalBytes,
+  ) {
+    return '$done of $total items · $bytes of $totalBytes so far';
+  }
+
+  @override
+  String statusTransferChip(String rate, int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count tasks',
+      one: '$count task',
+    );
+    return '$rate · $_temp0';
+  }
+
+  @override
+  String statusLimitChip(String down, String up) {
+    return 'Limited: ↓$down ↑$up';
+  }
+
+  @override
+  String get bandwidthPopoverTitle => 'Bandwidth limits';
+
+  @override
+  String get bandwidthDownLabel => 'Download';
+
+  @override
+  String get bandwidthUpLabel => 'Upload';
+
+  @override
+  String get bandwidthOff => 'Off';
+
+  @override
+  String get bandwidthCustom => 'Custom…';
+
+  @override
+  String get bandwidthCustomHint => 'e.g. 2 MB/s';
+
+  @override
+  String bandwidthInvalid(String max) {
+    return 'Enter a rate like 500 KB/s (up to $max)';
+  }
+
+  @override
+  String get bandwidthSet => 'Set';
+
+  @override
+  String get historyVerbCopy => 'Copy';
+
+  @override
+  String get historyVerbMove => 'Move';
+
+  @override
+  String get historyVerbDelete => 'Delete';
+
+  @override
+  String get resizeActivityPanel => 'Resize activity panel';
+
+  @override
+  String activityPanelHeightPx(int value) {
+    return '$value px';
+  }
 }

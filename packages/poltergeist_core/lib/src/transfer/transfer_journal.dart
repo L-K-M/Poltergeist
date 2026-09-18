@@ -869,6 +869,16 @@ abstract interface class TransferPersistence {
   /// journal records were lost (03 §4.6's ordering rule).
   void appendHistory(TransferHistoryEntry entry);
 
+  /// The persisted history records — the activity panel's History tab
+  /// (02 §6) reads these. Append order, oldest first; the store's
+  /// retention cap trims from the front.
+  List<TransferHistoryEntry> get history;
+
+  /// Drops every history record — the History tab's Clear History (02
+  /// §6). Queued behind the writer chain so the drop and the file
+  /// rewrite are one ordered step; the journal is untouched.
+  Future<void> clearHistory();
+
   /// Clean shutdown: flush, fsync, and run the clean-shutdown compaction
   /// (finished tasks migrate to history; the journal rewrites to the
   /// pending set). The queue calls this from `dispose`.

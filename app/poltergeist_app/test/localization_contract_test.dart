@@ -101,6 +101,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'tabs.newTabTarget'",
     "'panes.doubleClickAction'",
     "'tabs.reconnectRestored'",
+    // The activity panel's persisted keys (02 §1/§6): height, the two
+    // throttle limits, and the auto-remove flag — settings.json keys.
+    "'layout.activityPanelHeight'",
+    "'transfer.downloadLimitBytesPerSecond'",
+    "'transfer.uploadLimitBytesPerSecond'",
+    "'transfer.autoClearCompleted'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // The session-state document's on-disk schema (02 §3): settings.json
@@ -154,6 +160,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Invalid session pane visibility'",
     "'Invalid session panes'",
     "'Invalid session entry'",
+    // The activity panel's optional visibility flag (02 §1's third
+    // splitter chrome): key plus its strict-type diagnostic.
+    "'activityPanelHidden'",
+    "'Invalid session activity panel flag'",
   },
   // The settings.json key the session document lives under (02 §3).
   'lib/services/session_state_store.dart': {"'session.state'"},
@@ -314,6 +324,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'openInPane: no bookmark for \${server.serverId}'",
     // The status bar's sync chip widget key — plumbing, not copy.
     "'statusbar.syncChip'",
+    // The activity panel's widget keys (splitter, panel, status chips)
+    // and the reveal-in-pane's missing-bookmark diagnostic — plumbing
+    // and a reported fault, never rendered copy.
+    "'activity.panel.splitter'",
+    "'activity.splitter'",
+    "'activity.panel'",
+    "'statusbar.transferChip'",
+    "'statusbar.limitChip'",
+    r"'revealInPane: no bookmark for $serverId'",
     // The confirm dialog's bullet list marker — typographic, not copy.
     r"'• ${tabCloseTriggerLabel(l10n, trigger)}'",
   },
@@ -447,6 +466,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'selection.quickSelect'",
     "'view.filter'",
     "'view.toggleSecondPane'",
+    "'view.toggleActivityPanel'",
     "'view.toggleSyncBrowsing'",
     "'tab.new'",
     "'tab.close'",
@@ -708,6 +728,125 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'captured $captured frame(s), but the scroll window requires >= '",
     r"'$required'",
     r"'no positive vsync interval in ${intervals.length} samples'",
+  },
+  // The activity panel's registered command id (D21 plumbing).
+  'lib/ui/activity/activity_commands.dart': {"'queue.togglePause'"},
+  // Rate/ETA rendering and path grammar: the `/s` suffix, the ETA unit
+  // glyphs, the custom-rate regex and its unit table, both path
+  // separators, the endpoint:path composition, and the `→` route arrow
+  // — technical formatting and machine data, reviewed per file.
+  'lib/ui/activity/activity_format.dart': {
+    r"'${formatPaneSize(bytesPerSecond.round(), platform: platform)}/s'",
+    r"'${formatPaneSize(bytesPerSecond, platform: platform)}/s'",
+    r"'${seconds}s'",
+    r"'${minutes}m ${seconds % 60}s'",
+    r"'${hours}h ${minutes % 60}m'",
+    r"'${hours ~/ 24}d ${hours % 24}h'",
+    "','",
+    "'.'",
+    "''",
+    "'b'",
+    "'k'",
+    "'kb'",
+    "'m'",
+    "'mb'",
+    "'g'",
+    "'gb'",
+    "'t'",
+    "'tb'",
+    r"r'^(\d+(?:[.,]\d+)?)\s*([kmgt]?i?b)?(?:\s*/\s*s)?$'",
+    "'/'",
+    "'\\\\'",
+    r"'$candidate/'",
+    r"'$path/'",
+    r"'${transferEndpointLabel(task.source, localLabel: localLabel)}:'",
+    r"' $sourcePath'",
+    r"'${transferEndpointLabel(task.destination, localLabel: localLabel)}:'",
+    r"' ${task.destinationDir}'",
+    r"'$source → $destination'",
+  },
+  // The panel's widget keys plus the growing-totals `+` marker —
+  // plumbing and machine grammar, never authored copy.
+  'lib/ui/activity/activity_panel.dart': {
+    "'activity.tab.activity'",
+    "'activity.tab.history'",
+    "'activity.pause'",
+    "'activity.bandwidth'",
+    "'activity.bandwidthPopover'",
+    "'activity.clearCompleted'",
+    "'activity.close'",
+    "'activity.conflicts'",
+    "'activity.restoredBanner'",
+    "'activity.restoredBanner.resume'",
+    "'activity.restoredBanner.discard'",
+    "'activity.footer'",
+    "''",
+    "'+'",
+    r"'$done${growing ? '+' : ''}'",
+    r"'$total${growing ? '+' : ''}'",
+    r"'${formatPaneSize(totalBytes, platform: platform)}'",
+    r"'${growing ? '+' : ''}'",
+  },
+  // Task-row and item sub-row widget keys plus the bytes/progress
+  // separators and the still-scanning `+` — machine data compositions
+  // beside ARB-authored copy.
+  'lib/ui/activity/activity_rows.dart': {
+    "'activity.taskList'",
+    r"'activity.task.${task.id}'",
+    r"'activity.taskBody.${task.id}'",
+    r"'activity.item.${item.id}'",
+    r"'activity.cancel.${task.id}'",
+    r"'activity.retry.${task.id}'",
+    r"'activity.remove.${task.id}'",
+    r"'activity.copyError.${task.id}'",
+    r"'activity.reveal.${task.id}'",
+    r"'activity.itemSkip.${item.id}'",
+    r"'activity.itemCancel.${item.id}'",
+    r"'activity.itemResolve.${item.id}'",
+    r"'activity.itemRetry.${item.id}'",
+    "' / '",
+    "' · '",
+    "'+'",
+    "''",
+  },
+  // The conflict strip/dialog's widget keys and the size·mtime summary
+  // composition — plumbing and machine data, never authored copy.
+  'lib/ui/activity/conflict_widgets.dart': {
+    r"'activity.conflict.${conflict.itemId}'",
+    r"'activity.conflictResolve.${conflict.itemId}'",
+    r"'conflict.verb.${verb.name}'",
+    "'conflict.applyToAll'",
+    r"'$size · $modified'",
+  },
+  // The History tab's widget keys, the filter's haystack joins, the
+  // endpoint:path route composition, and the `·`/`→` separators —
+  // machine data rendered inside ARB-labelled surfaces.
+  'lib/ui/activity/history_view.dart': {
+    "'history.filter'",
+    "'history.clear'",
+    "'history.list'",
+    "''",
+    r"'\n'",
+    "', '",
+    "' → '",
+    r"'${transferEndpointLabel(entry.source, localLabel: l10n.activityTaskRouteLocal)}'",
+    r"'${transferEndpointLabel(entry.destination, localLabel: l10n.activityTaskRouteLocal)}'",
+    r"':${entry.destinationDir}'",
+    r"'$time · $verb · $names'",
+    r"'$route · $outcome'",
+    r"' · ${entry.error}'",
+    r"'${entry.error == null ? '' : ' · ${entry.error}'}'",
+  },
+  // The popover's per-direction widget keys — test plumbing composed
+  // from the direction prefix, never authored copy.
+  'lib/ui/activity/bandwidth_popover.dart': {
+    "'bandwidth.down.field'",
+    "'bandwidth.up.field'",
+    "'bandwidth.down.'",
+    "'bandwidth.up.'",
+    r"'$chipKeyPrefix$i'",
+    r"'${chipKeyPrefix}custom'",
+    r"'${chipKeyPrefix}set'",
   },
 };
 

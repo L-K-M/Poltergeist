@@ -144,6 +144,7 @@ export 'src/transfer/transfer_queue.dart'
         TransferQueueConflictEvent,
         TransferQueueEvent,
         TransferQueueItemEvent,
+        TransferQueueOrderEvent,
         TransferQueueProgressEvent,
         TransferQueueTaskEvent,
         maxSurfacedPendingConflicts;

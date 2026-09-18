@@ -1,8 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/activity_panel_controller.dart';
+import '../services/app_preferences.dart' show minActivityPanelHeight;
+import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
 import '../services/bookmark_store.dart';
 import '../services/connection_state_bridge.dart';
@@ -18,12 +22,16 @@ import '../services/ssh_config_import_setup.dart';
 import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
+import 'activity/activity_commands.dart';
+import 'activity/activity_format.dart';
+import 'activity/activity_panel.dart';
 import 'adaptive_shell.dart';
 import 'connections/connections_command.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/pane_commands.dart';
+import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
 import 'workspace/workspace_commands.dart';
@@ -50,6 +58,15 @@ class WorkspaceShell extends StatefulWidget {
     this.workspaces,
     this.connectionEngine,
     this.engineSession,
+    this.transferQueue,
+    this.initialActivityPanelHeight = 200,
+    this.onActivityPanelHeightChanged,
+    this.onActivityPanelHeightSaveError,
+    this.initialDownloadLimit,
+    this.initialUploadLimit,
+    this.onDownloadLimitChanged,
+    this.onUploadLimitChanged,
+    this.autoClearCompletedTransfers = true,
   });
 
   final double initialPaneRatio;
@@ -120,6 +137,34 @@ class WorkspaceShell extends StatefulWidget {
   /// Null leaves those unwired (tests and alternate boot paths).
   final EngineSession? engineSession;
 
+  /// The transfer queue behind the activity panel (02 §6, D16): the
+  /// app-facing seam, never the concrete core queue. Null mounts the
+  /// panel chrome empty — production wiring lands with the engine-host
+  /// transfer slice; the panel's verbs stay reachable-but-disabled, and
+  /// `queue.togglePause` still registers (D21).
+  final AppTransferQueue? transferQueue;
+
+  /// The activity panel's persisted pixel height (02 §1's third
+  /// splitter): default 200, floor 120, capped at half the window in
+  /// the splitter's resize path.
+  final double initialActivityPanelHeight;
+  final PaneRatioSaver? onActivityPanelHeightChanged;
+  final void Function(Object, StackTrace)? onActivityPanelHeightSaveError;
+
+  /// The persisted throttle choices seeded onto the queue's limiters
+  /// (02 §6's "persisted"); null is unlimited.
+  final int? initialDownloadLimit;
+  final int? initialUploadLimit;
+
+  /// Persist sinks for the popover's writes — the limiter takes the
+  /// value immediately; these land it in settings.
+  final FutureOr<void> Function(int? bytesPerSecond)?
+  onDownloadLimitChanged;
+  final FutureOr<void> Function(int? bytesPerSecond)? onUploadLimitChanged;
+
+  /// 02 §6's "auto-remove on success" setting (default on).
+  final bool autoClearCompletedTransfers;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -140,6 +185,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   FocusNode? _leftFocus;
   FocusNode? _rightFocus;
 
+  /// The activity panel's state owner (02 §6): session-independent —
+  /// a workspace rebuild rebinds panes, not the queue mirror — so it
+  /// lives on the shell state, not inside [_buildWorkspace].
+  late final ActivityPanelController _activity;
+  late final FocusNode _activitySplitterFocus;
+  double _activityPanelHeight = 0;
+
   @override
   void initState() {
     super.initState();
@@ -149,6 +201,23 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // re-claimed by the left pane.
     _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
+    _activitySplitterFocus =
+        FocusNode(debugLabel: 'activity.panel.splitter');
+    _activityPanelHeight = widget.initialActivityPanelHeight;
+    _activity = ActivityPanelController(
+      queue: widget.transferQueue,
+      autoClearCompleted: widget.autoClearCompletedTransfers,
+      downloadLimit: widget.initialDownloadLimit,
+      uploadLimit: widget.initialUploadLimit,
+      persistDownloadLimit: widget.onDownloadLimitChanged,
+      persistUploadLimit: widget.onUploadLimitChanged,
+      onError: ApplicationErrorReporter().report,
+      // D16's anti-hiding rule made concrete: the first live task
+      // re-opens the chrome — the panel's rows are the queue's only
+      // window, so new work must never sit behind a hidden panel.
+      onTasksArrived: () =>
+          _workspace?.setActivityPanelHidden(false),
+    );
     _connections = _buildConnections();
     _buildWorkspace();
     widget.workspaces?.addListener(_onWorkspacesChanged);
@@ -179,6 +248,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace = null;
       _buildWorkspace();
     }
+    if (!identical(oldWidget.transferQueue, widget.transferQueue)) {
+      // A later-arriving queue seam rebinds the mirror; the persisted
+      // limits re-apply inside the setter.
+      _activity.queue = widget.transferQueue;
+    }
     // The settings slice writes the strips' live newTabTarget directly;
     // this sync only covers a parent rebuild with a changed seed, which
     // can never clobber the settings writer — it fires solely on an
@@ -207,6 +281,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   @override
   void dispose() {
     widget.workspaces?.removeListener(_onWorkspacesChanged);
+    _activity.dispose();
+    _activitySplitterFocus.dispose();
     _connections?.dispose();
     _disposeWorkspace();
     _leftFocus?.dispose();
@@ -285,6 +361,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         strip?.restoreSession(pane);
       }
       workspace.setSecondPaneHidden(restored.secondPaneHidden);
+      // The panel's persisted intent (02 §1): only explicit user
+      // toggles land here — auto-hide never writes this flag.
+      workspace.setActivityPanelHidden(restored.activityPanelHidden);
       if (restored.activePaneId == PaneTabsController.rightPaneId) {
         // Refused while pane B is hidden — the workspace's own rule
         // parks commands on the survivor (02 §3).
@@ -376,11 +455,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           focusRight: () => _focusPane(workspace.right),
           swapFocus: () => _focusPane(workspace.swapFocus()),
         ),
+      // `queue.togglePause` registers unconditionally (D21): its menu
+      // row stays visible-disabled while no queue seam is bound.
+      ...buildActivityCommands(activity: _activity),
     ];
 
     // Re-evaluate enablement without rebuilding the pane listings — one
     // shared listenable for the toolbar and the registry-driven menus.
     final enablement = Listenable.merge([
+      _activity,
       if (workspace != null) ...[
         workspace,
         workspace.left,
@@ -458,10 +541,32 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                         ),
                       ),
               ),
+              // The activity panel's persisted intent rides the
+              // workspace listenable (02 §1: user-shown, never
+              // auto-hidden) — unmounted entirely while hidden.
+              if (workspace != null)
+                ListenableBuilder(
+                  listenable: workspace,
+                  builder: (context, _) {
+                    if (workspace.activityPanelHidden) {
+                      return const SizedBox.shrink();
+                    }
+                    return _ActivitySection(
+                      controller: _activity,
+                      height: _activityPanelHeight,
+                      splitterFocus: _activitySplitterFocus,
+                      onResize: _resizeActivityPanel,
+                      onResizeEnd: _commitActivityPanelHeight,
+                      onClose: () => workspace.setActivityPanelHidden(true),
+                      onReveal: _revealTransferDestination,
+                    );
+                  },
+                ),
               Divider(height: 1, color: colors.outlineVariant),
               _StatusBar(
                 label: strings.readyStatus,
                 syncLink: workspace?.syncBrowsing,
+                activity: _activity,
               ),
             ],
           ),
@@ -469,6 +574,81 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ),
       ),
     );
+  }
+
+  /// The activity splitter's drag/key resize: pixel deltas grow the
+  /// panel upward, clamped to 02 §1's bounds (floor 120, cap half the
+  /// window — MediaQuery height is the window's content box, the honest
+  /// ceiling available here).
+  void _resizeActivityPanel(double delta) {
+    final max = MediaQuery.sizeOf(context).height / 2;
+    setState(() {
+      _activityPanelHeight = (_activityPanelHeight + delta)
+          .clamp(minActivityPanelHeight, max);
+    });
+  }
+
+  /// Persist once at the interaction boundary, not per drag pixel —
+  /// the same posture as the pane ratio's save.
+  void _commitActivityPanelHeight() {
+    final save = widget.onActivityPanelHeightChanged;
+    if (save == null) return;
+    final report = widget.onActivityPanelHeightSaveError;
+    try {
+      final result = save(_activityPanelHeight);
+      if (result is Future<void>) {
+        unawaited(
+          result.catchError((Object error, StackTrace stack) {
+            report?.call(error, stack);
+          }),
+        );
+      }
+    } on Object catch (error, stack) {
+      report?.call(error, stack);
+    }
+  }
+
+  /// Reveal-in-pane (02 §6): opens the task's destination directory on
+  /// the active pane — `openLocalAt` for a local destination, a
+  /// bookmark-resolved `connectRemote` (initialPath = the destination)
+  /// for a server side. A missing bookmark reports rather than
+  /// dead-ends the tap.
+  void _revealTransferDestination(TransferTask task) {
+    final workspace = _workspace;
+    final pane = workspace?.activeTabController;
+    if (pane == null) return;
+    switch (task.destination) {
+      case LocalFsLocation():
+        unawaited(pane.openLocalAt(task.destinationDir));
+      case ServerFsLocation(:final serverId):
+        unawaited(
+          _revealRemoteDestination(pane, serverId, task.destinationDir),
+        );
+    }
+  }
+
+  Future<void> _revealRemoteDestination(
+    PaneController pane,
+    String serverId,
+    String path,
+  ) async {
+    final store = widget.bookmarks;
+    if (store == null) return;
+    try {
+      final bookmarks = await store.load();
+      for (final bookmark in bookmarks) {
+        if (bookmark.id == serverId) {
+          await pane.connectRemote(bookmark, initialPath: path);
+          return;
+        }
+      }
+      ApplicationErrorReporter().report(
+        StateError('revealInPane: no bookmark for $serverId'),
+        StackTrace.current,
+      );
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
   }
 
   /// Moves keyboard focus to [pane]'s listing node. A focus request
@@ -761,8 +941,64 @@ class _Toolbar extends StatelessWidget {
   }
 }
 
+/// The activity panel + its top splitter — one mounted unit gated on
+/// the workspace's persisted visibility intent.
+class _ActivitySection extends StatelessWidget {
+  const _ActivitySection({
+    required this.controller,
+    required this.height,
+    required this.splitterFocus,
+    required this.onResize,
+    required this.onResizeEnd,
+    required this.onClose,
+    required this.onReveal,
+  });
+
+  final ActivityPanelController controller;
+  final double height;
+  final FocusNode splitterFocus;
+  final ValueChanged<double> onResize;
+  final VoidCallback onResizeEnd;
+  final VoidCallback onClose;
+  final void Function(TransferTask task)? onReveal;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ActivityHeightSplitter(
+          key: const ValueKey('activity.splitter'),
+          focusNode: splitterFocus,
+          label: l10n.resizeActivityPanel,
+          value: l10n.activityPanelHeightPx(height.round()),
+          increasedValue:
+              l10n.activityPanelHeightPx(height.round() + 16),
+          decreasedValue:
+              l10n.activityPanelHeightPx(height.round() - 16),
+          onResize: onResize,
+          onResizeEnd: onResizeEnd,
+        ),
+        SizedBox(
+          height: height,
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => ActivityPanel(
+              key: const ValueKey('activity.panel'),
+              controller: controller,
+              onClose: onClose,
+              onReveal: onReveal,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.label, this.syncLink});
+  const _StatusBar({required this.label, this.syncLink, this.activity});
 
   final String label;
 
@@ -770,6 +1006,12 @@ class _StatusBar extends StatelessWidget {
   /// status bar carries the same chip the path bars do — the amber
   /// link-broken variant while suspended.
   final SyncBrowsingController? syncLink;
+
+  /// The transfer queue's mirror (02 §6/§1): a live task count + rate
+  /// chip, and the bandwidth-limit chip while either direction is
+  /// capped. The status bar is never the queue's only representation —
+  /// the panel's rows are — these chips are the always-on summary.
+  final ActivityPanelController? activity;
 
   @override
   Widget build(BuildContext context) {
@@ -810,8 +1052,82 @@ class _StatusBar extends StatelessWidget {
                   },
                 ),
               ),
+            if (activity != null)
+              Flexible(
+                child: ListenableBuilder(
+                  listenable: activity!,
+                  builder: (context, _) =>
+                      _TransferChips(controller: activity!),
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The status bar's transfer summary (02 §1/§6): a rate+count chip while
+/// any task is live, plus the bandwidth chip while a direction is
+/// capped. Both chips are summaries only — per-item truth stays on the
+/// panel's rows (D16).
+class _TransferChips extends StatelessWidget {
+  const _TransferChips({required this.controller});
+
+  final ActivityPanelController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final platform = Theme.of(context).platform;
+    final live =
+        controller.tasks.where((task) => !task.isTerminal).length;
+    final down = controller.downloadLimit;
+    final up = controller.uploadLimit;
+    final rate = controller.aggregateRate;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (live > 0)
+            Flexible(
+              child: Text(
+                key: const ValueKey('statusbar.transferChip'),
+                l10n.statusTransferChip(
+                  rate > 0
+                      ? formatTransferRate(rate, platform: platform)
+                      : paneUnevaluated,
+                  live,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
+          if (down != null || up != null)
+            Flexible(
+              child: Padding(
+                padding: EdgeInsetsDirectional.only(
+                  start: live > 0 ? 10 : 0,
+                ),
+                child: Text(
+                  key: const ValueKey('statusbar.limitChip'),
+                  l10n.statusLimitChip(
+                    down == null
+                        ? l10n.activityBandwidthUnlimited
+                        : formatTransferLimit(down, platform: platform),
+                    up == null
+                        ? l10n.activityBandwidthUnlimited
+                        : formatTransferLimit(up, platform: platform),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

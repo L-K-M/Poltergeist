@@ -67,6 +67,27 @@ class WorkspaceController extends ChangeNotifier {
   /// [secondPaneShown] going false whichever path hid the pane (02 §7).
   bool _secondPaneLayoutShown = true;
 
+  /// `view.toggleActivityPanel`'s user intent (02 §1/§6, D16): the
+  /// activity panel is optional chrome — hidden it collapses to the
+  /// status bar's transfer chip. The default is hidden: the shell
+  /// un-hides it on the first-tasks edge, and only the explicit toggle
+  /// persists (there is no responsive auto-hide for the panel).
+  bool _activityPanelHidden = true;
+
+  /// Whether the user intent hides the activity panel. Written only
+  /// through [setActivityPanelHidden] so every flip notifies — the
+  /// session document persists this flag (02 §1's persistence list).
+  bool get activityPanelHidden => _activityPanelHidden;
+
+  void setActivityPanelHidden(bool hidden) {
+    if (hidden == _activityPanelHidden) return;
+    _activityPanelHidden = hidden;
+    notifyListeners();
+  }
+
+  void toggleActivityPanel() =>
+      setActivityPanelHidden(!_activityPanelHidden);
+
   /// Whether pane B is on screen: not user-hidden and not layout-hidden.
   bool get secondPaneShown => !_secondPaneHidden && _secondPaneLayoutShown;
 

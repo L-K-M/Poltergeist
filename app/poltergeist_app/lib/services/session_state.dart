@@ -214,6 +214,7 @@ final class SessionState {
   const SessionState({
     required this.activePaneId,
     required this.secondPaneHidden,
+    this.activityPanelHidden = true,
     required this.panes,
   });
 
@@ -221,12 +222,19 @@ final class SessionState {
 
   final String activePaneId;
   final bool secondPaneHidden;
+
+  /// `view.toggleActivityPanel`'s persisted user intent (02 §1's
+  /// persistence list). Added inside v1 as an optional field — a
+  /// document written before the panel existed decodes to the default
+  /// (hidden) rather than failing the strict root.
+  final bool activityPanelHidden;
   final List<SessionPaneState> panes;
 
   Map<String, Object?> toJson() => {
     'version': schemaVersion,
     'activePane': activePaneId,
     'secondPaneHidden': secondPaneHidden,
+    'activityPanelHidden': activityPanelHidden,
     'panes': [for (final pane in panes) pane.toJson()],
   };
 
@@ -241,12 +249,18 @@ final class SessionState {
     }
     final activePane = json['activePane'];
     final secondPaneHidden = json['secondPaneHidden'];
+    final activityPanelHidden = json['activityPanelHidden'];
     final panes = json['panes'];
     if (activePane is! String) {
       throw const FormatException('Invalid session active pane');
     }
     if (secondPaneHidden is! bool) {
       throw const FormatException('Invalid session pane visibility');
+    }
+    // Optional since it postdates the document's first shape: absent
+    // means the pre-panel default; present means a bool, strictly.
+    if (activityPanelHidden != null && activityPanelHidden is! bool) {
+      throw const FormatException('Invalid session activity panel flag');
     }
     if (panes is! List) {
       throw const FormatException('Invalid session panes');
@@ -273,6 +287,7 @@ final class SessionState {
     return SessionState(
       activePaneId: activePane,
       secondPaneHidden: secondPaneHidden,
+      activityPanelHidden: activityPanelHidden as bool? ?? true,
       panes: decodedPanes,
     );
   }

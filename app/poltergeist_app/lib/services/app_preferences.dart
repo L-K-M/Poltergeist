@@ -13,6 +13,15 @@ const _windowHeightKey = 'window.height';
 const _newTabTargetKey = 'tabs.newTabTarget';
 const _doubleClickActionKey = 'panes.doubleClickAction';
 const _reconnectRestoredTabsKey = 'tabs.reconnectRestored';
+const _activityPanelHeightKey = 'layout.activityPanelHeight';
+const _downloadLimitKey = 'transfer.downloadLimitBytesPerSecond';
+const _uploadLimitKey = 'transfer.uploadLimitBytesPerSecond';
+const _autoClearCompletedKey = 'transfer.autoClearCompleted';
+
+/// The activity panel's persisted height floor/default (02 §1's
+/// persistence block: default 200 px, min 120, max half the window).
+const defaultActivityPanelHeight = 200.0;
+const minActivityPanelHeight = 120.0;
 
 class AppPreferences {
   AppPreferences({required SettingsStore store})
@@ -100,6 +109,82 @@ class AppPreferences {
 
   Future<void> saveReconnectRestoredTabs(bool value) =>
       _store.set(_reconnectRestoredTabsKey, value);
+
+  /// The activity panel's height (02 §1): persisted as plain pixels and
+  /// clamped to the floor at load — the 50%-of-window cap is enforced by
+  /// the splitter at layout time, where the window size is known.
+  Future<double> loadActivityPanelHeight() async {
+    num? stored;
+    try {
+      stored = await _store.get<num>(_activityPanelHeightKey);
+    } catch (_) {
+      return defaultActivityPanelHeight;
+    }
+    if (stored == null || !stored.isFinite) {
+      return defaultActivityPanelHeight;
+    }
+    final height = stored.toDouble();
+    return height < minActivityPanelHeight
+        ? minActivityPanelHeight
+        : height;
+  }
+
+  Future<void> saveActivityPanelHeight(double height) {
+    if (!height.isFinite) return Future.value();
+    return _store.set(
+      _activityPanelHeightKey,
+      height < minActivityPanelHeight ? minActivityPanelHeight : height,
+    );
+  }
+
+  /// The throttle popover's persisted per-direction limits (02 §6's
+  /// "applied immediately, persisted"): null means unlimited. A stored
+  /// non-positive value decodes as unlimited — the limiter normalizes
+  /// it the same way.
+  Future<int?> loadDownloadLimit() => _loadLimit(_downloadLimitKey);
+
+  Future<int?> loadUploadLimit() => _loadLimit(_uploadLimitKey);
+
+  Future<int?> _loadLimit(String key) async {
+    num? stored;
+    try {
+      stored = await _store.get<num>(key);
+    } catch (_) {
+      return null;
+    }
+    if (stored == null) return null;
+    final value = stored.toInt();
+    return value > 0 ? value : null;
+  }
+
+  /// Persist a limit — or its removal ([bytesPerSecond] null = Off).
+  Future<void> saveDownloadLimit(int? bytesPerSecond) =>
+      _saveLimit(_downloadLimitKey, bytesPerSecond);
+
+  Future<void> saveUploadLimit(int? bytesPerSecond) =>
+      _saveLimit(_uploadLimitKey, bytesPerSecond);
+
+  Future<void> _saveLimit(String key, int? bytesPerSecond) {
+    // A null write decodes back to "no stored limit" — the same answer
+    // as an absent key, so removal is not needed.
+    final normalized =
+        bytesPerSecond != null && bytesPerSecond > 0 ? bytesPerSecond : null;
+    return _store.set(key, normalized);
+  }
+
+  /// 02 §6's "auto-remove on success" setting (default on): a
+  /// completed row lingers then leaves the listing; turning it off
+  /// keeps completed rows until Clear-completed.
+  Future<bool> loadAutoClearCompletedTransfers() async {
+    try {
+      return await _store.get<bool>(_autoClearCompletedKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> saveAutoClearCompletedTransfers(bool value) =>
+      _store.set(_autoClearCompletedKey, value);
 
   Future<Rect?> loadWindowBounds() async {
     late final List<num?> storedValues;
