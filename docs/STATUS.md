@@ -5779,7 +5779,7 @@ xattrs, ACLs, ownership, and birth time are dropped — explicitly out of
 v1 scope per the decision; the native fast-path spike (APFS clonefile,
 Linux FICLONE, Windows CopyFileEx) remains scheduled in 07.
 
-Validation: 18 new tests in `local_ops_test.dart` — bounded streamed
+Validation: 19 new tests in `local_ops_test.dart` — bounded streamed
 copy with a byte probe, progress events, mid-copy cancel with no orphan
 temps, mtime+mode preservation, throttle-bucket isolation, journal
 milestones; rename-path move (no bytes piped); EXDEV move ordering
@@ -5791,7 +5791,7 @@ case-insensitive self/occupant folding and case-sensitive distinct-name
 behavior on the fake plus an adaptive real-fs probe — plus one
 `isCrossDeviceRenameError` predicate test covering POSIX EXDEV and
 Win32 ERROR_NOT_SAME_DEVICE (17, platform-gated so POSIX EEXIST never
-misfires). Full core suite 1121 green (16 fixture skips),
+misfires). Full core suite 1122 green (16 fixture skips),
 analyze clean. No UI, no trash/D15, no DnD, no pin or lock change.
 
 ## Open items

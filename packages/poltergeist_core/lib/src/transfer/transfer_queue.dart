@@ -1617,6 +1617,21 @@ class TransferQueue {
               'committed.',
         );
       }
+    } else if (!overwrite &&
+        await _statOrNull(dstFs, destinationPath) != null) {
+      // Symmetric guard: overwrite:false means the destination was free
+      // at decide time — an occupant that appeared since must conflict,
+      // not be silently clobbered by the rename (dart:io has no
+      // no-replace mode; the piped path's exclusive create would have
+      // conflicted, and this check restores that protection).
+      throw RemoteFileException(
+        kind: RemoteFileErrorKind.conflict,
+        operation: 'rename',
+        path: destinationPath,
+        message:
+            '"$destinationPath" appeared on disk before the move '
+            'committed.',
+      );
     }
     try {
       await dstFs.rename(

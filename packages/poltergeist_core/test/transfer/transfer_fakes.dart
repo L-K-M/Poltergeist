@@ -481,7 +481,12 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     if (source.isDirectory) {
       throw UnimplementedError('the fake rename is file-only');
     }
-    final occupant = entryAt(newPath);
+    // rename(2) succeeds as a no-op when old and new name the same
+    // entry (identical paths, or case variants on a case-insensitive
+    // volume — where it also refreshes the stored spelling). Treating
+    // the source as its own occupant would raise a bogus conflict or,
+    // under overwrite, delete the file's bytes before re-adding them.
+    final occupant = _matches(oldPath, newPath) ? null : entryAt(newPath);
     // Real rename(file → dir) fails with EISDIR regardless of
     // overwrite — an occupant directory must never be clobbered.
     if (occupant != null && occupant.isDirectory) {

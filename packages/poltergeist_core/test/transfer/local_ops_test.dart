@@ -147,10 +147,14 @@ void main() {
         expect(task.state, TransferTaskState.completed);
         expect(dstFile('big.bin').readAsBytesSync(), bytes);
         // The pipe's bound held: in-flight bytes stayed within the
-        // configured bound plus a couple of 256-byte chunks of
-        // pause slip — nowhere near the 256 KiB file.
-        expect(probe.peak, lessThanOrEqualTo(8 * 1024 + 4 * 256));
+        // configured bound plus a couple of scripted chunks of pause
+        // slip — nowhere near the 256 KiB file.
+        const bound = 8 * 1024 + 4 * InstrumentedLocalFs.scriptedChunkStep;
+        expect(probe.peak, lessThanOrEqualTo(bound));
         expect(probe.peak, greaterThan(0));
+        // Keep the bound meaningful: a fixture at or below it would
+        // pass even with backpressure fully broken.
+        expect(bytes.length, greaterThan(bound));
         final progress = events
             .whereType<TransferQueueProgressEvent>()
             .map((event) => event.transferred)
@@ -458,6 +462,43 @@ void main() {
       expect(localFs.deleteCalls, 0);
       expect(file.readAsStringSync(), 'self');
     });
+
+    test(
+      'a destination appearing between decide and commit conflicts — '
+      'rename never silently clobbers it',
+      () async {
+        final file = writeLocal('late.txt', 'mine'.codeUnits);
+        final dstPath = p.join(localDst.path, 'late.txt');
+        var statCalls = 0;
+        localFs.onStat = (path) {
+          // The occupant lands in the decide→commit window: the scan
+          // phase stats the destination once (call 0), the run-time
+          // decide stats it again (call 1) — inject after that, so the
+          // commit-time re-verification is the first check to see it.
+          if (path == dstPath && statCalls++ == 1) {
+            File(dstPath).writeAsStringSync('late arrival');
+          }
+        };
+
+        final task = queue.enqueue(
+          localSpec(
+            rootPaths: [file.path],
+            destinationDir: localDst.path,
+            operation: TransferOperation.move,
+          ),
+        );
+        await awaitTaskDone(task);
+
+        // The commit-time conflict re-decided on fresh reality: the
+        // skip policy wins, the late occupant and the source both
+        // survive, and no rename ever ran.
+        expect(task.state, TransferTaskState.completed);
+        expect(task.items.single.state, TransferItemState.skipped);
+        expect(File(dstPath).readAsStringSync(), 'late arrival');
+        expect(file.readAsStringSync(), 'mine');
+        expect(localFs.renameCalls, 0);
+      },
+    );
 
     test(
       'a copy onto itself with keepBoth produces a numbered duplicate',
@@ -781,6 +822,10 @@ class InstrumentedLocalFs extends LocalFileSystem {
   /// 64 KiB `openRead` block (two of which can slip past the pause on
   /// Windows) would make platform-dependent.
   bool chunkedDownload = false;
+
+  /// Chunk size the scripted download emits; the pipe-bound test's
+  /// slip allowance is expressed in multiples of this.
+  static const int scriptedChunkStep = 256;
   final Completer<void> downloadStarted = Completer<void>();
 
   /// Optional byte-probe wrapped around the pipe: `sent` at the sink,
@@ -790,6 +835,11 @@ class InstrumentedLocalFs extends LocalFileSystem {
   /// Operation log shared with the queue's flush seam so ordering tests
   /// can assert "flush before unlink" in one sequence.
   final List<String> operationLog = [];
+
+  /// Runs after each `stat` resolves — lets a test race a filesystem
+  /// change into the decide→commit window (a scan-phase stat precedes
+  /// the run-time decide's stat, so the hook counts calls per path).
+  void Function(String path)? onStat;
 
   @override
   Future<void> rename(
@@ -834,7 +884,7 @@ class InstrumentedLocalFs extends LocalFileSystem {
     // bounded-buffer contract.
     final bytes = await File(path).readAsBytes();
     if (!downloadStarted.isCompleted) downloadStarted.complete();
-    const step = 256;
+    const step = InstrumentedLocalFs.scriptedChunkStep;
     var sent = 0;
     await destination.addStream(() async* {
       for (var offset = 0; offset < bytes.length; offset += step) {
@@ -927,6 +977,15 @@ class InstrumentedLocalFs extends LocalFileSystem {
       cancellation: cancellation,
       computeHash: computeHash,
     );
+  }
+
+  @override
+  Future<RemoteFileEntry> stat(String path, {bool followLinks = true}) async {
+    try {
+      return await super.stat(path, followLinks: followLinks);
+    } finally {
+      onStat?.call(path);
+    }
   }
 
   @override
