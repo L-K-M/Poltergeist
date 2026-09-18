@@ -31,7 +31,11 @@ class PaneEntryDrag {
   /// The verb the currently hovered target resolved, for the avatar's
   /// `+` badge; null while nothing claims the drag. Listenable so a
   /// mid-drag modifier flip repaints the badge without rebuilding the
-  /// avatar.
+  /// avatar. Payload-scoped, not gesture-scoped: `Draggable` reads
+  /// `data` from the last build, so a second drag on an un-rebuilt row
+  /// reuses this payload — the notifier must outlive the gesture. Its
+  /// only listener is the avatar's `ValueListenableBuilder`, which
+  /// unsubscribes when the overlay unmounts.
   final ValueNotifier<TransferOperation?> verb =
       ValueNotifier<TransferOperation?>(null);
 }
