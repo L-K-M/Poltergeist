@@ -89,9 +89,7 @@ Future<void> _osChannel(
 ) async {
   await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
     'desktop_drop',
-    const StandardMethodCodec().encodeMethodCall(
-      MethodCall(method, arguments),
-    ),
+    const StandardMethodCodec().encodeMethodCall(MethodCall(method, arguments)),
     (_) {},
   );
   await tester.pump();
@@ -109,10 +107,7 @@ void main() {
     final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
     final leftStrip = testPaneStrip(left);
     final rightStrip = testPaneStrip(right);
-    final workspace = WorkspaceController(
-      left: leftStrip,
-      right: rightStrip,
-    );
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
     final queue = FakeAppTransferQueue();
     final delegate = PaneDropDelegate(queue: queue);
 
@@ -121,7 +116,7 @@ void main() {
     // invariant runs before addTearDown callbacks, so a tearDown reset
     // would trip it. try/finally covers both.
     try {
-        final leftChannel = controller_test.FakePaneChannel('/home/tester');
+      final leftChannel = controller_test.FakePaneChannel('/home/tester');
       leftChannel.listings['/home/tester'] = [
         _entryAt('/home/tester', 'docs', type: RemoteFileType.directory),
         _entryAt('/home/tester', 'report.txt', size: 2048),
@@ -158,8 +153,7 @@ void main() {
           child: MaterialApp(
             debugShowCheckedModeBanner: false,
             theme: theme,
-            localizationsDelegates:
-                AppLocalizations.localizationsDelegates,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: Row(
@@ -207,9 +201,7 @@ void main() {
         final bytes = (await tester.runAsync(() async {
           final image = await boundary.toImage(pixelRatio: 2);
           try {
-            final data = await image.toByteData(
-              format: ui.ImageByteFormat.png,
-            );
+            final data = await image.toByteData(format: ui.ImageByteFormat.png);
             return data!.buffer.asUint8List();
           } finally {
             image.dispose();

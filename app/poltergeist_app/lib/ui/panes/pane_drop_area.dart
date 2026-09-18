@@ -145,8 +145,7 @@ class _PaneDropAreaState extends State<PaneDropArea> {
     if (!controller.verbsEnabled) return null;
     final location = controller.location;
     if (location == null) return null;
-    final listObject = widget.listAreaKey.currentContext
-        ?.findRenderObject();
+    final listObject = widget.listAreaKey.currentContext?.findRenderObject();
     if (listObject is! RenderBox || !listObject.hasSize) {
       // No rendered list — the empty-folder state or a surface without
       // rows: the whole zone is the current directory.
@@ -168,20 +167,14 @@ class _PaneDropAreaState extends State<PaneDropArea> {
 
   /// The overlay's verb line (02 §5.1's "Copy to /var/www /
   /// Upload to /var/www" — direction-aware for the copy verb).
-  String _labelFor(
-    TransferOperation operation,
-    String dir,
-    FsLocation source,
-  ) {
+  String _labelFor(TransferOperation operation, String dir, FsLocation source) {
     final l10n = AppLocalizations.of(context);
     if (operation == TransferOperation.move) {
       return l10n.dropMoveTo(dir);
     }
     return switch ((source, _destinationFs)) {
       (LocalFsLocation(), ServerFsLocation()) => l10n.dropUploadTo(dir),
-      (ServerFsLocation(), LocalFsLocation()) => l10n.dropDownloadTo(
-        dir,
-      ),
+      (ServerFsLocation(), LocalFsLocation()) => l10n.dropDownloadTo(dir),
       _ => l10n.dropCopyTo(dir),
     };
   }
@@ -276,15 +269,12 @@ class _PaneDropAreaState extends State<PaneDropArea> {
     // Re-resolve under the last pointer position: a listing refresh or
     // re-sort during the hold can make [row] point at an entry the user
     // never hovered, so the armed index alone proves nothing — open
-    // whatever the pointer rests on now.
+    // whatever row the pointer rests on now (a file row or an
+    // out-of-range index refuses instead).
     final global = _activeHoverGlobal;
-    if (global != null) {
-      final resolved = _resolveDrop(global);
-      if (resolved == null || resolved.folderRow != row) return;
-    } else if (row >= controller.entries.length) {
-      return;
-    }
-    final entry = controller.entries[row];
+    final target = global == null ? row : _resolveDrop(global)?.folderRow;
+    if (target == null || target >= controller.entries.length) return;
+    final entry = controller.entries[target];
     if (entry.type != RemoteFileType.directory) return;
     unawaited(controller.openEntry(entry));
     // The listing changes under the drag — the row highlight and label
@@ -411,8 +401,7 @@ class _PaneDropAreaState extends State<PaneDropArea> {
         _updateInAppHover(details.data, details.offset);
         return widget.delegate != null;
       },
-      onMove: (details) =>
-          _updateInAppHover(details.data, details.offset),
+      onMove: (details) => _updateInAppHover(details.data, details.offset),
       onLeave: (data) {
         // Leaving clears the badge too — the avatar outlives the hover.
         data?.verb.value = null;
@@ -526,10 +515,7 @@ class PaneEntryDragAvatar extends StatelessWidget {
           color: colors.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(6),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 6,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -541,18 +527,12 @@ class PaneEntryDragAvatar extends StatelessWidget {
                       const Positioned(
                         left: 0,
                         top: 0,
-                        child: Icon(
-                          Icons.insert_drive_file_outlined,
-                          size: 18,
-                        ),
+                        child: Icon(Icons.insert_drive_file_outlined, size: 18),
                       ),
                       const Positioned(
                         left: 5,
                         top: 4,
-                        child: Icon(
-                          Icons.insert_drive_file_outlined,
-                          size: 18,
-                        ),
+                        child: Icon(Icons.insert_drive_file_outlined, size: 18),
                       ),
                     ],
                   ),
@@ -580,9 +560,9 @@ class PaneEntryDragAvatar extends StatelessWidget {
               colors: colors,
               child: Text(
                 '$count',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colors.onPrimary,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelSmall?.copyWith(color: colors.onPrimary),
               ),
             ),
           ),
@@ -598,8 +578,9 @@ class PaneEntryDragAvatar extends StatelessWidget {
                     colors: colors,
                     child: Text(
                       '+',
-                      style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(color: colors.onPrimary),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: colors.onPrimary),
                     ),
                   )
                 : const SizedBox.shrink(),
@@ -621,10 +602,7 @@ class _AvatarBadge extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
       padding: const EdgeInsets.symmetric(horizontal: 3),
-      decoration: BoxDecoration(
-        color: colors.primary,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
       alignment: Alignment.center,
       child: child,
     );
