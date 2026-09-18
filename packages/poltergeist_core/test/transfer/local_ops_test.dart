@@ -127,6 +127,13 @@ void main() {
         writeLocal('big.bin', bytes);
         final probe = PipeProbe();
         localFs.pipeProbe = probe;
+        // Small deterministic chunks keep the in-flight ceiling honest:
+        // the sink counts a whole chunk before pausing the source, so
+        // the bound is pipeBufferBytes plus the chunks that can slip
+        // past one pause — 256-byte scripted chunks instead of dart:io's
+        // platform-dependent openRead blocks (two 64 KiB chunks were
+        // observed in flight on Windows).
+        localFs.chunkedDownload = true;
         queue = newQueue(pipeBufferBytes: 8 * 1024);
 
         final task = queue.enqueue(
@@ -139,11 +146,10 @@ void main() {
 
         expect(task.state, TransferTaskState.completed);
         expect(dstFile('big.bin').readAsBytesSync(), bytes);
-        // The pipe's bound held: in-flight bytes never exceeded the
-        // configured bound plus one dart:io read chunk — addStream
-        // counts a whole chunk before pausing the source, and openRead
-        // delivers 64 KiB blocks (measured: peak == 64 KiB here).
-        expect(probe.peak, lessThanOrEqualTo(8 * 1024 + 64 * 1024));
+        // The pipe's bound held: in-flight bytes stayed within the
+        // configured bound plus a couple of 256-byte chunks of
+        // pause slip — nowhere near the 256 KiB file.
+        expect(probe.peak, lessThanOrEqualTo(8 * 1024 + 4 * 256));
         expect(probe.peak, greaterThan(0));
         final progress = events
             .whereType<TransferQueueProgressEvent>()
@@ -763,11 +769,18 @@ class InstrumentedLocalFs extends LocalFileSystem {
   bool renameCrossDevice = false;
 
   /// Scripted-download hooks: pause mid-stream on [downloadGate], die
-  /// mid-stream past [downloadFailAfterBytes]. Either engages the
-  /// chunked emission below (the real adapter's per-chunk contract —
-  /// cancellation is honored between chunks and while parked).
+  /// mid-stream past [downloadFailAfterBytes], or just emit small
+  /// deterministic chunks via [chunkedDownload]. Any of them engages
+  /// the chunked emission below (the real adapter's per-chunk contract
+  /// — cancellation is honored between chunks and while parked).
   Completer<void>? downloadGate;
   int? downloadFailAfterBytes;
+
+  /// Emit the file in small fixed chunks without a gate or failure —
+  /// lets the pipe-bound test assert a tight in-flight ceiling that a
+  /// 64 KiB `openRead` block (two of which can slip past the pause on
+  /// Windows) would make platform-dependent.
+  bool chunkedDownload = false;
   final Completer<void> downloadStarted = Completer<void>();
 
   /// Optional byte-probe wrapped around the pipe: `sent` at the sink,
@@ -803,7 +816,9 @@ class InstrumentedLocalFs extends LocalFileSystem {
     bool computeHash = true,
   }) async {
     downloadCalls++;
-    if (downloadGate == null && downloadFailAfterBytes == null) {
+    if (downloadGate == null &&
+        downloadFailAfterBytes == null &&
+        !chunkedDownload) {
       return super.download(
         path,
         pipeProbe == null ? destination : _CreditingSink(destination, pipeProbe!),
@@ -813,36 +828,16 @@ class InstrumentedLocalFs extends LocalFileSystem {
       );
     }
     // Scripted path: emit the file in small chunks, honoring the gate
-    // and the cancellation token the way the real adapter does.
+    // and the cancellation token the way the real adapter does. It must
+    // ride addStream — sink.add bypasses backpressure entirely, which
+    // would make the scripted path diverge from the real adapter's
+    // bounded-buffer contract.
     final bytes = await File(path).readAsBytes();
     if (!downloadStarted.isCompleted) downloadStarted.complete();
     const step = 256;
     var sent = 0;
-    for (var offset = 0; offset < bytes.length; offset += step) {
-      if (cancellation?.isCancelled ?? false) {
-        throw RemoteFileException(
-          kind: RemoteFileErrorKind.cancelled,
-          operation: 'download',
-          path: path,
-          message: 'Transfer cancelled.',
-        );
-      }
-      if (downloadFailAfterBytes != null && sent >= downloadFailAfterBytes!) {
-        throw RemoteFileException(
-          kind: RemoteFileErrorKind.other,
-          operation: 'download',
-          path: path,
-          message: 'injected mid-copy failure',
-        );
-      }
-      final gate = downloadGate;
-      if (gate != null) {
-        // Wake on cancel so a parked read unwinds like the real
-        // adapter's cancellation race.
-        await Future.any([
-          gate.future,
-          if (cancellation != null) cancellation.whenCancelled,
-        ]);
+    await destination.addStream(() async* {
+      for (var offset = 0; offset < bytes.length; offset += step) {
         if (cancellation?.isCancelled ?? false) {
           throw RemoteFileException(
             kind: RemoteFileErrorKind.cancelled,
@@ -851,14 +846,41 @@ class InstrumentedLocalFs extends LocalFileSystem {
             message: 'Transfer cancelled.',
           );
         }
+        if (downloadFailAfterBytes != null &&
+            sent >= downloadFailAfterBytes!) {
+          throw RemoteFileException(
+            kind: RemoteFileErrorKind.other,
+            operation: 'download',
+            path: path,
+            message: 'injected mid-copy failure',
+          );
+        }
+        final gate = downloadGate;
+        if (gate != null) {
+          // Wake on cancel so a parked read unwinds like the real
+          // adapter's cancellation race.
+          await Future.any([
+            gate.future,
+            if (cancellation != null) cancellation.whenCancelled,
+          ]);
+          if (cancellation?.isCancelled ?? false) {
+            throw RemoteFileException(
+              kind: RemoteFileErrorKind.cancelled,
+              operation: 'download',
+              path: path,
+              message: 'Transfer cancelled.',
+            );
+          }
+        }
+        final end =
+            offset + step > bytes.length ? bytes.length : offset + step;
+        final chunk = bytes.sublist(offset, end);
+        sent += chunk.length;
+        pipeProbe?.sent(chunk.length);
+        yield chunk;
+        onProgress?.call(sent, bytes.length);
       }
-      final end = offset + step > bytes.length ? bytes.length : offset + step;
-      final chunk = bytes.sublist(offset, end);
-      sent += chunk.length;
-      pipeProbe?.sent(chunk.length);
-      destination.add(chunk);
-      onProgress?.call(sent, bytes.length);
-    }
+    }());
     // Return the same stat-backed entry shape the real adapter does —
     // verify-after-transfer must not be silently untested on the
     // scripted mid-stream paths.
