@@ -717,9 +717,16 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
   }
 
   /// Arms the activation timer while an accepting payload hovers — a
-  /// refused hover never switches the tab.
+  /// refused hover never switches the tab. A re-evaluation that flips
+  /// to refused mid-hover (modifier change, tab gone inert) cancels the
+  /// armed timer too, not just leave/accept.
   void _armActivation(bool allowed) {
-    if (!allowed || _activateTimer != null) return;
+    if (!allowed) {
+      _activateTimer?.cancel();
+      _activateTimer = null;
+      return;
+    }
+    if (_activateTimer != null) return;
     _activateTimer = Timer(const Duration(milliseconds: 700), () {
       _activateTimer = null;
       widget.tabs.activateTab(widget.tab);
@@ -788,17 +795,28 @@ class _TabEntryDropState extends State<_TabEntryDrop> {
         return widget.delegate != null;
       },
       onMove: (details) => _accepts(details.data),
-      onLeave: (_) => _disarm(),
+      onLeave: (data) {
+        // The badge outlives the hover — clear the resolved verb so a
+        // drag parked over a non-target doesn't keep advertising one.
+        // A move into another target re-resolves after this (leave
+        // fires before enter), so no flicker.
+        data?.verb.value = null;
+        _disarm();
+      },
       onAcceptWithDetails: (details) {
         _disarm();
         _accept(details.data);
       },
       builder: (context, candidateData, rejectedData) => Container(
-        decoration: _accepting
-            ? BoxDecoration(
-                border: Border.all(color: colors.primary, width: 2),
-              )
-            : null,
+        // A border that appears on acceptance would add 4px each axis
+        // and reflow the strip mid-drag — keep it mounted and swap the
+        // color so toggling repaints only.
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: _accepting ? colors.primary : Colors.transparent,
+            width: 2,
+          ),
+        ),
         child: widget.child,
       ),
     );

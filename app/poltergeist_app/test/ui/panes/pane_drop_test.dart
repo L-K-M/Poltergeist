@@ -814,4 +814,88 @@ void main() {
     expect(rightStrip.activeTab, secondTab);
     await endDrag(tester, gesture);
   });
+
+  dndWidgets('a hover gone refused mid-drag cancels the tab activation', (
+    tester,
+  ) async {
+    await bindLocals();
+    // The second tab sits on the dragged folder's parent: a move onto
+    // it is the parent no-op (refused), but Ctrl forces a legal copy —
+    // so the timer arms only while the modifier is held.
+    final second = PaneController(
+      paneTabId: 'pane.right.tab2',
+      lanes: lanes,
+    );
+    final secondTab = rightStrip.addTab(second);
+    final secondChannel =
+        controller_test.FakePaneChannel('/home/tester');
+    secondChannel.listings['/home/tester'] = [
+      _entryAt('/home/tester', 'docs', type: RemoteFileType.directory),
+      _entryAt('/home/tester', 'report.txt'),
+    ];
+    lanes.nextLocalChannel = secondChannel;
+    await second.openLocalAt('/home/tester');
+    rightStrip.activateTab(rightStrip.tabs.first);
+    await pumpShell(tester, rightTabs: true);
+
+    // The chip's DragTarget is the ancestor — the left pane's path bar
+    // also spells 'tester', so a bare text finder could land there.
+    final chipTarget = find.ancestor(
+      of: find.text('tester'),
+      matching: find.byType(DragTarget<PaneEntryDrag>),
+    );
+    final chip = tester.getCenter(chipTarget);
+    bool ringVisible() {
+      final primary = Theme.of(
+        tester.element(chipTarget),
+      ).colorScheme.primary;
+      return tester
+          .widgetList<Container>(
+            find.descendant(
+              of: chipTarget,
+              matching: find.byType(Container),
+            ),
+          )
+          .any(
+            (c) =>
+                c.decoration is BoxDecoration &&
+                (c.decoration! as BoxDecoration).border?.top.color ==
+                    primary,
+          );
+    }
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('docs')),
+    );
+    await tester.pump();
+    await gesture.moveTo(chip);
+    await tester.pump();
+    // Move refused — the chip does not accept, no timer armed.
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(ringVisible(), isFalse);
+    expect(rightStrip.activeTab, isNot(secondTab));
+
+    // Ctrl held: copy is legal — ring on, the 700 ms dwell arms.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    await gesture.moveTo(chip + const Offset(1, 0));
+    await tester.pump();
+    expect(ringVisible(), isTrue);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(rightStrip.activeTab, isNot(secondTab));
+
+    // Releasing Ctrl mid-hover refuses the drop again — the armed
+    // timer must cancel rather than fire a switch nobody is accepting.
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    await gesture.moveTo(chip);
+    await tester.pump();
+    expect(ringVisible(), isFalse);
+    await tester.pump(const Duration(milliseconds: 900));
+    expect(rightStrip.activeTab, isNot(secondTab));
+
+    await gesture.up();
+    await tester.pump();
+    expect(queue.enqueuedSpecs, isEmpty);
+  });
 }
