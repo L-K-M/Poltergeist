@@ -581,7 +581,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// window — MediaQuery height is the window's content box, the honest
   /// ceiling available here).
   void _resizeActivityPanel(double delta) {
-    final max = MediaQuery.sizeOf(context).height / 2;
+    final halfWindow = MediaQuery.sizeOf(context).height / 2;
+    // clamp() throws when lower > upper, so keep the ceiling at least
+    // the floor for windows shorter than 2 * minActivityPanelHeight.
+    final max = halfWindow < minActivityPanelHeight
+        ? minActivityPanelHeight
+        : halfWindow;
     setState(() {
       _activityPanelHeight = (_activityPanelHeight + delta)
           .clamp(minActivityPanelHeight, max);

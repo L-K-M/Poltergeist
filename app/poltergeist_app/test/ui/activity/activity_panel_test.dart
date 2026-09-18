@@ -311,6 +311,25 @@ void main() {
     expect(queue.uploadLimiter.bytesPerSecond, 2000000);
   });
 
+  testWidgets('a persisted non-preset limit opens as Custom with the '
+      'rate filled in', (tester) async {
+    // Seeding reads the theme platform for the prefilled text — that
+    // lookup belongs in didChangeDependencies, not initState.
+    queue.downloadLimiter.bytesPerSecond = 12345;
+    await pumpPanel(tester);
+    await tester.tap(find.byKey(const ValueKey('activity.bandwidth')));
+    await tester.pumpAndSettle();
+
+    final custom = tester.widget<ChoiceChip>(
+      find.byKey(const ValueKey('bandwidth.down.custom')),
+    );
+    expect(custom.selected, isTrue);
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('bandwidth.down.field')),
+    );
+    expect(field.controller!.text, isNotEmpty);
+  });
+
   testWidgets('the conflict strip renders parked conflicts and the '
       'dialog submits verb + apply-to-all scope', (tester) async {
     await pumpPanel(tester);

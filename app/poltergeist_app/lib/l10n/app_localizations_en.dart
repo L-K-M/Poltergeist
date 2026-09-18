@@ -1216,7 +1216,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String conflictApplyToAll(int count) {
-    return 'Apply to all $count remaining conflicts in this task';
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count remaining conflicts',
+      one: '1 remaining conflict',
+    );
+    return 'Apply to all $_temp0 in this task';
   }
 
   @override

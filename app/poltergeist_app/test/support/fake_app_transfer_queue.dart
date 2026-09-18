@@ -85,8 +85,15 @@ class FakeAppTransferQueue implements AppTransferQueue {
           )
         : TransferTask(spec);
     if (id != null && !wasRestored) {
-      // TransferTask mints its own id; a scripted non-restored id is
-      // only needed when tests key on it — keep the mint otherwise.
+      // TransferTask mints its own id for a live task — a scripted id
+      // the fake cannot honor must fail loudly instead of leaving the
+      // test keyed on an id no task carries.
+      throw ArgumentError.value(
+        id,
+        'id',
+        'addTask(id) is only honored when wasRestored is true; '
+            'TransferTask mints its own id otherwise — key on task.id',
+      );
     }
     task
       ..state = state
@@ -284,6 +291,22 @@ class FakeAppTransferQueue implements AppTransferQueue {
     }
     task.state = TransferTaskState.cancelled;
     emit(TransferQueueTaskEvent(taskId, TransferTaskState.cancelled));
+    // The real queue's cancel sweep clears the task's parked
+    // conflicts — same teardown here so the conflict surface cannot
+    // outlive the cancelled task.
+    for (final conflict in pendingConflictList
+        .where((c) => c.taskId == taskId)
+        .toList()) {
+      pendingConflictList.remove(conflict);
+      emit(
+        TransferQueueConflictEvent(
+          taskId,
+          conflict.itemId,
+          conflict: conflict,
+          pending: false,
+        ),
+      );
+    }
   }
 
   @override
@@ -326,6 +349,21 @@ class FakeAppTransferQueue implements AppTransferQueue {
     final item = _item(taskId, itemId);
     if (item == null || item.isTerminal) return false;
     item.state = TransferItemState.cancelled;
+    // Mirrors the real queue: a cancelled item's parked conflict
+    // leaves the surface with a dismissal — never a stale conflict
+    // parked under a terminal row.
+    final conflict = pendingConflictFor(taskId, itemId);
+    if (conflict != null) {
+      pendingConflictList.remove(conflict);
+      emit(
+        TransferQueueConflictEvent(
+          taskId,
+          itemId,
+          conflict: conflict,
+          pending: false,
+        ),
+      );
+    }
     emit(TransferQueueItemEvent(taskId, itemId, item.state));
     return true;
   }

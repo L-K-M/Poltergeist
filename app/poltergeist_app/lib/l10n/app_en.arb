@@ -1603,7 +1603,7 @@
   "@conflictNotNow": {
     "description": "Dismisses the conflict dialog without answering — the item stays parked."
   },
-  "conflictApplyToAll": "Apply to all {count} remaining conflicts in this task",
+  "conflictApplyToAll": "Apply to all {count, plural, =1{1 remaining conflict} other{{count} remaining conflicts}} in this task",
   "@conflictApplyToAll": {
     "description": "The conflict dialog's task-scope checkbox (02 §5.2's exact wording).",
     "placeholders": {

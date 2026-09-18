@@ -48,10 +48,17 @@ class TransferRateTracker {
 
   /// Smoothed bytes/second over the window, or null before two distinct
   /// samples exist (a single sample spans zero time — no rate is
-  /// derivable, and §5.3 shows nothing rather than a fake).
+  /// derivable, and §5.3 shows nothing rather than a fake) and once
+  /// the newest sample ages out of the window — a stopped task's last
+  /// rate is stale, not a measurement.
   double? bytesPerSecond(String taskId) {
     final queue = _samples[taskId];
     if (queue == null || queue.length < 2) return null;
+    // Expiry is write-side only (record drops old samples), so a task
+    // that stopped recording — stalled, paused, finished — would quote
+    // its last rate forever. Read-side: once the newest sample ages
+    // out of the window there is no live rate to report.
+    if (_clock().difference(queue.last.at) > window) return null;
     final span = queue.last.at.difference(queue.first.at);
     if (span.inMilliseconds <= 0) return null;
     return (queue.last.bytes - queue.first.bytes) * 1000.0 /

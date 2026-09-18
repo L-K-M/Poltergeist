@@ -41,6 +41,22 @@ void main() {
       expect(tracker.bytesPerSecond('t'), closeTo(250, 0.001));
     });
 
+    test('expires the rate once the newest sample leaves the window',
+        () {
+      tracker.record('t', 0);
+      tick(const Duration(seconds: 4));
+      tracker.record('t', 1000);
+      expect(tracker.bytesPerSecond('t'), closeTo(250, 0.001));
+      expect(tracker.eta('t', 500), const Duration(seconds: 2));
+
+      // A stalled transfer records nothing: without a read-side
+      // expiry the panel would keep quoting a rate that is no longer
+      // true — the window lapses and the rate withdraws instead.
+      tick(TransferRateTracker.window + const Duration(seconds: 1));
+      expect(tracker.bytesPerSecond('t'), isNull);
+      expect(tracker.eta('t', 500), isNull);
+    });
+
     test('gates the ETA on three seconds of data', () {
       tracker.record('t', 0);
       tick(const Duration(seconds: 2));

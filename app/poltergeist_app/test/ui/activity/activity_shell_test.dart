@@ -186,4 +186,41 @@ void main() {
     expect(after.height, greaterThan(before.height));
     expect(saved, closeTo(after.height, 0.01));
   });
+
+  testWidgets('the splitter clamps instead of throwing when the '
+      'reported window is shorter than twice the panel floor', (
+    tester,
+  ) async {
+    // The resize ceiling is half the reported window: a window under
+    // 240px puts it below the 120px floor, where an unguarded clamp
+    // throws. The override keeps the real layout roomy so the pane
+    // column still fits — the exercise is the clamp, not the squeeze.
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: MediaQuery(
+          data: const MediaQueryData(size: Size(1400, 230)),
+          child: WorkspaceShell(transferQueue: queue),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('command.view.toggleActivityPanel')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('activity.splitter')),
+      const Offset(0, -20),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 }

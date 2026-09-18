@@ -1974,7 +1974,7 @@ abstract class AppLocalizations {
   /// The conflict dialog's task-scope checkbox (02 §5.2's exact wording).
   ///
   /// In en, this message translates to:
-  /// **'Apply to all {count} remaining conflicts in this task'**
+  /// **'Apply to all {count, plural, =1{1 remaining conflict} other{{count} remaining conflicts}} in this task'**
   String conflictApplyToAll(int count);
 
   /// Task state: waiting behind the queue's admission order.

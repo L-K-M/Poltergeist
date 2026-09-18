@@ -30,12 +30,17 @@ class _BandwidthPopoverState extends State<BandwidthPopover> {
   String? _downError;
   String? _upError;
 
+  bool _initialized = false;
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
     // A persisted value that is not a preset opens as Custom with the
     // current rate filled in — the popover never pretends a custom
-    // limit is one of its named choices.
+    // limit is one of its named choices. The prefill reads the theme
+    // platform, so it must run here, not in initState.
     final down = widget.controller.downloadLimiter?.bytesPerSecond;
     final up = widget.controller.uploadLimiter?.bytesPerSecond;
     _downCustom = down != null && !_presets.contains(down);

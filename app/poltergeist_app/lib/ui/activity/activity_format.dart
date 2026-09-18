@@ -65,8 +65,15 @@ int? parseTransferRate(String input) {
     _ => -1,
   };
   if (multiplier < 0) return null;
-  final bytes = (value * multiplier).round();
-  if (bytes <= 0 || bytes > maxTransferRateBytesPerSecond) return null;
+  // Reject before rounding: an over-range literal saturates the
+  // product to Infinity, and Infinity.round() throws — an invalid
+  // entry must surface the inline error, never crash or clamp.
+  final product = value * multiplier;
+  if (product.isInfinite || product > maxTransferRateBytesPerSecond) {
+    return null;
+  }
+  final bytes = product.round();
+  if (bytes <= 0) return null;
   return bytes;
 }
 
@@ -111,7 +118,9 @@ String? pathDirname(String path) {
 /// necessarily a directory).
 String commonParentPath(List<String> paths) {
   if (paths.isEmpty) return '';
-  var candidate = pathDirname(paths.first) ?? paths.first;
+  // Seed with the first path itself — when it parents the rest it IS
+  // the shared root, and seeding one level up would lose it.
+  var candidate = paths.first;
   for (final path in paths.skip(1)) {
     // Ascend the candidate until it is an ancestor directory of this
     // path (prefix comparison on a separator boundary).
