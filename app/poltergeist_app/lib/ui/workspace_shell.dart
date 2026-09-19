@@ -14,6 +14,7 @@ import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
 import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
+import '../services/pane_drop.dart';
 import '../services/pane_tabs_controller.dart';
 import '../services/registered_command.dart';
 import '../services/session_persistence.dart';
@@ -59,6 +60,7 @@ class WorkspaceShell extends StatefulWidget {
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
+    this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
     this.onActivityPanelHeightChanged,
     this.onActivityPanelHeightSaveError,
@@ -143,6 +145,12 @@ class WorkspaceShell extends StatefulWidget {
   /// transfer slice; the panel's verbs stay reachable-but-disabled, and
   /// `queue.togglePause` still registers (D21).
   final AppTransferQueue? transferQueue;
+
+  /// The persisted conflict matrix (02 §5.2) the pane drop targets
+  /// resolve per task at enqueue time; null applies the spec defaults
+  /// (ask on every bucket). The settings writer lands with the
+  /// settings slice — until then the default keeps the ask-park flow.
+  final ConflictPolicy? conflictPolicy;
 
   /// The activity panel's persisted pixel height (02 §1's third
   /// splitter): default 200, floor 120, capped at half the window in
@@ -460,6 +468,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       ...buildActivityCommands(activity: _activity),
     ];
 
+    // The drop enqueue seam (02 §5.1, D14): exists only while a queue
+    // is bound — without one there is nowhere a drop could land, so
+    // rows stay undraggable and every target refuses. Cheap and
+    // stateless, so it rebuilds per build like the command list.
+    final transferQueue = widget.transferQueue;
+    final dropDelegate = transferQueue == null
+        ? null
+        : PaneDropDelegate(
+            queue: transferQueue,
+            conflictPolicy: widget.conflictPolicy,
+          );
+
     // Re-evaluate enablement without rebuilding the pane listings — one
     // shared listenable for the toolbar and the registry-driven menus.
     final enablement = Listenable.merge([
@@ -524,6 +544,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                               workspace.left.activeTabController,
                             ),
                             bookmarks: widget.bookmarks,
+                            dropDelegate: dropDelegate,
                           ),
                           secondary: rightFocus == null
                               ? const SizedBox.shrink()
@@ -537,6 +558,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     workspace.right.activeTabController,
                                   ),
                                   bookmarks: widget.bookmarks,
+                                  dropDelegate: dropDelegate,
                                 ),
                         ),
                       ),

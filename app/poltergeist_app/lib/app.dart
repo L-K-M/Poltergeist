@@ -4,6 +4,8 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show ConflictPolicy;
 
 import 'l10n/app_localizations.dart';
 import 'services/app_transfer_queue.dart';
@@ -41,6 +43,7 @@ class PoltergeistApp extends StatefulWidget {
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
+    this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
     this.onActivityPanelHeightChanged,
     this.onActivityPanelHeightSaveError,
@@ -109,6 +112,11 @@ class PoltergeistApp extends StatefulWidget {
   /// until the engine-host transfer slice binds one — the panel mounts
   /// empty chrome rather than simulating activity.
   final AppTransferQueue? transferQueue;
+
+  /// The persisted conflict matrix (02 §5.2) the pane drop targets
+  /// resolve per task at enqueue time; null applies the spec defaults.
+  /// Loaded at startup once the settings slice owns the matrix.
+  final ConflictPolicy? conflictPolicy;
 
   /// The activity panel's persisted pixel height (02 §1).
   final double initialActivityPanelHeight;
@@ -257,6 +265,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       connectionEngine: widget.connectionEngine,
       engineSession: widget.engineSession,
       transferQueue: widget.transferQueue,
+      conflictPolicy: widget.conflictPolicy,
       initialActivityPanelHeight: widget.initialActivityPanelHeight,
       onActivityPanelHeightChanged: widget.onActivityPanelHeightChanged,
       onActivityPanelHeightSaveError:

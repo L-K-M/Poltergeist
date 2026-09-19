@@ -731,6 +731,16 @@ class PaneController extends ChangeNotifier {
       index < _rowKeys.length &&
       _selection.selectedKeys.contains(_rowKeys[index]);
 
+  /// The selected entries in listing order (02 §2.5) — the payload a
+  /// row drag carries when the grabbed row belongs to a multi-selection.
+  /// Empty while nothing is selected.
+  List<RemoteFileEntry> get selectedEntries => [
+    for (var i = 0; i < _entries.length; i++)
+      if (i < _rowKeys.length &&
+          _selection.selectedKeys.contains(_rowKeys[i]))
+        _entries[i],
+  ];
+
   /// Whether the rendered rows are a disowned cached listing — inert
   /// from the moment a location-changing navigation issues, not from
   /// the dim's appearance (02 §2.8). The view reads this to block

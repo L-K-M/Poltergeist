@@ -38,6 +38,10 @@ class FakeAppTransferQueue implements AppTransferQueue {
   var resumeQueueCalls = 0;
   var clearHistoryCalls = 0;
 
+  /// Every spec the UI enqueued (02 §5.1's drops) — tests assert the
+  /// gesture's composition, not a re-derived one.
+  final enqueuedSpecs = <TransferTaskSpec>[];
+
   /// Items that refuse a retry despite being failed — the journal
   /// lookup-miss case the panel must not offer Retry for.
   final nonRetryableItems = <String>{};
@@ -225,6 +229,15 @@ class FakeAppTransferQueue implements AppTransferQueue {
       _events.add(const TransferQueueOrderEvent('queue'));
 
   // ── AppTransferQueue ────────────────────────────────────────────────
+
+  @override
+  TransferTask enqueue(TransferTaskSpec spec) {
+    enqueuedSpecs.add(spec);
+    final task = TransferTask(spec);
+    _tasks.add(task);
+    emit(TransferQueueTaskEvent(task.id, task.state));
+    return task;
+  }
 
   @override
   List<TransferTask> get tasks => List.unmodifiable(_tasks);

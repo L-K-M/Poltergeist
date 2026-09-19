@@ -362,6 +362,43 @@ class AppLocalizationsEn extends AppLocalizations {
   String get paneEmptyFolder => 'This folder is empty.';
 
   @override
+  String get paneDropHintLocal => 'Drop files here to copy them';
+
+  @override
+  String get paneDropHintRemote => 'Drop files here to upload them';
+
+  @override
+  String dropMoveTo(String dir) {
+    return 'Move to $dir';
+  }
+
+  @override
+  String dropCopyTo(String dir) {
+    return 'Copy to $dir';
+  }
+
+  @override
+  String dropUploadTo(String dir) {
+    return 'Upload to $dir';
+  }
+
+  @override
+  String dropDownloadTo(String dir) {
+    return 'Download to $dir';
+  }
+
+  @override
+  String dropItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String paneItemCount(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

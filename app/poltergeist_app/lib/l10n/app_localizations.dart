@@ -694,6 +694,48 @@ abstract class AppLocalizations {
   /// **'This folder is empty.'**
   String get paneEmptyFolder;
 
+  /// Empty-folder drop hint on a local pane (02 §2.7): OS files dropped on the empty listing copy into it.
+  ///
+  /// In en, this message translates to:
+  /// **'Drop files here to copy them'**
+  String get paneDropHintLocal;
+
+  /// Empty-folder drop hint on a remote pane (02 §2.7): OS files dropped on the empty listing upload into it.
+  ///
+  /// In en, this message translates to:
+  /// **'Drop files here to upload them'**
+  String get paneDropHintRemote;
+
+  /// Drop-hover overlay line for a move verb (02 §5.1); {dir} is the destination directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to {dir}'**
+  String dropMoveTo(String dir);
+
+  /// Drop-hover overlay line for a same-filesystem copy (02 §5.1); {dir} is the destination directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to {dir}'**
+  String dropCopyTo(String dir);
+
+  /// Drop-hover overlay line for a local→remote copy (02 §5.1); {dir} is the destination directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload to {dir}'**
+  String dropUploadTo(String dir);
+
+  /// Drop-hover overlay line for a remote→local copy (02 §5.1); {dir} is the destination directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Download to {dir}'**
+  String dropDownloadTo(String dir);
+
+  /// Drag-avatar label for a multi-row drag (02 §5.1).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item} other{{count} items}}'**
+  String dropItemCount(int count);
+
   /// Pane footer count of visible entries.
   ///
   /// In en, this message translates to:

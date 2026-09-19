@@ -5970,6 +5970,64 @@ hover to the panel behind; the tap arena had already protected
 1242 green, core 1170 green (16 fixture skips), both analyzers clean,
 localization contract green.
 
+## M4 — drag & drop: in-app pane↔pane + OS drop-in (D14) (2026-09-18)
+
+07 §3.5's DnD slice lands per 02 §5 and D14. In-app pane↔pane drags use
+`Draggable`/`DragTarget`; OS drop-in uses `desktop_drop` with Séance's
+gating pattern — desktop platform, `TickerMode.enabled`, and route-current
+checks, so hidden or covered panes never accept. No drag-out to the OS
+(D14's explicit exclusion), no trash UI, no sync-engine change.
+
+The enqueue seam is `AppTransferQueue.enqueue(TransferTaskSpec)` — drops
+build specs and hand them to the queue; nothing executes inline and the
+existing conflict/paused/throttle flow owns collisions unchanged. The verb
+matrix is 02 §5's: same filesystem/server defaults to move, across
+filesystems or servers defaults to copy, Option/Ctrl forces copy,
+Command/Shift forces move, and OS drop-in always copies; remote→remote
+across servers is a copy through the local machine, and same-server remote
+moves ride server-side rename when the engine path lands.
+
+`PaneDropArea` (`ui/panes/pane_drop_area.dart`) wraps each pane's listing:
+it owns the in-app `DragTarget<PaneEntryDrag>`, the OS `DropTarget`,
+folder-row vs current-directory resolution, the target border and action
+pill ("Move to …" / "Copy to …"), and the spring-load dwell — a folder row
+held 1 s opens in place, a tab chip held 700 ms activates. Drop position
+decides the
+destination — a rendered folder row means that folder, background means
+the pane's current directory — and hit testing works on rendered row
+rects inside the virtualized list rather than model indices, so a
+scrolled-out folder cannot shadow the row actually under the pointer.
+Rows drag only on desktop platforms (mobile keeps touch scrolling), only
+while a drop delegate is wired, and only while the pane's verbs are
+enabled (stale/disowned panes refuse). A `HardwareKeyboard` handler
+re-resolves the hover on modifier events, so copy/move labels and the
+avatar's `+` badge track live modifiers without pointer movement. Tab
+chips are drop targets with the same spring-load. The drag avatar is a
+stacked-icon chip with a count badge for multi-selection and `+` for
+copy; the source row shows the pending ghost (`childWhenDragging`) and
+the target row/zone highlights per §5's pending/completed row states.
+
+`services/pane_drop.dart` carries the pure rules — `PaneEntryDrag`,
+`PaneDropVerb`, destination/verb resolution, and the queue-wired
+`PaneDropDelegate` — so the widget layer stays thin.
+
+Validation: 20 service tests (`pane_drop_test.dart`) pin the verb matrix,
+containment (no drop onto self/descendant), the §5.2 direction bucket at
+enqueue time, and the absent-settings ask defaults; 25 widget tests
+(`pane_drop_test.dart`) cover enqueue correctness, copy/move modifiers,
+folder vs background targeting, scrolled-list hit honesty, hidden-pane
+rejection (the hidden second pane is unmounted by the shell), TickerMode
+and route-current gating, `desktop_drop` channel fakes, tab-chip drop +
+spring-load activation, and multi-selection badges. The capture suite
+(`pane_drop_capture_test.dart`) writes five real-font PNGs under
+`tasks/run3-task70/captures/` under `POLTERGEIST_CAPTURE=1`. The
+localization contract gains per-file technical-literal exclusions for the
+path mechanics in `pane_drop.dart` and the count/`+` badge glyphs in
+`pane_drop_area.dart`. `desktop_drop` self-applies the Kotlin plugin in
+its own Gradle file — no file_picker-class AGP9 exposure (verified in the
+plugin's build script). `flutter analyze` clean; full app suite 1287
+green. Logs under `tasks/run3-task70/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
