@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
@@ -56,10 +57,14 @@ class _HeldCloseChannel extends session_test.FakeAppBrowseChannel {
   }
 }
 
-Bookmark _remoteBookmark(String id) => Bookmark(
+Bookmark _remoteBookmark(
+  String id, {
+  PreferredPane preferredPane = PreferredPane.either,
+}) => Bookmark(
   id: id,
   kind: BookmarkKind.remotePath,
   label: '$id.example.com',
+  preferredPane: preferredPane,
   server: BookmarkServerRef(
     identity: EmbeddedHostIdentity(
       host: '$id.example.com',
@@ -499,6 +504,113 @@ void main() {
     final panes = tester.widgetList<PaneView>(find.byType(PaneView)).toList();
     return (panes[0].controller, panes[1].controller);
   }
+
+  testWidgets(
+    'a remote favorite opens in its preferred pane, not the active one',
+    (tester) async {
+      final store = FakeBookmarkStore([
+        _remoteBookmark('srv-r', preferredPane: PreferredPane.right),
+      ]);
+      final remote = session_test.FakeAppBrowseChannel(homePath: '/srv/home')
+        ..listings['/srv/home'] = [
+          _entry('right-pane.txt', parent: '/srv/home'),
+        ];
+      engine.channel = remote;
+
+      await pumpApp(tester, bookmarks: store);
+      await tester.pumpAndSettle();
+
+      // The left pane is active by default; the bookmark's declared
+      // side wins anyway (02 §4's preferredPane).
+      await tester.tap(find.byKey(const ValueKey('sidebar.favorite.srv-r')));
+      await tester.pumpAndSettle();
+
+      expect(
+        engine.openCalls.single.paneTabId,
+        startsWith('pane.right'),
+      );
+      expect(find.text('right-pane.txt'), findsOneWidget);
+      // The active pane moved with the open.
+      final (left, right) = paneControllers(tester);
+      expect(left.location?.path, '/home/tester');
+      expect(right.location?.path, '/srv/home');
+    },
+  );
+
+  testWidgets(
+    'the other-pane verb opens against the preferred side',
+    (tester) async {
+      final store = FakeBookmarkStore([
+        _remoteBookmark('srv-r', preferredPane: PreferredPane.right),
+      ]);
+      engine.channel = session_test.FakeAppBrowseChannel(
+        homePath: '/srv/home',
+      )..listings['/srv/home'] = [
+        _entry('left-pane.txt', parent: '/srv/home'),
+      ];
+
+      await pumpApp(tester, bookmarks: store);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('sidebar.favorite.srv-r')),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('sidebar.menu.openOtherPane')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        engine.openCalls.single.paneTabId,
+        startsWith('pane.left'),
+      );
+      expect(find.text('left-pane.txt'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a local favorite opens in its preferred pane',
+    (tester) async {
+      final now = DateTime.utc(2026, 9, 12);
+      final store = FakeBookmarkStore([
+        Bookmark(
+          id: 'local-r',
+          kind: BookmarkKind.localFolder,
+          label: 'Exports',
+          localPath: '/srv/exports',
+          preferredPane: PreferredPane.right,
+          sortKey: 'k',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ]);
+      // openLocalAt binds a fresh channel at '~' then lists the target —
+      // the third scripted channel serves the favorite's open.
+      final target = session_test.FakeAppBrowseChannel(
+        homePath: '/home/tester',
+      )..listings['/srv/exports'] = [
+        _entry('export.txt', parent: '/srv/exports'),
+      ];
+      engine.localChannels.add(target);
+
+      await pumpApp(tester, bookmarks: store);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey('sidebar.favorite.local-r')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(target.listCalls, ['/srv/exports']);
+      final (left, right) = paneControllers(tester);
+      expect(left.location?.path, '/home/tester');
+      expect(right.location?.path, '/srv/exports');
+      expect(find.text('export.txt'), findsOneWidget);
+    },
+  );
+
 
   testWidgets(
     'Esc cancels a pending remote bind without severing a same-server sibling',

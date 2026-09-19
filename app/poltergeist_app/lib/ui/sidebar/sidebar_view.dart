@@ -544,7 +544,9 @@ class _FavoriteRowState extends State<_FavoriteRow> {
           final focused = _focusNode.hasFocus;
           return Semantics(
             container: true,
-            button: true,
+            // A row with no open seam is not an activatable button —
+            // the same gate the connection row applies.
+            button: view.onOpenFavorite != null,
             label: semanticLabel,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,

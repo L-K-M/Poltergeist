@@ -4,20 +4,20 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-19. **M3 and M4 are closed; M5 is next** —
-v0.2.0 remains the latest published pre-release (M3 closed untagged per
-the run-3 closure record; M4's §3.12 tag chore is recorded in the M4
-closure record at
-[tasks/m4-closure-record.md](../tasks/m4-closure-record.md)). Every M4
-§3.5 scope bullet and exit criterion is on main through #158, audited
+_Last updated: 2026-09-19. **M3, M4, and M5 are closed; M6 is next** —
+v0.2.0 remains the latest published pre-release (M3, M4, and M5 closed
+untagged per their closure records; M5's §3.12 tag chore is recorded in
+[tasks/m5-closure-record.md](../tasks/m5-closure-record.md)). Every M5
+§3.6 exit criterion is on main through the closure audit PR, audited
 per-criterion in the dated closure section below. M0, M1, and M2 stay
 closed per the Done table; **open item 4 (the M1/M2 overlap
-authorization) remains an OPEN owner decision**. Open item 23's M4 gap
-is closed app-side: `main.dart` now composes the journaled queue and
-every consumer shares it — its remaining half (remote transfers fail
-honestly until the engine protocol grows transfer verbs) stays open
-for the engine-host slice. Next milestone: M5 (sidebar,
-bookmarks, workspaces, 07 §3.6).
+authorization) remains an OPEN owner decision**, and new open item 24
+carries the AltGr/Ctrl+Alt-letter chord collision to a spec decision.
+Open item 23's M4 gap is closed app-side: `main.dart` now composes the
+journaled queue and every consumer shares it — its remaining half
+(remote transfers fail honestly until the engine protocol grows
+transfer verbs) stays open for the engine-host slice. Next milestone:
+M6 (bookmark sync, 07 §3.7).
 
 ## Done
 
@@ -6413,6 +6413,84 @@ the modifier-verb swap; `workspace_capture_test` writes
 (POLTERGEIST_CAPTURE=1). `flutter analyze` clean; the full app
 suite passes.
 
+## M5 — exit-criteria audit and close (2026-09-19)
+
+All four 07 §3.6 exit criteria audited against the post-#163 main
+head `eb13c03`; the per-criterion evidence record lives in
+[tasks/m5-closure-record.md](../tasks/m5-closure-record.md).
+Verdicts:
+
+1. **Bookmark CRUD, grouping, reorder persist across restart —
+   MET.** The core suite already proved the store layer
+   (`bookmark_store_test.dart`: restart persistence, group/reorder
+   key minting, updatedAt stamping). The audit's named gap was the
+   SIDEBAR surface: every `SidebarController` test ran against
+   `FakeBookmarkStore`, so no proof existed that the row verbs'
+   writes survive a relaunch through the real store. The new
+   `test/services/sidebar_persistence_test.dart` drives
+   reorder/refile/rename/delete through the controller over a real
+   `FileBookmarkStore`, then reads the same file through a fresh
+   store + controller — order, group filing, rename, and deletion
+   all survive the restart boundary.
+2. **localFolder/remotePath open in the chosen pane; workspaces
+   restore tab sets exactly — MET.** Workspace exact-restore was
+   already proven (`workspace_apply_test`: both-pane replacement,
+   saved active tab, per-tab lenses; `workspace_library_test`:
+   full-restart persistence; `workspace_commands_test`: menu open +
+   Undo). The gap was the §4 preferred-pane rule: only
+   remotePath→active-pane was exercised. New
+   `workspace_panes_test.dart` cases pin `preferredPane` winning
+   over the active pane for remote AND local favorites, and the
+   other-pane verb resolving against the preferred side.
+3. **Device-local fields proven non-syncing — MET**, and the
+   purity suite now covers the M5 workspace keys at every depth:
+   `left`/`right` were already in the synced-key allowlist, and a
+   new test walks every nested map (`left`, `right`, `server`,
+   `sync`) asserting no device-local key appears at any depth,
+   plus a shape pin that a workspace location is `{server?,
+   path}` (`path` required, `server` the optional remote
+   endpoint).
+4. **Sidebar fully keyboard-operable + D20 semantics on every row
+   kind — MET after one real fix.** Arrow traversal, Enter/Space
+   activation, and Shift+F10 context-menu coverage is new (drag
+   reorder/group were already covered). The D20 audit found a
+   defect the pointer-only tests missed: a favorite row announced
+   `button: true` even with no open seam — the same dead
+   affordance the connection row's `button:` gate exists to
+   prevent. Red-first test, then the one-line gate fix in
+   `sidebar_view.dart`; the all-kinds semantics test now asserts
+   the announced label + button flag per row kind plus
+   header/button/expanded state on both section-header kinds.
+
+Risk check (no schema drift, no silent fork): PORTS.md's M5 entry
+is accurate — the `Bookmark` model is consumed through the
+`2e6d1f1` pin with PR-S1 in its ancestry, so 04 §2.1's
+temporary-copy clause stays retired and nothing in
+`src/bookmarks/` copies Séance source (`sortKeyBetween` and
+`groupBookmarks` are fresh code over the upstream struct).
+
+The #162 review's AltGr+S collision is recorded, not resolved:
+Windows reports AltGr as Ctrl+Alt, so the entire Ctrl+Alt+letter
+column of 02 §8.3's table (S/A/P/B/N/E/Y and pane-focus arrows)
+fires on AltGr letters on e.g. Polish and Turkish layouts. The
+needed decision — re-letter §8.3's Windows/Linux column versus
+suppressing app-scope activators while a text field holds focus —
+is a spec call, recorded as open item 24.
+
+§3.12 chores at this close: STATUS swept (header, this section,
+item 24); PORTS.md needed no update (the M5 entry already records
+the no-copy posture; re-verified against the pin this audit); the
+pin cannot bump (no Séance tag contains `2e6d1f1` — open item 2;
+the S1 release M6 needs is also that tag); no `TODO(pin)` markers
+exist; the §5 M5 mobile invariant **re-verifies clean** — the
+synced `Bookmark` model carries no device-local fields at all, so
+per-device grants (scoped-access blobs, future SAF tree URIs) have
+nowhere to hide: they live in the separate device-local stores
+(collapse state, workspace detail document, probe facts) the
+purity suite fences off. The `v0.5.0` tag chore is **not run
+here**, matching M3/M4's untagged closes — a tag push publishes
+release assets, left to the supervisor/owner.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -7089,6 +7167,22 @@ suite passes.
     tasks enqueued through the composed queue fail with a typed
     `unsupported` error instead of running; local↔local work runs
     for real.
+24. **2026-09-19: Ctrl+Alt+letter chords collide with AltGr on
+    Windows/Linux international layouts (spec decision needed).**
+    Windows reports AltGr as Ctrl+Alt, so 02 §8.3's Windows/Linux
+    chord column — `Ctrl+Alt+S` sidebar, `Ctrl+Alt+A` activity,
+    `Ctrl+Alt+P` preview, `Ctrl+Alt+B` sync browsing, `Ctrl+Alt+N`
+    new file, `Ctrl+Alt+E` edit, `Ctrl+Alt+Y` synchronize, and the
+    `Ctrl+Alt+←/→` pane-focus pair — also fires on AltGr letters
+    that produce text (AltGr+S → ś/ş on Polish and Turkish
+    layouts, and so on for the rest of the family). The #162
+    review surfaced this on the sidebar chord;
+    `pane_commands.dart` documents it at the activator. The
+    decision the spec owner needs to make: re-letter §8.3's
+    Windows/Linux column off Ctrl+Alt+letter, or suppress
+    app-scope activators while a text field holds focus (does not
+    help outside fields), or both — possibly per-chord. The M5
+    audit records the collision; no chord changed under it.
 
 ## Independent audit
 

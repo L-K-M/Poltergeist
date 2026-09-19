@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -361,6 +362,156 @@ void main() {
     );
   });
 
+  testWidgets('arrow keys traverse the rows and Enter opens the '
+      'focused one', (tester) async {
+    store.bookmarks = [
+      _remote('a', sortKey: 'ma'),
+      _remote('b', sortKey: 'mb'),
+      _remote('c', sortKey: 'mc'),
+    ];
+    await pumpSidebar(tester);
+
+    // The pointer moves focus with it (02 §4); arrows walk from there.
+    await tester.tap(find.byKey(const ValueKey('sidebar.favorite.a')));
+    await tester.pumpAndSettle();
+    opens.clear();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(opens.single.$1.id, 'b');
+    expect(opens.single.$2, SidebarOpenAction.plain);
+    opens.clear();
+
+    // Up returns; Space activates the same row Enter would.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(opens.single.$1.id, 'a');
+  });
+
+  testWidgets('Shift+F10 raises the focused row\'s context menu', (
+    tester,
+  ) async {
+    store.bookmarks = [_remote('a', sortKey: 'ma'), _remote('b')];
+    await pumpSidebar(tester);
+
+    await tester.tap(find.byKey(const ValueKey('sidebar.favorite.b')));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('sidebar.menu.open')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sidebar.menu.rename')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('every row kind carries its D20 button semantics', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    store.bookmarks = [
+      _remote('r2', sortKey: 'ma'),
+      Bookmark(
+        id: 'l1',
+        kind: BookmarkKind.localFolder,
+        label: 'Docs',
+        localPath: '/home/deploy/docs',
+        sortKey: 'mb',
+        createdAt: _now,
+        updatedAt: _now,
+      ),
+      Bookmark(
+        id: 'w1',
+        kind: BookmarkKind.workspace,
+        label: 'Daily pair',
+        sortKey: 'mc',
+        createdAt: _now,
+        updatedAt: _now,
+      ),
+      Bookmark(
+        id: 's1',
+        kind: BookmarkKind.savedSync,
+        label: 'Mirror',
+        sortKey: 'md',
+        createdAt: _now,
+        updatedAt: _now,
+      ),
+      _remote('r1', group: 'work', sortKey: 'me'),
+      _remote('g1', group: 'work', sortKey: 'mf'),
+    ];
+    try {
+      final controller = await pumpSidebar(tester, withConnections: true);
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
+
+      // Collapsing 'work' unmounts r1's favorite row, leaving its
+      // CONNECTION row as the only 'label-r1' node in the semantics tree.
+      controller.toggleCollapsed('work');
+      await tester.pumpAndSettle();
+
+      dataOf(Finder finder) =>
+          tester.getSemantics(finder).getSemanticsData();
+
+      // Every favorite kind announces itself as a labelled button — not
+      // only the kind that happened to be covered when the row grew. The
+      // keyed containers sit under ExcludeSemantics, so the announced node
+      // is found by its label, the way assistive tech sees it.
+      for (final label in const [
+        'label-r2',
+        'Docs',
+        'Daily pair',
+        'Mirror',
+      ]) {
+        final data = dataOf(
+          find.bySemanticsLabel(RegExp('^$label\$')),
+        );
+        expect(
+          data.flagsCollection.isButton,
+          isTrue,
+          reason: '$label must announce as a button',
+        );
+      }
+
+      // The live connection row is a button with its server label plus
+      // the status suffix (the row folds dynamic state into the label).
+      final connection = dataOf(
+        find.bySemanticsLabel(RegExp('^label-r1, ')),
+      );
+      expect(connection.flagsCollection.isButton, isTrue);
+
+      // Section headers announce header + button + expansion state — the
+      // collapsed group header reads expanded:false, the live Connections
+      // header expanded:true.
+      final group = dataOf(find.byKey(const ValueKey('sidebar.section.work')));
+      expect(group.flagsCollection.isHeader, isTrue);
+      expect(group.flagsCollection.isButton, isTrue);
+      expect(group.flagsCollection.isExpanded, ui.Tristate.isFalse);
+      final connectionsHeader = dataOf(
+        find.byKey(const ValueKey('sidebar.section.sidebar.connections')),
+      );
+      expect(
+        connectionsHeader.flagsCollection.isHeader,
+        isTrue,
+      );
+      expect(
+        connectionsHeader.flagsCollection.isExpanded,
+        ui.Tristate.isTrue,
+      );
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets('rename through the menu dialog lands on the store', (
     tester,
   ) async {
@@ -617,6 +768,49 @@ void main() {
     // posture the connection rows already had.
     await tester.tap(find.byKey(const ValueKey('sidebar.favorite.r1')));
     expect(opens, isEmpty);
+  });
+
+  testWidgets('a favorite with no open seam announces inert, not a '
+      'button (D20)', (tester) async {
+    final semantics = tester.ensureSemantics();
+    store.bookmarks = [_remote('r1')];
+    tester.view.physicalSize = const Size(300, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final controller = SidebarController(store: store);
+    addTearDown(controller.dispose);
+    unawaited(controller.reload());
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              child: SidebarView(
+                controller: controller,
+                onOpenFavorite: null,
+                onOpenConnection: openedConnections.add,
+                onDisconnect: disconnected.add,
+                onReviewBlocked: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // An announced-but-inert button is a dead affordance (WCAG 4.1.2)
+      // — the same rule the connection row's `button:` gate applies.
+      final data = tester
+          .getSemantics(find.bySemanticsLabel('label-r1'))
+          .getSemanticsData();
+      expect(data.flagsCollection.isButton, isFalse);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('a drop on a row lands on its edge side', (tester) async {
