@@ -5,14 +5,15 @@ import 'view_preferences.dart';
 /// sets, active tabs, and per-tab view state that `workspace.save`
 /// writes and `workspace.open.*` replays.
 ///
-/// Storage boundary (the task-58 slice): the plan's workspace is a
-/// favorite KIND (02 §4, 04 §2.1's `BookmarkKind.workspace`), but the
-/// favorites store is M5 work. Until then the workspace list is its own
-/// versioned document inside `settings.json`, behind
-/// [WorkspaceListStore] — clearly separated from the auto-session
-/// document (`session.state`) that the safe-point writer keeps. M5
-/// migrates this document into the favorites store; the schema here is
-/// the record that migration reads.
+/// Storage boundary (the M5 shape): the workspace's synced half is the
+/// `BookmarkKind.workspace` favorite — label, sidebar order, and each
+/// pane's headline endpoint — in the shared bookmark store. This
+/// versioned document inside `settings.json` is the DEVICE-LOCAL half:
+/// the full multi-tab snapshot keyed by the favorite's id, clearly
+/// separated from the auto-session document (`session.state`) that the
+/// safe-point writer keeps. The synced schema has no room for tab
+/// arrays or per-tab lenses by design (04 §2.1), and 04 §2.3 keeps
+/// device-local detail out of the synced payload.
 ///
 /// Per-tab records deliberately reuse [SessionTabState]'s flat field
 /// set (location, bookmark, cached listing) and add the transient
@@ -176,11 +177,11 @@ final class WorkspaceSnapshot {
   }
 }
 
-/// One named workspace: the user's label plus the snapshot it replays.
-/// [savedAt] records when the snapshot was taken; [lastOpenedAt] tracks
-/// the most recent open so the menu's newest-first order survives
-/// restarts. Both are records, not ordering keys — the document's list
-/// position IS the newest-first order.
+/// One workspace's device-local detail: the snapshot it replays, keyed
+/// to the workspace favorite's id. [savedAt] records when the snapshot
+/// was taken; [lastOpenedAt] tracks the most recent open. Both are
+/// records, not ordering keys — the favorites' order lives on the
+/// bookmark's `sortKey` now.
 final class SavedWorkspace {
   const SavedWorkspace({
     required this.id,
@@ -250,17 +251,31 @@ final class SavedWorkspace {
   }
 }
 
-/// The root workspace-list document inside `settings.json` — the M3
-/// interim home of what becomes a §4 favorite kind at M5. Versioned
-/// like the sibling stores; the list order is newest-first (saves and
-/// opens move their record to the front), so no timestamp ties can
-/// reorder the menu.
+/// The root workspace-detail document inside `settings.json` — the
+/// device-local half of the §3/§4 workspace favorite. Versioned like
+/// the sibling stores; the list's order is storage detail only (the
+/// favorites' `sortKey` owns the display order).
+///
+/// Schema history: version 1 predates the favorites store — its records
+/// ARE the workspace list. [legacySchema] marks a v1 decode so the
+/// library migrates each record into a `BookmarkKind.workspace` record
+/// under the same id exactly once; version 2 means the link is
+/// bookmark-keyed, so a detail without a bookmark is a deleted row's
+/// residue, pruned rather than resurrected.
 final class WorkspaceListDocument {
-  const WorkspaceListDocument({required this.workspaces});
+  const WorkspaceListDocument({
+    required this.workspaces,
+    this.legacySchema = false,
+  });
 
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
+  static const _legacySchemaVersion = 1;
 
   final List<SavedWorkspace> workspaces;
+
+  /// True only on a version-1 decode — the migration marker, never
+  /// written back out ([toJson] always stamps the current version).
+  final bool legacySchema;
 
   Map<String, Object?> toJson() => {
     'version': schemaVersion,
@@ -271,7 +286,9 @@ final class WorkspaceListDocument {
     if (json is! Map) {
       throw const FormatException('Invalid workspace list');
     }
-    if (json['version'] is! int || json['version'] != schemaVersion) {
+    final version = json['version'];
+    if (version is! int ||
+        (version != schemaVersion && version != _legacySchemaVersion)) {
       throw const FormatException('Unsupported workspace list schema');
     }
     final workspaces = json['workspaces'];
@@ -286,6 +303,9 @@ final class WorkspaceListDocument {
     if (decoded.map((w) => w.id).toSet().length != decoded.length) {
       throw const FormatException('Invalid workspace list entries');
     }
-    return WorkspaceListDocument(workspaces: decoded);
+    return WorkspaceListDocument(
+      workspaces: decoded,
+      legacySchema: version == _legacySchemaVersion,
+    );
   }
 }

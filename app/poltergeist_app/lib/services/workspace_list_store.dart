@@ -1,17 +1,18 @@
 import 'settings_store.dart';
 import 'workspace_state.dart';
 
-/// The workspace list's persistence layer (02 §3's workspaces, M3 slice):
-/// one versioned JSON document inside `settings.json`, behind the prefs
-/// layer — the same generic [SettingsStore] the session document and the
-/// other prefs use, so workspace writes ride the existing atomic
+/// The workspace detail document's persistence layer (02 §3): one
+/// versioned JSON document inside `settings.json`, behind the prefs
+/// layer — the same generic [SettingsStore] the session document and
+/// the other prefs use, so workspace writes ride the existing atomic
 /// serialized writer for free.
 ///
 /// This is deliberately a SEPARATE key from `session.state`: the
 /// safe-point writer rewrites the auto-session on every state change,
-/// and a named workspace must never be displaced by it. M5 migrates the
-/// document into the favorites store (the workspace favorite KIND per
-/// 04 §2.1); this file is the seam that migration reads.
+/// and a named workspace's detail must never be displaced by it. At M5
+/// the workspace's synced half became the `BookmarkKind.workspace`
+/// favorite (04 §2.1); this document is what stays device-local — the
+/// full tab-set snapshot keyed by the favorite's id (04 §2.3).
 ///
 /// Schema posture matches [SessionStateStore]: decode is strict, a newer
 /// schema fails closed, and [save] re-reads the stored value first so a

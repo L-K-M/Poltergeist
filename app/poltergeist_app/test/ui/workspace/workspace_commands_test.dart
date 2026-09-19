@@ -20,6 +20,7 @@ import 'package:poltergeist_app/ui/workspace/workspace_commands.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../services/pane_controller_test.dart' as controller_test;
+import '../../support/fake_bookmark_store.dart';
 
 WorkspacePaneState _pane(
   String paneId,
@@ -73,6 +74,7 @@ void main() {
           path: p.join(temporaryDirectory.path, 'settings.json'),
         ),
       ),
+      bookmarks: FakeBookmarkStore(),
     );
     await library.load();
     guardAnswer = (_) => true;
@@ -153,7 +155,7 @@ void main() {
       ]);
     });
 
-    test('saved workspaces list newest-first under the submenu', () async {
+    test('saved workspaces list in favorites order under the submenu', () async {
       await library.save(
         label: 'First',
         snapshot: WorkspaceSnapshot(
@@ -180,9 +182,12 @@ void main() {
           .expand((group) => group)
           .whereType<AppMenuSubmenuRow>()
           .single;
+      // The submenu renders the favorites' own order (the sidebar's
+      // sortKey sequence — appended rows land at the tail), so the menu
+      // and the sidebar can never disagree about sequence.
       expect(submenu.items.map((item) => item.command.label(l10n)), [
-        'Second',
         'First',
+        'Second',
       ]);
       expect(submenu.items.map((item) => item.command.id), [
         'workspace.open.${library.workspaces[0].id}',

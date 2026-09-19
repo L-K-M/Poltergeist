@@ -6352,6 +6352,67 @@ filtering, and probe-lifecycle coverage. `POLTERGEIST_CAPTURE=1`
 writes grouped, collapsed-group, and context-menu captures to
 `tasks/run3-task76/captures/`.
 
+## M5 — workspaces capture/restore (2026-09-19)
+
+02 §3's saved workspaces are now real: a workspace IS a
+`BookmarkKind.workspace` favorite — one bookmark per workspace —
+while the full tab-set snapshot stays device-local. The bookmark
+carries only what the pinned schema allows (04 §2.1): label,
+sidebar order (`sortKey`), group/accent, and each pane's headline
+endpoint (`left`/`right` `BookmarkLocation`s — the active tab's
+location, else the first bound tab's, else `~` for a launcher
+pane; remote endpoints carry host/port/user/`secretRef`, never a
+secret). The exact tab sets — kind, path/remote identity, filter
+query and field state, hidden-files, view mode per tab — persist
+in the versioned `workspaces.saved` detail document inside
+`settings.json`, keyed by the bookmark's id
+(`WorkspaceListDocument` schema 2; a v1 decode flags itself so
+`WorkspaceLibrary.load` mints each record's favorite under the
+same id once, then rewrites v2 — and a v2 detail without its
+favorite is a deleted row's residue, pruned rather than
+resurrected). `WorkspaceLibrary` joins the two layers in favorite
+order and answers `store.changes` — a sidebar rename re-labels
+the workspace, a sidebar delete drops the detail.
+
+Restore lands through the existing seams only: opening the
+sidebar row or the `workspace.open.<id>` command runs the same
+`openWorkspaceBookmark` helper — `WorkspaceController`'s guarded
+both-pane replacement (close-guard confirmation before anything
+moves), the 12 s opened toast whose Undo replays the displaced
+snapshot through the same guard, and `markOpened`'s recency
+stamp. Remote tabs restore disconnected-but-targeted via the
+session restoration path (bookmark identity + path persisted on
+`SessionTabState`, `markRestored` semantics, Reconnect bar, no
+auto-secret use); a detail-less favorite — a synced-in record —
+degrades to the schema's own reduced shape, one tab per pane at
+the recorded endpoints. Re-capture is an update, never a
+duplicate: `workspace.save` over a matching label and the sidebar
+row's new "Update Workspace" verb (`sidebarWorkspaceUpdate`,
+keyed `sidebar.menu.updateWorkspace`, hidden when the seam is
+unwired) both rewrite the existing bookmark's endpoints in place
+— group, order, accent, and id survive.
+
+The workspace row drops the modifier-open verbs (new tab /
+opposite pane do not apply to a two-pane restore). No sync, no
+`savedSync` behavior (its row still posts the honest not-yet
+notice), no new engine surfaces. `FakeBookmarkStore`'s
+`sortKeyForInsert` learned the file store's real no-neighbor
+contract (tail append) after the command-ordering test caught it
+midpoint-minting.
+
+Coverage: `workspace_library_test` exercises bookmark-backed
+save/recapture-without-duplicate, restart reload, remote
+identity/`secretRef` retention, empty-launcher endpoints, the
+v1→v2 migration, and payload purity (no secret-bearing keys in
+the bookmark JSON); `workspace_state_test` pins the schema flag;
+`workspace_commands_test` keeps favorites-order submenu rows;
+`sidebar_view_test` covers the Update verb's presence/absence and
+the modifier-verb swap; `workspace_capture_test` writes
+`workspaces-submenu`, `workspace-toast`, and the new
+`workspace-sidebar-restore` captures under `tasks/run3-task77/`
+(POLTERGEIST_CAPTURE=1). `flutter analyze` clean; the full app
+suite passes.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

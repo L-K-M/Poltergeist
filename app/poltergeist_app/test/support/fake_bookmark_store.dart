@@ -83,6 +83,14 @@ final class FakeBookmarkStore implements BookmarkStore {
   }) async {
     final target = normalizeServerGroup(group);
     final members = _membersOf(target, exclude: null);
+    // No neighbors named: append at the target group's tail — the file
+    // store's no-neighbor contract, not an empty-space midpoint.
+    if (beforeId == null && afterId == null) {
+      return sortKeyBetween(
+        members.isEmpty ? null : members.last.sortKey,
+        null,
+      );
+    }
     return sortKeyBetween(
       _neighborKey(members, beforeId),
       _neighborKey(members, afterId),

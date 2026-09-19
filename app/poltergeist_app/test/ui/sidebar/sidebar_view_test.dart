@@ -64,6 +64,7 @@ final class _ConnectionLanes implements ConnectionStateBridge {
 void main() {
   late FakeBookmarkStore store;
   late List<(Bookmark, SidebarOpenAction)> opens;
+  late List<Bookmark> workspaceUpdates;
   late List<ConnectionServer> openedConnections;
   late List<ConnectionServer> disconnected;
   late List<Set<String>> collapsedWrites;
@@ -74,6 +75,7 @@ void main() {
   Future<SidebarController> pumpSidebar(
     WidgetTester tester, {
     bool withConnections = false,
+    bool withWorkspaceUpdate = false,
     ApplicationErrorReporter? errors,
   }) async {
     tester.view.physicalSize = const Size(300, 800);
@@ -114,6 +116,9 @@ void main() {
               onOpenConnection: openedConnections.add,
               onDisconnect: disconnected.add,
               onReviewBlocked: (_) {},
+              onUpdateWorkspace: withWorkspaceUpdate
+                  ? workspaceUpdates.add
+                  : null,
             ),
           ),
         ),
@@ -135,6 +140,7 @@ void main() {
   setUp(() {
     store = FakeBookmarkStore();
     opens = [];
+    workspaceUpdates = [];
     openedConnections = [];
     disconnected = [];
     collapsedWrites = [];
@@ -251,6 +257,57 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(opens.last.$2, SidebarOpenAction.oppositePane);
+  });
+
+  Bookmark workspace(String id) => Bookmark(
+    id: id,
+    kind: BookmarkKind.workspace,
+    label: 'Daily pair',
+    left: const BookmarkLocation(path: '/home/a'),
+    right: const BookmarkLocation(path: '/srv/b'),
+    sortKey: 'm$id',
+    createdAt: _now,
+    updatedAt: _now,
+  );
+
+  testWidgets('a workspace row swaps the modifier verbs for Update '
+      'Workspace', (tester) async {
+    store.bookmarks = [workspace('w1')];
+    await pumpSidebar(tester, withWorkspaceUpdate: true);
+
+    await openMenu(tester, 'w1');
+    // One open verb (the workspace replaces BOTH panes — the pane-target
+    // modifiers mean nothing for it) and the re-capture verb beside it.
+    expect(find.byKey(const ValueKey('sidebar.menu.open')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sidebar.menu.openNewTab')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('sidebar.menu.openOtherPane')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.menu.updateWorkspace')),
+    );
+    await tester.pumpAndSettle();
+    expect(workspaceUpdates.map((bookmark) => bookmark.id), ['w1']);
+    expect(opens, isEmpty);
+  });
+
+  testWidgets('a workspace row without the update seam hides the verb', (
+    tester,
+  ) async {
+    store.bookmarks = [workspace('w1')];
+    await pumpSidebar(tester);
+
+    await openMenu(tester, 'w1');
+    expect(find.byKey(const ValueKey('sidebar.menu.open')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('sidebar.menu.updateWorkspace')),
+      findsNothing,
+    );
   });
 
   testWidgets('group headers collapse their rows and persist the state', (

@@ -790,11 +790,11 @@ abstract class AppLocalizations {
   /// **'Saved sync'**
   String get sidebarKindSavedSync;
 
-  /// Transient notice (02 §10): a workspace-kind favorite's open targets the workspaces slice, which lands after this one — an honest answer, never a dead button.
+  /// Workspace favorite's context verb (02 §3): re-captures both panes' tab sets over the existing workspace — an update, never a duplicate.
   ///
   /// In en, this message translates to:
-  /// **'Opening workspace favorites isn\'t available yet — workspace restore arrives in a later milestone.'**
-  String get sidebarWorkspaceLater;
+  /// **'Update Workspace'**
+  String get sidebarWorkspaceUpdate;
 
   /// Transient notice (02 §10): a saved-sync-kind favorite's open targets the 05 sync preview, which lands after this slice.
   ///

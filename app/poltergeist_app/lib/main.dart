@@ -79,14 +79,17 @@ Future<void> main() async {
     store: sessionStore,
     onError: errorReporter.report,
   );
-  // The saved-workspace list (02 §3): its own versioned document inside
-  // the same settings.json, clearly separated from the auto session —
-  // the M5 favorites store is its planned home, this is the interim seam.
-  // The same fail-closed rule as the session document applies: a
-  // malformed or newer-schema document reports and boots an empty list,
-  // never partially trusted and never overwritten unread.
+  // The saved-workspace list (02 §3, M5): the workspace favorites live
+  // in the shared bookmark store — label, sidebar order, endpoints —
+  // while each one's full tab-set snapshot stays device-local in its own
+  // versioned settings.json document keyed by the favorite's id. The
+  // same fail-closed rule as the session document applies: a malformed
+  // or newer-schema document reports and boots an empty list, never
+  // partially trusted and never overwritten unread.
   final workspaces = WorkspaceLibrary(
     store: WorkspaceListStore(store: settingsStore),
+    bookmarks: bookmarks,
+    errors: errorReporter,
   );
   try {
     await workspaces.load();

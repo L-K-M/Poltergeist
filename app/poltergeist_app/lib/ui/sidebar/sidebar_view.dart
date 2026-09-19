@@ -39,6 +39,7 @@ class SidebarView extends StatelessWidget {
     this.onOpenConnection,
     this.onDisconnect,
     this.onReviewBlocked,
+    this.onUpdateWorkspace,
     super.key,
   });
 
@@ -72,6 +73,11 @@ class SidebarView extends StatelessWidget {
 
   /// Leads a blocked row to the changed-key review (D18).
   final void Function(ConnectionServer server)? onReviewBlocked;
+
+  /// The workspace row's "Update Workspace" verb (02 §3): re-captures
+  /// both panes over the existing favorite. Null hides the item —
+  /// surfaces without a workspace seam offer open only.
+  final void Function(Bookmark bookmark)? onUpdateWorkspace;
 
   @override
   Widget build(BuildContext context) {
@@ -694,6 +700,10 @@ class _FavoriteRowState extends State<_FavoriteRow> {
     final view = widget.view;
     final bookmark = widget.bookmark;
     final open = view.onOpenFavorite;
+    // A workspace replaces BOTH panes — the new-tab/other-pane modifier
+    // verbs have no meaning for it; the row's second verb is the
+    // re-capture (02 §3's update-over, one bookmark = one workspace).
+    final isWorkspace = bookmark.kind == BookmarkKind.workspace;
     return [
       MenuItemButton(
         key: const ValueKey('sidebar.menu.open'),
@@ -702,20 +712,28 @@ class _FavoriteRowState extends State<_FavoriteRow> {
             : () => _open(SidebarOpenAction.plain),
         child: Text(l10n.sidebarOpen),
       ),
-      MenuItemButton(
-        key: const ValueKey('sidebar.menu.openNewTab'),
-        onPressed: open == null
-            ? null
-            : () => _open(SidebarOpenAction.newTab),
-        child: Text(l10n.sidebarOpenInNewTab),
-      ),
-      MenuItemButton(
-        key: const ValueKey('sidebar.menu.openOtherPane'),
-        onPressed: open == null
-            ? null
-            : () => _open(SidebarOpenAction.oppositePane),
-        child: Text(l10n.sidebarOpenInOtherPane),
-      ),
+      if (!isWorkspace)
+        MenuItemButton(
+          key: const ValueKey('sidebar.menu.openNewTab'),
+          onPressed: open == null
+              ? null
+              : () => _open(SidebarOpenAction.newTab),
+          child: Text(l10n.sidebarOpenInNewTab),
+        ),
+      if (!isWorkspace)
+        MenuItemButton(
+          key: const ValueKey('sidebar.menu.openOtherPane'),
+          onPressed: open == null
+              ? null
+              : () => _open(SidebarOpenAction.oppositePane),
+          child: Text(l10n.sidebarOpenInOtherPane),
+        ),
+      if (isWorkspace && view.onUpdateWorkspace != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.menu.updateWorkspace'),
+          onPressed: () => view.onUpdateWorkspace!(bookmark),
+          child: Text(l10n.sidebarWorkspaceUpdate),
+        ),
       const Divider(height: 1),
       MenuItemButton(
         key: const ValueKey('sidebar.menu.rename'),
