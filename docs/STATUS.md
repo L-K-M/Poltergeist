@@ -6160,7 +6160,10 @@ the per-criterion evidence record lives in
    progress events with `scanComplete == false`, completes post-order
    (root unlinks last), and cancels cleanly mid-walk leaving the queue
    healthy — run for both the `srv1` remote endpoint and the local
-   endpoint through the injected `localFileSystem` seam.
+   endpoint through the injected `localFileSystem` seam. The local
+   variants skip on Windows (`FakeTreeFileSystem` models posix
+   separators only — the same convention as `local_ops_test`); Linux
+   and macOS CI carry them.
 5. **Trash round-trip per platform — MET.** The live `gio trash` +
    `.trashinfo` restore round-trip
    (`trash_roundtrip_linux_test.dart`) runs and passes in CI on

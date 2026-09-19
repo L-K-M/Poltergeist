@@ -61,12 +61,15 @@ record; no features, no M5 work.
    remote** — MET via the new `a 10k-entry delete tree` group in
    `packages/poltergeist_core/test/transfer/trash_delete_test.dart`.
    A 10 101-item tree (100 dirs × 100 files + root) held mid-walk by
-   a listing gate emits growing `totalEntries`/`deletedEntries` and
+   a listing gate emits growing `totalFiles`/`completedFiles` and
    progress events with `scanComplete == false`; released, it
    completes post-order (root unlinks last). The cancel twin
    interrupts mid-walk and leaves the queue healthy. Both shapes run
    against the `srv1` remote endpoint and against the local endpoint
-   through the injected `localFileSystem` seam (4 tests, all green).
+   through the injected `localFileSystem` seam (4 tests). The local
+   variants skip on Windows — `FakeTreeFileSystem` models posix
+   separators only, the same convention `local_ops_test` already uses;
+   Linux/macOS CI legs carry the local side.
 
 5. **Trash round-trip per platform where CI allows; manual QA notes
    for the rest** — MET. Linux real round-trip

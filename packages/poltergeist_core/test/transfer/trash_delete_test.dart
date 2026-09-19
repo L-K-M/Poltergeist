@@ -17,7 +17,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show ProcessException, ProcessResult;
+import 'dart:io' show Platform, ProcessException, ProcessResult;
 
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
@@ -930,9 +930,15 @@ void main() {
             // Depth-first post-order: d000–d049's subtrees are already
             // deleted while the walk still sits inside d050.
             await pumpUntil(
-              () => task.completedFiles > 0,
+              () => task.completedFiles > 0 || task.isTerminal,
               maxPumps: 4000,
               reason: 'delete dispatch never overlapped the scan',
+            );
+            expect(
+              task.completedFiles,
+              greaterThan(0),
+              reason: 'delete dispatch never overlapped the scan'
+                  ' (state ${task.state.name}, error ${task.error})',
             );
             expect(task.scanComplete, isFalse);
             expect(task.totalFiles, greaterThan(0));
@@ -960,6 +966,12 @@ void main() {
             );
             expect(fs.entryAt(root), isNull);
           },
+          // FakeTreeFileSystem models a posix tree; the local walker's
+          // platform join produces '\' children on Windows, which fail
+          // containment. Same convention as local_ops_test.
+          skip: !remote && Platform.isWindows
+              ? 'FakeTreeFileSystem models posix separators only'
+              : null,
         );
 
         test(
@@ -976,9 +988,15 @@ void main() {
 
             final task = await enqueueTreeDelete(queue, source, root);
             await pumpUntil(
-              () => task.completedFiles > 0,
+              () => task.completedFiles > 0 || task.isTerminal,
               maxPumps: 4000,
               reason: 'delete dispatch never overlapped the scan',
+            );
+            expect(
+              task.completedFiles,
+              greaterThan(0),
+              reason: 'delete dispatch never overlapped the scan'
+                  ' (state ${task.state.name}, error ${task.error})',
             );
             queue.cancelTask(task.id);
             releaseWalk(fs, gate);
@@ -1004,6 +1022,9 @@ void main() {
             await awaitScaleDone(followUp);
             expect(followUp.state, TransferTaskState.completed);
           },
+          skip: !remote && Platform.isWindows
+              ? 'FakeTreeFileSystem models posix separators only'
+              : null,
         );
       }
     });
