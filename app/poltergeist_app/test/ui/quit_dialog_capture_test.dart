@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -117,7 +116,7 @@ void main() {
       rootPaths: const ['/home/tester/notes.txt'],
     );
 
-    unawaited(guard.confirmClose());
+    final closed = guard.confirmClose();
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('quit.dialog')), findsOneWidget);
@@ -150,5 +149,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('quit.keepTransferring')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('quit.dialog')), findsNothing);
+    expect(await closed, isFalse);
   });
 }
