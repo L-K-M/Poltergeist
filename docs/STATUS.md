@@ -4,7 +4,10 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-19. **M3, M4, and M5 are closed; M6 is next** —
+_Last updated: 2026-09-19. **M3, M4, and M5 are closed; M6 is open** —
+its engine-side foundation (04 §3.1–3.2: `PersistentLocalRecordStore`,
+`BookmarkCoordinator`, and the verdict/tripwire seams) is implemented in
+the dated M6 section below —
 v0.2.0 remains the latest published pre-release (M3, M4, and M5 closed
 untagged per their closure records; M5's §3.12 tag chore is recorded in
 [tasks/m5-closure-record.md](../tasks/m5-closure-record.md)). Every M5
@@ -6490,6 +6493,76 @@ nowhere to hide: they live in the separate device-local stores
 purity suite fences off. The `v0.5.0` tag chore is **not run
 here**, matching M3/M4's untagged closes — a tag push publishes
 release assets, left to the supervisor/owner.
+
+## M6 — sync record store + BookmarkCoordinator (2026-09-19)
+
+The engine-side M6 foundation per 04 §3.1–3.2, all in
+`poltergeist_core` — no transport, no enrollment, no UI:
+
+- **`PersistentLocalRecordStore`** (`src/sync/`) is the real
+  `LocalRecordStore` Séance's app lacks: one versioned JSON document
+  (`version`, `highWaterSeq`, `lastAppliedSeq`, per-record `dirty`
+  flags, and a `displaced` stash) rewritten atomically through the
+  house temp+rename writer after every mutation. Dirty tracking is
+  per-record (only actual edits push), pulls are deltas off
+  `highWaterSeq`, tombstones are retained indefinitely (no GC — a
+  long-offline device must never resurrect a deletion), and a corrupt
+  file quarantines under a unique existence-checked
+  `corrupt-<stamp>-<n>` name before restarting empty (`quarantinedPath`
+  is the durable-notice seam). A newer `version` fails closed in place.
+- **`SyncRecordStore`** extends the pinned interface with the §3.2
+  bookkeeping: the `lastAppliedSeq` apply cursor (persisted like
+  `highWaterSeq`, reset with it by `resetSyncCursors` for the one-time
+  full-resync fallback), and the displaced-winner resurface — a pulled
+  record that loses to a dirty local (or a clean winner a local edit
+  evicts) is parked, and `restoreDisplaced` puts it back when the
+  rival's push is rejected, since the server still holds that copy.
+- **`BookmarkCoordinator`** (`src/bookmarks/`) is change-driven out
+  (`onBookmarkSaved`/`onBookmarkDeleted` seal just the edited row —
+  deletes mint real empty-blob tombstones) and delta-scanned in
+  (`applyPulled` dispatches `seq > lastAppliedSeq` in order, advancing
+  the cursor only past applied-or-terminally-skipped records, never a
+  deferred one). Dispatch switches on the id prefix **before**
+  decrypting: `secret:`/`snippet:`/unknown `<prefix>:` ids — and
+  prefixless ids in separate mode — are skip-preserved unopened. The
+  decrypted kind is the second gate: prefix/kind mismatch or strict
+  `Bookmark.fromJson` failure trips the durable §4.2 tripwire
+  (decrypt failure alone does not — wrong-key is a different signal).
+  Pulled records apply under the materialized-tuple guard: a record
+  losing to a pending local edit or tombstone tuple defers for the
+  rival's push resolution instead of resurrecting/clobbering.
+- **`hostkey:` handling** per §3.2: pins flow in unless they conflict
+  with the local TOFU store — conflicts are quarantined behind the
+  re-derived `pinConflicts` diff, negative pins (forget-host) hold the
+  pulled record unapplied, kept-local verdicts suppress repeat warnings
+  for the same rejected fingerprint only, `hostkey:` tombstones never
+  delete a local pin, and `onHostKeyPinned`/`onHostKeyForgotten`/
+  `keepLocalPin`/`acceptPulledPin` implement the resolution verbs.
+- **`SeanceServerCatalog`** (shared mode only) materializes pulled
+  prefixless `serverConfig` records, rebuilt from the record store each
+  apply pass — tombstones remove entries.
+- **`FileBookmarkStore`** now implements `SyncTrackingBookmarkStore`:
+  per-row `(updatedAt, deviceId, deleted)` tuples persist in the same
+  atomic document under `syncTuples` (absent entirely while sync is
+  unconfigured, so the M5-pinned document shape is unchanged for
+  non-sync installs). `reSealAfterStoreLoss` re-seals every row —
+  including tombstone tuples, which makes pending deletions recoverable
+  too — under each row's *persisted* winning tuple rather than this
+  install's id.
+- Transport is the later slice: `SyncApi` stays the seam, faked in
+  tests; `SyncCursorRejectedException` is the cursor-rejection signal
+  that drives the resync fallback.
+
+Coverage (`test/sync/`, 42 tests): two-device create/edit/delete
+convergence, delete-loses-to-newer-edit resurrection per the spec rule,
+tombstone-stays-won across rounds, `flurb`-kind byte-identical
+survival, malformed-bookmark skip without aborting the round,
+relabeled-secret refusal, undecryptable preservation, tombstone-tuple
+deferral, rejected-push resurface, LWW tie idempotence, delta cursors,
+cursor-rejection resync, the hostkey matrix, shared-mode catalog, and
+corruption re-seal — plus the store-level persistence/LWW/quarantine
+matrix. `dart analyze` and the full `dart test
+packages/poltergeist_core` suite (1281 tests) are green.
 
 ## Open items
 

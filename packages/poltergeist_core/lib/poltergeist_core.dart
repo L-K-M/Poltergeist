@@ -50,6 +50,18 @@ export 'package:seance_core/seance_core.dart'
         ServerColor,
         ServerConfig,
         ServerIcon,
+        // Sync protocol types (04 §3): the record layer, the LWW rule both
+        // ends share, and the transport seam the coordinator is driven over.
+        DecryptedRecord,
+        EncryptedRecord,
+        LocalRecordStore,
+        PullResponse,
+        PushResponse,
+        PushResult,
+        RecordCodec,
+        RecordKind,
+        SyncApi,
+        Lww,
         SshConfigImporter,
         SshConnectException,
         SshConnectionLog,
@@ -69,6 +81,12 @@ export 'package:seance_core/seance_core.dart'
 export 'src/bookmarks/bookmark_groups.dart'
     show BookmarkGroupSection, bookmarkGroupNames, groupBookmarks,
         kUngroupedBookmarkKey;
+export 'src/bookmarks/bookmark_coordinator.dart'
+    show
+        ApplyReport,
+        BookmarkCoordinator,
+        HostKeyConflict,
+        SyncRoundResult;
 export 'src/bookmarks/bookmark_store.dart'
     show
         BookmarkRemovedChange,
@@ -76,10 +94,26 @@ export 'src/bookmarks/bookmark_store.dart'
         BookmarkSavedChange,
         BookmarkStore,
         BookmarkStoreChange,
+        BookmarkSyncTuple,
         BookmarkTooLargeException,
         FileBookmarkStore,
+        SyncTrackingBookmarkStore,
         bookmarkPayloadCapBytes,
         bookmarkQuarantinePath;
+export 'src/sync/persistent_record_store.dart'
+    show
+        PersistentLocalRecordStore,
+        SyncCursorRejectedException,
+        SyncRecordStore,
+        recordStoreQuarantinePath;
+export 'src/sync/record_crypto.dart' show RecordCrypto;
+export 'src/sync/seance_server_catalog.dart' show SeanceServerCatalog;
+export 'src/sync/sync_verdicts.dart'
+    show
+        InMemoryPinVerdictStore,
+        InMemorySyncTripwireStore,
+        PinVerdictStore,
+        SyncTripwireStore;
 export 'src/bookmarks/sort_key.dart'
     show
         SortKeySpaceExhaustedException,
