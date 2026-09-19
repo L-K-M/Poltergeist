@@ -408,8 +408,13 @@ void main() {
 
     // The dialog lists the file verbs and the apply-to-all checkbox
     // (N = the other parked conflict).
-    expect(find.byKey(const ValueKey('conflict.verb.replace')),
-        findsOneWidget);
+    for (final verb in ['replace', 'replaceIfNewer', 'keepBoth', 'skip']) {
+      expect(
+        find.byKey(ValueKey('conflict.verb.$verb')),
+        findsOneWidget,
+        reason: 'file conflicts offer $verb',
+      );
+    }
     expect(find.byKey(const ValueKey('conflict.verb.merge')),
         findsNothing); // files cannot merge
     await tester.tap(find.byKey(const ValueKey('conflict.applyToAll')));
@@ -442,10 +447,20 @@ void main() {
       find.byKey(ValueKey('activity.conflictResolve.${dir.id}')),
     );
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('conflict.verb.merge')),
-      findsOneWidget,
-    );
+    // 02 §5.2's five-verb model: a folder collision offers all five.
+    for (final verb in [
+      'replace',
+      'replaceIfNewer',
+      'keepBoth',
+      'skip',
+      'merge',
+    ]) {
+      expect(
+        find.byKey(ValueKey('conflict.verb.$verb')),
+        findsOneWidget,
+        reason: 'folder conflicts offer $verb',
+      );
+    }
 
     await tester.tap(find.text('Stop'));
     await tester.pumpAndSettle();
