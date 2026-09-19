@@ -6447,8 +6447,9 @@ Verdicts:
    `left`/`right` were already in the synced-key allowlist, and a
    new test walks every nested map (`left`, `right`, `server`,
    `sync`) asserting no device-local key appears at any depth,
-   plus a shape pin that a workspace location is exactly
-   `{server, path}`.
+   plus a shape pin that a workspace location is `{server?,
+   path}` (`path` required, `server` the optional remote
+   endpoint).
 4. **Sidebar fully keyboard-operable + D20 semantics on every row
    kind — MET after one real fix.** Arrow traversal, Enter/Space
    activation, and Shift+F10 context-menu coverage is new (drag

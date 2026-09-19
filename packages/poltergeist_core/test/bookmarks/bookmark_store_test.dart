@@ -645,14 +645,17 @@ Host web
         }
 
         // And the M5 additions specifically: a workspace location is
-        // {server, path}, its server ref {serverConfigId, identity} —
-        // nothing else may ride along.
+        // {server?, path} — `path` is required, `server` is the
+        // optional remote endpoint — and nothing else may ride along.
         final workspace = _allKinds().firstWhere(
           (bookmark) => bookmark.kind == BookmarkKind.workspace,
+          orElse: () =>
+              fail('_allKinds() must include a workspace bookmark'),
         );
         final json = workspace.toJson();
         for (final side in const ['left', 'right']) {
           final location = json[side] as Map<String, dynamic>;
+          expect(location, contains('path'), reason: '$side.path');
           for (final key in location.keys) {
             expect(
               {'server', 'path'},

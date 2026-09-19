@@ -54,7 +54,8 @@ sweep, and this record; no features, no M6 work.
    key nests inside the workspace or server payloads` walks every map
    key at every depth of every kind's `toJson()` against the
    device-local key set, and pins the workspace location shape to
-   exactly `{server, path}` — a nested local-only field under
+   `{server?, path}` — `path` required, `server` the optional
+   remote endpoint — a nested local-only field under
    `left`/`right`/`server`/`sync` would previously have passed
    unnoticed. No secure-bookmark blob key exists anywhere in the
    model's serialized shape.
