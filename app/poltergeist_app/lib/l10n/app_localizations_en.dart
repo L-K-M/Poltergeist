@@ -1190,6 +1190,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get activityCopyError => 'Copy error';
 
   @override
+  String get activityTaskRemoteUnavailable =>
+      'Remote transfers aren\'t available yet — this build moves local files only.';
+
+  @override
   String get activitySkipItem => 'Skip';
 
   @override

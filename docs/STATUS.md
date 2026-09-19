@@ -12,10 +12,11 @@ closure record at
 §3.5 scope bullet and exit criterion is on main through #158, audited
 per-criterion in the dated closure section below. M0, M1, and M2 stay
 closed per the Done table; **open item 4 (the M1/M2 overlap
-authorization) remains an OPEN owner decision**, and open item 23 owns
-the one honest M4 gap — the transfer queue is not yet composed into
-`main.dart`, so the engine machinery is fully tested but unreachable in
-a production boot until that slice lands. Next milestone: M5 (sidebar,
+authorization) remains an OPEN owner decision**. Open item 23's M4 gap
+is closed app-side: `main.dart` now composes the journaled queue and
+every consumer shares it — its remaining half (remote transfers fail
+honestly until the engine protocol grows transfer verbs) stays open
+for the engine-host slice. Next milestone: M5 (sidebar,
 bookmarks, workspaces, 07 §3.6).
 
 ## Done
@@ -6139,7 +6140,10 @@ the per-criterion evidence record lives in
    gap, not a criterion failure:** open item 23 — the queue is not yet
    composed into `main.dart` (no engine protocol transfer verbs yet),
    so a production boot has no live queue to restore until the
-   engine-host composition slice lands.
+   engine-host composition slice lands. *(Closed app-side 2026-09-19 —
+   the M5-bridge section below composes the real queue into
+   `main.dart`; remote transfers still fail honestly pending engine
+   verbs, which stays on item 23.)*
 3. **Conflict dialog, five verbs, per-direction defaults, merge
    recursion — MET.** The §5.2 chooser renders `PendingConflict`'s
    `availableVerbs` — four file verbs (merge excluded) and all five on
@@ -6200,6 +6204,48 @@ the remote→remote pipe re-leases a pooled channel per attempt). The
 `v0.4.0` tag chore is **not run here**: M3's precedent closed untagged
 and a tag push publishes release assets — left to the supervisor/owner
 with `lkm-release` available at `~/.local/bin`.
+
+## M5 bridge — production transfer-queue composition (2026-09-19)
+
+Closes open item 23's app half: `main.dart` now boots the real queue.
+`services/transfer_queue_session.dart` opens `FileTransferPersistence`
+in the app-support directory, builds a `TransferQueue` over it, runs
+03 §4.6's `restore()` (journaled-paused stays paused, every other
+non-terminal survivor replays queued behind the forced queue pause),
+and hands one `AppTransferQueue` seam to `PoltergeistApp` — the
+workspace shell's pane-drop delegate, the activity panel, and the quit
+guard's close-time flush all share the instance. A startup failure
+reports through `ApplicationErrorReporter` and boots queue-less,
+matching the engine session's posture; production never disposes the
+queue — the quit guard's non-closing `flushJournal()` remains the exit
+durability point, and a vetoed quit leaves the queue writable.
+
+Two consequence fixes ride the same slice:
+
+- **Boot-held live tasks un-hide the panel.** The activity
+  controller's auto-show is an empty→live edge; a restored queue
+  already holds live tasks when the mirror binds, so no arrival ever
+  fires for them and a session saved with the panel hidden would bury
+  un-acknowledged work. `WorkspaceShell` seeds visibility from the
+  queue snapshot at mount — live restored tasks win over the
+  persisted hidden flag.
+- **Remote endpoints fail honestly.** The engine isolate owns every
+  socket (D8) and the §5 protocol carries no transfer verbs yet, so
+  the composed queue's `ConnectionManager` is honest absence: lease
+  attempts answer `unsupported` and remote tasks land as visible
+  failed rows rather than stalling. Local↔local work runs for real —
+  it never touches the pool. Item 23 stays open for the engine-host
+  transfer-queue slice that replaces this seam.
+
+Coverage: `test/ui/transfer_queue_composition_test.dart` boots three
+sessions over one journal — a "crashed" session seeds
+done/paused/queued rows, the composed session proves the restore
+semantics, the mounted shell's restored banner, the pane-drop
+delegate's identical queue seam (the item-23 boot-path assertion that
+the production wiring hands a live queue, not none), the quit guard's
+pause-and-flush, and a third boot's durability replay; a separate
+test pins the remote-failure honesty. `POLTERGEIST_CAPTURE=1` writes
+the restored panel to `tasks/run3-task74/captures/boot-restored-queue.png`.
 
 ## Open items
 
@@ -6866,6 +6912,17 @@ with `lkm-release` available at `~/.local/bin`.
     journal, so a persistently failing disk leaves force-quit as the
     only exit; whether an explicit double-confirmed override is
     acceptable is a product decision for the spec owner.
+    **Composition half closed 2026-09-19** (the M5-bridge dated
+    section): `main.dart` composes the real journaled queue at
+    startup and every consumer — pane drops, activity panel, quit
+    guard — shares it; the composition test's delegate-identity
+    assertion is the requested boot-path smoke check. The deferred
+    "Quit Anyway" decision above is unchanged. **Still open:** remote
+    transfers — until the engine protocol grows transfer verbs and an
+    engine-hosted queue (or a bridged lease) exists, remote-endpoint
+    tasks enqueued through the composed queue fail with a typed
+    `unsupported` error instead of running; local↔local work runs
+    for real.
 
 ## Independent audit
 

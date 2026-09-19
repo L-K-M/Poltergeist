@@ -1917,6 +1917,12 @@ abstract class AppLocalizations {
   /// **'Copy error'**
   String get activityCopyError;
 
+  /// Failure sentence on a task naming a remote endpoint before the engine protocol grows transfer verbs (open item 23).
+  ///
+  /// In en, this message translates to:
+  /// **'Remote transfers aren\'t available yet — this build moves local files only.'**
+  String get activityTaskRemoteUnavailable;
+
   /// Per-file sub-row action while the file is queued: pulls it from the task (02 §6).
   ///
   /// In en, this message translates to:

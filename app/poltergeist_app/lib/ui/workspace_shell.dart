@@ -399,6 +399,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       left.newTab(target: NewTabTarget.home);
       right.newTab(target: NewTabTarget.home);
     }
+    // D16's anti-hiding rule covers the boot case too: a queue already
+    // holding live tasks when the workspace mounts — the restored
+    // journal's survivors, parked behind the forced pause — is work the
+    // user has not seen this session, and the panel's rows are its only
+    // window. The arrival edge cannot reach them: binding a queue with
+    // live tasks initializes _hadLiveTasks, so no arrival ever fires
+    // for them. The seed deliberately wins over a restored session's
+    // hidden flag — saved chrome intent yields to un-acknowledged work.
+    if (_activity.tasks.any((task) => !task.isTerminal)) {
+      workspace.setActivityPanelHidden(false);
+    }
     // The change listener attaches only after the initial state
     // settles: a launch-time visibility flip is restoration, not a
     // user-driven hide edge — the synchronous notify inside
