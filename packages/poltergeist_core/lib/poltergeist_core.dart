@@ -52,14 +52,18 @@ export 'package:seance_core/seance_core.dart'
         ServerIcon,
         // Sync protocol types (04 §3): the record layer, the LWW rule both
         // ends share, and the transport seam the coordinator is driven over.
+        ApiError,
         DecryptedRecord,
         EncryptedRecord,
         LocalRecordStore,
+        LoginRequest,
+        PreloginResponse,
         PullResponse,
         PushResponse,
         PushResult,
         RecordCodec,
         RecordKind,
+        RegisterRequest,
         SyncApi,
         Lww,
         SshConfigImporter,
@@ -106,7 +110,26 @@ export 'src/sync/persistent_record_store.dart'
         SyncCursorRejectedException,
         SyncRecordStore,
         recordStoreQuarantinePath;
-export 'src/sync/record_crypto.dart' show RecordCrypto;
+export 'src/sync/record_crypto.dart' show RecordCrypto, isDecryptableSyncId;
+export 'src/sync/enrollment.dart'
+    show
+        EnrollmentResult,
+        KdfDowngradeException,
+        RegistrationClosedException,
+        SyncAccount,
+        SyncAccountMode,
+        SyncCredentialStore,
+        SyncEnrollment,
+        SyncEnrollmentApi,
+        SyncEnrollmentException,
+        SyncEnrollmentState,
+        syncBackupPausedMessage,
+        syncBackupPausedWayOutSeparate,
+        syncBackupPausedWayOutShared,
+        syncNoticeAccountAuthFailed,
+        syncNoticePassphraseCheckFailed,
+        syncPassphraseCheckFailedMessage,
+        syncRegistrationClosedMessage;
 export 'src/sync/seance_server_catalog.dart' show SeanceServerCatalog;
 export 'src/sync/sync_verdicts.dart'
     show

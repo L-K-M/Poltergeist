@@ -138,6 +138,39 @@ class MasterKeyManager {
       VaultCrypto.deriveKeys(
           passphrase: passphrase, salt: salt, params: params);
 
+  /// Store an API key (the sync bearer token, 04 §4.5) in the OS keystore
+  /// under [name]. Never a plain file. Throws [KeystoreException] when the
+  /// keystore is unavailable — a caller saving a live session must be able
+  /// to say the save failed rather than drop it silently.
+  Future<void> putApiKey(String name, String value) =>
+      _write('poltergeist.apikey.$name', value, what: 'the $name key');
+
+  /// Reads never crash the app on a locked/unavailable keystore; they behave
+  /// as "not set" (and update [keystoreStatus] for the UI's retry affordance).
+  Future<String?> getApiKey(String name) async {
+    try {
+      final v = await _storage.read(key: 'poltergeist.apikey.$name');
+      _markAvailable();
+      return v;
+    } catch (e) {
+      _markUnavailable(e);
+      return null;
+    }
+  }
+
+  /// Forget an API key (sign-out). Tolerant like the reads: sign-out must
+  /// still complete while the keystore is down — the orphaned entry is
+  /// harmless (nothing reads the token without an enrolled account) and
+  /// [keystoreStatus] records the failure for the retry affordance.
+  Future<void> deleteApiKey(String name) async {
+    try {
+      await _storage.delete(key: 'poltergeist.apikey.$name');
+      _markAvailable();
+    } catch (e) {
+      _markUnavailable(e);
+    }
+  }
+
   Future<void> _write(String key, String value, {required String what}) async {
     try {
       await _storage.write(key: key, value: value);

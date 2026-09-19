@@ -285,8 +285,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'or missing. Unlock the login keyring (or install gnome-keyring), '",
     r"'then retry.'",
     r"'poltergeist.vault.masterKey.v1'",
+    r"'poltergeist.apikey.$name'",
     r"'${e.code} — $msg'",
     r"'the vault master key'",
+    r"'the $name key'",
     r"'Could not save $what to the OS keyring (${_describe(e)}). Unlock '",
     r"'the login keyring or install gnome-keyring, then try again.'",
   },
@@ -306,6 +308,19 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'-'",
     "''",
     "':'",
+  },
+  // 04 §4.5's keystore/settings key names and the persisted account-field
+  // names — machine identifiers, never rendered UI copy.
+  'lib/services/sync_credentials.dart': {
+    "'sync.token'",
+    "'poltergeist.sync.deviceId'",
+    "'poltergeist.sync.passphraseUnverified'",
+    "'poltergeist.sync.notices'",
+    "'poltergeist.sync.account'",
+    r"'$entry'",
+    "'baseUrl'",
+    "'username'",
+    "'mode'",
   },
   'lib/theme/app_theme.dart': {
     "'JetBrains Mono'",
