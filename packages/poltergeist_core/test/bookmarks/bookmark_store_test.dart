@@ -130,15 +130,18 @@ void main() {
 
   tearDown(() async {
     // Windows can hold a handle on a just-written store for a beat past
-    // the test's last await; retry instead of flaking the suite.
-    for (var attempt = 0; attempt < 3; attempt++) {
+    // the test's last await; retry instead of flaking the suite. The
+    // attempt bound and the final-attempt rethrow share one constant so
+    // they cannot drift apart if the retry count is ever tuned.
+    const attempts = 3;
+    for (var attempt = 0; attempt < attempts; attempt++) {
       try {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
         return;
       } on FileSystemException {
         // A lock that survives the retries is a real problem (a held
         // handle or a wedged write tail), not flake — surface it.
-        if (attempt == 2) rethrow;
+        if (attempt == attempts - 1) rethrow;
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
     }

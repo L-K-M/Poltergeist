@@ -6292,7 +6292,7 @@ corrupt-file quarantine that fails closed, newer-`version` refusal,
 and verbatim preservation of undecodable records (§2.1's
 skip-and-preserve).
 
-Coverage: 49 tests in `test/bookmarks/` — the ported app-store
+Coverage: 52 tests in `test/bookmarks/` — the ported app-store
 persistence/atomicity matrix plus sortKey sequences (200 repeated
 head and tail insertions), strict-decode preservation, restart
 persistence, the M6 payload-purity and sealed-envelope contract,
