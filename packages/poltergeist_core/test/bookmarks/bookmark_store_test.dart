@@ -28,11 +28,17 @@ Bookmark _remoteBookmark(String id, {String? label, String? sortKey}) {
   );
 }
 
-Bookmark _localBookmark(String id, {String? label, String? sortKey}) {
+Bookmark _localBookmark(
+  String id, {
+  String? label,
+  String? group,
+  String? sortKey,
+}) {
   return Bookmark(
     id: id,
     kind: BookmarkKind.localFolder,
     label: label ?? id,
+    group: group,
     localPath: '~/Downloads',
     sortKey: sortKey ?? id,
     createdAt: _fixedNow,
@@ -130,6 +136,9 @@ void main() {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
         return;
       } on FileSystemException {
+        // A lock that survives the retries is a real problem (a held
+        // handle or a wedged write tail), not flake — surface it.
+        if (attempt == 2) rethrow;
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
     }
@@ -846,6 +855,34 @@ Host web
           .cast<Map>()
           .singleWhere((record) => record['id'] == 'legacy');
       expect(isValidSortKey(written['sortKey'] as String), isTrue);
+    });
+
+    test('a loaded legacy key never reaches a reorder\'s neighbor read',
+        () async {
+      // The first mutation after opening a legacy store can be a drag:
+      // moveToGroup reads the neighbors' keys before any write runs, so
+      // load-time normalization (not the write path's) is what keeps the
+      // interim uuid out of sortKeyBetween. `legacy` sits in the target
+      // group, so the tail-key computation reads its key as a neighbor.
+      final path = pathIn('bookmarks.json');
+      File(path).writeAsStringSync(
+        jsonEncode({
+          'version': 1,
+          'bookmarks': [
+            _localBookmark('legacy', group: 'Work', sortKey: 'x9-deadbeef')
+                .toJson(),
+            _localBookmark('ok', sortKey: 'm').toJson(),
+          ],
+        }),
+      );
+      final store = FileBookmarkStore(path: path);
+
+      final moved = await store.moveToGroup('ok', 'Work');
+      expect(isValidSortKey(moved.sortKey), isTrue);
+      expect(
+        (await store.sections()).single.bookmarks.map((b) => b.id),
+        ['legacy', 'ok'],
+      );
     });
 
     test('a synced record carrying an invalid key is repaired on apply',

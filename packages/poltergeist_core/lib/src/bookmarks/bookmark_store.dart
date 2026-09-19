@@ -480,7 +480,12 @@ final class FileBookmarkStore implements BookmarkStore {
     List<BookmarkStoreChange> Function(Map<String, Bookmark> next)? changes,
   }) {
     final operation = _writeTail.then((_) async {
-      final next = Map<String, Bookmark>.of(_bookmarks);
+      // Pre-edit normalization is belt-and-suspenders: _load already
+      // repairs the decoded map and the post-edit pass repairs what the
+      // edit introduces, so _bookmarks should never hold a non-minted key.
+      // Keeping this pass means the invariant holds even if a future write
+      // path forgets to normalize on its own side.
+      final next = _normalizeSortKeys(Map<String, Bookmark>.of(_bookmarks));
       edit(next);
       final stored = _normalizeSortKeys(next);
       await _write(stored);
