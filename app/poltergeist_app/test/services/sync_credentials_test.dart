@@ -136,6 +136,29 @@ void main() {
       expect(await newState().deviceId(), first);
     });
 
+    test('concurrent first deviceId() calls share one mint', () async {
+      final state = newState();
+      // Fired without awaiting: without the memoized future each call
+      // would mint its own UUID and the loser's records would read as
+      // foreign forever — including to §4.5's hold-clearing check.
+      final first = state.deviceId();
+      final second = state.deviceId();
+      expect(await first, await second);
+    });
+
+    test('an unrecognized account mode reads as not enrolled', () async {
+      final store = SettingsStore(
+        path: settingsFile.path,
+        now: () => DateTime.utc(2026, 9, 20, 12),
+      );
+      await store.set('poltergeist.sync.account', {
+        'baseUrl': 'https://sync.example.com',
+        'username': 'ghost-a1b2c3d4',
+        'mode': 'unified', // a newer schema's mode name
+      });
+      expect(await newState().account(), isNull);
+    });
+
     test('hold flag, notices, and account round-trip durably', () async {
       final state = newState();
 

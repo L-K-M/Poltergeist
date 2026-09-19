@@ -51,6 +51,11 @@ const String syncBackupPausedWayOutSeparate =
 /// settings surface maps to §4.3/§4.5/§7.3 copy. A notice clears only when
 /// its condition provably resolves, never on dismissal.
 const String syncNoticePassphraseCheckFailed = 'passphraseCheckFailed';
+
+/// Raised by [BookmarkCoordinator] on a 401 during rounds (the dead-account
+/// posture, 04 §7.3); enrollment clears it on success and a good pull
+/// clears it on recovery. A failed *login* does not raise it — the user was
+/// never enrolled, so there is no account state to flag dead.
 const String syncNoticeAccountAuthFailed = 'accountAuthFailed';
 
 /// Which account posture the enrollment produced (04 §4): Design B is the
@@ -249,6 +254,10 @@ final class SyncEnrollment {
       vaultKey: keys.vaultKey,
     );
     await _state.setPassphraseUnverified(false);
+    // A previous account's trial failure must not linger on the fresh
+    // account — this passphrase was just minted, so the condition has
+    // provably resolved.
+    await _state.setNotice(syncNoticePassphraseCheckFailed, false);
     return EnrollmentResult(passphraseUnverified: false, vaultKey: keys.vaultKey);
   }
 
@@ -320,9 +329,11 @@ final class SyncEnrollment {
       vaultKey: keys.vaultKey,
     );
     await _state.setPassphraseUnverified(unverified);
-    if (!unverified) {
-      await _state.setNotice(syncNoticePassphraseCheckFailed, false);
-    }
+    // The durable Settings → Backup error: raised when a candidate failed
+    // the trial, cleared when the passphrase proved (or no candidate
+    // exists to judge — the deferred foreign-record check raises it when
+    // a real failure later arrives).
+    await _state.setNotice(syncNoticePassphraseCheckFailed, warning != null);
     return EnrollmentResult(
       passphraseUnverified: unverified,
       vaultKey: keys.vaultKey,

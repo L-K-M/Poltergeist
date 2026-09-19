@@ -334,13 +334,16 @@ final class BookmarkCoordinator {
   /// still-dirty record may have been sealed under the *unverified* key —
   /// pushing it would poison the fleet with ciphertext no correct
   /// passphrase reads. Re-seal each pending write under the coordinator's
-  /// current vault key before the next round can push it. The plaintext
-  /// comes from the materialized stores (the dirty ciphertext may be
-  /// unreadable under the new key); the envelope's `(updatedAt, deviceId)`
-  /// is preserved verbatim so the re-seal keeps the exact same LWW tuple —
-  /// no re-stamp, no tie-break flip. A dirty record whose plaintext no
-  /// store can supply is left dirty: releasing it anyway would push the
-  /// corruption the hold existed to prevent.
+  /// current vault key before the next round can push it. A record that
+  /// already opens under the verified key is skipped (sealed
+  /// post-correction); a stale-key record's plaintext is re-sourced from
+  /// the materialized stores; the envelope's `(updatedAt, deviceId)` is
+  /// preserved verbatim so the re-seal keeps the exact same LWW tuple —
+  /// no re-stamp, no tie-break flip. A stale-key record whose plaintext
+  /// no store can supply stays dirty — releasing it would push the
+  /// corruption the hold existed to prevent (unreachable in separate
+  /// mode: every local-write path produces `bookmark:`/`hostkey:` ids,
+  /// which always have a materialized source).
   Future<int> reSealPendingWrites() async {
     var resealed = 0;
     for (final record in await _records.dirtyRecords()) {
@@ -361,6 +364,15 @@ final class BookmarkCoordinator {
         )));
         resealed++;
         continue;
+      }
+      // A record that already opens under the verified key needs nothing —
+      // it was sealed post-correction. Only a decrypt failure (stale key)
+      // needs the plaintext re-sourced below.
+      try {
+        await _crypto.open(record);
+        continue;
+      } catch (_) {
+        // Sealed under the unverified key: re-source the plaintext.
       }
       switch (prefix) {
         case 'bookmark':
@@ -491,7 +503,12 @@ final class BookmarkCoordinator {
 
   Future<void> _setNotice(String notice, bool active) async {
     final enrollment = _enrollment;
-    if (enrollment != null) await enrollment.setNotice(notice, active);
+    if (enrollment == null) return;
+    // Skip the durable write when nothing changes — a good pull reaches
+    // here every round, and an unconditional set is a settings-file write
+    // (and observer notification) per round for the app's lifetime.
+    if ((await enrollment.notices()).contains(notice) == active) return;
+    await enrollment.setNotice(notice, active);
   }
 
   /// The deferred trial-decrypt (04 §4.5): while the hold stands, the flag
@@ -517,14 +534,25 @@ final class BookmarkCoordinator {
     ]..sort((a, b) => (a.seq ?? 0).compareTo(b.seq ?? 0));
     var sawFailure = false;
     for (final record in candidates) {
+      var verified = false;
       try {
         await _crypto.open(record);
-        await enrollment.setPassphraseUnverified(false);
-        await enrollment.setNotice(syncNoticePassphraseCheckFailed, false);
-        return;
+        verified = true;
       } catch (_) {
         sawFailure = true;
       }
+      if (!verified) continue;
+      // The passphrase is verified — but the hold is the only gate
+      // keeping stale-key ciphertext offline. Re-seal held writes
+      // BEFORE lifting the flag: a clear-then-reseal window would let
+      // the next round push whatever the unverified key sealed — the
+      // fleet-poisoning the hold exists to prevent. Deliberately outside
+      // the try: a re-seal failure must not masquerade as a passphrase
+      // failure — it propagates and leaves the hold standing.
+      await reSealPendingWrites();
+      await enrollment.setPassphraseUnverified(false);
+      await enrollment.setNotice(syncNoticePassphraseCheckFailed, false);
+      return;
     }
     if (sawFailure) {
       await enrollment.setNotice(syncNoticePassphraseCheckFailed, true);

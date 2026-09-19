@@ -3,6 +3,8 @@
 // vault key live ONLY in the OS keystore (MasterKeyManager); the durable
 // enrollment facts live in SettingsStore (settings.json) — never the
 // other way around, and the token never touches a plain file.
+import 'dart:async';
+
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'secure_master_key.dart';
@@ -66,9 +68,35 @@ final class SettingsSyncEnrollmentState implements SyncEnrollmentState {
   static const _accountKey = 'poltergeist.sync.account';
 
   /// Minted once and persisted on first call, then stable forever —
-  /// 04 §3.1's LWW authorship id is never regenerated casually.
+  /// 04 §3.1's LWW authorship id is never regenerated casually. The
+  /// read-then-write is memoized through a shared future: two overlapping
+  /// first calls would otherwise each mint a UUID, and a record sealed
+  /// under the discarded id would read as foreign forever — including to
+  /// §4.5's hold-clearing check, which a self-authored record must never
+  /// satisfy. (Production wiring should still share ONE instance: the
+  /// memo narrows the cross-instance window, it cannot close it.)
+  Future<String>? _deviceIdFuture;
+
   @override
-  Future<String> deviceId() async {
+  Future<String> deviceId() {
+    final active = _deviceIdFuture;
+    if (active != null) return active;
+    final created = _loadOrCreateDeviceId();
+    _deviceIdFuture = created;
+    unawaited(
+      created.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {
+          // A failed mint must not poison later calls — the next one
+          // re-reads the store and retries.
+          if (identical(_deviceIdFuture, created)) _deviceIdFuture = null;
+        },
+      ),
+    );
+    return created;
+  }
+
+  Future<String> _loadOrCreateDeviceId() async {
     final existing = await _store.get<String>(_deviceIdKey);
     if (existing != null && existing.isNotEmpty) return existing;
     final minted = uuidV4();
@@ -90,16 +118,23 @@ final class SettingsSyncEnrollmentState implements SyncEnrollmentState {
     return {for (final entry in raw ?? const []) '$entry'};
   }
 
+  /// Notice mutations are serialized per instance: a read-modify-write
+  /// racing another update could otherwise lose one of them.
+  Future<void> _noticeTail = Future.value();
+
   @override
-  Future<void> setNotice(String notice, bool active) async {
-    final next = await notices();
-    if (active) {
-      next.add(notice);
-    } else {
-      next.remove(notice);
-    }
-    // Sorted so the persisted form is stable across sessions.
-    await _store.set(_noticesKey, next.toList()..sort());
+  Future<void> setNotice(String notice, bool active) {
+    final operation = _noticeTail.then((_) async {
+      final next = await notices();
+      if (active ? !next.add(notice) : !next.remove(notice)) {
+        return; // Already in the target state — no durable write needed.
+      }
+      // Sorted so the persisted form is stable across sessions.
+      await _store.set(_noticesKey, next.toList()..sort());
+    });
+    // Heal the chain so one failed write cannot wedge later updates.
+    _noticeTail = operation.then<void>((_) {}, onError: (_, _) {});
+    return operation;
   }
 
   @override
@@ -110,15 +145,19 @@ final class SettingsSyncEnrollmentState implements SyncEnrollmentState {
     final username = raw['username'];
     final mode = raw['mode'];
     // A partially-written or newer-schema entry reads as "not enrolled"
-    // rather than crashing the round driver.
+    // rather than crashing the round driver — including an unrecognized
+    // mode name, which must NOT silently degrade to `separate` (the
+    // self-healing path is re-login, which rewrites the entry under the
+    // current schema).
     if (baseUrl is! String || username is! String || mode is! String) {
       return null;
     }
+    final parsedMode = SyncAccountMode.values.asNameMap()[mode];
+    if (parsedMode == null) return null;
     return SyncAccount(
       baseUrl: baseUrl,
       username: username,
-      mode: SyncAccountMode.values.asNameMap()[mode] ??
-          SyncAccountMode.separate,
+      mode: parsedMode,
     );
   }
 

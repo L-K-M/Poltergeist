@@ -36,6 +36,10 @@ final class FakeEnrollmentApi implements SyncEnrollmentApi {
   /// When set, the next [pull] throws it — the 401 dead-account fixture.
   Object? nextPullError;
 
+  /// When set, the next [push] throws it — e.g. a 401 session-expiry
+  /// fixture for the mid-push auth-failure path.
+  Object? nextPushError;
+
   /// Every `since` cursor a [pull] was called with — enrollment must always
   /// pull full (`since = 0`), never a delta.
   final pullCursors = <int>[];
@@ -101,9 +105,9 @@ final class FakeEnrollmentApi implements SyncEnrollmentApi {
 
   /// Register an account the way a prior enrollment would have: the verifier
   /// is derived from [password] over a fresh salt, so a later [login] with
-  /// the same password authenticates. Returns the salt so a test can derive
-  /// the account's real vault key for sealing fixture records.
-  Future<List<int>> addAccount({
+  /// the same password authenticates. Returns the salt and the derived keys
+  /// so a test can seal fixture records without paying the KDF twice.
+  Future<({List<int> salt, VaultKeys keys})> addAccount({
     required String username,
     required String password,
     Argon2Params params = const Argon2Params(),
@@ -116,7 +120,7 @@ final class FakeEnrollmentApi implements SyncEnrollmentApi {
       params: params,
       authVerifier: base64.encode(keys.authVerifier),
     );
-    return salt;
+    return (salt: salt, keys: keys);
   }
 
   @override
@@ -138,6 +142,11 @@ final class FakeEnrollmentApi implements SyncEnrollmentApi {
   @override
   Future<PushResponse> push(List<EncryptedRecord> pushed) async {
     pushCalls++;
+    final error = nextPushError;
+    if (error != null) {
+      nextPushError = null;
+      throw error;
+    }
     final results = <PushResult>[];
     for (final incoming in pushed) {
       final existing = records[incoming.id];

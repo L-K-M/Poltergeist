@@ -162,14 +162,14 @@ final class _Device {
     );
   }
 
-  /// Every byte the device persisted anywhere outside the keystore seam.
+  /// Every byte the device persisted anywhere outside the keystore seam —
+  /// a recursive walk so side files (journals, temp artifacts) can't
+  /// escape the token-leak sweep.
   Future<List<String>> diskContents() async {
     final contents = <String>[];
-    for (final file in [
-      File('${dir.path}/sync_records.json'),
-      File('${dir.path}/bookmarks.json'),
-    ]) {
-      if (await file.exists()) contents.add(await file.readAsString());
+    await for (final entity
+        in dir.list(recursive: true, followLinks: false)) {
+      if (entity is File) contents.add(await entity.readAsString());
     }
     contents.addAll(state.persisted.map((v) => '$v'));
     return contents;
@@ -189,14 +189,12 @@ Bookmark _bookmark(String id, {String? label}) => Bookmark(
 Future<EncryptedRecord> _sealBookmark(
   Bookmark bookmark,
   List<int> vaultKey, {
-  int? updatedAt,
   String deviceId = 'foreign-device',
 }) =>
     RecordCrypto(RecordCodec(vaultKey)).seal(DecryptedRecord(
       id: 'bookmark:${bookmark.id}',
       kind: RecordKind.bookmark,
-      updatedAt:
-          updatedAt ?? bookmark.updatedAt.toUtc().millisecondsSinceEpoch,
+      updatedAt: bookmark.updatedAt.toUtc().millisecondsSinceEpoch,
       deviceId: deviceId,
       data: bookmark.toJson(),
     ));
@@ -281,6 +279,10 @@ void main() {
       );
       expect(device.credentials.token, isNull);
       expect(await device.state.account(), isNull);
+      // "Persists nothing" pins the whole durable surface — flag and
+      // notices untouched too, not just the keystore and account.
+      expect(device.state.unverified, isFalse);
+      expect(device.state.noticeSet, isEmpty);
     });
   });
 
@@ -288,13 +290,9 @@ void main() {
     test('round-trips prelogin → derive → login → full pull → trial-decrypt '
         '→ persist', () async {
       final device = await _Device.create(tempDir, 'a');
-      final salt =
+      final account =
           await server.addAccount(username: 'ghost-1', password: 'pw');
-      final vaultKey = (await VaultCrypto.deriveKeys(
-              passphrase: 'pw',
-              salt: salt,
-              params: const Argon2Params()))
-          .vaultKey;
+      final vaultKey = account.keys.vaultKey;
       server.seed(await _sealBookmark(_bookmark('remote'), vaultKey));
 
       final result = await device.enrollment.login(
@@ -341,6 +339,51 @@ void main() {
       expect(await device.state.passphraseUnverified(), isTrue);
     });
 
+    test('a wrong account password fails at login — nothing persists',
+        () async {
+      final device = await _Device.create(tempDir, 'a');
+      await server.addAccount(username: 'ghost-1', password: 'pw');
+
+      await expectLater(
+        () => device.enrollment.login(
+          api: server,
+          baseUrl: 'https://sync.example.com',
+          username: 'ghost-1',
+          password: 'not-the-password',
+          encryptionPassphrase: 'pw',
+          mode: SyncAccountMode.separate,
+        ),
+        throwsA(isA<ApiError>()),
+      );
+      // The api minted no token, and nothing durable was written.
+      expect(device.credentials.token, isNull);
+      expect(await device.state.account(), isNull);
+    });
+
+    test('a pull failure mid-login persists no token — the keystore write '
+        'comes after the check', () async {
+      final device = await _Device.create(tempDir, 'a');
+      await server.addAccount(username: 'ghost-1', password: 'pw');
+      server.nextPullError =
+          const ApiError(code: 'server_error', message: 'boom');
+
+      await expectLater(
+        () => device.enrollment.login(
+          api: server,
+          baseUrl: 'https://sync.example.com',
+          username: 'ghost-1',
+          password: 'pw',
+          encryptionPassphrase: 'pw',
+          mode: SyncAccountMode.separate,
+        ),
+        throwsA(isA<ApiError>()),
+      );
+      // api.login minted a session token, but enrollment never reaches
+      // _persist — the session must not linger in the keystore.
+      expect(device.credentials.token, isNull);
+      expect(await device.state.account(), isNull);
+    });
+
     test('a KDF downgrade is refused loudly — no derive, no login, no token',
         () async {
       final device = await _Device.create(tempDir, 'a');
@@ -366,15 +409,15 @@ void main() {
     test('trial-decrypt failure warns with the three-cause copy, proceeds '
         'with the flag, and holds pushes', () async {
       final device = await _Device.create(tempDir, 'a');
-      final salt =
+      final account =
           await server.addAccount(username: 'ghost-1', password: 'pw');
       // Sealed under a different key: the entered passphrase cannot
       // decrypt it — corrupt record and wrong passphrase look alike here.
       final otherKey = secureRandomBytes(32);
       server.seed(await _sealBookmark(_bookmark('foreign'), otherKey));
-      // The salt is only needed to prove the fixture above is genuinely
-      // foreign — enrollment must not consult it.
-      expect(salt, isNotEmpty);
+      // The salt only proves the fixture is genuinely foreign —
+      // enrollment must not consult it.
+      expect(account.salt, isNotEmpty);
 
       final result = await device.enrollment.login(
         api: server,
@@ -387,6 +430,10 @@ void main() {
 
       expect(result.passphraseUnverified, isTrue);
       expect(result.passphraseWarning, syncPassphraseCheckFailedMessage);
+      // The durable Settings → Backup error is raised, not just the
+      // transient warning on the result.
+      expect(await device.state.notices(),
+          contains(syncNoticePassphraseCheckFailed));
       // Enrollment completed — the token is enrolled — but the failing
       // record is preserved, not materialized, and pushes are held.
       expect(device.credentials.token, isNotNull);
@@ -487,13 +534,9 @@ void main() {
     test('a foreign hostkey: record clears the flag and releases pushes',
         () async {
       final device = await _Device.create(tempDir, 'a');
-      final salt =
+      final account =
           await server.addAccount(username: 'ghost-1', password: 'pw');
-      final vaultKey = (await VaultCrypto.deriveKeys(
-              passphrase: 'pw',
-              salt: salt,
-              params: const Argon2Params()))
-          .vaultKey;
+      final vaultKey = account.keys.vaultKey;
       // Only decryptable foreign record is a pin — the account whose
       // servers were all deleted (04 §4.5's pinned case). The entered
       // passphrase is RIGHT; the flag stood only because enrollment had
@@ -559,13 +602,9 @@ void main() {
     test('records pulled under a wrong passphrase apply once the '
         'passphrase is corrected', () async {
       final device = await _Device.create(tempDir, 'a');
-      final salt =
+      final account =
           await server.addAccount(username: 'ghost-1', password: 'pw');
-      final vaultKey = (await VaultCrypto.deriveKeys(
-              passphrase: 'pw',
-              salt: salt,
-              params: const Argon2Params()))
-          .vaultKey;
+      final vaultKey = account.keys.vaultKey;
       server.seed(await _sealBookmark(
           _bookmark('fleet', label: 'v1'), vaultKey));
 
@@ -618,7 +657,6 @@ void main() {
   group('dead account (04 §7.3)', () {
     test('a 401 on pull drops to local-only with a durable notice', () async {
       final device = await _Device.create(tempDir, 'a');
-      await server.addAccount(username: 'ghost-1', password: 'pw');
       final result = await device.enrollment.registerSeparate(
         api: server,
         baseUrl: 'https://sync.example.com',
@@ -635,10 +673,38 @@ void main() {
       expect(round.authFailed, isTrue);
       expect(await device.state.notices(),
           contains(syncNoticeAccountAuthFailed));
-      // A recovered account clears the notice on the next good round.
+      // §7.3's local-only posture keeps the token — the account may
+      // recover, and the very next good pull proves it did.
+      expect(device.credentials.tokenDeletes, 0);
       await coordinator.runRound(server);
       expect(await device.state.notices(),
           isNot(contains(syncNoticeAccountAuthFailed)));
+    });
+
+    test('a 401 on push ends the round with the same notice', () async {
+      final device = await _Device.create(tempDir, 'a');
+      final result = await device.enrollment.registerSeparate(
+        api: server,
+        baseUrl: 'https://sync.example.com',
+        username: 'ghost-2',
+        password: 'pw',
+        encryptionPassphrase: 'pw',
+      );
+      final coordinator = device.coordinatorFor(result.vaultKey);
+      final saved = await device.bookmarks.save(_bookmark('held'));
+      await coordinator.onBookmarkSaved(saved);
+
+      server.nextPushError =
+          const ApiError(code: 'unauthorized', message: 'Invalid token');
+      final round = await coordinator.runRound(server);
+
+      expect(round.authFailed, isTrue);
+      expect(await device.state.notices(),
+          contains(syncNoticeAccountAuthFailed));
+      // The rejected dirt stays dirty for the recovered round.
+      expect(await device.records.dirtyRecords(), isNotEmpty);
+      await coordinator.runRound(server);
+      expect(server.records['bookmark:held'], isNotNull);
     });
   });
 
