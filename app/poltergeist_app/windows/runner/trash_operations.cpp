@@ -19,9 +19,10 @@ namespace {
 // delete from ever raising a shell dialog on the app's behalf — errors
 // come back through the HRESULT / GetAnyOperationsAborted instead, which
 // the Dart side types as a trash failure.
-constexpr FILEOPERATION_FLAGS kTrashFlags =
-    static_cast<FILEOPERATION_FLAGS>(FOF_NO_UI | FOF_ALLOWUNDO |
-                                     FOFX_ADDUNDORECORD);
+// FILEOPERATION_FLAGS is a DWORD typedef behind a Vista-visibility guard;
+// spelling the DWORD avoids depending on the typedef being reachable.
+constexpr DWORD kTrashFlags =
+    static_cast<DWORD>(FOF_NO_UI | FOF_ALLOWUNDO | FOFX_ADDUNDORECORD);
 
 std::string HresultMessage(const char* what, HRESULT hr) {
   std::ostringstream out;
