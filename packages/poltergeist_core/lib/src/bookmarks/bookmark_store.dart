@@ -70,6 +70,82 @@ final class BookmarkRemovedChange extends BookmarkStoreChange {
   final String id;
 }
 
+/// The LWW authorship tuple of the record last materialized into the
+/// bookmark store for a row — the winning envelope's
+/// `(updatedAt, deviceId)` (04 §3.2). Persisted per id alongside the rows,
+/// including `deleted` tombstone tuples for rows that are gone: the
+/// coordinator's apply pass compares a pulled record against this tuple,
+/// and a tombstone tuple is what stops a stale live record resurrecting a
+/// just-deleted row before the tombstone record has pushed.
+final class BookmarkSyncTuple {
+  const BookmarkSyncTuple({
+    required this.updatedAt,
+    required this.deviceId,
+    this.deleted = false,
+  });
+
+  /// Milliseconds since epoch — the record envelope's `updatedAt`.
+  final int updatedAt;
+
+  /// The record envelope's `deviceId`. Empty when the authorship is unknown
+  /// (the tuple-less `applySynced` path): an empty id loses every deviceId
+  /// tie-break, so a re-pulled copy of the same write still applies.
+  final String deviceId;
+
+  /// True when the materialized state is a deletion: the row is absent and
+  /// this tuple is what a pulled live record must out-tuple to resurrect.
+  final bool deleted;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BookmarkSyncTuple &&
+      other.updatedAt == updatedAt &&
+      other.deviceId == deviceId &&
+      other.deleted == deleted;
+
+  @override
+  int get hashCode => Object.hash(updatedAt, deviceId, deleted);
+
+  Map<String, dynamic> toJson() => {
+        'updatedAt': updatedAt,
+        'deviceId': deviceId,
+        if (deleted) 'deleted': true,
+      };
+
+  static BookmarkSyncTuple? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final updatedAt = json['updatedAt'];
+    final deviceId = json['deviceId'];
+    if (updatedAt is! num || deviceId is! String) return null;
+    return BookmarkSyncTuple(
+      updatedAt: updatedAt.toInt(),
+      deviceId: deviceId,
+      deleted: json['deleted'] == true,
+    );
+  }
+}
+
+/// [BookmarkStore] plus the sync bookkeeping 04 §3.2 needs: the per-row
+/// materialized tuples, and the record-carrying apply/remove variants that
+/// persist the winning envelope's tuple with the row.
+abstract interface class SyncTrackingBookmarkStore implements BookmarkStore {
+  /// The tuple last materialized for [id], or null when nothing about the
+  /// row's sync authorship is known (never synced, or applied through the
+  /// tuple-less legacy path before tuples existed).
+  Future<BookmarkSyncTuple?> syncTupleOf(String id);
+
+  /// Every materialized tuple, including tombstone tuples — the recovery
+  /// path's re-seal set.
+  Future<Map<String, BookmarkSyncTuple>> syncTuples();
+
+  /// [applySynced] carrying the winning envelope's tuple.
+  Future<void> applySyncedRecords(
+      Iterable<({Bookmark bookmark, BookmarkSyncTuple winner})> rows);
+
+  /// [removeSynced] carrying the winning tombstone's tuple.
+  Future<void> removeSyncedRecord(String id, BookmarkSyncTuple tombstone);
+}
+
 /// The persistence seam the import flow dedupes against and writes to:
 /// consumers depend on this, never on `dart:io`. [FileBookmarkStore] is the
 /// on-disk implementation; tests substitute their own.
@@ -170,12 +246,13 @@ String _quarantineStamp(DateTime now) => now
 /// a newer on-disk `version` fails in place, and a single record that
 /// cannot decode is preserved verbatim so a newer Poltergeist's bookmark
 /// survives a local re-save (04 §2.1's skip-and-preserve).
-final class FileBookmarkStore implements BookmarkStore {
+final class FileBookmarkStore implements SyncTrackingBookmarkStore {
   FileBookmarkStore({
     required String path,
     Future<void> Function(File target, String contents)? atomicWriter,
     DateTime Function()? now,
     void Function(Object, StackTrace)? onError,
+    String Function()? syncDeviceId,
   }) : // Keep the filesystem path immutable and private.
        // ignore: prefer_initializing_formals
        _file = File(path),
@@ -184,10 +261,13 @@ final class FileBookmarkStore implements BookmarkStore {
        _now = now ?? DateTime.now,
        // Keep the callback private while allowing test-only injection.
        // ignore: prefer_initializing_formals
-       _onError = onError;
+       _onError = onError,
+       // ignore: prefer_initializing_formals
+       _syncDeviceId = syncDeviceId;
 
   static const _versionKey = 'version';
   static const _bookmarksKey = 'bookmarks';
+  static const _syncTuplesKey = 'syncTuples';
   static const _storeVersion = 1;
 
   final File _file;
@@ -195,7 +275,18 @@ final class FileBookmarkStore implements BookmarkStore {
   final DateTime Function() _now;
   final void Function(Object, StackTrace)? _onError;
 
+  /// This install's sync device id, bound late because the app mints it
+  /// asynchronously. Null before backup is configured: tuples then carry
+  /// the empty authorship placeholder, which loses every tie-break — the
+  /// permissive direction, harmless while no coordinator reads them.
+  final String Function()? _syncDeviceId;
+
   final _bookmarks = <String, Bookmark>{};
+
+  /// The materialized LWW tuples — persisted next to the rows (04 §3.2) so
+  /// the apply pass can tell a genuinely newer pulled record from a stale
+  /// copy of what a pending local tombstone or edit already supersedes.
+  final _syncTuples = <String, BookmarkSyncTuple>{};
 
   /// Records that failed to decode, kept in their original JSON shape so
   /// a re-save cannot drop a bookmark written by a newer Poltergeist.
@@ -289,6 +380,12 @@ final class FileBookmarkStore implements BookmarkStore {
         for (final bookmark in incoming)
           BookmarkSavedChange(next[bookmark.id]!),
       ],
+      syncEdit: (tuples) {
+        for (final bookmark in incoming) {
+          final tuple = _localTuple(bookmark.updatedAt);
+          if (tuple != null) tuples[bookmark.id] = tuple;
+        }
+      },
     );
   }
 
@@ -300,6 +397,10 @@ final class FileBookmarkStore implements BookmarkStore {
     final next = await _writeNext(
       (next) => next[stamped.id] = stamped,
       changes: (next) => [BookmarkSavedChange(next[stamped.id]!)],
+      syncEdit: (tuples) {
+        final tuple = _localTuple(stamped.updatedAt);
+        if (tuple != null) tuples[stamped.id] = tuple;
+      },
     );
     return next[stamped.id]!;
   }
@@ -313,12 +414,23 @@ final class FileBookmarkStore implements BookmarkStore {
     // remove the row first, so the verdict and the event are decided inside
     // the serialized operation, not by the earlier snapshot.
     var removed = false;
+    // Stamped at the deletion instant, not whenever the queued write
+    // happens to run — the tuple guards what a pulled stale copy must
+    // out-tuple, so late sampling could outrank an edit that legitimately
+    // beat the true deletion time.
+    final tombstone = _localTombstone();
     await _writeNext(
       (next) {
         removed = next.remove(id) != null;
       },
       changes: (_) =>
           removed ? [BookmarkRemovedChange(id)] : const <BookmarkStoreChange>[],
+      // The row is gone but its tombstone tuple is what the coordinator's
+      // tuple guard compares a pulled stale copy against until the
+      // tombstone record itself has pushed (04 §3.2).
+      syncEdit: (tuples) {
+        if (removed && tombstone != null) tuples[id] = tombstone;
+      },
     );
     return removed;
   }
@@ -370,6 +482,10 @@ final class FileBookmarkStore implements BookmarkStore {
     final next = await _writeNext(
       (next) => next[id] = moved,
       changes: (next) => [BookmarkSavedChange(next[id]!)],
+      syncEdit: (tuples) {
+        final tuple = _localTuple(moved.updatedAt);
+        if (tuple != null) tuples[id] = tuple;
+      },
     );
     return next[id]!;
   }
@@ -395,18 +511,42 @@ final class FileBookmarkStore implements BookmarkStore {
   }
 
   @override
-  Future<void> applySynced(Iterable<Bookmark> bookmarks) async {
-    final incoming = bookmarks.toList(growable: false);
+  Future<void> applySynced(Iterable<Bookmark> bookmarks) =>
+      applySyncedRecords([
+        for (final bookmark in bookmarks)
+          // The tuple-less legacy path records authorship as unknown: the
+          // empty deviceId loses every tie-break, so a re-pulled copy of
+          // the true winner still applies over it.
+          (
+            bookmark: bookmark,
+            winner: BookmarkSyncTuple(
+              updatedAt: bookmark.updatedAt.toUtc().millisecondsSinceEpoch,
+              deviceId: '',
+            ),
+          ),
+      ]);
+
+  @override
+  Future<void> applySyncedRecords(
+      Iterable<({Bookmark bookmark, BookmarkSyncTuple winner})> rows) async {
+    final incoming = rows.toList(growable: false);
     if (incoming.isEmpty) return;
-    for (final bookmark in incoming) {
-      _checkPayloadSize(bookmark);
+    for (final row in incoming) {
+      _checkPayloadSize(row.bookmark);
     }
     await _ensureLoaded();
-    await _writeNext((next) {
-      for (final bookmark in incoming) {
-        next[bookmark.id] = bookmark;
-      }
-    });
+    await _writeNext(
+      (next) {
+        for (final row in incoming) {
+          next[row.bookmark.id] = row.bookmark;
+        }
+      },
+      syncEdit: (tuples) {
+        for (final row in incoming) {
+          tuples[row.bookmark.id] = row.winner;
+        }
+      },
+    );
   }
 
   @override
@@ -414,7 +554,68 @@ final class FileBookmarkStore implements BookmarkStore {
     await _ensureLoaded();
     await _writeTail;
     if (!_bookmarks.containsKey(id)) return;
-    await _writeNext((next) => next.remove(id));
+    await _writeNext(
+      (next) => next.remove(id),
+      // The tuple-less legacy path writes no tombstone of its own: it
+      // clears a tuple only for a row it actually removes (a truthful
+      // tombstone from a local remove is deliberately left intact), and
+      // the record store's own merge remains the guard until a
+      // tuple-carrying call records the winning envelope.
+      syncEdit: (tuples) => tuples.remove(id),
+    );
+  }
+
+  @override
+  Future<void> removeSyncedRecord(
+      String id, BookmarkSyncTuple tombstone) async {
+    await _ensureLoaded();
+    await _writeTail;
+    // Idempotency: a re-pulled tombstone that already matches the
+    // materialized state must not trigger another disk write.
+    if (!_bookmarks.containsKey(id) && _syncTuples[id] == tombstone) return;
+    await _writeNext(
+      (next) => next.remove(id),
+      syncEdit: (tuples) => tuples[id] = tombstone,
+    );
+  }
+
+  @override
+  Future<BookmarkSyncTuple?> syncTupleOf(String id) async {
+    await _ensureLoaded();
+    await _writeTail;
+    return _syncTuples[id];
+  }
+
+  @override
+  Future<Map<String, BookmarkSyncTuple>> syncTuples() async {
+    await _ensureLoaded();
+    await _writeTail;
+    return Map.unmodifiable(_syncTuples);
+  }
+
+  /// The tuple a local write materializes: the row's stamp under this
+  /// install's device id — the same tuple [BookmarkCoordinator.onBookmarkSaved]
+  /// seals into the record, so store and record never disagree on authorship.
+  /// Null while sync is unconfigured: tuples exist only to serve the
+  /// coordinator, and writing them would change the on-disk shape for
+  /// installs that never turn backup on (04 §3.4).
+  BookmarkSyncTuple? _localTuple(DateTime updatedAt) {
+    final deviceId = _syncDeviceId?.call();
+    if (deviceId == null) return null;
+    return BookmarkSyncTuple(
+      updatedAt: updatedAt.toUtc().millisecondsSinceEpoch,
+      deviceId: deviceId,
+    );
+  }
+
+  BookmarkSyncTuple? _localTombstone() {
+    final deviceId = _syncDeviceId?.call();
+    if (deviceId == null) return null;
+    return BookmarkSyncTuple(
+      updatedAt: _now().toUtc().millisecondsSinceEpoch,
+      deviceId: deviceId,
+      deleted: true,
+    );
   }
 
   /// The members of [group] (normalized) in sort order, optionally without
@@ -475,9 +676,12 @@ final class FileBookmarkStore implements BookmarkStore {
   /// only after the write lands, so a failed write leaves the in-memory
   /// state intact. [changes] computes the events emitted from the stored
   /// (post-normalization) rows; nothing reaches listeners on failure.
+  /// [syncEdit] mutates the materialized-tuple map in the same atomic write:
+  /// a row and the tuple that guards it can never diverge on disk.
   Future<Map<String, Bookmark>> _writeNext(
     void Function(Map<String, Bookmark> next) edit, {
     List<BookmarkStoreChange> Function(Map<String, Bookmark> next)? changes,
+    void Function(Map<String, BookmarkSyncTuple> tuples)? syncEdit,
   }) {
     final operation = _writeTail.then((_) async {
       // Pre-edit normalization is belt-and-suspenders: _load already
@@ -486,12 +690,17 @@ final class FileBookmarkStore implements BookmarkStore {
       // Keeping this pass means the invariant holds even if a future write
       // path forgets to normalize on its own side.
       final next = _normalizeSortKeys(Map<String, Bookmark>.of(_bookmarks));
+      final nextTuples = Map<String, BookmarkSyncTuple>.of(_syncTuples);
       edit(next);
+      syncEdit?.call(nextTuples);
       final stored = _normalizeSortKeys(next);
-      await _write(stored);
+      await _write(stored, nextTuples);
       _bookmarks
         ..clear()
         ..addAll(stored);
+      _syncTuples
+        ..clear()
+        ..addAll(nextTuples);
       if (changes != null) {
         for (final change in changes(stored)) {
           _changes.add(change);
@@ -511,6 +720,7 @@ final class FileBookmarkStore implements BookmarkStore {
     // double-appended.
     _bookmarks.clear();
     _preserved.clear();
+    _syncTuples.clear();
 
     // Read failures propagate to the caller, which reports and shows the
     // notice; the store must not overwrite data it could not read.
@@ -567,6 +777,26 @@ final class FileBookmarkStore implements BookmarkStore {
         _preserved.add(record);
       } else {
         _bookmarks[bookmark.id] = bookmark;
+      }
+    }
+
+    // The tuple map is auxiliary, rebuildable bookkeeping (the record store
+    // is the merge authority), so a malformed entry is dropped rather than
+    // quarantining the whole document over it — but the drop is reported
+    // (id only, no content) so silent sync-state loss stays diagnosable.
+    final tuples = decoded[_syncTuplesKey];
+    if (tuples is Map) {
+      for (final entry in tuples.entries) {
+        final id = entry.key;
+        final tuple = BookmarkSyncTuple.fromJson(entry.value);
+        if (id is String && tuple != null) {
+          _syncTuples[id] = tuple;
+        } else {
+          _report(
+            FormatException('dropped malformed sync tuple for $id'),
+            StackTrace.current,
+          );
+        }
       }
     }
 
@@ -655,7 +885,10 @@ final class FileBookmarkStore implements BookmarkStore {
     }
   }
 
-  Future<void> _write(Map<String, Bookmark> bookmarks) {
+  Future<void> _write(
+    Map<String, Bookmark> bookmarks,
+    Map<String, BookmarkSyncTuple> tuples,
+  ) {
     final sorted = bookmarks.values.toList()..sort(compareBookmarkSortKeys);
     return _atomicWriter(
       _file,
@@ -665,6 +898,12 @@ final class FileBookmarkStore implements BookmarkStore {
           for (final bookmark in sorted) bookmark.toJson(),
           ..._preserved,
         ],
+        // Omitted while empty so an install that never configures sync
+        // keeps writing the exact pre-M6 document shape.
+        if (tuples.isNotEmpty)
+          _syncTuplesKey: {
+            for (final entry in tuples.entries) entry.key: entry.value.toJson(),
+          },
       }),
     );
   }
