@@ -64,7 +64,7 @@ final class QuitGuard {
       _inFlight ??= _confirmClose().whenComplete(() => _inFlight = null);
 
   Future<bool> _confirmClose() async {
-    final queue = _queueLookup?.call();
+    var queue = _queueLookup?.call();
     final active = [
       for (final task in queue?.tasks ?? const <TransferTask>[])
         if (!task.isTerminal) task,
@@ -72,6 +72,9 @@ final class QuitGuard {
 
     if (active.isNotEmpty) {
       final choice = await _askQuitChoice(active);
+      // The seam may have been rebound while the dialog was open —
+      // re-read so the mutations and the flush below hit the live queue.
+      queue = _queueLookup?.call() ?? queue;
       switch (choice) {
         case null:
           // Keep Transferring, or a dismissed dialog: the close is
