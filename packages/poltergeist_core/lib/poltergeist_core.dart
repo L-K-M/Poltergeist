@@ -59,11 +59,33 @@ export 'package:seance_core/seance_core.dart'
         VaultKeys,
         VaultStore,
         expandHomePath,
+        normalizeServerGroup,
         remoteBasename,
         remoteJoin,
         remoteParent,
-        secureRandomBytes;
+        secureRandomBytes,
+        serverGroupKey;
 
+export 'src/bookmarks/bookmark_groups.dart'
+    show BookmarkGroupSection, bookmarkGroupNames, groupBookmarks,
+        kUngroupedBookmarkKey;
+export 'src/bookmarks/bookmark_store.dart'
+    show
+        BookmarkRemovedChange,
+        BookmarkRepository,
+        BookmarkSavedChange,
+        BookmarkStore,
+        BookmarkStoreChange,
+        BookmarkTooLargeException,
+        FileBookmarkStore,
+        bookmarkPayloadCapBytes,
+        bookmarkQuarantinePath;
+export 'src/bookmarks/sort_key.dart'
+    show
+        SortKeySpaceExhaustedException,
+        compareBookmarkSortKeys,
+        isValidSortKey,
+        sortKeyBetween;
 export 'src/browse/file_entry_sort.dart'
     show sortFileEntries, FileSortKey, FileSortDirection, DirectoryGrouping;
 export 'src/browse/quick_select_query.dart' show QuickSelectQuery;

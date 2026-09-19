@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'application_error_reporter.dart';
-import 'bookmark_store.dart';
 import 'connection_state_bridge.dart';
 
 /// The server list's own load state — distinct from per-server connection

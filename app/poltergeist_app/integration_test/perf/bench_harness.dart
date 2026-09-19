@@ -28,11 +28,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/bench/bench_results.dart';
 import 'package:poltergeist_app/bench/frame_stats.dart';
-import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/pane_tabs_controller.dart';
 import 'package:poltergeist_app/ui/panes/pane_view.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
 
 /// Measurement configuration carried in through dart-defines. Absent
 /// required values fail fast — a run writing to the default path or

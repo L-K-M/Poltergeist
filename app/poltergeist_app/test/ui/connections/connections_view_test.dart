@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
-import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/connection_state_bridge.dart';
 import 'package:poltergeist_app/services/connection_status_controller.dart';
 import 'package:poltergeist_app/ui/connections/connections_command.dart';

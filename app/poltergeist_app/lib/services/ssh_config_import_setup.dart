@@ -1,6 +1,5 @@
 import 'package:poltergeist_core/poltergeist_core.dart';
 
-import 'bookmark_store.dart';
 import 'ssh_config_file_source.dart';
 import 'uuid.dart';
 

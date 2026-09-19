@@ -452,6 +452,21 @@ counterpart is ported here.
   arguments stay caller-supplied so labels come from ARB.
 - Port-back candidates: none — Séance already owns the source.
 
+## M5 bookmark store (2026-09-19)
+
+03 §6's `BookmarkStore` landed in `poltergeist_core` (`src/bookmarks/`).
+No Séance source was copied: the `Bookmark` model is consumed through the
+`2e6d1f1` pin (PR-S1 is in its ancestry, so 04 §2.1's temporary-copy
+clause does not apply), `sortKeyBetween` is new code — the pinned rev
+carries no fractional-index helper — and `groupBookmarks` is a fresh
+implementation of `server_grouping.dart`'s rules for the `Bookmark`
+shape, not a port (02 §4 names it the pattern to mirror; the Séance
+source's collapse-state side stays a UI concern and was not carried).
+The app's interim `FileBookmarkStore` was Poltergeist-authored, so its
+move to core is a relocation, not a port. Port-back candidate: the
+sortKey/grouping pair is written to the upstream `Bookmark` struct and
+could ride a future Séance PR if Séance adopts §2.5 ordering.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

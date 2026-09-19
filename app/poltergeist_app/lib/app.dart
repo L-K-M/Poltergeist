@@ -5,11 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
-    show ConflictPolicy;
+    show BookmarkRepository, ConflictPolicy;
 
 import 'l10n/app_localizations.dart';
 import 'services/app_transfer_queue.dart';
-import 'services/bookmark_store.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';

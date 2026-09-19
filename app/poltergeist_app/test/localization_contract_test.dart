@@ -671,22 +671,6 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'${identity.host}:${identity.port}'",
     r"'$username@$host'",
   },
-  // The on-disk bookmarks.json shape (keys and quarantine stamp), the
-  // pinned model's envelope-id prefix, and the registered command id —
-  // persisted format and widget plumbing, not UI copy.
-  'lib/services/bookmark_store.dart': {
-    "'version'",
-    "'bookmarks'",
-    "'id'",
-    "'bookmark store root'",
-    "'bookmark store version \$version'",
-    "'bookmark:\$id'",
-    r"'$path.corrupt-${_quarantineStamp(now)}'",
-    "'-'",
-    "':'",
-    "'.'",
-    "''",
-  },
   'lib/ui/import/ssh_config_import_command.dart': {
     "'favorite.importSshConfig'",
   },

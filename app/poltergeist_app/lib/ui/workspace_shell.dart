@@ -8,7 +8,6 @@ import '../services/activity_panel_controller.dart';
 import '../services/app_preferences.dart' show minActivityPanelHeight;
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
-import '../services/bookmark_store.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
