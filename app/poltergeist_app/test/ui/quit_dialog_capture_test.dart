@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:poltergeist_app/app.dart';
+import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/quit_guard.dart';
+import 'package:poltergeist_app/theme/app_theme.dart';
+import 'package:poltergeist_app/ui/workspace_shell.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/fake_app_transfer_queue.dart';
@@ -72,13 +74,25 @@ void main() {
     addTearDown(queue.close);
     final guard = QuitGuard(navigatorKey: navigatorKey);
 
+    // The house capture convention: the loaded family must be requested
+    // by the theme — FontLoader alone cannot reach default-styled text.
+    final base = buildPoltergeistTheme(Brightness.dark);
+    final theme = base.copyWith(
+      textTheme: base.textTheme.apply(fontFamily: 'DejaVu Sans'),
+      primaryTextTheme: base.primaryTextTheme.apply(
+        fontFamily: 'DejaVu Sans',
+      ),
+    );
     await tester.pumpWidget(
       RepaintBoundary(
         key: const ValueKey('quit.capture'),
-        child: PoltergeistApp(
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: theme,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           navigatorKey: navigatorKey,
-          transferQueue: queue,
-          quitGuard: guard,
+          home: WorkspaceShell(transferQueue: queue, quitGuard: guard),
         ),
       ),
     );

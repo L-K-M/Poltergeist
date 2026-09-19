@@ -479,12 +479,14 @@ class FakeAppTransferQueue implements AppTransferQueue {
   @override
   Future<void> flushJournal() async {
     flushJournalCalls++;
-    final error = flushJournalError;
-    if (error != null) throw error;
     if (blockFlushJournal) {
       _flushJournalRelease ??= Completer<void>();
       await _flushJournalRelease!.future;
     }
+    // The error reads AFTER the park so a test can script "the write was
+    // in flight, then failed" — set flushJournalError mid-block.
+    final error = flushJournalError;
+    if (error != null) throw error;
   }
 
   TransferTask? _task(String taskId) {

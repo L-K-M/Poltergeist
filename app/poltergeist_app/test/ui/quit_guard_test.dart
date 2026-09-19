@@ -55,6 +55,7 @@ void main() {
       settingsStore: settingsStore,
       flushTimeout: flushTimeout,
     );
+    addTearDown(harness.queue.close);
     await tester.pumpWidget(
       PoltergeistApp(
         navigatorKey: harness.navigatorKey,
@@ -130,6 +131,41 @@ void main() {
       await waitForDialogDismissed(tester);
     });
   });
+
+  testWidgets(
+    'unknown-total tasks never subtract from the remaining floor',
+    (tester) async {
+      final h = await pumpApp(tester);
+      // Still scanning: 900 MB moved with no discovered total. Its
+      // progress must not cancel the known task's 100 MB remaining.
+      h.queue.addTask(
+        state: TransferTaskState.running,
+        scanComplete: false,
+        transferredBytes: 900 * 1000 * 1000,
+      );
+      h.queue.addTask(
+        state: TransferTaskState.running,
+        totalBytes: 200 * 1000 * 1000,
+        transferredBytes: 100 * 1000 * 1000,
+      );
+
+      await tester.runAsync(() async {
+        h.window.emitClose();
+        await waitForQuitDialog(tester);
+
+        expect(find.byKey(const ValueKey('quit.dialog')), findsOneWidget);
+        expect(
+          find.textContaining('100 MB remaining so far'),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('quit.keepTransferring')),
+        );
+        await waitForDialogDismissed(tester);
+      });
+    },
+  );
 
   testWidgets('Keep Transferring vetoes the close; a retry re-asks', (
     tester,

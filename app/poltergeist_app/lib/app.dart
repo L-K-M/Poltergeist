@@ -169,15 +169,21 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
   @override
   void didUpdateWidget(PoltergeistApp oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.engineSession, widget.engineSession) ||
+    final engineSwapped =
+        !identical(oldWidget.engineSession, widget.engineSession);
+    if (engineSwapped ||
         !identical(oldWidget.quitGuard, widget.quitGuard) ||
         !identical(
           oldWidget.sessionPersistence,
           widget.sessionPersistence,
         )) {
       // The outgoing session's engine must not outlive its replacement
-      // unnoticed: forward the exit state before re-attaching.
-      oldWidget.engineSession?.forwardLifecycle(AppLifecycleState.detached);
+      // unnoticed — forward the exit state before re-attaching, but only
+      // when the engine itself is swapped; a guard/persistence rebind
+      // keeps the same session alive.
+      if (engineSwapped) {
+        oldWidget.engineSession?.forwardLifecycle(AppLifecycleState.detached);
+      }
       _attachSessionLifecycle();
     }
   }

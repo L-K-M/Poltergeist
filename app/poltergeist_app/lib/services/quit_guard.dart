@@ -88,10 +88,21 @@ final class QuitGuard {
             queue?.cancelTask(task.id);
           }
       }
+      // The seam's verbs are synchronous mutations (void on
+      // AppTransferQueue and the core queue): by this line the journaled
+      // snapshot already reflects the chosen end state.
     }
 
+    assert(
+      _queueLookup != null,
+      'QuitGuard queue seam was never bound — the shell owns bindQueue',
+    );
     if (queue == null) return true;
     try {
+      // .timeout abandons the await, not the write: a retried close can
+      // overlap the still-running flush. That is safe by seam contract —
+      // FileTransferPersistence serializes every flush on its writer
+      // chain, so the second call drains behind the first.
       await queue.flushJournal().timeout(_flushTimeout);
     } on Object catch (error, stack) {
       _report(error, stack);
@@ -112,7 +123,11 @@ final class QuitGuard {
     }
     var remaining = 0;
     for (final task in active) {
-      remaining += (task.totalBytes ?? 0) - task.transferredBytes;
+      // The floor only counts discovered totals — an unknown-total task
+      // contributes nothing, so its progress can never subtract from
+      // another task's known remaining.
+      final total = task.totalBytes;
+      if (total != null) remaining += total - task.transferredBytes;
     }
     if (remaining < 0) remaining = 0;
     return showQuitConfirmDialog(

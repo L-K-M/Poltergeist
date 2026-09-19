@@ -200,8 +200,13 @@ final class TransferQueueAdapter implements AppTransferQueue {
       // close gate may veto and leave the queue running.
       return persistence.flush();
     }
-    // A foreign implementation exposes only shutdown() as a durability
-    // barrier; on the close path the queue is being torn down anyway.
-    return persistence?.shutdown() ?? Future<void>.value();
+    // A foreign implementation has no flush-without-close seam, and the
+    // quit guard may veto *after* this call — a failed shutdown() on the
+    // veto path would leave the store closed under a live queue. Fail
+    // loudly at wiring instead of wedging the quit path.
+    if (persistence == null) return Future<void>.value();
+    throw UnsupportedError(
+      'AppTransferQueue persistence must support a non-closing flush',
+    );
   }
 }

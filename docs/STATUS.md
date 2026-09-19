@@ -6790,6 +6790,22 @@ until that lands — the no-queue path is the covered silent close.
     per-scenario calibrated configs, and the repo variable plus
     `vars.BENCH_ENFORCE_A` forwarding arm enforcement.
 
+23. **2026-09-19: M4 quit guard is inert in production until queue
+    composition lands.** The prevent-close → journal-flush chain (07
+    §3.5, this milestone's quit-guard entry above) is fully wired and
+    tested, but `main.dart` still boots `PoltergeistApp` with no
+    `transferQueue`, so `QuitGuard` always takes the silent-close path
+    for real users. When the queue-composition slice lands: wire
+    `transferQueue` into `main.dart`'s `PoltergeistApp`, and add a
+    boot-path smoke assertion that the production guard sees a live
+    queue seam (fail loudly if it is ever constructed with none).
+    Separately deferred from the #158 review: a last-resort "Quit
+    Anyway" escape hatch on the flush-failure dialog — the current
+    design (per the task brief) never destroys over an unflushed
+    journal, so a persistently failing disk leaves force-quit as the
+    only exit; whether an explicit double-confirmed override is
+    acceptable is a product decision for the spec owner.
+
 ## Independent audit
 
 - **Scope (2026-09-04):** merged #9, #10, #12, #13, #14 and Séance #62;

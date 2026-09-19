@@ -476,8 +476,7 @@ void main() {
 
     // The callback route surfaces the same failure through onError.
     window.emitClose();
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
 
     expect(errors, contains(isA<StateError>()));
   });

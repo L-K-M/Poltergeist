@@ -875,6 +875,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // copy badge (Finder's convention — a move carries none) and the
   // multi-selection count, which is a bare number.
   'lib/ui/panes/pane_drop_area.dart': {r"'$count'", "'+'"},
+  // Diagnostic literals, never user-facing: the unbound-seam assert
+  // fires only in debug builds, and the UnsupportedError guards a
+  // foreign persistence seam no production queue supplies.
+  'lib/services/quit_guard.dart': {
+    "'QuitGuard queue seam was never bound — the shell owns bindQueue'",
+  },
+  'lib/services/app_transfer_queue.dart': {
+    "'AppTransferQueue persistence must support a non-closing flush'",
+  },
   // The quit-guard dialogs' widget keys — test plumbing, never authored
   // copy (the copy itself is ARB-backed per D20).
   'lib/ui/quit_dialog.dart': {
