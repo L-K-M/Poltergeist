@@ -875,6 +875,16 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // copy badge (Finder's convention — a move carries none) and the
   // multi-selection count, which is a bare number.
   'lib/ui/panes/pane_drop_area.dart': {r"'$count'", "'+'"},
+  // The quit-guard dialogs' widget keys — test plumbing, never authored
+  // copy (the copy itself is ARB-backed per D20).
+  'lib/ui/quit_dialog.dart': {
+    "'quit.dialog'",
+    "'quit.keepTransferring'",
+    "'quit.cancelTransfers'",
+    "'quit.pauseAndQuit'",
+    "'quitFlush.dialog'",
+    "'quitFlush.dismiss'",
+  },
 };
 
 void main() {

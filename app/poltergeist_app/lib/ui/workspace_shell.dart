@@ -16,6 +16,7 @@ import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
 import '../services/pane_tabs_controller.dart';
+import '../services/quit_guard.dart';
 import '../services/registered_command.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
@@ -60,6 +61,7 @@ class WorkspaceShell extends StatefulWidget {
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
+    this.quitGuard,
     this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
     this.onActivityPanelHeightChanged,
@@ -146,6 +148,12 @@ class WorkspaceShell extends StatefulWidget {
   /// `queue.togglePause` still registers (D21).
   final AppTransferQueue? transferQueue;
 
+  /// 07 §3.5's quit gate: the shell binds its live [transferQueue]
+  /// lookup onto the guard so the intercepted close can warn and flush
+  /// the journal — the queue stays behind the app services layer
+  /// (widgets never name the engine's queue).
+  final QuitGuard? quitGuard;
+
   /// The persisted conflict matrix (02 §5.2) the pane drop targets
   /// resolve per task at enqueue time; null applies the spec defaults
   /// (ask on every bucket). The settings writer lands with the
@@ -200,6 +208,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   late final FocusNode _activitySplitterFocus;
   double _activityPanelHeight = 0;
 
+  /// The live queue seam the quit guard reads — a lookup, not a
+  /// snapshot, so a didUpdateWidget rebind is always seen.
+  AppTransferQueue? _quitGuardQueue() => widget.transferQueue;
+
   @override
   void initState() {
     super.initState();
@@ -229,6 +241,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _connections = _buildConnections();
     _buildWorkspace();
     widget.workspaces?.addListener(_onWorkspacesChanged);
+    widget.quitGuard?.bindQueue(_quitGuardQueue);
   }
 
   /// The command list is built in [build] — a workspace save or open
@@ -284,11 +297,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       oldWidget.workspaces?.removeListener(_onWorkspacesChanged);
       widget.workspaces?.addListener(_onWorkspacesChanged);
     }
+    if (!identical(oldWidget.quitGuard, widget.quitGuard)) {
+      oldWidget.quitGuard?.unbindQueue(_quitGuardQueue);
+      widget.quitGuard?.bindQueue(_quitGuardQueue);
+    }
   }
 
   @override
   void dispose() {
     widget.workspaces?.removeListener(_onWorkspacesChanged);
+    widget.quitGuard?.unbindQueue(_quitGuardQueue);
     _activity.dispose();
     _activitySplitterFocus.dispose();
     _connections?.dispose();

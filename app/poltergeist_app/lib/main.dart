@@ -10,6 +10,7 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_store.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/engine_session.dart';
+import 'services/quit_guard.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/session_state_store.dart';
@@ -80,9 +81,21 @@ Future<void> main() async {
   } on Object catch (error, stack) {
     errorReporter.report(error, stack);
   }
+  // One navigator key for the app, the session's coordinator, and the
+  // quit guard, so dialogs render above whatever surface raised them.
+  final navigatorKey = GlobalKey<NavigatorState>();
+  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  // 07 §3.5's quit gate: the intercepted close consults the guard, which
+  // warns over live transfers and gates the destroy on the journal
+  // flush. The workspace shell binds its queue seam onto the guard.
+  final quitGuard = QuitGuard(
+    navigatorKey: navigatorKey,
+    onError: errorReporter.report,
+  );
   final windowLifecycle = DesktopWindowLifecycle(
     preferences,
     onCloseFlush: sessionPersistence.flush,
+    confirmClose: quitGuard.confirmClose,
     onError: errorReporter.report,
   );
   await errorReporter.guard(windowLifecycle.prepare);
@@ -90,10 +103,7 @@ Future<void> main() async {
   // The production engine spawns once at startup, not debug-gated: the
   // app-owned pin and incident stores seed it together (audit finding A),
   // its prompts answer on the root navigator, and its lifetime ends with
-  // the app. One navigator key for the app and the session's coordinator,
-  // so dialogs render above whatever surface raised them.
-  final navigatorKey = GlobalKey<NavigatorState>();
-  final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+  // the app.
   final engineSession = await startEngineSession(
     supportDirectoryPath: supportDirectory.path,
     bookmarks: bookmarks,
@@ -115,6 +125,7 @@ Future<void> main() async {
       engineSession: engineSession,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
+      quitGuard: quitGuard,
       sshConfigImport: buildSshConfigImportSetup(
         environment: Platform.environment,
         isMacOS: Platform.isMacOS,

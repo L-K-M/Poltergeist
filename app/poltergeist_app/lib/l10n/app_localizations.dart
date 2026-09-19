@@ -2019,6 +2019,66 @@ abstract class AppLocalizations {
   /// **'Apply to all {count, plural, =1{1 remaining conflict} other{{count} remaining conflicts}} in this task'**
   String conflictApplyToAll(int count);
 
+  /// The quit guard's dialog title (02 §10): shown when the window close is intercepted with live transfer tasks.
+  ///
+  /// In en, this message translates to:
+  /// **'Quit while transfers are running?'**
+  String get quitConfirmTitle;
+
+  /// The quit dialog's warning line (02 §10) when no remaining-byte figure is known yet.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer is running} other{{count} transfers are running}}.'**
+  String quitConfirmBody(int count);
+
+  /// The quit dialog's warning line (02 §10's example copy): the remaining figure is the discovered-total floor, so 'so far' never overstates what is left.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 transfer is running} other{{count} transfers are running}} ({remaining} remaining so far).'**
+  String quitConfirmBodyRemaining(int count, String remaining);
+
+  /// The quit dialog's honesty note (02 §10): until resumable transfers ship, a paused in-flight file restarts from byte zero on relaunch.
+  ///
+  /// In en, this message translates to:
+  /// **'Files in progress restart from the beginning next launch.'**
+  String get quitConfirmRestartNote;
+
+  /// Quit verb (02 §10, default button): pauses the live tasks, flushes the journal, then lets the window destroy.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause and Quit'**
+  String get quitPauseAndQuit;
+
+  /// Quit verb (02 §10): cancels the live tasks so they do not restore, flushes the journal, then lets the window destroy.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Transfers and Quit'**
+  String get quitCancelTransfersAndQuit;
+
+  /// Quit verb (02 §10): cancels the close — the window stays open and transfers keep running.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep Transferring'**
+  String get quitKeepTransferring;
+
+  /// The journal-flush failure dialog's title (07 §3.5): shown when the close-path journal write fails or times out.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer state could not be saved'**
+  String get quitFlushFailedTitle;
+
+  /// The journal-flush failure dialog's body (07 §3.5): the raw error is machine data rendered inside ARB copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving the transfer journal failed: {error}. The window stayed open so queued and in-flight transfers are not lost — quit again to retry.'**
+  String quitFlushFailedBody(String error);
+
+  /// Closes the journal-flush failure dialog; the window stays open either way.
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get quitFlushFailedDismiss;
+
   /// Task state: waiting behind the queue's admission order.
   ///
   /// In en, this message translates to:
