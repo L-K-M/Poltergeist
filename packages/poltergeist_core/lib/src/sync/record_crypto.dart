@@ -28,3 +28,16 @@ final class RecordCrypto {
   Future<EncryptedRecord> seal(DecryptedRecord record) =>
       _codec.encrypt(record);
 }
+
+/// The id classes 04 §4.5's enrollment checks may open: prefixless,
+/// `bookmark:`-prefixed, or `hostkey:`-prefixed. `secret:`, `snippet:`, and
+/// unrecognized `<prefix>:` ids are never decryptable — §3.2's never-decrypt
+/// dispatch binds the enrollment trial and the deferred foreign-record
+/// check too, so a vault entry can never be pulled into memory as a
+/// trial candidate.
+bool isDecryptableSyncId(String id) {
+  final colon = id.indexOf(':');
+  if (colon < 0) return true;
+  final prefix = id.substring(0, colon);
+  return prefix == 'bookmark' || prefix == 'hostkey';
+}

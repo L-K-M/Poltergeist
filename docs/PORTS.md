@@ -90,11 +90,14 @@ port candidates.
 - Ported: 2026-09-07
 - Divergences: keystore entry renamed `poltergeist.vault.masterKey.v1`
   (07 §3.3) so the two apps never share an entry;
-  `putApiKey`/`getApiKey` dropped — Poltergeist has no provider API keys
-  (D19 scope); Séance types imported via the poltergeist_core barrel, never
-  seance_core directly. The ported exception messages are frozen port text
-  allowlisted in the localization contract; the D20 ARB rule applies where
-  the UI renders them (prompt-UI slice).
+  `putApiKey`/`getApiKey` restored 2026-09-19 for the sync bearer token
+  (04 §4.5: `poltergeist.apikey.sync.token`) — still no provider API keys
+  (D19 scope) — plus `deleteApiKey` for sign-out (no Séance counterpart;
+  tolerant like the reads, the orphaned entry is harmless); Séance types
+  imported via the poltergeist_core barrel, never seance_core directly.
+  The ported exception messages are frozen port text allowlisted in the
+  localization contract; the D20 ARB rule applies where the UI renders
+  them (prompt-UI slice).
 - Port-back candidates: corrupt-entry misreport — a stored entry that is
   not valid base64 is conflated with keystore unavailability (review round
   1, PR #32); and concurrent probes can race the create-on-first-run

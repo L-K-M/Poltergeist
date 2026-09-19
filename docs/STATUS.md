@@ -6,8 +6,9 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 
 _Last updated: 2026-09-19. **M3, M4, and M5 are closed; M6 is open** —
 its engine-side foundation (04 §3.1–3.2: `PersistentLocalRecordStore`,
-`BookmarkCoordinator`, and the verdict/tripwire seams) is implemented in
-the dated M6 section below —
+`BookmarkCoordinator`, and the verdict/tripwire seams) plus the Design B
+enrollment slice (04 §4.1/§4.5) are implemented in the dated M6 sections
+below —
 v0.2.0 remains the latest published pre-release (M3, M4, and M5 closed
 untagged per their closure records; M5's §3.12 tag chore is recorded in
 [tasks/m5-closure-record.md](../tasks/m5-closure-record.md)). Every M5
@@ -6565,6 +6566,84 @@ queued-write displaced restore — plus the store-level
 persistence/LWW/quarantine matrix (including missing-version and
 non-int-watermark quarantine). `dart analyze` and the full `dart test
 packages/poltergeist_core` suite (1285 tests) are green.
+
+## M6 — Design B enrollment (2026-09-19)
+
+The enrollment slice per 04 §4.1/§4.5, in `poltergeist_core` plus the app
+keystore seam — no settings UI (next slice), no Design A, no Séance
+changes, no pin bump:
+
+- **`SyncEnrollmentApi`** extends the `SyncApi` seam with
+  register/prelogin/login plus the session `token` getter — the account
+  endpoints Séance's `HttpSyncClient` already satisfies; tests fake it
+  (`FakeEnrollmentApi` models register→prelogin→login, LWW push with seq
+  minting, a `registration_closed` 403, a KDF-downgrade override, and a
+  pull-error injector).
+- **`SyncEnrollment.registerSeparate`** (Design B): random 16-byte salt,
+  `Argon2Params()` defaults, Séance's `_deriveSyncKeys` split (password →
+  auth verifier, encryption passphrase → vault key, one Argon2 pass when
+  the two strings match), `POST /v1/register`, then persist — a fresh
+  registration never sets `passphraseUnverified`. A 403
+  `registration_closed` throws `RegistrationClosedException` carrying
+  the §4.3 copy verbatim.
+- **`SyncEnrollment.login`** mirrors Séance's `loginSync` with §4.5's
+  divergences: prelogin → `meetsMinimum(Argon2Params.minimum)` refusal
+  (`KdfDowngradeException` — no derive, no login, no token) → derive →
+  login → a **full** pull (`since = 0`, always — a retained high-water
+  mark must never skip the check) → trial-decrypt the first
+  non-tombstone record on a decryptable id (prefixless, `bookmark:`,
+  `hostkey:` — never `secret:`/`snippet:`/unrecognized;
+  `isDecryptableSyncId` binds §3.2's dispatch to enrollment too). A
+  failed trial does **not** abort (unlike Séance): the three-cause
+  warning copy is returned, `passphraseUnverified` is set, and
+  enrollment completes held. No decryptable candidate → flag set, no
+  warning. The pulled ciphertext merges into the §3.1 record store
+  before the keystore writes.
+- **Push hold + the deferred foreign-record check** in
+  `BookmarkCoordinator.runRound`: while `passphraseUnverified` stands,
+  no push leaves the device; decrypt failures defer (not skip) so the
+  apply cursor never passes a record the corrected passphrase must
+  re-try; and the round ends with the deferred check — only a
+  non-tombstone `deviceId != ours` record on a decryptable id can clear
+  the flag (self-authored output cannot vacuously clear it), every
+  foreign candidate is tried, and an all-failed pass raises the durable
+  `passphraseCheckFailed` notice with pushes still held.
+  `reSealPendingWrites` re-seals every dirty record under the verified
+  key (the envelope tuple preserved verbatim, plaintext re-sourced from
+  the materialized stores) before held pushes release.
+- **401 `unauthorized`** on pull or push ends the round local-only and
+  raises the durable `accountAuthFailed` notice (04 §7.3's dead-account
+  posture); a good pull clears it. There is no token refresh —
+  server-side tokens never expire.
+- **Credential seams**: `SyncCredentialStore` (keystore: `writeToken`/
+  `readToken`/`deleteToken`/`writeVaultKey`) and `SyncEnrollmentState`
+  (durable settings: device id, hold flag, notice set, account facts —
+  never the §3.1 record store, whose corruption quarantine restarts
+  empty and must not erase the hold). App side:
+  `SecureSyncCredentialStore` over `MasterKeyManager` (new
+  `putApiKey`/`getApiKey`/`deleteApiKey` under `poltergeist.apikey.*`;
+  the token entry is `poltergeist.apikey.sync.token`, the vault key
+  stays `poltergeist.vault.masterKey.v1`) and
+  `SettingsSyncEnrollmentState` over `SettingsStore` (settings.json).
+- **§5.6 PR-S1 shim: not needed.** Its trigger is a pin that cannot
+  include PR-S1 in time for Design-B work; the pinned rev `2e6d1f1`
+  already carries `RecordKind.bookmark` (Séance #58 merged upstream
+  before the pin), so records seal through the real `RecordCodec` and
+  no shim-written records exist to migrate.
+
+Coverage (`test/sync/enrollment_test.dart`, 14 tests, plus 6 app tests):
+register round-trip, 403 copy verbatim with nothing persisted, login
+round-trip with the `since = 0` pull asserted, empty-account flag,
+KDF-downgrade refusal (no derive/login/token), trial-decrypt failure →
+three-cause warning + hold + preserved record, never-decrypt prefix
+exclusion, wrong-passphrase push hold, self-record non-clearing,
+foreign `hostkey:` record clear + release, failing-foreign durable
+notice, corrected-passphrase re-apply with the re-sealed push
+decryptable under the real key, 401 local-only + notice + recovery, and
+the token-not-on-disk sweep. App tests cover the keystore round-trip
+under the exact §4.5 key name, locked-keystore loud-write/tolerant-read
+behavior, device-id durability across instances, notice/account
+round-trips, and a token-free settings file.
 
 ## Open items
 

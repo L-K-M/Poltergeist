@@ -13,6 +13,7 @@ import 'dart:math' show min;
 
 import 'package:seance_core/seance_core.dart';
 
+import '../sync/enrollment.dart';
 import '../sync/persistent_record_store.dart';
 import '../sync/record_crypto.dart';
 import '../sync/seance_server_catalog.dart';
@@ -69,12 +70,24 @@ final class SyncRoundResult {
     required this.pushed,
     required this.rounds,
     required this.report,
+    required this.pushesHeld,
+    required this.authFailed,
   });
 
   final int pulled;
   final int pushed;
   final int rounds;
   final ApplyReport report;
+
+  /// True when the round ended with 04 §4.5's push hold still engaged —
+  /// dirty records stay sealed locally until the passphrase verifies.
+  final bool pushesHeld;
+
+  /// True when the server rejected the bearer token (401 `unauthorized`):
+  /// the account is dead or revoked — 04 §7.3's drop-to-local-only. The
+  /// durable notice is raised on the enrollment state; there is no token
+  /// refresh because server-side tokens never expire.
+  final bool authFailed;
 }
 
 /// See the library doc. The coordinator never owns transport: [runRound]
@@ -89,6 +102,7 @@ final class BookmarkCoordinator {
     required PinVerdictStore pinVerdicts,
     required SyncTripwireStore tripwires,
     SeanceServerCatalog? catalog,
+    SyncEnrollmentState? enrollment,
     DateTime Function()? now,
     int maxRounds = 5,
   })  : // Collaborator names stay public; the fields stay private.
@@ -108,6 +122,8 @@ final class BookmarkCoordinator {
         _tripwires = tripwires,
         // ignore: prefer_initializing_formals
         _catalog = catalog,
+        // ignore: prefer_initializing_formals
+        _enrollment = enrollment,
         _now = now ?? DateTime.now,
         // ignore: prefer_initializing_formals
         _maxRounds = maxRounds;
@@ -128,6 +144,12 @@ final class BookmarkCoordinator {
   /// records materialize here. Null in separate mode, where prefixless ids
   /// are never decrypted at all.
   final SeanceServerCatalog? _catalog;
+
+  /// The durable enrollment state (04 §4.5): while `passphraseUnverified`
+  /// holds, [runRound] holds all pushes and the deferred foreign-record
+  /// check is the only way out besides re-enrollment. Null means never
+  /// enrolled — nothing is held and no deferred check runs.
+  final SyncEnrollmentState? _enrollment;
 
   final DateTime Function() _now;
   final int _maxRounds;
@@ -308,44 +330,145 @@ final class BookmarkCoordinator {
     return resealed;
   }
 
+  /// §4.5's release path: after a corrected passphrase verifies, every
+  /// still-dirty record may have been sealed under the *unverified* key —
+  /// pushing it would poison the fleet with ciphertext no correct
+  /// passphrase reads. Re-seal each pending write under the coordinator's
+  /// current vault key before the next round can push it. A record that
+  /// already opens under the verified key is skipped (sealed
+  /// post-correction); a stale-key record's plaintext is re-sourced from
+  /// the materialized stores; the envelope's `(updatedAt, deviceId)` is
+  /// preserved verbatim so the re-seal keeps the exact same LWW tuple —
+  /// no re-stamp, no tie-break flip. A stale-key record whose plaintext
+  /// no store can supply stays dirty — releasing it would push the
+  /// corruption the hold existed to prevent (unreachable in separate
+  /// mode: every local-write path produces `bookmark:`/`hostkey:` ids,
+  /// which always have a materialized source).
+  Future<int> reSealPendingWrites() async {
+    var resealed = 0;
+    for (final record in await _records.dirtyRecords()) {
+      final prefix = _prefixOf(record.id);
+      if (record.deleted) {
+        final kind = switch (prefix) {
+          'bookmark' => RecordKind.bookmark,
+          'hostkey' => RecordKind.hostKey,
+          _ => null,
+        };
+        if (kind == null) continue;
+        await _records.putLocal(await _crypto.seal(DecryptedRecord(
+          id: record.id,
+          kind: kind,
+          updatedAt: record.updatedAt,
+          deviceId: record.deviceId,
+          deleted: true,
+        )));
+        resealed++;
+        continue;
+      }
+      // A record that already opens under the verified key needs nothing —
+      // it was sealed post-correction. Only a decrypt failure (stale key)
+      // needs the plaintext re-sourced below.
+      try {
+        await _crypto.open(record);
+        continue;
+      } catch (_) {
+        // Sealed under the unverified key: re-source the plaintext.
+      }
+      switch (prefix) {
+        case 'bookmark':
+          final row =
+              await _bookmarks.byId(record.id.substring(_bookmarkPrefix.length));
+          if (row == null) continue;
+          await _records.putLocal(await _crypto.seal(DecryptedRecord(
+            id: record.id,
+            kind: RecordKind.bookmark,
+            updatedAt: record.updatedAt,
+            deviceId: record.deviceId,
+            data: row.toJson(),
+          )));
+          resealed++;
+        case 'hostkey':
+          HostKey? pin;
+          for (final key in await _hostKeys.all()) {
+            if (key.recordId == record.id) pin = key;
+          }
+          if (pin == null) continue;
+          await _records.putLocal(await _crypto.seal(DecryptedRecord(
+            id: record.id,
+            kind: RecordKind.hostKey,
+            updatedAt: record.updatedAt,
+            deviceId: record.deviceId,
+            data: pin.toJson(),
+          )));
+          resealed++;
+      }
+    }
+    return resealed;
+  }
+
   /// One sync round over the [api] seam: delta pull off `highWaterSeq`
   /// (with the one-time full-resync fallback when the cursor is rejected),
   /// merge into the store, push the dirty set, then materialize. Loops
   /// while progress is being made, bounded by [BookmarkCoordinator]'s
-  /// `maxRounds`.
+  /// `maxRounds`. While 04 §4.5's `passphraseUnverified` hold is set the
+  /// push half is skipped entirely — nothing sealed under an unproven key
+  /// leaves the device — and the round ends with the deferred
+  /// foreign-record check. A 401 `unauthorized` is a dead or revoked
+  /// account (tokens never expire server-side, so there is no refresh):
+  /// the durable notice is raised and the round ends — local-only.
   Future<SyncRoundResult> runRound(SyncApi api) async {
     final report = ApplyReport();
     var pulled = 0;
     var pushed = 0;
     var rounds = 0;
+    var authFailed = false;
     while (rounds < _maxRounds) {
       rounds++;
-      final roundPulled = await _pullOnce(api);
+      final int roundPulled;
+      try {
+        roundPulled = await _pullOnce(api);
+      } on ApiError catch (error) {
+        if (error.code != 'unauthorized') rethrow;
+        authFailed = true;
+        break;
+      }
+      // A good pull proves the token lives — lift a stale auth notice.
+      await _setNotice(syncNoticeAccountAuthFailed, false);
       pulled += roundPulled;
-      final dirty = await _records.dirtyRecords();
       var progressed = roundPulled > 0;
-      if (dirty.isNotEmpty) {
-        final response = await api.push(dirty);
-        for (final result in response.results) {
-          if (result.accepted) {
-            pushed++;
-            progressed = true;
-            await _records.markSynced(result.id, result.seq);
-          } else {
-            // The push lost server-side LWW: the copy the server actually
-            // holds is the displaced pulled winner, so put it back —
-            // leaving the losing edit in place would diverge the fleet
-            // (04 §3.2's push-ties-or-loses re-check). A rejection with no
-            // displaced winner stays dirty for the next pull to reconcile.
-            final restored = await _records.restoreDisplaced(result.id);
-            if (restored != null) {
+      if (!await _pushesHeld()) {
+        final dirty = await _records.dirtyRecords();
+        if (dirty.isNotEmpty) {
+          final PushResponse response;
+          try {
+            response = await api.push(dirty);
+          } on ApiError catch (error) {
+            if (error.code != 'unauthorized') rethrow;
+            authFailed = true;
+            break;
+          }
+          for (final result in response.results) {
+            if (result.accepted) {
+              pushed++;
               progressed = true;
-              switch (await _dispatch(restored, report)) {
-                case _ApplyOutcome.applied:
-                  report.appliedIds.add(restored.id);
-                case _ApplyOutcome.deferred:
-                  report.deferredIds.add(restored.id);
-                case _ApplyOutcome.skipped:
+              await _records.markSynced(result.id, result.seq);
+            } else {
+              // The push lost server-side LWW: the copy the server actually
+              // holds is the displaced pulled winner, so put it back —
+              // leaving the losing edit in place would diverge the fleet
+              // (04 §3.2's push-ties-or-loses re-check). A rejection with no
+              // displaced winner stays dirty for the next pull to reconcile.
+              final restored = await _records.restoreDisplaced(result.id);
+              if (restored != null) {
+                progressed = true;
+                switch (await _dispatch(restored, report,
+                    holdActive: false)) {
+                  case _ApplyOutcome.applied:
+                    report.appliedIds.add(restored.id);
+                  case _ApplyOutcome.deferred:
+                    report.deferredIds.add(restored.id);
+                  case _ApplyOutcome.skipped:
+                }
               }
             }
           }
@@ -358,8 +481,82 @@ final class BookmarkCoordinator {
       if (!progressed) break;
     }
     await _applyPulledInto(report);
+    await _deferredPassphraseCheck();
+    if (authFailed) {
+      await _setNotice(syncNoticeAccountAuthFailed, true);
+    }
     return SyncRoundResult(
-        pulled: pulled, pushed: pushed, rounds: rounds, report: report);
+      pulled: pulled,
+      pushed: pushed,
+      rounds: rounds,
+      report: report,
+      pushesHeld: await _pushesHeld(),
+      authFailed: authFailed,
+    );
+  }
+
+  /// 04 §4.5's hold: while `passphraseUnverified` is set, no push leaves
+  /// the device — the first push under a wrong key would itself be the
+  /// corruption (records no correct-passphrase device could ever read).
+  Future<bool> _pushesHeld() async =>
+      await _enrollment?.passphraseUnverified() ?? false;
+
+  Future<void> _setNotice(String notice, bool active) async {
+    final enrollment = _enrollment;
+    if (enrollment == null) return;
+    // Skip the durable write when nothing changes — a good pull reaches
+    // here every round, and an unconditional set is a settings-file write
+    // (and observer notification) per round for the app's lifetime.
+    if ((await enrollment.notices()).contains(notice) == active) return;
+    await enrollment.setNotice(notice, active);
+  }
+
+  /// The deferred trial-decrypt (04 §4.5): while the hold stands, the flag
+  /// clears only on a **foreign** non-tombstone record that decrypts — this
+  /// device's own output would vacuously clear it under whatever key sealed
+  /// it. Every foreign candidate on a decryptable id is tried (a corrupt
+  /// one cannot condemn the passphrase — the three-cause copy exists
+  /// precisely because a single failure is ambiguous); a success clears
+  /// the hold and the notice, and when every candidate fails the durable
+  /// Settings → Backup error is raised with pushes still held.
+  Future<void> _deferredPassphraseCheck() async {
+    final enrollment = _enrollment;
+    if (enrollment == null || !await enrollment.passphraseUnverified()) {
+      return;
+    }
+    final candidates = [
+      for (final record in await _records.allRecords())
+        if (!record.deleted &&
+            record.blob.isNotEmpty &&
+            record.deviceId != _deviceId &&
+            isDecryptableSyncId(record.id))
+          record,
+    ]..sort((a, b) => (a.seq ?? 0).compareTo(b.seq ?? 0));
+    var sawFailure = false;
+    for (final record in candidates) {
+      var verified = false;
+      try {
+        await _crypto.open(record);
+        verified = true;
+      } catch (_) {
+        sawFailure = true;
+      }
+      if (!verified) continue;
+      // The passphrase is verified — but the hold is the only gate
+      // keeping stale-key ciphertext offline. Re-seal held writes
+      // BEFORE lifting the flag: a clear-then-reseal window would let
+      // the next round push whatever the unverified key sealed — the
+      // fleet-poisoning the hold exists to prevent. Deliberately outside
+      // the try: a re-seal failure must not masquerade as a passphrase
+      // failure — it propagates and leaves the hold standing.
+      await reSealPendingWrites();
+      await enrollment.setPassphraseUnverified(false);
+      await enrollment.setNotice(syncNoticePassphraseCheckFailed, false);
+      return;
+    }
+    if (sawFailure) {
+      await enrollment.setNotice(syncNoticePassphraseCheckFailed, true);
+    }
   }
 
   /// The pull half of a round, with §3.1's one-time full-resync fallback:
@@ -396,9 +593,13 @@ final class BookmarkCoordinator {
   /// `seq > lastAppliedSeq` in seq order, then advance the cursor — but
   /// only past records that were applied or terminally skipped, never past
   /// a seen-but-deferred one (a delta pull never re-delivers a passed seq;
-  /// a deferred record's re-check is the rival's next push instead).
+  /// a deferred record's re-check is the rival's next push instead). While
+  /// §4.5's passphrase hold stands a decrypt failure defers rather than
+  /// skips — it is not terminal, and the corrected-passphrase re-pull must
+  /// find the record still ahead of the apply cursor.
   Future<void> _applyPulledInto(ApplyReport report) async {
     final cursor = await _records.lastAppliedSeq();
+    final holdActive = await _pushesHeld();
     final dirtyIds =
         (await _records.dirtyRecords()).map((r) => r.id).toSet();
     final pending = [
@@ -412,7 +613,7 @@ final class BookmarkCoordinator {
     var advanceTo = cursor;
     int? blockedAt;
     for (final record in pending) {
-      final outcome = await _dispatch(record, report);
+      final outcome = await _dispatch(record, report, holdActive: holdActive);
       if (outcome == _ApplyOutcome.deferred) {
         report.deferredIds.add(record.id);
         blockedAt =
@@ -455,8 +656,12 @@ final class BookmarkCoordinator {
   /// the decrypted kind decides whether it is applied. `secret:`,
   /// `snippet:`, and unrecognized `<prefix>:` ids — and prefixless ids in
   /// separate mode — are skip-preserved without ever being opened.
-  Future<_ApplyOutcome> _dispatch(
-      EncryptedRecord record, ApplyReport report) async {
+  /// [holdActive] is §4.5's `passphraseUnverified` state: a decrypt
+  /// failure under it is seen-but-deferred, not skipped — the record may
+  /// simply be sealed under the passphrase the user has not yet typed
+  /// right, and re-enrollment must find it ahead of the apply cursor.
+  Future<_ApplyOutcome> _dispatch(EncryptedRecord record, ApplyReport report,
+      {required bool holdActive}) async {
     final prefix = _prefixOf(record.id);
     if (record.deleted) {
       // Tombstones carry no sealed kind, so the prefix alone routes them —
@@ -469,12 +674,14 @@ final class BookmarkCoordinator {
       return _ApplyOutcome.skipped;
     }
     return switch (prefix) {
-      'bookmark' => await _applyBookmarkRecord(record),
-      'hostkey' => await _applyHostKeyRecord(record),
+      'bookmark' =>
+        await _applyBookmarkRecord(record, holdActive: holdActive),
+      'hostkey' =>
+        await _applyHostKeyRecord(record, holdActive: holdActive),
       // Prefixless is Séance's actual serverConfig convention — decrypt it
       // only when a catalog exists to materialize into (shared mode).
       null => _catalog != null
-          ? await _applyServerConfigRecord(record)
+          ? await _applyServerConfigRecord(record, holdActive: holdActive)
           : _ApplyOutcome.skipped,
       _ => _ApplyOutcome.skipped,
     };
@@ -499,9 +706,12 @@ final class BookmarkCoordinator {
       (record.updatedAt == materialized.updatedAt &&
           record.deviceId.compareTo(materialized.deviceId) >= 0);
 
-  Future<_ApplyOutcome> _applyBookmarkRecord(EncryptedRecord record) async {
+  Future<_ApplyOutcome> _applyBookmarkRecord(EncryptedRecord record,
+      {required bool holdActive}) async {
     final dec = await _openForApply(record);
-    if (dec == null) return _ApplyOutcome.skipped;
+    if (dec == null) {
+      return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
+    }
     if (dec.kind != RecordKind.bookmark) {
       // Decrypt-success + prefix/kind mismatch: the primary in-place
       // corruption signature (04 §3.2's relabeled-secret case).
@@ -551,9 +761,12 @@ final class BookmarkCoordinator {
     return _ApplyOutcome.applied;
   }
 
-  Future<_ApplyOutcome> _applyHostKeyRecord(EncryptedRecord record) async {
+  Future<_ApplyOutcome> _applyHostKeyRecord(EncryptedRecord record,
+      {required bool holdActive}) async {
     final dec = await _openForApply(record);
-    if (dec == null) return _ApplyOutcome.skipped;
+    if (dec == null) {
+      return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
+    }
     if (dec.kind != RecordKind.hostKey) {
       await _tripwires.trip(record.id);
       return _ApplyOutcome.skipped;
@@ -588,10 +801,12 @@ final class BookmarkCoordinator {
     return _ApplyOutcome.applied;
   }
 
-  Future<_ApplyOutcome> _applyServerConfigRecord(
-      EncryptedRecord record) async {
+  Future<_ApplyOutcome> _applyServerConfigRecord(EncryptedRecord record,
+      {required bool holdActive}) async {
     final dec = await _openForApply(record);
-    if (dec == null) return _ApplyOutcome.skipped;
+    if (dec == null) {
+      return holdActive ? _ApplyOutcome.deferred : _ApplyOutcome.skipped;
+    }
     if (dec.kind != RecordKind.serverConfig) {
       await _tripwires.trip(record.id);
       return _ApplyOutcome.skipped;
