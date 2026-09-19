@@ -20,8 +20,15 @@ Future<QuitConfirmChoice?> showQuitConfirmDialog(
   required int activeTasks,
   required int remainingBytes,
 }) {
+  assert(
+    activeTasks > 0,
+    'Quit dialog shown without live tasks (02 §10)',
+  );
   return showDialog<QuitConfirmChoice>(
     context: context,
+    // Scrim tap / Esc dismissal must veto the quit (02 §10); keep this
+    // explicit so refactors can't silently change that contract.
+    barrierDismissible: true,
     builder: (dialogContext) {
       final l10n = AppLocalizations.of(dialogContext);
       final platform = Theme.of(dialogContext).platform;

@@ -887,6 +887,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // The quit-guard dialogs' widget keys — test plumbing, never authored
   // copy (the copy itself is ARB-backed per D20).
   'lib/ui/quit_dialog.dart': {
+    "'Quit dialog shown without live tasks (02 §10)'",
     "'quit.dialog'",
     "'quit.keepTransferring'",
     "'quit.cancelTransfers'",
