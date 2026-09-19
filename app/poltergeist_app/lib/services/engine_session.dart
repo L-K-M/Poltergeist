@@ -12,6 +12,7 @@ import 'identity_audit_log.dart';
 import 'identity_file_reader.dart';
 import 'pane_engine_lanes.dart';
 import 'prompt_coordinator.dart';
+import 'trash_channel.dart';
 
 /// File names inside the app-support directory, one store per file (03 §6):
 /// pin and incident storage stay app-owned; the engine seeds from them at
@@ -270,6 +271,7 @@ final class EngineSession {
     required GlobalKey<NavigatorState> navigatorKey,
     required GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey,
     required IdentityFileReader identityReader,
+    this._trashServer,
   }) : _engine = engine {
     // One prompt coordinator per engine (02 §10): a second subscriber
     // would render every prompt twice.
@@ -293,6 +295,12 @@ final class EngineSession {
   final IncidentStore _incidentStore;
   final BookmarkRepository _bookmarks;
   final ApplicationErrorReporter _errors;
+
+  /// The UI-isolate end of the D15 trash channel (03 §7.1): serves the
+  /// engine's channel invocations on the SendPort the spawn config
+  /// carried. Null off macOS/Windows or when binding failed — the
+  /// engine-side backends then report unavailable, honestly.
+  final TrashChannelServer? _trashServer;
   late final PromptCoordinator _prompts;
 
   StreamSubscription<HostKeyPinnedEvent>? _pinMirror;
@@ -484,6 +492,14 @@ final class EngineSession {
       unawaited(_incidentMirror?.cancel());
       _pinMirror = null;
       _incidentMirror = null;
+      final trashServer = _trashServer;
+      if (trashServer != null) {
+        try {
+          await trashServer.close();
+        } on Object catch (error, stackTrace) {
+          _errors.report(error, stackTrace);
+        }
+      }
       try {
         await _engine.shutdown();
       } on Object {
@@ -511,6 +527,7 @@ Future<EngineSession?> startEngineSession({
   AppEngineSpawner spawn = spawnAppEngine,
   HostKeyStore? pinStore,
   IncidentStore? incidentStore,
+  TrashChannelServer? Function()? trashServerBinder,
   void Function(Object error, StackTrace)? onError,
 }) async {
   final errors = onError == null
@@ -545,13 +562,27 @@ Future<EngineSession?> startEngineSession({
     return null;
   }
 
+  // The D15 trash channel's UI-isolate server (03 §7.1): bound before
+  // the spawn so its SendPort crosses inside EngineConfig — the engine's
+  // channel backends then invoke through it. bind() returns null on
+  // platforms whose trash needs no channel (Linux's gio spawn runs
+  // in-isolate) and a null port leaves the engine-side backends honestly
+  // unavailable — never a silent permanent delete.
+  final trashServer =
+      (trashServerBinder ??
+          () => TrashChannelServer.bind(onError: errors.report))();
   final AppEngine engine;
   try {
     engine = await spawn(
-      EngineConfig(hostKeyPins: pins, incidents: incidents),
+      EngineConfig(
+        hostKeyPins: pins,
+        incidents: incidents,
+        trashRequests: trashServer?.requests,
+      ),
     );
   } on Object catch (error, stackTrace) {
     errors.report(error, stackTrace);
+    unawaited(trashServer?.close());
     return null;
   }
 
@@ -572,9 +603,11 @@ Future<EngineSession?> startEngineSession({
           File('$supportDirectoryPath$separator$_identityAuditLogFileName'),
         ),
       ),
+      trashServer: trashServer,
     );
   } on Object catch (error, stackTrace) {
     errors.report(error, stackTrace);
+    unawaited(trashServer?.close());
     try {
       await engine.shutdown();
     } on Object {

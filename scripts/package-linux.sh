@@ -204,6 +204,13 @@ if ((${#UNKNOWN[@]})); then
   die "unmapped soname(s): ${UNKNOWN[*]} — add them to SONAME_TO_DEP in $SELF (check: dpkg -S /usr/lib/*/libX.so.N). Needed by: ${UNKNOWN_DETAIL[*]}"
 fi
 
+# Runtime tools the app spawns — invisible to the ELF scan because nothing
+# links them. gio (the D15 local trash backend, 03 §7.3) lives in
+# libglib2.0-bin; the libglib2.0-0 *library* dependency above does not
+# pull in the binary package, so a desktop-lite install could otherwise
+# ship a .deb whose trash reports "unavailable" where it should work.
+dep_add 'libglib2.0-bin'
+
 # Version floors from the symbol versions actually referenced — what
 # dh_shlibdeps would compute for us. Only meaningful for the base runtimes.
 floor_of() {  # $1 = objdump tag prefix (e.g. GLIBC_), max across all ELFs

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform, Process, ProcessException, ProcessResult;
+import 'dart:isolate' show ReceivePort, SendPort;
 
 import 'package:seance_core/seance_core.dart';
 
@@ -77,6 +78,69 @@ const String trashChannelMethod = 'trash';
 /// failure and surfaces as [TrashErrorKind.failed].
 typedef TrashChannelInvoker =
     Future<Object?> Function(String method, Map<String, Object?> arguments);
+
+/// One engine→app channel invocation (03 §7.1). A `MethodChannel` only
+/// answers on an isolate that owns a binary messenger — the engine
+/// isolate has none, and core stays pure Dart, so the app serves the
+/// channel on the UI isolate and this request carries each call across
+/// the dedicated port [EngineConfig.trashRequests] hands to the engine.
+/// The app replies on [replyTo] exactly once with a [TrashInvokeReply].
+final class TrashInvokeRequest {
+  const TrashInvokeRequest(this.replyTo, this.method, this.arguments);
+
+  /// The per-request reply port — fresh per call, so concurrent trashes
+  /// never interleave answers.
+  final SendPort replyTo;
+
+  /// The channel method ([trashChannelMethod] today).
+  final String method;
+
+  /// The channel arguments (`{'path': …}`).
+  final Map<String, Object?> arguments;
+}
+
+/// The app's answer to a [TrashInvokeRequest]: [result] on success
+/// (the channel's raw reply — a `{'trashedPath': …}` map or null), or
+/// [error] when the channel call threw. Both stay plain sendable data —
+/// the exception itself cannot cross the port.
+final class TrashInvokeReply {
+  const TrashInvokeReply.result(this.result) : error = null;
+  const TrashInvokeReply.failure(this.error) : result = null;
+
+  final Object? result;
+  final String? error;
+}
+
+/// Bound for one channel hop: long enough for a large recycle-bin move,
+/// short enough that a wedged app-side handler fails the item as
+/// [TrashErrorKind.failed] instead of hanging the task forever.
+const Duration trashInvokeTimeout = Duration(minutes: 5);
+
+/// The engine-isolate half of the relay: builds a [TrashChannelInvoker]
+/// that posts each call on [requests] (the [EngineConfig.trashRequests]
+/// port) and awaits the app's [TrashInvokeReply]. A failed or malformed
+/// reply throws — [ChannelTrashBackend.trash] maps that to
+/// [TrashErrorKind.failed].
+TrashChannelInvoker trashChannelInvokerFor(
+  SendPort requests, {
+  Duration timeout = trashInvokeTimeout,
+}) => (method, arguments) async {
+  final replies = ReceivePort();
+  try {
+    requests.send(TrashInvokeRequest(replies.sendPort, method, arguments));
+    final reply = await replies.first.timeout(timeout);
+    if (reply is! TrashInvokeReply) {
+      throw StateError('malformed trash channel reply: $reply');
+    }
+    final error = reply.error;
+    if (error != null) {
+      throw StateError('the OS trash channel failed: $error');
+    }
+    return reply.result;
+  } finally {
+    replies.close();
+  }
+};
 
 /// One local OS-trash mechanism. Implementations are per-platform; the
 /// [LocalTrashService] dispatcher picks one.
@@ -233,20 +297,24 @@ class GioTrashBackend implements LocalTrashBackend {
 }
 
 /// One trash service, one dispatch (03 §7.3): picks the platform's
-/// backend once. Unsupported platforms get an explicit
-/// [TrashErrorKind.unsupportedPlatform] — the answer is never a silent
-/// unlink.
+/// backend once. [channelInvoker] feeds the default macOS/Windows
+/// channel backends — the engine host builds it from
+/// [trashChannelInvokerFor] over `EngineConfig.trashRequests`; an
+/// explicit `macOS`/`windows` backend overrides it. Unsupported
+/// platforms get an explicit [TrashErrorKind.unsupportedPlatform] —
+/// the answer is never a silent unlink.
 class LocalTrashService {
   LocalTrashService({
     String? operatingSystem,
     LocalTrashBackend? macOS,
     LocalTrashBackend? windows,
     LocalTrashBackend? linux,
+    TrashChannelInvoker? channelInvoker,
     TrashProcessRunner? processRunner,
   }) : _operatingSystem = operatingSystem ?? Platform.operatingSystem,
        _backend = switch (operatingSystem ?? Platform.operatingSystem) {
-         'macos' => macOS ?? ChannelTrashBackend(),
-         'windows' => windows ?? ChannelTrashBackend(),
+         'macos' => macOS ?? ChannelTrashBackend(invoker: channelInvoker),
+         'windows' => windows ?? ChannelTrashBackend(invoker: channelInvoker),
          'linux' => linux ?? GioTrashBackend(runner: processRunner),
          _ => null,
        };

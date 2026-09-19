@@ -5858,6 +5858,61 @@ analyze clean. No UI wiring, no engine protocol surface yet — the pane
 delete gesture and the app-side channel binding land with their own
 slices.
 
+## M4 — native trash bindings wired (D15) (2026-09-19)
+
+The `poltergeist/trash` channel now exists end to end. The platform
+`MethodChannel` answers only on the UI isolate, so the engine reaches it
+through an explicit relay (03 §7.1): `EngineConfig.trashRequests` (protocol
+v12) carries a SendPort across the spawn, `trashChannelInvokerFor` turns it
+back into a `TrashChannelInvoker` (`TrashInvokeRequest` out, per-request
+reply port, `TrashInvokeReply` back, 5-minute bound so a wedged server
+fails the item rather than hanging the task), and `EngineHost.localTrash`
+builds the dispatching `LocalTrashService` from it — the seam the
+engine-side transfer queue takes when it lands. App side,
+`TrashChannelServer` binds on macOS/Windows only and is closed on session
+shutdown and every spawn-failure path.
+
+macOS Runner serves `trash` through `FileManager.trashItem` off the
+platform thread and returns the `trashedPath` (the Put Back anchor; Put
+Back itself stays Finder's). Windows Runner adds `TrashOperations`, a
+dedicated STA worker (`CoInitializeEx(COINIT_APARTMENTTHREADED)`) that runs
+`IFileOperation.DeleteItem` with `FOF_ALLOWUNDO | FOFX_ADDUNDORECORD` —
+Recycle Bin delivery plus Explorer's undo record — with results delivered
+off the worker and teardown ordered channel → worker → controller. Bad
+arguments answer `TRASH_BAD_ARGS`; operation failures `TRASH_FAILED`.
+
+Linux packaging: `gio` is a spawned binary, invisible to the ELF-derived
+Depends scan, so `package-linux.sh` now adds `libglib2.0-bin` explicitly —
+verified: `--print-deps` emits it on the real bundle. The AppImage ships no
+system tools, so on a gio-less host the cached probe reports unavailable
+and the confirm-then-permanent fallback applies — honest, never a silent
+unlink.
+
+Validation: 11 new core tests (`trash_channel_relay_test.dart` —
+feature-detection, reply/failure/malformed/timeout relay semantics, a real
+`SendPort` crossing a spawned isolate; `trash_roundtrip_linux_test.dart` —
+a live `gio trash` + `.trashinfo` restore round-trip, honestly skipped
+where gio is absent) and 5 new app tests (`trash_channel_test.dart` —
+bind/no-bind per platform, mocked-channel round-trip, PlatformException
+propagation, malformed-message reporting; `engine_session_test.dart` — the
+port lands in `EngineConfig`, a failed spawn leaves a closed port).
+`flutter analyze` clean, core suite green, `flutter build linux --debug`
+builds, `package-linux.sh --print-deps` shows `libglib2.0-bin`. macOS/Windows
+native compilation is CI-leg verified; no local runners exist, so the OS
+round-trips are covered by the channel-contract tests instead.
+
+Manual QA note (07 §3.5's exit criterion — the legs CI cannot prove):
+on macOS, trash a file from a local pane and confirm it lands in Finder's
+Trash with Put Back enabled (best-effort OS behavior, per 07 §3.5 — the
+app returns the `trashedPath` anchor but does not guarantee Finder keeps
+the origin metadata); on Windows, trash a file and confirm it appears in
+the Recycle Bin and restores via Explorer's Ctrl+Z (the
+`FOFX_ADDUNDORECORD` record); on a packaged `.deb` install on a
+desktop-lite distro, confirm `gio trash` works because `libglib2.0-bin`
+is now a hard dependency, and on the AppImage on a host without `gio`,
+confirm the delete dialog offers only the confirm-then-permanent path —
+never a silent unlink.
+
 ## Review-workflow stall hardening (2026-09-18)
 
 The GLM review workflow's Z.ai step hung silently three times in ~12

@@ -1,3 +1,5 @@
+import 'dart:isolate' show SendPort;
+
 import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart'
@@ -22,8 +24,11 @@ import '../connection/pool_policy.dart' show PoolPolicy;
 /// [RenameEntryRequest] for the panes' inline rename (02 §2.6). v10 adds
 /// [OpenLocalFileRequest] — §2.6's local-file Open behind the engine's
 /// OS-default-application launcher (D8). v11 adds [SetPermissionsRequest]
-/// for §2.6's Get Info permissions editor (D28).
-const engineProtocolVersion = 11;
+/// for §2.6's Get Info permissions editor (D28). v12 adds
+/// [EngineConfig.trashRequests] — the app-side `poltergeist/trash`
+/// channel port the engine's D15 local-trash service invokes through
+/// (03 §7.1).
+const engineProtocolVersion = 12;
 
 // ── Engine → UI events ──────────────────────────────────────────────────
 
@@ -746,9 +751,20 @@ final class EngineConfig {
   /// from a pin store that failed to load.
   final List<IncidentRecord> incidents;
 
+  /// The app-side `poltergeist/trash` channel port (03 §7.1, D15): the
+  /// platform `MethodChannel` lives on the UI isolate's binary
+  /// messenger, which the engine isolate cannot reach, so the app
+  /// serves `TrashInvokeRequest`s on this port and the engine issues
+  /// them through `trashChannelInvokerFor`. Null leaves the channel
+  /// backends
+  /// unwired — they report `TrashErrorKind.unavailable`, the honest
+  /// confirm-then-permanent fallback, never a silent unlink.
+  final SendPort? trashRequests;
+
   const EngineConfig({
     this.policy = const PoolPolicy(),
     this.hostKeyPins = const [],
     this.incidents = const [],
+    this.trashRequests,
   });
 }
