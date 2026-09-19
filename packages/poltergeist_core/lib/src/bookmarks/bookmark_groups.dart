@@ -74,9 +74,12 @@ List<BookmarkGroupSection> groupBookmarks(Iterable<Bookmark> bookmarks) {
 
 /// The distinct group names in [bookmarks], sorted, for offering existing
 /// groups in an editor instead of making the user retype (and misspell) one.
+/// The displayed spelling comes from the first member in sort order, same
+/// as [groupBookmarks], so the name does not depend on iteration order.
 List<String> bookmarkGroupNames(Iterable<Bookmark> bookmarks) {
+  final sorted = bookmarks.toList()..sort(compareBookmarkSortKeys);
   final names = <String, String>{};
-  for (final bookmark in bookmarks) {
+  for (final bookmark in sorted) {
     final group = normalizeServerGroup(bookmark.group);
     if (group != null) names.putIfAbsent(serverGroupKey(group), () => group);
   }

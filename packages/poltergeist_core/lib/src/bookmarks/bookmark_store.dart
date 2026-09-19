@@ -309,11 +309,18 @@ final class FileBookmarkStore implements BookmarkStore {
     await _ensureLoaded();
     await _writeTail;
     if (!_bookmarks.containsKey(id)) return false;
+    // The presence check above is pre-queue: another queued mutation could
+    // remove the row first, so the verdict and the event are decided inside
+    // the serialized operation, not by the earlier snapshot.
+    var removed = false;
     await _writeNext(
-      (next) => next.remove(id),
-      changes: (_) => [BookmarkRemovedChange(id)],
+      (next) {
+        removed = next.remove(id) != null;
+      },
+      changes: (_) =>
+          removed ? [BookmarkRemovedChange(id)] : const <BookmarkStoreChange>[],
     );
-    return true;
+    return removed;
   }
 
   @override
@@ -462,8 +469,10 @@ final class FileBookmarkStore implements BookmarkStore {
   }
 
   /// One serialized mutation: [edit] produces the next map (from a copy of
-  /// current state), the map is sortKey-normalized, written, and swapped in
-  /// only after the write lands — a failed write leaves the in-memory
+  /// current state), the edited map is sortKey-normalized — so a synced or
+  /// imported record carrying a non-minted key is repaired before it lands,
+  /// never after a reorder has already read it — written, and swapped in
+  /// only after the write lands, so a failed write leaves the in-memory
   /// state intact. [changes] computes the events emitted from the stored
   /// (post-normalization) rows; nothing reaches listeners on failure.
   Future<Map<String, Bookmark>> _writeNext(
@@ -471,18 +480,19 @@ final class FileBookmarkStore implements BookmarkStore {
     List<BookmarkStoreChange> Function(Map<String, Bookmark> next)? changes,
   }) {
     final operation = _writeTail.then((_) async {
-      final next = _normalizeSortKeys(Map<String, Bookmark>.of(_bookmarks));
+      final next = Map<String, Bookmark>.of(_bookmarks);
       edit(next);
-      await _write(next);
+      final stored = _normalizeSortKeys(next);
+      await _write(stored);
       _bookmarks
         ..clear()
-        ..addAll(next);
+        ..addAll(stored);
       if (changes != null) {
-        for (final change in changes(next)) {
+        for (final change in changes(stored)) {
           _changes.add(change);
         }
       }
-      return next;
+      return stored;
     });
     // The calling service owns write-error reporting; this only heals the
     // queue so one failure cannot wedge every later write.

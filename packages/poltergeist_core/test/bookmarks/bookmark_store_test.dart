@@ -122,8 +122,17 @@ void main() {
     dir = Directory.systemTemp.createTempSync('poltergeist-bookmarks');
   });
 
-  tearDown(() {
-    if (dir.existsSync()) dir.deleteSync(recursive: true);
+  tearDown(() async {
+    // Windows can hold a handle on a just-written store for a beat past
+    // the test's last await; retry instead of flaking the suite.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+        return;
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }
   });
 
   String pathIn(String name) => '${dir.path}${Platform.pathSeparator}$name';
@@ -189,11 +198,11 @@ void main() {
       // rename fails. The store must then fail closed rather than load
       // empty and let the next save overwrite the unreadable bytes.
       Directory(
-        bookmarkQuarantinePath(path, DateTime.utc(2026, 9, 8, 12)),
+        bookmarkQuarantinePath(path, _fixedNow),
       ).createSync();
       final store = FileBookmarkStore(
         path: path,
-        now: () => DateTime.utc(2026, 9, 8, 12),
+        now: () => _fixedNow,
       );
 
       await expectLater(store.load(), throwsA(isA<FileSystemException>()));
@@ -616,7 +625,7 @@ Host web
       final path = pathIn('bookmarks.json');
       final store = FileBookmarkStore(path: path);
       await store.upsertAll([
-        _localBookmark('u1', sortKey: 'a'.padRight(2, 'm')),
+        _localBookmark('u1', sortKey: 'am'),
         _localBookmark('w1', sortKey: 'm'),
         _localBookmark('w2', sortKey: 'q'),
         _localBookmark('z1', sortKey: 'u'),
@@ -837,6 +846,30 @@ Host web
           .cast<Map>()
           .singleWhere((record) => record['id'] == 'legacy');
       expect(isValidSortKey(written['sortKey'] as String), isTrue);
+    });
+
+    test('a synced record carrying an invalid key is repaired on apply',
+        () async {
+      // M6's pulled records are verbatim-applied — but a pulled interim
+      // `sortKey: <uuid>` must still be normalized before it can poison a
+      // later reorder, so the store normalizes the edited map, not just the
+      // pre-edit one.
+      final path = pathIn('bookmarks.json');
+      final store = FileBookmarkStore(path: path);
+      await store.applySynced([
+        _localBookmark('ok', sortKey: 'm'),
+        _localBookmark('pulled', sortKey: 'x9-pulled-uuid'),
+      ]);
+
+      // A same-group move reads the repaired key, never the uuid.
+      final moved = await store.moveToGroup('ok', 'Work');
+      expect(isValidSortKey(moved.sortKey), isTrue);
+      await store.moveToGroup('pulled', 'Work');
+      final sections = await store.sections();
+      expect(sections.single.bookmarks.map((b) => b.id), ['ok', 'pulled']);
+      for (final bookmark in sections.single.bookmarks) {
+        expect(isValidSortKey(bookmark.sortKey), isTrue);
+      }
     });
   });
 

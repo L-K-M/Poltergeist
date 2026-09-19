@@ -43,7 +43,7 @@ final class SortKeySpaceExhaustedException implements Exception {
 
 /// Whether [key] has the shape of a minted key: nonempty, `a`–`z` only, and
 /// not one of the reserved all-`a` floor strings. Stored keys failing this
-// are interim mints (`sortKey: <uuid>` from the pre-M5 writers) or foreign
+/// are interim mints (`sortKey: <uuid>` from the pre-M5 writers) or foreign
 /// data; the store re-keys them deterministically rather than letting them
 /// break [sortKeyBetween] later.
 bool isValidSortKey(String key) {
@@ -76,10 +76,11 @@ int compareBookmarkSortKeys(Bookmark a, Bookmark b) {
 /// bound runs out (the plan's worked example: `b` → `am`, `am` → `ag`).
 ///
 /// Throws [ArgumentError] on a malformed key (empty or outside `a`–`z`) or
-/// an inverted/collapsed range (`before >= after`), and
-/// [SortKeySpaceExhaustedException] when the bounds are adjacent with no
-/// room left — `after` equal to `before` followed only by `a`s, or an
-/// all-`a` [after] at the floor itself.
+/// an inverted range (`before > after` — a caller bug), and
+/// [SortKeySpaceExhaustedException] when no key sorts strictly between the
+/// bounds: equal keys — reachable after an LWW merge of two devices'
+/// identical deterministic mints, not a caller bug — `after` equal to
+/// `before` followed only by `a`s, or an all-`a` [after] at the floor.
 String sortKeyBetween(String? before, String? after) {
   if (before != null && !_isAlphabetKey(before)) {
     throw ArgumentError.value(before, 'before', 'not an a–z sortKey');
@@ -87,10 +88,20 @@ String sortKeyBetween(String? before, String? after) {
   if (after != null && !_isAlphabetKey(after)) {
     throw ArgumentError.value(after, 'after', 'not an a–z sortKey');
   }
-  if (before != null && after != null && before.compareTo(after) >= 0) {
-    throw ArgumentError(
-      'sortKeyBetween requires before < after: $before vs $after',
-    );
+  if (before != null && after != null) {
+    final cmp = before.compareTo(after);
+    if (cmp > 0) {
+      throw ArgumentError(
+        'sortKeyBetween requires before < after: $before vs $after',
+      );
+    }
+    if (cmp == 0) {
+      // Duplicate keys are a legitimate post-merge state (two devices
+      // minting the same key between the same neighbors): report
+      // exhaustion so callers run their re-keying recovery instead of
+      // seeing a caller-error ArgumentError they cannot recover from.
+      throw SortKeySpaceExhaustedException(before, after);
+    }
   }
 
   final out = StringBuffer();

@@ -79,13 +79,28 @@ void main() {
       expect(sortKeyBetween('ag', 'am'), sortKeyBetween('ag', 'am'));
     });
 
-    test('rejects an inverted or collapsed range', () {
+    test('rejects an inverted range as a caller error', () {
       expect(() => sortKeyBetween('b', 'a'), throwsArgumentError);
-      expect(() => sortKeyBetween('m', 'm'), throwsArgumentError);
+    });
+
+    test('reports equal keys as exhaustion — a reachable post-merge state',
+        () {
+      // Two devices minting the same key between the same neighbors is the
+      // documented collision, so a pair of duplicate keys is not a caller
+      // bug: callers run their re-keying recovery on exhaustion.
+      expect(
+        () => sortKeyBetween('m', 'm'),
+        throwsA(isA<SortKeySpaceExhaustedException>()),
+      );
+      expect(
+        () => sortKeyBetween('am', 'am'),
+        throwsA(isA<SortKeySpaceExhaustedException>()),
+      );
     });
 
     test('rejects keys outside the a–z alphabet', () {
       expect(() => sortKeyBetween('x1', null), throwsArgumentError);
+      expect(() => sortKeyBetween('m', 'x1'), throwsArgumentError);
       expect(() => sortKeyBetween('a-b', null), throwsArgumentError);
       expect(() => sortKeyBetween('M', null), throwsArgumentError);
       expect(() => sortKeyBetween('', null), throwsArgumentError);
