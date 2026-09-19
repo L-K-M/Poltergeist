@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/bookmark_store.dart';
 import '../../services/uuid.dart';
 
 /// The post-connect "Save as favorite…" bar (02 §2.7): rendered for a

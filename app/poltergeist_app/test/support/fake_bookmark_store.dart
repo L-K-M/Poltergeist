@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 /// In-memory [BookmarkRepository]: consumers must depend on the seam, never

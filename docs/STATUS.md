@@ -6247,6 +6247,58 @@ pause-and-flush, and a third boot's durability replay; a separate
 test pins the remote-failure honesty. `POLTERGEIST_CAPTURE=1` writes
 the restored panel to `tasks/run3-task74/captures/boot-restored-queue.png`.
 
+## M5 — bookmark store: the 04 §2 persistence foundation (2026-09-19)
+
+03 §6's `BookmarkStore` row lands as core code: `FileBookmarkStore`
+moves from `app/services/` into `poltergeist_core` over the pinned
+`Bookmark` model (D2 — one schema, never a second; PR-S1 is in the
+pin's ancestry, so §2.1's temporary-copy clause does not apply), and
+the app keeps only the bootstrap: `main.dart` builds one store on
+`<app-support>/bookmarks.json`, every consumer still depends on the
+`BookmarkRepository` seam, now exported from the barrel next to the
+full `BookmarkStore` surface.
+
+The on-disk payload is the model's `toJson()` verbatim — the exact
+shape M6 seals into `bookmark:` records — so the serialization
+boundary this slice owns is the sync contract, not a file format.
+The 04 §2.3 split is enforced by construction and pinned by the
+payload-purity suite: persisted records carry only synced keys, no
+scoped-access blobs or per-device view state can appear, and the
+64 KiB save-time hard cap (`BookmarkTooLargeException`) keeps
+local-only never-synced state impossible per §2.5.
+
+Grouping and ordering follow §2.1/§2.5: `sortKeyBetween` mints
+fractional `a`–`z` keys (midpoint of the neighbors, `m` when none
+exists, the all-`a` floor reserved and never minted — the worked
+`b` → `am` → `ag` descent is unit-pinned) with the record-id
+tiebreak in `compareBookmarkSortKeys`; `groupBookmarks` sections
+the list the Séance way (case-insensitive group keys, name-sorted,
+ungrouped last, one anonymous section when flat). `moveToGroup`/
+`reorder` re-mint only the moved record's key — LWW-friendly by
+construction — and a single named neighbor bounds the other side by
+the adjacent member. Interim `sortKey: <uuid>` mints and other
+non-`a`–`z` keys are repaired deterministically at load and on every
+write, so `save_favorite_bar`'s interim mint keeps working while the
+store converges the file onto minted keys.
+
+Local CRUD stamps `updatedAt` (LWW's comparator half) and emits
+synchronous `BookmarkSavedChange`/`BookmarkRemovedChange` events on
+`changes` — the store-behind-callback seam the M6 coordinator marks
+dirty on; `applySynced`/`removeSynced` are the verbatim, quiet
+apply path so a pulled record can never re-mark itself dirty.
+Failure posture is unchanged from the app store: atomic temp+rename
+writes through `TransferJournalIo`, serialized write tail,
+corrupt-file quarantine that fails closed, newer-`version` refusal,
+and verbatim preservation of undecodable records (§2.1's
+skip-and-preserve).
+
+Coverage: 49 tests in `test/bookmarks/` — the ported app-store
+persistence/atomicity matrix plus sortKey sequences (200 repeated
+head and tail insertions), strict-decode preservation, restart
+persistence, the M6 payload-purity and sealed-envelope contract,
+group/reorder invariants, the size cap, and the change-event split.
+Sidebar UI, the editor, and sync are deliberately not in this slice.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

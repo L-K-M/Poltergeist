@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart' show GlobalKey, ScaffoldMessengerState;
 import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
-import 'services/bookmark_store.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/engine_session.dart';
 import 'services/quit_guard.dart';

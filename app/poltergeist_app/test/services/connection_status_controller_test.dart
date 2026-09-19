@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/application_error_reporter.dart';
-import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/connection_state_bridge.dart';
 import 'package:poltergeist_app/services/connection_status_controller.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';

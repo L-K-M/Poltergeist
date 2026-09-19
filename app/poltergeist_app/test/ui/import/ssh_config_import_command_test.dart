@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
-import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
 import 'package:poltergeist_app/ui/import/ssh_config_import_command.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';

@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../services/bookmark_store.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';

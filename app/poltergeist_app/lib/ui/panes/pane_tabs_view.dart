@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/gestures.dart' show kMiddleMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:poltergeist_core/poltergeist_core.dart' show FsLocation;
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show BookmarkRepository, FsLocation;
 
 import '../../l10n/app_localizations.dart';
-import '../../services/bookmark_store.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';

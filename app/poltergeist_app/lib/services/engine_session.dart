@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import 'application_error_reporter.dart';
-import 'bookmark_store.dart';
 import 'connection_state_bridge.dart';
 import 'file_stores.dart';
 import 'identity_audit_log.dart';

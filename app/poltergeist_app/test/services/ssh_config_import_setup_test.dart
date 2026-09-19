@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:poltergeist_app/services/bookmark_store.dart';
 import 'package:poltergeist_app/services/ssh_config_import_setup.dart';
+import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/fake_bookmark_store.dart';
 
