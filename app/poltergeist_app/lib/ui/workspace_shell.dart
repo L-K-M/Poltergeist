@@ -27,6 +27,7 @@ import '../services/ssh_config_import_setup.dart';
 import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
+import '../services/workspace_state.dart';
 import 'activity/activity_commands.dart';
 import 'activity/activity_format.dart';
 import 'activity/activity_panel.dart';
@@ -39,6 +40,7 @@ import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
 import 'sidebar/sidebar_view.dart';
+import 'top_toast.dart';
 import 'workspace/workspace_commands.dart';
 
 /// The inline sidebar's width (02 §1: default 240, min 200, max 320 —
@@ -1109,6 +1111,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       connections: _connections,
       probes: _probes,
       onOpenFavorite: _workspace == null ? null : _openFavorite,
+      onUpdateWorkspace: _workspace == null || widget.workspaces == null
+          ? null
+          : (bookmark) => unawaited(_updateWorkspaceFavorite(bookmark)),
       // The blocked-review affordance exists only where a composition
       // can start a connect: the session's engine raises the pool's
       // changed-key review at the attempt (D18).
@@ -1129,16 +1134,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// localFolder and remotePath bind the resolved pane's tab per the
   /// modifier vocabulary (plain = preferred-pane rules, ⌘/Ctrl = new
   /// tab in the plain-click pane, ⌥/Alt = the pane a plain click would
-  /// not have used). The workspace and saved-sync kinds answer with the
-  /// honest not-yet notice — their open verbs land with the workspaces
-  /// slice and the 05 sync preview — never a dead row.
+  /// not have used). A workspace favorite opens per §3 — the guarded
+  /// both-pane replacement, shared with the menu command. The
+  /// saved-sync kind answers with the honest not-yet notice — its open
+  /// verb lands with the 05 sync preview — never a dead row.
   void _openFavorite(Bookmark bookmark, SidebarOpenAction action) {
     final workspace = _workspace;
     if (workspace == null) return;
     final l10n = AppLocalizations.of(context);
     switch (bookmark.kind) {
       case BookmarkKind.workspace:
-        _showSidebarNotice(l10n.sidebarWorkspaceLater);
+        unawaited(_openWorkspaceFavorite(bookmark));
         return;
       case BookmarkKind.savedSync:
         _showSidebarNotice(l10n.sidebarSyncLater);
@@ -1183,6 +1189,67 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         );
       case BookmarkKind.workspace || BookmarkKind.savedSync:
         break; // answered above — the switch is exhaustive.
+    }
+  }
+
+  /// The workspace favorite's open (02 §3): the detail doc's exact
+  /// tab-set snapshot when this device holds one, else the bookmark's
+  /// own left/right endpoints — the synced shape's reduced form for a
+  /// workspace captured elsewhere. Either way it lands through the same
+  /// guarded both-pane replacement the menu command runs, Undo toast
+  /// included.
+  Future<void> _openWorkspaceFavorite(Bookmark bookmark) async {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final library = widget.workspaces;
+    final saved =
+        library?.workspaces
+            .where((record) => record.id == bookmark.id)
+            .firstOrNull ??
+        SavedWorkspace(
+          id: bookmark.id,
+          label: bookmark.label,
+          savedAt: bookmark.createdAt,
+          lastOpenedAt: null,
+          snapshot: workspaceSnapshotFromBookmark(bookmark),
+        );
+    try {
+      await openWorkspaceBookmark(
+        context,
+        workspace: workspace,
+        library: library,
+        saved: saved,
+      );
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      // A failed open must not read as a dead row — same honest notice
+      // the update verb surfaces on a store fault.
+      if (mounted) {
+        _showSidebarNotice(AppLocalizations.of(context).sidebarActionFailed);
+      }
+    }
+  }
+
+  /// The workspace row's "Update Workspace" verb: re-captures both
+  /// panes over the existing favorite — one bookmark = one workspace,
+  /// an update, never a duplicate. The saved toast mirrors the menu
+  /// save's; a store fault reports and surfaces the honest notice.
+  Future<void> _updateWorkspaceFavorite(Bookmark bookmark) async {
+    final workspace = _workspace;
+    final library = widget.workspaces;
+    if (workspace == null || library == null) return;
+    final l10n = AppLocalizations.of(context);
+    try {
+      final saved = await library.recapture(
+        bookmark.id,
+        workspace.captureWorkspace(),
+      );
+      if (!mounted || saved == null) return;
+      showTopToastIn(context, message: l10n.workspaceSavedToast(saved.label));
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (!mounted) return;
+      _showSidebarNotice(l10n.sidebarActionFailed);
     }
   }
 

@@ -21,16 +21,18 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import '../../services/engine_session_test.dart' as session_test;
 import '../../support/fake_bookmark_store.dart';
 
-/// Real-font captures of the workspace surface (02 §3's final slice):
-/// the Commands menu's "Workspaces" submenu listing the saved
-/// workspaces newest-first, and the `Workspace "X" opened` toast with
-/// its Undo action. Follows the menu-bar capture's convention — a real
-/// face when the host provides one (POLTERGEIST_CAPTURE_FONT_DIR or the
-/// DejaVu fallback), PNGs under tasks/run3-task58/ (or
-/// POLTERGEIST_CAPTURE_DIR), POLTERGEIST_CAPTURE=1 gating every write.
+/// Real-font captures of the workspace surface (02 §3, M5): the
+/// Commands menu's "Workspaces" submenu listing the saved workspaces in
+/// favorites order, the `Workspace "X" opened` toast with its Undo
+/// action, and the sidebar's own restore path — the workspace favorite
+/// row opening both panes. Follows the menu-bar capture's convention —
+/// a real face when the host provides one
+/// (POLTERGEIST_CAPTURE_FONT_DIR or the DejaVu fallback), PNGs under
+/// tasks/run3-task77/ (or POLTERGEIST_CAPTURE_DIR),
+/// POLTERGEIST_CAPTURE=1 gating every write.
 final _captureDir =
     Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
-    '../../tasks/run3-task58';
+    '../../tasks/run3-task77';
 
 Future<ByteData> _fontBytes(String path) async {
   final bytes = File(path).readAsBytesSync();
@@ -104,8 +106,14 @@ void main() {
       );
     }
     // The opened workspace's own targets — each restored tab mints its
-    // own channel, so the open needs one scripted channel per pane.
-    for (final path in ['/home/tester/work', '/srv/archive']) {
+    // own channel, so the open needs one scripted channel per pane —
+    // plus a second '/srv/archive' channel for the sidebar-driven open
+    // of 'Archive' (its sole tab rebinds on activation).
+    for (final path in [
+      '/home/tester/work',
+      '/srv/archive',
+      '/srv/archive',
+    ]) {
       engine.localChannels.add(
         session_test.FakeAppBrowseChannel(homePath: '/home/tester')
           ..listings[path] = [
@@ -136,7 +144,7 @@ void main() {
     addTearDown(session!.shutdown);
 
     // The saved-workspace list, pre-seeded so the submenu has rows:
-    // two records prove the newest-first order renders. The store stack
+    // two records prove the favorites order renders. The store stack
     // is built INSIDE the real-async zone — its `Future.value()` write
     // seeds never deliver to the fake zone's microtask queue, so a
     // fake-zone-built store could never complete a write here.
@@ -146,6 +154,7 @@ void main() {
         store: WorkspaceListStore(
           store: SettingsStore(path: p.join(supportDir.path, 'settings.json')),
         ),
+        bookmarks: bookmarks,
       );
       await library.load();
       await library.save(
@@ -260,5 +269,45 @@ void main() {
     // single pump would freeze it at opacity ~0.
     await tester.pump(const Duration(milliseconds: 300));
     await capture('workspace-toast');
+    // Let the toast's auto-dismiss expire before the next open so its
+    // 12 s action timer cannot outlive the test.
+    await tester.pump(const Duration(seconds: 13));
+
+    // The sidebar's own restore path (02 §4: "workspace favorites open
+    // per §3"): tapping the workspace favorite's row runs the same
+    // guarded both-pane replacement — 'Archive' lands /srv/archive on
+    // the left and empties the right pane to its launcher.
+    final archive = library.workspaces.singleWhere(
+      (record) => record.label == 'Archive',
+    );
+    await tester.runAsync(() async {
+      // One real-zone wait shape for all three polls: pump, then a real
+      // 50 ms delay, up to 40 tries — the row mounts on the sidebar's
+      // change-driven reload and the restored tab binds on activation,
+      // so fixed frame counts would flake.
+      Future<void> until(Finder finder) async {
+        for (var i = 0; i < 40 && finder.evaluate().isEmpty; i++) {
+          await tester.pump();
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        // Fail at the wait that timed out, not at a later symptom.
+        expect(finder.evaluate(), isNotEmpty, reason: 'timed out: $finder');
+      }
+
+      final row = find.byKey(ValueKey('sidebar.favorite.${archive.id}'));
+      await until(row);
+      await tester.tap(row);
+      await until(find.text('Workspace "Archive" opened'));
+      // The path bar renders one Text per segment, never the joined
+      // path — the tail segment proves the restored bind landed.
+      await until(find.text('archive'));
+      await tester.pump();
+    });
+    await tester.pump();
+    expect(find.text('Workspace "Archive" opened'), findsOneWidget);
+    expect(find.text('archive'), findsWidgets);
+    await tester.pump(const Duration(milliseconds: 300));
+    await capture('workspace-sidebar-restore');
+    await tester.pump(const Duration(seconds: 13));
   });
 }

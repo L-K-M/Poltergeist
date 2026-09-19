@@ -236,13 +236,33 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Invalid workspace list'",
     "'Unsupported workspace list schema'",
     "'Invalid workspace list entries'",
+    // The pre-migration serialization assert — a programming-error
+    // diagnostic, never rendered.
+    "'Legacy (v1) workspace document serialized before migration; '",
+    "'migrate to favorites before saving.'",
   },
   // The settings.json key the workspace list document lives under
   // (02 §3 — separate from the auto-session key by design).
   'lib/services/workspace_list_store.dart': {"'workspaces.saved'"},
-  // The disposed-use diagnostic — the strip's assert-message posture.
+  // The disposed-use diagnostics — the strip's assert-message posture —
+  // plus the endpoint literals: '~' is a launcher pane's recorded
+  // endpoint (the bookmark schema requires a path), '/' the remote-path
+  // floor a corrupt relative path clamps to, and the synthesized
+  // endpoint bookmark's namespaced id — machine data, never rendered.
   'lib/services/workspace_library.dart': {
     "'save on a disposed WorkspaceLibrary'",
+    "'recapture on a disposed WorkspaceLibrary'",
+    // The load-before-mutate ordering asserts — programming-error
+    // diagnostics, never rendered.
+    "'save before WorkspaceLibrary.load() completed'",
+    "'recapture before WorkspaceLibrary.load() completed'",
+    "'markOpened before WorkspaceLibrary.load() completed'",
+    "'~'",
+    "'/'",
+    // The placeholder tab's empty filter seed — a starting value, not
+    // copy.
+    "''",
+    r"'${workspace.id}:$paneId'",
     // The blank-label ArgumentError's name and reason — a programming-
     // error diagnostic, never rendered.
     "'label'",
@@ -706,6 +726,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.menu.open'",
     "'sidebar.menu.openNewTab'",
     "'sidebar.menu.openOtherPane'",
+    "'sidebar.menu.updateWorkspace'",
     "'sidebar.menu.rename'",
     "'sidebar.menu.moveToGroup'",
     "'sidebar.menu.delete'",

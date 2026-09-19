@@ -107,6 +107,21 @@ void main() {
       final decoded = WorkspaceListDocument.fromJson(_fixture.toJson());
       expect(decoded.toJson(), _fixture.toJson());
     });
+
+    test('a version-1 decode flags for favorite migration; the current '
+        'schema does not', () {
+      final legacy = _fixture.toJson()..['version'] = 1;
+      expect(
+        WorkspaceListDocument.fromJson(legacy).legacySchema,
+        isTrue,
+      );
+      expect(
+        WorkspaceListDocument.fromJson(_fixture.toJson()).legacySchema,
+        isFalse,
+      );
+      // The write path always stamps the current schema.
+      expect(_fixture.toJson()['version'], 2);
+    });
   });
 
   group('strict decode', () {

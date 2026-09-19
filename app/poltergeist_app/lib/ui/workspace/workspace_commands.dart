@@ -16,7 +16,8 @@ const _openToastDuration = Duration(seconds: 12);
 
 /// The workspace commands (02 §3's final slice): `workspace.save` and the
 /// per-workspace `workspace.open.<id>` items the "Workspaces" submenu
-/// renders in newest-first order.
+/// renders in the favorites' order (the sidebar's `sortKey` sequence —
+/// the two surfaces can never disagree).
 ///
 /// Menu placement follows 02 §9's Commands table — "Save Workspace…"
 /// holds the slot between "Add to Favorites…" (40) and "Copy as rsync
@@ -118,6 +119,24 @@ Future<void> _openWorkspace(
   SavedWorkspace saved, {
   required WorkspaceController workspace,
   required WorkspaceLibrary library,
+}) =>
+    openWorkspaceBookmark(
+      context,
+      workspace: workspace,
+      library: library,
+      saved: saved,
+    );
+
+/// The workspace open both surfaces share (02 §3): the "Workspaces"
+/// submenu's command and the sidebar's workspace row run the identical
+/// guarded both-pane replacement, then the opened toast with Undo and
+/// the recency stamp. [saved] is the library's joined record — or the
+/// reduced placeholder a detail-less favorite resolves to.
+Future<void> openWorkspaceBookmark(
+  BuildContext context, {
+  required WorkspaceController workspace,
+  required WorkspaceLibrary? library,
+  required SavedWorkspace saved,
 }) async {
   final l10n = AppLocalizations.of(context);
   // The guarded replace: every existing tab's in-flight state is
@@ -126,9 +145,9 @@ Future<void> _openWorkspace(
   // workspace stands exactly as it was, no toast.
   final prior = await workspace.requestApplyWorkspace(saved.snapshot);
   if (prior == null) return;
-  // Persist the open for the menu's newest-first order — reported like
-  // any other store fault, never silently.
-  await library.markOpened(saved.id);
+  // Persist the open's recency stamp — reported like any other store
+  // fault, never silently.
+  await library?.markOpened(saved.id);
   if (!context.mounted) return;
   showTopToastIn(
     context,

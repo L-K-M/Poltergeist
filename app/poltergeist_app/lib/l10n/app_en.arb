@@ -566,9 +566,9 @@
   "@sidebarKindSavedSync": {
     "description": "Subtitle of a saved-sync-kind favorite while there is no single path to show."
   },
-  "sidebarWorkspaceLater": "Opening workspace favorites isn't available yet — workspace restore arrives in a later milestone.",
-  "@sidebarWorkspaceLater": {
-    "description": "Transient notice (02 §10): a workspace-kind favorite's open targets the workspaces slice, which lands after this one — an honest answer, never a dead button."
+  "sidebarWorkspaceUpdate": "Update Workspace",
+  "@sidebarWorkspaceUpdate": {
+    "description": "Workspace favorite's context verb (02 §3): re-captures both panes' tab sets over the existing workspace — an update, never a duplicate."
   },
   "sidebarSyncLater": "Opening saved-sync favorites isn't available yet — the sync preview arrives in a later milestone.",
   "@sidebarSyncLater": {
