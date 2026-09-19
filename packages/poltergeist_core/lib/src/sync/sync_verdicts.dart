@@ -54,7 +54,9 @@ abstract interface class SyncTripwireStore {
 }
 
 /// In-memory [PinVerdictStore] — tests and a wiring placeholder; the app
-/// implements the seam over settings.
+/// implements the seam over settings. NOT durable: verdicts evaporate on
+/// restart, so wiring this into a production coordinator voids the §3.2
+/// untrust/kept-verdict guarantees.
 final class InMemoryPinVerdictStore implements PinVerdictStore {
   final _negative = <String>{};
   final _kept = <String, String>{};
@@ -84,7 +86,9 @@ final class InMemoryPinVerdictStore implements PinVerdictStore {
 }
 
 /// In-memory [SyncTripwireStore] — tests and a wiring placeholder; the app
-/// implements the seam over settings.
+/// implements the seam over settings. NOT durable: tripwire state
+/// evaporates on restart, so wiring this into a production coordinator
+/// voids the §4.2 durable-warning guarantee.
 final class InMemorySyncTripwireStore implements SyncTripwireStore {
   final _ids = <String>{};
 

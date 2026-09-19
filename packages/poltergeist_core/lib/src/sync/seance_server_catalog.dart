@@ -14,17 +14,18 @@ import 'package:seance_core/seance_core.dart';
 final class SeanceServerCatalog {
   List<ServerConfig> _servers = const [];
 
-  /// The pulled Séance server configs, sorted by label for display.
-  List<ServerConfig> get servers => List.unmodifiable(_servers);
+  /// The pulled Séance server configs, sorted by label for display. The
+  /// list is unmodifiable and identity-stable between [replace] calls.
+  List<ServerConfig> get servers => _servers;
 
   /// Swap in a fresh materialization — the coordinator calls this after
   /// diffing the store's prefixless records on each apply pass.
   void replace(Iterable<ServerConfig> servers) {
-    _servers = servers.toList()
+    _servers = List.unmodifiable(servers.toList()
       ..sort((a, b) {
         final byLabel =
             a.label.toLowerCase().compareTo(b.label.toLowerCase());
         return byLabel != 0 ? byLabel : a.id.compareTo(b.id);
-      });
+      }));
   }
 }

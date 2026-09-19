@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 import 'fake_sync_api.dart';
 
-final _key = List<int>.generate(32, (i) => i);
+final _key = List<int>.unmodifiable(List<int>.generate(32, (i) => i));
 final _epoch = DateTime.utc(2026, 9, 20, 12);
 final _epochMs = _epoch.millisecondsSinceEpoch;
 
@@ -409,7 +409,21 @@ void main() {
       final restarted = PersistentLocalRecordStore(
           path: '${device.dir.path}/sync_records.json');
       expect(await restarted.highWaterSeq(), greaterThan(0));
-      await device.coordinator.runRound(server);
+      device.records = restarted;
+      device.coordinator = BookmarkCoordinator(
+        records: restarted,
+        bookmarks: device.bookmarks,
+        hostKeys: device.hostKeys,
+        crypto: device.crypto,
+        deviceId: device.deviceId,
+        pinVerdicts: device.verdicts,
+        tripwires: device.tripwires,
+        catalog: device.catalog,
+        now: device.clock.call,
+      );
+      final result = await device.coordinator.runRound(server);
+      // A true delta: nothing new on the server, nothing re-applies.
+      expect(result.report.appliedIds, isEmpty);
       expect(await device.bookmarks.byId('p1'), isNotNull);
     });
 
@@ -424,6 +438,28 @@ void main() {
       await device.coordinator.runRound(server);
       expect(await device.bookmarks.load(), hasLength(2));
       expect(await device.records.highWaterSeq(), greaterThan(0));
+      // The resync retry must have pulled from zero — prove it, don't
+      // assume the pre-existing state survived on its own.
+      expect(server.pullCursors, contains(0));
+      // Recovery continues: new records land on the next normal round.
+      server.seed(await _sealBookmark(_bookmark('r3'), updatedAt: 3));
+      await device.coordinator.runRound(server);
+      expect(await device.bookmarks.byId('r3'), isNotNull);
+      expect(await device.bookmarks.load(), hasLength(3));
+    });
+
+    test('a rejected push with no displaced rival ends the round', () async {
+      final device = await _Device.create(tempDir, 'a');
+      await _save(device, _bookmark('stuck'));
+      server.rejectPushes = true;
+
+      final result = await device.coordinator.runRound(server);
+      // The identical pull+push would replay unchanged, so one iteration
+      // is the whole round — the losing edit stays dirty for next sync.
+      expect(result.rounds, 1);
+      expect(server.pushCalls, 1);
+      expect((await device.records.dirtyRecords()).single.id,
+          'bookmark:stuck');
     });
   });
 
@@ -583,7 +619,9 @@ void main() {
       final device = await _Device.create(tempDir, 'a');
       server.seed(_enc('opaque-id', updatedAt: 1, blob: [1, 2, 3]));
       await device.coordinator.runRound(server);
-      expect(device.catalog, isNull);
+      // The prefixless record is preserved verbatim, never decrypted.
+      expect((await device.records.getRecord('opaque-id'))!.blob,
+          Uint8List.fromList([1, 2, 3]));
       expect(await device.tripwires.trippedIds(), isEmpty);
     });
   });
@@ -614,6 +652,7 @@ void main() {
         deviceId: a.deviceId,
         pinVerdicts: a.verdicts,
         tripwires: a.tripwires,
+        catalog: a.catalog,
         now: a.clock.call,
       );
 

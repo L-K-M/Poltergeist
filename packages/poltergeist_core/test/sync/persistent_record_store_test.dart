@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -108,6 +109,11 @@ void main() {
       await store.resetSyncCursors();
       expect(await store.highWaterSeq(), 0);
       expect(await store.lastAppliedSeq(), 0);
+      // The reset must be durable: a restart cannot resurrect stale
+      // cursors and skip the records that needed re-pulling.
+      final reloaded = open();
+      expect(await reloaded.highWaterSeq(), 0);
+      expect(await reloaded.lastAppliedSeq(), 0);
     });
   });
 
@@ -161,11 +167,16 @@ void main() {
       // record the server holds, and must resurface if the push is rejected.
       await store.putRemote(_record('bookmark:a', updatedAt: 20, seq: 4));
 
-      final restored = await store.restoreDisplaced('bookmark:a');
+      // Restore through a freshly opened store: the stash must round-trip
+      // through disk, since the pull cursor has already moved past its seq.
+      final reloaded = open();
+      final restored = await reloaded.restoreDisplaced('bookmark:a');
       expect(restored, isNotNull);
       expect(restored!.updatedAt, 20);
       expect(restored.seq, 4);
-      expect(await store.dirtyRecords(), isEmpty);
+      expect(await reloaded.dirtyRecords(), isEmpty);
+      // Consume-on-restore: a second call must not resurrect a stale copy.
+      expect(await reloaded.restoreDisplaced('bookmark:a'), isNull);
     });
 
     test('putLocal evicting a clean pulled winner stashes it displaced',
@@ -176,10 +187,24 @@ void main() {
       await store.putLocal(_record('bookmark:a', updatedAt: 100));
 
       expect((await store.dirtyRecords()).single.updatedAt, 100);
-      final restored = await store.restoreDisplaced('bookmark:a');
+      final reloaded = open();
+      final restored = await reloaded.restoreDisplaced('bookmark:a');
       expect(restored!.updatedAt, 200);
       expect(restored.seq, 5);
-      expect(await store.dirtyRecords(), isEmpty);
+      expect(await reloaded.dirtyRecords(), isEmpty);
+    });
+
+    test('restoreDisplaced waits for a queued write that stashes the winner',
+        () async {
+      final store = open();
+      await store.putRemote(_record('bookmark:a', updatedAt: 200, seq: 5));
+      // Queue the displacing putLocal without awaiting: the stash lands
+      // inside the serialized write, so restoreDisplaced must drain the
+      // write tail before answering.
+      unawaited(store.putLocal(_record('bookmark:a', updatedAt: 100)));
+      final restored = await store.restoreDisplaced('bookmark:a');
+      expect(restored, isNotNull);
+      expect(restored!.updatedAt, 200);
     });
 
     test('restoreDisplaced is null when nothing was displaced', () async {
@@ -263,6 +288,41 @@ void main() {
           .where((name) => name.contains('.corrupt-'))
           .toList();
       expect(quarantined, hasLength(2));
+    });
+
+    test('a document with no version field is quarantined, not adopted',
+        () async {
+      // A versionless map was never written by this build — it quarantines
+      // like any other malformed root rather than loading as v1.
+      File(path).writeAsStringSync(
+          '{"highWaterSeq":0,"lastAppliedSeq":0,"records":[]}');
+      final errors = <Object>[];
+      final store =
+          open(now: () => _fixedNow, onError: (error, _) => errors.add(error));
+      expect(await store.allRecords(), isEmpty);
+      expect(errors, hasLength(1));
+      expect(
+          tempDir
+              .listSync()
+              .where((e) => _basenameOf(e.path).contains('.corrupt-')),
+          hasLength(1));
+    });
+
+    test('a non-int watermark field is quarantined, not cast', () async {
+      File(path).writeAsStringSync(
+          '{"version":1,"highWaterSeq":"oops","lastAppliedSeq":0,'
+          '"records":[]}');
+      final errors = <Object>[];
+      final store =
+          open(now: () => _fixedNow, onError: (error, _) => errors.add(error));
+      expect(await store.allRecords(), isEmpty);
+      expect(await store.highWaterSeq(), 0);
+      expect(errors, hasLength(1));
+      expect(
+          tempDir
+              .listSync()
+              .where((e) => _basenameOf(e.path).contains('.corrupt-')),
+          hasLength(1));
     });
 
     test('a newer document version fails closed without quarantining',

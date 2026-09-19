@@ -96,6 +96,16 @@ final class BookmarkSyncTuple {
   /// this tuple is what a pulled live record must out-tuple to resurrect.
   final bool deleted;
 
+  @override
+  bool operator ==(Object other) =>
+      other is BookmarkSyncTuple &&
+      other.updatedAt == updatedAt &&
+      other.deviceId == deviceId &&
+      other.deleted == deleted;
+
+  @override
+  int get hashCode => Object.hash(updatedAt, deviceId, deleted);
+
   Map<String, dynamic> toJson() => {
         'updatedAt': updatedAt,
         'deviceId': deviceId,
@@ -404,6 +414,11 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
     // remove the row first, so the verdict and the event are decided inside
     // the serialized operation, not by the earlier snapshot.
     var removed = false;
+    // Stamped at the deletion instant, not whenever the queued write
+    // happens to run — the tuple guards what a pulled stale copy must
+    // out-tuple, so late sampling could outrank an edit that legitimately
+    // beat the true deletion time.
+    final tombstone = _localTombstone();
     await _writeNext(
       (next) {
         removed = next.remove(id) != null;
@@ -414,8 +429,7 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
       // tuple guard compares a pulled stale copy against until the
       // tombstone record itself has pushed (04 §3.2).
       syncEdit: (tuples) {
-        final tombstone = removed ? _localTombstone() : null;
-        if (tombstone != null) tuples[id] = tombstone;
+        if (removed && tombstone != null) tuples[id] = tombstone;
       },
     );
     return removed;
@@ -542,9 +556,11 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
     if (!_bookmarks.containsKey(id)) return;
     await _writeNext(
       (next) => next.remove(id),
-      // The tuple-less legacy path leaves no tombstone tuple: the record
-      // store's own merge remains the guard until a tuple-carrying call
-      // records the winning envelope.
+      // The tuple-less legacy path writes no tombstone of its own: it
+      // clears a tuple only for a row it actually removes (a truthful
+      // tombstone from a local remove is deliberately left intact), and
+      // the record store's own merge remains the guard until a
+      // tuple-carrying call records the winning envelope.
       syncEdit: (tuples) => tuples.remove(id),
     );
   }
@@ -553,6 +569,10 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
   Future<void> removeSyncedRecord(
       String id, BookmarkSyncTuple tombstone) async {
     await _ensureLoaded();
+    await _writeTail;
+    // Idempotency: a re-pulled tombstone that already matches the
+    // materialized state must not trigger another disk write.
+    if (!_bookmarks.containsKey(id) && _syncTuples[id] == tombstone) return;
     await _writeNext(
       (next) => next.remove(id),
       syncEdit: (tuples) => tuples[id] = tombstone,
@@ -762,13 +782,21 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
 
     // The tuple map is auxiliary, rebuildable bookkeeping (the record store
     // is the merge authority), so a malformed entry is dropped rather than
-    // quarantining the whole document over it.
+    // quarantining the whole document over it — but the drop is reported
+    // (id only, no content) so silent sync-state loss stays diagnosable.
     final tuples = decoded[_syncTuplesKey];
     if (tuples is Map) {
       for (final entry in tuples.entries) {
         final id = entry.key;
         final tuple = BookmarkSyncTuple.fromJson(entry.value);
-        if (id is String && tuple != null) _syncTuples[id] = tuple;
+        if (id is String && tuple != null) {
+          _syncTuples[id] = tuple;
+        } else {
+          _report(
+            FormatException('dropped malformed sync tuple for $id'),
+            StackTrace.current,
+          );
+        }
       }
     }
 

@@ -164,10 +164,16 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
   Future<void> putLocal(EncryptedRecord record) =>
       _mutate(() {
         final existing = _records[record.id];
-        if (existing != null &&
-            !_dirty.contains(record.id) &&
-            identical(Lww.resolve(existing, record), existing)) {
-          _displaced[record.id] = existing;
+        if (existing != null) {
+          final winner = Lww.resolve(existing, record);
+          assert(
+            identical(winner, existing) || identical(winner, record),
+            'Lww.resolve must return one of its arguments — '
+            'displaced-winner tracking relies on reference identity',
+          );
+          if (!_dirty.contains(record.id) && identical(winner, existing)) {
+            _displaced[record.id] = existing;
+          }
         }
         _records[record.id] = record;
         _dirty.add(record.id);
@@ -176,16 +182,26 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
   /// A pulled record: stored clean. Never overwrites a dirty local that
   /// beats it — and a remote that loses to a pending local becomes the
   /// displaced resurface candidate, since it is the copy the server holds.
+  /// A remote that out-tuples a pending local replaces it and clears the
+  /// dirty flag: the unpushed edit is discarded without reaching the
+  /// server — the LWW semantics 04 §3.1 pins on the shared tuple.
   @override
   Future<void> putRemote(EncryptedRecord record) =>
       _mutate(() {
         final existing = _records[record.id];
-        if (existing != null &&
-            !identical(Lww.resolve(existing, record), record)) {
-          if (_dirty.contains(record.id)) {
-            _displaced[record.id] = record;
+        if (existing != null) {
+          final winner = Lww.resolve(existing, record);
+          assert(
+            identical(winner, existing) || identical(winner, record),
+            'Lww.resolve must return one of its arguments — '
+            'displaced-winner tracking relies on reference identity',
+          );
+          if (!identical(winner, record)) {
+            if (_dirty.contains(record.id)) {
+              _displaced[record.id] = record;
+            }
+            return;
           }
-          return;
         }
         _records[record.id] = record;
         _dirty.remove(record.id);
@@ -244,6 +260,7 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
   @override
   Future<EncryptedRecord?> restoreDisplaced(String id) async {
     await _ensureLoaded();
+    await _writeTail;
     if (_displaced[id] == null) return null;
     EncryptedRecord? restored;
     await _mutate(() {
@@ -306,26 +323,38 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
     try {
       decoded = jsonDecode(contents);
     } catch (error, stack) {
-      // Quarantine throws when the bad file cannot be moved aside, so the
-      // load fails instead of starting empty over bytes it could not read.
-      await _quarantine();
+      // Report before quarantining: _quarantine throws when the bad file
+      // cannot be moved aside, and the original error must still surface.
       _report(error, stack);
+      await _quarantine();
       return;
     }
 
     if (decoded is! Map) {
-      await _quarantine();
       _report(
         const FormatException('record store root'),
         StackTrace.current,
       );
+      await _quarantine();
       return;
     }
 
     final doc = decoded.cast<String, dynamic>();
     final version = doc['version'];
-    if (version != null && version != _storeVersion) {
+    // A recognized but newer version fails closed in place — data this
+    // build must not overwrite. A missing or non-int version is a
+    // document this build never wrote: quarantine it like any other
+    // malformed root rather than adopt it as v1.
+    if (version is int && version != _storeVersion) {
       throw FormatException('record store version $version');
+    }
+    if (version != _storeVersion) {
+      _report(
+        const FormatException('record store version'),
+        StackTrace.current,
+      );
+      await _quarantine();
+      return;
     }
 
     final records = doc['records'];
@@ -336,11 +365,11 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
         (highWater != null && highWater is! int) ||
         (lastApplied != null && lastApplied is! int) ||
         (displaced != null && displaced is! List)) {
-      await _quarantine();
       _report(
         const FormatException('record store root'),
         StackTrace.current,
       );
+      await _quarantine();
       return;
     }
 
@@ -356,11 +385,11 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
         }
       }
     } catch (error, stack) {
-      await _quarantine();
       _report(error, stack);
       _records.clear();
       _dirty.clear();
       _displaced.clear();
+      await _quarantine();
       return;
     }
 

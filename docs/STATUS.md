@@ -6553,16 +6553,18 @@ The engine-side M6 foundation per 04 §3.1–3.2, all in
   tests; `SyncCursorRejectedException` is the cursor-rejection signal
   that drives the resync fallback.
 
-Coverage (`test/sync/`, 42 tests): two-device create/edit/delete
+Coverage (`test/sync/`, 46 tests): two-device create/edit/delete
 convergence, delete-loses-to-newer-edit resurrection per the spec rule,
 tombstone-stays-won across rounds, `flurb`-kind byte-identical
 survival, malformed-bookmark skip without aborting the round,
 relabeled-secret refusal, undecryptable preservation, tombstone-tuple
 deferral, rejected-push resurface, LWW tie idempotence, delta cursors,
-cursor-rejection resync, the hostkey matrix, shared-mode catalog, and
-corruption re-seal — plus the store-level persistence/LWW/quarantine
-matrix. `dart analyze` and the full `dart test
-packages/poltergeist_core` suite (1281 tests) are green.
+cursor-rejection resync, the hostkey matrix, shared-mode catalog,
+corruption re-seal, rejected-push round termination, and
+queued-write displaced restore — plus the store-level
+persistence/LWW/quarantine matrix (including missing-version and
+non-int-watermark quarantine). `dart analyze` and the full `dart test
+packages/poltergeist_core` suite (1285 tests) are green.
 
 ## Open items
 

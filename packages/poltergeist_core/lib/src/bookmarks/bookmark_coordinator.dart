@@ -161,9 +161,10 @@ final class BookmarkCoordinator {
 
   /// A locally made or re-trusted TOFU pin: publish it and clear any
   /// negative pin for the locator — explicit re-trust is the only thing
-  /// that lifts the untrust verdict (04 §3.2).
+  /// that lifts the untrust verdict (04 §3.2). The pin record lands
+  /// first: lifting the verdict before the replacement is durable would
+  /// leave a window where a pulled rival key auto-applies.
   Future<void> onHostKeyPinned(HostKey pin) async {
-    await _pinVerdicts.removeNegativePin(pin.locator);
     await _records.putLocal(await _crypto.seal(DecryptedRecord(
       id: pin.recordId,
       kind: RecordKind.hostKey,
@@ -171,13 +172,16 @@ final class BookmarkCoordinator {
       deviceId: _deviceId,
       data: pin.toJson(),
     )));
+    await _pinVerdicts.removeNegativePin(pin.locator);
   }
 
   /// "Forget host": tombstone the pin's record AND record the durable
   /// negative pin. The tombstone alone cannot hold — a still-trusting peer
   /// habitually re-pushes its pin with a fresh stamp, and without the
   /// verdict the next diff would auto-apply the very key the user removed
-  /// under MITM suspicion.
+  /// under MITM suspicion. Local de-trust is the caller's side of the
+  /// contract: [HostKeyStore] offers no removal, so the app drops the pin
+  /// through its own store alongside this call.
   Future<void> onHostKeyForgotten(String host, int port) async {
     await _pinVerdicts.addNegativePin(hostKeyLocator(host, port));
     await _records.putLocal(await _crypto.seal(DecryptedRecord(
@@ -226,7 +230,14 @@ final class BookmarkCoordinator {
     final locator = hostKeyLocator(host, port);
     final record = await _records.getRecord('$_hostKeyPrefix$locator');
     if (record == null || record.deleted) return;
-    final dec = await _crypto.open(record);
+    final DecryptedRecord dec;
+    try {
+      dec = await _crypto.open(record);
+    } catch (_) {
+      // Quarantined/undecryptable record — nothing to accept. Mirrors the
+      // defensive read in keepLocalPin.
+      return;
+    }
     if (dec.kind != RecordKind.hostKey) {
       throw FormatException('record ${record.id} is not a host key');
     }
@@ -340,7 +351,11 @@ final class BookmarkCoordinator {
           }
         }
       }
-      if (!progressed && (await _records.dirtyRecords()).isEmpty) break;
+      // No durable state changed this round (nothing pulled, nothing
+      // accepted, nothing restored): the next iteration would replay the
+      // identical delta pull and push, so stop instead of spinning to the
+      // rounds cap. Rejected dirt stays dirty for the next sync.
+      if (!progressed) break;
     }
     await _applyPulledInto(report);
     return SyncRoundResult(
@@ -431,7 +446,8 @@ final class BookmarkCoordinator {
     }
 
     report.pinConflicts.addAll(await pinConflicts());
-    if (_catalog != null) await _rebuildCatalog();
+    final catalog = _catalog;
+    if (catalog != null) await _rebuildCatalog(catalog);
   }
 
   /// Route one record by its plaintext id prefix — *before* decrypting
@@ -517,6 +533,9 @@ final class BookmarkCoordinator {
   }
 
   Future<_ApplyOutcome> _applyBookmarkTombstone(EncryptedRecord record) async {
+    // The stripped id is exactly the payload id that
+    // Bookmark.fromJson(recordId:) validates the envelope against, so a
+    // tombstone and a live upsert key the same materialized row.
     final bookmarkId = record.id.substring(_bookmarkPrefix.length);
     if (!_outranksMaterialized(
         record, await _bookmarks.syncTupleOf(bookmarkId))) {
@@ -546,9 +565,10 @@ final class BookmarkCoordinator {
       await _tripwires.trip(record.id);
       return _ApplyOutcome.skipped;
     }
-    // A pin stores under its payload's locator: a record whose id names a
-    // different one would plant trust for an address nothing ever named.
-    if (dec.id != pin.recordId) {
+    // A pin stores under its payload's locator: a record whose envelope id
+    // names a different one would plant trust for an address nothing ever
+    // named.
+    if (record.id != pin.recordId) {
       await _tripwires.trip(record.id);
       return _ApplyOutcome.skipped;
     }
@@ -578,7 +598,7 @@ final class BookmarkCoordinator {
     }
     try {
       final config = ServerConfig.fromJson(dec.data);
-      if (config.id != dec.id) {
+      if (config.id != record.id) {
         await _tripwires.trip(record.id);
         return _ApplyOutcome.skipped;
       }
@@ -610,7 +630,7 @@ final class BookmarkCoordinator {
       final dec = await _crypto.open(record);
       if (dec.kind != RecordKind.hostKey) return null;
       final pin = HostKey.fromJson(dec.data);
-      return dec.id == pin.recordId ? pin : null;
+      return record.id == pin.recordId ? pin : null;
     } catch (_) {
       return null;
     }
@@ -618,8 +638,7 @@ final class BookmarkCoordinator {
 
   /// Rebuild the shared-mode catalog from the store's prefixless records —
   /// live configs materialize, tombstoned and undecodable ones do not.
-  Future<void> _rebuildCatalog() async {
-    final catalog = _catalog!;
+  Future<void> _rebuildCatalog(SeanceServerCatalog catalog) async {
     final servers = <ServerConfig>[];
     for (final record in await _records.allRecords()) {
       if (record.deleted || _prefixOf(record.id) != null) continue;
@@ -627,7 +646,7 @@ final class BookmarkCoordinator {
       if (dec == null || dec.kind != RecordKind.serverConfig) continue;
       try {
         final config = ServerConfig.fromJson(dec.data);
-        if (config.id == dec.id) {
+        if (config.id == record.id) {
           await _tripwires.clear(record.id);
           servers.add(config);
         }
