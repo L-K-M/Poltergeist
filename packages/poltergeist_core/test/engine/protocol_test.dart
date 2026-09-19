@@ -4,7 +4,7 @@ import 'dart:isolate';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
-const _expectedProtocolVersion = 11;
+const _expectedProtocolVersion = 12;
 const _probeStatuses = {
   'reachable': ProbeStatus.online,
   'refused': ProbeStatus.offline,

@@ -97,6 +97,15 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // error message, never rendered.
     "'permissions must be a twelve-bit mode (0x000-0xFFF)'",
   },
+  // The D15 trash channel server (03 §7.1): Platform.operatingSystem ids
+  // and wiring-fault diagnostics that only reach the error reporter,
+  // never a rendered surface.
+  'lib/services/trash_channel.dart': {
+    "'macos'",
+    "'windows'",
+    r"'unexpected trash channel message: $message'",
+    r"'$error'",
+  },
   // The import wiring's POSIX-shaped ssh_config path (the core import
   // normalizes on `/`). The bookmark store it writes is the caller's now:
   // one instance serves the import command and the Connections surface.

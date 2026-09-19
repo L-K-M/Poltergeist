@@ -179,9 +179,13 @@ export 'src/transfer/trash_service.dart'
         TrashChannelInvoker,
         TrashErrorKind,
         TrashException,
+        TrashInvokeReply,
+        TrashInvokeRequest,
         TrashProcessRunner,
+        trashChannelInvokerFor,
         trashChannelMethod,
-        trashChannelName;
+        trashChannelName,
+        trashInvokeTimeout;
 export 'src/transfer/transfer_journal.dart'
     show
         FileCompletedRecord,

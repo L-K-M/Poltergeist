@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
 import 'package:poltergeist_app/services/file_stores.dart';
 import 'package:poltergeist_app/services/prompt_coordinator.dart';
+import 'package:poltergeist_app/services/trash_channel.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../support/fake_bookmark_store.dart';
@@ -389,6 +390,7 @@ void main() {
     GlobalKey<NavigatorState>? navigatorKey,
     HostKeyStore? pinStore,
     IncidentStore? incidentStore,
+    TrashChannelServer? Function()? trashServerBinder,
   }) async {
     final scripted = engine ?? FakeAppEngine();
     addTearDown(scripted.close);
@@ -398,6 +400,7 @@ void main() {
       navigatorKey: navigatorKey ?? GlobalKey<NavigatorState>(),
       pinStore: pinStore,
       incidentStore: incidentStore,
+      trashServerBinder: trashServerBinder,
       spawn: (config) async {
         if (spawnFailure != null) throw spawnFailure;
         spawnedConfigs?.add(config);
@@ -431,6 +434,44 @@ void main() {
         [_pin.toJson()],
       );
       expect(configs.single.incidents, [_incident]);
+    });
+
+    test('carries the trash server port into the engine config', () async {
+      // The test host is Linux, where TrashChannelServer.bind returns
+      // null — the binder seam pretends macOS to pin the wiring itself:
+      // the port that lands in EngineConfig is the engine isolate's only
+      // reach back to the native channel (03 §7.1).
+      final configs = <EngineConfig>[];
+      final (session, _) = await startSession(
+        spawnedConfigs: configs,
+        trashServerBinder: () =>
+            TrashChannelServer.bind(operatingSystem: 'macos'),
+      );
+      addTearDown(session!.shutdown);
+
+      expect(configs.single.trashRequests, isNotNull);
+    });
+
+    test('a failed spawn leaves no trash server or port behind', () async {
+      TrashChannelServer? bound;
+      final (session, _) = await startSession(
+        spawnFailure: StateError('spawn failed'),
+        trashServerBinder: () =>
+            bound = TrashChannelServer.bind(operatingSystem: 'macos'),
+      );
+
+      expect(session, isNull);
+      expect(bound, isNotNull);
+      // The relay seam: sends into the closed port are dropped, so a
+      // request fails on the relay's bounded wait — never a hang past it.
+      final invoker = trashChannelInvokerFor(
+        bound!.requests,
+        timeout: const Duration(milliseconds: 100),
+      );
+      await expectLater(
+        invoker(trashChannelMethod, {'path': '/x'}),
+        throwsA(isA<TimeoutException>()),
+      );
     });
 
     test('subscribes the prompt and trust mirrors before returning', () async {

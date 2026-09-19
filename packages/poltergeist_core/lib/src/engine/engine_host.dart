@@ -9,6 +9,7 @@ import '../connection/incident_store.dart';
 import '../connection/pool_key.dart';
 import '../connection/ssh_transport.dart';
 import '../fs/local_file_system.dart';
+import '../transfer/trash_service.dart';
 import 'connect_log_coalescer.dart';
 import 'engine_probes.dart';
 import 'local_directory_watcher.dart';
@@ -85,6 +86,14 @@ class EngineHost {
   /// channel — unlike the per-channel watch.
   late final LocalFileOpener _fileOpener;
 
+  /// The D15 local-trash service (03 §7.1/§7.3) the transfer queue's
+  /// delete tasks dispatch through. macOS/Windows ride the
+  /// `poltergeist/trash` channel via the app-served
+  /// [EngineConfig.trashRequests] port; Linux spawns `gio trash`
+  /// in-isolate. With no port the channel backends report unavailable —
+  /// the honest confirm-then-permanent fallback, never a silent unlink.
+  late final LocalTrashService localTrash;
+
   /// Bound per retirement await — used by the shutdown drain AND by
   /// request-level closes (a wedged backend cancel must not hang either
   /// the shutdown ack or a close ack forever; the bounded-teardown
@@ -99,7 +108,10 @@ class EngineHost {
   /// [localWatch] is the same for 03 §7.5's directory watchers: the default
   /// selects the native platform backend; tests inject deterministic backends.
   /// [fileOpener] is the same for §2.6's local-file Open: the default runs
-  /// the platform's opener; tests script the launch.
+  /// the platform's opener; tests script the launch. [localTrash] is the
+  /// same for D15's OS trash: the default dispatches per platform (channel
+  /// over [EngineConfig.trashRequests] on macOS/Windows, `gio` on Linux);
+  /// tests inject a scripted service.
   factory EngineHost({
     required EngineConfig config,
     required SendPort events,
@@ -108,11 +120,20 @@ class EngineHost {
     HostKeyStore? hostKeyStore,
     LocalWatchBackend? localWatch,
     LocalFileOpener? fileOpener,
+    LocalTrashService? localTrash,
     Duration? shutdownDrainTimeout,
   }) {
     final host = EngineHost._(events);
     host._localWatch = localWatch ?? LocalWatchBackend.platform();
     host._fileOpener = fileOpener ?? LocalFileOpener.platform();
+    host.localTrash =
+        localTrash ??
+        LocalTrashService(
+          channelInvoker: switch (config.trashRequests) {
+            final requests? => trashChannelInvokerFor(requests),
+            null => null,
+          },
+        );
     host._shutdownDrainTimeout = shutdownDrainTimeout ?? _defaultDrainTimeout;
     host._logCoalescer = ConnectLogCoalescer(events.send);
     host._manager = PooledConnectionManager(
