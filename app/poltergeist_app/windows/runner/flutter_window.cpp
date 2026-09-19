@@ -71,8 +71,11 @@ bool FlutterWindow::OnCreate() {
           result->NotImplemented();
           return;
         }
+        const auto* raw_arguments = call.arguments();
         const auto* arguments =
-            std::get_if<flutter::EncodableMap>(call.arguments());
+            raw_arguments == nullptr
+                ? nullptr
+                : std::get_if<flutter::EncodableMap>(raw_arguments);
         const std::string* path = nullptr;
         if (arguments != nullptr) {
           const auto it = arguments->find(flutter::EncodableValue("path"));
@@ -86,7 +89,15 @@ bool FlutterWindow::OnCreate() {
                         flutter::EncodableValue());
           return;
         }
-        operations->Trash(WideFromUtf8(*path), std::move(result));
+        const std::wstring wide_path = WideFromUtf8(*path);
+        if (wide_path.empty()) {
+          // The UTF-8 argument was non-empty, so an empty wide string
+          // means MultiByteToWideChar rejected the bytes.
+          result->Error("TRASH_BAD_ARGS", "path is not valid UTF-8",
+                        flutter::EncodableValue());
+          return;
+        }
+        operations->Trash(wide_path, std::move(result));
       });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -105,6 +116,12 @@ void FlutterWindow::OnDestroy() {
   // Tear down in submission order: the channel first (no new trash
   // calls), then the worker (pending jobs finish and join), and only
   // then the engine — a completing MethodResult needs it alive.
+  if (trash_channel_) {
+    // The channel's destruction alone does not unregister the handler
+    // from the engine messenger — clear it explicitly so a late call
+    // cannot reach the worker being freed next.
+    trash_channel_->SetMethodCallHandler(nullptr);
+  }
   trash_channel_ = nullptr;
   trash_operations_ = nullptr;
   if (flutter_controller_) {

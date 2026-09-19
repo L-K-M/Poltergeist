@@ -44,11 +44,15 @@ class TrashOperations {
   void Run();
   void Perform(const Job& job);
 
-  std::thread worker_;
   std::mutex mutex_;
   std::condition_variable condition_;
   std::queue<Job> jobs_;
   bool stopping_ = false;
+  // Declared last: members initialize in declaration order, and the
+  // init list launches Run() — it must find its synchronization members
+  // already constructed. Destruction joins worker_ first either way
+  // (reverse order), so the queue is drained before its state dies.
+  std::thread worker_;
 };
 
 #endif  // RUNNER_TRASH_OPERATIONS_H_

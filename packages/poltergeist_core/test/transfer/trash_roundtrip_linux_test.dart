@@ -20,23 +20,29 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
 /// Every directory a trashed file can land in, per the FreeDesktop
-/// Trash spec: the home trash and each mounted volume's
-/// `<topdir>/.Trash-$UID` / `<topdir>/.Trash/$UID`.
+/// Trash spec: the home trash plus the volume trash at the mount point
+/// of [trashedFrom] (`<topdir>/.Trash-$UID` / `<topdir>/.Trash/$UID`) —
+/// `/tmp` is tmpfs on many hosts, so the volume half is real, not a
+/// fallback.
 List<Directory> _trashInfoDirs(String trashedFrom) {
   final dirs = <Directory>[];
-  final uid = Platform.environment['UID'] ?? '';
+  // `UID` is a shell variable bash/zsh never export; `id -u` is reliable.
+  final uid = Process.runSync('id', const ['-u']).stdout.toString().trim();
   final dataHome =
       Platform.environment['XDG_DATA_HOME'] ??
       '${Platform.environment['HOME']}/.local/share';
   dirs.add(Directory('$dataHome/Trash/info'));
-  if (uid.isNotEmpty) {
-    // The volume topdir candidates: walk the trashed path upward to the
-    // mount root — for the test's system-temp fixture that is '/' or
-    // '/tmp' depending on tmpfs.
-    for (final top in {'/', '/tmp'}) {
-      dirs.add(Directory('$top.Trash-$uid/info'));
-      dirs.add(Directory('$top.Trash/$uid/info'));
-    }
+  // The file's own topdir: `stat -c %m` prints the mount point, which is
+  // where the spec puts the volume trash — not a guessed '/' or '/tmp'.
+  final mount = Process.runSync('stat', [
+    '-c',
+    '%m',
+    trashedFrom,
+  ]).stdout.toString().trim();
+  if (uid.isNotEmpty && mount.isNotEmpty) {
+    final top = mount.endsWith('/') ? mount : '$mount/';
+    dirs.add(Directory('$top.Trash-$uid/info'));
+    dirs.add(Directory('$top.Trash/$uid/info'));
   }
   return dirs;
 }
@@ -83,6 +89,19 @@ void main() {
     final file = File('${fixture.path}/roundtrip victim.txt')
       ..writeAsStringSync('roundtrip');
 
+    addTearDown(() async {
+      // Best effort: a failed expect before the restore must not strand
+      // the payload and record in the real user trash.
+      final info = _findTrashInfo(file.path);
+      if (info == null) return;
+      final name = info.uri.pathSegments.last;
+      final payload = File(
+        '${info.parent.parent.path}/files/'
+        '${name.substring(0, name.length - '.trashinfo'.length)}',
+      );
+      if (payload.existsSync()) await payload.delete();
+      await info.delete();
+    });
     await backend.trash(file.path);
     expect(file.existsSync(), isFalse, reason: 'trash moved the file out');
 

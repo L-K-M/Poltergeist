@@ -1,6 +1,7 @@
 #include "trash_operations.h"
 
 #include <shlobj.h>
+#include <shobjidl.h>
 #include <windows.h>
 
 #include <sstream>
@@ -98,6 +99,25 @@ void TrashOperations::Perform(const Job& job) {
   hr = operation->SetOperationFlags(kTrashFlags);
   if (FAILED(hr)) {
     Fail(*job.result, HresultMessage("SetOperationFlags", hr));
+    return;
+  }
+  // FOF_ALLOWUNDO only recycles "if possible": on network volumes (UNC
+  // paths and mapped drives report DRIVE_REMOTE) the shell unlinks
+  // outright while PerformOperations still succeeds — the silent
+  // permanent delete D15 forbids. Fail closed on non-local volumes so
+  // the Dart side's confirm-then-permanent fallback applies instead.
+  // (Removable and fixed drives both recycle via $RECYCLE.BIN.)
+  wchar_t volume_root[MAX_PATH];
+  if (!GetVolumePathNameW(job.path.c_str(), volume_root, MAX_PATH)) {
+    Fail(*job.result, "could not resolve the volume root for the path");
+    return;
+  }
+  const UINT drive_type = GetDriveTypeW(volume_root);
+  if (drive_type == DRIVE_REMOTE || drive_type == DRIVE_UNKNOWN ||
+      drive_type == DRIVE_NO_ROOT_DIR || drive_type == DRIVE_CDROM) {
+    Fail(*job.result,
+         "the volume has no Recycle Bin; confirm permanent deletion "
+         "instead");
     return;
   }
   ComPtr<IShellItem> item;
