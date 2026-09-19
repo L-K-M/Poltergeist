@@ -257,6 +257,37 @@ void main() {
       );
     });
 
+    test('a same-server drop refuses its own subtree too', () {
+      // Containment is namespace-relative: same server id, same rules.
+      expect(
+        allowed(
+          source: const ServerFsLocation('srv-1'),
+          roots: const ['/srv/www'],
+          destination: const ServerFsLocation('srv-1'),
+          dir: '/srv/www',
+        ),
+        isFalse,
+      );
+      expect(
+        allowed(
+          source: const ServerFsLocation('srv-1'),
+          roots: const ['/srv/www'],
+          destination: const ServerFsLocation('srv-1'),
+          dir: '/srv/www/inner',
+        ),
+        isFalse,
+      );
+      expect(
+        allowed(
+          source: const ServerFsLocation('srv-1'),
+          roots: const ['/srv/www'],
+          destination: const ServerFsLocation('srv-1'),
+          dir: '/srv/www2',
+        ),
+        isTrue,
+      );
+    });
+
     test('a trailing-separator destination spelling still refuses', () {
       expect(
         allowed(
