@@ -7,6 +7,9 @@ import 'package:test/test.dart';
 
 final _fixedNow = DateTime.utc(2026, 9, 20, 12);
 
+/// Separator-robust basename (listSync joins with the host separator).
+String _basenameOf(String path) => path.split(RegExp(r'[\\/]')).last;
+
 EncryptedRecord _record(
   String id, {
   int updatedAt = 100,
@@ -125,10 +128,8 @@ void main() {
       final store = open();
       await store.putLocal(_record('bookmark:a'));
       await store.putRemote(_record('bookmark:b', seq: 3));
-      final siblings = tempDir
-          .listSync()
-          .map((entity) => entity.path.split('/').last)
-          .toList();
+      final siblings =
+          tempDir.listSync().map((entity) => _basenameOf(entity.path)).toList();
       expect(siblings, ['sync_records.json']);
     });
   });
@@ -239,7 +240,7 @@ void main() {
 
       final quarantined = tempDir
           .listSync()
-          .map((entity) => entity.path.split('/').last)
+          .map((entity) => _basenameOf(entity.path))
           .where((name) => name.contains('.corrupt-'))
           .toList();
       expect(quarantined, hasLength(1));
@@ -258,7 +259,7 @@ void main() {
 
       final quarantined = tempDir
           .listSync()
-          .map((entity) => entity.path.split('/').last)
+          .map((entity) => _basenameOf(entity.path))
           .where((name) => name.contains('.corrupt-'))
           .toList();
       expect(quarantined, hasLength(2));
