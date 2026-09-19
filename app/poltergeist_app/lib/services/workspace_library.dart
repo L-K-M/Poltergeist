@@ -77,6 +77,17 @@ final class WorkspaceLibrary extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// Set once [load] has populated both layers — mutations before that
+  /// would dedupe against an empty favorite list and mint duplicate
+  /// rows, so [save]/[recapture] assert it.
+  bool _loaded = false;
+
+  /// The serialized tail every detail-document write joins, so a
+  /// removal landing mid-persist can never be republished from the
+  /// pre-await snapshot — each operation derives its document from the
+  /// CURRENT map when it actually runs.
+  Future<void> _detailTail = Future.value();
+
   /// The saved workspaces in favorite order: each workspace-kind
   /// bookmark joined with its device-local detail (live label from the
   /// bookmark — a sidebar rename must not resurrect the captured name)
@@ -124,13 +135,13 @@ final class WorkspaceLibrary extends ChangeNotifier {
         if (workspaceBookmarks.any((b) => b.id == record.id)) continue;
         final sortKey = await _bookmarks.sortKeyForInsert();
         if (_disposed) return;
-        await _bookmarks.upsertAll([
-          _bookmarkFor(record, sortKey: sortKey),
-        ]);
+        // Mint once: the persisted record and the in-memory row must be
+        // the same instance, so a future _bookmarkFor change can never
+        // diverge the two halves.
+        final minted = _bookmarkFor(record, sortKey: sortKey);
+        await _bookmarks.upsertAll([minted]);
         if (_disposed) return;
-        workspaceBookmarks.add(
-          _bookmarkFor(record, sortKey: sortKey),
-        );
+        workspaceBookmarks.add(minted);
       }
       await _store.save(WorkspaceListDocument(workspaces: details));
       if (_disposed) return;
@@ -149,6 +160,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
     workspaceBookmarks.sort(compareBookmarkSortKeys);
     _workspaceBookmarks = List.unmodifiable(workspaceBookmarks);
     _details = Map.unmodifiable({for (final d in details) d.id: d});
+    _loaded = true;
     notifyListeners();
   }
 
@@ -168,6 +180,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
     required WorkspaceSnapshot snapshot,
   }) async {
     assert(!_disposed, 'save on a disposed WorkspaceLibrary');
+    assert(_loaded, 'save before WorkspaceLibrary.load() completed');
     if (label.trim().isEmpty) {
       throw ArgumentError.value(label, 'label', 'must not be blank');
     }
@@ -186,7 +199,9 @@ final class WorkspaceLibrary extends ChangeNotifier {
         snapshot: snapshot,
       );
       await _persistDetail(record);
+      if (_disposed) return record;
       final sortKey = await _bookmarks.sortKeyForInsert();
+      if (_disposed) return record;
       await _bookmarks.save(_bookmarkFor(record, sortKey: sortKey));
       return record;
     }
@@ -204,6 +219,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
     WorkspaceSnapshot snapshot,
   ) async {
     assert(!_disposed, 'recapture on a disposed WorkspaceLibrary');
+    assert(_loaded, 'recapture before WorkspaceLibrary.load() completed');
     final existing = _workspaceBookmarks
         .where((bookmark) => bookmark.id == id)
         .firstOrNull;
@@ -227,6 +243,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
       snapshot: snapshot,
     );
     await _persistDetail(record);
+    if (_disposed) return record;
     await _bookmarks.save(_refreshEndpoints(existing, snapshot));
     return record;
   }
@@ -236,6 +253,7 @@ final class WorkspaceLibrary extends ChangeNotifier {
   /// workspace favorite with no device-local detail — is a no-op.
   Future<void> markOpened(String id) async {
     if (_disposed) return;
+    assert(_loaded, 'markOpened before WorkspaceLibrary.load() completed');
     final detail = _details[id];
     if (detail == null) return;
     await _persistDetail(
@@ -245,15 +263,36 @@ final class WorkspaceLibrary extends ChangeNotifier {
 
   /// One detail write: persist first, publish second — a failed write
   /// leaves the in-memory map untouched.
-  Future<void> _persistDetail(SavedWorkspace record) async {
-    final next = Map<String, SavedWorkspace>.of(_details)
-      ..[record.id] = record;
-    await _store.save(
-      WorkspaceListDocument(workspaces: List.of(next.values)),
-    );
-    if (_disposed) return;
-    _details = Map.unmodifiable(next);
-    notifyListeners();
+  Future<void> _persistDetail(SavedWorkspace record) =>
+      _writeDetails(upsert: record);
+
+  /// The detail counterpart of a favorite's removal: same persist-first
+  /// discipline — a failed write leaves the residue for the next load's
+  /// prune rather than publishing a state the disk does not hold.
+  Future<void> _removeDetail(String id) => _writeDetails(removedId: id);
+
+  /// Every detail-document mutation funnels through this serialized
+  /// lane. Each operation derives its document from the CURRENT map at
+  /// run time, so a removal enqueued behind an in-flight persist cannot
+  /// be clobbered by the persist's pre-await snapshot — and the publish
+  /// step replays that same merge into memory.
+  Future<void> _writeDetails({
+    SavedWorkspace? upsert,
+    String? removedId,
+  }) {
+    final operation = _detailTail.then((_) async {
+      final next = Map<String, SavedWorkspace>.of(_details);
+      if (removedId != null) next.remove(removedId);
+      if (upsert != null) next[upsert.id] = upsert;
+      await _store.save(
+        WorkspaceListDocument(workspaces: List.of(next.values)),
+      );
+      if (_disposed) return;
+      _details = Map.unmodifiable(next);
+      notifyListeners();
+    });
+    _detailTail = operation.then((_) {}, onError: (_, _) {});
+    return operation;
   }
 
   /// Local bookmark-store writes the favorites list must answer to: a
@@ -277,17 +316,11 @@ final class WorkspaceLibrary extends ChangeNotifier {
           for (final b in _workspaceBookmarks)
             if (b.id != id) b,
         ]);
+        // The row is gone — publish that immediately; the detail drop
+        // joins the serialized write lane (a failure reports, and the
+        // residue stays invisible until the next load's prune).
         if (_details.containsKey(id)) {
-          final next = Map<String, SavedWorkspace>.of(_details)
-            ..remove(id);
-          _details = Map.unmodifiable(next);
-          unawaited(
-            _store
-                .save(
-                  WorkspaceListDocument(workspaces: List.of(next.values)),
-                )
-                .catchError(_errors.report),
-          );
+          unawaited(_removeDetail(id).catchError(_errors.report));
         }
         notifyListeners();
     }
@@ -364,7 +397,12 @@ BookmarkLocation workspaceEndpointFor(WorkspacePaneState pane) {
   for (final tab in tabs) {
     switch (tab.session.kind) {
       case SessionTabKind.local:
-        return BookmarkLocation(path: tab.session.path!);
+        final path = tab.session.path;
+        // path is non-null for every bound kind by construction — guard
+        // anyway so a malformed tab skips like an unbound one rather
+        // than throwing mid-capture.
+        if (path == null) break;
+        return BookmarkLocation(path: path);
       case SessionTabKind.remote:
         final server = tab.session.bookmark?.server;
         final path = tab.session.path ?? '/';

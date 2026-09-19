@@ -236,6 +236,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Invalid workspace list'",
     "'Unsupported workspace list schema'",
     "'Invalid workspace list entries'",
+    // The pre-migration serialization assert — a programming-error
+    // diagnostic, never rendered.
+    "'Legacy (v1) workspace document serialized before migration; '",
+    "'migrate to favorites before saving.'",
   },
   // The settings.json key the workspace list document lives under
   // (02 §3 — separate from the auto-session key by design).
@@ -248,6 +252,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/workspace_library.dart': {
     "'save on a disposed WorkspaceLibrary'",
     "'recapture on a disposed WorkspaceLibrary'",
+    // The load-before-mutate ordering asserts — programming-error
+    // diagnostics, never rendered.
+    "'save before WorkspaceLibrary.load() completed'",
+    "'recapture before WorkspaceLibrary.load() completed'",
+    "'markOpened before WorkspaceLibrary.load() completed'",
     "'~'",
     "'/'",
     // The placeholder tab's empty filter seed — a starting value, not

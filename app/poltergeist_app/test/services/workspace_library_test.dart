@@ -302,7 +302,7 @@ void main() {
         snapshot: _snapshot(const [], const []),
       );
       // Detail write + bookmark change each publish once.
-      expect(notified, greaterThanOrEqualTo(1));
+      expect(notified, 2);
       expect(library.workspaces.single.label, 'Client X');
     });
 
@@ -525,6 +525,7 @@ void main() {
       expect(first.createdAt, _now);
       // The detail doc rewrote at the current schema — the migration
       // runs once.
+      await settingsStore.flush();
       expect(detailDoc()!['version'], WorkspaceListDocument.schemaVersion);
       // The join still serves the full tab sets.
       expect(
@@ -566,6 +567,7 @@ void main() {
       // the v2 posture, not the v1 migration.
       await library.load();
       expect(library.workspaces, isEmpty);
+      await settingsStore.flush();
       expect(
         (detailDoc()!['workspaces'] as List),
         isEmpty,

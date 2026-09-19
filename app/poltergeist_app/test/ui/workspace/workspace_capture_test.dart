@@ -281,29 +281,24 @@ void main() {
       (record) => record.label == 'Archive',
     );
     await tester.runAsync(() async {
-      final row = find.byKey(ValueKey('sidebar.favorite.${archive.id}'));
-      // The row mounts when the sidebar's change-driven reload lands —
-      // poll rather than betting on a fixed frame count.
-      for (var i = 0; i < 40 && row.evaluate().isEmpty; i++) {
-        await tester.pump();
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-      await tester.tap(row);
-      for (var i = 0; i < 40; i++) {
-        await tester.pump();
-        if (find.text('Workspace "Archive" opened').evaluate().isNotEmpty) {
-          break;
+      // One real-zone wait shape for all three polls: pump, then a real
+      // 50 ms delay, up to 40 tries — the row mounts on the sidebar's
+      // change-driven reload and the restored tab binds on activation,
+      // so fixed frame counts would flake.
+      Future<void> until(Finder finder) async {
+        for (var i = 0; i < 40 && finder.evaluate().isEmpty; i++) {
+          await tester.pump();
+          await Future<void>.delayed(const Duration(milliseconds: 50));
         }
-        await Future<void>.delayed(const Duration(milliseconds: 50));
       }
-      // The restored left tab binds its scripted channel on activation —
-      // poll for the path bar's tail segment (the bar renders one Text
-      // per segment, never the joined path).
-      for (var i = 0; i < 40 && find.text('archive').evaluate().isEmpty;
-          i++) {
-        await tester.pump();
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
+
+      final row = find.byKey(ValueKey('sidebar.favorite.${archive.id}'));
+      await until(row);
+      await tester.tap(row);
+      await until(find.text('Workspace "Archive" opened'));
+      // The path bar renders one Text per segment, never the joined
+      // path — the tail segment proves the restored bind landed.
+      await until(find.text('archive'));
       await tester.pump();
     });
     await tester.pump();

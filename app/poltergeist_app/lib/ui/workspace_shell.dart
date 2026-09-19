@@ -1222,6 +1222,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       );
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
+      // A failed open must not read as a dead row — same honest notice
+      // the update verb surfaces on a store fault.
+      if (mounted) {
+        _showSidebarNotice(AppLocalizations.of(context).sidebarActionFailed);
+      }
     }
   }
 
@@ -1243,6 +1248,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       showTopToastIn(context, message: l10n.workspaceSavedToast(saved.label));
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
+      if (!mounted) return;
       _showSidebarNotice(l10n.sidebarActionFailed);
     }
   }
