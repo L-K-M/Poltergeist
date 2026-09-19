@@ -942,7 +942,10 @@ void main() {
             );
             expect(task.scanComplete, isFalse);
             expect(task.totalFiles, greaterThan(0));
-            expect(task.totalFiles, lessThan(10000));
+            expect(
+              task.totalFiles,
+              lessThan(scaleDirectories * scaleFilesPerDirectory),
+            );
             expect(
               events
                   .whereType<TransferQueueProgressEvent>()
@@ -950,13 +953,26 @@ void main() {
               isTrue,
               reason: 'progress events must flow while the scan runs',
             );
-
+            // "Growing" is literal: the released half of the tree still
+            // has ~5000 files to discover and delete, so completedFiles
+            // must strictly exceed the mid-scan sample.
+            final midScan = task.completedFiles;
             releaseWalk(fs, gate);
+            await pumpUntil(
+              () => task.completedFiles > midScan || task.isTerminal,
+              maxPumps: 4000,
+              reason: 'progress stalled after the walk released',
+            );
+            expect(task.completedFiles, greaterThan(midScan));
+
             await awaitScaleDone(task);
             expect(task.state, TransferTaskState.completed);
             expect(task.scanComplete, isTrue);
             expect(task.items, hasLength(scaleItems));
-            expect(task.completedFiles, 10000);
+            expect(
+              task.completedFiles,
+              scaleDirectories * scaleFilesPerDirectory,
+            );
             expect(task.completedDirectories, scaleDirectories + 1);
             expect(fs.deleteCalls, scaleItems);
             // Post-order end-to-end: the root itself unlinks last.

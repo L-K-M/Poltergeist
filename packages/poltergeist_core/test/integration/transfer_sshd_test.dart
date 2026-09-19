@@ -31,7 +31,10 @@ void main() {
   final enabled =
       environment[_hostVariable] != null &&
       environment[_modernPortVariable] != null &&
-      environment[_legacyPortVariable] != null;
+      environment[_legacyPortVariable] != null &&
+      environment[_remoteRootVariable] != null &&
+      environment['POLTERGEIST_SSHD_USER'] != null &&
+      environment['POLTERGEIST_SSHD_KEY'] != null;
 
   test(
     'a directory copies remote→remote through the client pipe between '
@@ -190,7 +193,8 @@ void main() {
     },
     skip: enabled
         ? false
-        : 'Set $_hostVariable, $_modernPortVariable, and '
-              '$_legacyPortVariable to enable.',
+        : 'Set $_hostVariable, $_modernPortVariable, '
+              '$_legacyPortVariable, $_remoteRootVariable, '
+              'POLTERGEIST_SSHD_USER, and POLTERGEIST_SSHD_KEY to enable.',
   );
 }
