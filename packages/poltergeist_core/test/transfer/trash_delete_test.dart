@@ -900,6 +900,17 @@ void main() {
         gate.complete();
       }
 
+      // A 10k-entry walk through the fake VFS is cheap on a developer
+      // host but spends real event-loop turns per item on CI; Windows
+      // runners exhausted the default 400-pump window before the first
+      // delete landed. The gate still holds the scan — the wait just
+      // needs the room.
+      Future<void> awaitScaleDone(TransferTask task) => pumpUntil(
+        () => task.isTerminal,
+        maxPumps: 4000,
+        reason: 'task ${task.id} never settled',
+      );
+
       for (final remote in [true, false]) {
         final side = remote ? 'remote' : 'local';
         test(
@@ -920,6 +931,7 @@ void main() {
             // deleted while the walk still sits inside d050.
             await pumpUntil(
               () => task.completedFiles > 0,
+              maxPumps: 4000,
               reason: 'delete dispatch never overlapped the scan',
             );
             expect(task.scanComplete, isFalse);
@@ -934,7 +946,7 @@ void main() {
             );
 
             releaseWalk(fs, gate);
-            await awaitTaskDone(task);
+            await awaitScaleDone(task);
             expect(task.state, TransferTaskState.completed);
             expect(task.scanComplete, isTrue);
             expect(task.items, hasLength(scaleItems));
@@ -965,11 +977,12 @@ void main() {
             final task = await enqueueTreeDelete(queue, source, root);
             await pumpUntil(
               () => task.completedFiles > 0,
+              maxPumps: 4000,
               reason: 'delete dispatch never overlapped the scan',
             );
             queue.cancelTask(task.id);
             releaseWalk(fs, gate);
-            await awaitTaskDone(task);
+            await awaitScaleDone(task);
 
             expect(task.state, TransferTaskState.cancelled);
             // The tree is only partway gone: the gated half never
@@ -988,7 +1001,7 @@ void main() {
                 confirmed: true,
               ),
             );
-            await awaitTaskDone(followUp);
+            await awaitScaleDone(followUp);
             expect(followUp.state, TransferTaskState.completed);
           },
         );
