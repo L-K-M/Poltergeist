@@ -297,6 +297,7 @@ class _SectionHeader extends StatefulWidget {
 
 class _SectionHeaderState extends State<_SectionHeader> {
   bool _hovering = false;
+  final _focusNode = FocusNode();
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
@@ -329,12 +330,19 @@ class _SectionHeaderState extends State<_SectionHeader> {
   }
 
   @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final accept = widget.onAcceptBookmark;
 
     final header = Focus(
+      focusNode: _focusNode,
       onKeyEvent: _onKey,
       child: Builder(
         builder: (context) {
@@ -349,7 +357,7 @@ class _SectionHeaderState extends State<_SectionHeader> {
               // The pointer moves focus with it, same as the rows —
               // arrows and Enter act on the header last touched.
               onTap: () {
-                Focus.of(context).requestFocus();
+                _focusNode.requestFocus();
                 widget.onToggle();
               },
               child: Container(
@@ -1137,7 +1145,10 @@ class _ConnectionRowState extends State<_ConnectionRow> {
       onKeyEvent: _onKey,
       child: Semantics(
         container: true,
-        button: true,
+        // A row with no open seam is not an activatable button — an
+        // announced-but-inert role is the same dead affordance the
+        // detector placement guards against.
+        button: widget.onOpenOtherPane != null,
         label: semanticLabel,
         // The detector must sit OUTSIDE ExcludeSemantics or its tap
         // never reaches the semantics tree — an announced button a

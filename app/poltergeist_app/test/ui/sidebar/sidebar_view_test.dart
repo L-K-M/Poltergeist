@@ -282,6 +282,28 @@ void main() {
     expect(collapsedWrites.last, isEmpty);
   });
 
+  testWidgets('a tapped header holds focus for keyboard toggles', (
+    tester,
+  ) async {
+    store.bookmarks = [_remote('a', group: 'work')];
+    await pumpSidebar(tester);
+
+    await tester.tap(find.text('work'));
+    await tester.pumpAndSettle();
+    expect(collapsedWrites, [
+      {'work'},
+    ]);
+
+    // Focus must sit on the header itself: Enter toggles it back.
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(collapsedWrites.last, isEmpty);
+    expect(
+      find.byKey(const ValueKey('sidebar.favorite.a')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('rename through the menu dialog lands on the store', (
     tester,
   ) async {
@@ -486,6 +508,9 @@ void main() {
       }),
     );
 
+    // The failure must surface through the reporter exactly once — a
+    // silent retry state would hide the diagnostic path.
+    expect(reported, hasLength(1));
     expect(find.byKey(const ValueKey('sidebar.retry')), findsOneWidget);
 
     store
