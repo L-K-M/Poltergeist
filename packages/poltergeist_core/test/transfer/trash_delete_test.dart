@@ -963,7 +963,12 @@ void main() {
               maxPumps: 4000,
               reason: 'progress stalled after the walk released',
             );
-            expect(task.completedFiles, greaterThan(midScan));
+            expect(
+              task.completedFiles,
+              greaterThan(midScan),
+              reason: 'progress stalled after the walk released'
+                  ' (state ${task.state.name}, error ${task.error})',
+            );
 
             await awaitScaleDone(task);
             expect(task.state, TransferTaskState.completed);
