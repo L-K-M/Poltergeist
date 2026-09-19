@@ -15,6 +15,7 @@ import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
 import 'services/engine_session.dart';
 import 'services/pane_tabs_controller.dart' show NewTabTarget;
+import 'services/quit_guard.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/ssh_config_import_setup.dart';
@@ -43,6 +44,7 @@ class PoltergeistApp extends StatefulWidget {
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
+    this.quitGuard,
     this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
     this.onActivityPanelHeightChanged,
@@ -113,6 +115,12 @@ class PoltergeistApp extends StatefulWidget {
   /// empty chrome rather than simulating activity.
   final AppTransferQueue? transferQueue;
 
+  /// 07 §3.5's quit gate: consulted by the intercepted window close and
+  /// by `onExitRequested` (the macOS/OS quit path), so quitting with
+  /// live transfers warns and the journal flushes before either teardown
+  /// is allowed. Null leaves both paths unguarded.
+  final QuitGuard? quitGuard;
+
   /// The persisted conflict matrix (02 §5.2) the pane drop targets
   /// resolve per task at enqueue time; null applies the spec defaults.
   /// Loaded at startup once the settings slice owns the matrix.
@@ -161,10 +169,21 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
   @override
   void didUpdateWidget(PoltergeistApp oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.engineSession, widget.engineSession)) {
+    final engineSwapped =
+        !identical(oldWidget.engineSession, widget.engineSession);
+    if (engineSwapped ||
+        !identical(oldWidget.quitGuard, widget.quitGuard) ||
+        !identical(
+          oldWidget.sessionPersistence,
+          widget.sessionPersistence,
+        )) {
       // The outgoing session's engine must not outlive its replacement
-      // unnoticed: forward the exit state before re-attaching.
-      oldWidget.engineSession?.forwardLifecycle(AppLifecycleState.detached);
+      // unnoticed — forward the exit state before re-attaching, but only
+      // when the engine itself is swapped; a guard/persistence rebind
+      // keeps the same session alive.
+      if (engineSwapped) {
+        oldWidget.engineSession?.forwardLifecycle(AppLifecycleState.detached);
+      }
       _attachSessionLifecycle();
     }
   }
@@ -180,7 +199,10 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     _lifecycleListener = null;
     final session = widget.engineSession;
     final persistence = widget.sessionPersistence;
-    if (session == null && persistence == null) return;
+    final quitGuard = widget.quitGuard;
+    if (session == null && persistence == null && quitGuard == null) {
+      return;
+    }
     _lifecycleListener = AppLifecycleListener(
       onStateChange:
           session?.forwardLifecycle ?? (_) {},
@@ -190,6 +212,14 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       // itself is triggered fire-and-forget (idempotent), keeping the
       // exit decision independent of teardown-path futures.
       onExitRequested: () async {
+        // The quit guard rides this path too: a platform quit (⌘Q, OS
+        // termination) never reaches the window's close callback, so
+        // without this the journal could exit unflushed and un-warned.
+        // A veto cancels the exit — the same answer the intercepted
+        // close gets, sharing one in-flight decision.
+        if (quitGuard != null && !await quitGuard.confirmClose()) {
+          return AppExitResponse.cancel;
+        }
         // Flush what is already queued before stopping the engine: the
         // tails snapshot at call time, so writes racing the shutdown
         // trigger still land first. The session document (02 §3's
@@ -265,6 +295,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       connectionEngine: widget.connectionEngine,
       engineSession: widget.engineSession,
       transferQueue: widget.transferQueue,
+      quitGuard: widget.quitGuard,
       conflictPolicy: widget.conflictPolicy,
       initialActivityPanelHeight: widget.initialActivityPanelHeight,
       onActivityPanelHeightChanged: widget.onActivityPanelHeightChanged,

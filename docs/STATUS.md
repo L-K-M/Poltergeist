@@ -6083,6 +6083,63 @@ its own Gradle file — no file_picker-class AGP9 exposure (verified in the
 plugin's build script). `flutter analyze` clean; full app suite 1287
 green. Logs under `tasks/run3-task70/`.
 
+## M4 — quit guard: prevent-close wired to the transfer queue (2026-09-19)
+
+07 §3.5's last scope bullet: the M2 `window_manager` close interception
+now consults the transfer queue. `DesktopWindowLifecycle` gains a
+`confirmClose` seam that runs before anything else on the close path —
+a false veto unwinds `_closing`/`_closeFuture` so the window is fully
+live again and the next close re-runs the whole path — and `main.dart`
+hands it `QuitGuard.confirmClose`. The same guard also gates
+`AppLifecycleListener.onExitRequested` in `app.dart`, so Cmd+Q / OS quit
+gets the identical warn/flush semantics as the window chrome's close
+button.
+
+`QuitGuard` (`services/quit_guard.dart`) owns the flow behind the app
+services layer: `WorkspaceShell` binds a live `AppTransferQueue?`
+lookup (rebound on widget replacement, unbound on dispose) so the guard
+never keys on a stale queue. With no queue, or only terminal tasks, it
+flushes the journal and lets the close through silently. With
+active/paused tasks it raises 02 §10's quit dialog over the app
+navigator — "N transfers are running (X remaining so far)", the
+restart-from-the-beginning honesty note, and the three verbs: `Pause
+and Quit` (default, pauses non-terminal live tasks), `Cancel Transfers
+and Quit` (cancels them), `Keep Transferring` (veto; barrier dismissal
+vetoes too). Both quit verbs then await
+`AppTransferQueue.flushJournal()` — a new app-seam method delegating to
+`TransferPersistence.flush`/`shutdown` — inside a bounded timeout
+before `destroy`, per D16. A flush timeout or failure surfaces the
+§10-style warning dialog (`quitFlush.*`), reports through `onError`,
+and vetoes the close: the window never destroys with a silently
+unflushed journal, and a retry closes once the journal recovers.
+
+All copy lives in `app_en.arb` (`quitConfirm*`, `quit*`,
+`quitFlushFailed*` keys); the dialog's widget keys (`quit.dialog`,
+`quit.pauseAndQuit`, `quit.cancelTransfers`, `quit.keepTransferring`,
+`quitFlush.dialog`, `quitFlush.dismiss`) are registered in the
+localization contract's allowlist.
+
+Validation: `desktop_window_lifecycle_test.dart` gains the guard
+veto/retry and guard-error cases (fakes extracted to
+`test/support/fake_window_adapters.dart` for reuse);
+`test/ui/quit_guard_test.dart` drives the real lifecycle → guard →
+dialog chain end to end — active/paused warn with no destroy, each verb
+(pause/cancel semantics, journal-flush-before-destroy ordering proven
+by a parked flush), barrier-dismiss veto, silent close with no active
+tasks or no queue, paused-only warning, and flush timeout/failure
+warning that keeps the window up while a retry succeeds.
+`quit_dialog_capture_test.dart` writes
+`tasks/run3-task72/captures/quit-confirm-dialog.png` under
+`POLTERGEIST_CAPTURE=1` (hollow-box fallback fonts on this host — the
+dialog frame, copy lines, and the three-verb row are verified). The
+capture's real-IO close path runs inside `tester.runAsync` with
+condition-driven waits — fixed fake-zone delays flaked under suite
+load. `flutter analyze` clean; full app suite 1315 green.
+
+Known seam: `main.dart` still boots with no `transferQueue` (queue
+composition is a later M4 slice), so the guard is inert in production
+until that lands — the no-queue path is the covered silent close.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -6732,6 +6789,22 @@ green. Logs under `tasks/run3-task70/`.
     500 ms), P7's ≥ 1 000 entries/s unchanged, all three landed with
     per-scenario calibrated configs, and the repo variable plus
     `vars.BENCH_ENFORCE_A` forwarding arm enforcement.
+
+23. **2026-09-19: M4 quit guard is inert in production until queue
+    composition lands.** The prevent-close → journal-flush chain (07
+    §3.5, this milestone's quit-guard entry above) is fully wired and
+    tested, but `main.dart` still boots `PoltergeistApp` with no
+    `transferQueue`, so `QuitGuard` always takes the silent-close path
+    for real users. When the queue-composition slice lands: wire
+    `transferQueue` into `main.dart`'s `PoltergeistApp`, and add a
+    boot-path smoke assertion that the production guard sees a live
+    queue seam (fail loudly if it is ever constructed with none).
+    Separately deferred from the #158 review: a last-resort "Quit
+    Anyway" escape hatch on the flush-failure dialog — the current
+    design (per the task brief) never destroys over an unflushed
+    journal, so a persistently failing disk leaves force-quit as the
+    only exit; whether an explicit double-confirmed override is
+    acceptable is a product decision for the spec owner.
 
 ## Independent audit
 

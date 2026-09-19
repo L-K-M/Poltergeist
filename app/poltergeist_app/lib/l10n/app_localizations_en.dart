@@ -1263,6 +1263,55 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get quitConfirmTitle => 'Quit while transfers are running?';
+
+  @override
+  String quitConfirmBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transfers are running',
+      one: '1 transfer is running',
+    );
+    return '$_temp0.';
+  }
+
+  @override
+  String quitConfirmBodyRemaining(int count, String remaining) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transfers are running',
+      one: '1 transfer is running',
+    );
+    return '$_temp0 ($remaining remaining so far).';
+  }
+
+  @override
+  String get quitConfirmRestartNote =>
+      'Files in progress restart from the beginning next launch.';
+
+  @override
+  String get quitPauseAndQuit => 'Pause and Quit';
+
+  @override
+  String get quitCancelTransfersAndQuit => 'Cancel Transfers and Quit';
+
+  @override
+  String get quitKeepTransferring => 'Keep Transferring';
+
+  @override
+  String get quitFlushFailedTitle => 'Transfer state could not be saved';
+
+  @override
+  String quitFlushFailedBody(String error) {
+    return 'Saving the transfer journal failed: $error. The window stayed open so queued and in-flight transfers are not lost — quit again to retry.';
+  }
+
+  @override
+  String get quitFlushFailedDismiss => 'Dismiss';
+
+  @override
   String get transferStateQueued => 'Queued';
 
   @override

@@ -98,6 +98,7 @@ final class DesktopWindowLifecycle {
     void Function() Function(Duration, Future<void> Function())?
     scheduleDebounce,
     Future<void> Function()? onCloseFlush,
+    Future<bool> Function()? confirmClose,
     void Function(Object, StackTrace)? onError,
   }) : _window = window ?? _WindowManagerAdapter(),
        _displays = displays ?? _ScreenRetrieverAdapter(),
@@ -110,6 +111,9 @@ final class DesktopWindowLifecycle {
        // Keep the close-flush seam private to the lifecycle.
        // ignore: prefer_initializing_formals
        _onCloseFlush = onCloseFlush,
+       // Keep the close guard private to the lifecycle.
+       // ignore: prefer_initializing_formals
+       _confirmClose = confirmClose,
        // Keep the callback private while allowing test-only error injection.
        // ignore: prefer_initializing_formals
        _onError = onError;
@@ -128,13 +132,18 @@ final class DesktopWindowLifecycle {
   /// window destroys — the intercepted close is the only quit path
   /// where a wait is guaranteed, so the last session write lands here.
   final Future<void> Function()? _onCloseFlush;
+
+  /// 07 §3.5's quit gate (the transfer-journal warn/flush): consulted
+  /// inside [_close] before anything else — false vetoes the close and
+  /// the window stays up. Null means nothing guards the close.
+  final Future<bool> Function()? _confirmClose;
   final void Function(Object, StackTrace)? _onError;
 
   Rect? _restoredBounds;
   void Function()? _cancelScheduledSave;
   Future<void> _windowTail = Future.value();
   Future<void>? _prepareFuture;
-  Future<void>? _closeFuture;
+  Future<bool>? _closeFuture;
   Size? _calibratedContentSize;
   var _prepared = false;
   var _closing = false;
@@ -274,7 +283,10 @@ final class DesktopWindowLifecycle {
     });
   }
 
-  Future<void> close() {
+  /// Runs the close path. Resolves true once the window has destroyed;
+  /// false when the close guard vetoed it (the window stays up and the
+  /// next close re-runs the whole path, guard included).
+  Future<bool> close() {
     final activeClose = _closeFuture;
     if (activeClose != null) return activeClose;
 
@@ -287,7 +299,7 @@ final class DesktopWindowLifecycle {
     return closeFuture;
   }
 
-  Future<void> _runClose() async {
+  Future<bool> _runClose() async {
     final preparing = _prepareFuture;
     if (preparing != null) {
       try {
@@ -297,13 +309,21 @@ final class DesktopWindowLifecycle {
       }
     }
 
+    final bool closed;
     try {
-      await _enqueueWindowOperation(_close);
+      closed = await _enqueueWindowOperation(_close);
     } catch (_) {
       _closing = false;
       _closeFuture = null;
       rethrow;
     }
+    if (!closed) {
+      // A vetoed close is not a failed one: unwind the closing state so
+      // the window is fully live again and a later close starts fresh.
+      _closing = false;
+      _closeFuture = null;
+    }
+    return closed;
   }
 
   void _onWindowMove() => _scheduleSave();
@@ -351,7 +371,12 @@ final class DesktopWindowLifecycle {
     }
   }
 
-  Future<void> _close() async {
+  Future<bool> _close() async {
+    // The quit guard runs first: a veto must leave nothing behind —
+    // no bounds save, no flush, no destroy.
+    final guard = _confirmClose;
+    if (guard != null && !await guard()) return false;
+
     await _saveCurrentBounds();
 
     // A wedged or failed flush reports and lets the window destroy —
@@ -364,9 +389,10 @@ final class DesktopWindowLifecycle {
 
     await _window.destroy();
     _window.unregisterCallbacks();
+    return true;
   }
 
-  Future<void> _enqueueWindowOperation(Future<void> Function() operation) {
+  Future<T> _enqueueWindowOperation<T>(Future<T> Function() operation) {
     // Native window APIs are stateful and must never overlap.
     final result = _windowTail.then((_) => operation());
     _windowTail = result.then<void>((_) {}, onError: (_, _) {});

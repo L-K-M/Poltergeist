@@ -1665,6 +1665,64 @@
       }
     }
   },
+  "quitConfirmTitle": "Quit while transfers are running?",
+  "@quitConfirmTitle": {
+    "description": "The quit guard's dialog title (02 §10): shown when the window close is intercepted with live transfer tasks."
+  },
+  "quitConfirmBody": "{count, plural, =1{1 transfer is running} other{{count} transfers are running}}.",
+  "@quitConfirmBody": {
+    "description": "The quit dialog's warning line (02 §10) when no remaining-byte figure is known yet.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "quitConfirmBodyRemaining": "{count, plural, =1{1 transfer is running} other{{count} transfers are running}} ({remaining} remaining so far).",
+  "@quitConfirmBodyRemaining": {
+    "description": "The quit dialog's warning line (02 §10's example copy): the remaining figure is the discovered-total floor, so 'so far' never overstates what is left.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "remaining": {
+        "type": "String"
+      }
+    }
+  },
+  "quitConfirmRestartNote": "Files in progress restart from the beginning next launch.",
+  "@quitConfirmRestartNote": {
+    "description": "The quit dialog's honesty note (02 §10): until resumable transfers ship, a paused in-flight file restarts from byte zero on relaunch."
+  },
+  "quitPauseAndQuit": "Pause and Quit",
+  "@quitPauseAndQuit": {
+    "description": "Quit verb (02 §10, default button): pauses the live tasks, flushes the journal, then lets the window destroy."
+  },
+  "quitCancelTransfersAndQuit": "Cancel Transfers and Quit",
+  "@quitCancelTransfersAndQuit": {
+    "description": "Quit verb (02 §10): cancels the live tasks so they do not restore, flushes the journal, then lets the window destroy."
+  },
+  "quitKeepTransferring": "Keep Transferring",
+  "@quitKeepTransferring": {
+    "description": "Quit verb (02 §10): cancels the close — the window stays open and transfers keep running."
+  },
+  "quitFlushFailedTitle": "Transfer state could not be saved",
+  "@quitFlushFailedTitle": {
+    "description": "The journal-flush failure dialog's title (07 §3.5): shown when the close-path journal write fails or times out."
+  },
+  "quitFlushFailedBody": "Saving the transfer journal failed: {error}. The window stayed open so queued and in-flight transfers are not lost — quit again to retry.",
+  "@quitFlushFailedBody": {
+    "description": "The journal-flush failure dialog's body (07 §3.5): the raw error is machine data rendered inside ARB copy.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "quitFlushFailedDismiss": "Dismiss",
+  "@quitFlushFailedDismiss": {
+    "description": "Closes the journal-flush failure dialog; the window stays open either way."
+  },
   "transferStateQueued": "Queued",
   "@transferStateQueued": {
     "description": "Task state: waiting behind the queue's admission order."

@@ -93,6 +93,14 @@ abstract interface class AppTransferQueue {
   /// The History tab's Clear History: drops persisted records; the live
   /// journal is untouched.
   Future<void> clearHistory();
+
+  /// D16's quit safe point (02 §6, 07 §3.5): drains the persistence
+  /// writer chain and fsyncs the journal so queued, paused, and
+  /// in-flight task states are durable before the window destroys. The
+  /// store stays open — unlike shutdown this leaves a vetoed quit's
+  /// queue fully writable. A queue with no persistence resolves
+  /// immediately: nothing exists to flush.
+  Future<void> flushJournal();
 }
 
 /// [TransferQueue] behind the app seam — the in-process adapter used by
@@ -183,4 +191,22 @@ final class TransferQueueAdapter implements AppTransferQueue {
 
   @override
   Future<void> clearHistory() => _queue.clearHistory();
+
+  @override
+  Future<void> flushJournal() {
+    final persistence = _queue.persistence;
+    if (persistence is FileTransferPersistence) {
+      // The file store's drain-and-fsync leaves it writable — the
+      // close gate may veto and leave the queue running.
+      return persistence.flush();
+    }
+    // A foreign implementation has no flush-without-close seam, and the
+    // quit guard may veto *after* this call — a failed shutdown() on the
+    // veto path would leave the store closed under a live queue. Fail
+    // loudly at wiring instead of wedging the quit path.
+    if (persistence == null) return Future<void>.value();
+    throw UnsupportedError(
+      'AppTransferQueue persistence must support a non-closing flush',
+    );
+  }
 }

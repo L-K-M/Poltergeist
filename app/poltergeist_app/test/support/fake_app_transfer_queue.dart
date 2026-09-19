@@ -38,6 +38,15 @@ class FakeAppTransferQueue implements AppTransferQueue {
   var resumeQueueCalls = 0;
   var clearHistoryCalls = 0;
 
+  /// Journal-flush scripting for the quit-guard tests: every call is
+  /// counted, [flushJournalError] throws it, and [blockFlushJournal]
+  /// parks the flush until [releaseFlushJournal] so a test can observe
+  /// the window staying up while the write is in flight.
+  var flushJournalCalls = 0;
+  bool blockFlushJournal = false;
+  Object? flushJournalError;
+  Completer<void>? _flushJournalRelease;
+
   /// Every spec the UI enqueued (02 §5.1's drops) — tests assert the
   /// gesture's composition, not a re-derived one.
   final enqueuedSpecs = <TransferTaskSpec>[];
@@ -217,6 +226,12 @@ class FakeAppTransferQueue implements AppTransferQueue {
     historyEntries.add(entry);
     emitRefresh();
     return entry;
+  }
+
+  /// Releases a flush parked by [blockFlushJournal].
+  void releaseFlushJournal() {
+    _flushJournalRelease?.complete();
+    _flushJournalRelease = null;
   }
 
   /// Delivers a queue event to listeners.
@@ -459,6 +474,19 @@ class FakeAppTransferQueue implements AppTransferQueue {
     historyEntries.clear();
     emitRefresh();
     return Future.value();
+  }
+
+  @override
+  Future<void> flushJournal() async {
+    flushJournalCalls++;
+    if (blockFlushJournal) {
+      _flushJournalRelease ??= Completer<void>();
+      await _flushJournalRelease!.future;
+    }
+    // The error reads AFTER the park so a test can script "the write was
+    // in flight, then failed" — set flushJournalError mid-block.
+    final error = flushJournalError;
+    if (error != null) throw error;
   }
 
   TransferTask? _task(String taskId) {
