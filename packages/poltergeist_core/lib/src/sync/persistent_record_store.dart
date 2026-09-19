@@ -348,7 +348,7 @@ final class PersistentLocalRecordStore implements SyncRecordStore {
     if (version is int && version != _storeVersion) {
       throw FormatException('record store version $version');
     }
-    if (version != _storeVersion) {
+    if (version is! int) {
       _report(
         const FormatException('record store version'),
         StackTrace.current,

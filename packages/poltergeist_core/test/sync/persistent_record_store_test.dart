@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -198,13 +197,14 @@ void main() {
         () async {
       final store = open();
       await store.putRemote(_record('bookmark:a', updatedAt: 200, seq: 5));
-      // Queue the displacing putLocal without awaiting: the stash lands
-      // inside the serialized write, so restoreDisplaced must drain the
-      // write tail before answering.
-      unawaited(store.putLocal(_record('bookmark:a', updatedAt: 100)));
+      // Queue the displacing putLocal: the stash lands inside the
+      // serialized write, so restoreDisplaced must drain the write tail
+      // before answering.
+      final put = store.putLocal(_record('bookmark:a', updatedAt: 100));
       final restored = await store.restoreDisplaced('bookmark:a');
       expect(restored, isNotNull);
       expect(restored!.updatedAt, 200);
+      await put;
     });
 
     test('restoreDisplaced is null when nothing was displaced', () async {
@@ -296,6 +296,25 @@ void main() {
       // like any other malformed root rather than loading as v1.
       File(path).writeAsStringSync(
           '{"highWaterSeq":0,"lastAppliedSeq":0,"records":[]}');
+      final errors = <Object>[];
+      final store =
+          open(now: () => _fixedNow, onError: (error, _) => errors.add(error));
+      expect(await store.allRecords(), isEmpty);
+      expect(errors, hasLength(1));
+      expect(
+          tempDir
+              .listSync()
+              .where((e) => _basenameOf(e.path).contains('.corrupt-')),
+          hasLength(1));
+    });
+
+    test('a double version equal to the store version still quarantines',
+        () async {
+      // JSON 1.0 decodes as a double; numeric equality with 1 must not
+      // adopt the foreign document as v1.
+      File(path).writeAsStringSync(
+          '{"version":1.0,"highWaterSeq":0,"lastAppliedSeq":0,'
+          '"records":[]}');
       final errors = <Object>[];
       final store =
           open(now: () => _fixedNow, onError: (error, _) => errors.add(error));
