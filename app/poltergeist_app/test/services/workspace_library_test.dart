@@ -126,6 +126,14 @@ void main() {
       settingsFile.writeAsStringSync('{"workspaces.saved":{"version":99}}');
       await expectLater(library.load(), throwsFormatException);
       expect(library.workspaces, isEmpty);
+      // The app boots on the empty library after a failed load, so a
+      // save must not trip the load-ordering assert — the store's own
+      // read-before-write fails the write instead.
+      await expectLater(
+        library.save(label: 'X', snapshot: _snapshot(const [], const [])),
+        throwsFormatException,
+      );
+      expect(await bookmarks.load(), isEmpty);
     });
   });
 

@@ -290,6 +290,8 @@ void main() {
           await tester.pump();
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
+        // Fail at the wait that timed out, not at a later symptom.
+        expect(finder.evaluate(), isNotEmpty, reason: 'timed out: $finder');
       }
 
       final row = find.byKey(ValueKey('sidebar.favorite.${archive.id}'));

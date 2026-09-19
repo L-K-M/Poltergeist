@@ -77,9 +77,11 @@ final class WorkspaceLibrary extends ChangeNotifier {
 
   bool _disposed = false;
 
-  /// Set once [load] has populated both layers — mutations before that
-  /// would dedupe against an empty favorite list and mint duplicate
-  /// rows, so [save]/[recapture] assert it.
+  /// Set when [load] finishes — including its fail-closed throw, since
+  /// the app deliberately keeps running on an empty library then. A
+  /// mutation issued before or DURING the first load is the misuse this
+  /// guards: it would dedupe against an empty favorite list and mint a
+  /// duplicate row.
   bool _loaded = false;
 
   /// The serialized tail every detail-document write joins, so a
@@ -117,6 +119,18 @@ final class WorkspaceLibrary extends ChangeNotifier {
   /// partially trusted or overwritten unread (the store's
   /// read-before-write keeps it intact).
   Future<void> load() async {
+    try {
+      await _load();
+    } finally {
+      // Fail-closed boots count as loaded: the caller reports the throw
+      // and keeps running on the empty library, so mutations after a
+      // failed load must not trip the ordering assert (the store's own
+      // read-before-write still fails closed over an unreadable doc).
+      _loaded = true;
+    }
+  }
+
+  Future<void> _load() async {
     final document = await _store.load();
     if (_disposed) return;
     var details = document?.workspaces ?? const <SavedWorkspace>[];
@@ -160,7 +174,6 @@ final class WorkspaceLibrary extends ChangeNotifier {
     workspaceBookmarks.sort(compareBookmarkSortKeys);
     _workspaceBookmarks = List.unmodifiable(workspaceBookmarks);
     _details = Map.unmodifiable({for (final d in details) d.id: d});
-    _loaded = true;
     notifyListeners();
   }
 
