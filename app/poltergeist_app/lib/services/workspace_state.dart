@@ -280,12 +280,14 @@ final class WorkspaceListDocument {
   Map<String, Object?> toJson() {
     // A v1 decode must be migrated into workspace favorites before any
     // write stamps it v2 — serializing it here would erase the only
-    // migration signal and let the next load prune the records.
-    assert(
-      !legacySchema,
-      'Legacy (v1) workspace document serialized before migration; '
-      'migrate to favorites before saving.',
-    );
+    // migration signal and let the next load prune the records. A
+    // runtime throw, not an assert: the failure mode ships in release.
+    if (legacySchema) {
+      throw StateError(
+        'Legacy (v1) workspace document serialized before migration; '
+        'migrate to favorites before saving.',
+      );
+    }
     return {
       'version': schemaVersion,
       'workspaces': [for (final workspace in workspaces) workspace.toJson()],
