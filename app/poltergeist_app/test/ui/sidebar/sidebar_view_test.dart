@@ -448,65 +448,65 @@ void main() {
       _remote('g1', group: 'work', sortKey: 'mf'),
     ];
     try {
-    final controller = await pumpSidebar(tester, withConnections: true);
-    lanes.watches['r1']!.add(
-      const ServerStatus(ServerConnectionState.connected),
-    );
-    await tester.pumpAndSettle();
+      final controller = await pumpSidebar(tester, withConnections: true);
+      lanes.watches['r1']!.add(
+        const ServerStatus(ServerConnectionState.connected),
+      );
+      await tester.pumpAndSettle();
 
-    // Collapsing 'work' unmounts r1's favorite row, leaving its
-    // CONNECTION row as the only 'label-r1' node in the semantics tree.
-    controller.toggleCollapsed('work');
-    await tester.pumpAndSettle();
+      // Collapsing 'work' unmounts r1's favorite row, leaving its
+      // CONNECTION row as the only 'label-r1' node in the semantics tree.
+      controller.toggleCollapsed('work');
+      await tester.pumpAndSettle();
 
-    dataOf(Finder finder) =>
-        tester.getSemantics(finder).getSemanticsData();
+      dataOf(Finder finder) =>
+          tester.getSemantics(finder).getSemanticsData();
 
-    // Every favorite kind announces itself as a labelled button — not
-    // only the kind that happened to be covered when the row grew. The
-    // keyed containers sit under ExcludeSemantics, so the announced node
-    // is found by its label, the way assistive tech sees it.
-    for (final label in const [
-      'label-r2',
-      'Docs',
-      'Daily pair',
-      'Mirror',
-    ]) {
-      final data = dataOf(
-        find.bySemanticsLabel(RegExp('^$label\$')),
+      // Every favorite kind announces itself as a labelled button — not
+      // only the kind that happened to be covered when the row grew. The
+      // keyed containers sit under ExcludeSemantics, so the announced node
+      // is found by its label, the way assistive tech sees it.
+      for (final label in const [
+        'label-r2',
+        'Docs',
+        'Daily pair',
+        'Mirror',
+      ]) {
+        final data = dataOf(
+          find.bySemanticsLabel(RegExp('^$label\$')),
+        );
+        expect(
+          data.flagsCollection.isButton,
+          isTrue,
+          reason: '$label must announce as a button',
+        );
+      }
+
+      // The live connection row is a button with its server label plus
+      // the status suffix (the row folds dynamic state into the label).
+      final connection = dataOf(
+        find.bySemanticsLabel(RegExp('^label-r1, ')),
+      );
+      expect(connection.flagsCollection.isButton, isTrue);
+
+      // Section headers announce header + button + expansion state — the
+      // collapsed group header reads expanded:false, the live Connections
+      // header expanded:true.
+      final group = dataOf(find.byKey(const ValueKey('sidebar.section.work')));
+      expect(group.flagsCollection.isHeader, isTrue);
+      expect(group.flagsCollection.isButton, isTrue);
+      expect(group.flagsCollection.isExpanded, ui.Tristate.isFalse);
+      final connectionsHeader = dataOf(
+        find.byKey(const ValueKey('sidebar.section.sidebar.connections')),
       );
       expect(
-        data.flagsCollection.isButton,
+        connectionsHeader.flagsCollection.isHeader,
         isTrue,
-        reason: '$label must announce as a button',
       );
-    }
-
-    // The live connection row is a button with its server label plus
-    // the status suffix (the row folds dynamic state into the label).
-    final connection = dataOf(
-      find.bySemanticsLabel(RegExp('^label-r1, ')),
-    );
-    expect(connection.flagsCollection.isButton, isTrue);
-
-    // Section headers announce header + button + expansion state — the
-    // collapsed group header reads expanded:false, the live Connections
-    // header expanded:true.
-    final group = dataOf(find.byKey(const ValueKey('sidebar.section.work')));
-    expect(group.flagsCollection.isHeader, isTrue);
-    expect(group.flagsCollection.isButton, isTrue);
-    expect(group.flagsCollection.isExpanded, ui.Tristate.isFalse);
-    final connectionsHeader = dataOf(
-      find.byKey(const ValueKey('sidebar.section.sidebar.connections')),
-    );
-    expect(
-      connectionsHeader.flagsCollection.isHeader,
-      isTrue,
-    );
-    expect(
-      connectionsHeader.flagsCollection.isExpanded,
-      ui.Tristate.isTrue,
-    );
+      expect(
+        connectionsHeader.flagsCollection.isExpanded,
+        ui.Tristate.isTrue,
+      );
     } finally {
       semantics.dispose();
     }
