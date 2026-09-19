@@ -4,45 +4,19 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-14. **M2 is closed; M3 is open** (first M3
-slices below) — v0.2.0 published as a
-pre-release 2026-09-11
-([release](https://github.com/L-K-M/Poltergeist/releases/tag/v0.2.0),
-D23-recovery dispatch run
-[34572521676](https://github.com/L-K-M/Poltergeist/actions/runs/34572521676))
-after the publish-step fix (#72) repaired the rehearsal's hidden-draft
-failure (item 8, closed). Every
-connection-layer slice is on main, each recorded in a dated section
-below: the pool (growth rules, keepalive, idle teardown, reconnect
-recovery, trust lifecycle with owner decision 1a/2a/3a), the engine
-isolate + `EngineClient` + typed port protocol (progress coalescing,
-connection/prompt bridging, incident/pin bridging), the prompt UI with
-live transcript and failure one-liners, probe wiring end to end,
-ssh_config import + composition, the debug demo surface, live
-connection-state composition, and the production startup engine-spawn
-composition. The v0.2.0 tag was cut 2026-09-11 (version commit
-`5f8ed9a`); the first release run failed at the publish step (dated
-sections below), and the fix plus the D23 draft recovery published the
-pre-release the same day. The
-run-3 dated sections are consolidated into the Done
-table's M2 row; the Séance pin stays upstream main `2e6d1f1` (open item
-2 owns the next-tag re-pin). **Open item 4 (the M1/M2 overlap
-authorization) remains an OPEN owner decision** — the M2 close neither
-settles nor supersedes it. M0 is complete and M1 is closed (v0.1.0
-pre-release publish, deterministic release versions, the D23
-direct-publish pipeline #15, and 05's two dated precision items); open
-items 3, 5, and 6 carry only their recorded follow-ups, owned by M3/M5.
-Next milestone: M3 (panes v1, 07 §3.4) — the pane foundation slice
-is implemented in PR #84 (dated section below; open item 20 tracks the
-location type's move into core); the next M3 slices are recorded
-there. The sibling slices' pure models — the listing-state reducer,
-the metadata-only sort, Quick Select's matching and selection, and
-the per-location view-pref persistence — are implemented below; the
-pane foundation implements 02 §2.8's machine inline, and each
-model's wiring (comparator, selection, prefs) rides its owning
-slice, as does the engine-side local directory watch seam (pane
-refresh wiring itself remains open). Upstream listing cancellation remains
-open item 12: this foundation cancels presentation, not in-flight VFS I/O.
+_Last updated: 2026-09-19. **M3 and M4 are closed; M5 is next** —
+v0.2.0 remains the latest published pre-release (M3 closed untagged per
+the run-3 closure record; M4's §3.12 tag chore is recorded in the M4
+closure record at
+[tasks/m4-closure-record.md](../tasks/m4-closure-record.md)). Every M4
+§3.5 scope bullet and exit criterion is on main through #158, audited
+per-criterion in the dated closure section below. M0, M1, and M2 stay
+closed per the Done table; **open item 4 (the M1/M2 overlap
+authorization) remains an OPEN owner decision**, and open item 23 owns
+the one honest M4 gap — the transfer queue is not yet composed into
+`main.dart`, so the engine machinery is fully tested but unreachable in
+a production boot until that slice lands. Next milestone: M5 (sidebar,
+bookmarks, workspaces, 07 §3.6).
 
 ## Done
 
@@ -6139,6 +6113,90 @@ load. `flutter analyze` clean; full app suite 1315 green.
 Known seam: `main.dart` still boots with no `transferQueue` (queue
 composition is a later M4 slice), so the guard is inert in production
 until that lands — the no-queue path is the covered silent close.
+
+## M4 — exit-criteria audit and close (2026-09-19)
+
+All six 07 §3.5 exit criteria audited against main head `b58af0d`;
+the per-criterion evidence record lives in
+[tasks/m4-closure-record.md](../tasks/m4-closure-record.md). Verdicts:
+
+1. **P5 drop→start enforced — MET.** Post-#158 main run
+   [35420036073](https://github.com/L-K-M/Poltergeist/actions/runs/35420036073),
+   D12 job `105835867500` ran with `BENCH_ENFORCE_A: true` forwarded to
+   the checker: **P5 4 774.887 ms median of 5 < 6 000 ms — pass**
+   (~20 % margin); P3 4 448.165 ms < 5 500 ms and P7 2 280.086
+   entries/s ≥ 1 000 also pass. The prior main run (35414902815, job
+   105821522661) showed the same enforced green at 4 646.887 ms.
+2. **Kill mid-queue → restore — MET**, now proven at the app seam: the
+   new `test/services/transfer_relaunch_test.dart` drives a real
+   `TransferQueue` + `FileTransferPersistence` through a simulated
+   kill/relaunch — journaled-queued and journaled-paused tasks restore
+   (`wasRestored`, forced queue pause), the completed task sits in
+   `history`, and the panel's Resume finishes the surviving work.
+   Engine-side replay is covered by `transfer_persistence_test.dart`'s
+   queue-integration group (crashed running → queued, paused survives,
+   mid-scan re-scan merge, completed items never resurrect). **Named
+   gap, not a criterion failure:** open item 23 — the queue is not yet
+   composed into `main.dart` (no engine protocol transfer verbs yet),
+   so a production boot has no live queue to restore until the
+   engine-host composition slice lands.
+3. **Conflict dialog, five verbs, per-direction defaults, merge
+   recursion — MET.** The §5.2 chooser renders `PendingConflict`'s
+   `availableVerbs` — four file verbs (merge excluded) and all five on
+   folders; the widget tests now assert every verb key plus submit,
+   apply-to-all scope, and Stop. Per-direction defaults ride
+   `ConflictPolicy.policyFor`'s direction matrix
+   (`conflict_policy_test.dart`: "every direction maps to exactly one
+   bucket pair", all-ask defaults, merge-in-file-field normalization).
+   Folder merge recursion is proven at the decision layer ("merge
+   recurses (stat-else-mkdir, per-file policy inside)") and end to end
+   at the queue (`transfer_conflict_test.dart`: "a folder ask parks the
+   directory and holds its children; a merge answer recurses into the
+   occupant" — new.txt lands, kept.txt survives).
+4. **10k-entry recursive delete progress + cancel, local + remote —
+   MET**, covered by the new `a 10k-entry delete tree` group in
+   `trash_delete_test.dart`: a 10 101-item tree (100 dirs × 100 files +
+   root) held mid-walk by a listing gate shows growing totals and
+   progress events with `scanComplete == false`, completes post-order
+   (root unlinks last), and cancels cleanly mid-walk leaving the queue
+   healthy — run for both the `srv1` remote endpoint and the local
+   endpoint through the injected `localFileSystem` seam.
+5. **Trash round-trip per platform — MET.** The live `gio trash` +
+   `.trashinfo` restore round-trip
+   (`trash_roundtrip_linux_test.dart`) runs and passes in CI on
+   ubuntu-latest (job `105821502762`). macOS and Windows have no
+   CI-exercisable round-trip (the channel needs a native host binding);
+   the manual QA note covering Finder Put Back, Explorer Ctrl+Z /
+   Recycle Bin, the `.deb` `libglib2.0-bin` dependency, and the
+   AppImage confirm-then-permanent fallback is recorded in the
+   native-trash dated section (2026-09-19). Channel-contract tests run
+   in the app suite; native compilation of both bindings is verified by
+   the macOS/Windows client-build legs.
+6. **Remote→remote pipe between two Docker sshds — MET**, covered by
+   the new `test/integration/transfer_sshd_test.dart`: one
+   `PooledConnectionManager` over `sshd-modern` (:2201) and
+   `sshd-legacy` (:2202) — two TOFU pins, two pools — drives a
+   101-item directory copy remote→remote through the client pipe and
+   verifies the landing by listing and byte-reading through the
+   *destination's* own SFTP channel. The test is `@Tags(['integration'])`
+   and runs in the CI SSH-integration job (`run.sh` already exports
+   `POLTERGEIST_SSHD_LEGACY`); Docker is unavailable on this host, so
+   local verification is the clean skip + analyzer — CI execution is
+   the proof.
+
+§3.12 chores at this close: STATUS swept (header + this section), no
+`TODO(pin)` markers exist, the pin still cannot bump (no Séance tag
+contains `2e6d1f1` — open item 2), and PORTS.md carries no M4 additions
+(the walker's boundary rules were reimplemented per plan — the §3.5
+walker dated section records the Séance comparison; no verbatim copy).
+The M4 mobile-invariant row (07 §5) **re-verifies clean**: pause-all +
+journal restart is a working suspend primitive (criteria 2 + 4 — queue
+pause stops admission, the journal rebuilds restored tasks, and
+per-attempt channel leases mean no task assumes a long-lived socket;
+the remote→remote pipe re-leases a pooled channel per attempt). The
+`v0.4.0` tag chore is **not run here**: M3's precedent closed untagged
+and a tag push publishes release assets — left to the supervisor/owner
+with `lkm-release` available at `~/.local/bin`.
 
 ## Open items
 

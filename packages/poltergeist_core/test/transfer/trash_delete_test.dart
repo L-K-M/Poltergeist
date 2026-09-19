@@ -848,5 +848,151 @@ void main() {
       expect(remoteFs.renameCalls, renames);
       expect(remoteFs.deleteCalls, 0);
     });
+
+    // 07 §3.5's exit criterion: a recursive delete of a 10k-entry tree
+    // shows progress and cancels cleanly on both local and remote. The
+    // fixture is 100 directories × 100 files under the root — 10 101
+    // deletable items — held mid-walk by a listing gate so the
+    // progress/cancel assertions observe a genuinely in-flight scan.
+    group('a 10k-entry delete tree', () {
+      const scaleDirectories = 100;
+      const scaleFilesPerDirectory = 100;
+      const scaleItems = 1 + scaleDirectories +
+          scaleDirectories * scaleFilesPerDirectory;
+
+      void buildTree(FakeTreeFileSystem fs, String root) {
+        for (var d = 0; d < scaleDirectories; d++) {
+          final dir = '$root/d${d.toString().padLeft(3, '0')}';
+          for (var f = 0; f < scaleFilesPerDirectory; f++) {
+            fs.addFile(
+              '$dir/f${f.toString().padLeft(4, '0')}.txt',
+              const [1],
+            );
+          }
+        }
+      }
+
+      Future<TransferTask> enqueueTreeDelete(
+        TransferQueue queue,
+        FsLocation source,
+        String root,
+      ) =>
+          queue.enqueueDelete(
+            DeleteRequest(
+              source: source,
+              rootPaths: [root],
+              disposition: DeleteDisposition.permanent,
+              confirmed: true,
+            ),
+          );
+
+      // Holds the walk partway: the listing of d050 never returns until
+      // [gate] completes, so d000–d049 have emitted (and executed) while
+      // the rest of the tree is still undiscovered.
+      Completer<void> holdMidWalk(FakeTreeFileSystem fs, String root) {
+        final gate = Completer<void>();
+        fs.listGate = (path) => path == '$root/d050' ? gate : null;
+        return gate;
+      }
+
+      void releaseWalk(FakeTreeFileSystem fs, Completer<void> gate) {
+        fs.listGate = null;
+        gate.complete();
+      }
+
+      for (final remote in [true, false]) {
+        final side = remote ? 'remote' : 'local';
+        test(
+          'reports growing progress mid-scan and completes post-order '
+          '($side)',
+          () async {
+            final queue = newQueue();
+            final fs = remote ? remoteFs : localSide;
+            final source = remote
+                ? const ServerFsLocation('srv1')
+                : const LocalFsLocation();
+            const root = '/data/tree';
+            buildTree(fs, root);
+            final gate = holdMidWalk(fs, root);
+
+            final task = await enqueueTreeDelete(queue, source, root);
+            // Depth-first post-order: d000–d049's subtrees are already
+            // deleted while the walk still sits inside d050.
+            await pumpUntil(
+              () => task.completedFiles > 0,
+              reason: 'delete dispatch never overlapped the scan',
+            );
+            expect(task.scanComplete, isFalse);
+            expect(task.totalFiles, greaterThan(0));
+            expect(task.totalFiles, lessThan(10000));
+            expect(
+              events
+                  .whereType<TransferQueueProgressEvent>()
+                  .any((e) => !e.scanComplete && e.taskCompletedFiles > 0),
+              isTrue,
+              reason: 'progress events must flow while the scan runs',
+            );
+
+            releaseWalk(fs, gate);
+            await awaitTaskDone(task);
+            expect(task.state, TransferTaskState.completed);
+            expect(task.scanComplete, isTrue);
+            expect(task.items, hasLength(scaleItems));
+            expect(task.completedFiles, 10000);
+            expect(task.completedDirectories, scaleDirectories + 1);
+            expect(fs.deleteCalls, scaleItems);
+            // Post-order end-to-end: the root itself unlinks last.
+            expect(
+              fs.calls.where((c) => c.startsWith('delete:')).last,
+              'delete:$root',
+            );
+            expect(fs.entryAt(root), isNull);
+          },
+        );
+
+        test(
+          'cancels cleanly mid-walk without orphaning the queue ($side)',
+          () async {
+            final queue = newQueue();
+            final fs = remote ? remoteFs : localSide;
+            final source = remote
+                ? const ServerFsLocation('srv1')
+                : const LocalFsLocation();
+            const root = '/data/tree';
+            buildTree(fs, root);
+            final gate = holdMidWalk(fs, root);
+
+            final task = await enqueueTreeDelete(queue, source, root);
+            await pumpUntil(
+              () => task.completedFiles > 0,
+              reason: 'delete dispatch never overlapped the scan',
+            );
+            queue.cancelTask(task.id);
+            releaseWalk(fs, gate);
+            await awaitTaskDone(task);
+
+            expect(task.state, TransferTaskState.cancelled);
+            // The tree is only partway gone: the gated half never
+            // listed, and the root outlives every descendant.
+            expect(fs.deleteCalls, lessThan(scaleItems));
+            expect(fs.entryAt(root), isNotNull);
+
+            // Clean unwind means the queue still takes work — a small
+            // follow-up delete runs to completion.
+            fs.addFile('/data/leftover.txt', const [1]);
+            final followUp = await queue.enqueueDelete(
+              DeleteRequest(
+                source: source,
+                rootPaths: const ['/data/leftover.txt'],
+                disposition: DeleteDisposition.permanent,
+                confirmed: true,
+              ),
+            );
+            await awaitTaskDone(followUp);
+            expect(followUp.state, TransferTaskState.completed);
+          },
+        );
+      }
+    });
   });
 }
