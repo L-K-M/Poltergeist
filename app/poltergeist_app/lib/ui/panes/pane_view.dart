@@ -1234,9 +1234,12 @@ class _PaneSurface extends StatelessWidget {
                 children: [
                   Text(l10n.paneEmptyFolder),
                   // §2.7's drop hint — only while a drop could actually
-                  // land: no queue seam means no target, and a busy or
-                  // inert listing refuses them anyway.
-                  if (dropDelegate != null && controller.verbsEnabled)
+                  // land: no queue seam means no target, a busy or
+                  // inert listing refuses them anyway, and mobile has
+                  // no DnD surfaces at all.
+                  if (dropDelegate != null &&
+                      controller.verbsEnabled &&
+                      _isDesktopPlatform())
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
