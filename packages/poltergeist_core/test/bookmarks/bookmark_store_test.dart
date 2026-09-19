@@ -611,6 +611,58 @@ Host web
       expect(data.keys.toSet().difference(syncedKeys), isEmpty);
       expect(data.keys.toSet().intersection(deviceLocalKeys), isEmpty);
     });
+
+    test(
+      'no local-only key nests inside the workspace or server payloads',
+      () {
+        // The top-level key audit above does not reach inside `left`,
+        // `right`, `server`, or `sync` — and M5's workspace record is
+        // exactly where a nested location could smuggle a device-local
+        // field. Walk every map key at every depth instead.
+        Set<String> allKeys(Object? node) {
+          final keys = <String>{};
+          void walk(Object? value) {
+            switch (value) {
+              case Map():
+                for (final entry in value.entries) {
+                  keys.add(entry.key as String);
+                  walk(entry.value);
+                }
+              case List():
+                value.forEach(walk);
+            }
+          }
+
+          walk(node);
+          return keys;
+        }
+
+        for (final bookmark in _allKinds()) {
+          final leaked = allKeys(
+            bookmark.toJson(),
+          ).intersection(deviceLocalKeys);
+          expect(leaked, isEmpty, reason: bookmark.id);
+        }
+
+        // And the M5 additions specifically: a workspace location is
+        // {server, path}, its server ref {serverConfigId, identity} —
+        // nothing else may ride along.
+        final workspace = _allKinds().firstWhere(
+          (bookmark) => bookmark.kind == BookmarkKind.workspace,
+        );
+        final json = workspace.toJson();
+        for (final side in const ['left', 'right']) {
+          final location = json[side] as Map<String, dynamic>;
+          for (final key in location.keys) {
+            expect(
+              {'server', 'path'},
+              contains(key),
+              reason: '$side.$key',
+            );
+          }
+        }
+      },
+    );
   });
 
   group('ordering and grouping', () {
