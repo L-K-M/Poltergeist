@@ -211,9 +211,9 @@ void main() {
   });
 
   group('EngineConfig.trashRequests', () {
-    test('a SendPort crosses the spawn into the real engine isolate', () async {
-      // The port itself must survive Isolate.spawn for the relay to work
-      // at all; the engine's normal request path proves it booted.
+    test('the engine boots with a trashRequests port configured', () async {
+      // The port must survive Isolate.spawn for the relay to work at
+      // all; the engine's normal request path proves it booted.
       final requests = ReceivePort();
       addTearDown(requests.close);
       final client = await EngineClient.spawn(

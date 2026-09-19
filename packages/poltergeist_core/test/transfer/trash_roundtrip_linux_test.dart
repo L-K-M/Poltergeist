@@ -23,7 +23,8 @@ import 'package:test/test.dart';
 /// Trash spec: the home trash plus the volume trash at the mount point
 /// of [trashedFrom] (`<topdir>/.Trash-$UID` / `<topdir>/.Trash/$UID`) —
 /// `/tmp` is tmpfs on many hosts, so the volume half is real, not a
-/// fallback.
+/// fallback. Call while [trashedFrom]'s parent still exists — the
+/// mount-point stat targets the parent directory.
 List<Directory> _trashInfoDirs(String trashedFrom) {
   final dirs = <Directory>[];
   // `UID` is a shell variable bash/zsh never export; `id -u` is reliable.
@@ -34,11 +35,17 @@ List<Directory> _trashInfoDirs(String trashedFrom) {
   dirs.add(Directory('$dataHome/Trash/info'));
   // The file's own topdir: `stat -c %m` prints the mount point, which is
   // where the spec puts the volume trash — not a guessed '/' or '/tmp'.
-  final mount = Process.runSync('stat', [
-    '-c',
-    '%m',
-    trashedFrom,
-  ]).stdout.toString().trim();
+  // The parent directory, not the file: the file may already be trashed
+  // (the teardown path) while its parent still exists.
+  final mount =
+      Process.runSync('stat', [
+            '-c',
+            '%m',
+            File(trashedFrom).parent.path,
+          ])
+          .stdout
+          .toString()
+          .trim();
   if (uid.isNotEmpty && mount.isNotEmpty) {
     final top = mount.endsWith('/') ? mount : '$mount/';
     dirs.add(Directory('$top.Trash-$uid/info'));
@@ -47,10 +54,10 @@ List<Directory> _trashInfoDirs(String trashedFrom) {
   return dirs;
 }
 
-/// Finds the .trashinfo record for [path] — Path= is percent-encoded
-/// per the spec, so decode before comparing.
-File? _findTrashInfo(String path) {
-  for (final dir in _trashInfoDirs(path)) {
+/// Finds the .trashinfo record for [path] inside [infoDirs] — Path= is
+/// percent-encoded per the spec, so decode before comparing.
+File? _findTrashInfo(String path, List<Directory> infoDirs) {
+  for (final dir in infoDirs) {
     if (!dir.existsSync()) continue;
     for (final entry in dir.listSync()) {
       if (entry is! File || !entry.path.endsWith('.trashinfo')) continue;
@@ -89,10 +96,14 @@ void main() {
     final file = File('${fixture.path}/roundtrip victim.txt')
       ..writeAsStringSync('roundtrip');
 
+    // Snapshot the candidate dirs while the file exists — after trashing
+    // (and after the fixture teardown deletes its parent) the mount
+    // point can no longer be stat'ed, so the teardown reuses this list.
+    final infoDirs = _trashInfoDirs(file.path);
     addTearDown(() async {
       // Best effort: a failed expect before the restore must not strand
       // the payload and record in the real user trash.
-      final info = _findTrashInfo(file.path);
+      final info = _findTrashInfo(file.path, infoDirs);
       if (info == null) return;
       final name = info.uri.pathSegments.last;
       final payload = File(
@@ -107,7 +118,7 @@ void main() {
 
     // The restore-listing half of the round-trip: the spec record exists
     // and points back at the origin, and the payload sits beside it.
-    final info = _findTrashInfo(file.path);
+    final info = _findTrashInfo(file.path, infoDirs);
     expect(
       info,
       isNotNull,

@@ -128,7 +128,12 @@ TrashChannelInvoker trashChannelInvokerFor(
   final replies = ReceivePort();
   try {
     requests.send(TrashInvokeRequest(replies.sendPort, method, arguments));
-    final reply = await replies.first.timeout(timeout);
+    final reply = await replies.first.timeout(
+      timeout,
+      onTimeout: () => throw TimeoutException(
+        'trash channel "$method" did not reply within $timeout',
+      ),
+    );
     if (reply is! TrashInvokeReply) {
       throw StateError('malformed trash channel reply: $reply');
     }
