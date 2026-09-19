@@ -3,6 +3,14 @@ enum LayoutStage { desktop, compact, mobile }
 enum SecondPaneIntent { shown, hidden }
 
 const _desktopBoundary = 1080.0;
+
+/// 02 §1's stage-0 threshold, exposed for layout decisions outside the
+/// pane split: below it the sidebar mounts in the overlay drawer (stage
+/// 1) and `view.toggleSidebar` opens that drawer instead of flipping
+/// the inline region's hidden intent. The pane stage math itself stays
+/// private to [allocatePanes].
+const double desktopStageBoundary = _desktopBoundary;
+
 const _mobileBoundary = 680.0;
 const _splitterExtent = 16.0;
 const _minimumPaneWidth = 240.0;

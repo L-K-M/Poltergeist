@@ -87,6 +87,7 @@ class FakeAppEngine implements AppEngine {
   Object? openFailure;
   FakeAppBrowseChannel? channel;
   final disconnectIds = <String>[];
+  final removedBookmarkIds = <String>[];
   int shutdownCalls = 0;
 
   @override
@@ -205,6 +206,11 @@ class FakeAppEngine implements AppEngine {
   @override
   Future<void> disconnectServer(String serverId) async {
     disconnectIds.add(serverId);
+  }
+
+  @override
+  Future<void> removeBookmark(String serverId) async {
+    removedBookmarkIds.add(serverId);
   }
 
   @override

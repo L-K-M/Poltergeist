@@ -8,17 +8,18 @@ import '../../services/uuid.dart';
 /// live adhoc session, prefilled from the live connection — never from
 /// the raw address string (which may have carried a stripped password).
 ///
-/// The save writes through [store], the M2 interim bookmark seam: a real
-/// [BookmarkRepository] (the file store in production, in-memory in
-/// tests) persists a promoted favorite with a fresh id, so the stored
-/// record is usable for future connects while the live adhoc session
-/// keeps its own id — 03 §3.5's serverId-migration promotion rides M5's
-/// sidebar work, not this slice. A null [store] means no persistence
-/// path is wired: the save reports through [onNoStore], which the pane
-/// answers with the honest not-yet notice (the #132 pattern) — never a
-/// fake write. A successful save hides the bar (state is keyed to the
-/// adhoc id, so parent rebuilds cannot resurrect it); a throwing store
-/// keeps it mounted with an inline error so the save stays retryable.
+/// The save writes through [store], the core [BookmarkStore] seam (the
+/// file store in production, in-memory in tests): the promoted favorite
+/// lands at the ungrouped tail through [BookmarkStore.sortKeyForInsert]
+/// — the fractional-key contract the sidebar's ordering relies on — and
+/// saves through [BookmarkStore.save] so the `updatedAt` stamp and the
+/// change emission the sidebar reloads on both land (04 §2.1). A null
+/// [store] means no persistence path is wired: the save reports through
+/// [onNoStore], which the pane answers with the honest not-yet notice
+/// (the #132 pattern) — never a fake write. A successful save hides the
+/// bar (state is keyed to the adhoc id, so parent rebuilds cannot
+/// resurrect it); a throwing store keeps it mounted with an inline
+/// error so the save stays retryable.
 class SaveFavoriteBar extends StatefulWidget {
   const SaveFavoriteBar({
     super.key,
@@ -35,7 +36,7 @@ class SaveFavoriteBar extends StatefulWidget {
   /// context instead of a form.
   final String? currentPath;
 
-  final BookmarkRepository? store;
+  final BookmarkStore? store;
 
   final VoidCallback onNoStore;
 
@@ -69,16 +70,20 @@ class _SaveFavoriteBarState extends State<SaveFavoriteBar> {
       _failed = false;
     });
     try {
-      await store.upsertAll([
+      // The ungrouped tail key comes from the store — the one call site
+      // that still minted a uuid sortKey (the #161 disclosed follow-up).
+      final sortKey = await store.sortKeyForInsert();
+      await store.save(
         _promotedFavorite(
           live: widget.bookmark,
           currentPath: widget.currentPath,
           label: _name.text.trim().isEmpty
               ? _prefill(widget.bookmark)
               : _name.text.trim(),
+          sortKey: sortKey,
           now: DateTime.now(),
         ),
-      ]);
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -184,23 +189,23 @@ String _prefill(Bookmark live) {
 
 /// Promotes the live adhoc session to a stored favorite: a fresh id
 /// (the adhoc id never enters the store), the live endpoint identity,
-/// and the captured context path. Carries no secret — bookmarks hold
-/// `secretRef`s into the vault, and the adhoc identity never had a
-/// password to copy.
+/// the captured context path, and the store-minted [sortKey]. Carries
+/// no secret — bookmarks hold `secretRef`s into the vault, and the
+/// adhoc identity never had a password to copy.
 Bookmark _promotedFavorite({
   required Bookmark live,
   required String? currentPath,
   required String label,
+  required String sortKey,
   required DateTime now,
 }) {
-  final id = uuidV4();
   return Bookmark(
-    id: id,
+    id: uuidV4(),
     kind: BookmarkKind.remotePath,
     label: label,
     server: live.server,
     remotePath: currentPath ?? live.remotePath,
-    sortKey: id,
+    sortKey: sortKey,
     createdAt: now,
     updatedAt: now,
   );

@@ -449,17 +449,9 @@
   "@connectionStateNotConnected": {
     "description": "Label of the composed server indicator while the pool holds no transport for the server and no failure is known."
   },
-  "connectionsTitle": "Connections",
-  "@connectionsTitle": {
-    "description": "Toolbar command label and page title of the Connections surface (02 §4)."
-  },
   "connectionsLoading": "Loading servers",
   "@connectionsLoading": {
     "description": "Semantics label of the Connections list's loading spinner."
-  },
-  "connectionsEmpty": "No servers yet.",
-  "@connectionsEmpty": {
-    "description": "Empty state of the Connections list: the app holds no server reference."
   },
   "connectionsLoadFailed": "Could not read the favorites file.",
   "@connectionsLoadFailed": {
@@ -484,6 +476,107 @@
         "type": "String"
       }
     }
+  },
+  "sidebarConnectionsSection": "Connections",
+  "@sidebarConnectionsSection": {
+    "description": "Header of the sidebar's fixed Connections section (02 §4): the servers the connection pool currently holds."
+  },
+  "sidebarUngroupedSection": "Favorites",
+  "@sidebarUngroupedSection": {
+    "description": "Header over the ungrouped favorites tail while named groups exist (02 §4)."
+  },
+  "sidebarEmptyFavorites": "No favorites yet. Save a location as a favorite to see it here.",
+  "@sidebarEmptyFavorites": {
+    "description": "Empty state of the sidebar's favorites list (02 §2.7's never-blank rule applied to §4)."
+  },
+  "sidebarOpen": "Open",
+  "@sidebarOpen": {
+    "description": "Favorite row context verb: open per the preferred-pane rules (02 §4)."
+  },
+  "sidebarOpenInNewTab": "Open in New Tab",
+  "@sidebarOpenInNewTab": {
+    "description": "Favorite row context verb: open in a new tab of the resolved pane (02 §4)."
+  },
+  "sidebarOpenInOtherPane": "Open in Other Pane",
+  "@sidebarOpenInOtherPane": {
+    "description": "Favorite row and Connections row context verb: open in the pane a plain click would not have used (02 §4)."
+  },
+  "sidebarRename": "Rename…",
+  "@sidebarRename": {
+    "description": "Favorite row context verb: prompt for a new label (02 §4)."
+  },
+  "sidebarRenameTitle": "Rename Favorite",
+  "@sidebarRenameTitle": {
+    "description": "Title of the sidebar rename dialog."
+  },
+  "sidebarRenameFieldLabel": "Name",
+  "@sidebarRenameFieldLabel": {
+    "description": "Label of the rename dialog's single text field."
+  },
+  "sidebarMoveToGroup": "Move to Group",
+  "@sidebarMoveToGroup": {
+    "description": "Favorite row context verb opening the group submenu (02 §4)."
+  },
+  "sidebarNoGroup": "No Group",
+  "@sidebarNoGroup": {
+    "description": "Move-to-group submenu row that unfiles the favorite."
+  },
+  "sidebarNewGroup": "New Group…",
+  "@sidebarNewGroup": {
+    "description": "Move-to-group submenu row that prompts for a group name and refiles the favorite into it (groups are member-carried — the move IS the create, 04 §2.1)."
+  },
+  "sidebarNewGroupTitle": "New Group",
+  "@sidebarNewGroupTitle": {
+    "description": "Title of the new-group name dialog."
+  },
+  "sidebarGroupFieldLabel": "Group name",
+  "@sidebarGroupFieldLabel": {
+    "description": "Label of the new-group dialog's single text field."
+  },
+  "sidebarDelete": "Delete",
+  "@sidebarDelete": {
+    "description": "Favorite row context verb: remove the favorite after confirmation (02 §4)."
+  },
+  "sidebarDeleteTitle": "Delete Favorite",
+  "@sidebarDeleteTitle": {
+    "description": "Title of the favorite-delete confirmation dialog."
+  },
+  "sidebarDeleteBody": "Delete \"{label}\" from favorites? This cannot be undone.",
+  "@sidebarDeleteBody": {
+    "description": "Body of the favorite-delete confirmation dialog.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sidebarActionFailed": "That change couldn't be saved. Try again.",
+  "@sidebarActionFailed": {
+    "description": "Transient notice when a sidebar store write (rename, regroup, delete) throws (02 §10)."
+  },
+  "sidebarDisconnect": "Disconnect",
+  "@sidebarDisconnect": {
+    "description": "Connections row context verb: drop the pool's reference for the server (02 §4)."
+  },
+  "sidebarKindWorkspace": "Workspace",
+  "@sidebarKindWorkspace": {
+    "description": "Subtitle of a workspace-kind favorite while there is no single path to show."
+  },
+  "sidebarKindSavedSync": "Saved sync",
+  "@sidebarKindSavedSync": {
+    "description": "Subtitle of a saved-sync-kind favorite while there is no single path to show."
+  },
+  "sidebarWorkspaceLater": "Opening workspace favorites isn't available yet — workspace restore arrives in a later milestone.",
+  "@sidebarWorkspaceLater": {
+    "description": "Transient notice (02 §10): a workspace-kind favorite's open targets the workspaces slice, which lands after this one — an honest answer, never a dead button."
+  },
+  "sidebarSyncLater": "Opening saved-sync favorites isn't available yet — the sync preview arrives in a later milestone.",
+  "@sidebarSyncLater": {
+    "description": "Transient notice (02 §10): a saved-sync-kind favorite's open targets the 05 sync preview, which lands after this slice."
+  },
+  "viewToggleSidebarLabel": "Show/Hide Sidebar",
+  "@viewToggleSidebarLabel": {
+    "description": "Command label: hide or show the global sidebar (view.toggleSidebar, 02 §1/§8.3/§9). At stage 1 it opens the overlay drawer instead."
   },
   "paneOpeningHome": "Opening home…",
   "@paneOpeningHome": {
@@ -881,10 +974,6 @@
   "panePathFieldHint": "/path, ~, or a name in this folder",
   "@panePathFieldHint": {
     "description": "Hint inside the pane's editable path field stating the accepted shapes: an absolute path, ~ for the home folder, or a name relative to the current folder (02 §2.1). Keep it terse — it is placeholder text, not documentation."
-  },
-  "connectionsOpenInPane": "Open in Pane",
-  "@connectionsOpenInPane": {
-    "description": "Tooltip of the Connections row action that opens the bookmark in the active pane."
   },
   "tabStripLabel": "Tabs",
   "@tabStripLabel": {

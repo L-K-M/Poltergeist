@@ -6299,6 +6299,59 @@ persistence, the M6 payload-purity and sealed-envelope contract,
 group/reorder invariants, the size cap, and the change-event split.
 Sidebar UI, the editor, and sync are deliberately not in this slice.
 
+## M5 — sidebar UI over the core BookmarkStore (2026-09-19)
+
+02 §4's global sidebar replaces the M2 interim server list, which is
+deleted outright — the sidebar and the empty-state launcher are now
+the only entry points (07 §3.6). `WorkspaceShell` mounts it inline at
+the desktop stage and as the overlay drawer below
+`desktopStageBoundary` (exposed from `pane_allocation.dart`);
+`view.toggleSidebar` flips `WorkspaceController.sidebarHidden` — a
+persisted user intent the stage-1 auto-collapse never latches —
+and opens the drawer at the narrow stage instead.
+
+The widget tree (`ui/sidebar/sidebar_view.dart`) renders named
+collapsible groups plus the ungrouped "Favorites" section over
+`SidebarController`, which drives every mutation through the core
+`BookmarkStore` seam — `save`, `remove`, `moveToGroup`, `reorder` —
+and reloads sections off `store.changes` with a generation guard so
+stale loads cannot overwrite newer state. All four bookmark kinds
+render (localFolder, remotePath, workspace, savedSync); workspace
+and savedSync opens post the honest not-yet notice per D20 rather
+than a dead button, since restore is the next slice. Open actions
+are plain, new tab, and opposite pane — via context menu or
+Ctrl/Meta/Alt modifiers — and `Bookmark.preferredPane` wins over the
+active pane for remote/local opens. Keyboard operation covers arrow
+traversal, Enter/Space activate, and Shift-F10/Menu-key context
+menus; rows take focus on pointer down so click-then-type works.
+Drag to reorder re-mints through `reorder`, drag onto a group header
+refiles through `moveToGroup`, and collapse intent persists via
+`AppPreferences.sidebarCollapsedGroups`. The Connections section
+lists only live pool rows from `ConnectionStatusController`
+(disconnect plus blocked-key review actions included), and favorite
+rows compose probe dots from the new `SidebarProbeOwner` — the
+multi-favorite `ProbeController` driver that replaced
+`probe_coordinator.dart`, subscribing before commanding, reconciling
+server-backed favorites, and purging device-local facts only on
+explicit deletion.
+
+Adoption follows through: `AppEngine.removeBookmark` lets the
+controller cascade deletes into the engine before probe cleanup,
+`PaneView`/`PaneTabsView`/`save_favorite_bar` widen to the
+`BookmarkStore` type, and `save_favorite_bar` adopts
+`sortKeyForInsert` — the #161 disclosed follow-up — so interim uuid
+sort-key mints are gone from app code. `FakeBookmarkStore` now
+implements the full store seam (`save`, `moveToGroup`, `reorder`,
+`changes`, plus a `saveFailure` knob). The deleted surface's
+coverage moved: `production_engine_wiring_test` and
+`workspace_panes_test` exercise the inline sidebar for live
+connections and remote opens, and `sidebar_view_test` /
+`sidebar_controller_test` / `sidebar_probe_owner_test` carry
+grouping, collapse persistence, menu/mutation, keyboard, live-row
+filtering, and probe-lifecycle coverage. `POLTERGEIST_CAPTURE=1`
+writes grouped, collapsed-group, and context-menu captures to
+`tasks/run3-task76/captures/`.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

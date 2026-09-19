@@ -92,7 +92,7 @@ Future<void> pumpPane(
   PaneController controller,
   PaneTabsController strip,
   WorkspaceController workspace, {
-  BookmarkRepository? bookmarks,
+  BookmarkStore? bookmarks,
 }) async {
   final node = FocusNode();
   addTearDown(node.dispose);
@@ -295,8 +295,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('saveFavorite.save')));
       await tester.pumpAndSettle();
 
-      expect(store.upserted, hasLength(1));
-      final saved = store.upserted.single;
+      expect(store.bookmarks, hasLength(1));
+      final saved = store.bookmarks.single;
       expect(saved.id.startsWith('adhoc:'), isFalse);
       expect(saved.server?.identity?.host, 'example.com');
       expect(saved.remotePath, '/srv/www');
@@ -342,7 +342,7 @@ void main() {
       addTearDown(right.dispose);
       final workspace = WorkspaceController(left: strip, right: right);
       addTearDown(workspace.dispose);
-      final store = FakeBookmarkStore()..upsertFailure = Exception('disk full');
+      final store = FakeBookmarkStore()..saveFailure = Exception('disk full');
       await pumpPane(tester, controller, strip, workspace,
           bookmarks: store);
 
@@ -350,8 +350,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // The bar stays mounted so the save remains retryable; the
-      // recorded attempt proves the write went to the store, not a stub.
-      expect(store.upserted, isEmpty);
+      // empty store proves the write went to the store, not a stub.
+      expect(store.bookmarks, isEmpty);
       expect(find.byKey(const ValueKey('saveFavorite.bar')), findsOneWidget);
       expect(find.byKey(const ValueKey('saveFavorite.error')), findsOneWidget);
     });

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
-    show BookmarkRepository, ConflictPolicy;
+    show BookmarkStore, ConflictPolicy;
 
 import 'l10n/app_localizations.dart';
 import 'services/app_transfer_queue.dart';
@@ -14,6 +14,7 @@ import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
 import 'services/engine_session.dart';
 import 'services/pane_tabs_controller.dart' show NewTabTarget;
+import 'services/probe_settings_store.dart' show ProbeSettings;
 import 'services/quit_guard.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
@@ -53,6 +54,12 @@ class PoltergeistApp extends StatefulWidget {
     this.onDownloadLimitChanged,
     this.onUploadLimitChanged,
     this.autoClearCompletedTransfers = true,
+    this.probeSettings,
+    this.initialSidebarHidden = false,
+    this.onSidebarHiddenChanged,
+    this.onSidebarHiddenSaveError,
+    this.initialSidebarCollapsedGroups = const {},
+    this.onSidebarCollapsedGroupsChanged,
   });
 
   final double initialPaneRatio;
@@ -87,9 +94,10 @@ class PoltergeistApp extends StatefulWidget {
   /// supplies it from the app-support directory.
   final SshConfigImportSetup? sshConfigImport;
 
-  /// The persisted bookmark store behind the Connections surface (03 §6's
-  /// `BookmarkStore` seam). Null leaves that command unregistered.
-  final BookmarkRepository? bookmarks;
+  /// The persisted bookmark store behind the sidebar's favorites list
+  /// (03 §6's `BookmarkStore` seam). Null unmounts the sidebar — and
+  /// with it the remote entry point — so production always wires it.
+  final BookmarkStore? bookmarks;
 
   /// The saved-workspace list behind `workspace.save` and the
   /// "Workspaces" submenu (02 §3). Null leaves those commands
@@ -139,6 +147,24 @@ class PoltergeistApp extends StatefulWidget {
 
   /// 02 §6's "auto-remove on success" setting (default on).
   final bool autoClearCompletedTransfers;
+
+  /// The device-local probe-settings seam behind the sidebar's
+  /// reachability owner (02 §4). Null leaves every favorite dot at
+  /// honest unknown — `main.dart` supplies the settings.json-backed
+  /// store.
+  final ProbeSettings? probeSettings;
+
+  /// The persisted sidebar-visibility intent and its save sinks
+  /// (02 §1; see [WorkspaceShell.initialSidebarHidden]).
+  final bool initialSidebarHidden;
+  final FutureOr<void> Function(bool hidden)? onSidebarHiddenChanged;
+  final void Function(Object error, StackTrace stackTrace)?
+  onSidebarHiddenSaveError;
+
+  /// The persisted collapsed-group keys and their save sink (02 §4's
+  /// device-local expansion state).
+  final Set<String> initialSidebarCollapsedGroups;
+  final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
@@ -305,6 +331,13 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onDownloadLimitChanged: widget.onDownloadLimitChanged,
       onUploadLimitChanged: widget.onUploadLimitChanged,
       autoClearCompletedTransfers: widget.autoClearCompletedTransfers,
+      probeSettings: widget.probeSettings,
+      initialSidebarHidden: widget.initialSidebarHidden,
+      onSidebarHiddenChanged: widget.onSidebarHiddenChanged,
+      onSidebarHiddenSaveError: widget.onSidebarHiddenSaveError,
+      initialSidebarCollapsedGroups: widget.initialSidebarCollapsedGroups,
+      onSidebarCollapsedGroupsChanged:
+          widget.onSidebarCollapsedGroupsChanged,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;

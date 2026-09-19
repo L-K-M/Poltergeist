@@ -17,6 +17,8 @@ const _activityPanelHeightKey = 'layout.activityPanelHeight';
 const _downloadLimitKey = 'transfer.downloadLimitBytesPerSecond';
 const _uploadLimitKey = 'transfer.uploadLimitBytesPerSecond';
 const _autoClearCompletedKey = 'transfer.autoClearCompleted';
+const _sidebarHiddenKey = 'layout.sidebarHidden';
+const _sidebarCollapsedGroupsKey = 'sidebar.collapsedGroups';
 
 /// The activity panel's persisted height floor/default (02 §1's
 /// persistence block: default 200 px, min 120, max half the window).
@@ -188,6 +190,41 @@ class AppPreferences {
 
   Future<void> saveAutoClearCompletedTransfers(bool value) =>
       _store.set(_autoClearCompletedKey, value);
+
+  /// The sidebar's explicit visibility intent (02 §1): persisted per the
+  /// §1 persistence list, default shown. The stage-1 auto-collapse is
+  /// recomputed from window width and never written here.
+  Future<bool> loadSidebarHidden() async {
+    try {
+      return await _store.get<bool>(_sidebarHiddenKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> saveSidebarHidden(bool hidden) =>
+      _store.set(_sidebarHiddenKey, hidden);
+
+  /// The sidebar's collapsed favorite-group keys (02 §4: collapse state
+  /// persisted device-locally, 04 §2.3). A malformed stored value decodes
+  /// to an empty set rather than failing startup — losing collapse
+  /// memory is recoverable, losing the window is not.
+  Future<Set<String>> loadSidebarCollapsedGroups() async {
+    Object? stored;
+    try {
+      stored = await _store.get<Object>(_sidebarCollapsedGroupsKey);
+    } catch (_) {
+      return const {};
+    }
+    if (stored is! List) return const {};
+    return {
+      for (final entry in stored)
+        if (entry is String) entry,
+    };
+  }
+
+  Future<void> saveSidebarCollapsedGroups(Set<String> keys) =>
+      _store.set(_sidebarCollapsedGroupsKey, List<String>.of(keys));
 
   Future<Rect?> loadWindowBounds() async {
     late final List<num?> storedValues;

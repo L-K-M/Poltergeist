@@ -134,6 +134,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'transfer.downloadLimitBytesPerSecond'",
     "'transfer.uploadLimitBytesPerSecond'",
     "'transfer.autoClearCompleted'",
+    // The sidebar's persisted keys (02 §4): the hidden intent and the
+    // collapsed-group set — settings.json keys, never rendered.
+    "'layout.sidebarHidden'",
+    "'sidebar.collapsedGroups'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // The session-state document's on-disk schema (02 §3): settings.json
@@ -348,7 +352,11 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'connectionEngine is ignored when engineSession is provided'",
     "'pane.left.listing'",
     "'pane.right.listing'",
-    "'openInPane: no bookmark for \${server.serverId}'",
+    // The sidebar region's widget key plus the open-path diagnostics —
+    // reported faults and machine data, never rendered copy.
+    "'sidebar.region'",
+    r"'sidebar.open: localFolder ${bookmark.id} has no path'",
+    r"'sidebar.connOpen: no bookmark for ${server.serverId}'",
     // The status bar's sync chip widget key — plumbing, not copy.
     "'statusbar.syncChip'",
     // The activity panel's widget keys (splitter, panel, status chips)
@@ -493,6 +501,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'selection.quickSelect'",
     "'view.filter'",
     "'view.toggleSecondPane'",
+    "'view.toggleSidebar'",
     "'view.toggleActivityPanel'",
     "'view.toggleSyncBrowsing'",
     "'tab.new'",
@@ -683,17 +692,50 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'Probe truth must be painted by ProbeStatusDot/ServerStateIndicator; '",
     "'ServerStateGlyph has no probe paint.'",
   },
-  // The Connections surface's widget keys plus the endpoint line — machine
-  // data (username@host:port) rendered beside ARB-authored copy.
-  'lib/ui/connections/connections_view.dart': {
-    "'connections-retry'",
-    r"'connection.${server.serverId}'",
-    r"'connection.review.${server.serverId}'",
-    r"'connection.open.${server.serverId}'",
+  // The sidebar's widget keys, its section-collapse key prefix, the
+  // semantics-label compositions (machine data beside ARB copy), and the
+  // endpoint line — plumbing, never authored copy.
+  'lib/ui/sidebar/sidebar_view.dart': {
+    "'sidebar.connections'",
+    r"'sidebar.connection.${server.serverId}'",
+    "'sidebar.retry'",
+    r"'sidebar.favorite.${bookmark.id}'",
+    r"'sidebar.section.${widget.sectionKey}'",
+    "'sidebar.favorite'",
+    r"'${bookmark.label}, ${appearance.label}'",
+    "'sidebar.menu.open'",
+    "'sidebar.menu.openNewTab'",
+    "'sidebar.menu.openOtherPane'",
+    "'sidebar.menu.rename'",
+    "'sidebar.menu.moveToGroup'",
+    "'sidebar.menu.delete'",
+    "'sidebar.menu.ungroup'",
+    "'sidebar.menu.newGroup'",
+    "'sidebar.renameField'",
+    "'sidebar.renameSave'",
+    "'sidebar.groupField'",
+    "'sidebar.groupSave'",
+    "'sidebar.deleteConfirm'",
+    "'sidebar.connection'",
+    r"'${server.label}, ${appearance.label}'",
+    "'sidebar.menu.connOpen'",
+    "'sidebar.menu.disconnect'",
+    r"'sidebar.menu.review.${server.serverId}'",
     r"'${server.username}@${server.host}:${server.port}'",
+    // The new-group field's empty seed — a starting value, not copy.
+    "''",
   },
-  'lib/ui/connections/connections_command.dart': {
-    "'view.connections'",
+  // The controller's ArgumentError/StateError diagnostics — programmer
+  // errors, never rendered UI copy.
+  'lib/services/sidebar_controller.dart': {
+    "'id'",
+    "'unknown bookmark'",
+    "'SidebarController used after dispose'",
+  },
+  // The probe owner's dedup key composition (serverId@host:port) —
+  // machine identity, never rendered.
+  'lib/services/sidebar_probe_owner.dart': {
+    r"'$serverId@${host.toLowerCase()}:$port'",
   },
   // Debug diagnostics only (`toString` of two immutable rows); never
   // rendered, so there is no copy to author.

@@ -4,7 +4,7 @@ import 'package:flutter/gestures.dart' show kMiddleMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
-    show BookmarkRepository, FsLocation;
+    show BookmarkStore, FsLocation;
 
 import '../../l10n/app_localizations.dart';
 import '../../services/pane_controller.dart';
@@ -96,7 +96,7 @@ class PaneTabsView extends StatelessWidget {
 
   /// The bookmark persistence seam for the "Save as favorite…" bar
   /// (02 §2.7) — see [PaneView.bookmarks].
-  final BookmarkRepository? bookmarks;
+  final BookmarkStore? bookmarks;
 
   /// The drop enqueue seam (02 §5.1, D14) — forwarded to the tab view's
   /// drop zone and the strip's tab-header targets. Null refuses every

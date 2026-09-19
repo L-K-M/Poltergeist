@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../services/pane_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import '../layout/pane_allocation.dart' show desktopStageBoundary;
 
 const kGoBackCommandId = 'go.back';
 const kGoEditPathCommandId = 'go.editPath';
@@ -16,6 +17,7 @@ const kGoToFolderCommandId = 'go.toFolder';
 const kFileGetInfoCommandId = 'file.getInfo';
 const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
+const kViewToggleSidebarCommandId = 'view.toggleSidebar';
 const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
 const kViewToggleActivityPanelCommandId = 'view.toggleActivityPanel';
 const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
@@ -41,6 +43,7 @@ List<RegisteredCommand> buildPaneCommands({
   required VoidCallback focusLeft,
   required VoidCallback focusRight,
   required VoidCallback swapFocus,
+  bool Function()? sidebarAvailable,
 }) {
   // Browsing commands resolve the active pane's ACTIVE TAB at invocation
   // time (02 §8.1) — null while the pane sits on the launcher, and every
@@ -294,6 +297,47 @@ List<RegisteredCommand> buildPaneCommands({
         menu: AppMenuId.view,
         order: 110,
         group: 2,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewToggleSidebarCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.viewToggleSidebarLabel,
+      icon: Icons.view_sidebar_outlined,
+      // ⌥⌘S on macOS, Ctrl+Alt+S elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyS, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyS, control: true, alt: true),
+        ],
+      ),
+      // Disabled while no sidebar exists (no bookmark store wired —
+      // the region is absent, not hidden).
+      enabled: sidebarAvailable ?? () => true,
+      run: (context) async {
+        // Below the stage-0 boundary the sidebar lives in the overlay
+        // drawer — the toggle opens/closes it there rather than latching
+        // the inline region's hidden intent (02 §1's stage table: the
+        // drawer stays reachable by button and shortcut).
+        if (MediaQuery.sizeOf(context).width < desktopStageBoundary) {
+          final scaffold = Scaffold.maybeOf(context);
+          if (scaffold == null || !scaffold.hasDrawer) return;
+          if (scaffold.isDrawerOpen) {
+            scaffold.closeDrawer();
+          } else {
+            scaffold.openDrawer();
+          }
+          return;
+        }
+        workspace.toggleSidebar();
+      },
+      // 02 §9's View menu: the Show/Hide Sidebar slot, before
+      // Show/Hide Second Pane.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 60,
       ),
     ),
     RegisteredCommand(

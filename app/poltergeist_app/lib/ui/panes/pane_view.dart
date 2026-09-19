@@ -132,7 +132,7 @@ class PaneView extends StatefulWidget {
   /// The bookmark persistence seam for the "Save as favorite…" bar
   /// (02 §2.7): null where no store is wired, and the bar's save then
   /// posts the honest not-yet notice instead of a fake write.
-  final BookmarkRepository? bookmarks;
+  final BookmarkStore? bookmarks;
 
   /// The drop enqueue seam (02 §5.1, D14): null leaves rows undraggable
   /// and both drop targets refusing — no queue means nowhere to land a
@@ -879,7 +879,7 @@ class _PaneSurface extends StatelessWidget {
 
   /// The bookmark persistence seam for the "Save as favorite…" bar
   /// (02 §2.7) — see [PaneView.bookmarks].
-  final BookmarkRepository? bookmarks;
+  final BookmarkStore? bookmarks;
 
   /// The drop enqueue seam (02 §5.1) — see [PaneView.dropDelegate].
   final PaneDropDelegate? dropDelegate;

@@ -105,10 +105,6 @@ class _HeldConnectEngine extends session_test.FakeAppEngine {
 }
 
 void main() {
-  final connectionsButton = find.byKey(
-    const ValueKey('command.view.connections'),
-  );
-
   late session_test.FakeAppEngine engine;
 
   Future<EngineSession?> pumpApp(
@@ -383,9 +379,9 @@ void main() {
     );
     addTearDown(session!.shutdown);
 
-    // Same store, session added: the panes bind and the Connections
-    // surface must pick the session's lanes (a stale null bridge would
-    // leave every row reading not connected).
+    // Same store, session added: the panes bind and the sidebar's
+    // Connections section must pick the session's lanes (a stale null
+    // bridge would never surface the row).
     await tester.pumpWidget(
       PoltergeistApp(
         bookmarks: store,
@@ -396,8 +392,6 @@ void main() {
     await tester.pump();
     expect(find.text('left.txt'), findsOneWidget);
 
-    await tester.tap(connectionsButton);
-    await tester.pumpAndSettle();
     engine.statesControllers.putIfAbsent(
       'srv-x',
       () => StreamController<ServerStatus>.broadcast(sync: true),
@@ -407,10 +401,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Connected'), findsOneWidget);
+    // The Connections section surfaces pool-held servers only, so the
+    // row itself is the live-truth assertion.
+    expect(
+      find.byKey(const ValueKey('sidebar.connection.srv-x')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('a remote bookmark opens in the active pane from Connections', (
+  testWidgets('a remote bookmark opens in the active pane from the sidebar', (
     tester,
   ) async {
     final now = DateTime.utc(2026, 9, 12);
@@ -441,12 +440,11 @@ void main() {
     engine.channel = remote;
 
     await pumpApp(tester, bookmarks: store);
-
-    await tester.tap(connectionsButton);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('connection.open.srv-9')));
-    // The open pops the route itself — the pane it opened is revealed.
+    // The favorite row mounts inline at desktop width; its tap opens the
+    // bookmark in the target pane (no preferred pane → the active one).
+    await tester.tap(find.byKey(const ValueKey('sidebar.favorite.srv-9')));
     await tester.pump();
     await tester.pumpAndSettle();
 
