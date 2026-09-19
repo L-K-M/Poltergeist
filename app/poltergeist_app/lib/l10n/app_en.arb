@@ -1569,6 +1569,10 @@
   "@activityCopyError": {
     "description": "Per-task row action: copies the failure text to the clipboard (02 §6)."
   },
+  "activityTaskRemoteUnavailable": "Remote transfers aren't available yet — this build moves local files only.",
+  "@activityTaskRemoteUnavailable": {
+    "description": "Failure sentence on a task naming a remote endpoint before the engine protocol grows transfer verbs (open item 23)."
+  },
   "activitySkipItem": "Skip",
   "@activitySkipItem": {
     "description": "Per-file sub-row action while the file is queued: pulls it from the task (02 §6)."

@@ -16,6 +16,7 @@ import 'services/session_state.dart';
 import 'services/session_state_store.dart';
 import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
+import 'services/transfer_queue_session.dart';
 import 'services/workspace_library.dart';
 import 'services/workspace_list_store.dart';
 
@@ -112,6 +113,19 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
 
+  // The transfer queue (03 §4, D16): one real queue over the
+  // app-support journal (03 §4.6) restores the crashed session's
+  // survivors — journaled-paused stays paused, every other non-terminal
+  // task replays queued behind the forced restore pause — and hands the
+  // workspace shell's drop delegate, the activity panel, and the quit
+  // guard their one shared seam. Remote endpoints fail honestly until
+  // the engine protocol grows transfer verbs (docs/STATUS.md item 23);
+  // local work runs for real.
+  final transferQueueSession = await startTransferQueue(
+    supportDirectoryPath: supportDirectory.path,
+    onError: errorReporter.report,
+  );
+
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
@@ -134,8 +148,7 @@ Future<void> main() async {
       ),
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
-      // No production queue seam exists yet (the engine-host transfer
-      // slice owns it) — the panel mounts with null and stays empty.
+      transferQueue: transferQueueSession?.queue,
       initialActivityPanelHeight: activityPanelHeight,
       onActivityPanelHeightChanged:
           preferences.saveActivityPanelHeight,

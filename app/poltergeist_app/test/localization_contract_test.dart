@@ -113,6 +113,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'$home/.ssh/config'",
     "'~'",
   },
+  // The composed queue's honest-absence connection seam: the refusal's
+  // `operation` label is diagnostic metadata (the exception renders
+  // `message`, which is ARB copy) — never authored UI text.
+  'lib/services/transfer_queue_session.dart': {
+    "'transfer channel'",
+  },
   'lib/services/app_preferences.dart': {
     "'layout.paneRatio'",
     "'window.left'",
