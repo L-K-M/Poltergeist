@@ -129,7 +129,17 @@ final class SidebarController extends ChangeNotifier {
     _sections = List.unmodifiable(sections);
     _load = SidebarLoad.ready;
     notifyListeners();
-    onBookmarksChanged?.call();
+    // Guarded like the other callback seams: reload() runs
+    // fire-and-forget off the changes lane, so a throwing shell
+    // callback must report here, not escape as an unhandled async
+    // error nobody awaited.
+    final changed = onBookmarksChanged;
+    if (changed == null) return;
+    try {
+      changed();
+    } on Object catch (error, stackTrace) {
+      _errors.report(error, stackTrace);
+    }
   }
 
   /// The row's local rename: a full-record [BookmarkStore.save] so the
