@@ -52,9 +52,14 @@ final class _LocalOnlyConnectionManager implements ConnectionManager {
   }) =>
       Future.error(_remoteEndpointsUnavailable());
 
+  // Stream.multi, the same mechanism PooledConnectionManager uses:
+  // every listener gets the disconnected status and a close — a
+  // Stream.value/async* stream would throw on a second listen.
   @override
-  Stream<ServerStatus> watchServer(String serverId) => Stream.value(
-    const ServerStatus(ServerConnectionState.disconnected),
+  Stream<ServerStatus> watchServer(String serverId) => Stream.multi(
+    (listener) => listener.add(
+      const ServerStatus(ServerConnectionState.disconnected),
+    ),
   );
 
   @override

@@ -118,6 +118,9 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 2));
     }
     await tester.pump();
+    if (!met()) {
+      fail('waitFor timed out after 5s');
+    }
   }
 
   setUp(() {
@@ -308,6 +311,7 @@ void main() {
         expect(closed, isTrue);
         expect(await closing, isTrue);
         expect(closeAnswer, isTrue);
+        expect(errors, isEmpty);
       });
 
       // Durability proof: a third boot replays everything the flush
