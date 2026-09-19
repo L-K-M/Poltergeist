@@ -402,11 +402,14 @@ void main() {
     await tester.pumpAndSettle();
 
     // The Connections section surfaces pool-held servers only, so the
-    // row itself is the live-truth assertion.
+    // row itself is the live-truth assertion — and the lane proves the
+    // row reads THIS session's state stream (no pane binds srv-x, so
+    // the sidebar's controller is the only possible listener).
     expect(
       find.byKey(const ValueKey('sidebar.connection.srv-x')),
       findsOneWidget,
     );
+    expect(engine.statesControllers['srv-x']!.hasListener, isTrue);
   });
 
   testWidgets('a remote bookmark opens in the active pane from the sidebar', (

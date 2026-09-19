@@ -21,6 +21,11 @@ enum SidebarLoad { idle, loading, ready, failed }
 /// [onBookmarksChanged] so the connections list and the probe owner
 /// re-derive from the same truth (one reload per write, serialized like
 /// the store's own write tail).
+///
+/// Construction performs no read: the owner must call [reload] exactly
+/// once after wiring the callbacks — a constructor-time load would fire
+/// before the caller's seams exist and would leave [load] indistinguishable
+/// from "nobody asked yet" ([SidebarLoad.idle]).
 final class SidebarController extends ChangeNotifier {
   SidebarController({
     required BookmarkStore store,
@@ -146,7 +151,17 @@ final class SidebarController extends ChangeNotifier {
   Future<bool> remove(String id) async {
     _assertLive();
     final removed = await _store.remove(id);
-    if (removed) onBookmarkRemoved?.call(id);
+    if (removed) {
+      // The store delete is already committed — a cascade throw must
+      // not surface here as a failed delete (the caller would retry,
+      // get `false`, and the cascade would never re-run), so errors
+      // report and the removal stands.
+      try {
+        onBookmarkRemoved?.call(id);
+      } on Object catch (error, stackTrace) {
+        _errors.report(error, stackTrace);
+      }
+    }
     return removed;
   }
 
@@ -179,10 +194,6 @@ final class SidebarController extends ChangeNotifier {
     String? beforeId,
     String? afterId,
   }) => moveToGroup(id, group, beforeId: beforeId, afterId: afterId);
-
-  /// The group names the "Move to Group" submenu offers (existing groups
-  /// plus the ungrouped tail the view composes itself).
-  Future<List<String>> groupNames() => _store.groupNames();
 
   void _assertLive() {
     if (_disposed) {

@@ -57,8 +57,10 @@ class SidebarView extends StatelessWidget {
 
   /// Opens [bookmark] per the resolved action; the shell owns pane
   /// resolution, tab growth, and the honest not-yet notices for the
-  /// workspace/saved-sync kinds.
-  final void Function(Bookmark bookmark, SidebarOpenAction action)
+  /// workspace/saved-sync kinds. Null renders the rows' open gestures
+  /// disabled (no workspace exists to bind panes into) — matching the
+  /// Connections rows' null-callback posture, never a silent dead tap.
+  final void Function(Bookmark bookmark, SidebarOpenAction action)?
   onOpenFavorite;
 
   /// The Connections row's "Open in other pane" — resolves the row's
@@ -247,6 +249,10 @@ class _SidebarBody extends StatelessWidget {
 /// [BookmarkStore.moveToGroup]'s neighbor math; dropping on a group
 /// header appends at its tail. A no-op adjacent drop still writes —
 /// harmless, and the store's serialized tail keeps it honest.
+///
+/// [beforeId]/[afterId] follow the store's between-neighbors convention:
+/// `beforeId` names the member the dropped bookmark lands *after*,
+/// `afterId` the member it lands *before* — not "insert before this id".
 Future<void> _dropBookmark(
   SidebarView view,
   Bookmark bookmark,
@@ -305,11 +311,17 @@ class _SectionHeaderState extends State<_SectionHeader> {
       node.previousFocus();
       return KeyEventResult.handled;
     }
+    // Repeats may drive traversal, never activation — a held key must
+    // not flicker the collapse state.
+    if (event is KeyRepeatEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space ||
-        key == LogicalKeyboardKey.arrowRight ||
-        key == LogicalKeyboardKey.arrowLeft) {
+        // The expandable pattern's directions: Right expands, Left
+        // collapses — a blind toggle on either reads inverted half
+        // the time.
+        (key == LogicalKeyboardKey.arrowRight && widget.collapsed) ||
+        (key == LogicalKeyboardKey.arrowLeft && !widget.collapsed)) {
       widget.onToggle();
       return KeyEventResult.handled;
     }
@@ -334,7 +346,12 @@ class _SectionHeaderState extends State<_SectionHeader> {
             label: widget.title,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: widget.onToggle,
+              // The pointer moves focus with it, same as the rows —
+              // arrows and Enter act on the header last touched.
+              onTap: () {
+                Focus.of(context).requestFocus();
+                widget.onToggle();
+              },
               child: Container(
                 key: ValueKey('sidebar.section.${widget.sectionKey}'),
                 height: 30,
@@ -380,7 +397,12 @@ class _SectionHeaderState extends State<_SectionHeader> {
     if (accept == null) return header;
     return DragTarget<Bookmark>(
       onWillAcceptWithDetails: (details) => details.data.id.isNotEmpty,
-      onAcceptWithDetails: (details) => accept(details.data),
+      onAcceptWithDetails: (details) {
+        // An accepted drop never fires onLeave — clear the highlight
+        // here or the header stays armed-looking until the next drag.
+        if (_hovering) setState(() => _hovering = false);
+        accept(details.data);
+      },
       onMove: (_) {
         if (!_hovering) setState(() => _hovering = true);
       },
@@ -442,7 +464,10 @@ class _FavoriteRowState extends State<_FavoriteRow> {
   }
 
   void _open([SidebarOpenAction? action]) {
-    widget.view.onOpenFavorite(widget.bookmark, action ?? _actionForTap());
+    widget.view.onOpenFavorite?.call(
+      widget.bookmark,
+      action ?? _actionForTap(),
+    );
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
@@ -462,11 +487,17 @@ class _FavoriteRowState extends State<_FavoriteRow> {
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space) {
+      // Repeats may drive traversal, never activation; a row with no
+      // open seam is non-interactive and must not swallow the event.
+      if (event is KeyRepeatEvent || widget.view.onOpenFavorite == null) {
+        return KeyEventResult.ignored;
+      }
       _open(SidebarOpenAction.plain);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.contextMenu ||
         (key == LogicalKeyboardKey.f10 && keyboard.isShiftPressed)) {
+      if (event is KeyRepeatEvent) return KeyEventResult.ignored;
       _menuController.open();
       return KeyEventResult.handled;
     }
@@ -507,8 +538,8 @@ class _FavoriteRowState extends State<_FavoriteRow> {
               // a tapped row holds focus so Enter/arrows keep working
               // from the row the user last touched.
               onTapDown: (_) => _focusNode.requestFocus(),
-              onTap: () => _open(),
-              onSecondaryTapDown: (_) => _menuController.open(),
+              onTap: view.onOpenFavorite == null ? null : () => _open(),
+              onSecondaryTapUp: (_) => _menuController.open(),
               child: ExcludeSemantics(
                 child: MenuAnchor(
                   controller: _menuController,
@@ -605,6 +636,9 @@ class _FavoriteRowState extends State<_FavoriteRow> {
             view,
             details.data,
             widget.section.name,
+            // A drop on the row's bottom half lands *after* it — under
+            // the store's between-neighbors convention that makes this
+            // row the `beforeId` (see _dropBookmark's doc).
             beforeId: edge == _DropEdge.after ? bookmark.id : null,
             afterId: edge == _DropEdge.before ? bookmark.id : null,
           ),
@@ -651,20 +685,27 @@ class _FavoriteRowState extends State<_FavoriteRow> {
   List<Widget> _menuItems(BuildContext context, AppLocalizations l10n) {
     final view = widget.view;
     final bookmark = widget.bookmark;
+    final open = view.onOpenFavorite;
     return [
       MenuItemButton(
         key: const ValueKey('sidebar.menu.open'),
-        onPressed: () => _open(SidebarOpenAction.plain),
+        onPressed: open == null
+            ? null
+            : () => _open(SidebarOpenAction.plain),
         child: Text(l10n.sidebarOpen),
       ),
       MenuItemButton(
         key: const ValueKey('sidebar.menu.openNewTab'),
-        onPressed: () => _open(SidebarOpenAction.newTab),
+        onPressed: open == null
+            ? null
+            : () => _open(SidebarOpenAction.newTab),
         child: Text(l10n.sidebarOpenInNewTab),
       ),
       MenuItemButton(
         key: const ValueKey('sidebar.menu.openOtherPane'),
-        onPressed: () => _open(SidebarOpenAction.oppositePane),
+        onPressed: open == null
+            ? null
+            : () => _open(SidebarOpenAction.oppositePane),
         child: Text(l10n.sidebarOpenInOtherPane),
       ),
       const Divider(height: 1),
@@ -689,26 +730,24 @@ class _FavoriteRowState extends State<_FavoriteRow> {
 
   List<Widget> _groupMenuItems(BuildContext context, AppLocalizations l10n) {
     final bookmark = widget.bookmark;
+    // The loaded sections already carry every group name in the store's
+    // own order — an async groupNames() read here would flash an empty
+    // submenu on every rebuild and silently swallow a failed fetch.
+    final names = [
+      for (final section in widget.view.controller.sections) ?section.name,
+    ];
     return [
       MenuItemButton(
         key: const ValueKey('sidebar.menu.ungroup'),
         onPressed: () => unawaited(_dropBookmark(widget.view, bookmark, null)),
         child: Text(l10n.sidebarNoGroup),
       ),
-      FutureBuilder<List<String>>(
-        future: widget.view.controller.groupNames(),
-        builder: (context, snapshot) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final name in snapshot.data ?? const <String>[])
-              MenuItemButton(
-                onPressed: () =>
-                    unawaited(_dropBookmark(widget.view, bookmark, name)),
-                child: Text(name),
-              ),
-          ],
+      for (final name in names)
+        MenuItemButton(
+          onPressed: () =>
+              unawaited(_dropBookmark(widget.view, bookmark, name)),
+          child: Text(name),
         ),
-      ),
       const Divider(height: 1),
       MenuItemButton(
         key: const ValueKey('sidebar.menu.newGroup'),
@@ -1047,11 +1086,17 @@ class _ConnectionRowState extends State<_ConnectionRow> {
     if (key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter ||
         key == LogicalKeyboardKey.space) {
-      widget.onOpenOtherPane?.call(widget.server);
+      // Repeats may drive traversal, never activation; a row with no
+      // open seam is non-interactive and must not swallow the event.
+      if (event is KeyRepeatEvent || widget.onOpenOtherPane == null) {
+        return KeyEventResult.ignored;
+      }
+      widget.onOpenOtherPane!(widget.server);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.contextMenu ||
         (key == LogicalKeyboardKey.f10 && keyboard.isShiftPressed)) {
+      if (event is KeyRepeatEvent) return KeyEventResult.ignored;
       _menuController.open();
       return KeyEventResult.handled;
     }
@@ -1078,6 +1123,14 @@ class _ConnectionRowState extends State<_ConnectionRow> {
       ServerConnectionState.reconnecting => true,
       _ => false,
     };
+    // The excluded subtree hides the failure detail and the blocked
+    // warning from assistive tech — fold them into the announced label.
+    final semanticLabel = [
+      server.label,
+      appearance.label,
+      if (blocked) l10n.connectionsBlockedWarning,
+      ?server.status?.detail,
+    ].join(', ');
 
     return Focus(
       focusNode: _focusNode,
@@ -1085,37 +1138,42 @@ class _ConnectionRowState extends State<_ConnectionRow> {
       child: Semantics(
         container: true,
         button: true,
-        label: '${server.label}, ${appearance.label}',
-        child: ExcludeSemantics(
-          child: MenuAnchor(
-            controller: _menuController,
-            menuChildren: [
-              if (widget.onOpenOtherPane != null)
-                MenuItemButton(
-                  key: const ValueKey('sidebar.menu.connOpen'),
-                  onPressed: () => widget.onOpenOtherPane!(server),
-                  child: Text(l10n.sidebarOpenInOtherPane),
-                ),
-              if (widget.onDisconnect != null)
-                MenuItemButton(
-                  key: const ValueKey('sidebar.menu.disconnect'),
-                  onPressed: live ? () => widget.onDisconnect!(server) : null,
-                  child: Text(l10n.sidebarDisconnect),
-                ),
-              if (blocked && widget.onReviewBlocked != null)
-                MenuItemButton(
-                  key: ValueKey('sidebar.menu.review.${server.serverId}'),
-                  onPressed: () => widget.onReviewBlocked!(server),
-                  child: Text(l10n.connectionsReviewHostKey),
-                ),
-            ],
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (_) => _focusNode.requestFocus(),
-              onTap: widget.onOpenOtherPane == null
-                  ? null
-                  : () => widget.onOpenOtherPane!(server),
-              onSecondaryTapDown: (_) => _menuController.open(),
+        label: semanticLabel,
+        // The detector must sit OUTSIDE ExcludeSemantics or its tap
+        // never reaches the semantics tree — an announced button a
+        // screen reader cannot activate (WCAG 4.1.2).
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => _focusNode.requestFocus(),
+          onTap: widget.onOpenOtherPane == null
+              ? null
+              : () => widget.onOpenOtherPane!(server),
+          onSecondaryTapUp: (_) => _menuController.open(),
+          child: ExcludeSemantics(
+            child: MenuAnchor(
+              controller: _menuController,
+              menuChildren: [
+                if (widget.onOpenOtherPane != null)
+                  MenuItemButton(
+                    key: const ValueKey('sidebar.menu.connOpen'),
+                    onPressed: () => widget.onOpenOtherPane!(server),
+                    child: Text(l10n.sidebarOpenInOtherPane),
+                  ),
+                if (widget.onDisconnect != null)
+                  MenuItemButton(
+                    key: const ValueKey('sidebar.menu.disconnect'),
+                    onPressed: live
+                        ? () => widget.onDisconnect!(server)
+                        : null,
+                    child: Text(l10n.sidebarDisconnect),
+                  ),
+                if (blocked && widget.onReviewBlocked != null)
+                  MenuItemButton(
+                    key: ValueKey('sidebar.menu.review.${server.serverId}'),
+                    onPressed: () => widget.onReviewBlocked!(server),
+                    child: Text(l10n.connectionsReviewHostKey),
+                  ),
+              ],
               child: Container(
                 padding: const EdgeInsetsDirectional.fromSTEB(10, 8, 8, 8),
                 decoration: BoxDecoration(

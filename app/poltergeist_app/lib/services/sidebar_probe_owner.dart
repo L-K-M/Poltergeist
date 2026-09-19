@@ -143,6 +143,9 @@ final class SidebarProbeOwner extends ChangeNotifier {
     if (_disposed) return;
     _configs.remove(serverId);
     _seenMarked.remove(serverId);
+    // The dedupe keys too: a re-added favorite with the same id/endpoint
+    // must re-persist markConnected — the record was just deleted.
+    _connectedMarked.removeWhere((key) => key.startsWith('$serverId@'));
     _enqueue(() async {
       try {
         await _settings.removeServer(serverId);
@@ -177,7 +180,10 @@ final class SidebarProbeOwner extends ChangeNotifier {
       _preference = ProbePreference.disabled;
     }
     final favorites = <ProbeFavorite>[];
-    for (final config in _configs.values) {
+    // A syncFavorites/noteRemoved landing mid-loop mutates _configs —
+    // iterate a snapshot so an awaited read cannot throw
+    // ConcurrentModificationError.
+    for (final config in _configs.values.toList(growable: false)) {
       ProbeServerFacts facts;
       try {
         facts = await _settings.loadServerFacts(
@@ -204,6 +210,9 @@ final class SidebarProbeOwner extends ChangeNotifier {
         ),
       );
     }
+    // A dispose landing during the awaited reads must not touch the
+    // torn-down controller.
+    if (_disposed) return;
     await _controller.update(
       favorites: favorites,
       preference: _preference,
@@ -223,6 +232,7 @@ final class SidebarProbeOwner extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _controller.removeListener(notifyListeners);
     _controller.dispose();
     super.dispose();
   }

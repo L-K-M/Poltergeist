@@ -174,8 +174,9 @@ Future<void> main() async {
       onSidebarHiddenChanged: preferences.saveSidebarHidden,
       onSidebarHiddenSaveError: errorReporter.report,
       initialSidebarCollapsedGroups: sidebarCollapsedGroups,
-      onSidebarCollapsedGroupsChanged:
-          preferences.saveSidebarCollapsedGroups,
+      onSidebarCollapsedGroupsChanged: (keys) => errorReporter.observe(
+        preferences.saveSidebarCollapsedGroups(keys),
+      ),
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

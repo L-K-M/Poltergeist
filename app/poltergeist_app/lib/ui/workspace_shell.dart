@@ -325,9 +325,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _connections?.dispose();
       _connections = _buildConnections();
     }
-    // The sidebar controller keys on the store plus the collapse seams;
-    // a swap of any of them must not leave the list reading the previous
-    // store (the same posture as [_connections]).
+    // The sidebar controller keys on the store, the engine session, and
+    // the collapse seams: a store swap must not leave the list reading
+    // the previous store (the same posture as [_connections]), and a
+    // session swap re-runs the reload that re-seeds the rebuilt probe
+    // owner's favorite set.
     if (!identical(oldWidget.bookmarks, widget.bookmarks) ||
         !identical(oldWidget.engineSession, widget.engineSession) ||
         !identical(
@@ -349,6 +351,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _probes?.dispose();
       _probes = _buildProbes();
       _probes?.forwardLifecycle(_lifecycleState);
+      // A settings-only seam swap leaves the sidebar (and its reload)
+      // untouched, so onBookmarksChanged never re-seeds this owner —
+      // sync the live favorite set here (an engine swap re-seeds via
+      // the sidebar reload too; syncFavorites is a reconcile, not an
+      // append, so the second seeding is a no-op).
+      _probes?.syncFavorites(_sidebar?.bookmarks ?? const []);
     }
     if (!identical(oldWidget.engineSession, widget.engineSession)) {
       // Carry the sidebar's live hidden intent across the workspace
@@ -666,6 +674,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           focusRight: () => _focusPane(workspace.right),
           swapFocus: () => _focusPane(workspace.swapFocus()),
           sidebarAvailable: () => _sidebar != null,
+          toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
       // `queue.togglePause` registers unconditionally (D21): its menu
       // row stays visible-disabled while no queue seam is bound.
@@ -698,9 +707,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     return Scaffold(
       key: _scaffoldKey,
       // The stage-1/2 sidebar mount (02 §1's staged collapse): an
-      // overlay drawer `view.toggleSidebar` and the toolbar button open.
-      // At stage 0 the same tree mounts inline instead — the drawer
-      // stays attached so the stage boundary is the only difference.
+      // overlay drawer `view.toggleSidebar` opens. At stage 0 the same
+      // tree mounts inline instead — the drawer stays attached so the
+      // stage boundary is the only difference.
       drawer: sidebar == null
           ? null
           : Drawer(child: SafeArea(child: _buildSidebarView())),
@@ -1099,7 +1108,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       controller: _sidebar!,
       connections: _connections,
       probes: _probes,
-      onOpenFavorite: _openFavorite,
+      onOpenFavorite: _workspace == null ? null : _openFavorite,
       // The blocked-review affordance exists only where a composition
       // can start a connect: the session's engine raises the pool's
       // changed-key review at the attempt (D18).
@@ -1137,6 +1146,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       case BookmarkKind.localFolder || BookmarkKind.remotePath:
         break;
     }
+    // Validate before mutating: a malformed favorite must not leave a
+    // pane switch and a stranded launcher tab behind the error report.
+    if (bookmark.kind == BookmarkKind.localFolder &&
+        bookmark.localPath == null) {
+      ApplicationErrorReporter().report(
+        StateError(
+          'sidebar.open: localFolder ${bookmark.id} has no path',
+        ),
+        StackTrace.current,
+      );
+      return;
+    }
     final strip = _favoriteTargetPane(workspace, bookmark, action);
     workspace.setActivePane(strip);
     // Plain clicks replace the resolved pane's active tab — a launcher
@@ -1147,19 +1168,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final controller = tab.controller;
     switch (bookmark.kind) {
       case BookmarkKind.localFolder:
-        final path = bookmark.localPath;
-        if (path == null) {
-          ApplicationErrorReporter().report(
-            StateError(
-              'sidebar.open: localFolder ${bookmark.id} has no path',
-            ),
-            StackTrace.current,
-          );
-          return;
-        }
-        unawaited(controller.openLocalAt(path));
+        unawaited(
+          controller.openLocalAt(bookmark.localPath!).catchError(
+            (Object error, StackTrace stackTrace) =>
+                ApplicationErrorReporter().report(error, stackTrace),
+          ),
+        );
       case BookmarkKind.remotePath:
-        unawaited(controller.connectRemote(bookmark));
+        unawaited(
+          controller.connectRemote(bookmark).catchError(
+            (Object error, StackTrace stackTrace) =>
+                ApplicationErrorReporter().report(error, stackTrace),
+          ),
+        );
       case BookmarkKind.workspace || BookmarkKind.savedSync:
         break; // answered above — the switch is exhaustive.
     }
@@ -1250,6 +1271,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       await widget.engineSession?.paneLanes.disconnectServer(server.serverId);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
+    }
+  }
+
+  /// The narrow-stage half of `view.toggleSidebar` (02 §1's stage
+  /// table): the shell's own Scaffold owns the overlay drawer, and a
+  /// command-run context sits ABOVE that Scaffold — `Scaffold.maybeOf`
+  /// from it would never find the drawer, so the lookup goes through
+  /// the key.
+  void _toggleSidebarDrawer() {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold == null || !scaffold.hasDrawer) return;
+    if (scaffold.isDrawerOpen) {
+      scaffold.closeDrawer();
+    } else {
+      scaffold.openDrawer();
     }
   }
 

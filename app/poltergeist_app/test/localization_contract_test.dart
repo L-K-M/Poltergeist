@@ -717,11 +717,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.groupSave'",
     "'sidebar.deleteConfirm'",
     "'sidebar.connection'",
-    r"'${server.label}, ${appearance.label}'",
     "'sidebar.menu.connOpen'",
     "'sidebar.menu.disconnect'",
     r"'sidebar.menu.review.${server.serverId}'",
     r"'${server.username}@${server.host}:${server.port}'",
+    // The connection semantic label's separator between segments.
+    "', '",
     // The new-group field's empty seed — a starting value, not copy.
     "''",
   },
@@ -736,6 +737,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // machine identity, never rendered.
   'lib/services/sidebar_probe_owner.dart': {
     r"'$serverId@${host.toLowerCase()}:$port'",
+    r"'$serverId@'",
   },
   // Debug diagnostics only (`toString` of two immutable rows); never
   // rendered, so there is no copy to author.

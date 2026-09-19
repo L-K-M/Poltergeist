@@ -169,7 +169,10 @@ void main() {
     await bridge.events.close();
   });
 
-  Future<void> pump() => Future<void>.delayed(Duration.zero);
+  /// Drains the queued settings work however it is scheduled — the
+  /// owner serializes everything on its write tail, so a single
+  /// timer turn is not guaranteed to observe a settled state.
+  Future<void> pump() => pumpEventQueue();
 
   test('subscribes before any target or activity command', () async {
     expect(bridge.events.hasListener, isTrue);
@@ -277,6 +280,28 @@ void main() {
     expect(settings.servers['b1']!.connected, isTrue);
   });
 
+  test('noteRemoved clears the connected dedupe so a re-add re-persists',
+      () async {
+    owner.syncFavorites([_remoteFavorite('b1')]);
+    owner.noteConnected('b1', host: 'sftp.example', port: 22);
+    await pump();
+
+    owner.noteRemoved('b1');
+    await pump();
+
+    // The same id/endpoint back on the list must write the connection
+    // fact again — the purge deleted the record the dedupe was guarding.
+    owner.syncFavorites([_remoteFavorite('b1')]);
+    owner.noteConnected('b1', host: 'sftp.example', port: 22);
+    await pump();
+
+    expect(
+      settings.calls.where((call) => call == 'write:b1'),
+      hasLength(2),
+    );
+    expect(settings.servers['b1']!.connected, isTrue);
+  });
+
   test('global opt-out clears targets and never runs probes', () async {
     settings.global = ProbePreference.disabled;
     owner.forwardLifecycle(AppLifecycleState.resumed);
@@ -328,5 +353,29 @@ void main() {
     await pump();
 
     expect(owner.statuses['b1'], ProbeStatus.online);
+  });
+
+  test('dispose emits the stop exactly once and is idempotent', () async {
+    owner.forwardLifecycle(AppLifecycleState.resumed);
+    owner.syncFavorites([_remoteFavorite('b1')]);
+    owner.noteVisible('b1');
+    await pump();
+    expect(bridge.targets, hasLength(1));
+    bridge.calls.clear();
+
+    owner.dispose();
+    await pump();
+
+    expect(bridge.calls, ['paused', 'targets:']);
+    owner.dispose(); // a second dispose must not re-emit
+    expect(bridge.calls, ['paused', 'targets:']);
+
+    // A snapshot landing after teardown must not throw into the
+    // detached listener.
+    bridge.events.add(
+      ProbeStatusesEvent(statuses: {'b1': ProbeStatus.online}),
+    );
+    await pump();
+    expect(bridge.calls, ['paused', 'targets:']);
   });
 }

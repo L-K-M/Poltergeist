@@ -59,7 +59,10 @@ final class FakeBookmarkStore implements BookmarkStore {
 
   @override
   Future<Bookmark?> byId(String id) async {
-    for (final bookmark in await load()) {
+    // Mutations resolve their target here — read the rows directly so a
+    // scripted gate/failure (a LOAD-path script) cannot wedge a reorder
+    // or inflate loadCalls (the file store reads its rows, not load()).
+    for (final bookmark in _sorted()) {
       if (bookmark.id == id) return bookmark;
     }
     return null;
@@ -81,8 +84,8 @@ final class FakeBookmarkStore implements BookmarkStore {
     final target = normalizeServerGroup(group);
     final members = _membersOf(target, exclude: null);
     return sortKeyBetween(
-      _neighborKey(members, target, beforeId, lead: true),
-      _neighborKey(members, target, afterId, lead: false),
+      _neighborKey(members, beforeId),
+      _neighborKey(members, afterId),
     );
   }
 
@@ -148,8 +151,8 @@ final class FakeBookmarkStore implements BookmarkStore {
       // No neighbors named: append at the target group's tail.
       beforeKey = members.isEmpty ? null : members.last.sortKey;
     } else {
-      beforeKey = _neighborKey(members, target, beforeId, lead: true);
-      afterKey = _neighborKey(members, target, afterId, lead: false);
+      beforeKey = _neighborKey(members, beforeId);
+      afterKey = _neighborKey(members, afterId);
       // One named neighbor bounds the other side by the adjacent member:
       // "after b" means between b and what follows it, not the tail.
       if (beforeId != null && afterId == null) {
@@ -220,16 +223,10 @@ final class FakeBookmarkStore implements BookmarkStore {
     return members;
   }
 
-  /// The sortKey of the member named [id] inside [group]; null for an
-  /// absent name — an absent named neighbor is ignored rather than
-  /// treated as a boundary (the file store throws; the fake mirrors its
-  /// validation by throwing too).
-  String? _neighborKey(
-    List<Bookmark> members,
-    String? group,
-    String? id, {
-    required bool lead,
-  }) {
+  /// The sortKey of the member named [id] among [members]; null when
+  /// [id] is null. A named neighbor absent from the group throws,
+  /// mirroring the file store's validation.
+  String? _neighborKey(List<Bookmark> members, String? id) {
     if (id == null) return null;
     for (final member in members) {
       if (member.id == id) return member.sortKey;

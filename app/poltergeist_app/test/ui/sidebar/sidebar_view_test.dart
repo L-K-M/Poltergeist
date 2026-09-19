@@ -74,6 +74,7 @@ void main() {
   Future<SidebarController> pumpSidebar(
     WidgetTester tester, {
     bool withConnections = false,
+    ApplicationErrorReporter? errors,
   }) async {
     tester.view.physicalSize = const Size(300, 800);
     tester.view.devicePixelRatio = 1;
@@ -83,6 +84,7 @@ void main() {
       store: store,
       onCollapsedChanged: collapsedWrites.add,
       onBookmarkRemoved: removedIds.add,
+      errors: errors,
     );
     addTearDown(controller.dispose);
     unawaited(controller.reload());
@@ -194,12 +196,29 @@ void main() {
     tester,
   ) async {
     store.bookmarks = [
-      _remote('r1'),
+      _remote('r1', sortKey: 'ma'),
+      Bookmark(
+        id: 'l1',
+        kind: BookmarkKind.localFolder,
+        label: 'Docs',
+        localPath: '/home/deploy/docs',
+        sortKey: 'mb',
+        createdAt: _now,
+        updatedAt: _now,
+      ),
       Bookmark(
         id: 'w1',
         kind: BookmarkKind.workspace,
         label: 'Daily pair',
-        sortKey: 'k1',
+        sortKey: 'mc',
+        createdAt: _now,
+        updatedAt: _now,
+      ),
+      Bookmark(
+        id: 's1',
+        kind: BookmarkKind.savedSync,
+        label: 'Mirror',
+        sortKey: 'md',
         createdAt: _now,
         updatedAt: _now,
       ),
@@ -207,9 +226,11 @@ void main() {
     await pumpSidebar(tester);
 
     await tester.tap(find.byKey(const ValueKey('sidebar.favorite.r1')));
+    await tester.tap(find.byKey(const ValueKey('sidebar.favorite.l1')));
     await tester.tap(find.byKey(const ValueKey('sidebar.favorite.w1')));
+    await tester.tap(find.byKey(const ValueKey('sidebar.favorite.s1')));
 
-    expect(opens.map((open) => open.$1.id), ['r1', 'w1']);
+    expect(opens.map((open) => open.$1.id), ['r1', 'l1', 'w1', 's1']);
     // The view forwards every kind; the honest workspace/sync notices
     // are the shell's call (02 §4).
     expect(opens.every((open) => open.$2 == SidebarOpenAction.plain), isTrue);
@@ -450,6 +471,135 @@ void main() {
     expect(
       find.textContaining('No favorites yet'),
       findsOneWidget,
+    );
+  });
+
+  testWidgets('a failed load shows the error and retry recovers', (
+    tester,
+  ) async {
+    store.failure = StateError('unreadable');
+    final reported = <Object>[];
+    await pumpSidebar(
+      tester,
+      errors: ApplicationErrorReporter(sink: (error, _) {
+        reported.add(error);
+      }),
+    );
+
+    expect(find.byKey(const ValueKey('sidebar.retry')), findsOneWidget);
+
+    store
+      ..failure = null
+      ..bookmarks = [_remote('r1')];
+    await tester.tap(find.byKey(const ValueKey('sidebar.retry')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('sidebar.favorite.r1')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a null open seam renders rows non-interactive', (
+    tester,
+  ) async {
+    store.bookmarks = [_remote('r1')];
+    tester.view.physicalSize = const Size(300, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final controller = SidebarController(store: store);
+    addTearDown(controller.dispose);
+    unawaited(controller.reload());
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            child: SidebarView(
+              controller: controller,
+              onOpenFavorite: null,
+              onOpenConnection: openedConnections.add,
+              onDisconnect: disconnected.add,
+              onReviewBlocked: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The row renders but a tap must not forward — the honest disabled
+    // posture the connection rows already had.
+    await tester.tap(find.byKey(const ValueKey('sidebar.favorite.r1')));
+    expect(opens, isEmpty);
+  });
+
+  testWidgets('a drop on a row lands on its edge side', (tester) async {
+    store.bookmarks = [
+      _remote('a', sortKey: 'ma'),
+      _remote('b', sortKey: 'mb'),
+      _remote('c', sortKey: 'mc'),
+    ];
+    final controller = await pumpSidebar(tester);
+
+    // DragTarget's details.offset is the feedback avatar's TOP-LEFT —
+    // grab the row at its top edge so the anchor (~2px) makes the
+    // pointer position and the drop offset nearly coincide.
+    Finder row(String id) => find.byKey(ValueKey('sidebar.favorite.$id'));
+
+    Future<void> dragOnto(String id, Offset target) async {
+      final gesture = await tester.startGesture(
+        tester.getTopLeft(row(id)) + const Offset(10, 2),
+      );
+      await tester.pump();
+      await gesture.moveTo(target);
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    // The controller's sections carry the store's SORT order — the raw
+    // `store.bookmarks` list keeps insertion order under an upsert.
+    List<String> order() => [
+      for (final section in controller.sections)
+        ...section.bookmarks.map((bookmark) => bookmark.id),
+    ];
+
+    // Drop on the bottom half of 'c' — the row is the `beforeId` under
+    // the store's between-neighbors convention, so 'a' lands last.
+    await dragOnto('a', tester.getCenter(row('c')) + const Offset(0, 10));
+    expect(order(), ['b', 'c', 'a']);
+
+    // Drop on the TOP half of 'b' — lands before it.
+    await dragOnto('a', tester.getCenter(row('b')) - const Offset(0, 10));
+    expect(order(), ['a', 'b', 'c']);
+  });
+
+  testWidgets('a drop on a group header refiles the bookmark', (
+    tester,
+  ) async {
+    store.bookmarks = [
+      _remote('a', group: 'work'),
+      _remote('u', sortKey: 'mb'),
+    ];
+    await pumpSidebar(tester);
+
+    final gesture = await tester.startGesture(
+      tester.getTopLeft(find.byKey(const ValueKey('sidebar.favorite.u'))) +
+          const Offset(10, 2),
+    );
+    await tester.pump();
+    await gesture.moveTo(tester.getCenter(find.text('work')));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(
+      store.bookmarks.firstWhere((bookmark) => bookmark.id == 'u').group,
+      'work',
     );
   });
 }

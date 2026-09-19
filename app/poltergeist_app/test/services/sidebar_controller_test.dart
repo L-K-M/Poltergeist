@@ -92,8 +92,8 @@ void main() {
     changed.clear();
 
     await store.save(_remote('n', group: 'new'));
-    // The reload is async off the broadcast change: give it a microtask.
-    await Future<void>.delayed(Duration.zero);
+    // Drain the change → reload pipeline however it is scheduled.
+    await pumpEventQueue();
 
     expect(changed, ['change']);
     expect(controller.sections.map((section) => section.name), ['new', null]);
@@ -199,7 +199,7 @@ void main() {
     await controller.reload();
 
     await controller.moveToGroup('a', 'work');
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
     expect(store.bookmarks.firstWhere((b) => b.id == 'a').group, 'work');
     // A drop with no named neighbors appends after the group's tail.
     expect(
@@ -225,7 +225,7 @@ void main() {
     // beforeId names the member the moved row lands after: 'c' between
     // 'a' and 'b'.
     await controller.reorder('c', beforeId: 'a');
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
     expect(
       controller.bookmarks.map((bookmark) => bookmark.id),
       ['a', 'c', 'b'],
