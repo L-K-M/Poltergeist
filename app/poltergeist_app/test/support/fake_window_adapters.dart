@@ -138,22 +138,28 @@ final class FakeWindowAdapter implements DesktopWindowAdapter {
   void emitResize() => _onResize?.call();
   void emitClose() => _onClose?.call();
 
-  // Releases are one-shot: they also clear the block flag, so a gate
-  // cannot re-park on a completed completer and the unblock intent is
-  // explicit rather than riding on stale state.
+  // Releases are one-shot and idempotent: the gate drops its completer
+  // and clears the block flag, so a second release is a no-op and the
+  // gate can never re-park on a stale completer.
   void releaseReadyToShow() {
-    _readyToShowRelease?.complete();
+    final release = _readyToShowRelease;
+    _readyToShowRelease = null;
     blockReadyToShow = false;
+    if (release != null && !release.isCompleted) release.complete();
   }
 
   void releaseEnsureInitialized() {
-    _ensureInitializedRelease?.complete();
+    final release = _ensureInitializedRelease;
+    _ensureInitializedRelease = null;
     blockEnsureInitialized = false;
+    if (release != null && !release.isCompleted) release.complete();
   }
 
   void releaseGetBounds() {
-    _getBoundsRelease?.complete();
+    final release = _getBoundsRelease;
+    _getBoundsRelease = null;
     blockGetBounds = false;
+    if (release != null && !release.isCompleted) release.complete();
   }
 
   void _recordCall(String call) {
