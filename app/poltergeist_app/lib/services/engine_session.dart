@@ -56,6 +56,12 @@ abstract interface class AppEngine implements PromptBridge, ProbeBridge, PaneEng
   @override
   Future<void> disconnectServer(String serverId);
 
+  /// The bookmark-removal cascade (03 §6's delete path): drops the pool
+  /// reference and every trust-incident record the engine holds for
+  /// [serverId]. The app calls this AFTER the store delete — the engine's
+  /// cascade is designed never to be retried once the record is gone.
+  Future<void> removeBookmark(String serverId);
+
   /// Orderly engine shutdown (03 §5: orderly, then kill).
   Future<void> shutdown();
 }
@@ -196,6 +202,10 @@ final class _EngineClientAppEngine implements AppEngine {
   @override
   Future<void> disconnectServer(String serverId) =>
       _client.disconnectServer(serverId);
+
+  @override
+  Future<void> removeBookmark(String serverId) =>
+      _client.removeBookmark(serverId);
 
   @override
   Future<void> shutdown() => _client.shutdown();
@@ -339,6 +349,12 @@ final class EngineSession {
   /// for the same reason as [connectionLanes].
   late final PaneEngineLanes paneLanes = _engine;
 
+  /// The probe bridge the sidebar's reachability owner configures (02
+  /// §4's favorites dots). Stable across rebuilds; the owner subscribes
+  /// to `probeStatuses` before any targets cross, per the #55 ordering
+  /// rule [ProbeController] already enforces.
+  late final ProbeBridge probeLanes = _engine;
+
   void _onPinPinned(HostKeyPinnedEvent event) {
     _pinTail = _pinTail
         .then((_) => _pinStore.put(event.key))
@@ -378,6 +394,13 @@ final class EngineSession {
       unawaited(shutdown());
     }
   }
+
+  /// The engine half of a favorite delete (03 §6's removeBookmark
+  /// cascade): the pool reference and every trust-incident record for
+  /// [serverId] drop. The store's delete lands first — this must never
+  /// be retried for a record that is already gone.
+  Future<void> removeBookmark(String serverId) =>
+      _engine.removeBookmark(serverId);
 
   /// Leads a blocked server to the changed-key review (D18): the review is
   /// the pool's own prompt, raised by a connect attempt through this

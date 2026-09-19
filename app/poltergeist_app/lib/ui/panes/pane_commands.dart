@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../services/pane_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
+import '../layout/pane_allocation.dart' show desktopStageBoundary;
 
 const kGoBackCommandId = 'go.back';
 const kGoEditPathCommandId = 'go.editPath';
@@ -16,6 +17,7 @@ const kGoToFolderCommandId = 'go.toFolder';
 const kFileGetInfoCommandId = 'file.getInfo';
 const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
+const kViewToggleSidebarCommandId = 'view.toggleSidebar';
 const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
 const kViewToggleActivityPanelCommandId = 'view.toggleActivityPanel';
 const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
@@ -41,6 +43,12 @@ List<RegisteredCommand> buildPaneCommands({
   required VoidCallback focusLeft,
   required VoidCallback focusRight,
   required VoidCallback swapFocus,
+  bool Function()? sidebarAvailable,
+  /// Opens/closes the stage-1/2 overlay drawer the sidebar mounts in —
+  /// the shell supplies its own Scaffold key (a command-run context sits
+  /// above that Scaffold, so `Scaffold.maybeOf` cannot find it). Null
+  /// leaves the narrow-window branch inert.
+  void Function()? toggleSidebarDrawer,
 }) {
   // Browsing commands resolve the active pane's ACTIVE TAB at invocation
   // time (02 §8.1) — null while the pane sits on the launcher, and every
@@ -294,6 +302,46 @@ List<RegisteredCommand> buildPaneCommands({
         menu: AppMenuId.view,
         order: 110,
         group: 2,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewToggleSidebarCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.viewToggleSidebarLabel,
+      icon: Icons.view_sidebar_outlined,
+      // ⌥⌘S on macOS, Ctrl+Alt+S elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyS, meta: true, alt: true),
+        ],
+        // Windows reports AltGr as Ctrl+Alt, so AltGr+S (ś/ş on Polish
+        // and Turkish layouts) also matches this activator — a known
+        // spec-level collision with 02 §8.3's table, pending a spec
+        // decision (or suppressing app-scope activators while a text
+        // field has focus).
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyS, control: true, alt: true),
+        ],
+      ),
+      // Disabled while no sidebar exists (no bookmark store wired —
+      // the region is absent, not hidden). An unwired embedding fails
+      // closed too: an enabled-but-inert entry is a fake affordance.
+      enabled: sidebarAvailable ?? () => false,
+      run: (context) async {
+        // Below the stage-0 boundary the sidebar lives in the overlay
+        // drawer — the toggle opens/closes it there rather than latching
+        // the inline region's hidden intent (02 §1's stage table).
+        if (MediaQuery.sizeOf(context).width < desktopStageBoundary) {
+          toggleSidebarDrawer?.call();
+          return;
+        }
+        workspace.toggleSidebar();
+      },
+      // 02 §9's View menu: the Show/Hide Sidebar slot, before
+      // Show/Hide Second Pane.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 60,
       ),
     ),
     RegisteredCommand(

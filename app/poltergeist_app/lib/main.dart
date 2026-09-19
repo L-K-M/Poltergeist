@@ -10,6 +10,7 @@ import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/engine_session.dart';
+import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
@@ -52,6 +53,16 @@ Future<void> main() async {
   final uploadLimit = await preferences.loadUploadLimit();
   final autoClearCompleted =
       await preferences.loadAutoClearCompletedTransfers();
+  // The sidebar's persisted chrome state (02 §1/§4): visibility intent
+  // and the device-local collapsed-group keys. The stage-1 drawer never
+  // lands here — it is recomputed from the window size per launch.
+  final sidebarHidden = await preferences.loadSidebarHidden();
+  final sidebarCollapsedGroups =
+      await preferences.loadSidebarCollapsedGroups();
+  // 02 §4's reachability probes read and write device-local facts through
+  // the same settings.json — one instance shared with the preferences
+  // facade so their serialized tails cannot interleave clobbering writes.
+  final probeSettings = ProbeSettingsStore(store: settingsStore);
   // 02 §3's launch restoration: one versioned document inside
   // settings.json. A malformed or newer-schema document must not fail
   // startup — the app boots the default session and the document stays
@@ -158,6 +169,14 @@ Future<void> main() async {
       onDownloadLimitChanged: preferences.saveDownloadLimit,
       onUploadLimitChanged: preferences.saveUploadLimit,
       autoClearCompletedTransfers: autoClearCompleted,
+      probeSettings: probeSettings,
+      initialSidebarHidden: sidebarHidden,
+      onSidebarHiddenChanged: preferences.saveSidebarHidden,
+      onSidebarHiddenSaveError: errorReporter.report,
+      initialSidebarCollapsedGroups: sidebarCollapsedGroups,
+      onSidebarCollapsedGroupsChanged: (keys) => errorReporter.observe(
+        preferences.saveSidebarCollapsedGroups(keys),
+      ),
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

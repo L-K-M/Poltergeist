@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -327,13 +328,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connectionStateNotConnected => 'Not connected';
 
   @override
-  String get connectionsTitle => 'Connections';
-
-  @override
   String get connectionsLoading => 'Loading servers';
-
-  @override
-  String get connectionsEmpty => 'No servers yet.';
 
   @override
   String get connectionsLoadFailed => 'Could not read the favorites file.';
@@ -349,6 +344,84 @@ class AppLocalizationsEn extends AppLocalizations {
   String connectionsPaneFailure(String pane, String message) {
     return 'Pane $pane failed: $message';
   }
+
+  @override
+  String get sidebarConnectionsSection => 'Connections';
+
+  @override
+  String get sidebarUngroupedSection => 'Favorites';
+
+  @override
+  String get sidebarEmptyFavorites =>
+      'No favorites yet. Save a location as a favorite to see it here.';
+
+  @override
+  String get sidebarOpen => 'Open';
+
+  @override
+  String get sidebarOpenInNewTab => 'Open in New Tab';
+
+  @override
+  String get sidebarOpenInOtherPane => 'Open in Other Pane';
+
+  @override
+  String get sidebarRename => 'Rename…';
+
+  @override
+  String get sidebarRenameTitle => 'Rename Favorite';
+
+  @override
+  String get sidebarRenameFieldLabel => 'Name';
+
+  @override
+  String get sidebarMoveToGroup => 'Move to Group';
+
+  @override
+  String get sidebarNoGroup => 'No Group';
+
+  @override
+  String get sidebarNewGroup => 'New Group…';
+
+  @override
+  String get sidebarNewGroupTitle => 'New Group';
+
+  @override
+  String get sidebarGroupFieldLabel => 'Group name';
+
+  @override
+  String get sidebarDelete => 'Delete';
+
+  @override
+  String get sidebarDeleteTitle => 'Delete Favorite';
+
+  @override
+  String sidebarDeleteBody(String label) {
+    return 'Delete \"$label\" from favorites? This cannot be undone.';
+  }
+
+  @override
+  String get sidebarActionFailed =>
+      'That change couldn\'t be saved. Try again.';
+
+  @override
+  String get sidebarDisconnect => 'Disconnect';
+
+  @override
+  String get sidebarKindWorkspace => 'Workspace';
+
+  @override
+  String get sidebarKindSavedSync => 'Saved sync';
+
+  @override
+  String get sidebarWorkspaceLater =>
+      'Opening workspace favorites isn\'t available yet — workspace restore arrives in a later milestone.';
+
+  @override
+  String get sidebarSyncLater =>
+      'Opening saved-sync favorites isn\'t available yet — the sync preview arrives in a later milestone.';
+
+  @override
+  String get viewToggleSidebarLabel => 'Show/Hide Sidebar';
 
   @override
   String get paneOpeningHome => 'Opening home…';
@@ -633,9 +706,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get panePathFieldHint => '/path, ~, or a name in this folder';
-
-  @override
-  String get connectionsOpenInPane => 'Open in Pane';
 
   @override
   String get tabStripLabel => 'Tabs';

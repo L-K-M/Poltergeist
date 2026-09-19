@@ -88,6 +88,25 @@ class WorkspaceController extends ChangeNotifier {
   void toggleActivityPanel() =>
       setActivityPanelHidden(!_activityPanelHidden);
 
+  /// `view.toggleSidebar`'s user intent (02 §1): the global sidebar is
+  /// default-shown; only the explicit toggle writes this flag — the
+  /// stage-1 auto-collapse recomputes per window width and never latches
+  /// it (a user who hid the region keeps it hidden on regrow, and vice
+  /// versa).
+  bool _sidebarHidden = false;
+
+  /// Whether the user intent hides the sidebar. Written only through
+  /// [setSidebarHidden] so every flip notifies.
+  bool get sidebarHidden => _sidebarHidden;
+
+  void setSidebarHidden(bool hidden) {
+    if (hidden == _sidebarHidden) return;
+    _sidebarHidden = hidden;
+    notifyListeners();
+  }
+
+  void toggleSidebar() => setSidebarHidden(!_sidebarHidden);
+
   /// Whether pane B is on screen: not user-hidden and not layout-hidden.
   bool get secondPaneShown => !_secondPaneHidden && _secondPaneLayoutShown;
 

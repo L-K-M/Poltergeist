@@ -634,23 +634,11 @@ abstract class AppLocalizations {
   /// **'Not connected'**
   String get connectionStateNotConnected;
 
-  /// Toolbar command label and page title of the Connections surface (02 §4).
-  ///
-  /// In en, this message translates to:
-  /// **'Connections'**
-  String get connectionsTitle;
-
   /// Semantics label of the Connections list's loading spinner.
   ///
   /// In en, this message translates to:
   /// **'Loading servers'**
   String get connectionsLoading;
-
-  /// Empty state of the Connections list: the app holds no server reference.
-  ///
-  /// In en, this message translates to:
-  /// **'No servers yet.'**
-  String get connectionsEmpty;
 
   /// Inline error when the bookmark store cannot be read for the Connections list.
   ///
@@ -675,6 +663,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Pane {pane} failed: {message}'**
   String connectionsPaneFailure(String pane, String message);
+
+  /// Header of the sidebar's fixed Connections section (02 §4): the servers the connection pool currently holds.
+  ///
+  /// In en, this message translates to:
+  /// **'Connections'**
+  String get sidebarConnectionsSection;
+
+  /// Header over the ungrouped favorites tail while named groups exist (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get sidebarUngroupedSection;
+
+  /// Empty state of the sidebar's favorites list (02 §2.7's never-blank rule applied to §4).
+  ///
+  /// In en, this message translates to:
+  /// **'No favorites yet. Save a location as a favorite to see it here.'**
+  String get sidebarEmptyFavorites;
+
+  /// Favorite row context verb: open per the preferred-pane rules (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get sidebarOpen;
+
+  /// Favorite row context verb: open in a new tab of the resolved pane (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Open in New Tab'**
+  String get sidebarOpenInNewTab;
+
+  /// Favorite row and Connections row context verb: open in the pane a plain click would not have used (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Open in Other Pane'**
+  String get sidebarOpenInOtherPane;
+
+  /// Favorite row context verb: prompt for a new label (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Rename…'**
+  String get sidebarRename;
+
+  /// Title of the sidebar rename dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename Favorite'**
+  String get sidebarRenameTitle;
+
+  /// Label of the rename dialog's single text field.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get sidebarRenameFieldLabel;
+
+  /// Favorite row context verb opening the group submenu (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Move to Group'**
+  String get sidebarMoveToGroup;
+
+  /// Move-to-group submenu row that unfiles the favorite.
+  ///
+  /// In en, this message translates to:
+  /// **'No Group'**
+  String get sidebarNoGroup;
+
+  /// Move-to-group submenu row that prompts for a group name and refiles the favorite into it (groups are member-carried — the move IS the create, 04 §2.1).
+  ///
+  /// In en, this message translates to:
+  /// **'New Group…'**
+  String get sidebarNewGroup;
+
+  /// Title of the new-group name dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'New Group'**
+  String get sidebarNewGroupTitle;
+
+  /// Label of the new-group dialog's single text field.
+  ///
+  /// In en, this message translates to:
+  /// **'Group name'**
+  String get sidebarGroupFieldLabel;
+
+  /// Favorite row context verb: remove the favorite after confirmation (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get sidebarDelete;
+
+  /// Title of the favorite-delete confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Favorite'**
+  String get sidebarDeleteTitle;
+
+  /// Body of the favorite-delete confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{label}\" from favorites? This cannot be undone.'**
+  String sidebarDeleteBody(String label);
+
+  /// Transient notice when a sidebar store write (rename, regroup, delete) throws (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'That change couldn\'t be saved. Try again.'**
+  String get sidebarActionFailed;
+
+  /// Connections row context verb: drop the pool's reference for the server (02 §4).
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnect'**
+  String get sidebarDisconnect;
+
+  /// Subtitle of a workspace-kind favorite while there is no single path to show.
+  ///
+  /// In en, this message translates to:
+  /// **'Workspace'**
+  String get sidebarKindWorkspace;
+
+  /// Subtitle of a saved-sync-kind favorite while there is no single path to show.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved sync'**
+  String get sidebarKindSavedSync;
+
+  /// Transient notice (02 §10): a workspace-kind favorite's open targets the workspaces slice, which lands after this one — an honest answer, never a dead button.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening workspace favorites isn\'t available yet — workspace restore arrives in a later milestone.'**
+  String get sidebarWorkspaceLater;
+
+  /// Transient notice (02 §10): a saved-sync-kind favorite's open targets the 05 sync preview, which lands after this slice.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening saved-sync favorites isn\'t available yet — the sync preview arrives in a later milestone.'**
+  String get sidebarSyncLater;
+
+  /// Command label: hide or show the global sidebar (view.toggleSidebar, 02 §1/§8.3/§9). At stage 1 it opens the overlay drawer instead.
+  ///
+  /// In en, this message translates to:
+  /// **'Show/Hide Sidebar'**
+  String get viewToggleSidebarLabel;
 
   /// State shown while the initial local home channel opens.
   ///
@@ -1130,12 +1262,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'/path, ~, or a name in this folder'**
   String get panePathFieldHint;
-
-  /// Tooltip of the Connections row action that opens the bookmark in the active pane.
-  ///
-  /// In en, this message translates to:
-  /// **'Open in Pane'**
-  String get connectionsOpenInPane;
 
   /// Accessible label of a pane's tab strip container (02 §3).
   ///

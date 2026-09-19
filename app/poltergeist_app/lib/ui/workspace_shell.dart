@@ -5,6 +5,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/activity_panel_controller.dart';
+import '../services/app_lifecycle_forwarder.dart';
 import '../services/app_preferences.dart' show minActivityPanelHeight;
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
@@ -15,10 +16,13 @@ import '../services/engine_session.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
 import '../services/pane_tabs_controller.dart';
+import '../services/probe_settings_store.dart';
 import '../services/quit_guard.dart';
 import '../services/registered_command.dart';
 import '../services/session_persistence.dart';
 import '../services/session_state.dart';
+import '../services/sidebar_controller.dart';
+import '../services/sidebar_probe_owner.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
@@ -27,7 +31,6 @@ import 'activity/activity_commands.dart';
 import 'activity/activity_format.dart';
 import 'activity/activity_panel.dart';
 import 'adaptive_shell.dart';
-import 'connections/connections_command.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'menus/app_menu_host.dart';
@@ -35,14 +38,21 @@ import 'panes/pane_commands.dart';
 import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
+import 'sidebar/sidebar_view.dart';
 import 'workspace/workspace_commands.dart';
 
-/// The production two-pane shell (02 §1, foundation slice): toolbar over
-/// the registered commands (D21), the pane pair in the M1 adaptive shell
-/// with its persisted splitter ratio, and the status bar. The M2 interim
-/// Connections surface stays (M5 owns its removal) and becomes the remote
-/// entry point for panes — each row opens its bookmark in the active pane.
-/// The M2 debug demo surface is retired: the panes supersede its flow.
+/// The inline sidebar's width (02 §1: default 240, min 200, max 320 —
+/// the sidebar↔panes splitter and its persisted width land with the
+/// layout-splitter slice; a fixed default keeps this slice honest).
+const _sidebarWidth = 240.0;
+
+/// The production two-pane shell (02 §1): toolbar over the registered
+/// commands (D21), the global sidebar of 02 §4 inline at stage 0 and in
+/// the overlay drawer below it, the pane pair in the M1 adaptive shell
+/// with its persisted splitter ratio, and the status bar. The M2
+/// interim Connections surface is gone — the sidebar's fixed
+/// Connections section and the favorites list are the remote entry
+/// points, each row opening in the pane 02 §4's rules resolve.
 class WorkspaceShell extends StatefulWidget {
   const WorkspaceShell({
     super.key,
@@ -70,6 +80,12 @@ class WorkspaceShell extends StatefulWidget {
     this.onDownloadLimitChanged,
     this.onUploadLimitChanged,
     this.autoClearCompletedTransfers = true,
+    this.probeSettings,
+    this.initialSidebarHidden = false,
+    this.onSidebarHiddenChanged,
+    this.onSidebarHiddenSaveError,
+    this.initialSidebarCollapsedGroups = const {},
+    this.onSidebarCollapsedGroupsChanged,
   });
 
   final double initialPaneRatio;
@@ -112,13 +128,14 @@ class WorkspaceShell extends StatefulWidget {
   /// unregistered (tests and alternate boot paths stay opted out).
   final SshConfigImportSetup? sshConfigImport;
 
-  /// The persisted bookmark store the Connections surface lists (03 §6's
-  /// `BookmarkStore` seam). Null leaves that command unregistered.
+  /// The persisted bookmark store behind the sidebar's favorites and
+  /// Connections sections (03 §6's `BookmarkStore` seam). Null unmounts
+  /// the sidebar entirely — there is no remote entry point without it.
   ///
   /// Callers must pass a stable instance across rebuilds: the shell keys
-  /// its controller lifecycle on seam identity, so a fresh wrapper per
-  /// rebuild would churn watches and drop the loaded list.
-  final BookmarkRepository? bookmarks;
+  /// its controller lifecycles on seam identity, so a fresh wrapper per
+  /// rebuild would churn watches and drop the loaded lists.
+  final BookmarkStore? bookmarks;
 
   /// The saved-workspace list behind `workspace.save` and the
   /// "Workspaces" submenu (02 §3, M3 slice). Null leaves those commands
@@ -180,6 +197,29 @@ class WorkspaceShell extends StatefulWidget {
   /// 02 §6's "auto-remove on success" setting (default on).
   final bool autoClearCompletedTransfers;
 
+  /// The device-local probe-settings seam behind the sidebar's
+  /// reachability owner (02 §4): supplies the per-favorite facts the
+  /// probe policy reads and writes. Null leaves every server-backed
+  /// favorite at honest `unknown` — no probe wiring at all (tests,
+  /// alternate boot paths). Same identity-stability contract as
+  /// [bookmarks].
+  final ProbeSettings? probeSettings;
+
+  /// The persisted sidebar-visibility intent (02 §1's persistence
+  /// list): only an explicit `view.toggleSidebar` on the desktop stage
+  /// writes it — the stage-1 drawer collapse recomputes from window
+  /// width and never lands here.
+  final bool initialSidebarHidden;
+  final FutureOr<void> Function(bool hidden)? onSidebarHiddenChanged;
+  final void Function(Object error, StackTrace stackTrace)?
+  onSidebarHiddenSaveError;
+
+  /// The persisted collapsed-group keys the sidebar re-opens with
+  /// (02 §4: collapse state is device-local, 04 §2.3) and their save
+  /// sink — null leaves collapse memory in-process.
+  final Set<String> initialSidebarCollapsedGroups;
+  final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -188,9 +228,28 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   bool _commandSessionActive = false;
 
   /// 03 §6's app-wide `ConnectionStatus`: one per window root, owned here so
-  /// its watches die with the shell. M5's sidebar composition consumes the
-  /// same instance instead of a second watcher.
+  /// its watches die with the shell. The sidebar's Connections section and
+  /// the favorite badges' live-truth half both consume this instance (02 §4:
+  /// pool state, never probe state, on the Connections rows).
   ConnectionStatusController? _connections;
+
+  /// 02 §4's sidebar controllers: the favorites sections plus collapse and
+  /// store-routed mutations ([_sidebar]), and the reachability owner behind
+  /// the favorite badge dots ([_probes]). Both rebuild on seam swaps like
+  /// [_connections].
+  SidebarController? _sidebar;
+  SidebarProbeOwner? _probes;
+
+  /// The lifecycle forwarder feeding [_probes] (02 §4's foreground
+  /// gating): owned by the shell so probe activity dies with the window.
+  /// The engine session gets its own forwarding in the app composition —
+  /// this lane serves the probe owner only.
+  AppLifecycleForwarder? _lifecycleForwarder;
+  AppLifecycleState? _lifecycleState;
+
+  /// The shell's Scaffold: `view.toggleSidebar` opens its drawer below
+  /// the stage-0 boundary (02 §1's stage-1 collapse).
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// The pane pair and active pane (03 §6's WorkspaceController, foundation
   /// slice) plus the per-pane listing focus nodes (02 §8.2). Rebuilt when
@@ -238,6 +297,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           _workspace?.setActivityPanelHidden(false),
     );
     _connections = _buildConnections();
+    _sidebar = _buildSidebar();
+    _probes = _buildProbes();
+    _attachLifecycle();
     _buildWorkspace();
     widget.workspaces?.addListener(_onWorkspacesChanged);
     widget.quitGuard?.bindQueue(_quitGuardQueue);
@@ -263,7 +325,44 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _connections?.dispose();
       _connections = _buildConnections();
     }
+    // The sidebar controller keys on the store, the engine session, and
+    // the collapse seams: a store swap must not leave the list reading
+    // the previous store (the same posture as [_connections]), and a
+    // session swap re-runs the reload that re-seeds the rebuilt probe
+    // owner's favorite set.
+    if (!identical(oldWidget.bookmarks, widget.bookmarks) ||
+        !identical(oldWidget.engineSession, widget.engineSession) ||
+        !identical(
+          oldWidget.initialSidebarCollapsedGroups,
+          widget.initialSidebarCollapsedGroups,
+        ) ||
+        !identical(
+          oldWidget.onSidebarCollapsedGroupsChanged,
+          widget.onSidebarCollapsedGroupsChanged,
+        )) {
+      _sidebar?.dispose();
+      _sidebar = _buildSidebar();
+    }
+    // The probe owner keys on the engine's bridge and the settings seam.
+    // A rebuilt owner re-hears the last lifecycle state so probes do not
+    // silently resume while the app sits backgrounded.
+    if (!identical(oldWidget.engineSession, widget.engineSession) ||
+        !identical(oldWidget.probeSettings, widget.probeSettings)) {
+      _probes?.dispose();
+      _probes = _buildProbes();
+      _probes?.forwardLifecycle(_lifecycleState);
+      // A settings-only seam swap leaves the sidebar (and its reload)
+      // untouched, so onBookmarksChanged never re-seeds this owner —
+      // sync the live favorite set here (an engine swap re-seeds via
+      // the sidebar reload too; syncFavorites is a reconcile, not an
+      // append, so the second seeding is a no-op).
+      _probes?.syncFavorites(_sidebar?.bookmarks ?? const []);
+    }
     if (!identical(oldWidget.engineSession, widget.engineSession)) {
+      // Carry the sidebar's live hidden intent across the workspace
+      // rebuild: the flag lives on the workspace, so a session swap
+      // would otherwise silently re-show a sidebar the user hid.
+      _sidebarHiddenCarry = _workspace?.sidebarHidden;
       _workspace?.dispose();
       _workspace = null;
       _buildWorkspace();
@@ -306,6 +405,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void dispose() {
     widget.workspaces?.removeListener(_onWorkspacesChanged);
     widget.quitGuard?.unbindQueue(_quitGuardQueue);
+    _lifecycleForwarder?.detach();
+    _probes?.dispose();
+    _sidebar?.dispose();
     _activity.dispose();
     _activitySplitterFocus.dispose();
     _connections?.dispose();
@@ -325,16 +427,108 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final bookmarks = widget.bookmarks;
     if (bookmarks == null) return null;
 
-    return ConnectionStatusController(
+    final controller = ConnectionStatusController(
       bookmarks: bookmarks,
       bridge: widget.engineSession?.connectionLanes ?? widget.connectionEngine,
     );
+    // A `connected` status is the device-local fact that makes a
+    // sync-origin favorite probe-eligible (02 §4) — forward every one
+    // the pool reports; the owner dedupes per (id, endpoint).
+    controller.addListener(_onConnectionsChanged);
+    unawaited(controller.loadServers());
+    return controller;
+  }
+
+  SidebarController? _buildSidebar() {
+    final store = widget.bookmarks;
+    if (store == null) return null;
+    final sidebar = SidebarController(
+      store: store,
+      initiallyCollapsed: widget.initialSidebarCollapsedGroups,
+      onCollapsedChanged: widget.onSidebarCollapsedGroupsChanged,
+      onBookmarksChanged: _onSidebarBookmarksChanged,
+      onBookmarkRemoved: _forwardBookmarkRemoval,
+    );
+    unawaited(sidebar.reload());
+    return sidebar;
+  }
+
+  SidebarProbeOwner? _buildProbes() {
+    final bridge = widget.engineSession?.probeLanes;
+    final settings = widget.probeSettings;
+    if (bridge == null || settings == null) return null;
+    return SidebarProbeOwner(bridge: bridge, settings: settings);
+  }
+
+  /// 02 §4's foreground gating: probes pause in background and resume on
+  /// return. The engine session gets the same state through the app
+  /// composition's own listener — this lane feeds only [_probes].
+  void _attachLifecycle() {
+    _lifecycleForwarder = AppLifecycleForwarder(
+      onState: (state) {
+        _lifecycleState = state;
+        _probes?.forwardLifecycle(state);
+      },
+    )..attach();
+  }
+
+  /// One store truth feeding both sidebar surfaces (02 §4): a local
+  /// mutation reloads the connections list (a deleted favorite leaves
+  /// the pool rows) and re-syncs the probe set with the store's sections.
+  void _onSidebarBookmarksChanged() {
+    unawaited(_connections?.loadServers());
+    _probes?.syncFavorites(_sidebar?.bookmarks ?? const []);
+  }
+
+  /// The favorite-delete cascade after the store remove landed (03 §6's
+  /// ordering: the record is gone first — the engine cascade is designed
+  /// never to be retried). The probe owner drops its device-local record
+  /// in the same breath.
+  void _forwardBookmarkRemoval(String serverId) {
+    _probes?.noteRemoved(serverId);
+    final session = widget.engineSession;
+    if (session == null) return;
+    unawaited(
+      session.removeBookmark(serverId).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        ApplicationErrorReporter().report(error, stackTrace);
+      }),
+    );
+  }
+
+  /// Forwards every `connected` pool state to the probe owner (02 §4's
+  /// opt-in rule for sync-origin favorites — a successful connect from
+  /// this device is the only fact that enables their probing).
+  void _onConnectionsChanged() {
+    final probes = _probes;
+    if (probes == null) return;
+    for (final server in _connections?.servers ?? const <ConnectionServer>[]) {
+      if (server.status?.state == ServerConnectionState.connected) {
+        probes.noteConnected(
+          server.serverId,
+          host: server.host,
+          port: server.port,
+        );
+      }
+    }
   }
 
   /// Whether the launch session document was already consumed: it seeds
   /// exactly one workspace build — an engine-session rebind later must
   /// not replay launch state over the session the user has since built.
   bool _sessionRestoreConsumed = false;
+
+  /// The sidebar's live hidden intent, stashed across a workspace rebuild
+  /// (the flag lives on the workspace; a session swap must not silently
+  /// re-show a sidebar the user hid). Consumed by the next
+  /// [_buildWorkspace].
+  bool? _sidebarHiddenCarry;
+
+  /// Last reported sidebar-hidden state — a flip edge is what persists,
+  /// so unrelated workspace notifies must not re-run the save.
+  bool _sidebarWasHidden = false;
 
   void _buildWorkspace() {
     final lanes = widget.engineSession?.paneLanes;
@@ -409,6 +603,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (_activity.tasks.any((task) => !task.isTerminal)) {
       workspace.setActivityPanelHidden(false);
     }
+    // The sidebar's persisted visibility intent (02 §1): seeded once
+    // from launch state, carried live across a workspace rebuild — and
+    // seeded BEFORE the change listener attaches, like the pane flags,
+    // so the seed notify can never masquerade as a user toggle.
+    workspace.setSidebarHidden(
+      _sidebarHiddenCarry ?? widget.initialSidebarHidden,
+    );
+    _sidebarHiddenCarry = null;
     // The change listener attaches only after the initial state
     // settles: a launch-time visibility flip is restoration, not a
     // user-driven hide edge — the synchronous notify inside
@@ -417,6 +619,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // settled state, never a hardcoded shown.
     workspace.addListener(_onWorkspaceChanged);
     _secondPaneWasShown = workspace.secondPaneShown;
+    _sidebarWasHidden = workspace.sidebarHidden;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final left = _leftFocus;
       final right = _rightFocus;
@@ -447,32 +650,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final colors = Theme.of(context).colorScheme;
 
     final sshConfigImport = widget.sshConfigImport;
-    final connections = _connections;
-    final session = widget.engineSession;
     final workspace = _workspace;
+    final sidebar = _sidebar;
     final leftFocus = _leftFocus;
     final rightFocus = _rightFocus;
 
     final commands = <RegisteredCommand>[
-      if (connections != null)
-        buildConnectionsCommand(
-          controller: connections,
-          enabled: () => !_commandSessionActive,
-          // The blocked-review affordance exists only where a composition
-          // can start a connect: the session's engine raises the pool's
-          // changed-key review at the attempt (D18).
-          onReviewBlocked: session == null
-              ? null
-              : (server) => unawaited(
-                  session.reviewBlockedHostKey(server.serverId),
-                ),
-          // The pane entry point (07 §3.4's M3 window: the interim list
-          // stays until M5): opening binds the ACTIVE pane to the row's
-          // bookmark path.
-          onOpenInPane: session == null || workspace == null
-              ? null
-              : (server) => unawaited(_openBookmarkInActivePane(server)),
-        ),
       if (sshConfigImport != null)
         buildSshConfigImportCommand(
           setup: sshConfigImport,
@@ -490,6 +673,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           focusLeft: () => _focusPane(workspace.left),
           focusRight: () => _focusPane(workspace.right),
           swapFocus: () => _focusPane(workspace.swapFocus()),
+          sidebarAvailable: () => _sidebar != null,
+          toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
       // `queue.togglePause` registers unconditionally (D21): its menu
       // row stays visible-disabled while no queue seam is bound.
@@ -520,6 +705,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     ]);
 
     return Scaffold(
+      key: _scaffoldKey,
+      // The stage-1/2 sidebar mount (02 §1's staged collapse): an
+      // overlay drawer `view.toggleSidebar` opens. At stage 0 the same
+      // tree mounts inline instead — the drawer stays attached so the
+      // stage boundary is the only difference.
+      drawer: sidebar == null
+          ? null
+          : Drawer(child: SafeArea(child: _buildSidebarView())),
       body: SafeArea(
         child: CommandChordScope(
           commands: commands,
@@ -550,44 +743,77 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                     ? const SizedBox.shrink()
                     : ListenableBuilder(
                         listenable: workspace,
-                        builder: (context, _) => AdaptiveShell(
-                          initialPaneRatio: widget.initialPaneRatio,
-                          secondPaneIntent: workspace.secondPaneHidden
-                              ? SecondPaneIntent.hidden
-                              : SecondPaneIntent.shown,
-                          onSecondPaneVisibilityChanged:
-                              workspace.setSecondPaneLayoutShown,
-                          onPaneRatioChanged: widget.onPaneRatioChanged,
-                          onPaneRatioSaveError: widget.onPaneRatioSaveError,
-                          resizeLabel: strings.resizePanes,
-                          formatRatio: (ratio) =>
-                              strings.paneRatioPercent((ratio * 100).round()),
-                          primary: PaneTabsView(
-                            tabs: workspace.left,
-                            workspace: workspace,
-                            focusNode: leftFocus,
-                            onSwapFocus: () => _focusPane(workspace.right),
-                            onCancelRecovery: () => _cancelPaneRecovery(
-                              workspace,
-                              workspace.left.activeTabController,
-                            ),
-                            bookmarks: widget.bookmarks,
-                            dropDelegate: dropDelegate,
-                          ),
-                          secondary: rightFocus == null
-                              ? const SizedBox.shrink()
-                              : PaneTabsView(
-                                  tabs: workspace.right,
+                        builder: (context, _) => Row(
+                          children: [
+                            // The stage-0 inline sidebar (02 §1/§4):
+                            // mounted at desktop width unless the user
+                            // hid the region — below the boundary the
+                            // Scaffold's drawer carries the same tree.
+                            if (sidebar != null &&
+                                !workspace.sidebarHidden &&
+                                MediaQuery.sizeOf(context).width >=
+                                    desktopStageBoundary) ...[
+                              SizedBox(
+                                key: const ValueKey('sidebar.region'),
+                                width: _sidebarWidth,
+                                child: _buildSidebarView(),
+                              ),
+                              VerticalDivider(
+                                width: 1,
+                                color: colors.outlineVariant,
+                              ),
+                            ],
+                            Expanded(
+                              child: AdaptiveShell(
+                                initialPaneRatio: widget.initialPaneRatio,
+                                secondPaneIntent:
+                                    workspace.secondPaneHidden
+                                        ? SecondPaneIntent.hidden
+                                        : SecondPaneIntent.shown,
+                                onSecondPaneVisibilityChanged:
+                                    workspace.setSecondPaneLayoutShown,
+                                onPaneRatioChanged:
+                                    widget.onPaneRatioChanged,
+                                onPaneRatioSaveError:
+                                    widget.onPaneRatioSaveError,
+                                resizeLabel: strings.resizePanes,
+                                formatRatio: (ratio) =>
+                                    strings.paneRatioPercent(
+                                      (ratio * 100).round(),
+                                    ),
+                                primary: PaneTabsView(
+                                  tabs: workspace.left,
                                   workspace: workspace,
-                                  focusNode: rightFocus,
-                                  onSwapFocus: () => _focusPane(workspace.left),
+                                  focusNode: leftFocus,
+                                  onSwapFocus: () =>
+                                      _focusPane(workspace.right),
                                   onCancelRecovery: () => _cancelPaneRecovery(
                                     workspace,
-                                    workspace.right.activeTabController,
+                                    workspace.left.activeTabController,
                                   ),
                                   bookmarks: widget.bookmarks,
                                   dropDelegate: dropDelegate,
                                 ),
+                                secondary: rightFocus == null
+                                    ? const SizedBox.shrink()
+                                    : PaneTabsView(
+                                        tabs: workspace.right,
+                                        workspace: workspace,
+                                        focusNode: rightFocus,
+                                        onSwapFocus: () =>
+                                            _focusPane(workspace.left),
+                                        onCancelRecovery: () =>
+                                            _cancelPaneRecovery(
+                                              workspace,
+                                              workspace
+                                                  .right.activeTabController,
+                                            ),
+                                        bookmarks: widget.bookmarks,
+                                        dropDelegate: dropDelegate,
+                                      ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
               ),
@@ -738,6 +964,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void _onWorkspaceChanged() {
     final workspace = _workspace;
     if (workspace == null) return;
+    _persistSidebarHiddenIfChanged(workspace);
     final shown = workspace.secondPaneShown;
     final becameHidden = _secondPaneWasShown && !shown;
     _secondPaneWasShown = shown;
@@ -747,6 +974,31 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final primary = FocusManager.instance.primaryFocus;
     if (primary == null || _focusInsideDisappearingPanes(primary)) {
       left.requestFocus();
+    }
+  }
+
+  /// Persists the sidebar's explicit visibility intent on the flip edge
+  /// (02 §1's persistence list: user toggles only — the stage-1 drawer
+  /// collapse never lands here). The same once-at-the-boundary posture
+  /// as the activity panel's height save.
+  void _persistSidebarHiddenIfChanged(WorkspaceController workspace) {
+    final hidden = workspace.sidebarHidden;
+    if (hidden == _sidebarWasHidden) return;
+    _sidebarWasHidden = hidden;
+    final save = widget.onSidebarHiddenChanged;
+    if (save == null) return;
+    final report = widget.onSidebarHiddenSaveError;
+    try {
+      final result = save(hidden);
+      if (result is Future<void>) {
+        unawaited(
+          result.catchError((Object error, StackTrace stackTrace) {
+            report?.call(error, stackTrace);
+          }),
+        );
+      }
+    } on Object catch (error, stackTrace) {
+      report?.call(error, stackTrace);
     }
   }
 
@@ -846,39 +1098,205 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
   }
 
-  /// Resolves the row's bookmark and binds the active pane to it. The
-  /// pane's own connect flow owns prompts and errors; failures surface in
-  /// the pane, not here.
-  Future<void> _openBookmarkInActivePane(ConnectionServer server) async {
+  /// The sidebar surface shared by the inline region (stage 0) and the
+  /// overlay drawer (stage 1/2): one tree, two mounts — a favorite open
+  /// inside the drawer resolves the panes the same way an inline click
+  /// does.
+  Widget _buildSidebarView() {
+    final session = widget.engineSession;
+    return SidebarView(
+      controller: _sidebar!,
+      connections: _connections,
+      probes: _probes,
+      onOpenFavorite: _workspace == null ? null : _openFavorite,
+      // The blocked-review affordance exists only where a composition
+      // can start a connect: the session's engine raises the pool's
+      // changed-key review at the attempt (D18).
+      onOpenConnection: session == null || _workspace == null
+          ? null
+          : (server) => unawaited(_openConnectionInOtherPane(server)),
+      onDisconnect: session == null
+          ? null
+          : (server) => unawaited(_disconnectServer(server)),
+      onReviewBlocked: session == null
+          ? null
+          : (server) =>
+              unawaited(session.reviewBlockedHostKey(server.serverId)),
+    );
+  }
+
+  /// A favorite activation resolved against the panes (02 §4):
+  /// localFolder and remotePath bind the resolved pane's tab per the
+  /// modifier vocabulary (plain = preferred-pane rules, ⌘/Ctrl = new
+  /// tab in the plain-click pane, ⌥/Alt = the pane a plain click would
+  /// not have used). The workspace and saved-sync kinds answer with the
+  /// honest not-yet notice — their open verbs land with the workspaces
+  /// slice and the 05 sync preview — never a dead row.
+  void _openFavorite(Bookmark bookmark, SidebarOpenAction action) {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final l10n = AppLocalizations.of(context);
+    switch (bookmark.kind) {
+      case BookmarkKind.workspace:
+        _showSidebarNotice(l10n.sidebarWorkspaceLater);
+        return;
+      case BookmarkKind.savedSync:
+        _showSidebarNotice(l10n.sidebarSyncLater);
+        return;
+      case BookmarkKind.localFolder || BookmarkKind.remotePath:
+        break;
+    }
+    // Validate before mutating: a malformed favorite must not leave a
+    // pane switch and a stranded launcher tab behind the error report.
+    if (bookmark.kind == BookmarkKind.localFolder &&
+        bookmark.localPath == null) {
+      ApplicationErrorReporter().report(
+        StateError(
+          'sidebar.open: localFolder ${bookmark.id} has no path',
+        ),
+        StackTrace.current,
+      );
+      return;
+    }
+    final strip = _favoriteTargetPane(workspace, bookmark, action);
+    workspace.setActivePane(strip);
+    // Plain clicks replace the resolved pane's active tab — a launcher
+    // pane grows one for the open; the new-tab action always grows one.
+    final tab = action == SidebarOpenAction.newTab || strip.activeTab == null
+        ? strip.newTab(target: NewTabTarget.launcher)
+        : strip.activeTab!;
+    final controller = tab.controller;
+    switch (bookmark.kind) {
+      case BookmarkKind.localFolder:
+        unawaited(
+          controller.openLocalAt(bookmark.localPath!).catchError(
+            (Object error, StackTrace stackTrace) =>
+                ApplicationErrorReporter().report(error, stackTrace),
+          ),
+        );
+      case BookmarkKind.remotePath:
+        unawaited(
+          controller.connectRemote(bookmark).catchError(
+            (Object error, StackTrace stackTrace) =>
+                ApplicationErrorReporter().report(error, stackTrace),
+          ),
+        );
+      case BookmarkKind.workspace || BookmarkKind.savedSync:
+        break; // answered above — the switch is exhaustive.
+    }
+  }
+
+  /// The pane a favorite open lands on (02 §4): `preferredPane` picks
+  /// the plain-click side (`either` = the active pane); the ⌥/Alt
+  /// action flips to the other side of that same resolution.
+  PaneTabsController _favoriteTargetPane(
+    WorkspaceController workspace,
+    Bookmark bookmark,
+    SidebarOpenAction action,
+  ) {
+    final plain = switch (bookmark.preferredPane) {
+      PreferredPane.left => workspace.left,
+      PreferredPane.right => workspace.right,
+      PreferredPane.either => workspace.activePane,
+    };
+    final target = action == SidebarOpenAction.oppositePane
+        ? (identical(plain, workspace.left) ? workspace.right : workspace.left)
+        : plain;
+    return _shownPane(workspace, target);
+  }
+
+  /// 02 §4's unhide rule applied to a resolved target: a user-hidden
+  /// pane B un-hides for the open (its preserved tab state intact); a
+  /// stage-2 layout-hidden pane B cannot show at all, so the open falls
+  /// to the visible pane instead.
+  PaneTabsController _shownPane(
+    WorkspaceController workspace,
+    PaneTabsController target,
+  ) {
+    if (!identical(target, workspace.right) || workspace.secondPaneShown) {
+      return target;
+    }
+    if (workspace.secondPaneHidden) {
+      workspace.setSecondPaneHidden(false);
+      if (workspace.secondPaneShown) return workspace.right;
+    }
+    return workspace.left;
+  }
+
+  /// The Connections row's "Open in other pane" (02 §4): resolves the
+  /// row's bookmark and binds the pane opposite the active one — the
+  /// same unhide/stage-2 fallback rules as a favorite's modifier click.
+  Future<void> _openConnectionInOtherPane(ConnectionServer server) async {
     final store = widget.bookmarks;
     if (store == null) return;
     try {
-      final bookmarks = await store.load();
+      final bookmark = await store.byId(server.serverId);
       if (!mounted) return;
       // Re-resolve after the await: a session swap may have disposed the
       // captured workspace while the store read was in flight (09 §3.1's
       // recheck idiom — `mounted` alone does not cover it).
-      final pane = _workspace?.activePane;
-      if (pane == null) return;
-      for (final bookmark in bookmarks) {
-        if (bookmark.id == server.serverId) {
-          // The row binds the pane's ACTIVE tab — a launcher pane grows
-          // a tab for it rather than silently opening behind the strip.
-          final tab =
-              pane.activeTab ?? pane.newTab(target: NewTabTarget.launcher);
-          await tab.controller.connectRemote(bookmark);
-          return;
-        }
+      final workspace = _workspace;
+      if (workspace == null) return;
+      if (bookmark == null) {
+        // The row outlived its backing bookmark (deleted between render
+        // and tap) — a silent dead tap would read as a broken button.
+        ApplicationErrorReporter().report(
+          StateError(
+            'sidebar.connOpen: no bookmark for ${server.serverId}',
+          ),
+          StackTrace.current,
+        );
+        return;
       }
-      // The row outlived its backing bookmark (deleted between render
-      // and tap) — a silent dead tap would read as a broken button.
-      ApplicationErrorReporter().report(
-        StateError('openInPane: no bookmark for ${server.serverId}'),
-        StackTrace.current,
+      final strip = _shownPane(
+        workspace,
+        identical(workspace.activePane, workspace.left)
+            ? workspace.right
+            : workspace.left,
       );
+      workspace.setActivePane(strip);
+      final tab =
+          strip.activeTab ?? strip.newTab(target: NewTabTarget.launcher);
+      await tab.controller.connectRemote(bookmark);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
     }
+  }
+
+  /// The Connections row's Disconnect (02 §4): drops the pool's
+  /// reference for the server through the pane lanes — the same seam a
+  /// pane's recovery banner cancels through.
+  Future<void> _disconnectServer(ConnectionServer server) async {
+    try {
+      await widget.engineSession?.paneLanes.disconnectServer(server.serverId);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+    }
+  }
+
+  /// The narrow-stage half of `view.toggleSidebar` (02 §1's stage
+  /// table): the shell's own Scaffold owns the overlay drawer, and a
+  /// command-run context sits ABOVE that Scaffold — `Scaffold.maybeOf`
+  /// from it would never find the drawer, so the lookup goes through
+  /// the key.
+  void _toggleSidebarDrawer() {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold == null || !scaffold.hasDrawer) return;
+    if (scaffold.isDrawerOpen) {
+      scaffold.closeDrawer();
+    } else {
+      scaffold.openDrawer();
+    }
+  }
+
+  /// 02 §10's transient notice for the deferred open verbs — a SnackBar
+  /// on the shell's messenger, informational like the pane's notice
+  /// strip (the strip lives inside a pane; a workspace/saved-sync row
+  /// opens no pane to strip into).
+  void _showSidebarNotice(String message) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   /// Runs one registered command. Escaping failures are reported — the

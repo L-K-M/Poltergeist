@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/app.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
-import 'package:poltergeist_app/ui/connections/connections_command.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../services/engine_session_test.dart' as session_test;
@@ -43,11 +43,7 @@ session_test.FakeAppEngine engineWithTwoLocalPanes() =>
       ]);
 
 void main() {
-  final connectionsButton = find.byKey(
-    const ValueKey('command.$kConnectionsCommandId'),
-  );
-
-  testWidgets('Connections surface consumes the production engine', (
+  testWidgets('Sidebar connections consume the production engine', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1180, 760);
@@ -87,10 +83,8 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(connectionsButton);
-    await tester.pumpAndSettle();
-
-    // The row renders live truth from the engine's lanes.
+    // The sidebar mounts inline at desktop width; its Connections
+    // section listens to the engine's state lanes directly.
     expect(engine.statesControllers['b1']!.hasListener, isTrue);
 
     // Live blocked truth from the engine's lane.
@@ -103,10 +97,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Host key changed.'), findsOneWidget);
 
-    // The blocked review affordance is reachable from the production
-    // surface (previously null: no composition could start a connect).
+    // The blocked review affordance is reachable through the row's
+    // context menu (previously null: no composition could start a
+    // connect).
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.connection.b1')),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
     expect(
-      find.byKey(const ValueKey('connection.review.b1')),
+      find.byKey(const ValueKey('sidebar.menu.review.b1')),
       findsOneWidget,
     );
   });
@@ -158,8 +158,6 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(connectionsButton);
-    await tester.pumpAndSettle();
     // The row must read blocked before its review affordance renders.
     engine.statesControllers.putIfAbsent(
       'b1',
@@ -169,7 +167,12 @@ void main() {
       const ServerStatus(ServerConnectionState.blocked),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('connection.review.b1')));
+    await tester.tap(
+      find.byKey(const ValueKey('sidebar.connection.b1')),
+      buttons: kSecondaryButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sidebar.menu.review.b1')));
     // Not pumpAndSettle: the review connect leaves the row `connecting`
     // (its glyph is an indeterminate spinner) while the changed-key
     // dialog awaits the user, so frames never stop being scheduled.
