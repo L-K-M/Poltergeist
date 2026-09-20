@@ -1,4 +1,5 @@
 @Tags(['integration'])
+@Timeout(Duration(minutes: 3))
 library;
 
 import 'dart:convert';
@@ -49,7 +50,7 @@ final class _MemoryCredentials implements SyncCredentialStore {
   Future<void> deleteToken() async => token = null;
   @override
   Future<void> writeVaultKey(List<int> vaultKey) async =>
-      this.vaultKey = vaultKey;
+      this.vaultKey = List.of(vaultKey);
 }
 
 /// The durable enrollment-state seam, in memory.
@@ -248,7 +249,8 @@ void main() {
   }
 
   String freshUser(String prefix) =>
-      '$prefix-${DateTime.now().microsecondsSinceEpoch}';
+      '$prefix-${DateTime.now().microsecondsSinceEpoch}-'
+      '${secureRandomBytes(8).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
 
   test(
     'create, edit, and delete converge through the real server; a winning '

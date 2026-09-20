@@ -6766,8 +6766,10 @@ seal through the real `RecordCodec`, no shim was ever written and
 none exists to delete or migrate.
 
 §3.12 chores at this close: STATUS swept (header, this section, item
-25); PORTS.md needed no update (the M6 validator entry is accurate,
-no new ports this audit); the pin CAN now bump — `v0.9.1` contains
+25); PORTS.md needed no update for app-facing ports (the M6
+validator entry is accurate; the only new binding is the CI-only
+loopback 127.0.0.1:8799 published by the `sync_integration` job);
+the pin CAN now bump — `v0.9.1` contains
 `2e6d1f1` — deferred per the audit task's non-goals into item 25; no
 `TODO(pin)` markers; the §5 M6 mobile invariant **re-verifies clean**
 — sync enrollment and the record store are pure core Dart with no
