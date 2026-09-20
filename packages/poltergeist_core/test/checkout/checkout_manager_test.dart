@@ -1001,6 +1001,45 @@ void main() {
       },
     );
 
+    test('two mismatched waiters coalesce onto one serialized flight',
+        () async {
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+      await manager.localFile(record).writeAsString('v1');
+      final gate1 = Completer<void>();
+      final gate2 = Completer<void>();
+      var useSecondGate = false;
+      s1.uploadGate = (_) => useSecondGate ? gate2 : gate1;
+      final casSave = manager.uploadLocalCopy(record);
+      await pumpUntil(
+        () => s1.uploadCalls > 0,
+        reason: 'first upload never reached the gate',
+      );
+
+      // Both overwrite saves sleep on the CAS flight; when it lands,
+      // the second waiter must find the first waiter's flight in the
+      // map — never fork a duplicate upload of the same record.
+      final waitA = manager.uploadLocalCopy(
+        record,
+        overwriteRemoteChanges: true,
+      );
+      final waitB = manager.uploadLocalCopy(
+        record,
+        overwriteRemoteChanges: true,
+      );
+      useSecondGate = true;
+      gate1.complete();
+      expect(await casSave, isTrue);
+      await pumpUntil(
+        () => s1.uploadCalls > 1,
+        reason: 'serialized upload never reached the second gate',
+      );
+      gate2.complete();
+      expect(await waitA, isTrue);
+      expect(await waitB, isTrue);
+      expect(s1.uploadCalls, 2);
+    });
+
     test('continuous sibling noise cannot starve reconciliation', () async {
       final throttled = newManager(
         watchDebounce: const Duration(milliseconds: 80),

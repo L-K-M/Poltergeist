@@ -368,8 +368,8 @@ final class CheckoutManager {
     ManagedRemoteFile copy, {
     bool overwriteRemoteChanges = false,
   }) async {
-    final inFlight = _uploadFlights[copy.id];
-    if (inFlight != null) {
+    var inFlight = _uploadFlights[copy.id];
+    while (inFlight != null) {
       // Never coalesce saves with different conflict semantics: an
       // overwrite riding a CAS flight would be silently blocked, and
       // the reverse would drop the CAS the caller asked for.
@@ -377,6 +377,10 @@ final class CheckoutManager {
         return inFlight;
       }
       await inFlight.catchError((_) => false);
+      // A new flight may have started while this waiter slept — the
+      // loop re-checks so two mismatched waiters never race duplicate
+      // uploads of the same record.
+      inFlight = _uploadFlights[copy.id];
     }
     final future = _upload(copy, overwriteRemoteChanges);
     _uploadFlights[copy.id] = future;
