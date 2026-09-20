@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:test/test.dart';
 
@@ -358,7 +359,17 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       }
       // A mid-transfer deletion hook may have removed the source —
       // surface the typed error a real adapter produces, not a null-check.
-      return entryAt(path) ?? (throw _notFound('download', path));
+      final entry = entryAt(path) ?? (throw _notFound('download', path));
+      if (!computeHash) return entry;
+      return RemoteFileEntry(
+        path: entry.path,
+        name: entry.name,
+        type: entry.type,
+        size: entry.size,
+        modifiedAt: entry.modifiedAt,
+        mode: entry.mode,
+        contentSha256: sha256.convert(bytes).toString(),
+      );
     } finally {
       activeDownloads--;
     }
@@ -391,9 +402,9 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       final existing = entryAt(path);
       if (existing != null && !overwrite) throw _conflict('upload', path);
       if (overwrite && expectedTarget != null && existing != null) {
-        final sameSize = expectedTarget.size == existing.size;
-        final sameMtime = expectedTarget.modifiedAt == existing.modifiedAt;
-        if (!sameSize || !sameMtime) throw _conflict('upload', path);
+        if (!_matchesExpected(path, existing, expectedTarget)) {
+          throw _conflict('upload', path);
+        }
       }
       await uploadGate?.call(path)?.future;
       final collected = BytesBuilder(copy: false);
@@ -433,8 +444,7 @@ class FakeTreeFileSystem implements RemoteFileSystem {
       if (overwrite &&
           expectedTarget != null &&
           atCommit != null &&
-          (expectedTarget.size != atCommit.size ||
-              expectedTarget.modifiedAt != atCommit.modifiedAt)) {
+          !_matchesExpected(path, atCommit, expectedTarget)) {
         throw _conflict('upload', path);
       }
       addFile(path, collected.toBytes());
@@ -443,6 +453,26 @@ class FakeTreeFileSystem implements RemoteFileSystem {
     } finally {
       activeUploads--;
     }
+  }
+
+  /// The expected-target verdict, faithful to the pinned adapter's
+  /// `_matchesExpectedTarget`: metadata first, then — when the caller
+  /// supplied `contentSha256` — a full remote-content hash compare (the
+  /// D7 authority; a same-size/same-mtime tamper must still conflict).
+  bool _matchesExpected(
+    String path,
+    RemoteFileEntry existing,
+    RemoteFileEntry expected,
+  ) {
+    if (expected.size != existing.size ||
+        expected.modifiedAt != existing.modifiedAt) {
+      return false;
+    }
+    final digest = expected.contentSha256;
+    if (digest == null) return true;
+    final bytes = fileBytes[path];
+    if (bytes == null) return false;
+    return sha256.convert(bytes).toString() == digest;
   }
 
   @override

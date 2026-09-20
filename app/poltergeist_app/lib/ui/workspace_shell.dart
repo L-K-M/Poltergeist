@@ -10,6 +10,7 @@ import '../services/app_preferences.dart' show minActivityPanelHeight;
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
 import '../services/bookmark_backup_service.dart';
+import '../services/checkout_session.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
@@ -75,6 +76,7 @@ class WorkspaceShell extends StatefulWidget {
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
+    this.checkoutSession,
     this.quitGuard,
     this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
@@ -173,6 +175,15 @@ class WorkspaceShell extends StatefulWidget {
   /// transfer slice; the panel's verbs stay reachable-but-disabled, and
   /// `queue.togglePause` still registers (D21).
   final AppTransferQueue? transferQueue;
+
+  /// The managed-checkout session (06 §3, M7) — the seam the future
+  /// editor surfaces (built-in editor, external-editor saves, the
+  /// §3.7 recovered-edit review) will consume. Nothing renders it yet;
+  /// the shell carries it so those surfaces bind the same instance
+  /// without re-plumbing composition. Null leaves checkout verbs
+  /// unwired (queue-less boots compose no session). Same
+  /// identity-stability contract as [bookmarks].
+  final CheckoutSession? checkoutSession;
 
   /// 07 §3.5's quit gate: the shell binds its live [transferQueue]
   /// lookup onto the guard so the intercepted close can warn and flush

@@ -187,8 +187,25 @@ export 'src/fs/local_fs_safety.dart'
         ensureSafeLocalDirectory,
         replaceLocalFile,
         restoreOrphanedLocalBackups,
+        restrictLocalPathPermissions,
         validateLocalName,
-        validatePathComponent;
+        validatePathComponent,
+        windowsReservedName;
+export 'src/checkout/managed_remote_file.dart'
+    show
+        ManagedRemoteFile,
+        copyRemoteEntry,
+        remoteFileEntryFromJson,
+        remoteFileEntryToJson,
+        sameRemoteSnapshot;
+export 'src/checkout/managed_remote_file_store.dart'
+    show
+        ManagedRemoteFileStore,
+        RecoveredCheckout,
+        streamedFileSha256;
+export 'src/checkout/managed_checkout_spec.dart'
+    show ManagedCheckoutDirection, ManagedCheckoutSpec;
+export 'src/checkout/checkout_manager.dart' show CheckoutManager;
 export 'src/transfer/bandwidth_limiter.dart'
     show BandwidthLimiter, maxTransferChunkBytes;
 export 'src/transfer/conflict_policy.dart'
@@ -220,6 +237,7 @@ export 'src/transfer/recursive_walker.dart'
         WalkRootFailedEvent;
 export 'src/transfer/transfer_queue.dart'
     show
+        ManagedCheckoutQueue,
         TransferQueue,
         TransferQueueConflictEvent,
         TransferQueueEvent,

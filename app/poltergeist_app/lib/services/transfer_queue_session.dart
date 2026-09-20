@@ -90,14 +90,27 @@ final class _LocalOnlyConnectionManager implements ConnectionManager {
 ///  pane drops    activity panel    quit guard flush    history tab
 /// ```
 final class TransferQueueSession {
-  TransferQueueSession._(this._queue);
+  TransferQueueSession._(this._queue, this._connections);
 
   final TransferQueue _queue;
+  final ConnectionManager _connections;
 
   /// The app-facing seam handed to `PoltergeistApp.transferQueue` —
   /// widgets and producers name [AppTransferQueue], never the concrete
   /// queue (D16).
   late final AppTransferQueue queue = TransferQueueAdapter(_queue);
+
+  /// The concrete queue for sibling core-service composition — the
+  /// managed-checkout session's `ManagedCheckoutQueue` seam consumes it
+  /// so checkout bytes ride this same journal and activity stream.
+  /// UI code always goes through [queue], never this.
+  TransferQueue get concreteQueue => _queue;
+
+  /// The connection seam the queue was built over — shared with the
+  /// checkout session so both answer remote access identically (typed
+  /// `unsupported` until the engine protocol carries transfer verbs —
+  /// docs/STATUS.md item 23).
+  ConnectionManager get connections => _connections;
 
   /// Cancels the queue's live tasks and shuts the journal down behind
   /// its writer chain. Production never calls this — the quit guard's
@@ -133,8 +146,9 @@ Future<TransferQueueSession?> startTransferQueue({
     return null;
   }
   try {
+    const connections = _LocalOnlyConnectionManager();
     final queue = TransferQueue(
-      connections: const _LocalOnlyConnectionManager(),
+      connections: connections,
       persistence: persistence,
     );
     // 03 §4.6's boot restore: journaled-paused tasks stay paused,
@@ -142,7 +156,7 @@ Future<TransferQueueSession?> startTransferQueue({
     // forced queue-level pause parks all of them behind the activity
     // panel's restored banner.
     await queue.restore();
-    return TransferQueueSession._(queue);
+    return TransferQueueSession._(queue, connections);
   } on Object catch (error, stackTrace) {
     errors.report(error, stackTrace);
     // The queue was never handed out — its store must not leak open.

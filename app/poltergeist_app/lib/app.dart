@@ -1,4 +1,4 @@
-import 'dart:async' show FutureOr;
+import 'dart:async' show FutureOr, unawaited;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'package:poltergeist_core/poltergeist_core.dart'
 import 'l10n/app_localizations.dart';
 import 'services/app_transfer_queue.dart';
 import 'services/bookmark_backup_service.dart';
+import 'services/checkout_session.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
@@ -46,6 +47,7 @@ class PoltergeistApp extends StatefulWidget {
     this.connectionEngine,
     this.engineSession,
     this.transferQueue,
+    this.checkoutSession,
     this.quitGuard,
     this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
@@ -128,6 +130,13 @@ class PoltergeistApp extends StatefulWidget {
   /// until the engine-host transfer slice binds one — the panel mounts
   /// empty chrome rather than simulating activity.
   final AppTransferQueue? transferQueue;
+
+  /// The managed-checkout session (06 §3, M7): the future editor UI's
+  /// service seam — durable store, watch/reconcile, and the explicit
+  /// upload-on-save verb routed through the composed queue. Its resume
+  /// reconcile rides this app's lifecycle listener. Null leaves the
+  /// checkout surface absent (queue-less boots compose no session).
+  final CheckoutSession? checkoutSession;
 
   /// 07 §3.5's quit gate: consulted by the intercepted window close and
   /// by `onExitRequested` (the macOS/OS quit path), so quitting with
@@ -232,12 +241,30 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
     final session = widget.engineSession;
     final persistence = widget.sessionPersistence;
     final quitGuard = widget.quitGuard;
-    if (session == null && persistence == null && quitGuard == null) {
+    final checkouts = widget.checkoutSession;
+    if (session == null &&
+        persistence == null &&
+        quitGuard == null &&
+        checkouts == null) {
       return;
     }
     _lifecycleListener = AppLifecycleListener(
-      onStateChange:
-          session?.forwardLifecycle ?? (_) {},
+      onStateChange: (state) {
+        session?.forwardLifecycle(state);
+        // 06 §3.3's reconcile-on-resume: every foreground transition
+        // rehashes the managed checkouts and repairs degraded
+        // snapshots — the designed fallback when a watcher missed
+        // events while the app sat backgrounded.
+        if (state == AppLifecycleState.resumed && checkouts != null) {
+          unawaited(
+            checkouts.reconcileOnResume().catchError((Object error) {
+              FlutterError.reportError(
+                FlutterErrorDetails(exception: error),
+              );
+            }),
+          );
+        }
+      },
       // The framework awaits this future before exiting — the only exit
       // hook with a wait semantic, so the pending mirror writes flush
       // before the process is allowed to die. The session's shutdown
@@ -328,6 +355,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       connectionEngine: widget.connectionEngine,
       engineSession: widget.engineSession,
       transferQueue: widget.transferQueue,
+      checkoutSession: widget.checkoutSession,
       quitGuard: widget.quitGuard,
       conflictPolicy: widget.conflictPolicy,
       initialActivityPanelHeight: widget.initialActivityPanelHeight,

@@ -113,7 +113,7 @@ void validateLocalName(String name) {
   // the base segment, so strip them before the reserved match
   // ('aux .txt' is as reserved as 'aux.txt').
   final base = name.split('.').first.replaceAll(_trailingDotOrSpace, '');
-  if (_windowsReservedName.hasMatch(base)) {
+  if (windowsReservedName.hasMatch(base)) {
     throw FormatException('"$name" is not a safe local file name.');
   }
 }
@@ -125,10 +125,37 @@ void validateLocalName(String name) {
 /// literal dollar — in a non-raw string `\$` collapses to a bare `$`,
 /// which anchors the branch and silently kills it (the bug these
 /// tests caught in the pre-port original).
-final RegExp _windowsReservedName = RegExp(
+final RegExp windowsReservedName = RegExp(
   r'^(con|prn|aux|nul|clock\$|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]|conin\$|conout\$)$',
   caseSensitive: false,
 );
+
+/// Owner-only mode bits on [path] — `'600'` for files, `'700'` for
+/// directories — on Linux and macOS; other platforms keep their
+/// per-user storage ACLs (09 §3.5/06 §3.1's posture). A failed or
+/// unavailable chmod aborts the caller's operation: private content
+/// either lands owner-only or not at all — the incident store's rule,
+/// shared so the managed-checkout index, its temps, its quarantines,
+/// and the checkout dirs/files cannot drift into a laxer posture.
+Future<void> restrictLocalPathPermissions(String path, String mode) async {
+  if (!Platform.isLinux && !Platform.isMacOS) return;
+  ProcessResult result;
+  try {
+    result = await Process.run('chmod', ['--', mode, path]);
+  } on ProcessException catch (error) {
+    throw FileSystemException(
+      'chmod is unavailable; cannot restrict $path to the owner '
+      '(${error.message})',
+      path,
+    );
+  }
+  if (result.exitCode != 0) {
+    throw FileSystemException(
+      'Could not restrict $path to the owner.',
+      path,
+    );
+  }
+}
 
 /// Creates [path] and every missing parent while refusing to traverse
 /// through symlinks or non-directories (`followLinks: false` at every

@@ -6779,6 +6779,71 @@ The `v0.6.0` tag chore is **not run here**, matching the prior
 untagged closes — a tag push publishes release assets, left to the
 supervisor/owner.
 
+## M7 — managed-checkout foundation (CheckoutManager + store + queue hop) (2026-09-20)
+
+06 §3's managed-checkout pipeline lands in `poltergeist_core`
+(`src/checkout/`), ported from Séance's `remote_files_controller` /
+`managed_remote_file` / `managed_remote_file_store` at pin `2e6d1f1`
+with the plan's hardening (PORTS.md records every divergence):
+
+- **Durable store** (`ManagedRemoteFileStore`): the
+  `<app-support>/managed_remote_files.json` index plus
+  `checkouts/<sha256(record id)>/` dirs — atomic index writes, a
+  cross-process `fcntl` lock plus a same-process held-paths guard,
+  generation epoch markers, the `.poltergeist-abandoned` in-flight
+  sweep (a payload-bearing unindexed dir is preserved, never swept),
+  recovered-payload listing with explicit-only deletion, symlink-safe
+  create/delete, frozen `.poltergeist-<uuid>.upload` snapshots, and
+  streamed SHA-256. The pinned sanitizer divergences are in: device
+  names keep their extension under a `file-` prefix (full 09 §3.5
+  reserved list on the stem), overlong names truncate to 255 UTF-8
+  bytes, and the index/temp/quarantine/snapshot all carry owner-only
+  modes on Linux/macOS via the new shared
+  `restrictLocalPathPermissions` in `local_fs_safety.dart`.
+- **Queue hop** (`TransferQueue.enqueueManagedCheckout` +
+  `ManagedCheckoutSpec`): one journaled, panel-visible, cancellable
+  file task per checkout/save — §4.7's priority shape (outside the
+  in-flight cap and queue pause; per-task pause/cancel still hold).
+  Uploads carry the record snapshot as `expectedTarget` with
+  `computeHash` on, so the destination adapter's mandatory SHA-256
+  CAS is the conflict authority (D7). A latent `_pipe` hang is fixed
+  alongside: `StreamController.close()` never resolves on a
+  never-listened stream, so an upload that dies before subscribing
+  wedged the pipe — the pipe now treats the destination's own
+  completion as the drain proof.
+- **`CheckoutManager`**: checkout acquisition through the queue with
+  byte-limit and free-space preflights; `editSessionId = serverId`
+  (D17 — per-server identity survives pane/tab churn); parent-dir
+  watch + 600 ms debounce filtering only the exact generated temp
+  shapes (a checkout legitimately named `.poltergeist-<hex>.upload`
+  keeps dirty detection); reconcile-on-resume and post-launch
+  recovery; `uploadLocalCopy` serialized per record with the frozen
+  snapshot, preflight stat, CAS, and the post-commit re-stat that
+  degrades to a synthesized snapshot + `needsReconcile` instead of
+  failing the committed save; prefix-wise `migrateRename` with
+  occupant displacement; discard/acceptLocalCopy/forgetRecovered.
+  Nothing ever auto-uploads and no remote change is silently
+  overwritten — conflicts throw the typed `conflict` error for the
+  caller's escalation flow.
+- **App seam** (`services/checkout_session.dart`): the app-wide
+  `ChangeNotifier` session the future editor UI consumes — composed
+  in `main.dart` over the queue session's concrete queue and shared
+  connection seam, forwarded through `PoltergeistApp` →
+  `WorkspaceShell`, and reconciled on `AppLifecycleState.resumed`.
+  Remote verbs ride the same honest-`unsupported` seam as the queue
+  (item 23 stays open for the engine-hosted slice).
+
+Coverage: 44 `checkout_manager_test` + 17 store tests (round-trip,
+per-server identity, debounce + temp-shape filter, resume/relaunch,
+remote-change/deletion/tamper conflict blocks, explicit overwrite,
+rename migration, queue visibility both directions) and 5
+`checkout_session_test` composition tests (boot, panel-visible honest
+failure, relaunch persistence + resume reconcile, discard, refused
+upload). Core: 1347 passed / 21 skipped, analyze clean.
+
+Editor UI, external editors, Quick Look, and the §3.7 review surface
+remain future M7 slices; this lands the pipeline they all build on.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

@@ -80,12 +80,20 @@ class ScriptedIo extends TransferJournalIo {
   }
 
   @override
-  Future<void> atomicRewrite(File file, String contents) async {
+  Future<void> atomicRewrite(
+    File file,
+    String contents, {
+    bool restrictToOwner = false,
+  }) async {
     rewriteCalls++;
     ops.add('rewrite:${_tag(file)}');
     if (!rewriteStarted.isCompleted) rewriteStarted.complete();
     await rewriteGate?.future;
-    return super.atomicRewrite(file, contents);
+    return super.atomicRewrite(
+      file,
+      contents,
+      restrictToOwner: restrictToOwner,
+    );
   }
 }
 
