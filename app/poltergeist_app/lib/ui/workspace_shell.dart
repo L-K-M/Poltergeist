@@ -1256,6 +1256,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // silently drop unsaved changes. maybePop reports true even for
       // a vetoed pop, so progress is judged by the guarded route
       // actually leaving the top, never by the return value.
+      var unobserved = 0;
       while (!existing.isCurrent) {
         if (!mounted) return;
         Route<void>? guarded;
@@ -1266,7 +1267,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           }
         }
         if (!await navigator.maybePop()) return;
-        if (guarded == null) continue;
+        if (guarded == null) {
+          // The covering route isn't a tracked editor — its fate is
+          // invisible here, and one that vetoes would spin this loop
+          // forever. Bound the unobserved pops instead of churning.
+          if (++unobserved >= 4) return;
+          continue;
+        }
+        unobserved = 0;
         // A vetoed editor keeps its route and raises the discard
         // dialog above it; wait for that choice. Discard kills the
         // route and the reveal continues; Keep editing leaves it
