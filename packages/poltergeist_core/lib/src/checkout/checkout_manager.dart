@@ -52,6 +52,7 @@ final class CheckoutManager {
     required this._queue,
     Stream<FileSystemEvent> Function(String directoryPath)? watchDirectory,
     this.watchDebounce = const Duration(milliseconds: 600),
+    this.watchReconcileMaxDelay = const Duration(seconds: 10),
     this.freeSpaceBytes,
     this.onError,
   }) : _watchDirectory = watchDirectory ?? _defaultWatch;
@@ -64,6 +65,11 @@ final class CheckoutManager {
 
   /// Per-checkout debounce — injectable so tests never pay real 600 ms.
   final Duration watchDebounce;
+
+  /// Starvation bound on the debounce: continuous sibling noise must
+  /// not postpone reconciliation forever — the first pending event
+  /// stamps a deadline, and resets past it fire immediately.
+  final Duration watchReconcileMaxDelay;
 
   /// Free-space probe for the app-support volume (06 §3.2's preflight);
   /// null degrades to surfacing the write failure.
@@ -82,11 +88,16 @@ final class CheckoutManager {
   /// checkoutId → in-flight save's serializing future.
   final Map<String, Future<bool>> _uploadFlights = {};
 
+  /// checkoutId → the `overwriteRemoteChanges` flag the in-flight save
+  /// was started with — dedupe may only coalesce identical semantics.
+  final Map<String, bool> _uploadFlightFlags = {};
+
   /// taskId → the completer a `checkout`/`uploadLocalCopy` caller awaits.
   final Map<String, _PendingTransfer> _pendingTransfers = {};
 
   final Map<String, StreamSubscription<FileSystemEvent>> _watches = {};
   final Map<String, Timer> _debounces = {};
+  final Map<String, DateTime> _reconcileDeadlines = {};
   final StreamController<void> _changes = StreamController.broadcast();
   StreamSubscription<TransferQueueEvent>? _queueSubscription;
   bool _started = false;
@@ -217,13 +228,20 @@ final class CheckoutManager {
         flight,
         maximumBytes: maximumBytes,
       );
-      flight.completer.complete(record);
+      if (!flight.completer.isCompleted) {
+        flight.completer.complete(record);
+      }
       return record;
     } catch (error, stack) {
-      flight.completer.completeError(error, stack);
+      if (!flight.completer.isCompleted) {
+        flight.completer.completeError(error, stack);
+      }
       rethrow;
     } finally {
-      _checkoutFlights.remove(key);
+      // A migrateRename may have re-keyed (or bridged) this flight
+      // mid-download — remove it wherever it sits, and never a
+      // different flight that reoccupied the original key.
+      _checkoutFlights.removeWhere((_, v) => identical(v, flight));
     }
   }
 
@@ -245,6 +263,10 @@ final class CheckoutManager {
     await _store.prepareCheckout(localPath);
     final local = await _store.createCheckout(localPath);
     await restrictLocalPathPermissions(local.parent.path, '700');
+    // Restrict before the download writes plaintext — a chmod only
+    // after the transfer would leave a world-readable window under a
+    // default umask.
+    await restrictLocalPathPermissions(local.path, '600');
     try {
       // Preflight free space on the app-support volume when the remote
       // declared a size — a null probe result degrades to the write
@@ -308,24 +330,16 @@ final class CheckoutManager {
         remoteSnapshot: snapshot,
         baselineSha256: digest,
       );
-      // 06 §3.5's final-key re-validation: a rename race may have seated
-      // another live record on this path while the download ran — this
-      // record becomes the displaced one instead of colliding.
-      final occupant = _records.values.where(
-        (r) =>
-            r.serverId == serverId &&
-            !r.displaced &&
-            r.remotePath == record.remotePath,
-      );
-      if (occupant.isNotEmpty) {
-        record = record.copyWith(displaced: true);
-      }
       if (_disposed) {
         throw StateError(
           'The file session closed before checkout completed.',
         );
       }
-      await _store.put(record);
+      // 06 §3.5's final-key re-validation runs inside the store's
+      // serialized section: a rename race may have seated another live
+      // record on this path while the download ran — the commit decides
+      // and persists displaced atomically, never racing the mirror.
+      record = await _store.putOrDisplace(record);
       await _store.clearCheckoutInFlight(localPath);
       if (_disposed) {
         await _store.remove(record.id);
@@ -353,14 +367,26 @@ final class CheckoutManager {
   Future<bool> uploadLocalCopy(
     ManagedRemoteFile copy, {
     bool overwriteRemoteChanges = false,
-  }) {
+  }) async {
     final inFlight = _uploadFlights[copy.id];
-    if (inFlight != null) return inFlight;
+    if (inFlight != null) {
+      // Never coalesce saves with different conflict semantics: an
+      // overwrite riding a CAS flight would be silently blocked, and
+      // the reverse would drop the CAS the caller asked for.
+      if (_uploadFlightFlags[copy.id] == overwriteRemoteChanges) {
+        return inFlight;
+      }
+      await inFlight.catchError((_) => false);
+    }
     final future = _upload(copy, overwriteRemoteChanges);
     _uploadFlights[copy.id] = future;
+    _uploadFlightFlags[copy.id] = overwriteRemoteChanges;
     // whenComplete derives a second future — ignore() swallows ITS copy
     // of the error; the returned future still delivers it to callers.
-    future.whenComplete(() => _uploadFlights.remove(copy.id)).ignore();
+    future.whenComplete(() {
+      _uploadFlights.remove(copy.id);
+      _uploadFlightFlags.remove(copy.id);
+    }).ignore();
     return future;
   }
 
@@ -377,7 +403,7 @@ final class CheckoutManager {
       // the needs-reconcile repair first: a degraded snapshot adopts the
       // server stat only when size AND streamed digest still match the
       // synthesized values.
-      var lease = await _connections.leaseTransferChannel(record.serverId);
+      final lease = await _connections.leaseTransferChannel(record.serverId);
       RemoteFileEntry? latest;
       try {
         latest = await _statOrNull(lease.fs, record.remotePath);
@@ -420,22 +446,26 @@ final class CheckoutManager {
 
       // Post-commit refresh (06 §3.4 step 5): re-stat the record's
       // CURRENT remotePath — a migrateRename landing mid-upload must be
-      // preserved, not overwritten by the stale target. A re-stat
-      // failure synthesizes size+digest and marks needsReconcile instead
-      // of reverting the baseline.
+      // preserved, not overwritten by the stale target. ANY refresh
+      // failure — lease acquisition included — synthesizes size+digest
+      // and marks needsReconcile instead of failing a committed save.
       final current = await _store.get(record.id);
       if (current == null || _disposed) return false;
-      lease = await _connections.leaseTransferChannel(current.serverId);
       RemoteFileEntry? freshStat;
       try {
-        freshStat = await _statOrNull(lease.fs, current.remotePath);
+        final refreshLease = await _connections.leaseTransferChannel(
+          current.serverId,
+        );
+        try {
+          freshStat = await _statOrNull(refreshLease.fs, current.remotePath);
+        } finally {
+          await refreshLease.release();
+        }
       } on Object {
-        // §3.4's degradation: any re-stat failure — not just notFound —
+        // §3.4's degradation: any refresh failure — not just notFound —
         // synthesizes size+digest and leaves the needsReconcile mark; the
         // committed bytes are already remote, never the baseline.
         freshStat = null;
-      } finally {
-        await lease.release();
       }
       final newSnapshot = freshStat == null
           ? RemoteFileEntry(
@@ -473,8 +503,16 @@ final class CheckoutManager {
       _emitChange();
       return true;
     } finally {
-      if (snapshot != null && await snapshot.exists()) {
-        await snapshot.delete();
+      if (snapshot != null) {
+        try {
+          if (await snapshot.exists()) {
+            await snapshot.delete();
+          }
+        } on Object catch (error, stack) {
+          // Cleanup must never mask the save's real result — least of
+          // all the conflict the caller's flow acts on.
+          onError?.call(error, stack);
+        }
       }
     }
   }
@@ -497,7 +535,17 @@ final class CheckoutManager {
       if (key.$2 != oldPath && !key.$2.startsWith('$oldPath/')) continue;
       final flight = _checkoutFlights.remove(key)!;
       flight.remotePath = newPath + key.$2.substring(oldPath.length);
-      _checkoutFlights[(serverId, flight.remotePath)] = flight;
+      final destination = (serverId, flight.remotePath);
+      final colliding = _checkoutFlights[destination];
+      if (colliding != null) {
+        // A flight already targets the destination — bridge the moved
+        // flight's waiters onto the survivor instead of orphaning it
+        // (an orphaned flight forks a duplicate download). Its own
+        // download still commits, displaced by the occupant rule.
+        flight.completer.complete(colliding.completer.future);
+      } else {
+        _checkoutFlights[destination] = flight;
+      }
     }
     final records = await _store.list(serverId: serverId);
     final affected = records.where(
@@ -528,14 +576,15 @@ final class CheckoutManager {
     _emitChange();
   }
 
-  /// Discard: plaintext first, then the record (06 §3.6's ordering — a
-  /// failed delete can never leave a record pointing at nothing).
+  /// Discard: plaintext first, then the record (06 §3.6's ordering —
+  /// [ManagedRemoteFileStore.remove] deletes the checkout before the
+  /// index entry, so a failed delete can never leave a record pointing
+  /// at nothing).
   Future<void> discard(ManagedRemoteFile copy) async {
     await _stopWatching(copy.id);
-    final removed = await _store.remove(copy.id);
+    await _store.remove(copy.id);
     _records.remove(copy.id);
     _emitChange();
-    if (removed == null) return;
   }
 
   /// Accept the local copy's current contents as the baseline (the
@@ -670,7 +719,20 @@ final class CheckoutManager {
 
   void _scheduleReconcile(String id) {
     _debounces[id]?.cancel();
+    // First pending event stamps a deadline; resets past it fire at
+    // once so continuous sibling noise cannot starve reconciliation.
+    final deadline = _reconcileDeadlines.putIfAbsent(
+      id,
+      () => DateTime.now().add(watchReconcileMaxDelay),
+    );
+    if (!DateTime.now().isBefore(deadline)) {
+      _debounces.remove(id);
+      _reconcileDeadlines.remove(id);
+      unawaited(_reconcileCheckout(id));
+      return;
+    }
     _debounces[id] = Timer(watchDebounce, () {
+      _reconcileDeadlines.remove(id);
       unawaited(_reconcileCheckout(id));
     });
   }
@@ -691,6 +753,7 @@ final class CheckoutManager {
 
   Future<void> _stopWatching(String id) async {
     _debounces.remove(id)?.cancel();
+    _reconcileDeadlines.remove(id);
     await _watches.remove(id)?.cancel();
   }
 
@@ -731,7 +794,22 @@ final class CheckoutManager {
     final pending = _pendingTransfers[event.taskId];
     if (pending == null) return;
     final task = _taskById(event.taskId);
-    if (task == null || !task.isTerminal) return;
+    if (task == null) {
+      // The task left the queue before its terminal event reached us
+      // (removeTask's clear-finished gesture only drops terminal
+      // tasks) — nothing else will ever complete this waiter, so fail
+      // it rather than hang.
+      _pendingTransfers.remove(event.taskId);
+      pending.completer.completeError(
+        RemoteFileException(
+          kind: RemoteFileErrorKind.other,
+          operation: 'managed checkout transfer',
+          message: 'the transfer task is no longer tracked by the queue',
+        ),
+      );
+      return;
+    }
+    if (!task.isTerminal) return;
     _pendingTransfers.remove(event.taskId);
     _taskOutcome(task).then(
       pending.completer.complete,
@@ -806,11 +884,16 @@ final class CheckoutManager {
       timer.cancel();
     }
     _debounces.clear();
-    await Future.wait(
-      _watches.values.map((sub) => sub.cancel()),
-    );
+    _reconcileDeadlines.clear();
+    try {
+      await Future.wait(_watches.values.map((sub) => sub.cancel()));
+    } on Object catch (error, stack) {
+      // One failing watch cancel must not abort the rest of teardown.
+      onError?.call(error, stack);
+    }
     _watches.clear();
     for (final pending in _pendingTransfers.values) {
+      if (pending.completer.isCompleted) continue;
       pending.completer.completeError(
         RemoteFileException(
           kind: RemoteFileErrorKind.cancelled,

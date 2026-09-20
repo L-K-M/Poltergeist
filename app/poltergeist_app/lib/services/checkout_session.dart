@@ -32,7 +32,8 @@ final class CheckoutSession extends ChangeNotifier {
   final ManagedRemoteFileStore _store;
   final CheckoutManager _manager;
   late final StreamSubscription<void> _subscription;
-  bool _shutdown = false;
+  Future<void>? _shutdown;
+  Future<void>? _reconcileInFlight;
 
   /// Live checkouts of one server keyed by remote path — the editor's
   /// "is this already open as a managed copy" lookup.
@@ -112,15 +113,20 @@ final class CheckoutSession extends ChangeNotifier {
 
   /// Foreground/resume entry point (06 §3.3): rehashes every record
   /// and repairs degraded snapshots against the remote. The app's
-  /// lifecycle listener calls this on `resumed`.
-  Future<void> reconcileOnResume() => _manager.reconcileOnResume();
+  /// lifecycle listener calls this on `resumed`. Serialized: a resume
+  /// while a previous reconcile still runs joins it instead of racing
+  /// a second rehash/repair pass.
+  Future<void> reconcileOnResume() => _reconcileInFlight ??= _manager
+      .reconcileOnResume()
+      .whenComplete(() => _reconcileInFlight = null);
 
   /// Async teardown — production never calls it (the store lock is
   /// process-scoped and app exit owns it); tests shut down to release
-  /// the lock and watchers.
-  Future<void> shutdown() async {
-    if (_shutdown) return;
-    _shutdown = true;
+  /// the lock and watchers. Idempotent: repeat calls — including one
+  /// racing a [dispose]-triggered teardown — await the same future.
+  Future<void> shutdown() => _shutdown ??= _doShutdown();
+
+  Future<void> _doShutdown() async {
     await _subscription.cancel();
     await _manager.dispose();
     await _store.close();
@@ -131,7 +137,11 @@ final class CheckoutSession extends ChangeNotifier {
     // ChangeNotifier's sync contract cannot await the store's release —
     // drop the listener and let the OS lock fall with the process. Tests
     // that need the release await [shutdown] instead.
-    unawaited(shutdown());
+    unawaited(
+      shutdown().catchError((Object error, StackTrace stackTrace) {
+        ApplicationErrorReporter().report(error, stackTrace);
+      }),
+    );
     super.dispose();
   }
 }
@@ -165,8 +175,9 @@ Future<CheckoutSession?> startCheckoutSession({
       '$supportDirectoryPath${Platform.pathSeparator}checkouts',
     ),
   );
+  CheckoutManager? manager;
   try {
-    final manager = CheckoutManager(
+    manager = CheckoutManager(
       store: store,
       connections: connections,
       queue: queue,
@@ -177,7 +188,13 @@ Future<CheckoutSession?> startCheckoutSession({
     return CheckoutSession._(store, manager);
   } on Object catch (error, stackTrace) {
     errors.report(error, stackTrace);
-    // The manager never handed out — its store must not leak open.
+    // The manager never handed out — its watchers and store must not
+    // leak open.
+    try {
+      await manager?.dispose();
+    } on Object catch (disposeError, disposeStack) {
+      errors.report(disposeError, disposeStack);
+    }
     try {
       await store.close();
     } on Object catch (closeError, closeStack) {

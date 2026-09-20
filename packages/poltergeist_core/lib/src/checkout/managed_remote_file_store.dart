@@ -217,13 +217,34 @@ class ManagedRemoteFileStore {
       _join(dir.path, const [epochMarkerName]),
     ).writeAsString(generation);
     // The abandoned marker rides every new checkout dir; dirs being
-    // reused for a second checkout of the same id are not re-marked.
+    // reused for a second checkout of the same id are not re-marked,
+    // and a dir already holding payload (a preserved recovered dir)
+    // must never be marked — the load sweep would delete that payload
+    // wholesale.
     if (segments.length > 1) {
-      await File(_join(dir.path, const [abandonedMarkerName])).create(
-        exclusive: true,
-      );
+      final marker = File(_join(dir.path, const [abandonedMarkerName]));
+      if (!await marker.exists() && !await _dirHasPayload(dir)) {
+        await marker.create();
+      }
     }
   });
+
+  /// True when [dir] holds anything beyond the lifecycle markers — the
+  /// recovered-payload test [prepareCheckout] must not re-mark over.
+  Future<bool> _dirHasPayload(Directory dir) async {
+    if (await FileSystemEntity.type(dir.path, followLinks: false) !=
+        FileSystemEntityType.directory) {
+      return false;
+    }
+    await for (final child in dir.list(followLinks: false)) {
+      final name = p.basename(child.path);
+      if (name == epochMarkerName || name == abandonedMarkerName) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
 
   /// The record write landed — the checkout dir is a completed managed
   /// checkout, no longer a crash-sweeptable in-flight one.
@@ -287,13 +308,14 @@ class ManagedRemoteFileStore {
         source.path,
       );
     }
-    final snapshot = File(
-      '${source.path}.poltergeist-${uuidV4()}.upload',
-    );
-    await source.copy(snapshot.path);
+    final snapshot = File('${source.path}.poltergeist-${uuidV4()}.upload');
     // A frozen plaintext copy of private content — the same 0600 the
-    // checkout file itself carries (06 §3.1).
+    // checkout file itself carries (06 §3.1). Restrict before copying so
+    // the plaintext is never on disk with looser permissions; File.copy
+    // truncates the destination without resetting its mode.
+    await snapshot.create(exclusive: true);
     await restrictLocalPathPermissions(snapshot.path, '600');
+    await source.copy(snapshot.path);
     return snapshot;
   });
 
@@ -324,7 +346,7 @@ class ManagedRemoteFileStore {
       await dir.delete(recursive: true);
     }
     _recovered = _recovered
-        .where((entry) => entry.directory != directory)
+        .where((entry) => entry.directory != segments.single)
         .toList();
   });
 
@@ -367,20 +389,50 @@ class ManagedRemoteFileStore {
   Future<void> put(ManagedRemoteFile file) => _serialized(() async {
     await _loadUnlocked();
     _validateFile(file);
-    final duplicate = _files.values.where(
-      (existing) =>
-          existing.id != file.id &&
-          !existing.displaced &&
-          !file.displaced &&
-          existing.serverId == file.serverId &&
-          existing.editSessionId == file.editSessionId &&
-          existing.remotePath == file.remotePath,
-    );
-    if (duplicate.isNotEmpty) {
+    if (_liveConflictFor(file) != null) {
       throw StateError(
         'A managed checkout already exists for ${file.remotePath}',
       );
     }
+    await _flushReplacing(file);
+  });
+
+  /// Like [put], but a live conflict is resolved by persisting the
+  /// incoming record [ManagedRemoteFile.displaced] instead of throwing —
+  /// the raced-checkout commit rule (06 §3.5). The decision and the write
+  /// share one serialized section so a concurrent commit cannot slip
+  /// between the check and the flush. Returns the persisted record.
+  Future<ManagedRemoteFile> putOrDisplace(ManagedRemoteFile file) =>
+      _serialized(() async {
+        await _loadUnlocked();
+        _validateFile(file);
+        final effective = _liveConflictFor(file) == null
+            ? file
+            : file.copyWith(displaced: true);
+        await _flushReplacing(effective);
+        return effective;
+      });
+
+  /// The live record occupying `file`'s (serverId, editSessionId,
+  /// remotePath) slot, or null — displaced records on either side do not
+  /// participate (06 §3.5).
+  ManagedRemoteFile? _liveConflictFor(ManagedRemoteFile file) {
+    for (final existing in _files.values) {
+      if (existing.id != file.id &&
+          !existing.displaced &&
+          !file.displaced &&
+          existing.serverId == file.serverId &&
+          existing.editSessionId == file.editSessionId &&
+          existing.remotePath == file.remotePath) {
+        return existing;
+      }
+    }
+    return null;
+  }
+
+  /// Inserts `file` and flushes, restoring the prior entry on failure.
+  /// Caller must hold the serialization.
+  Future<void> _flushReplacing(ManagedRemoteFile file) async {
     final previous = _files[file.id];
     _files[file.id] = file;
     try {
@@ -393,7 +445,7 @@ class ManagedRemoteFileStore {
       }
       rethrow;
     }
-  });
+  }
 
   /// Replaces an existing record. Unlike [put], a missing id is an error.
   /// The same live-key uniqueness holds — [update] cannot displace a
@@ -404,28 +456,12 @@ class ManagedRemoteFileStore {
       throw StateError('Managed remote file ${file.id} does not exist');
     }
     _validateFile(file);
-    final duplicate = _files.values.where(
-      (existing) =>
-          existing.id != file.id &&
-          !existing.displaced &&
-          !file.displaced &&
-          existing.serverId == file.serverId &&
-          existing.editSessionId == file.editSessionId &&
-          existing.remotePath == file.remotePath,
-    );
-    if (duplicate.isNotEmpty) {
+    if (_liveConflictFor(file) != null) {
       throw StateError(
         'A managed checkout already exists for ${file.remotePath}',
       );
     }
-    final previous = _files[file.id]!;
-    _files[file.id] = file;
-    try {
-      await _flushUnlocked();
-    } catch (_) {
-      _files[file.id] = previous;
-      rethrow;
-    }
+    await _flushReplacing(file);
   });
 
   /// Removes a record. Plaintext is deleted before the index entry so a
@@ -519,8 +555,11 @@ class ManagedRemoteFileStore {
       } finally {
         await lock.close();
       }
+      // `_lockFile != null` iff this store put its path in _heldPaths —
+      // a store that never held the lock must not erase a live peer's
+      // same-process registration.
+      _heldPaths.remove(lockFile.absolute.path);
     }
-    _heldPaths.remove(lockFile.absolute.path);
   }
 
   Future<T> _serialized<T>(Future<T> Function() operation) {
@@ -617,6 +656,16 @@ class ManagedRemoteFileStore {
         canSweepUnindexed = false;
       }
     }
+    // The index's directory and the checkout root hold only private
+    // bookkeeping and plaintext — owner-only like the artifacts inside
+    // (06 §3.1). Best-effort: a chmod failure here must not wedge the
+    // load; the per-file restricts still carry the invariant.
+    try {
+      await restrictLocalPathPermissions(indexFile.parent.path, '700');
+      await restrictLocalPathPermissions(checkoutRoot.path, '700');
+    } on FileSystemException {
+      // Non-fatal — the per-artifact restricts enforce the payload.
+    }
     if (canSweepUnindexed) {
       await _sweepUnindexedCheckouts();
       await _sweepGeneratedTemps();
@@ -684,13 +733,18 @@ class ManagedRemoteFileStore {
   /// (a remote file legitimately named `x.poltergeist-deadbeef.tmp`
   /// is still the checkout payload — 06 §3.3's exact-shape rule).
   Future<void> _sweepGeneratedTemps() async {
+    // Keyed by each record's parent directory (not just the top-level
+    // segment) so nested layouts sweep their own dir and a retained
+    // basename shields only siblings in the same directory.
     final retained = <String, Set<String>>{};
     for (final file in _files.values) {
       final segments = file.localPath.split('/');
-      (retained[segments.first] ??= {}).add(segments.last);
+      final parent = segments.take(segments.length - 1).join('/');
+      (retained[parent] ??= {}).add(segments.last);
     }
     for (final entry in retained.entries) {
-      final dir = Directory(_join(checkoutRoot.absolute.path, [entry.key]));
+      final parts = entry.key.isEmpty ? const <String>[] : entry.key.split('/');
+      final dir = Directory(_join(checkoutRoot.absolute.path, parts));
       if (await FileSystemEntity.type(dir.path, followLinks: false) !=
           FileSystemEntityType.directory) {
         continue;
@@ -772,10 +826,10 @@ class ManagedRemoteFileStore {
   /// so a same-second second corruption cannot clobber the first rescue.
   Future<void> _quarantineCorruptFile(File file) async {
     if (!await file.exists()) return;
-    for (var n = 0; ; n++) {
-      final candidate = File(
-        '${file.path}.corrupt-${_stamp(_now())}-$n',
-      );
+    // Bounded: a pathological directory of pre-seeded candidates must
+    // not stall the corrupt-index rescue path this function protects.
+    for (var n = 0; n < 100; n++) {
+      final candidate = File('${file.path}.corrupt-${_stamp(_now())}-$n');
       if (await candidate.exists()) continue;
       await file.rename(candidate.path);
       // Explicit post-move chmod, never rename-preserved modes: a
@@ -790,6 +844,10 @@ class ManagedRemoteFileStore {
       }
       return;
     }
+    throw FileSystemException(
+      'Unable to quarantine corrupt index: candidate names exhausted',
+      file.path,
+    );
   }
 
   static String _stamp(DateTime now) => now

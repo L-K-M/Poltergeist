@@ -890,6 +890,9 @@ class TransferQueue implements ManagedCheckoutQueue {
       while (task.state == TransferTaskState.paused &&
           !task.cancellation.isCancelled &&
           !_disposed) {
+        // Invariant: pauseTask swaps in a fresh incomplete completer on
+        // each pause, and resumeTask/cancelTask/dispose complete it —
+        // this await can neither spin on a completed future nor hang.
         await runtime.notPaused.future;
       }
       _throwIfTaskCancelled(task);
@@ -909,7 +912,7 @@ class TransferQueue implements ManagedCheckoutQueue {
             source: isDownload ? serverFs : _localFileSystem,
             destination: isDownload ? _localFileSystem : serverFs,
             readLimiter: isDownload ? downloadLimiter : _localLimiter,
-            writeLimiter: isDownload ? uploadLimiter : _localLimiter,
+            writeLimiter: isDownload ? _localLimiter : uploadLimiter,
             sourcePath: isDownload ? managed.remotePath : managed.localPath,
             destinationPath: isDownload
                 ? managed.localPath
@@ -2855,8 +2858,10 @@ class TransferQueue implements ManagedCheckoutQueue {
       // Never await close() itself: a destination that died before
       // subscribing leaves buffered chunks nobody drains, and
       // StreamController.close() waits on delivery forever — the
-      // upload's own completion is the drain proof.
-      unawaited(sink.close());
+      // upload's own completion is the drain proof. An aborted sink
+      // can still fail close() incidentally — ignore() keeps that
+      // unwind artifact off the zone's unhandled-error path.
+      sink.close().ignore();
       final destinationResult = await uploadFuture;
       return (source: sourceResult, destination: destinationResult);
     } catch (error) {

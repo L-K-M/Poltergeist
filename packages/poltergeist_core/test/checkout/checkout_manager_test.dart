@@ -66,6 +66,7 @@ void main() {
 
   CheckoutManager newManager({
     Duration watchDebounce = const Duration(milliseconds: 10),
+    Duration watchReconcileMaxDelay = const Duration(seconds: 10),
     Future<int?> Function(String path)? freeSpaceBytes,
   }) {
     final created = CheckoutManager(
@@ -74,6 +75,7 @@ void main() {
       queue: queue,
       watchDirectory: fakeWatch,
       watchDebounce: watchDebounce,
+      watchReconcileMaxDelay: watchReconcileMaxDelay,
       freeSpaceBytes: freeSpaceBytes,
       onError: (error, stack) => errors.add(error),
     );
@@ -154,7 +156,7 @@ void main() {
   }
 
   String basenameOf(ManagedRemoteFile record) =>
-      record.localPath.split('/').last;
+      record.localPath.split(RegExp(r'[\\/]')).last;
 
   group('checkout', () {
     test(
@@ -528,8 +530,10 @@ void main() {
       await manager.localFile(record).writeAsString('saved edit');
       final first = manager.uploadLocalCopy(record);
       final second = manager.uploadLocalCopy(record);
-      expect(identical(first, second), isTrue);
-      await first;
+      // Same conflict semantics coalesce onto the one in-flight save —
+      // the futures are distinct wrappers over the shared flight.
+      expect(await first, isTrue);
+      expect(await second, isTrue);
       expect(
         queue.tasks
             .where(
@@ -752,5 +756,278 @@ void main() {
       await manager.reconcileOnResume(); // no-op, no throw
       expect(errors, isEmpty);
     });
+
+    test('dispose fails every waiter coalesced onto a flight', () async {
+      final gate = Completer<void>();
+      s1.downloadGate = (_) => gate;
+      final entry = await remoteStat('/home/test/file.txt');
+      final first = manager.checkout(serverId: 's1', entry: entry);
+      await pump();
+      // The dedupe path returns the flight's completer future — it must
+      // fail on dispose exactly like the driving call does.
+      final second = manager.checkout(serverId: 's1', entry: entry);
+      await pump();
+
+      await manager.dispose();
+      for (final future in [first, second]) {
+        await expectLater(
+          future,
+          throwsA(
+            isA<RemoteFileException>().having(
+              (e) => e.kind,
+              'kind',
+              RemoteFileErrorKind.cancelled,
+            ),
+          ),
+        );
+      }
+      gate.complete();
+      await pump();
+    });
+  });
+
+  group('review hardening', () {
+    test('a mid-flight rename cannot leak or evict flight entries', () async {
+      s1.addFile('/a/f.txt', utf8.encode('aaa'));
+      final entry = await remoteStat('/a/f.txt');
+      final gateA = Completer<void>();
+      s1.downloadGate = (path) => path == '/a/f.txt' ? gateA : null;
+      final futureA = manager.checkout(serverId: 's1', entry: entry);
+      await pumpUntil(
+        () => s1.downloadCalls > 0,
+        reason: 'first download never reached the gate',
+      );
+
+      // Re-key the in-flight flight, then let a second checkout
+      // reoccupy the original key.
+      await manager.migrateRename(
+        serverId: 's1',
+        oldPath: '/a/f.txt',
+        newPath: '/b/f.txt',
+      );
+      final gateB = Completer<void>();
+      s1.downloadGate = (path) => path == '/a/f.txt' ? gateB : null;
+      final futureB = manager.checkout(serverId: 's1', entry: entry);
+      await pumpUntil(
+        () => s1.downloadCalls > 1,
+        reason: 'second download never reached the gate',
+      );
+
+      // A's completion must not evict B's reoccupied flight entry —
+      // a third checkout of the path dedupes onto B, never forks.
+      gateA.complete();
+      await futureA;
+      final futureC = manager.checkout(serverId: 's1', entry: entry);
+      gateB.complete();
+      final recordB = await futureB;
+      expect(identical(await futureC, recordB), isTrue);
+      expect(s1.downloadCalls, 2);
+    });
+
+    test('a rename onto an in-flight checkout bridges its waiters', () async {
+      s1.addFile('/x.txt', utf8.encode('x-content'));
+      s1.addFile('/y.txt', utf8.encode('y-content'));
+      final gateX = Completer<void>();
+      final gateY = Completer<void>();
+      s1.downloadGate = (path) => path == '/x.txt'
+          ? gateX
+          : path == '/y.txt'
+          ? gateY
+          : null;
+      final futureX = manager.checkout(
+        serverId: 's1',
+        entry: await remoteStat('/x.txt'),
+      );
+      final futureY = manager.checkout(
+        serverId: 's1',
+        entry: await remoteStat('/y.txt'),
+      );
+      await pumpUntil(
+        () => s1.downloadCalls > 1,
+        reason: 'both downloads never reached their gates',
+      );
+
+      // Y's flight re-keys onto X's occupied destination — it must not
+      // evict X's entry, and its later dedupe waiters ride X's flight.
+      await manager.migrateRename(
+        serverId: 's1',
+        oldPath: '/y.txt',
+        newPath: '/x.txt',
+      );
+      final futureZ = manager.checkout(
+        serverId: 's1',
+        entry: await remoteStat('/x.txt'),
+      );
+      gateX.complete();
+      gateY.complete();
+      final recordX = await futureX;
+      expect(identical(await futureZ, recordX), isTrue);
+      expect(await futureY, isNotNull);
+      expect(s1.downloadCalls, 2);
+    });
+
+    test('a post-commit refresh lease failure degrades instead of failing '
+        'a committed save', () async {
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+      await manager.localFile(record).writeAsString('saved edit');
+      // The preflight and pipe leases still succeed — only the
+      // post-commit refresh's acquisition fails.
+      connections.leaseFailure = (serverId) => s1.uploadCalls > 0
+          ? RemoteFileException(
+              kind: RemoteFileErrorKind.disconnected,
+              operation: 'lease transfer channel',
+              message: 'server dropped',
+            )
+          : null;
+
+      expect(await manager.uploadLocalCopy(record), isTrue);
+      final updated = manager.copiesFor('s1')[record.remotePath]!;
+      expect(updated.needsReconcile, isTrue);
+      expect(
+        updated.remoteSnapshot.contentSha256,
+        sha256.convert(utf8.encode('saved edit')).toString(),
+      );
+    });
+
+    test('snapshot cleanup failure never masks the save result', () async {
+      if (Platform.isWindows) return; // POSIX permission bits only
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+      await manager.localFile(record).writeAsString('saved edit');
+      final dir = manager.localFile(record).parent;
+      final gate = Completer<void>();
+      s1.uploadGate = (_) => gate;
+      final save = manager.uploadLocalCopy(record);
+      await pumpUntil(
+        () => s1.uploadCalls > 0,
+        reason: 'upload never reached the gate',
+      );
+      // The .upload snapshot already exists; a delete failure in the
+      // finally must report, never replace, the save's true result.
+      await Process.run('chmod', ['500', dir.path]);
+      gate.complete();
+      expect(await save, isTrue);
+      expect(errors, isNotEmpty);
+      await Process.run('chmod', ['700', dir.path]);
+    });
+
+    test('a conflict still reaches the caller when cleanup fails', () async {
+      if (Platform.isWindows) return;
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+      await manager.localFile(record).writeAsString('saved edit');
+      s1.addFile('/home/test/file.txt', utf8.encode('remote churn'));
+      final dir = manager.localFile(record).parent;
+      // Park the preflight stat, then make the snapshot dir unwritable —
+      // the finally cleanup fails while the conflict is in flight. The
+      // baseline count skips stats the checkout itself already made.
+      final baselineStats = s1.statCalls;
+      final gate = Completer<void>();
+      s1.statGate = (path) => path == record.remotePath ? gate : null;
+      final save = manager.uploadLocalCopy(record);
+      await pumpUntil(
+        () => s1.statCalls > baselineStats,
+        reason: 'preflight stat never reached the gate',
+      );
+      await Process.run('chmod', ['500', dir.path]);
+      gate.complete();
+      await expectLater(
+        save,
+        throwsA(
+          isA<RemoteFileException>().having(
+            (e) => e.kind,
+            'kind',
+            RemoteFileErrorKind.conflict,
+          ),
+        ),
+      );
+      expect(errors, isNotEmpty);
+      await Process.run('chmod', ['700', dir.path]);
+    });
+
+    test('a task evicted before its terminal event fails the waiter', () async {
+      // A probe subscribed before the manager's: the panel's
+      // clear-finished gesture can drop a terminal task before the
+      // manager's listener sees the event — the waiter must fail,
+      // never hang.
+      queue = newQueue();
+      queue.events.listen((event) {
+        if (event is TransferQueueTaskEvent && _isTerminalTask(event)) {
+          queue.removeTask(event.taskId);
+        }
+      });
+      manager = newManager();
+      await manager.start();
+      final entry = await remoteStat('/home/test/file.txt');
+      await expectLater(
+        manager.checkout(serverId: 's1', entry: entry),
+        throwsA(
+          isA<RemoteFileException>().having(
+            (e) => e.message,
+            'message',
+            contains('no longer tracked'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'a mismatched overwrite flag serializes instead of coalescing',
+      () async {
+        final entry = await remoteStat('/home/test/file.txt');
+        final record = await manager.checkout(serverId: 's1', entry: entry);
+        await manager.localFile(record).writeAsString('v1');
+        final gate = Completer<void>();
+        s1.uploadGate = (_) => gate;
+        final casSave = manager.uploadLocalCopy(record);
+        await pumpUntil(
+          () => s1.uploadCalls > 0,
+          reason: 'first upload never reached the gate',
+        );
+
+        // A different conflict policy must not ride the in-flight CAS
+        // upload — it serializes behind it and runs its own save.
+        final overwriteSave = manager.uploadLocalCopy(
+          record,
+          overwriteRemoteChanges: true,
+        );
+        gate.complete();
+        expect(await casSave, isTrue);
+        s1.addFile('/home/test/file.txt', utf8.encode('remote churn'));
+        expect(await overwriteSave, isTrue);
+        expect(s1.uploadCalls, 2);
+        expect(utf8.decode(s1.fileBytes['/home/test/file.txt']!), 'v1');
+      },
+    );
+
+    test('continuous sibling noise cannot starve reconciliation', () async {
+      final throttled = newManager(
+        watchDebounce: const Duration(milliseconds: 80),
+        watchReconcileMaxDelay: const Duration(milliseconds: 150),
+      );
+      await throttled.start();
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await throttled.checkout(serverId: 's1', entry: entry);
+      await throttled.localFile(record).writeAsString('edited');
+      final dir = throttled.localFile(record).parent.path;
+
+      // Events faster than the debounce would postpone a pure debounce
+      // forever — the deadline must still force a reconcile through.
+      var dirty = false;
+      for (var i = 0; i < 40 && !dirty; i++) {
+        watchStreams[dir]!.add(
+          FileSystemModifyEvent('$dir/noise.txt', false, true),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        dirty = throttled.copiesFor('s1')[record.remotePath]!.dirty;
+      }
+      expect(dirty, isTrue);
+    });
   });
 }
+
+bool _isTerminalTask(TransferQueueTaskEvent event) =>
+    event.state == TransferTaskState.completed ||
+    event.state == TransferTaskState.failed ||
+    event.state == TransferTaskState.cancelled;

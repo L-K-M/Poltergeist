@@ -542,6 +542,77 @@ void main() {
     });
   });
 
+  group('journal codec', () {
+    /// A valid managed-checkout taskEnqueued record as mutable JSON —
+    /// the tamper surface for the strict-decode tests.
+    Map<String, Object?> managedEnqueuedJson() {
+      final spec = TransferTaskSpec(
+        source: const LocalFsLocation(),
+        destination: const ServerFsLocation('s1'),
+        rootPaths: const ['/src/a.txt'],
+        destinationDir: '/dest',
+        policy: ResolvedConflictPolicy(files: ConflictResolution.skip),
+        managedCheckout: const ManagedCheckoutSpec(
+          checkoutId: 'edit-1',
+          serverId: 's1',
+          remotePath: '/r/a.txt',
+          localPath: '/l/a.txt',
+          direction: ManagedCheckoutDirection.upload,
+        ),
+      );
+      final record = enqueued('t1', spec);
+      return (jsonDecode(jsonEncode(record.toJson())) as Map)
+          .cast<String, Object?>();
+    }
+
+    String lineOf(Map<String, Object?> json) => jsonEncode(json);
+
+    test('a managed-checkout spec round-trips through the journal',
+        () {
+      final parsed = TransferJournalRecord.parse(
+        lineOf(managedEnqueuedJson()),
+      );
+      final spec = (parsed as TaskEnqueuedRecord).spec;
+      expect(spec.managedCheckout, isNotNull);
+      expect(spec.managedCheckout!.checkoutId, 'edit-1');
+      expect(
+        spec.managedCheckout!.direction,
+        ManagedCheckoutDirection.upload,
+      );
+    });
+
+    test('a non-object managedCheckout field is refused', () {
+      final json = managedEnqueuedJson();
+      (json['spec'] as Map<String, Object?>)['managedCheckout'] = 'junk';
+      expect(
+        () => TransferJournalRecord.parse(lineOf(json)),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('a managedCheckout payload on a non-copy spec is refused', () {
+      final json = managedEnqueuedJson();
+      final spec = json['spec'] as Map<String, Object?>;
+      spec['operation'] = 'delete';
+      spec['disposition'] = 'trash';
+      expect(
+        () => TransferJournalRecord.parse(lineOf(json)),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('a non-object expectedTarget inside the spec is refused', () {
+      final json = managedEnqueuedJson();
+      final spec = json['spec'] as Map<String, Object?>;
+      (spec['managedCheckout'] as Map<String, Object?>)['expectedTarget'] =
+          'junk';
+      expect(
+        () => TransferJournalRecord.parse(lineOf(json)),
+        throwsA(isA<FormatException>()),
+      );
+    });
+  });
+
   group('history', () {
     test('records survive a restart', () async {
       final store = await openStore();

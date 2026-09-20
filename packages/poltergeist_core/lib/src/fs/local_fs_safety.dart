@@ -139,9 +139,18 @@ final RegExp windowsReservedName = RegExp(
 /// and the checkout dirs/files cannot drift into a laxer posture.
 Future<void> restrictLocalPathPermissions(String path, String mode) async {
   if (!Platform.isLinux && !Platform.isMacOS) return;
+  // Resolve chmod by absolute path where it exists — a PATH-hijacked
+  // shim exiting 0 would silently defeat the owner-only invariant.
+  var chmod = 'chmod';
+  for (final candidate in const ['/usr/bin/chmod', '/bin/chmod']) {
+    if (await File(candidate).exists()) {
+      chmod = candidate;
+      break;
+    }
+  }
   ProcessResult result;
   try {
-    result = await Process.run('chmod', ['--', mode, path]);
+    result = await Process.run(chmod, ['--', mode, path]);
   } on ProcessException catch (error) {
     throw FileSystemException(
       'chmod is unavailable; cannot restrict $path to the owner '
@@ -150,8 +159,10 @@ Future<void> restrictLocalPathPermissions(String path, String mode) async {
     );
   }
   if (result.exitCode != 0) {
+    final detail = (result.stderr as String).trim();
     throw FileSystemException(
-      'Could not restrict $path to the owner.',
+      'Could not restrict $path to the owner (chmod exited '
+      '${result.exitCode}${detail.isEmpty ? '' : ': $detail'})',
       path,
     );
   }

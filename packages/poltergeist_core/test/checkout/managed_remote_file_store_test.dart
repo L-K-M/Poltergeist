@@ -519,14 +519,67 @@ void main() {
 
   test('deleteRecovered refuses non-single-segment identities', () async {
     await store.list();
-    await expectLater(
-      store.deleteRecovered('../outside'),
-      throwsArgumentError,
+    await expectLater(store.deleteRecovered('../outside'), throwsArgumentError);
+    await expectLater(store.deleteRecovered('a/b'), throwsArgumentError);
+  });
+
+  test('prepareCheckout tolerates a marker left by a failed attempt', () async {
+    final localPath = store.checkoutPathFor(id: 'edit-9', fileName: 'f.txt');
+    await store.prepareCheckout(localPath);
+    // The marker from the failed first attempt must not throw the retry.
+    await store.prepareCheckout(localPath);
+    final marker = File(
+      '${store.checkoutFile(localPath).parent.path}'
+      '/${ManagedRemoteFileStore.abandonedMarkerName}',
+    );
+    expect(await marker.exists(), isTrue);
+  });
+
+  test('a payload-bearing directory is never marked abandoned', () async {
+    // A preserved recovered dir — payload, no markers — re-prepared for
+    // a checkout attempt must keep its payload un-sweepable.
+    final dir = Directory('${checkoutRoot.path}/deadbeef');
+    await dir.create(recursive: true);
+    await File('${dir.path}/recovered.txt').writeAsString('keep me');
+
+    await store.prepareCheckout('deadbeef/recovered.txt');
+    expect(
+      await File(
+        '${dir.path}/${ManagedRemoteFileStore.abandonedMarkerName}',
+      ).exists(),
+      isFalse,
+    );
+
+    // The load sweep still preserves the payload rather than deleting it.
+    await reopened();
+    final recovered = await store.listRecovered();
+    expect(recovered.single.directory, 'deadbeef');
+    expect(recovered.single.files, contains('recovered.txt'));
+  });
+
+  test('a failed contender\'s close does not release the holder\'s lock',
+      () async {
+    await store.list(); // forces load + lock acquisition
+    final contender = ManagedRemoteFileStore(
+      indexFile: indexFile,
+      checkoutRoot: checkoutRoot,
     );
     await expectLater(
-      store.deleteRecovered('a/b'),
-      throwsArgumentError,
+      contender.list().timeout(const Duration(seconds: 10)),
+      throwsA(isA<FileSystemException>()),
     );
+    // The contender never held the lock — closing it must not erase the
+    // holder's same-process registration.
+    await contender.close();
+    final third = ManagedRemoteFileStore(
+      indexFile: indexFile,
+      checkoutRoot: checkoutRoot,
+    );
+    await expectLater(
+      third.list().timeout(const Duration(seconds: 10)),
+      throwsA(isA<FileSystemException>()),
+    );
+    await third.close();
   });
 }
 

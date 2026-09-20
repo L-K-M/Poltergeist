@@ -155,7 +155,8 @@ void main() {
       final restored = session.checkoutFor('server-a', seeded.remotePath);
       expect(restored, isNotNull);
       expect(restored!.dirty, isFalse);
-      expect(restored.editSessionId, 'server-a'); // per-server (D17)
+      // Round-trip of the seeded id; D17's derivation is covered in core.
+      expect(restored.editSessionId, 'server-a');
       expect(session.localFile(restored).existsSync(), isTrue);
 
       // An edit the watcher may have missed still surfaces through the
@@ -220,6 +221,84 @@ void main() {
       expect(session.checkoutFor('server-a', '/home/test/notes.txt'), isNotNull);
     },
   );
+
+  test('shutdown is idempotent — repeat calls share one teardown', () async {
+    final session = await boot();
+    final first = session.shutdown();
+    final second = session.shutdown();
+    expect(identical(first, second), isTrue);
+    await Future.wait([first, second]);
+    // dispose joins the same teardown rather than double-closing.
+    session.dispose();
+    expect(identical(session.shutdown(), first), isTrue);
+  });
+
+  test('dispose drives teardown — the store lock is released', () async {
+    final session = await boot();
+    session.dispose();
+    await session.shutdown(); // joins dispose's in-flight teardown
+    final probe = ManagedRemoteFileStore(
+      indexFile: File('${supportDir.path}/managed_remote_files.json'),
+      checkoutRoot: Directory('${supportDir.path}/checkouts'),
+    );
+    expect(await probe.list(), isEmpty);
+    await probe.close();
+  });
+
+  test('reconcileOnResume joins an in-flight pass', () async {
+    await seedRecord(
+      serverId: 'server-a',
+      remotePath: '/home/test/notes.txt',
+      content: 'original',
+    );
+    final session = await boot();
+    final first = session.reconcileOnResume();
+    final second = session.reconcileOnResume();
+    expect(identical(first, second), isTrue);
+    await Future.wait([first, second]);
+    // Completed passes are cleared — the next resume reconciles anew.
+    final third = session.reconcileOnResume();
+    expect(identical(first, third), isFalse);
+    await third;
+  });
+
+  test('a failed startup reports, returns null, and leaks no lock', () async {
+    // A live peer holding the store lock forces the startup failure.
+    final contender = ManagedRemoteFileStore(
+      indexFile: File('${supportDir.path}/managed_remote_files.json'),
+      checkoutRoot: Directory('${supportDir.path}/checkouts'),
+    );
+    await contender.list();
+    final errors = <Object>[];
+    final session = await startCheckoutSession(
+      supportDirectoryPath: supportDir.path,
+      queue: queueSession.concreteQueue,
+      connections: queueSession.connections,
+      onError: (error, _) => errors.add(error),
+    );
+    expect(session, isNull);
+    expect(errors, isNotEmpty);
+    // The failed store never held the lock — its close must not have
+    // erased the contender's same-process registration.
+    final third = ManagedRemoteFileStore(
+      indexFile: File('${supportDir.path}/managed_remote_files.json'),
+      checkoutRoot: Directory('${supportDir.path}/checkouts'),
+    );
+    await expectLater(
+      third.list().timeout(const Duration(seconds: 10)),
+      throwsA(isA<FileSystemException>()),
+    );
+    await third.close();
+    await contender.close();
+    // Once the peer releases, the same path boots clean.
+    final recovered = await startCheckoutSession(
+      supportDirectoryPath: supportDir.path,
+      queue: queueSession.concreteQueue,
+      connections: queueSession.connections,
+    );
+    expect(recovered, isNotNull);
+    sessions.add(recovered!);
+  });
 }
 
 extension on RemoteFileEntry {

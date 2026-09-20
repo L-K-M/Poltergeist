@@ -958,13 +958,19 @@ ManagedCheckoutSpec _managedCheckoutFromJson(Map<String, Object?> json) {
     throw const FormatException('malformed managed-checkout spec');
   }
   final targetJson = json['expectedTarget'];
+  if (targetJson != null && targetJson is! Map) {
+    throw const FormatException('malformed managed-checkout spec');
+  }
   return ManagedCheckoutSpec(
     checkoutId: _requiredString(json['checkoutId'], 'checkoutId'),
     serverId: _requiredString(json['serverId'], 'serverId'),
     remotePath: _requiredString(json['remotePath'], 'remotePath'),
     localPath: _requiredString(json['localPath'], 'localPath'),
     direction: direction,
-    displayLocalPath: _optionalString(json['displayLocalPath'], 'spec'),
+    displayLocalPath: _optionalString(
+      json['displayLocalPath'],
+      'displayLocalPath',
+    ),
     expectedSize: expectedSize as int?,
     expectedTarget: targetJson == null
         ? null
@@ -1008,6 +1014,9 @@ TransferTaskSpec _specFromJson(Map<String, Object?> json) {
   // is dropped data the writer never intended — refuse the record rather
   // than silently degrade the replayed task.
   final managedJson = json['managedCheckout'];
+  if (managedJson != null && managedJson is! Map) {
+    throw const FormatException('malformed managed-checkout journal record');
+  }
   if (managedJson != null && operation != TransferOperation.copy) {
     throw FormatException(
       'a ${operation.name} spec must not carry a managed checkout',
@@ -1236,7 +1245,9 @@ class TransferJournalIo {
     try {
       if (restrictToOwner) {
         // Restrict before any content lands (Séance's writeStringAtomically
-        // privacy order): a 0600 temp never exists at the umask default.
+        // privacy order): the empty temp briefly exists at the umask
+        // default, but nothing is written until it is 0600 — and the
+        // containing dir being 0700 closes the open-fd race entirely.
         await temporary.create();
         await restrictLocalPathPermissions(temporary.path, '600');
       }

@@ -257,9 +257,12 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
         // events while the app sat backgrounded.
         if (state == AppLifecycleState.resumed && checkouts != null) {
           unawaited(
-            checkouts.reconcileOnResume().catchError((Object error) {
+            checkouts.reconcileOnResume().catchError((
+              Object error,
+              StackTrace stackTrace,
+            ) {
               FlutterError.reportError(
-                FlutterErrorDetails(exception: error),
+                FlutterErrorDetails(exception: error, stack: stackTrace),
               );
             }),
           );
