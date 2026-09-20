@@ -107,6 +107,13 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
   String? _lastQuery;
   double? _editorWidth;
 
+  // Status-bar counters, cached: _changed fires on every controller
+  // notification — caret moves included — so build must not re-split and
+  // re-encode the whole document per frame on megabyte files.
+  String _lastStatusText = '';
+  int _statusLines = 1;
+  int _statusBytes = 0;
+
   /// Inset around the document text; also part of the scroll-to-match math.
   static const double _editorPadding = 14;
 
@@ -156,6 +163,13 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
   /// re-detect the language now that a `#!` line is available.
   void _applyLoadedText(String text) {
     _savedText = text;
+    _statusBytes = utf8.encode(text).length;
+    var lines = 1;
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) == 0x0a) lines++;
+    }
+    _statusLines = lines;
+    _lastStatusText = text;
     final newline = text.indexOf('\n');
     _text.language = syntaxLanguageFor(
       _displayPath,
@@ -172,6 +186,16 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
 
   void _changed() {
     if (!mounted || _loading) return;
+    final text = _text.text;
+    if (!identical(text, _lastStatusText)) {
+      _lastStatusText = text;
+      _statusBytes = utf8.encode(text).length;
+      var lines = 1;
+      for (var i = 0; i < text.length; i++) {
+        if (text.codeUnitAt(i) == 0x0a) lines++;
+      }
+      _statusLines = lines;
+    }
     if (_searchOpen &&
         !identical(_text.text, _lastSearchedText) &&
         _text.text != _lastSearchedText) {
@@ -383,8 +407,11 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
       } else {
         _baselineSha256 = await customSave(widget.file, value);
       }
-      if (!mounted) return;
-      setState(() => _savedText = value);
+      // The disk write already committed, so the caller's reconcile
+      // hooks must run even when the screen was popped mid-save —
+      // skipping them would diverge a managed checkout's bookkeeping
+      // from disk with nothing surfaced.
+      if (mounted) setState(() => _savedText = value);
       var uploaded = false;
       if (uploadAfterSave) {
         // Upload immediately, no confirmation. The upload reconciles this
@@ -529,14 +556,8 @@ class _BuiltInTextEditorScreenState extends State<BuiltInTextEditorScreen> {
                     ),
                     child: Text(
                       _dirty
-                          ? l10n.editorStatusDirty(
-                              _text.text.split('\n').length,
-                              utf8.encode(_text.text).length,
-                            )
-                          : l10n.editorStatusClean(
-                              _text.text.split('\n').length,
-                              utf8.encode(_text.text).length,
-                            ),
+                          ? l10n.editorStatusDirty(_statusLines, _statusBytes)
+                          : l10n.editorStatusClean(_statusLines, _statusBytes),
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                   ),

@@ -718,6 +718,13 @@ void main() {
     expect(edit.enabled(), isFalse);
     left.setCursorIndex(2);
     expect(edit.enabled(), isTrue);
+    // The distinguishing case: a valid cursor on the now-inactive left
+    // pane must not enable the command.
+    workspace.setActivePane(rightStrip);
+    expect(edit.enabled(), isFalse,
+        reason: 'cursor on the inactive pane does not enable the command');
+    workspace.setActivePane(leftStrip);
+    expect(edit.enabled(), isTrue);
 
     // run dispatches the cursor row through the strip's editor seam —
     // the same resolution the "Edit in Poltergeist" double-click

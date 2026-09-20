@@ -2523,7 +2523,7 @@
   "@editorConflictTitle": {
     "description": "Title of the §3.4 conflict-escalation dialog: the remote moved under an open checkout."
   },
-  "editorConflictBody": "\"{name}\" changed (or was deleted) on {server} after it was opened locally. Overwrite the remote version?",
+  "editorConflictBody": "“{name}” changed (or was deleted) on {server} after it was opened locally. Overwrite the remote version?",
   "@editorConflictBody": {
     "description": "06 §3.4's conflict-escalation body: names the file and its server. The neutral \"(or was deleted)\" matches the typed message — a deleted target has no newer version to overwrite.",
     "placeholders": {

@@ -915,13 +915,26 @@ class ManagedRemoteFileStore {
         if (child is! File) continue;
         final name = p.basename(child.path);
         // Stem-match the record's basename: `target.poltergeist-<tok>.edit`.
-        if (!name.startsWith('$targetName.poltergeist-') ||
-            !generatedTempName.hasMatch(name)) {
+        final prefix = '$targetName.poltergeist-';
+        if (!name.startsWith(prefix)) continue;
+        final isEdit = name.endsWith('.edit');
+        final isBackup = name.endsWith('.backup');
+        if (!isEdit && !isBackup) continue;
+        // The token between the prefix and the suffix must be a pure
+        // generated token — a name like `x.poltergeist-y.poltergeist-
+        // <tok>.edit` carries a dot in that span (the foreign stem's own
+        // segment) and is never this record's temp, even though it
+        // satisfies both the prefix and the regex.
+        final token = name.substring(
+          prefix.length,
+          name.length - (isEdit ? '.edit'.length : '.backup'.length),
+        );
+        if (token.contains('.') || !generatedTempName.hasMatch(name)) {
           continue;
         }
-        if (name.endsWith('.edit')) {
+        if (isEdit) {
           edits.add(child);
-        } else if (name.endsWith('.backup')) {
+        } else if (isBackup) {
           backups.add(child);
         }
       }
@@ -940,8 +953,11 @@ class ManagedRemoteFileStore {
         if (now.difference(stat.modified) < saveTempWindow) return;
       }
       final target = checkoutFile(managed.localPath);
-      if (await FileSystemEntity.type(target.path, followLinks: false) ==
-          FileSystemEntityType.file) {
+      final targetType = await FileSystemEntity.type(
+        target.path,
+        followLinks: false,
+      );
+      if (targetType == FileSystemEntityType.file) {
         for (final sibling in [...edits, ...backups]) {
           try {
             await sibling.delete();
@@ -951,6 +967,10 @@ class ManagedRemoteFileStore {
         }
         return;
       }
+      // Only a genuinely MISSING target gets crash-recovery — a symlink
+      // or directory squatting on the name is left for the caller's
+      // regular safety checks, never renamed over.
+      if (targetType != FileSystemEntityType.notFound) return;
       // Crash-state restore (06 §2.1 step 5), beside a missing target:
       // a lone `.backup` is the sole surviving pre-save copy — renamed
       // back onto the target. With a `.edit` sibling present the save

@@ -104,6 +104,47 @@ void main() {
     expect(find.text('unsaved'), findsOneWidget);
   });
 
+  testWidgets('a pop mid-save still runs the reconcile hooks after the write '
+      'lands', (tester) async {
+    final saveGate = Completer<String>();
+    var reconciles = 0;
+    await tester.pumpWidget(
+      editorApp(
+        remotePath: '/etc/config.txt',
+        initialText: 'one\ntwo\n',
+        saveDocument: (_, text) => saveGate.future,
+        onSaved: () async => reconciles++,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'edited\n');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Save locally'));
+    await tester.pump();
+
+    // Pop while the write is in flight — the discard guard fires on
+    // the still-dirty buffer, then the write completes unmounted.
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Discard unsaved changes?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
+    // The dialog dismissal and the route exit are sequential
+    // transitions — pump until the screen has fully left the tree.
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.byType(BuiltInTextEditorScreen).evaluate().isEmpty) break;
+    }
+    expect(find.byType(BuiltInTextEditorScreen), findsNothing);
+
+    // The disk write commits after the pop — the reconcile hook must
+    // still run or the caller's bookkeeping diverges from disk.
+    saveGate.complete('baseline');
+    await tester.pump();
+    expect(reconciles, 1);
+  });
+
   Future<void> pressCtrlS(WidgetTester tester) async {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyS);

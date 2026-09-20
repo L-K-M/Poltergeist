@@ -584,6 +584,73 @@ void main() {
       },
     );
 
+    test('a foreign-stem temp name is never swept — the token must be '
+        'dot-free', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final local = store.checkoutFile(managed.localPath);
+      // `x.poltergeist-y.poltergeist-<tok>.edit` satisfies the record's
+      // prefix AND the generated-name regex, but the span between them
+      // holds a foreign stem's own segment — never this record's temp.
+      final foreign = File(
+        '${local.path}.poltergeist-foreign.poltergeist-deadbeef-cafe'
+        '.edit',
+      );
+      await foreign.writeAsString('not ours');
+      await foreign.setLastModified(DateTime.utc(2020));
+      // The record's own stale temp still sweeps, proving the pass ran.
+      final own = await tempSibling(managed, 'edit', content: 'x');
+
+      final reconciled = await store.reconcile('edit-1');
+
+      expect(reconciled!.dirty, isFalse);
+      expect(await own.exists(), isFalse);
+      expect(await foreign.readAsString(), 'not ours');
+    });
+
+    test('a symlink or directory squatting on the target path is never '
+        'renamed over', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final local = store.checkoutFile(managed.localPath);
+      await local.delete();
+      final squat = File('${local.parent.path}/squat-target')
+        ..writeAsStringSync('squat');
+      final link = await Link(local.path).create(squat.path);
+      final backup = await tempSibling(managed, 'backup', content: 'y');
+
+      var reconciled = await store.reconcile('edit-1');
+
+      // The link is the target — crash-restore does not run, the
+      // sibling is left alone, and the copy reports missing.
+      expect(await FileSystemEntity.isLink(local.path), isTrue);
+      expect(await link.exists(), isTrue);
+      expect(await backup.exists(), isTrue);
+      expect(reconciled!.missing, isTrue);
+
+      // Same refusal for a directory at the path.
+      await link.delete();
+      await Directory(local.path).create();
+      reconciled = await store.reconcile('edit-1');
+
+      expect(
+        await FileSystemEntity.type(local.path, followLinks: false),
+        FileSystemEntityType.directory,
+      );
+      expect(await backup.exists(), isTrue);
+      expect(reconciled!.missing, isTrue);
+    });
+
     test('foreign stems are never swept', () async {
       final managed = await _createManagedCheckout(
         store,

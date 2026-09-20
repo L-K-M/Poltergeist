@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -1118,13 +1119,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         // custodian.
         final file = await resolveBuiltInEditorTarget(File(entry.path));
         if (!mounted) return;
-        _pushEditorRoute(
-          key: 'local:${file.absolute.path}',
-          file: file,
-          remotePath: null,
-          basenameOf: p.basename,
-          onSaved: null,
-          onUpload: null,
+        unawaited(
+          _pushEditorRoute(
+            key: 'local:${file.absolute.path}',
+            file: file,
+            remotePath: null,
+            basenameOf: p.basename,
+            onSaved: null,
+            onUpload: null,
+          ),
         );
         return;
       }
@@ -1150,13 +1153,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         maximumBytes: builtInEditorMaximumBytes,
       );
       if (!mounted) return;
-      _pushEditorRoute(
-        key: 'remote:${record.serverId}:${record.remotePath}',
-        file: session.localFile(record),
-        remotePath: record.remotePath,
-        basenameOf: remoteBasename,
-        onSaved: () => session.reconcile(record),
-        onUpload: () => _uploadCheckout(record, bookmark),
+      unawaited(
+        _pushEditorRoute(
+          key: 'remote:${record.serverId}:${record.remotePath}',
+          file: session.localFile(record),
+          remotePath: record.remotePath,
+          basenameOf: remoteBasename,
+          onSaved: () => session.reconcile(record),
+          onUpload: () => _uploadCheckout(record, bookmark),
+        ),
       );
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
@@ -1174,7 +1179,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     Bookmark bookmark,
   ) async {
     final session = widget.checkoutSession;
-    if (session == null) return false;
+    if (session == null) {
+      // Wiring defect, not a user fault — mirror the open-time report so
+      // this isn't misreported as a deliberate "Saved locally; not
+      // uploaded."
+      ApplicationErrorReporter().report(
+        StateError('remote edit upload reached without a checkout session'),
+        StackTrace.current,
+      );
+      return false;
+    }
     try {
       return await session.uploadLocalCopy(copy);
     } on RemoteFileException catch (error) {
@@ -1226,17 +1240,43 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// one-editor-per-key rule: two editors on one checkout (or one local
   /// path) would share a file and baseline, so the second open surfaces
   /// the first instead of arming its save-conflict refusal.
-  void _pushEditorRoute({
+  Future<void> _pushEditorRoute({
     required String key,
     required File file,
     required String? remotePath,
     required String Function(String) basenameOf,
     required Future<void> Function()? onSaved,
     required Future<bool> Function()? onUpload,
-  }) {
+  }) async {
     final existing = _editorRoutes[key];
     if (existing != null && existing.isActive) {
-      Navigator.of(context).popUntil((route) => identical(route, existing));
+      final navigator = Navigator.of(context);
+      // Reveal by popping the covering routes one at a time so each
+      // editor's PopScope guard runs — popUntil would force-pop and
+      // silently drop unsaved changes. maybePop reports true even for
+      // a vetoed pop, so progress is judged by the guarded route
+      // actually leaving the top, never by the return value.
+      while (!existing.isCurrent) {
+        if (!mounted) return;
+        Route<void>? guarded;
+        for (final route in _editorRoutes.values) {
+          if (route.isActive && route.isCurrent) {
+            guarded = route;
+            break;
+          }
+        }
+        if (!await navigator.maybePop()) return;
+        if (guarded == null) continue;
+        // A vetoed editor keeps its route and raises the discard
+        // dialog above it; wait for that choice. Discard kills the
+        // route and the reveal continues; Keep editing leaves it
+        // current and ends the reveal.
+        while (guarded.isActive && !guarded.isCurrent) {
+          await SchedulerBinding.instance.endOfFrame;
+          if (!mounted) return;
+        }
+        if (guarded.isActive) return;
+      }
       return;
     }
     late final MaterialPageRoute<void> route;

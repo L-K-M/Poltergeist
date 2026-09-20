@@ -3011,7 +3011,7 @@ abstract class AppLocalizations {
   /// 06 §3.4's conflict-escalation body: names the file and its server. The neutral "(or was deleted)" matches the typed message — a deleted target has no newer version to overwrite.
   ///
   /// In en, this message translates to:
-  /// **'\"{name}\" changed (or was deleted) on {server} after it was opened locally. Overwrite the remote version?'**
+  /// **'“{name}” changed (or was deleted) on {server} after it was opened locally. Overwrite the remote version?'**
   String editorConflictBody(String name, String server);
 
   /// Declines the conflict overwrite — the safe default (02 §10).

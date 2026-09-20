@@ -30,6 +30,10 @@ import '../../support/fake_bookmark_store.dart';
 
 /// The remote path the harness seeds — the file the editor tests open.
 const remoteConfigPath = '/srv/www/config.txt';
+
+/// A second seeded file — lets a test stack one editor route over
+/// another to exercise the buried-editor reveal.
+const remoteNotesPath = '/srv/www/notes.txt';
 final _now = DateTime.utc(2026, 9, 12);
 
 Bookmark _bookmark() => Bookmark(
@@ -56,6 +60,15 @@ RemoteFileEntry _listing() => RemoteFileEntry(
   name: 'config.txt',
   type: RemoteFileType.file,
   size: utf8.encode('one\ntwo\n').length,
+  modifiedAt: DateTime.utc(2026, 1, 1),
+  mode: 0x1a4, // 0644
+);
+
+RemoteFileEntry _notesListing() => RemoteFileEntry(
+  path: remoteNotesPath,
+  name: 'notes.txt',
+  type: RemoteFileType.file,
+  size: utf8.encode('notes\n').length,
   modifiedAt: DateTime.utc(2026, 1, 1),
   mode: 0x1a4, // 0644
 );
@@ -337,7 +350,8 @@ final class EditorCheckoutHarness {
       'pg-editor-checkout-',
     );
     harness.fs = FakeEditorRemoteFs()
-      ..seed(remoteConfigPath, utf8.encode('one\ntwo\n'));
+      ..seed(remoteConfigPath, utf8.encode('one\ntwo\n'))
+      ..seed(remoteNotesPath, utf8.encode('notes\n'));
     harness.connections = FakeEditorConnections(harness.fs);
     harness.queue = TransferQueue(connections: harness.connections);
     harness.checkout = (await startCheckoutSession(
@@ -347,7 +361,7 @@ final class EditorCheckoutHarness {
     ))!;
     harness.bookmarks = FakeBookmarkStore();
     final channel = session_test.FakeAppBrowseChannel(homePath: '/srv')
-      ..listings['/srv/www'] = [_listing()];
+      ..listings['/srv/www'] = [_listing(), _notesListing()];
     harness.appEngine = session_test.FakeAppEngine()..channel = channel;
     harness.engine = (await startEngineSession(
       supportDirectoryPath: harness.supportDir.path,
@@ -441,7 +455,7 @@ Future<void> mountEditorShell(
                 serverId: 'b1',
                 path: '/srv/www',
                 bookmark: _bookmark(),
-                listing: [_listing()],
+                listing: [_listing(), _notesListing()],
               ),
             ],
           ),
@@ -468,10 +482,11 @@ Future<void> mountEditorShell(
 /// `file.editBuiltIn`'s production path from menu item to checkout.
 Future<void> openEditorViaCommand(
   WidgetTester tester,
-  EditorCheckoutHarness harness,
-) async {
+  EditorCheckoutHarness harness, {
+  String fileName = 'config.txt',
+}) async {
   final pane = leftPane(tester);
-  final cursor = pane.entries.indexWhere((e) => e.name == 'config.txt');
+  final cursor = pane.entries.indexWhere((e) => e.name == fileName);
   expect(cursor, isNonNegative);
   pane.setCursorIndex(cursor);
   await tester.pump();
@@ -605,7 +620,7 @@ void main() {
         // safe default first (02 §10).
         expect(
           find.textContaining(
-            '"config.txt" changed (or was deleted) on web.example.com',
+            '“config.txt” changed (or was deleted) on web.example.com',
           ),
           findsOneWidget,
         );
@@ -671,6 +686,81 @@ void main() {
           utf8.decode(harness.fs.bytes(remoteConfigPath)!),
           'local edit\n',
         );
+      });
+    },
+  );
+
+  testWidgets(
+    're-opening a buried editor reveals it through the covering '
+    'editor\'s discard guard, never a force pop',
+    (tester) async {
+      await tester.runAsync(() async {
+        await mountEditorShell(tester, harness);
+        await openEditorViaCommand(tester, harness, fileName: 'config.txt');
+
+        // The pushed editor covers the shell, so a second open can't
+        // come from the menu — drive the pane's editor seam directly
+        // (the same entry point the command resolves to).
+        final pane = leftPane(tester);
+        final notes = pane.entries.firstWhere((e) => e.name == 'notes.txt');
+        unawaited(pane.editInBuiltInEditor(notes));
+        for (var i = 0; i < 80; i++) {
+          await tester.pump();
+          if (find
+                  .byType(BuiltInTextEditorScreen, skipOffstage: false)
+                  .evaluate()
+                  .length ==
+              2) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        for (var i = 0; i < 80; i++) {
+          await tester.pump();
+          if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        await tester.pump(const Duration(milliseconds: 400));
+
+        // Both editors stay in the tree (the covered route keeps its
+        // state) — address the covering one's field by its document.
+        Finder fieldWith(String text) => find.byWidgetPredicate(
+          (w) => w is TextField && w.controller?.text == text,
+        );
+
+        // Dirty the covering editor — its PopScope must arbitrate the
+        // reveal, not be stepped over by a forceful popUntil.
+        await tester.enterText(fieldWith('notes\n'), 'unsaved notes\n');
+        await tester.pump();
+
+        final config = pane.entries.firstWhere(
+          (e) => e.name == 'config.txt',
+        );
+        unawaited(pane.editInBuiltInEditor(config));
+        await pollFor(tester, find.text('Discard unsaved changes?'));
+
+        // Keep editing declines the reveal — the covering editor stays.
+        await tester.tap(find.widgetWithText(TextButton, 'Keep editing'));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(fieldWith('unsaved notes\n'), findsOneWidget);
+
+        // Re-invoke, then Discard: the covering editor pops and the
+        // buried one surfaces with its own document.
+        unawaited(pane.editInBuiltInEditor(config));
+        await pollFor(tester, find.text('Discard unsaved changes?'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
+        for (var i = 0; i < 40; i++) {
+          await tester.pump();
+          if (fieldWith('one\ntwo\n').evaluate().isNotEmpty &&
+              fieldWith('unsaved notes\n').evaluate().isEmpty) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(fieldWith('one\ntwo\n'), findsOneWidget);
       });
     },
   );

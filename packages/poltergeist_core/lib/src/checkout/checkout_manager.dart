@@ -296,18 +296,23 @@ final class CheckoutManager {
       RemoteFileEntry remoteEntry;
       try {
         remoteEntry = await _awaitTask(task);
-      } on RemoteFileException catch (error) {
+      } on RemoteFileException catch (error, stackTrace) {
         // The stream cap aborts an unknown-size download mid-pipe and
         // the queue's error attribution wraps the typed limit error
         // ('transfer source: …'). The partial file cannot re-derive it —
         // the cap counts bytes READ while BoundedTransferSink may hold
         // the tail unflushed — so the pin is the cap's own §3.2 message
-        // suffix, which only MaximumByteSink produces.
+        // suffix, which only MaximumByteSink produces. The cap value is
+        // pinned too: a differently-shaped limit error is not this
+        // call's to re-label.
         if (maximumBytes != null &&
-            error.message.endsWith('-byte editor limit.')) {
-          throw CheckoutLimitException(
-            'The file is larger than the $maximumBytes-byte '
-            'editor limit.',
+            error.message.endsWith('$maximumBytes-byte editor limit.')) {
+          Error.throwWithStackTrace(
+            CheckoutLimitException(
+              'The file is larger than the $maximumBytes-byte '
+              'editor limit.',
+            ),
+            stackTrace,
           );
         }
         rethrow;

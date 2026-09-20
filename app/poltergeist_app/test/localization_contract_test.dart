@@ -902,6 +902,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'local:${file.absolute.path}'",
     r"'remote:${record.serverId}:${record.remotePath}'",
     "'remote edit reached without a checkout session'",
+    "'remote edit upload reached without a checkout session'",
   },
   // The built-in editor's document-structure literals — the text field's
   // empty initial value and the newline joiners/splitters are plumbing,

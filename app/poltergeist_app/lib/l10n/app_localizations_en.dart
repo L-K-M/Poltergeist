@@ -1903,7 +1903,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String editorConflictBody(String name, String server) {
-    return '\"$name\" changed (or was deleted) on $server after it was opened locally. Overwrite the remote version?';
+    return '“$name” changed (or was deleted) on $server after it was opened locally. Overwrite the remote version?';
   }
 
   @override

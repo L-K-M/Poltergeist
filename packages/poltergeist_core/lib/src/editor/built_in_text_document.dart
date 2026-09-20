@@ -231,13 +231,24 @@ Future<String> saveBuiltInTextDocument(
       );
     }
     await file.rename(backup.path);
-    if (expectedSha256 != null &&
-        await streamedFileSha256(backup) != expectedSha256) {
-      await backup.rename(file.path);
-      throw const BuiltInEditorException(
-        'The local copy changed in another editor. Reopen it before '
-        'saving to avoid losing those changes.',
-      );
+    if (expectedSha256 != null) {
+      final String backupSha256;
+      try {
+        backupSha256 = await streamedFileSha256(backup);
+      } catch (_) {
+        // The digest read is part of the guard window — a failure here
+        // must still restore the original, not leave it stranded at the
+        // backup path (the reconcile sweep reaps `.poltergeist-*`).
+        await backup.rename(file.path);
+        rethrow;
+      }
+      if (backupSha256 != expectedSha256) {
+        await backup.rename(file.path);
+        throw const BuiltInEditorException(
+          'The local copy changed in another editor. Reopen it before '
+          'saving to avoid losing those changes.',
+        );
+      }
     }
     try {
       if (await FileSystemEntity.type(file.path, followLinks: false) !=

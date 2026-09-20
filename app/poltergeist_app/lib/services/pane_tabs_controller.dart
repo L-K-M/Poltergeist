@@ -378,7 +378,7 @@ class PaneTabsController extends ChangeNotifier {
         } else if (location is LocalPaneLocation) {
           unawaited(controller.openLocalAt(location.path));
         }
-      // An unbound source duplicates to an unbound tab.
+        // An unbound source duplicates to an unbound tab.
       case NewTabTarget.home:
         final bookmark = source?.controller.remoteBookmark;
         if (bookmark != null) {

@@ -1107,8 +1107,12 @@ List<SyntaxToken> _mergeMetaTokens(
       // prefix — true for the YAML key pattern, whose group starts with
       // [^\s#-] while the prefix is only whitespace and dashes. Keep that
       // property when adding grouped patterns.
-      start = match.start + match[0]!.indexOf(match[group]!);
-      end = start + match[group]!.length;
+      // A non-participating (optional) group yields no token — skip the
+      // match rather than throwing on the null group.
+      final groupText = match[group];
+      if (groupText == null) continue;
+      start = match.start + match[0]!.indexOf(groupText);
+      end = start + groupText.length;
     }
     if (end <= start) continue;
     while (tokenIndex < tokens.length && tokens[tokenIndex].end <= start) {

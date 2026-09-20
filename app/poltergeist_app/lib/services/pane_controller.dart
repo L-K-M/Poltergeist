@@ -915,7 +915,7 @@ class PaneController extends ChangeNotifier {
   /// preference. Directories never reach here (the command's enablement
   /// gates them); a stale row is fully inert, matching [openEntry].
   Future<void> editInBuiltInEditor(RemoteFileEntry entry) async {
-    if (_disposed || _staleRows) return;
+    if (!_rowsInteractive) return;
     dismissNotice();
     await _openInBuiltInEditor(entry);
   }
