@@ -330,8 +330,9 @@ final class BookmarkBackupService extends ChangeNotifier {
     final coordinator = _coordinator;
     if (_syncing || account == null || coordinator == null) return null;
     _syncing = true;
-    notifyListeners();
     try {
+      // Inside the try: a throwing listener must not strand _syncing.
+      notifyListeners();
       final token = await _credentials.readToken();
       if (token == null) {
         throw StateError('enrolled without a session token');
@@ -436,8 +437,9 @@ final class BookmarkBackupService extends ChangeNotifier {
     }
     _requireNotSyncing();
     _syncing = true;
-    notifyListeners();
     try {
+      // Inside the try: a throwing listener must not strand _syncing.
+      notifyListeners();
       // 1. Retain the separate account's token BEFORE the enrollment write
       //    could overwrite it (04 §4.4: it lives in the keystore, not the
       //    §3.1 store the wipe clears; server-side tokens never expire, so
