@@ -269,9 +269,15 @@ final class FakeSyncTransport implements SyncTransport {
     server.pullSinces.add(since);
     // The server's own delta semantics: only records newer than the
     // cursor — an unfiltered repeat would keep every round "progressing".
+    // A seq-less seed would silently compare as 0 and vanish from every
+    // delta pull — fail loudly so tests must stamp an explicit seq.
     final fresh = [
       for (final record in server.records)
-        if ((record.seq ?? 0) > since) record,
+        if ((record.seq ?? (throw StateError(
+                'seeded record ${record.id} has no seq')))
+            >
+            since)
+          record,
     ];
     return PullResponse(records: fresh, latestSeq: server.seq);
   }

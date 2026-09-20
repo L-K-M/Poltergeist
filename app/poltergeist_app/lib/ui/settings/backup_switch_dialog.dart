@@ -24,6 +24,9 @@ Future<void> showBackupSwitchDialog(
 }) =>
     showDialog<void>(
       context: context,
+      // No barrier dismissal: mid-flight phases have no actions, so a
+      // stray outside tap would strand the §4.4 flow with no re-entry.
+      barrierDismissible: false,
       builder: (_) => BackupSwitchDialog(service: service, gate: gate),
     );
 
@@ -73,10 +76,14 @@ class _BackupSwitchDialogState extends State<BackupSwitchDialog> {
 
   Future<void> _switch() async {
     final l10n = AppLocalizations.of(context);
+    // Validation and submission see the same trimmed values — padding
+    // must not pass one path and fail the other.
+    final baseUrl = _url.text.trim();
+    final username = _username.text.trim();
     final issue = validateSyncEnrollment(
       mode: SyncEnrollmentMode.login,
-      baseUrl: _url.text,
-      username: _username.text,
+      baseUrl: baseUrl,
+      username: username,
       password: _password.text,
       encryptionPassphrase: _passphrase.text,
     );
@@ -90,8 +97,8 @@ class _BackupSwitchDialogState extends State<BackupSwitchDialog> {
     });
     try {
       final outcome = await widget.service.switchToShared(
-        baseUrl: _url.text.trim(),
-        username: _username.text.trim(),
+        baseUrl: baseUrl,
+        username: username,
         password: _password.text,
         encryptionPassphrase: _passphrase.text,
       );
@@ -117,12 +124,30 @@ class _BackupSwitchDialogState extends State<BackupSwitchDialog> {
   /// §4.4's hold set drains one decision at a time: the service refresh
   /// recomputes `pinConflicts`, and an empty remainder completes the
   /// switch — the spec forbids a click-through on a conflicting host.
+  /// Every resolution rebuilds (the resolved row must leave the list
+  /// immediately), and a failed decision lands on the failed phase
+  /// rather than dying as an unhandled async error.
   Future<void> _resolve(HostKeyConflict conflict, bool keepLocal) async {
-    await widget.service.resolvePinConflict(conflict, keepLocal: keepLocal);
-    if (!mounted) return;
-    if (widget.service.pinConflicts.isEmpty) {
-      setState(() => _phase = _SwitchPhase.done);
+    final l10n = AppLocalizations.of(context);
+    try {
+      await widget.service.resolvePinConflict(conflict, keepLocal: keepLocal);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _phase = _SwitchPhase.failed;
+          _error = l10n.backupSwitchFailed(
+            describeEnrollmentError(l10n, error),
+          );
+        });
+      }
+      return;
     }
+    if (!mounted) return;
+    setState(() {
+      if (widget.service.pinConflicts.isEmpty) {
+        _phase = _SwitchPhase.done;
+      }
+    });
   }
 
   @override
@@ -130,45 +155,51 @@ class _BackupSwitchDialogState extends State<BackupSwitchDialog> {
     final l10n = AppLocalizations.of(context);
     final version = widget.gate.minimumSharedVersion;
 
-    return AlertDialog(
-      key: const ValueKey('backup.switch.dialog'),
-      title: Text(l10n.backupSwitchTitle),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: switch (_phase) {
-            _SwitchPhase.confirm => _buildConfirm(l10n, version),
-            _SwitchPhase.working =>
-              Text(l10n.backupSwitchWorking),
-            _SwitchPhase.conflicts => _buildConflicts(l10n),
-            _SwitchPhase.done => _buildDone(l10n),
-            _SwitchPhase.failed => _buildFailed(l10n),
-          },
+    // The working phase has no cancel affordance — a system back must
+    // not strand the mid-flight switch either (the barrier is already
+    // non-dismissible at the showDialog level).
+    return PopScope(
+      canPop: _phase != _SwitchPhase.working,
+      child: AlertDialog(
+        key: const ValueKey('backup.switch.dialog'),
+        title: Text(l10n.backupSwitchTitle),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: switch (_phase) {
+              _SwitchPhase.confirm => _buildConfirm(l10n, version),
+              _SwitchPhase.working =>
+                Text(l10n.backupSwitchWorking),
+              _SwitchPhase.conflicts => _buildConflicts(l10n),
+              _SwitchPhase.done => _buildDone(l10n),
+              _SwitchPhase.failed => _buildFailed(l10n),
+            },
+          ),
         ),
+        actions: switch (_phase) {
+          _SwitchPhase.confirm => [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(l10n.backupCancel),
+              ),
+              FilledButton(
+                key: const ValueKey('backup.switch.continue'),
+                onPressed:
+                    _fleetConfirmed && version != null ? _switch : null,
+                child: Text(l10n.backupContinue),
+              ),
+            ],
+          _SwitchPhase.working => const [],
+          _SwitchPhase.conflicts => const [],
+          _SwitchPhase.done || _SwitchPhase.failed => [
+              FilledButton(
+                key: const ValueKey('backup.switch.close'),
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(l10n.backupClose),
+              ),
+            ],
+        },
       ),
-      actions: switch (_phase) {
-        _SwitchPhase.confirm => [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l10n.backupCancel),
-            ),
-            FilledButton(
-              key: const ValueKey('backup.switch.continue'),
-              onPressed:
-                  _fleetConfirmed && version != null ? _switch : null,
-              child: Text(l10n.backupContinue),
-            ),
-          ],
-        _SwitchPhase.working => const [],
-        _SwitchPhase.conflicts => const [],
-        _SwitchPhase.done || _SwitchPhase.failed => [
-            FilledButton(
-              key: const ValueKey('backup.switch.close'),
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l10n.backupClose),
-            ),
-          ],
-      },
     );
   }
 

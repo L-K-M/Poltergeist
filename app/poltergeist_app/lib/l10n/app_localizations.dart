@@ -2411,7 +2411,7 @@ abstract class AppLocalizations {
   /// Menu command opening Settings at the Bookmark backup section (D21).
   ///
   /// In en, this message translates to:
-  /// **'Backup Settings…'**
+  /// **'Back up bookmarks…'**
   String get settingsBackupCommand;
 
   /// 04 §4.3's verbatim section title.
@@ -2687,7 +2687,7 @@ abstract class AppLocalizations {
   /// Status for a round that finished days ago.
   ///
   /// In en, this message translates to:
-  /// **'{count, plural, =1{Last backed up yesterday} other{Last backed up {count} days ago}}'**
+  /// **'{count, plural, =1{Last backed up 1 day ago} other{Last backed up {count} days ago}}'**
   String backupLastSyncedDaysAgo(int count);
 
   /// Status for the last round's failure (04 §3.3: error text lives in Settings → Backup).

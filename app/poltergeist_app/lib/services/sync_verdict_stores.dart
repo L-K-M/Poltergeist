@@ -54,9 +54,16 @@ final class SettingsPinVerdictStore implements PinVerdictStore {
 
   @override
   Future<void> addNegativePin(String locator) => _mutate(() async {
+        // Forgetting the host also forgets its kept verdict: a host the
+        // user re-pins later must warn on the same pulled fingerprint
+        // again — the verdict belonged to the forgotten trust decision.
         final next = await _negativeSet();
-        if (!next.add(locator)) return;
+        next.add(locator);
         await _store.set(_negativePinsKey, next.toList()..sort());
+        final kept = await _keptMap();
+        if (kept.remove(locator) != null) {
+          await _store.set(_keptVerdictsKey, kept);
+        }
       });
 
   @override

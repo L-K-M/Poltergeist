@@ -23,7 +23,10 @@ abstract interface class PinVerdictStore {
   /// The locators (`host:port`) the user has untrusted.
   Future<Set<String>> negativePins();
 
-  /// Record that [locator] is untrusted.
+  /// Record that [locator] is untrusted. Forgetting the host also drops
+  /// its kept verdict: a host the user re-pins later must warn on the
+  /// same pulled fingerprint again — the verdict belonged to the
+  /// forgotten trust decision.
   Future<void> addNegativePin(String locator);
 
   /// Clear [locator]'s untrust — the user re-trusted the key.
@@ -67,6 +70,7 @@ final class InMemoryPinVerdictStore implements PinVerdictStore {
   @override
   Future<void> addNegativePin(String locator) async {
     _negative.add(locator);
+    _kept.remove(locator);
   }
 
   @override

@@ -73,8 +73,8 @@ final class _Harness {
     now: () => clock,
   );
 
-  /// The switch test's separate-mode starting point — a live token, a
-  /// vault key, and one legacy record in the soon-to-be-wiped store.
+  /// The switch tests' separate-mode starting point — a live token and
+  /// a vault key under an enrolled separate-mode account.
   Future<void> enrollSeparateDirectly() async {
     state.enrolled = const SyncAccount(
       baseUrl: 'https://sync.example',
@@ -171,6 +171,21 @@ void main() {
       expect(h.service.account!.mode, SyncAccountMode.shared);
       // Shared mode materializes the Séance server catalog.
       expect(h.service.catalog, isNotNull);
+      // §4.5's hold: a dirty local record must not reach the server
+      // while the passphrase is unverified.
+      final bookmark = _bookmark('held');
+      final crypto =
+          RecordCrypto(RecordCodec(h.credentials.vaultKey!));
+      await h.records.putLocal(await crypto.seal(DecryptedRecord(
+        id: 'bookmark:held',
+        kind: RecordKind.bookmark,
+        updatedAt: _fixedNow.millisecondsSinceEpoch,
+        deviceId: 'test-device',
+        data: bookmark.toJson(),
+      )));
+      await h.service.backUpNow();
+      expect(h.server.pushed.map((r) => r.id),
+          isNot(contains('bookmark:held')));
     });
 
     test('a below-minimum prelogin refuses to derive (KDF downgrade)',
@@ -238,15 +253,50 @@ void main() {
       await h.enrollSeparateDirectly();
       h.server.unauthorized = true;
       final result = await h.service.backUpNow();
+      expect(result, isNotNull);
       expect(result!.authFailed, isTrue);
       expect(h.service.notices, contains(syncNoticeAccountAuthFailed));
     });
 
-    test('signOut forgets the token and account locally', () async {
+    test('signOut forgets the token, account, and last-round status',
+        () async {
       await h.enrollSeparateDirectly();
+      final bookmark = _bookmark('b1');
+      final crypto =
+          RecordCrypto(RecordCodec(h.credentials.vaultKey!));
+      await h.records.putLocal(await crypto.seal(DecryptedRecord(
+        id: 'bookmark:b1',
+        kind: RecordKind.bookmark,
+        updatedAt: _fixedNow.millisecondsSinceEpoch,
+        deviceId: 'test-device',
+        data: bookmark.toJson(),
+      )));
+      await h.service.backUpNow();
+      expect(h.service.lastSyncAt, isNotNull);
+
       await h.service.signOut();
       expect(h.credentials.token, isNull);
       expect(h.service.account, isNull);
+      // The old account's bookkeeping must not leak into the next
+      // enrollment's status line.
+      expect(h.service.lastSyncAt, isNull);
+      expect(h.service.lastSyncError, isNull);
+    });
+
+    test('resolvePinConflict throws when nothing is enrolled', () async {
+      await h.service.load();
+      final pin = _pin('conflict.example.com', 'SHA256:x');
+      await expectLater(
+        h.service.resolvePinConflict(
+          HostKeyConflict(
+            locator: pin.locator,
+            local: pin,
+            pulled: pin,
+          ),
+          keepLocal: true,
+        ),
+        throwsA(isA<StateError>()),
+      );
     });
 
     test('deleteSeparateAccount requires the typed account name', () async {
@@ -358,8 +408,8 @@ void main() {
       expect(h.service.deleteSeparateOffered, isTrue);
     });
 
-    test('resolving the held conflict: keep-local re-pushes, '
-        'adopt-fleet installs the pulled pin', () async {
+    test('adopt-fleet installs the pulled pin without re-pushing it',
+        () async {
       await h.enrollSeparateDirectly();
       h.hostKeys.put(_pin('conflict.example.com', 'SHA256:local'));
       h.server.records.add(await h.fleetSealed(DecryptedRecord(
@@ -385,6 +435,11 @@ void main() {
             .fingerprintSha256,
         'SHA256:fleet',
       );
+      // The fleet record is already on the server — the next round must
+      // not push it back as a local write.
+      await h.service.backUpNow();
+      expect(h.server.pushed.map((r) => r.id),
+          isNot(contains('hostkey:conflict.example.com:22')));
     });
 
     test('keep-local records the kept verdict and re-pushes the pin',

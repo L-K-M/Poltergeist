@@ -161,7 +161,10 @@ Future<void> main() async {
   final masterKeys = MasterKeyManager();
   final syncRecordsPath =
       '${supportDirectory.path}${Platform.pathSeparator}sync_records.json';
-  SyncRecordStore syncRecords = PersistentLocalRecordStore(
+  // Concrete type: the reset closure and the quarantine-path reader both
+  // need PersistentLocalRecordStore members — an interface-typed binding
+  // would hide that dependency behind a runtime cast.
+  PersistentLocalRecordStore syncRecords = PersistentLocalRecordStore(
     path: syncRecordsPath,
     onError: errorReporter.report,
   );
@@ -195,8 +198,7 @@ Future<void> main() async {
     transportFactory: httpSyncTransport,
     vaultKey: masterKeys.probeKeystore,
     settings: settingsStore,
-    recordQuarantinePath: () =>
-        (syncRecords as PersistentLocalRecordStore).quarantinedPath,
+    recordQuarantinePath: () => syncRecords.quarantinedPath,
   );
   // Durable-state reads are fail-safe by their own contract (corrupt
   // files quarantine, keystore failures read as unavailable), so a load

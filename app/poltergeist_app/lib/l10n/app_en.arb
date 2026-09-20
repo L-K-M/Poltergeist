@@ -1997,7 +1997,7 @@
   "@settingsTitle": {
     "description": "Title of the Settings surface (02 §10)."
   },
-  "settingsBackupCommand": "Backup Settings\u2026",
+  "settingsBackupCommand": "Back up bookmarks\u2026",
   "@settingsBackupCommand": {
     "description": "Menu command opening Settings at the Bookmark backup section (D21)."
   },
@@ -2214,7 +2214,7 @@
       }
     }
   },
-  "backupLastSyncedDaysAgo": "{count, plural, =1{Last backed up yesterday} other{Last backed up {count} days ago}}",
+  "backupLastSyncedDaysAgo": "{count, plural, =1{Last backed up 1 day ago} other{Last backed up {count} days ago}}",
   "@backupLastSyncedDaysAgo": {
     "description": "Status for a round that finished days ago.",
     "placeholders": {

@@ -46,7 +46,7 @@ final class _Harness {
   final tripwires = InMemorySyncTripwireStore();
   var records = InMemorySyncRecordStore();
 
-  BookmarkBackupService get service => BookmarkBackupService(
+  late final BookmarkBackupService service = BookmarkBackupService(
         credentials: credentials,
         retainedTokens: retained,
         enrollmentState: state,
@@ -195,7 +195,10 @@ bool _enabled(WidgetTester tester, Key key) {
     FilledButton(onPressed: final p) => p != null,
     TextButton(onPressed: final p) => p != null,
     ListTile(enabled: final e) => e,
-    _ => false,
+    // A silent false would read as "disabled" — a new widget kind must
+    // extend this switch, not inherit a wrong answer.
+    _ => throw StateError(
+        'unhandled widget type for $key: ${widget.runtimeType}'),
   };
 }
 
@@ -305,6 +308,10 @@ void main() {
 
       expect(_enabled(tester, const ValueKey('backup.mode.shared')),
           isFalse);
+      // Tapping the disabled tile must not select it — the RadioGroup
+      // ancestor would otherwise take the tap through the Radio leaf.
+      await tester.tap(find.byKey(const ValueKey('backup.mode.shared')));
+      await tester.pumpAndSettle();
       // No fleet checkbox — the gated copy cannot render without the tag.
       expect(find.byKey(const ValueKey('backup.fleet.checkbox')),
           findsNothing);

@@ -56,6 +56,18 @@ void main() {
           'SHA256:newer');
     });
 
+    test('forgetting a host drops its kept verdict', () async {
+      final store = SettingsPinVerdictStore(store: settings);
+      await store.recordKeptVerdict('a.example:22', 'SHA256:rejected');
+      await store.addNegativePin('a.example:22');
+      // The forget wiped the verdict — re-pinning the host later must
+      // warn on the same pulled fingerprint again.
+      expect(await store.rejectedFingerprintFor('a.example:22'), isNull);
+      final reopened = SettingsPinVerdictStore(store: settings);
+      expect(await reopened.rejectedFingerprintFor('a.example:22'),
+          isNull);
+    });
+
     test('overlapping mutations serialize without loss', () async {
       final store = SettingsPinVerdictStore(store: settings);
       await Future.wait([

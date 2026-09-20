@@ -117,10 +117,15 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
     final action = _sharedSelected
         ? SyncEnrollmentMode.login
         : _action;
+    // Validation and submission must see identical input — trimming only
+    // the submitted half would let a padded URL fail validation or a
+    // whitespace-only username slip past it.
+    final baseUrl = _url.text.trim();
+    final username = _username.text.trim();
     final issue = validateSyncEnrollment(
       mode: action,
-      baseUrl: _url.text,
-      username: _username.text,
+      baseUrl: baseUrl,
+      username: username,
       password: _password.text,
       encryptionPassphrase: _passphrase.text,
       confirmationPassphrase: _confirm.text,
@@ -138,15 +143,15 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
     try {
       if (action == SyncEnrollmentMode.register) {
         await widget.service.registerSeparate(
-          baseUrl: _url.text.trim(),
-          username: _username.text.trim(),
+          baseUrl: baseUrl,
+          username: username,
           password: _password.text,
           encryptionPassphrase: _passphrase.text,
         );
       } else {
         await widget.service.loginAccount(
-          baseUrl: _url.text.trim(),
-          username: _username.text.trim(),
+          baseUrl: baseUrl,
+          username: username,
           password: _password.text,
           encryptionPassphrase: _passphrase.text,
           mode: _mode,
@@ -207,8 +212,13 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
                 ListTile(
                   key: const ValueKey('backup.mode.shared'),
                   enabled: false,
-                  leading: const Radio<SyncAccountMode>(
-                    value: SyncAccountMode.shared,
+                  // The tile is disabled, but the Radio leaf still takes
+                  // taps from the RadioGroup ancestor — block it so the
+                  // gated option cannot be selected at all.
+                  leading: const IgnorePointer(
+                    child: Radio<SyncAccountMode>(
+                      value: SyncAccountMode.shared,
+                    ),
                   ),
                   title: Text(l10n.backupEnrolledModeShared),
                 ),
@@ -268,6 +278,7 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
           controller: _url,
           enabled: !_busy,
           textInputAction: TextInputAction.next,
+          keyboardType: TextInputType.url,
           decoration: InputDecoration(labelText: l10n.backupServerUrlField),
         ),
         TextField(
@@ -275,6 +286,7 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
           controller: _username,
           enabled: !_busy,
           textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.username],
           decoration: InputDecoration(
             labelText: l10n.backupUsernameField,
             hintText: _ghostHint,
@@ -286,6 +298,12 @@ class _BackupEnrollmentFormState extends State<BackupEnrollmentForm> {
           enabled: !_busy,
           obscureText: true,
           textInputAction: TextInputAction.next,
+          autofillHints: [
+            if (!_sharedSelected && _action == SyncEnrollmentMode.register)
+              AutofillHints.newPassword
+            else
+              AutofillHints.password,
+          ],
           decoration: InputDecoration(
             labelText: l10n.backupAccountPasswordField,
             helperText: l10n.backupAccountPasswordHelper,

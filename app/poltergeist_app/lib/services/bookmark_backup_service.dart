@@ -249,6 +249,15 @@ final class BookmarkBackupService extends ChangeNotifier {
         records: _records,
       );
 
+  /// A durable-state mutation must never overlap an in-flight round: the
+  /// round's writes and status bookkeeping belong to the account it
+  /// started under, and enrollment swaps the seams beneath it.
+  void _requireNotSyncing() {
+    if (_syncing) {
+      throw StateError('a backup round is in flight');
+    }
+  }
+
   /// §4.1's separate-account registration: salt → derive → register →
   /// persist, then materialize the (empty) pull so the enrolled state is
   /// immediately consistent.
@@ -258,6 +267,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     required String password,
     required String encryptionPassphrase,
   }) async {
+    _requireNotSyncing();
     final api = _transportFactory(baseUrl);
     try {
       final result = await _enrollment().registerSeparate(
@@ -284,6 +294,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     required String encryptionPassphrase,
     required SyncAccountMode mode,
   }) async {
+    _requireNotSyncing();
     final api = _transportFactory(baseUrl);
     try {
       final result = await _enrollment().login(
@@ -323,7 +334,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     try {
       final token = await _credentials.readToken();
       if (token == null) {
-        throw StateError('no session token — sign in again');
+        throw StateError('enrolled without a session token');
       }
       final api = _transportFactory(account.baseUrl, token: token);
       try {
@@ -361,13 +372,18 @@ final class BookmarkBackupService extends ChangeNotifier {
   }
 
   /// §4.2's "Sign out on this device": forgets the local token and keys;
-  /// server data untouched.
+  /// server data untouched. The last-round status goes with it — a later
+  /// enrollment must not inherit the old account's sync bookkeeping.
   Future<void> signOut() async {
+    _requireNotSyncing();
     await _credentials.deleteToken();
     await _enrollmentState.setAccount(null);
     _coordinator = null;
     _crypto = null;
     _catalog = null;
+    _lastSyncAt = null;
+    _lastSyncError = null;
+    await _persistStatus();
     await refresh();
   }
 
@@ -376,6 +392,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   /// of the account name. Deletes only Poltergeist's data, then forgets
   /// the session locally.
   Future<void> deleteSeparateAccount({required String confirmedName}) async {
+    _requireNotSyncing();
     final account = _account;
     if (account == null || account.mode != SyncAccountMode.separate) {
       throw StateError('account deletion exists only in separate mode');
@@ -385,7 +402,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     }
     final token = await _credentials.readToken();
     if (token == null) {
-      throw StateError('no session token — cannot delete the account');
+      throw StateError('enrolled without a session token');
     }
     final api = _transportFactory(account.baseUrl, token: token);
     try {
@@ -417,36 +434,37 @@ final class BookmarkBackupService extends ChangeNotifier {
     if (account == null || account.mode != SyncAccountMode.separate) {
       throw StateError('the switch requires a separate-mode account');
     }
-    // 1. Retain the separate account's token BEFORE the enrollment write
-    //    could overwrite it (04 §4.4: it lives in the keystore, not the
-    //    §3.1 store the wipe clears; server-side tokens never expire, so
-    //    the optional delete can wait until the switch is proven).
-    final retained = await _credentials.readToken();
-    if (retained != null) {
-      await _retainedTokens.write(retained);
-      await _settings?.set(_retainedAccountKey, {
-        'baseUrl': account.baseUrl,
-        'username': account.username,
-      });
-      // The delete offer re-arms only after a shared sync succeeds.
-      _sharedSyncSucceeded = false;
-      await _settings?.set(_switchSyncedKey, false);
-    }
-    // 2. Local sign-out only — the separate account stays on the server.
-    await _credentials.deleteToken();
-    // 3. Wipe and re-create the record store; a fresh instance resets
-    //    highWaterSeq with it. The pre-wipe store stays alive in the
-    //    coordinator — restore it if the switch dies before the shared
-    //    account persists, so the separate enrollment keeps working.
-    final previous = _records;
-    _records = await _resetRecords();
-    // 4. Log into the Séance account (§4.5 — full pull merges into the
-    //    fresh store before any persist).
-    final api = _transportFactory(baseUrl);
+    _requireNotSyncing();
+    _syncing = true;
     try {
-      final EnrollmentResult result;
+      // 1. Retain the separate account's token BEFORE the enrollment write
+      //    could overwrite it (04 §4.4: it lives in the keystore, not the
+      //    §3.1 store the wipe clears; server-side tokens never expire, so
+      //    the optional delete can wait until the switch is proven).
+      final retained = await _credentials.readToken();
+      if (retained != null) {
+        await _retainedTokens.write(retained);
+        await _settings?.set(_retainedAccountKey, {
+          'baseUrl': account.baseUrl,
+          'username': account.username,
+        });
+        // The delete offer re-arms only after a shared sync succeeds.
+        _sharedSyncSucceeded = false;
+        await _settings?.set(_switchSyncedKey, false);
+      }
+      // 2. Local sign-out only — the separate account stays on the server.
+      await _credentials.deleteToken();
+      // 3. Wipe and re-create the record store; a fresh instance resets
+      //    highWaterSeq with it. The pre-wipe store stays alive in the
+      //    coordinator — restore it if the switch dies before the shared
+      //    account persists, so the separate enrollment keeps working.
+      final previous = _records;
+      _records = await _resetRecords();
+      // 4. Log into the Séance account (§4.5 — full pull merges into the
+      //    fresh store before any persist).
+      final api = _transportFactory(baseUrl);
       try {
-        result = await _enrollment().login(
+        final result = await _enrollment().login(
           api: api,
           baseUrl: baseUrl,
           username: username,
@@ -454,13 +472,60 @@ final class BookmarkBackupService extends ChangeNotifier {
           encryptionPassphrase: encryptionPassphrase,
           mode: SyncAccountMode.shared,
         );
+        // 5. Rebind the coordinator over the fresh store, new key, and the
+        //    shared-mode catalog.
+        await _rebuildCoordinator();
+        final coordinator = _coordinator;
+        final crypto = _crypto;
+        if (coordinator == null || crypto == null) {
+          throw StateError('enrolled without a readable vault key');
+        }
+        // 6. Materialize the enrollment pull first — a conflicting shared
+        //    hostkey: record quarantines at enrollment time through §3.2's
+        //    normal path, BEFORE the re-seal push could win it.
+        await coordinator.applyPulled();
+        // 7. Mark every local bookmark dirty under its existing
+        //    bookmark:<uuid> id — no re-derivation, no namespacing.
+        for (final bookmark in await _bookmarks.load()) {
+          await coordinator.onBookmarkSaved(bookmark);
+        }
+        // 8. The hold set is recomputed from the pull, never snapshotted.
+        final held = await coordinator.pinConflicts();
+        final heldLocators =
+            {for (final conflict in held) conflict.locator};
+        // 9. Re-seal every non-held local pin under a fresh LWW tuple on
+        //    this deviceId so hosts verified in separate mode reach the
+        //    shared fleet.
+        final deviceId = await _enrollmentState.deviceId();
+        for (final pin in await _hostKeys.all()) {
+          if (heldLocators.contains(pin.locator)) continue;
+          await _records.putLocal(await crypto.seal(DecryptedRecord(
+            id: pin.recordId,
+            kind: RecordKind.hostKey,
+            updatedAt: _now().toUtc().millisecondsSinceEpoch,
+            deviceId: deviceId,
+            data: pin.toJson(),
+          )));
+        }
+        await refresh();
+        return BackupSwitchOutcome(
+          held: held,
+          passphraseUnverified: result.passphraseUnverified,
+          passphraseWarning: result.passphraseWarning,
+        );
       } catch (_) {
         // A login that never persisted leaves the separate account live:
         // hand back its store and its session so the switch's preserve
         // step did its job — the old account keeps working untouched.
-        // Then re-sync the rendered state from durable truth.
+        // A persisted shared account instead needs a CONSISTENT shared
+        // state: rebind the coordinator over the new store and key so the
+        // service never pairs the shared token with the wiped store's
+        // stale separate-mode coordinator. Either way, re-sync the
+        // rendered state from durable truth.
         final persisted = await _enrollmentState.account();
-        if (persisted?.mode != SyncAccountMode.shared) {
+        if (persisted?.mode == SyncAccountMode.shared) {
+          await _rebuildCoordinator();
+        } else {
           _records = previous;
           if (retained != null) {
             await _credentials.writeToken(retained);
@@ -469,49 +534,12 @@ final class BookmarkBackupService extends ChangeNotifier {
         }
         await refresh();
         rethrow;
+      } finally {
+        api.close();
       }
-      // 5. Rebind the coordinator over the fresh store, new key, and the
-      //    shared-mode catalog.
-      await _rebuildCoordinator();
-      final coordinator = _coordinator;
-      final crypto = _crypto;
-      if (coordinator == null || crypto == null) {
-        throw StateError('enrolled without a readable vault key');
-      }
-      // 6. Materialize the enrollment pull first — a conflicting shared
-      //    hostkey: record quarantines at enrollment time through §3.2's
-      //    normal path, BEFORE the re-seal push could win it.
-      await coordinator.applyPulled();
-      // 7. Mark every local bookmark dirty under its existing
-      //    bookmark:<uuid> id — no re-derivation, no namespacing.
-      for (final bookmark in await _bookmarks.load()) {
-        await coordinator.onBookmarkSaved(bookmark);
-      }
-      // 8. The hold set is recomputed from the pull, never snapshotted.
-      final held = await coordinator.pinConflicts();
-      final heldLocators = {for (final conflict in held) conflict.locator};
-      // 9. Re-seal every non-held local pin under a fresh LWW tuple on
-      //    this deviceId so hosts verified in separate mode reach the
-      //    shared fleet.
-      final deviceId = await _enrollmentState.deviceId();
-      for (final pin in await _hostKeys.all()) {
-        if (heldLocators.contains(pin.locator)) continue;
-        await _records.putLocal(await crypto.seal(DecryptedRecord(
-          id: pin.recordId,
-          kind: RecordKind.hostKey,
-          updatedAt: _now().toUtc().millisecondsSinceEpoch,
-          deviceId: deviceId,
-          data: pin.toJson(),
-        )));
-      }
-      await refresh();
-      return BackupSwitchOutcome(
-        held: held,
-        passphraseUnverified: result.passphraseUnverified,
-        passphraseWarning: result.passphraseWarning,
-      );
     } finally {
-      api.close();
+      _syncing = false;
+      notifyListeners();
     }
   }
 
@@ -524,7 +552,9 @@ final class BookmarkBackupService extends ChangeNotifier {
     required bool keepLocal,
   }) async {
     final coordinator = _coordinator;
-    if (coordinator == null) return;
+    if (coordinator == null) {
+      throw StateError('not enrolled — cannot resolve a pin conflict');
+    }
     if (keepLocal) {
       await coordinator.keepLocalPin(
           conflict.local.host, conflict.local.port);
@@ -541,6 +571,7 @@ final class BookmarkBackupService extends ChangeNotifier {
   Future<void> deleteRetainedSeparateAccount({
     required String confirmedName,
   }) async {
+    _requireNotSyncing();
     final retained = _retainedAccount;
     if (retained == null) {
       throw StateError('no retained separate account');
@@ -550,7 +581,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     }
     final token = await _retainedTokens.read();
     if (token == null) {
-      throw StateError('no retained token — re-enroll to delete later');
+      throw StateError('retained account without a retained token');
     }
     final api = _transportFactory(retained.baseUrl, token: token);
     try {

@@ -1517,7 +1517,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsTitle => 'Settings';
 
   @override
-  String get settingsBackupCommand => 'Backup Settings…';
+  String get settingsBackupCommand => 'Back up bookmarks…';
 
   @override
   String get backupTitle => 'Bookmark backup';
@@ -1699,7 +1699,7 @@ class AppLocalizationsEn extends AppLocalizations {
       count,
       locale: localeName,
       other: 'Last backed up $count days ago',
-      one: 'Last backed up yesterday',
+      one: 'Last backed up 1 day ago',
     );
     return '$_temp0';
   }

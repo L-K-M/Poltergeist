@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/bookmark_backup_service.dart';
 import '../../services/registered_command.dart';
+import '../../services/sync_account_gate.dart';
 import 'backup_settings.dart';
 
 /// The registered id of the Settings → Backup entry command (D21).
@@ -13,6 +14,7 @@ const kOpenSettingsBackupCommandId = 'open-settings-backup';
 /// trailing group, where Windows/Linux carry Settings… per 02 §9.
 RegisteredCommand buildOpenSettingsBackupCommand({
   required BookmarkBackupService service,
+  SyncAccountGate gate = const SyncAccountGate.production(),
   required bool Function() enabled,
 }) {
   return RegisteredCommand(
@@ -22,7 +24,7 @@ RegisteredCommand buildOpenSettingsBackupCommand({
     icon: Icons.backup_outlined,
     enabled: enabled,
     run: (context) =>
-        showBackupSettingsDialog(context, service: service),
+        showBackupSettingsDialog(context, service: service, gate: gate),
     menuPlacement: const CommandMenuPlacement(
       menu: AppMenuId.file,
       order: 160,

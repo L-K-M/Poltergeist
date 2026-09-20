@@ -4,7 +4,7 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-19. **M3, M4, and M5 are closed; M6 is open** —
+_Last updated: 2026-09-20. **M3, M4, and M5 are closed; M6 is open** —
 its engine-side foundation (04 §3.1–3.2: `PersistentLocalRecordStore`,
 `BookmarkCoordinator`, and the verdict/tripwire seams) plus the Design B
 enrollment slice (04 §4.1/§4.5) and the Settings → Backup surface with

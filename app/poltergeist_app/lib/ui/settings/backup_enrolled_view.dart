@@ -5,8 +5,6 @@
 // §4.2's sign-out for both, §4.1's typed-confirmation delete for
 // separate only, §4.4's switch entry and its optional post-switch
 // delete offer.
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -60,7 +58,35 @@ final class BackupEnrolledView extends StatelessWidget {
       ),
     );
     if (confirmed != true) return;
-    await service.signOut();
+    try {
+      await service.signOut();
+    } catch (error) {
+      if (context.mounted) {
+        _reportError(context, error);
+      }
+    }
+  }
+
+  /// A mutating call's failure lands in the messenger when one is
+  /// reachable — the durable state is unchanged, so the section simply
+  /// re-renders its previous truth.
+  static void _reportError(BuildContext context, Object error) {
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text('$error')));
+  }
+
+  Future<void> _resolvePin(
+    BuildContext context,
+    HostKeyConflict conflict,
+    bool keepLocal,
+  ) async {
+    try {
+      await service.resolvePinConflict(conflict, keepLocal: keepLocal);
+    } catch (error) {
+      if (context.mounted) {
+        _reportError(context, error);
+      }
+    }
   }
 
   Future<void> _deleteAccount(BuildContext context) async {
@@ -112,18 +138,16 @@ final class BackupEnrolledView extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: _NoticeText(text: l10n.backupDeadAccount),
           ),
-        if (service.passphraseUnverified) ...[
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: _NoticeText(text: l10n.backupPaused),
-          ),
+        if (service.passphraseUnverified)
+          // The paused statement itself sits in the status line (paused
+          // outranks syncing/error there); this notice carries only the
+          // way-out copy.
           Text(
             shared
                 ? l10n.backupPausedWayOutShared
                 : l10n.backupPausedWayOutSeparate,
             style: theme.textTheme.bodySmall,
           ),
-        ],
         if (service.notices.contains(syncNoticePassphraseCheckFailed))
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -148,18 +172,14 @@ final class BackupEnrolledView extends StatelessWidget {
                   children: [
                     TextButton(
                       key: ValueKey('backup.pin.keep.${conflict.locator}'),
-                      onPressed: () => service.resolvePinConflict(
-                        conflict,
-                        keepLocal: true,
-                      ),
+                      onPressed: () =>
+                          _resolvePin(context, conflict, true),
                       child: Text(l10n.backupPinKeepLocal),
                     ),
                     TextButton(
                       key: ValueKey('backup.pin.accept.${conflict.locator}'),
-                      onPressed: () => service.resolvePinConflict(
-                        conflict,
-                        keepLocal: false,
-                      ),
+                      onPressed: () =>
+                          _resolvePin(context, conflict, false),
                       child: Text(l10n.backupPinAcceptSynced),
                     ),
                   ],
@@ -179,7 +199,8 @@ final class BackupEnrolledView extends StatelessWidget {
             ),
             TextButton(
               key: const ValueKey('backup.enrolled.signOut'),
-              onPressed: () => _signOut(context),
+              onPressed:
+                  service.syncing ? null : () => _signOut(context),
               child: Text(l10n.backupSignOut),
             ),
             // §4.2: a shared account carries the user's Séance data — no
@@ -188,12 +209,16 @@ final class BackupEnrolledView extends StatelessWidget {
               if (gate.sharedAccountOffered)
                 TextButton(
                   key: const ValueKey('backup.enrolled.switch'),
-                  onPressed: () => _switchToShared(context),
+                  onPressed: service.syncing
+                      ? null
+                      : () => _switchToShared(context),
                   child: Text(l10n.backupSwitchToShared),
                 ),
               TextButton(
                 key: const ValueKey('backup.enrolled.delete'),
-                onPressed: () => _deleteAccount(context),
+                onPressed: service.syncing
+                    ? null
+                    : () => _deleteAccount(context),
                 child: Text(l10n.backupDeleteAccount),
               ),
             ],
@@ -235,7 +260,9 @@ final class _BackupStatusLine extends StatelessWidget {
     final error = service.lastSyncError;
 
     final String text;
-    if (service.syncing) {
+    if (service.passphraseUnverified) {
+      text = l10n.backupPaused;
+    } else if (service.syncing) {
       text = l10n.backupSyncing;
     } else if (error != null) {
       text = l10n.backupSyncFailed(error);
@@ -243,12 +270,13 @@ final class _BackupStatusLine extends StatelessWidget {
       final at = service.lastSyncAt;
       text = at == null ? l10n.backupNeverSynced : _ago(l10n, at);
     }
-    final failed = error != null && !service.syncing;
+    final attention = service.passphraseUnverified ||
+        (error != null && !service.syncing);
     return Text(
       text,
       key: const ValueKey('backup.enrolled.status'),
       style: theme.textTheme.bodySmall?.copyWith(
-        color: failed ? theme.colorScheme.error : null,
+        color: attention ? theme.colorScheme.error : null,
       ),
     );
   }
@@ -320,7 +348,7 @@ class _DeleteBackupAccountDialogState
     });
     try {
       await widget.service.deleteSeparateAccount(
-        confirmedName: _field.text,
+        confirmedName: _field.text.trim(),
       );
       if (mounted) Navigator.of(context).pop();
     } catch (error) {
@@ -427,7 +455,15 @@ class _DeleteRetainedAccountDialogState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final retained = widget.service.retainedAccount;
-    if (retained == null) return const SizedBox.shrink();
+    if (retained == null) {
+      // The retained account can be forgotten through another surface
+      // while this dialog sits open — an invisible route that can only
+      // be escaped by the barrier is worse than a self-closing one.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.of(context).maybePop();
+      });
+      return const SizedBox.shrink();
+    }
     return AlertDialog(
       key: const ValueKey('backup.deleteRetained.dialog'),
       title: Text(l10n.backupDeleteSeparateAfterSwitch),
@@ -485,7 +521,7 @@ class _DeleteRetainedAccountDialogState
                             ? () => _run(
                                   () => widget.service
                                       .deleteRetainedSeparateAccount(
-                                    confirmedName: _field.text,
+                                    confirmedName: _field.text.trim(),
                                   ),
                                 )
                             : null,
