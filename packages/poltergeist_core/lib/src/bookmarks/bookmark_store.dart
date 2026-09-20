@@ -252,7 +252,7 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
     Future<void> Function(File target, String contents)? atomicWriter,
     DateTime Function()? now,
     void Function(Object, StackTrace)? onError,
-    String Function()? syncDeviceId,
+    String? Function()? syncDeviceId,
   }) : // Keep the filesystem path immutable and private.
        // ignore: prefer_initializing_formals
        _file = File(path),
@@ -276,10 +276,10 @@ final class FileBookmarkStore implements SyncTrackingBookmarkStore {
   final void Function(Object, StackTrace)? _onError;
 
   /// This install's sync device id, bound late because the app mints it
-  /// asynchronously. Null before backup is configured: tuples then carry
-  /// the empty authorship placeholder, which loses every tie-break — the
-  /// permissive direction, harmless while no coordinator reads them.
-  final String Function()? _syncDeviceId;
+  /// asynchronously. A null callback result before backup is configured
+  /// leaves tuple writes out entirely (04 §3.4's clean on-disk shape) —
+  /// callers return the minted id once enrollment resolves it.
+  final String? Function()? _syncDeviceId;
 
   final _bookmarks = <String, Bookmark>{};
 

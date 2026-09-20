@@ -2401,6 +2401,468 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{value} px'**
   String activityPanelHeightPx(int value);
+
+  /// Title of the Settings surface (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settingsTitle;
+
+  /// Menu command opening Settings at the Bookmark backup section (D21).
+  ///
+  /// In en, this message translates to:
+  /// **'Backup Settings…'**
+  String get settingsBackupCommand;
+
+  /// 04 §4.3's verbatim section title.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmark backup'**
+  String get backupTitle;
+
+  /// 04 §4.3's verbatim intro.
+  ///
+  /// In en, this message translates to:
+  /// **'Back up bookmarks, end-to-end encrypted, through a Séance sync server. Nothing readable ever leaves this device.'**
+  String get backupIntro;
+
+  /// 04 §4.3's verbatim Design B option, preselected.
+  ///
+  /// In en, this message translates to:
+  /// **'Separate backup account — a new account just for Poltergeist, on the same server. Works with every Séance version.'**
+  String get backupModeSeparate;
+
+  /// 04 §4.3's verbatim Design A option; {version} is kMinimumSharedAccountSeanceVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared Séance account — bookmarks live alongside your Séance data, and your Séance servers appear as bookmark sources. This app will hold your Séance encryption passphrase and could read everything in the account, including saved passwords. Requires Séance {version} or newer on all devices.'**
+  String backupModeShared(String version);
+
+  /// 04 §4.3's verbatim fleet-confirmation checkbox gating the shared-account Continue button; {version} is kMinimumSharedAccountSeanceVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Every device that runs Séance with this account has version {version} or newer.'**
+  String backupFleetCheckbox(String version);
+
+  /// 04 §4.3's verbatim helper under the fleet checkbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Older Séance versions misread Poltergeist\'s records — update them everywhere before turning this on, and never add an older Séance to this account afterwards: the risk does not end at setup.'**
+  String get backupFleetHelper;
+
+  /// 04 §4.3's verbatim disclosure rendered under option 2 while kMinSharedVersionIncludesSeance56Fix is false.
+  ///
+  /// In en, this message translates to:
+  /// **'Séance devices accept synced host-key pins without a conflict warning — including pins this app pushes.'**
+  String get backupSharedPinDisclosure;
+
+  /// 04 §4.3's verbatim 403 registration_closed copy (Design B register).
+  ///
+  /// In en, this message translates to:
+  /// **'This server has registration closed. If you run it: temporarily set SEANCE_OPEN_REGISTRATION=1, create the account, then close it again — while it is open, anyone who can reach the server can register, so close it as soon as you are done. If someone else runs it, ask them to create an account for you.'**
+  String get backupRegistrationClosed;
+
+  /// 04 §4.3's verbatim passphrase callout.
+  ///
+  /// In en, this message translates to:
+  /// **'The encryption passphrase never leaves your devices and cannot be recovered. Losing it means losing the backup.'**
+  String get backupPassphraseCallout;
+
+  /// 04 §4.5's verbatim three-cause decrypt-failure copy (syncPassphraseCheckFailedMessage mirrored in ARB).
+  ///
+  /// In en, this message translates to:
+  /// **'The encryption passphrase could not decrypt this account\'s records. The passphrase may be wrong, the record may be corrupt, or it may use a newer schema.'**
+  String get backupPassphraseCheckFailed;
+
+  /// 04 §4.5's verbatim paused status while passphraseUnverified holds.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup paused until the passphrase is verified against the account\'s existing data.'**
+  String get backupPaused;
+
+  /// 04 §4.5's verbatim way-out for a paused shared account.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Séance on any device signed into this account and add or edit a server, then sync — backup resumes automatically.'**
+  String get backupPausedWayOutShared;
+
+  /// 04 §4.5's verbatim way-out for a paused separate account.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Poltergeist on another device signed into this account and add or edit a bookmark, then sync.'**
+  String get backupPausedWayOutSeparate;
+
+  /// 04 §4.5's verbatim KDF-downgrade refusal (KdfDowngradeException mirrored in ARB).
+  ///
+  /// In en, this message translates to:
+  /// **'The sync server returned weaker password-hashing parameters than Poltergeist accepts — refusing to derive your key (possible downgrade attack).'**
+  String get backupKdfRefusal;
+
+  /// Label of the enrollment form's server field.
+  ///
+  /// In en, this message translates to:
+  /// **'Sync server URL'**
+  String get backupServerUrlField;
+
+  /// Label of the enrollment form's username field.
+  ///
+  /// In en, this message translates to:
+  /// **'Username'**
+  String get backupUsernameField;
+
+  /// Label of the sync account password field.
+  ///
+  /// In en, this message translates to:
+  /// **'Account password'**
+  String get backupAccountPasswordField;
+
+  /// Helper under the account password field.
+  ///
+  /// In en, this message translates to:
+  /// **'Authenticates with the sync server.'**
+  String get backupAccountPasswordHelper;
+
+  /// Label of the backup encryption passphrase field.
+  ///
+  /// In en, this message translates to:
+  /// **'Encryption passphrase'**
+  String get backupEncryptionPassphraseField;
+
+  /// Helper under the encryption passphrase field.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypts the backup; use it on every device.'**
+  String get backupEncryptionPassphraseHelper;
+
+  /// Label of the register flow's confirmation field.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm encryption passphrase'**
+  String get backupConfirmPassphraseField;
+
+  /// Segmented-control tab for enrolling against an existing account.
+  ///
+  /// In en, this message translates to:
+  /// **'Log in'**
+  String get backupLoginTab;
+
+  /// Segmented-control tab for creating a new backup account.
+  ///
+  /// In en, this message translates to:
+  /// **'Register'**
+  String get backupRegisterTab;
+
+  /// Runs the selected enrollment action.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get backupContinue;
+
+  /// Abandons the enrollment or confirmation dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get backupCancel;
+
+  /// Dismisses the Backup settings surface.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get backupClose;
+
+  /// Live-region status while a registration runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Registering…'**
+  String get backupRegistering;
+
+  /// Live-region status while a login runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Logging in…'**
+  String get backupLoggingIn;
+
+  /// Live-region status for an enrollment error the spec has no verbatim copy for.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed: {error}'**
+  String backupEnrollFailed(String error);
+
+  /// Validation error for an unparseable or non-HTTP server URL (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid HTTP or HTTPS server URL.'**
+  String get backupValidationUrl;
+
+  /// Validation error for a userinfo-carrying server URL (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Server URL must not include embedded credentials.'**
+  String get backupValidationUrlCredentials;
+
+  /// Validation error for an empty username (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a username.'**
+  String get backupValidationUsername;
+
+  /// Validation error for an empty account password (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the sync account password.'**
+  String get backupValidationPassword;
+
+  /// Validation error for an empty encryption passphrase (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the encryption passphrase.'**
+  String get backupValidationPassphrase;
+
+  /// Validation error for an empty confirmation field (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm the encryption passphrase before registering.'**
+  String get backupValidationConfirm;
+
+  /// Validation error when the confirmation differs (ported validator copy).
+  ///
+  /// In en, this message translates to:
+  /// **'Encryption passphrases do not match.'**
+  String get backupValidationMismatch;
+
+  /// Mode label on the enrolled state's account summary.
+  ///
+  /// In en, this message translates to:
+  /// **'Separate backup account'**
+  String get backupEnrolledModeSeparate;
+
+  /// Mode label on the enrolled state's account summary.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared Séance account'**
+  String get backupEnrolledModeShared;
+
+  /// The enrolled account's identity line.
+  ///
+  /// In en, this message translates to:
+  /// **'{username} on {server}'**
+  String backupEnrolledSummary(String username, String server);
+
+  /// 04 §3.3's manual round button.
+  ///
+  /// In en, this message translates to:
+  /// **'Back up now'**
+  String get backupNow;
+
+  /// Status while a backup round runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Backing up…'**
+  String get backupSyncing;
+
+  /// Enrolled status before any round has completed.
+  ///
+  /// In en, this message translates to:
+  /// **'Not backed up yet.'**
+  String get backupNeverSynced;
+
+  /// Status for a round that finished within the minute (04 §3.3's "Last backed up 3 min ago" shape).
+  ///
+  /// In en, this message translates to:
+  /// **'Last backed up just now'**
+  String get backupLastSyncedJustNow;
+
+  /// Status for a round that finished minutes ago (04 §3.3's verbatim "Last backed up 3 min ago" shape).
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Last backed up 1 min ago} other{Last backed up {count} min ago}}'**
+  String backupLastSyncedMinutesAgo(int count);
+
+  /// Status for a round that finished hours ago.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Last backed up 1 hour ago} other{Last backed up {count} hours ago}}'**
+  String backupLastSyncedHoursAgo(int count);
+
+  /// Status for a round that finished days ago.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Last backed up yesterday} other{Last backed up {count} days ago}}'**
+  String backupLastSyncedDaysAgo(int count);
+
+  /// Status for the last round's failure (04 §3.3: error text lives in Settings → Backup).
+  ///
+  /// In en, this message translates to:
+  /// **'Backup failed: {error}'**
+  String backupSyncFailed(String error);
+
+  /// Durable notice for the §7.3 dead-account posture (401 during a round drops to local-only).
+  ///
+  /// In en, this message translates to:
+  /// **'The server rejected this device\'s sign-in — the backup account may have been deleted. Bookmarks stay safe on this device and nothing is pushed until you sign in again.'**
+  String get backupDeadAccount;
+
+  /// 04 §4.2's durable decode-failure tripwire: names the record id, all three candidate causes, and the remediation.
+  ///
+  /// In en, this message translates to:
+  /// **'A synced record ({id}) could not be read after it decrypted — it may have been written by an older Séance version, be corrupt, or use a newer schema. Once the stale device is patched or removed, re-save the affected bookmark to restore it.'**
+  String backupTripwireWarning(String id);
+
+  /// 04 §3.2's durable pin-quarantine warning per conflicting host.
+  ///
+  /// In en, this message translates to:
+  /// **'A synced host key for {locator} conflicts with the key this device trusts. This can mean a man-in-the-middle attack.'**
+  String backupPinConflictWarning(String locator);
+
+  /// Resolves a pin conflict by installing the pulled key (04 §3.2's accept).
+  ///
+  /// In en, this message translates to:
+  /// **'Use synced key'**
+  String get backupPinAcceptSynced;
+
+  /// Resolves a pin conflict by re-pushing the trusted key (04 §3.2's keep local).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep local key'**
+  String get backupPinKeepLocal;
+
+  /// 04 §3.1's durable corrupt-store notice; it must name that deleted bookmarks may reappear, not only that edits may be lost.
+  ///
+  /// In en, this message translates to:
+  /// **'The local backup record store was unreadable and has been rebuilt — deleted bookmarks may reappear, and pending edits will re-upload on the next backup.'**
+  String get backupStoreQuarantined;
+
+  /// 04 §4.1's separate-mode account deletion entry point.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete backup account…'**
+  String get backupDeleteAccount;
+
+  /// Title of the separate-mode account deletion dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete backup account'**
+  String get backupDeleteAccountTitle;
+
+  /// 04 §4.1's deletion consequence copy — it deletes only Poltergeist's data.
+  ///
+  /// In en, this message translates to:
+  /// **'This deletes the account {username} on {server} and every backup stored on it. This cannot be undone.'**
+  String backupDeleteAccountBody(String username, String server);
+
+  /// Typed-confirmation prompt above the name field (04 §4.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Type {username} to confirm.'**
+  String backupDeleteConfirmHint(String username);
+
+  /// Verb button confirming account deletion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete account'**
+  String get backupDeleteConfirm;
+
+  /// Inline error when the account deletion request fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not delete the account: {error}'**
+  String backupDeleteFailed(String error);
+
+  /// 04 §4.2's shared-mode session end — the only shared-mode account action.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out on this device'**
+  String get backupSignOut;
+
+  /// 04 §4.2's sign-out consequence copy — local forget only, server data untouched.
+  ///
+  /// In en, this message translates to:
+  /// **'This device forgets its sign-in. The account and its data stay on the server.'**
+  String get backupSignOutBody;
+
+  /// 04 §4.4's verbatim B→A switch entry point, offered behind the fleet gate.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to shared account…'**
+  String get backupSwitchToShared;
+
+  /// Title of the §4.4 B→A switch flow.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to shared account'**
+  String get backupSwitchTitle;
+
+  /// Live-region status while the §4.4 switch runs.
+  ///
+  /// In en, this message translates to:
+  /// **'Switching…'**
+  String get backupSwitchWorking;
+
+  /// Heading of the §4.4 hold set — quarantined pins needing an explicit decision.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolve host-key conflicts'**
+  String get backupSwitchConflictTitle;
+
+  /// Per-locator decision copy in the §4.4 hold set — adopt the fleet pin or keep the local one as a deliberate override.
+  ///
+  /// In en, this message translates to:
+  /// **'The shared account holds a different host key for {locator}. Keeping this device\'s key pushes it to every device on the account — only keep it if you are sure it is the right key.'**
+  String backupSwitchConflictBody(String locator);
+
+  /// Resolves a held locator by adopting the fleet pin — no re-seal for that host (04 §4.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Use shared key'**
+  String get backupSwitchAdoptFleet;
+
+  /// Completion copy of the §4.4 switch — pushes may still hold while passphraseUnverified stands.
+  ///
+  /// In en, this message translates to:
+  /// **'Switched to the shared account. Bookmarks and host-key pins push on the next backup.'**
+  String get backupSwitchDone;
+
+  /// Inline error when the §4.4 switch throws.
+  ///
+  /// In en, this message translates to:
+  /// **'The switch could not finish: {error}'**
+  String backupSwitchFailed(String error);
+
+  /// 04 §4.4's verbatim optional post-switch delete, offered only after the first shared sync succeeds.
+  ///
+  /// In en, this message translates to:
+  /// **'Also delete the separate backup account…'**
+  String get backupDeleteSeparateAfterSwitch;
+
+  /// The §4.4 delete offer's consequence copy.
+  ///
+  /// In en, this message translates to:
+  /// **'The separate backup account {username} on {server} still exists — its sign-in was kept while the switch proved out. Delete it now, or keep it.'**
+  String backupDeleteSeparateBody(String username, String server);
+
+  /// Declines the §4.4 delete offer — the old account stays untouched.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep it'**
+  String get backupDeleteSeparateDecline;
+
+  /// 04 §4.4's note beside the decline — Poltergeist never auto-deletes the old account.
+  ///
+  /// In en, this message translates to:
+  /// **'Removing it later requires re-enrolling into it first.'**
+  String get backupDeleteSeparateLaterNote;
+
+  /// Completion copy after the retained account's deletion.
+  ///
+  /// In en, this message translates to:
+  /// **'The separate backup account was deleted.'**
+  String get backupDeleteSeparateDone;
+
+  /// Inline error when the retained-account deletion fails.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not delete the separate account: {error}'**
+  String backupDeleteSeparateFailed(String error);
 }
 
 class _AppLocalizationsDelegate

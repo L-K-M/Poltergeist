@@ -470,6 +470,21 @@ move to core is a relocation, not a port. Port-back candidate: the
 sortKey/grouping pair is written to the upstream `Bookmark` struct and
 could ride a future Séance PR if Séance adopts §2.5 ordering.
 
+## app/poltergeist_app/lib/services/sync_enrollment_validation.dart
+
+- Source: app/seance_app/lib/ui/sync_enrollment_validation.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: the validator reports a typed `SyncEnrollmentIssue` enum
+  the render site maps to ARB copy (D20 — no user-facing English in Dart)
+  instead of returning the source's English strings; the rules themselves
+  (URL shape, embedded-credentials refusal, required fields, the
+  register-only confirmation pair) are byte-identical. Poltergeist's
+  field labels say "encryption passphrase" per 04 §4.3, so the issue
+  enum carries no "vault" wording either.
+- Port-back candidates: none — the typed-issue reporting is D20-local;
+  the rules did not change.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

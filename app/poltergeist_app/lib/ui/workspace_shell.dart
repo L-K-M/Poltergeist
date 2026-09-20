@@ -9,6 +9,7 @@ import '../services/app_lifecycle_forwarder.dart';
 import '../services/app_preferences.dart' show minActivityPanelHeight;
 import '../services/app_transfer_queue.dart';
 import '../services/application_error_reporter.dart';
+import '../services/bookmark_backup_service.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
@@ -39,6 +40,7 @@ import 'panes/pane_commands.dart';
 import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
+import 'settings/backup_settings_command.dart';
 import 'sidebar/sidebar_view.dart';
 import 'top_toast.dart';
 import 'workspace/workspace_commands.dart';
@@ -67,6 +69,7 @@ class WorkspaceShell extends StatefulWidget {
     this.onPaneRatioChanged,
     this.onPaneRatioSaveError,
     this.sshConfigImport,
+    this.bookmarkBackup,
     this.bookmarks,
     this.workspaces,
     this.connectionEngine,
@@ -129,6 +132,11 @@ class WorkspaceShell extends StatefulWidget {
   /// The D22 ssh_config import wiring; null leaves the command
   /// unregistered (tests and alternate boot paths stay opted out).
   final SshConfigImportSetup? sshConfigImport;
+
+  /// The 04 §3.3 backup service behind `open-settings-backup` (M6).
+  /// Null leaves the command unregistered — tests and engine-less boots
+  /// opt out.
+  final BookmarkBackupService? bookmarkBackup;
 
   /// The persisted bookmark store behind the sidebar's favorites and
   /// Connections sections (03 §6's `BookmarkStore` seam). Null unmounts
@@ -661,6 +669,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (sshConfigImport != null)
         buildSshConfigImportCommand(
           setup: sshConfigImport,
+          enabled: () => !_commandSessionActive,
+        ),
+      if (widget.bookmarkBackup != null)
+        buildOpenSettingsBackupCommand(
+          service: widget.bookmarkBackup!,
           enabled: () => !_commandSessionActive,
         ),
       if (workspace != null && widget.workspaces != null)

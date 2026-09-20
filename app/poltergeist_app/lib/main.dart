@@ -8,15 +8,21 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
+import 'services/bookmark_backup_service.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/engine_session.dart';
+import 'services/file_stores.dart';
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
+import 'services/secure_master_key.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
 import 'services/session_state_store.dart';
 import 'services/settings_store.dart';
 import 'services/ssh_config_import_setup.dart';
+import 'services/sync_credentials.dart';
+import 'services/sync_transport.dart';
+import 'services/sync_verdict_stores.dart';
 import 'services/transfer_queue_session.dart';
 import 'services/workspace_library.dart';
 import 'services/workspace_list_store.dart';
@@ -28,16 +34,21 @@ Future<void> main() async {
   final settingsPath =
       '${supportDirectory.path}${Platform.pathSeparator}settings.json';
   final errorReporter = ApplicationErrorReporter();
-  // One store instance for the whole app: the ssh_config import writes it and
-  // the Connections surface lists from it, and two instances over one path
-  // would race their serialized write tails.
-  final bookmarks = FileBookmarkStore(
-    path: '${supportDirectory.path}${Platform.pathSeparator}bookmarks.json',
-    onError: errorReporter.report,
-  );
   final settingsStore = SettingsStore(
     path: settingsPath,
     onError: errorReporter.report,
+  );
+  // One store instance for the whole app: the ssh_config import writes it and
+  // the Connections surface lists from it, and two instances over one path
+  // would race their serialized write tails. The syncDeviceId binding reads
+  // the enrollment state's resolved id lazily — null until enrollment (or a
+  // backup load) mints one, so non-sync installs keep §3.4's clean shape.
+  final syncEnrollmentState =
+      SettingsSyncEnrollmentState(store: settingsStore);
+  final bookmarks = FileBookmarkStore(
+    path: '${supportDirectory.path}${Platform.pathSeparator}bookmarks.json',
+    onError: errorReporter.report,
+    syncDeviceId: () => syncEnrollmentState.cachedDeviceId,
   );
   final preferences = AppPreferences(store: settingsStore);
   final paneRatio = await preferences.loadPaneRatio();
@@ -140,6 +151,60 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
 
+  // Settings → Backup (04 §3.3, M6): the bookmark-backup service over
+  // the same seams the enrolled state renders — the OS keystore for the
+  // token and vault key (never settings.json), the shared bookmark and
+  // pin stores the coordinator materializes into, and the §3.1 record
+  // store behind sync_records.json. The pin store is the engine
+  // session's own when one spawned: two FileHostKeyStores over one path
+  // would race their load-once caches.
+  final masterKeys = MasterKeyManager();
+  final syncRecordsPath =
+      '${supportDirectory.path}${Platform.pathSeparator}sync_records.json';
+  SyncRecordStore syncRecords = PersistentLocalRecordStore(
+    path: syncRecordsPath,
+    onError: errorReporter.report,
+  );
+  final bookmarkBackup = BookmarkBackupService(
+    credentials: SecureSyncCredentialStore(keys: masterKeys),
+    retainedTokens: SecureRetainedSyncTokenStore(keys: masterKeys),
+    enrollmentState: syncEnrollmentState,
+    records: syncRecords,
+    // §4.4's wipe: delete the file and hand the service a fresh store —
+    // a new instance starts with zeroed cursors, so highWaterSeq resets
+    // with it.
+    resetRecords: () async {
+      final file = File(syncRecordsPath);
+      if (await file.exists()) await file.delete();
+      syncRecords = PersistentLocalRecordStore(
+        path: syncRecordsPath,
+        onError: errorReporter.report,
+      );
+      return syncRecords;
+    },
+    bookmarks: bookmarks,
+    hostKeys: engineSession?.pinStore ??
+        FileHostKeyStore(
+          File(
+            '${supportDirectory.path}${Platform.pathSeparator}'
+            '$kPinStoreFileName',
+          ),
+        ),
+    pinVerdicts: SettingsPinVerdictStore(store: settingsStore),
+    tripwires: SettingsSyncTripwireStore(store: settingsStore),
+    transportFactory: httpSyncTransport,
+    vaultKey: masterKeys.probeKeystore,
+    settings: settingsStore,
+    recordQuarantinePath: () =>
+        (syncRecords as PersistentLocalRecordStore).quarantinedPath,
+  );
+  // Durable-state reads are fail-safe by their own contract (corrupt
+  // files quarantine, keystore failures read as unavailable), so a load
+  // fault here reports and still leaves the service renderable rather
+  // than dropping the feature — the enrolled state must never vanish
+  // because one status key failed to decode.
+  await errorReporter.guard(bookmarkBackup.load);
+
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
@@ -151,6 +216,7 @@ Future<void> main() async {
       bookmarks: bookmarks,
       workspaces: workspaces,
       engineSession: engineSession,
+      bookmarkBackup: bookmarkBackup,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
       quitGuard: quitGuard,

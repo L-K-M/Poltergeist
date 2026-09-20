@@ -7,7 +7,8 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 _Last updated: 2026-09-19. **M3, M4, and M5 are closed; M6 is open** —
 its engine-side foundation (04 §3.1–3.2: `PersistentLocalRecordStore`,
 `BookmarkCoordinator`, and the verdict/tripwire seams) plus the Design B
-enrollment slice (04 §4.1/§4.5) are implemented in the dated M6 sections
+enrollment slice (04 §4.1/§4.5) and the Settings → Backup surface with
+the B→A switch (04 §4.3/§4.4) are implemented in the dated M6 sections
 below —
 v0.2.0 remains the latest published pre-release (M3, M4, and M5 closed
 untagged per their closure records; M5's §3.12 tag chore is recorded in
@@ -6644,6 +6645,68 @@ the token-not-on-disk sweep. App tests cover the keystore round-trip
 under the exact §4.5 key name, locked-keystore loud-write/tolerant-read
 behavior, device-id durability across instances, notice/account
 round-trips, and a token-free settings file.
+
+## M6 — Settings → Backup UI + B→A switch (2026-09-20)
+
+The 04 §4.3 settings surface, the §4.4 separate-to-shared switch flow,
+and the gated Design A rendering. App-side except for two core seams;
+no Séance change, no pin bump:
+
+- **`BookmarkBackupService`** (`lib/services/`) owns the orchestration
+  over the durable seams: loads enrollment facts, last-sync status,
+  notices, and retained-account state at startup; binds a
+  `BookmarkCoordinator` to the live record store and vault key; and
+  exposes register, login, `backUpNow`, `signOut`,
+  `deleteSeparateAccount` (typed name confirmation; refused in shared
+  mode), and the §4.4 `switchToShared` driver — retain the separate
+  token under `poltergeist.apikey.sync.token.retained.v1`, wipe and
+  recreate the local record store, log into the shared account, pull
+  before any push, mark local bookmarks dirty under their existing
+  ids, re-seal non-held pins, then hold on per-host conflicts for
+  explicit adopt-fleet or keep-local decisions. A login that fails
+  before any account write restores the pre-wipe store and the
+  separate token, so the old account keeps working; retained facts
+  persist for the optional post-switch deletion offer.
+- **The Design A gate** (`sync_account_gate.dart`) is injectable;
+  production records `kMinimumSharedAccountSeanceVersion = 'v0.9.0'`
+  (the published release carrying PR-S1) and
+  `kMinSharedVersionIncludesSeance56Fix = false` (Séance #56 stays
+  open), so Design A renders with the pin-conflict security
+  disclosure and Continue stays gated on the fleet-version checkbox;
+  a null tag disables the shared option outright.
+- **The ported validator** (`sync_enrollment_validation.dart`) keeps
+  Séance's rules byte-identical while reporting a typed
+  `SyncEnrollmentIssue` the render site maps to ARB copy (D20).
+- **UI** (`lib/ui/settings/`): the section renders the §4.3 verbatim
+  copy (title, intro, both option cards with Design B preselected,
+  the fleet checkbox, the #56 disclosure, the passphrase warning,
+  registration-closed guidance), the register/login segmented
+  control, live-region status and errors, the enrolled summary with
+  Back up now / Sign out / Switch to shared account / Delete backup
+  account (shared mode hides delete; separate mode requires typing
+  the account name), durable notices, per-host pin conflicts with
+  Keep local key / Use synced key and no bulk resolution, and the
+  switch dialog driving §4.4's phases. A `backup.openSettings`
+  command opens the surface.
+- **Seams**: `SecureSyncCredentialStore` grows retained-token
+  read/write/delete (keystore only); `FilePinVerdictStore` and
+  `FileSyncTripwireStore` persist §3.2 verdicts in settings.json;
+  `SyncTransportFactory` closes each `HttpSyncClient` it mints;
+  `EngineSession.pinStore` is exposed for composition;
+  `FileBookmarkStore.syncDeviceId` widens to `String? Function()` so
+  a non-enrolled install emits no sync tuples; the core barrel now
+  exports `HttpSyncClient` for the transport factory.
+
+Coverage: `bookmark_backup_service_test.dart` (21 tests — enrollment,
+KDF refusal, registration-closed, trial-decrypt hold, manual round,
+dead-account notice, sign-out, typed delete, shared-mode refusal, the
+full §4.4 ordering and retention, conflict adopt/keep, retained
+delete/decline, failed-switch restoration) plus verdict-store and
+validator files; `backup_settings_test.dart` (19 widget tests —
+form/gate/copy, enrolled states, switch phases, conflict resolution)
+with five `POLTERGEIST_CAPTURE` states under
+`tasks/run3-task81-captures/` (not committed). App suite 1378 and
+core 1303 green; analyze clean on both sides.
 
 ## Open items
 

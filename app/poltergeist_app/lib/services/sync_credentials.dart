@@ -16,6 +16,47 @@ import 'uuid.dart';
 /// is `poltergeist.apikey.sync.token` (04 §4.5's name).
 const String syncTokenKeyName = 'sync.token';
 
+/// The keystore sub-key for §4.4's retained separate-account token —
+/// `poltergeist.apikey.sync.token.retained.v1`. The B→A switch parks the
+/// separate token here before the shared enrollment overwrites the live
+/// slot, so the optional post-switch delete can still authenticate.
+const String retainedSyncTokenKeyName = 'sync.token.retained.v1';
+
+/// The §4.4 retained-token seam: a second keystore slot the B→A switch
+/// fills and the optional delete step (or the decline) empties.
+abstract interface class RetainedSyncTokenStore {
+  /// Park the separate account's bearer token. Throws on a locked
+  /// keystore like the live-token write.
+  Future<void> write(String token);
+
+  /// The parked token, or null when absent or the keystore is unavailable.
+  Future<String?> read();
+
+  /// Drop the parked token — the delete completed or the user declined.
+  Future<void> clear();
+}
+
+/// The [RetainedSyncTokenStore] over the OS keystore — same posture as
+/// [SecureSyncCredentialStore]: writes throw, reads tolerate.
+final class SecureRetainedSyncTokenStore implements RetainedSyncTokenStore {
+  SecureRetainedSyncTokenStore({required MasterKeyManager keys})
+      : // Keep the collaborator private.
+        // ignore: prefer_initializing_formals
+        _keys = keys;
+
+  final MasterKeyManager _keys;
+
+  @override
+  Future<void> write(String token) =>
+      _keys.putApiKey(retainedSyncTokenKeyName, token);
+
+  @override
+  Future<String?> read() => _keys.getApiKey(retainedSyncTokenKeyName);
+
+  @override
+  Future<void> clear() => _keys.deleteApiKey(retainedSyncTokenKeyName);
+}
+
 /// The [SyncCredentialStore] over the OS keystore: the session token and
 /// the vault key live ONLY here — never settings.json, never the sync
 /// record store.
@@ -96,12 +137,23 @@ final class SettingsSyncEnrollmentState implements SyncEnrollmentState {
     return created;
   }
 
+  String? _cachedDeviceId;
+
+  /// The minted id once [deviceId] has resolved — the synchronous
+  /// binding `FileBookmarkStore.syncDeviceId` needs (a tuple write
+  /// cannot await). Null until enrollment or a backup-service load
+  /// forces the first resolution; installs that never enroll keep the
+  /// §3.4 clean-disk shape.
+  String? get cachedDeviceId => _cachedDeviceId;
+
   Future<String> _loadOrCreateDeviceId() async {
     final existing = await _store.get<String>(_deviceIdKey);
-    if (existing != null && existing.isNotEmpty) return existing;
+    if (existing != null && existing.isNotEmpty) {
+      return _cachedDeviceId = existing;
+    }
     final minted = uuidV4();
     await _store.set(_deviceIdKey, minted);
-    return minted;
+    return _cachedDeviceId = minted;
   }
 
   @override
