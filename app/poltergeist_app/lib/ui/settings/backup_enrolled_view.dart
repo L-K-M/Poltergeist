@@ -142,11 +142,14 @@ final class BackupEnrolledView extends StatelessWidget {
           // The paused statement itself sits in the status line (paused
           // outranks syncing/error there); this notice carries only the
           // way-out copy.
-          Text(
-            shared
-                ? l10n.backupPausedWayOutShared
-                : l10n.backupPausedWayOutSeparate,
-            style: theme.textTheme.bodySmall,
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              shared
+                  ? l10n.backupPausedWayOutShared
+                  : l10n.backupPausedWayOutSeparate,
+              style: theme.textTheme.bodySmall,
+            ),
           ),
         if (service.notices.contains(syncNoticePassphraseCheckFailed))
           Padding(
@@ -172,14 +175,16 @@ final class BackupEnrolledView extends StatelessWidget {
                   children: [
                     TextButton(
                       key: ValueKey('backup.pin.keep.${conflict.locator}'),
-                      onPressed: () =>
-                          _resolvePin(context, conflict, true),
+                      onPressed: service.syncing
+                          ? null
+                          : () => _resolvePin(context, conflict, true),
                       child: Text(l10n.backupPinKeepLocal),
                     ),
                     TextButton(
                       key: ValueKey('backup.pin.accept.${conflict.locator}'),
-                      onPressed: () =>
-                          _resolvePin(context, conflict, false),
+                      onPressed: service.syncing
+                          ? null
+                          : () => _resolvePin(context, conflict, false),
                       child: Text(l10n.backupPinAcceptSynced),
                     ),
                   ],

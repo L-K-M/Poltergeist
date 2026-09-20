@@ -312,6 +312,10 @@ void main() {
       // ancestor would otherwise take the tap through the Radio leaf.
       await tester.tap(find.byKey(const ValueKey('backup.mode.shared')));
       await tester.pumpAndSettle();
+      final group = tester.widget<RadioGroup<SyncAccountMode>>(
+        find.byType(RadioGroup<SyncAccountMode>),
+      );
+      expect(group.groupValue, isNot(SyncAccountMode.shared));
       // No fleet checkbox — the gated copy cannot render without the tag.
       expect(find.byKey(const ValueKey('backup.fleet.checkbox')),
           findsNothing);

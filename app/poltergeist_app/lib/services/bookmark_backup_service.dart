@@ -436,6 +436,7 @@ final class BookmarkBackupService extends ChangeNotifier {
     }
     _requireNotSyncing();
     _syncing = true;
+    notifyListeners();
     try {
       // 1. Retain the separate account's token BEFORE the enrollment write
       //    could overwrite it (04 §4.4: it lives in the keystore, not the
