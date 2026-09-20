@@ -9,6 +9,7 @@ import 'package:poltergeist_core/poltergeist_core.dart'
 
 import 'l10n/app_localizations.dart';
 import 'services/app_transfer_queue.dart';
+import 'services/bookmark_backup_service.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
@@ -39,6 +40,7 @@ class PoltergeistApp extends StatefulWidget {
     this.navigatorKey,
     this.scaffoldMessengerKey,
     this.sshConfigImport,
+    this.bookmarkBackup,
     this.bookmarks,
     this.workspaces,
     this.connectionEngine,
@@ -93,6 +95,11 @@ class PoltergeistApp extends StatefulWidget {
   /// path). Null leaves the import command unregistered; `main.dart`
   /// supplies it from the app-support directory.
   final SshConfigImportSetup? sshConfigImport;
+
+  /// The 04 §3.3 backup service behind Settings → Backup (M6). Null
+  /// leaves `open-settings-backup` unregistered; `main.dart` supplies
+  /// it from the app-support stores and the OS keystore.
+  final BookmarkBackupService? bookmarkBackup;
 
   /// The persisted bookmark store behind the sidebar's favorites list
   /// (03 §6's `BookmarkStore` seam). Null unmounts the sidebar — and
@@ -315,6 +322,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       onPaneRatioChanged: widget.onPaneRatioChanged,
       onPaneRatioSaveError: widget.onPaneRatioSaveError,
       sshConfigImport: widget.sshConfigImport,
+      bookmarkBackup: widget.bookmarkBackup,
       bookmarks: widget.bookmarks,
       workspaces: widget.workspaces,
       connectionEngine: widget.connectionEngine,

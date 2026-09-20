@@ -16,7 +16,11 @@ import 'trash_channel.dart';
 /// File names inside the app-support directory, one store per file (03 §6):
 /// pin and incident storage stay app-owned; the engine seeds from them at
 /// spawn and mirrors every mutation back.
-const _pinStoreFileName = 'host_keys.json';
+/// The app-support file name behind [EngineSession.pinStore] — public so
+/// `main.dart`'s backup composition falls back to the same path when no
+/// engine session exists.
+const kPinStoreFileName = 'host_keys.json';
+const _pinStoreFileName = kPinStoreFileName;
 const _incidentStoreFileName = 'incidents.json';
 const _identityAuditLogFileName = 'identity_reads.jsonl';
 
@@ -348,6 +352,12 @@ final class EngineSession {
   /// the pane banner cancels recovery through. Stable across rebuilds
   /// for the same reason as [connectionLanes].
   late final PaneEngineLanes paneLanes = _engine;
+
+  /// The pin store the engine's mirror writes to — also the backup
+  /// coordinator's TOFU truth (04 §3.2): one instance over
+  /// `host_keys.json`, since two file stores on one path would race
+  /// their caches (FileHostKeyStore loads once, then writes blind).
+  HostKeyStore get pinStore => _pinStore;
 
   /// The probe bridge the sidebar's reachability owner configures (02
   /// §4's favorites dots). Stable across rebuilds; the owner subscribes

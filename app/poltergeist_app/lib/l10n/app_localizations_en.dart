@@ -1512,4 +1512,309 @@ class AppLocalizationsEn extends AppLocalizations {
   String activityPanelHeightPx(int value) {
     return '$value px';
   }
+
+  @override
+  String get settingsTitle => 'Settings';
+
+  @override
+  String get settingsBackupCommand => 'Back up bookmarks…';
+
+  @override
+  String get backupTitle => 'Bookmark backup';
+
+  @override
+  String get backupIntro =>
+      'Back up bookmarks, end-to-end encrypted, through a Séance sync server. Nothing readable ever leaves this device.';
+
+  @override
+  String get backupModeSeparate =>
+      'Separate backup account — a new account just for Poltergeist, on the same server. Works with every Séance version.';
+
+  @override
+  String backupModeShared(String version) {
+    return 'Shared Séance account — bookmarks live alongside your Séance data, and your Séance servers appear as bookmark sources. This app will hold your Séance encryption passphrase and could read everything in the account, including saved passwords. Requires Séance $version or newer on all devices.';
+  }
+
+  @override
+  String backupFleetCheckbox(String version) {
+    return 'Every device that runs Séance with this account has version $version or newer.';
+  }
+
+  @override
+  String get backupFleetHelper =>
+      'Older Séance versions misread Poltergeist\'s records — update them everywhere before turning this on, and never add an older Séance to this account afterwards: the risk does not end at setup.';
+
+  @override
+  String get backupSharedPinDisclosure =>
+      'Séance devices accept synced host-key pins without a conflict warning — including pins this app pushes.';
+
+  @override
+  String get backupRegistrationClosed =>
+      'This server has registration closed. If you run it: temporarily set SEANCE_OPEN_REGISTRATION=1, create the account, then close it again — while it is open, anyone who can reach the server can register, so close it as soon as you are done. If someone else runs it, ask them to create an account for you.';
+
+  @override
+  String get backupPassphraseCallout =>
+      'The encryption passphrase never leaves your devices and cannot be recovered. Losing it means losing the backup.';
+
+  @override
+  String get backupPassphraseCheckFailed =>
+      'The encryption passphrase could not decrypt this account\'s records. The passphrase may be wrong, the record may be corrupt, or it may use a newer schema.';
+
+  @override
+  String get backupPaused =>
+      'Backup paused until the passphrase is verified against the account\'s existing data.';
+
+  @override
+  String get backupPausedWayOutShared =>
+      'Open Séance on any device signed into this account and add or edit a server, then sync — backup resumes automatically.';
+
+  @override
+  String get backupPausedWayOutSeparate =>
+      'Open Poltergeist on another device signed into this account and add or edit a bookmark, then sync.';
+
+  @override
+  String get backupKdfRefusal =>
+      'The sync server returned weaker password-hashing parameters than Poltergeist accepts — refusing to derive your key (possible downgrade attack).';
+
+  @override
+  String get backupServerUrlField => 'Sync server URL';
+
+  @override
+  String get backupUsernameField => 'Username';
+
+  @override
+  String get backupAccountPasswordField => 'Account password';
+
+  @override
+  String get backupAccountPasswordHelper =>
+      'Authenticates with the sync server.';
+
+  @override
+  String get backupEncryptionPassphraseField => 'Encryption passphrase';
+
+  @override
+  String get backupEncryptionPassphraseHelper =>
+      'Encrypts the backup; use it on every device.';
+
+  @override
+  String get backupConfirmPassphraseField => 'Confirm encryption passphrase';
+
+  @override
+  String get backupLoginTab => 'Log in';
+
+  @override
+  String get backupRegisterTab => 'Register';
+
+  @override
+  String get backupContinue => 'Continue';
+
+  @override
+  String get backupCancel => 'Cancel';
+
+  @override
+  String get backupClose => 'Close';
+
+  @override
+  String get backupRegistering => 'Registering…';
+
+  @override
+  String get backupLoggingIn => 'Logging in…';
+
+  @override
+  String backupEnrollFailed(String error) {
+    return 'Failed: $error';
+  }
+
+  @override
+  String get backupValidationUrl => 'Enter a valid HTTP or HTTPS server URL.';
+
+  @override
+  String get backupValidationUrlCredentials =>
+      'Server URL must not include embedded credentials.';
+
+  @override
+  String get backupValidationUsername => 'Enter a username.';
+
+  @override
+  String get backupValidationPassword => 'Enter the sync account password.';
+
+  @override
+  String get backupValidationPassphrase => 'Enter the encryption passphrase.';
+
+  @override
+  String get backupValidationConfirm =>
+      'Confirm the encryption passphrase before registering.';
+
+  @override
+  String get backupValidationMismatch => 'Encryption passphrases do not match.';
+
+  @override
+  String get backupEnrolledModeSeparate => 'Separate backup account';
+
+  @override
+  String get backupEnrolledModeShared => 'Shared Séance account';
+
+  @override
+  String backupEnrolledSummary(String username, String server) {
+    return '$username on $server';
+  }
+
+  @override
+  String get backupNow => 'Back up now';
+
+  @override
+  String get backupSyncing => 'Backing up…';
+
+  @override
+  String get backupNeverSynced => 'Not backed up yet.';
+
+  @override
+  String get backupLastSyncedJustNow => 'Last backed up just now';
+
+  @override
+  String backupLastSyncedMinutesAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Last backed up $count min ago',
+      one: 'Last backed up 1 min ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String backupLastSyncedHoursAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Last backed up $count hours ago',
+      one: 'Last backed up 1 hour ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String backupLastSyncedDaysAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Last backed up $count days ago',
+      one: 'Last backed up 1 day ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String backupSyncFailed(String error) {
+    return 'Backup failed: $error';
+  }
+
+  @override
+  String get backupDeadAccount =>
+      'The server rejected this device\'s sign-in — the backup account may have been deleted. Bookmarks stay safe on this device and nothing is pushed until you sign in again.';
+
+  @override
+  String backupTripwireWarning(String id) {
+    return 'A synced record ($id) could not be read after it decrypted — it may have been written by an older Séance version, be corrupt, or use a newer schema. Once the stale device is patched or removed, re-save the affected bookmark to restore it.';
+  }
+
+  @override
+  String backupPinConflictWarning(String locator) {
+    return 'A synced host key for $locator conflicts with the key this device trusts. This can mean a man-in-the-middle attack.';
+  }
+
+  @override
+  String get backupPinAcceptSynced => 'Use synced key';
+
+  @override
+  String get backupPinKeepLocal => 'Keep local key';
+
+  @override
+  String get backupStoreQuarantined =>
+      'The local backup record store was unreadable and has been rebuilt — deleted bookmarks may reappear, and pending edits will re-upload on the next backup.';
+
+  @override
+  String get backupDeleteAccount => 'Delete backup account…';
+
+  @override
+  String get backupDeleteAccountTitle => 'Delete backup account';
+
+  @override
+  String backupDeleteAccountBody(String username, String server) {
+    return 'This deletes the account $username on $server and every backup stored on it. This cannot be undone.';
+  }
+
+  @override
+  String backupDeleteConfirmHint(String username) {
+    return 'Type $username to confirm.';
+  }
+
+  @override
+  String get backupDeleteConfirm => 'Delete account';
+
+  @override
+  String backupDeleteFailed(String error) {
+    return 'Could not delete the account: $error';
+  }
+
+  @override
+  String get backupSignOut => 'Sign out on this device';
+
+  @override
+  String get backupSignOutBody =>
+      'This device forgets its sign-in. The account and its data stay on the server.';
+
+  @override
+  String get backupSwitchToShared => 'Switch to shared account…';
+
+  @override
+  String get backupSwitchTitle => 'Switch to shared account';
+
+  @override
+  String get backupSwitchWorking => 'Switching…';
+
+  @override
+  String get backupSwitchConflictTitle => 'Resolve host-key conflicts';
+
+  @override
+  String backupSwitchConflictBody(String locator) {
+    return 'The shared account holds a different host key for $locator. Keeping this device\'s key pushes it to every device on the account — only keep it if you are sure it is the right key.';
+  }
+
+  @override
+  String get backupSwitchAdoptFleet => 'Use shared key';
+
+  @override
+  String get backupSwitchDone =>
+      'Switched to the shared account. Bookmarks and host-key pins push on the next backup.';
+
+  @override
+  String backupSwitchFailed(String error) {
+    return 'The switch could not finish: $error';
+  }
+
+  @override
+  String get backupDeleteSeparateAfterSwitch =>
+      'Also delete the separate backup account…';
+
+  @override
+  String backupDeleteSeparateBody(String username, String server) {
+    return 'The separate backup account $username on $server still exists — its sign-in was kept while the switch proved out. Delete it now, or keep it.';
+  }
+
+  @override
+  String get backupDeleteSeparateDecline => 'Keep it';
+
+  @override
+  String get backupDeleteSeparateLaterNote =>
+      'Removing it later requires re-enrolling into it first.';
+
+  @override
+  String get backupDeleteSeparateDone =>
+      'The separate backup account was deleted.';
+
+  @override
+  String backupDeleteSeparateFailed(String error) {
+    return 'Could not delete the separate account: $error';
+  }
 }

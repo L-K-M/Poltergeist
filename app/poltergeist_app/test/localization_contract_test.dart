@@ -78,6 +78,12 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/main.dart': {
     r"'${supportDirectory.path}${Platform.pathSeparator}settings.json'",
     r"'${supportDirectory.path}${Platform.pathSeparator}bookmarks.json'",
+    // The §3.1 record store's file name inside app support — a path
+    // literal, not copy.
+    r"'${supportDirectory.path}${Platform.pathSeparator}sync_records.json'",
+    // The engine-less pin-store fallback path — same machine path data.
+    r"'${supportDirectory.path}${Platform.pathSeparator}'",
+    r"'$kPinStoreFileName'",
   },
   // The production engine session's store file names and wiring literals
   // (paths inside the app-support directory, the review pane-tab id) —
@@ -313,6 +319,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   // names — machine identifiers, never rendered UI copy.
   'lib/services/sync_credentials.dart': {
     "'sync.token'",
+    "'sync.token.retained.v1'",
     "'poltergeist.sync.deviceId'",
     "'poltergeist.sync.passphraseUnverified'",
     "'poltergeist.sync.notices'",
@@ -321,6 +328,48 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'baseUrl'",
     "'username'",
     "'mode'",
+  },
+  // The recorded Séance release tag — a machine fact interpolated into
+  // ARB copy at the render site, never authored text.
+  'lib/services/sync_account_gate.dart': {"'v0.9.0'"},
+  // The URL-scheme whitelist of the ported validator — grammar literals,
+  // not copy.
+  'lib/services/sync_enrollment_validation.dart': {
+    "'http'",
+    "'https'",
+    // The confirmation field's empty default — a missing-argument value,
+    // not rendered copy.
+    "''",
+  },
+  // The settings.json keys behind the §3.2 verdict stores — machine
+  // identifiers, never rendered UI copy.
+  'lib/services/sync_verdict_stores.dart': {
+    "'poltergeist.sync.negativePins'",
+    "'poltergeist.sync.keptPinVerdicts'",
+    "'poltergeist.sync.tripwireIds'",
+    r"'$entry'",
+  },
+  // The §3.3 status keys, the §4.4 retained-account record's field
+  // names, and the programmer-error diagnostics (missing token, wrong
+  // mode, failed typed confirmation) — machine data and reported
+  // faults, never authored copy.
+  'lib/services/bookmark_backup_service.dart': {
+    "'poltergeist.sync.lastSyncAt'",
+    "'poltergeist.sync.lastSyncError'",
+    "'poltergeist.sync.retainedAccount'",
+    "'poltergeist.sync.switchSynced'",
+    "'baseUrl'",
+    "'username'",
+    r"'$error'",
+    "'enrolled without a session token'",
+    "'enrolled without a readable vault key'",
+    "'account deletion exists only in separate mode'",
+    "'typed confirmation must equal the account name'",
+    "'the switch requires a separate-mode account'",
+    "'a backup round is in flight'",
+    "'no retained separate account'",
+    "'retained account without a retained token'",
+    "'not enrolled — cannot resolve a pin conflict'",
   },
   'lib/theme/app_theme.dart': {
     "'JetBrains Mono'",
@@ -964,6 +1013,78 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'quit.pauseAndQuit'",
     "'quitFlush.dialog'",
     "'quitFlush.dismiss'",
+  },
+  // The enrollment form's widget keys, the §4.1 `ghost-<8 hex>` username
+  // suggestion placeholder (a generated value, not authored copy), and
+  // the error interpolation feeding ARB templates — plumbing and machine
+  // data only.
+  'lib/ui/settings/backup_enrollment_form.dart': {
+    r"'$error'",
+    r"'ghost-${uuidV4().substring(0, 8)}'",
+    "'backup.mode.separate'",
+    "'backup.mode.shared'",
+    "'backup.fleet.checkbox'",
+    "'backup.shared.disclosure'",
+    "'backup.enroll.action'",
+    "'backup.enroll.url'",
+    "'backup.enroll.username'",
+    "'backup.enroll.password'",
+    "'backup.enroll.passphrase'",
+    "'backup.enroll.confirm'",
+    "'backup.enroll.continue'",
+    "'backup.enroll.status'",
+  },
+  // The enrolled view's widget keys and locator-keyed conflict buttons —
+  // widget plumbing, never authored copy.
+  'lib/ui/settings/backup_enrolled_view.dart': {
+    r"'$error'",
+    "'backup.enrolled'",
+    "'backup.enrolled.status'",
+    "'backup.enrolled.backupNow'",
+    "'backup.enrolled.signOut'",
+    "'backup.enrolled.switch'",
+    "'backup.enrolled.delete'",
+    "'backup.enrolled.deleteRetained'",
+    "'backup.signout.dialog'",
+    "'backup.signout.confirm'",
+    "'backup.delete.dialog'",
+    "'backup.delete.confirmField'",
+    "'backup.delete.confirm'",
+    "'backup.deleteRetained.dialog'",
+    "'backup.deleteRetained.confirmField'",
+    "'backup.deleteRetained.decline'",
+    "'backup.deleteRetained.confirm'",
+    r"'backup.pin.keep.${conflict.locator}'",
+    r"'backup.pin.accept.${conflict.locator}'",
+  },
+  // The switch dialog's widget keys and locator-keyed hold-set rows —
+  // plumbing; '' is the failed-phase fallback while no error is set.
+  'lib/ui/settings/backup_switch_dialog.dart': {
+    "''",
+    "'backup.switch.dialog'",
+    "'backup.switch.continue'",
+    "'backup.switch.close'",
+    "'backup.switch.fleet'",
+    "'backup.switch.url'",
+    "'backup.switch.username'",
+    "'backup.switch.password'",
+    "'backup.switch.passphrase'",
+    "'backup.switch.error'",
+    "'backup.switch.conflicts'",
+    "'backup.switch.done'",
+    "'backup.switch.failed'",
+    r"'backup.switch.conflict.${conflict.locator}'",
+    r"'backup.switch.adoptFleet.${conflict.locator}'",
+    r"'backup.switch.keepLocal.${conflict.locator}'",
+  },
+  // The section dialog's widget keys — plumbing only.
+  'lib/ui/settings/backup_settings.dart': {
+    "'backup.settings.dialog'",
+    "'backup.settings.close'",
+  },
+  // The registered command id (D21 plumbing).
+  'lib/ui/settings/backup_settings_command.dart': {
+    "'open-settings-backup'",
   },
 };
 

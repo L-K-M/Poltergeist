@@ -55,6 +55,7 @@ export 'package:seance_core/seance_core.dart'
         ApiError,
         DecryptedRecord,
         EncryptedRecord,
+        HttpSyncClient,
         LocalRecordStore,
         LoginRequest,
         PreloginResponse,

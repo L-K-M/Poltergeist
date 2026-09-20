@@ -1992,5 +1992,407 @@
         "type": "int"
       }
     }
+  },
+  "settingsTitle": "Settings",
+  "@settingsTitle": {
+    "description": "Title of the Settings surface (02 §10)."
+  },
+  "settingsBackupCommand": "Back up bookmarks\u2026",
+  "@settingsBackupCommand": {
+    "description": "Menu command opening Settings at the Bookmark backup section (D21)."
+  },
+  "backupTitle": "Bookmark backup",
+  "@backupTitle": {
+    "description": "04 §4.3's verbatim section title."
+  },
+  "backupIntro": "Back up bookmarks, end-to-end encrypted, through a Séance sync server. Nothing readable ever leaves this device.",
+  "@backupIntro": {
+    "description": "04 §4.3's verbatim intro."
+  },
+  "backupModeSeparate": "Separate backup account — a new account just for Poltergeist, on the same server. Works with every Séance version.",
+  "@backupModeSeparate": {
+    "description": "04 §4.3's verbatim Design B option, preselected."
+  },
+  "backupModeShared": "Shared Séance account — bookmarks live alongside your Séance data, and your Séance servers appear as bookmark sources. This app will hold your Séance encryption passphrase and could read everything in the account, including saved passwords. Requires Séance {version} or newer on all devices.",
+  "@backupModeShared": {
+    "description": "04 §4.3's verbatim Design A option; {version} is kMinimumSharedAccountSeanceVersion.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "backupFleetCheckbox": "Every device that runs Séance with this account has version {version} or newer.",
+  "@backupFleetCheckbox": {
+    "description": "04 §4.3's verbatim fleet-confirmation checkbox gating the shared-account Continue button; {version} is kMinimumSharedAccountSeanceVersion.",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "backupFleetHelper": "Older Séance versions misread Poltergeist's records — update them everywhere before turning this on, and never add an older Séance to this account afterwards: the risk does not end at setup.",
+  "@backupFleetHelper": {
+    "description": "04 §4.3's verbatim helper under the fleet checkbox."
+  },
+  "backupSharedPinDisclosure": "Séance devices accept synced host-key pins without a conflict warning — including pins this app pushes.",
+  "@backupSharedPinDisclosure": {
+    "description": "04 §4.3's verbatim disclosure rendered under option 2 while kMinSharedVersionIncludesSeance56Fix is false."
+  },
+  "backupRegistrationClosed": "This server has registration closed. If you run it: temporarily set SEANCE_OPEN_REGISTRATION=1, create the account, then close it again — while it is open, anyone who can reach the server can register, so close it as soon as you are done. If someone else runs it, ask them to create an account for you.",
+  "@backupRegistrationClosed": {
+    "description": "04 §4.3's verbatim 403 registration_closed copy (Design B register)."
+  },
+  "backupPassphraseCallout": "The encryption passphrase never leaves your devices and cannot be recovered. Losing it means losing the backup.",
+  "@backupPassphraseCallout": {
+    "description": "04 §4.3's verbatim passphrase callout."
+  },
+  "backupPassphraseCheckFailed": "The encryption passphrase could not decrypt this account's records. The passphrase may be wrong, the record may be corrupt, or it may use a newer schema.",
+  "@backupPassphraseCheckFailed": {
+    "description": "04 §4.5's verbatim three-cause decrypt-failure copy (syncPassphraseCheckFailedMessage mirrored in ARB)."
+  },
+  "backupPaused": "Backup paused until the passphrase is verified against the account's existing data.",
+  "@backupPaused": {
+    "description": "04 §4.5's verbatim paused status while passphraseUnverified holds."
+  },
+  "backupPausedWayOutShared": "Open Séance on any device signed into this account and add or edit a server, then sync — backup resumes automatically.",
+  "@backupPausedWayOutShared": {
+    "description": "04 §4.5's verbatim way-out for a paused shared account."
+  },
+  "backupPausedWayOutSeparate": "Open Poltergeist on another device signed into this account and add or edit a bookmark, then sync.",
+  "@backupPausedWayOutSeparate": {
+    "description": "04 §4.5's verbatim way-out for a paused separate account."
+  },
+  "backupKdfRefusal": "The sync server returned weaker password-hashing parameters than Poltergeist accepts — refusing to derive your key (possible downgrade attack).",
+  "@backupKdfRefusal": {
+    "description": "04 §4.5's verbatim KDF-downgrade refusal (KdfDowngradeException mirrored in ARB)."
+  },
+  "backupServerUrlField": "Sync server URL",
+  "@backupServerUrlField": {
+    "description": "Label of the enrollment form's server field."
+  },
+  "backupUsernameField": "Username",
+  "@backupUsernameField": {
+    "description": "Label of the enrollment form's username field."
+  },
+  "backupAccountPasswordField": "Account password",
+  "@backupAccountPasswordField": {
+    "description": "Label of the sync account password field."
+  },
+  "backupAccountPasswordHelper": "Authenticates with the sync server.",
+  "@backupAccountPasswordHelper": {
+    "description": "Helper under the account password field."
+  },
+  "backupEncryptionPassphraseField": "Encryption passphrase",
+  "@backupEncryptionPassphraseField": {
+    "description": "Label of the backup encryption passphrase field."
+  },
+  "backupEncryptionPassphraseHelper": "Encrypts the backup; use it on every device.",
+  "@backupEncryptionPassphraseHelper": {
+    "description": "Helper under the encryption passphrase field."
+  },
+  "backupConfirmPassphraseField": "Confirm encryption passphrase",
+  "@backupConfirmPassphraseField": {
+    "description": "Label of the register flow's confirmation field."
+  },
+  "backupLoginTab": "Log in",
+  "@backupLoginTab": {
+    "description": "Segmented-control tab for enrolling against an existing account."
+  },
+  "backupRegisterTab": "Register",
+  "@backupRegisterTab": {
+    "description": "Segmented-control tab for creating a new backup account."
+  },
+  "backupContinue": "Continue",
+  "@backupContinue": {
+    "description": "Runs the selected enrollment action."
+  },
+  "backupCancel": "Cancel",
+  "@backupCancel": {
+    "description": "Abandons the enrollment or confirmation dialog."
+  },
+  "backupClose": "Close",
+  "@backupClose": {
+    "description": "Dismisses the Backup settings surface."
+  },
+  "backupRegistering": "Registering\u2026",
+  "@backupRegistering": {
+    "description": "Live-region status while a registration runs."
+  },
+  "backupLoggingIn": "Logging in\u2026",
+  "@backupLoggingIn": {
+    "description": "Live-region status while a login runs."
+  },
+  "backupEnrollFailed": "Failed: {error}",
+  "@backupEnrollFailed": {
+    "description": "Live-region status for an enrollment error the spec has no verbatim copy for.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "backupValidationUrl": "Enter a valid HTTP or HTTPS server URL.",
+  "@backupValidationUrl": {
+    "description": "Validation error for an unparseable or non-HTTP server URL (ported validator copy)."
+  },
+  "backupValidationUrlCredentials": "Server URL must not include embedded credentials.",
+  "@backupValidationUrlCredentials": {
+    "description": "Validation error for a userinfo-carrying server URL (ported validator copy)."
+  },
+  "backupValidationUsername": "Enter a username.",
+  "@backupValidationUsername": {
+    "description": "Validation error for an empty username (ported validator copy)."
+  },
+  "backupValidationPassword": "Enter the sync account password.",
+  "@backupValidationPassword": {
+    "description": "Validation error for an empty account password (ported validator copy)."
+  },
+  "backupValidationPassphrase": "Enter the encryption passphrase.",
+  "@backupValidationPassphrase": {
+    "description": "Validation error for an empty encryption passphrase (ported validator copy)."
+  },
+  "backupValidationConfirm": "Confirm the encryption passphrase before registering.",
+  "@backupValidationConfirm": {
+    "description": "Validation error for an empty confirmation field (ported validator copy)."
+  },
+  "backupValidationMismatch": "Encryption passphrases do not match.",
+  "@backupValidationMismatch": {
+    "description": "Validation error when the confirmation differs (ported validator copy)."
+  },
+  "backupEnrolledModeSeparate": "Separate backup account",
+  "@backupEnrolledModeSeparate": {
+    "description": "Mode label on the enrolled state's account summary."
+  },
+  "backupEnrolledModeShared": "Shared Séance account",
+  "@backupEnrolledModeShared": {
+    "description": "Mode label on the enrolled state's account summary."
+  },
+  "backupEnrolledSummary": "{username} on {server}",
+  "@backupEnrolledSummary": {
+    "description": "The enrolled account's identity line.",
+    "placeholders": {
+      "username": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "backupNow": "Back up now",
+  "@backupNow": {
+    "description": "04 §3.3's manual round button."
+  },
+  "backupSyncing": "Backing up\u2026",
+  "@backupSyncing": {
+    "description": "Status while a backup round runs."
+  },
+  "backupNeverSynced": "Not backed up yet.",
+  "@backupNeverSynced": {
+    "description": "Enrolled status before any round has completed."
+  },
+  "backupLastSyncedJustNow": "Last backed up just now",
+  "@backupLastSyncedJustNow": {
+    "description": "Status for a round that finished within the minute (04 §3.3's \"Last backed up 3 min ago\" shape)."
+  },
+  "backupLastSyncedMinutesAgo": "{count, plural, =1{Last backed up 1 min ago} other{Last backed up {count} min ago}}",
+  "@backupLastSyncedMinutesAgo": {
+    "description": "Status for a round that finished minutes ago (04 §3.3's verbatim \"Last backed up 3 min ago\" shape).",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupLastSyncedHoursAgo": "{count, plural, =1{Last backed up 1 hour ago} other{Last backed up {count} hours ago}}",
+  "@backupLastSyncedHoursAgo": {
+    "description": "Status for a round that finished hours ago.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupLastSyncedDaysAgo": "{count, plural, =1{Last backed up 1 day ago} other{Last backed up {count} days ago}}",
+  "@backupLastSyncedDaysAgo": {
+    "description": "Status for a round that finished days ago.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupSyncFailed": "Backup failed: {error}",
+  "@backupSyncFailed": {
+    "description": "Status for the last round's failure (04 §3.3: error text lives in Settings → Backup).",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "backupDeadAccount": "The server rejected this device's sign-in — the backup account may have been deleted. Bookmarks stay safe on this device and nothing is pushed until you sign in again.",
+  "@backupDeadAccount": {
+    "description": "Durable notice for the §7.3 dead-account posture (401 during a round drops to local-only)."
+  },
+  "backupTripwireWarning": "A synced record ({id}) could not be read after it decrypted — it may have been written by an older Séance version, be corrupt, or use a newer schema. Once the stale device is patched or removed, re-save the affected bookmark to restore it.",
+  "@backupTripwireWarning": {
+    "description": "04 §4.2's durable decode-failure tripwire: names the record id, all three candidate causes, and the remediation.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "backupPinConflictWarning": "A synced host key for {locator} conflicts with the key this device trusts. This can mean a man-in-the-middle attack.",
+  "@backupPinConflictWarning": {
+    "description": "04 §3.2's durable pin-quarantine warning per conflicting host.",
+    "placeholders": {
+      "locator": {
+        "type": "String"
+      }
+    }
+  },
+  "backupPinAcceptSynced": "Use synced key",
+  "@backupPinAcceptSynced": {
+    "description": "Resolves a pin conflict by installing the pulled key (04 §3.2's accept)."
+  },
+  "backupPinKeepLocal": "Keep local key",
+  "@backupPinKeepLocal": {
+    "description": "Resolves a pin conflict by re-pushing the trusted key (04 §3.2's keep local)."
+  },
+  "backupStoreQuarantined": "The local backup record store was unreadable and has been rebuilt — deleted bookmarks may reappear, and pending edits will re-upload on the next backup.",
+  "@backupStoreQuarantined": {
+    "description": "04 §3.1's durable corrupt-store notice; it must name that deleted bookmarks may reappear, not only that edits may be lost."
+  },
+  "backupDeleteAccount": "Delete backup account\u2026",
+  "@backupDeleteAccount": {
+    "description": "04 §4.1's separate-mode account deletion entry point."
+  },
+  "backupDeleteAccountTitle": "Delete backup account",
+  "@backupDeleteAccountTitle": {
+    "description": "Title of the separate-mode account deletion dialog."
+  },
+  "backupDeleteAccountBody": "This deletes the account {username} on {server} and every backup stored on it. This cannot be undone.",
+  "@backupDeleteAccountBody": {
+    "description": "04 §4.1's deletion consequence copy — it deletes only Poltergeist's data.",
+    "placeholders": {
+      "username": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "backupDeleteConfirmHint": "Type {username} to confirm.",
+  "@backupDeleteConfirmHint": {
+    "description": "Typed-confirmation prompt above the name field (04 §4.1).",
+    "placeholders": {
+      "username": {
+        "type": "String"
+      }
+    }
+  },
+  "backupDeleteConfirm": "Delete account",
+  "@backupDeleteConfirm": {
+    "description": "Verb button confirming account deletion."
+  },
+  "backupDeleteFailed": "Could not delete the account: {error}",
+  "@backupDeleteFailed": {
+    "description": "Inline error when the account deletion request fails.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "backupSignOut": "Sign out on this device",
+  "@backupSignOut": {
+    "description": "04 §4.2's shared-mode session end — the only shared-mode account action."
+  },
+  "backupSignOutBody": "This device forgets its sign-in. The account and its data stay on the server.",
+  "@backupSignOutBody": {
+    "description": "04 §4.2's sign-out consequence copy — local forget only, server data untouched."
+  },
+  "backupSwitchToShared": "Switch to shared account\u2026",
+  "@backupSwitchToShared": {
+    "description": "04 §4.4's verbatim B→A switch entry point, offered behind the fleet gate."
+  },
+  "backupSwitchTitle": "Switch to shared account",
+  "@backupSwitchTitle": {
+    "description": "Title of the §4.4 B→A switch flow."
+  },
+  "backupSwitchWorking": "Switching\u2026",
+  "@backupSwitchWorking": {
+    "description": "Live-region status while the §4.4 switch runs."
+  },
+  "backupSwitchConflictTitle": "Resolve host-key conflicts",
+  "@backupSwitchConflictTitle": {
+    "description": "Heading of the §4.4 hold set — quarantined pins needing an explicit decision."
+  },
+  "backupSwitchConflictBody": "The shared account holds a different host key for {locator}. Keeping this device's key pushes it to every device on the account — only keep it if you are sure it is the right key.",
+  "@backupSwitchConflictBody": {
+    "description": "Per-locator decision copy in the §4.4 hold set — adopt the fleet pin or keep the local one as a deliberate override.",
+    "placeholders": {
+      "locator": {
+        "type": "String"
+      }
+    }
+  },
+  "backupSwitchAdoptFleet": "Use shared key",
+  "@backupSwitchAdoptFleet": {
+    "description": "Resolves a held locator by adopting the fleet pin — no re-seal for that host (04 §4.4)."
+  },
+  "backupSwitchDone": "Switched to the shared account. Bookmarks and host-key pins push on the next backup.",
+  "@backupSwitchDone": {
+    "description": "Completion copy of the §4.4 switch — pushes may still hold while passphraseUnverified stands."
+  },
+  "backupSwitchFailed": "The switch could not finish: {error}",
+  "@backupSwitchFailed": {
+    "description": "Inline error when the §4.4 switch throws.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "backupDeleteSeparateAfterSwitch": "Also delete the separate backup account\u2026",
+  "@backupDeleteSeparateAfterSwitch": {
+    "description": "04 §4.4's verbatim optional post-switch delete, offered only after the first shared sync succeeds."
+  },
+  "backupDeleteSeparateBody": "The separate backup account {username} on {server} still exists — its sign-in was kept while the switch proved out. Delete it now, or keep it.",
+  "@backupDeleteSeparateBody": {
+    "description": "The §4.4 delete offer's consequence copy.",
+    "placeholders": {
+      "username": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "backupDeleteSeparateDecline": "Keep it",
+  "@backupDeleteSeparateDecline": {
+    "description": "Declines the §4.4 delete offer — the old account stays untouched."
+  },
+  "backupDeleteSeparateLaterNote": "Removing it later requires re-enrolling into it first.",
+  "@backupDeleteSeparateLaterNote": {
+    "description": "04 §4.4's note beside the decline — Poltergeist never auto-deletes the old account."
+  },
+  "backupDeleteSeparateDone": "The separate backup account was deleted.",
+  "@backupDeleteSeparateDone": {
+    "description": "Completion copy after the retained account's deletion."
+  },
+  "backupDeleteSeparateFailed": "Could not delete the separate account: {error}",
+  "@backupDeleteSeparateFailed": {
+    "description": "Inline error when the retained-account deletion fails.",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
   }
 }
