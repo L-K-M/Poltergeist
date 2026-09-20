@@ -17,7 +17,9 @@ import '../services/checkout_session.dart';
 import '../services/connection_state_bridge.dart';
 import '../services/connection_status_controller.dart';
 import '../services/double_click_action.dart';
+import '../services/editor_registry_controller.dart';
 import '../services/engine_session.dart';
+import '../services/external_file_opener.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
 import '../services/pane_tabs_controller.dart';
@@ -42,6 +44,7 @@ import 'built_in_text_editor.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'menus/app_menu_host.dart';
+import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
 import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
@@ -82,6 +85,8 @@ class WorkspaceShell extends StatefulWidget {
     this.engineSession,
     this.transferQueue,
     this.checkoutSession,
+    this.editorRegistry,
+    this.externalOpener = const ExternalFileOpener(),
     this.quitGuard,
     this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
@@ -190,6 +195,17 @@ class WorkspaceShell extends StatefulWidget {
   /// identity-stability contract as [bookmarks].
   final CheckoutSession? checkoutSession;
 
+  /// The external-editor registry owner (06 §4.1): feeds the Open With ▸
+  /// submenu's compatible rows, the Open verb's `effectiveDefaultFor`
+  /// resolution, and the `Other…` pick's persistence. Null leaves the
+  /// registry surface unwired — the submenu still offers the reserved
+  /// selectors and the pick registers nothing.
+  final EditorRegistryController? editorRegistry;
+
+  /// The launch seam (06 §4.3): channel/executable launches behind the
+  /// injectable opener — tests script it so no editor process spawns.
+  final ExternalFileOpener externalOpener;
+
   /// 07 §3.5's quit gate: the shell binds its live [transferQueue]
   /// lookup onto the guard so the intercepted close can warn and flush
   /// the journal — the queue stays behind the app services layer
@@ -295,6 +311,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// snapshot, so a didUpdateWidget rebind is always seen.
   AppTransferQueue? _quitGuardQueue() => widget.transferQueue;
 
+  /// 06 §3.3's dirty-prompt guards: record ids already toasted (one
+  /// prompt per dirty edge — an expired toast never re-fires; the
+  /// persistent indicators are the §3.7 review surface's slice), and
+  /// `serverId|remotePath` keys with an upload in flight, so a built-in
+  /// save-and-upload racing the watcher never shows a stale prompt.
+  final _promptedDirtyCheckouts = <String>{};
+  final _uploadingCheckoutKeys = <String>{};
+  CheckoutSession? _checkoutListener;
+
+  static String _checkoutKey(ManagedRemoteFile record) =>
+      '${record.serverId}|${record.remotePath}';
+
   @override
   void initState() {
     super.initState();
@@ -326,6 +354,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _buildWorkspace();
     widget.workspaces?.addListener(_onWorkspacesChanged);
     widget.quitGuard?.bindQueue(_quitGuardQueue);
+    _attachCheckoutSession(widget.checkoutSession);
+  }
+
+  /// The §3.3 watcher's app-side surface: the session re-publishes on
+  /// every record change and the scan raises the upload prompt for
+  /// copies an external editor just marked dirty.
+  void _attachCheckoutSession(CheckoutSession? session) {
+    if (identical(_checkoutListener, session)) return;
+    _checkoutListener?.removeListener(_scanDirtyCheckouts);
+    _checkoutListener = session;
+    session?.addListener(_scanDirtyCheckouts);
   }
 
   /// The command list is built in [build] — a workspace save or open
@@ -422,12 +461,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       oldWidget.quitGuard?.unbindQueue(_quitGuardQueue);
       widget.quitGuard?.bindQueue(_quitGuardQueue);
     }
+    _attachCheckoutSession(widget.checkoutSession);
   }
 
   @override
   void dispose() {
     widget.workspaces?.removeListener(_onWorkspacesChanged);
     widget.quitGuard?.unbindQueue(_quitGuardQueue);
+    _attachCheckoutSession(null);
     _lifecycleForwarder?.detach();
     _probes?.dispose();
     _sidebar?.dispose();
@@ -526,15 +567,122 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// this device is the only fact that enables their probing).
   void _onConnectionsChanged() {
     final probes = _probes;
-    if (probes == null) return;
+    if (probes != null) {
+      for (final server
+          in _connections?.servers ?? const <ConnectionServer>[]) {
+        if (server.status?.state == ServerConnectionState.connected) {
+          probes.noteConnected(
+            server.serverId,
+            host: server.host,
+            port: server.port,
+          );
+        }
+      }
+    }
+    // A reconnect also re-arms the dirty-prompt scan: a copy marked
+    // dirty while its server was down is promptable the moment the
+    // upload could actually run (§3.3's "disabled while disconnected").
+    _scanDirtyCheckouts();
+  }
+
+  /// Whether [serverId] currently reports a live connection — the
+  /// dirty-prompt's connected gate (a disconnected server cannot upload,
+  /// so prompting would dead-end into a raw connection error).
+  bool _serverConnected(String serverId) {
     for (final server in _connections?.servers ?? const <ConnectionServer>[]) {
-      if (server.status?.state == ServerConnectionState.connected) {
-        probes.noteConnected(
-          server.serverId,
-          host: server.host,
-          port: server.port,
+      if (server.serverId == serverId) {
+        return server.status?.state == ServerConnectionState.connected;
+      }
+    }
+    return false;
+  }
+
+  /// 06 §3.3's prompt surface: a copy the watcher just marked dirty
+  /// queues the 12 s `"<name>" changed locally. Upload it?` toast —
+  /// once per dirty edge (prompted set), never for a copy already
+  /// uploading (a built-in save-and-upload racing the reconcile), never
+  /// for a missing or disconnected one.
+  void _scanDirtyCheckouts() {
+    final session = _checkoutListener;
+    if (session == null) return;
+    final dirtyIds = {
+      for (final record in session.records)
+        if (record.dirty) record.id,
+    };
+    _promptedDirtyCheckouts.removeWhere((id) => !dirtyIds.contains(id));
+    for (final record in session.records) {
+      if (!record.dirty ||
+          record.missing ||
+          _promptedDirtyCheckouts.contains(record.id) ||
+          _uploadingCheckoutKeys.contains(_checkoutKey(record)) ||
+          !_serverConnected(record.serverId)) {
+        continue;
+      }
+      _promptedDirtyCheckouts.add(record.id);
+      _queueDirtyPrompt(session, record);
+      // One toast per notification — the next change event surfaces the
+      // next dirty copy (Séance's files_pane behavior, kept).
+      return;
+    }
+  }
+
+  void _queueDirtyPrompt(CheckoutSession session, ManagedRemoteFile record) {
+    final binding = WidgetsBinding.instance;
+    binding.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Re-check right before showing: a save-and-upload from the
+      // built-in editor may already have uploaded (or be uploading) this
+      // copy, and a stale "Upload it?" prompt would read as a
+      // confirmation request.
+      ManagedRemoteFile? current;
+      for (final candidate in session.records) {
+        if (candidate.id == record.id) current = candidate;
+      }
+      if (current == null ||
+          !current.dirty ||
+          _uploadingCheckoutKeys.contains(_checkoutKey(current)) ||
+          !_serverConnected(current.serverId)) {
+        _promptedDirtyCheckouts.remove(record.id);
+        return;
+      }
+      showTopToastIn(
+        context,
+        message: AppLocalizations.of(
+          context,
+        ).checkoutDirtyUploadPrompt(remoteBasename(current.remotePath)),
+        duration: const Duration(seconds: 12),
+        actionLabel: AppLocalizations.of(context).checkoutDirtyUploadAction,
+        onAction: () => unawaited(_uploadDirtyCheckout(current!)),
+      );
+    });
+    // A post-frame callback alone does not schedule the frame it waits
+    // on: the dirty edge arrives off a filesystem watcher, i.e. exactly
+    // when nothing else is painting, so an idle window would hold the
+    // prompt hostage until some unrelated repaint. Schedule explicitly.
+    binding.scheduleFrame();
+  }
+
+  /// The toast's Upload action: the §3.4 CAS-guarded upload through the
+  /// same escalation as the built-in editor — a typed conflict asks,
+  /// every other failure reports and toasts.
+  Future<void> _uploadDirtyCheckout(ManagedRemoteFile record) async {
+    final name = remoteBasename(record.remotePath);
+    try {
+      final bookmark = await widget.bookmarks?.byId(record.serverId);
+      if (!mounted) return;
+      final uploaded = await _uploadCheckout(
+        record,
+        bookmark?.label ?? record.serverId,
+      );
+      if (uploaded && mounted) {
+        showTopToastIn(
+          context,
+          message: AppLocalizations.of(context).checkoutUploadSucceeded(name),
         );
       }
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) showTopToastIn(context, message: error.toString());
     }
   }
 
@@ -563,8 +711,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         doubleClickAction: widget.doubleClickAction,
         // 06 §4.2: the built-in editor's open route — wired on every
         // strip so `file.editBuiltIn` and the "Double-click action:
-        // Edit in Poltergeist" preference resolve the same way.
+        // Edit in Poltergeist" preference resolve the same way. The
+        // external seam covers the remote Open verb's registry
+        // resolution and every Open With ▸ choice.
         builtInEditorOpen: _openBuiltInEditor,
+        externalEditorOpen: _openWithExternal,
         confirmClose: _confirmTabClose,
         // The cross-pane half of a remote tab's last-binding check: read
         // the workspace lazily — the strips are built before it exists.
@@ -708,6 +859,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           sidebarAvailable: () => _sidebar != null,
           toggleSidebarDrawer: _toggleSidebarDrawer,
         ),
+      // `open-with-external` registers whenever a workspace exists
+      // (D21): the Open With ▸ submenu renders disabled rows while no
+      // file is selected.
+      if (workspace != null)
+        buildOpenWithCommand(
+          workspace: workspace,
+          registry: widget.editorRegistry,
+          externalOpener: widget.externalOpener,
+          openWith: (pane, entry, editorId) =>
+              _openWithExternal(pane, entry, editorId),
+          pickAndOpen: _pickAndOpenExternal,
+        ),
       // `queue.togglePause` registers unconditionally (D21): its menu
       // row stays visible-disabled while no queue seam is bound.
       ...buildActivityCommands(activity: _activity),
@@ -727,9 +890,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
 
     // Re-evaluate enablement without rebuilding the pane listings — one
     // shared listenable for the toolbar and the registry-driven menus.
+    // The editor registry joins it so a picked/removed editor re-derives
+    // the Open With ▸ rows on the next render.
     final enablement = Listenable.merge([
       _activity,
       if (workspace != null) ...[workspace, workspace.left, workspace.right],
+      ?widget.editorRegistry,
     ]);
 
     return Scaffold(
@@ -1147,11 +1313,28 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         }
         return;
       }
-      final record = await session.checkout(
-        serverId: bookmark.id,
-        entry: entry,
-        maximumBytes: builtInEditorMaximumBytes,
-      );
+      final ManagedRemoteFile record;
+      try {
+        record = await session.checkout(
+          serverId: bookmark.id,
+          entry: entry,
+          maximumBytes: builtInEditorMaximumBytes,
+        );
+        if (!mounted) return;
+        // The explicit built-in choice refuses with the §1 reason and
+        // the Open With ▸ router — never a silent system hand-off (06
+        // §4.2): preflight the fetched copy so a binary/non-UTF-8 file
+        // declines the same way the over-cap checkout does.
+        await loadBuiltInTextDocumentDetails(
+          session.localFile(record),
+        );
+      } on CheckoutLimitException catch (error) {
+        if (mounted) _toastRefusalWithRouter(error, pane, entry);
+        return;
+      } on BuiltInEditorException catch (error) {
+        if (mounted) _toastRefusalWithRouter(error, pane, entry);
+        return;
+      }
       if (!mounted) return;
       unawaited(
         _pushEditorRoute(
@@ -1160,7 +1343,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           remotePath: record.remotePath,
           basenameOf: remoteBasename,
           onSaved: () => session.reconcile(record),
-          onUpload: () => _uploadCheckout(record, bookmark),
+          onUpload: () => _uploadCheckout(record, bookmark.label),
         ),
       );
     } on Object catch (error, stackTrace) {
@@ -1169,14 +1352,305 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
   }
 
-  /// The editor's `onUpload` for a managed checkout (06 §3.4): the
-  /// CAS-guarded upload, escalating ONLY a typed `conflict` to the
-  /// overwrite dialog — every other kind rethrows to the screen's error
-  /// toast. Cancelling returns false, which the screen toasts as
-  /// "Saved locally; not uploaded."
+  /// The strip's `externalEditorOpen` seam (06 §4.2): a null [editorId]
+  /// is the remote Open verb resolving the registry's
+  /// `effectiveDefaultFor`; a concrete id — a configured editor or a
+  /// `poltergeist.*` reserved selector — is an explicit Open With ▸
+  /// choice. Local files never check out (Poltergeist is their file
+  /// manager, not their custodian); remote files always do — the
+  /// checkout is what makes the watch → prompt → conflict-guarded
+  /// upload round-trip possible.
+  Future<void> _openWithExternal(
+    PaneController pane,
+    RemoteFileEntry entry,
+    String? editorId,
+  ) async {
+    try {
+      if (pane.remoteBookmark == null) {
+        await _openLocalEntryWith(pane, entry, editorId);
+        return;
+      }
+      if (editorId == null) {
+        await _openRemoteEntryDefault(pane, entry);
+        return;
+      }
+      await _openRemoteEntryWith(pane, entry, editorId);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) showTopToastIn(context, message: error.toString());
+    }
+  }
+
+  /// The local rows of §4.2's table: the built-in selector rides the
+  /// same in-place open as `file.editBuiltIn`, the system selector the
+  /// pane's OS-default open, and a configured editor launches detached
+  /// on the file directly — never a checkout.
+  Future<void> _openLocalEntryWith(
+    PaneController pane,
+    RemoteFileEntry entry,
+    String? editorId,
+  ) async {
+    final id = editorId ?? EditorRegistry.systemDefaultId;
+    if (id == EditorRegistry.builtInId) {
+      await _openBuiltInEditor(pane, entry);
+      return;
+    }
+    if (id == EditorRegistry.systemDefaultId) {
+      await pane.openInSystemDefaultApp(entry);
+      return;
+    }
+    final editor = widget.editorRegistry?.registry.byId(id);
+    if (editor == null) {
+      throw StateError('The selected editor no longer exists.');
+    }
+    await widget.externalOpener.openWith(entry.path, editor);
+  }
+
+  /// An explicit remote choice (Open With ▸): the built-in selector is
+  /// the capped built-in row (a refusal surfaces, never falls back —
+  /// the user named the editor); every other selector takes an uncapped
+  /// checkout, then launches on the managed copy.
+  Future<void> _openRemoteEntryWith(
+    PaneController pane,
+    RemoteFileEntry entry,
+    String editorId,
+  ) async {
+    if (editorId == EditorRegistry.builtInId) {
+      await _openBuiltInEditor(pane, entry);
+      return;
+    }
+    final session = widget.checkoutSession;
+    final bookmark = pane.remoteBookmark;
+    if (session == null || bookmark == null) {
+      // Wiring defect, not a user fault — same report as the built-in
+      // path's missing session.
+      ApplicationErrorReporter().report(
+        StateError('remote open-with reached without a checkout session'),
+        StackTrace.current,
+      );
+      if (mounted) {
+        showTopToastIn(
+          context,
+          message: AppLocalizations.of(context).editorCheckoutUnavailable,
+        );
+      }
+      return;
+    }
+    final record = await session.checkout(serverId: bookmark.id, entry: entry);
+    if (!mounted) return;
+    await _launchCheckout(session, record, editorId);
+  }
+
+  /// Launches [editorId] on a checked-out copy: the system selector
+  /// OS-opens the file, a configured editor launches detached (06
+  /// §4.3's no-shell rule lives inside the opener).
+  Future<void> _launchCheckout(
+    CheckoutSession session,
+    ManagedRemoteFile record,
+    String editorId,
+  ) async {
+    final file = session.localFile(record);
+    if (editorId == EditorRegistry.systemDefaultId) {
+      await widget.externalOpener.openSystemDefault(file.path);
+      return;
+    }
+    final editor = widget.editorRegistry?.registry.byId(editorId);
+    if (editor == null) {
+      throw StateError('The selected editor no longer exists.');
+    }
+    await widget.externalOpener.openWith(file.path, editor);
+  }
+
+  /// The remote Open verb (06 §4.2's first row): `effectiveDefaultFor`
+  /// resolves the target, then the built-in chain — capped checkout,
+  /// refused early on a KNOWN over-cap size with the §1 router (never
+  /// an auto-download of what the refusal just declined), re-resolved
+  /// through the system default only when download already began (the
+  /// unknown-size stream abort) or the fetched copy fails the editor's
+  /// own checks (non-UTF-8, binary).
+  Future<void> _openRemoteEntryDefault(
+    PaneController pane,
+    RemoteFileEntry entry,
+  ) async {
+    final selected =
+        widget.editorRegistry?.registry.effectiveDefaultFor(entry.path) ??
+        EditorRegistry.systemDefaultId;
+    if (selected != EditorRegistry.builtInId) {
+      await _openRemoteEntryWith(pane, entry, selected);
+      return;
+    }
+    final session = widget.checkoutSession;
+    final bookmark = pane.remoteBookmark;
+    if (session == null || bookmark == null) {
+      ApplicationErrorReporter().report(
+        StateError('remote open reached without a checkout session'),
+        StackTrace.current,
+      );
+      if (mounted) {
+        showTopToastIn(
+          context,
+          message: AppLocalizations.of(context).editorCheckoutUnavailable,
+        );
+      }
+      return;
+    }
+    final ManagedRemoteFile record;
+    try {
+      record = await session.checkout(
+        serverId: bookmark.id,
+        entry: entry,
+        maximumBytes: builtInEditorMaximumBytes,
+      );
+    } on CheckoutLimitException catch (error) {
+      if (!mounted) return;
+      if (entry.size != null && entry.size! > builtInEditorMaximumBytes) {
+        // The known-size early refusal: router, never fallback — §4.2.
+        _toastRefusalWithRouter(error, pane, entry);
+        return;
+      }
+      // The unknown-size stream abort (or a listing that understated):
+      // bandwidth was already being spent — re-resolve through the
+      // uncapped system-default chain.
+      await _openRemoteEntryWith(pane, entry, EditorRegistry.systemDefaultId);
+      return;
+    }
+    if (!mounted) return;
+    final file = session.localFile(record);
+    try {
+      await loadBuiltInTextDocumentDetails(
+        file,
+        maximumBytes: builtInEditorMaximumBytes,
+      );
+    } on BuiltInEditorException {
+      // A fetched copy that fails the editor's own checks (non-UTF-8,
+      // binary) re-resolves to the OS default on the checkout file —
+      // §4.2: a default-resolution chain never dead-ends in a built-in
+      // refusal.
+      if (!mounted) return;
+      await widget.externalOpener.openSystemDefault(file.path);
+      return;
+    } on CheckoutLimitException {
+      // The checkout already held a complete copy over the cap —
+      // §4.2's "a complete local copy already exists" case takes the
+      // same system-default fallback (nothing new downloaded).
+      if (!mounted) return;
+      await widget.externalOpener.openSystemDefault(file.path);
+      return;
+    }
+    if (!mounted) return;
+    unawaited(
+      _pushEditorRoute(
+        key: 'remote:${record.serverId}:${record.remotePath}',
+        file: file,
+        remotePath: record.remotePath,
+        basenameOf: remoteBasename,
+        onSaved: () => session.reconcile(record),
+        onUpload: () => _uploadCheckout(record, bookmark.label),
+      ),
+    );
+  }
+
+  /// §1's refusal-is-a-router: the built-in refusal toasts verbatim with
+  /// an `Open With` action opening the chooser — the next step the
+  /// refusal names.
+  void _toastRefusalWithRouter(
+    Object error,
+    PaneController pane,
+    RemoteFileEntry entry,
+  ) {
+    showTopToastIn(
+      context,
+      message: error.toString(),
+      duration: const Duration(seconds: 12),
+      actionLabel: AppLocalizations.of(context).fileOpenWithLabel,
+      onAction: () => unawaited(_chooseEditorFor(pane, entry)),
+    );
+  }
+
+  /// The chooser behind the refusal router and the command's non-menu
+  /// invocation: the same rows the Open With ▸ submenu renders.
+  Future<void> _chooseEditorFor(
+    PaneController pane,
+    RemoteFileEntry entry,
+  ) async {
+    if (!mounted) return;
+    final selected = await showOpenWithChooser(
+      context,
+      registry: widget.editorRegistry?.registry,
+      path: entry.path,
+    );
+    if (selected == null || !mounted) return;
+    if (selected == kOpenWithOtherChoice) {
+      await _pickAndOpenExternal(context, pane, entry);
+      return;
+    }
+    await _openWithExternal(pane, entry, selected);
+  }
+
+  /// The `Other…` flow (06 §4.1): pick an application, register it (the
+  /// menu grows the row), then — when the entry has an extension — the
+  /// remember-choice prompt decides whether the pick binds that
+  /// extension or opens once. Cancel anywhere aborts without a launch.
+  Future<void> _pickAndOpenExternal(
+    BuildContext context,
+    PaneController pane,
+    RemoteFileEntry entry,
+  ) async {
+    try {
+      final picked = await widget.externalOpener.pickEditor(
+        dialogTitle: AppLocalizations.of(context).editorPickDialogTitle,
+      );
+      if (picked == null || !context.mounted) return;
+      await widget.editorRegistry?.register(picked);
+      if (!context.mounted) return;
+      final extension = _extensionBindingKey(entry.path);
+      if (extension == null) {
+        await _openWithExternal(pane, entry, picked.id);
+        return;
+      }
+      final remember = await showRememberEditorChoice(
+        context,
+        name: remoteBasename(entry.path),
+        editor: picked.displayName,
+        extension: extension,
+      );
+      if (remember == null || !context.mounted) return;
+      if (remember) {
+        await widget.editorRegistry?.setExtensionDefault(
+          extension,
+          picked.id,
+        );
+        if (!context.mounted) return;
+      }
+      await _openWithExternal(pane, entry, picked.id);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (context.mounted) {
+        showTopToastIn(context, message: error.toString());
+      }
+    }
+  }
+
+  /// The basename's last suffix as a binding key (`.zshrc` and `name.`
+  /// have none): normalized the way the registry normalizes — lowercase,
+  /// no dot — so the stored key always matches a lookup.
+  static String? _extensionBindingKey(String path) {
+    final name = path.replaceAll('\\', '/').split('/').last;
+    final dot = name.lastIndexOf('.');
+    if (dot <= 0 || dot == name.length - 1) return null;
+    return name.substring(dot + 1).toLowerCase();
+  }
+
+  /// The editor's `onUpload` — and the dirty-toast's `Upload` action —
+  /// for a managed checkout (06 §3.4): the CAS-guarded upload,
+  /// escalating ONLY a typed `conflict` to the overwrite dialog — every
+  /// other kind rethrows to the caller's error toast. Cancelling
+  /// returns false, which the screen toasts as "Saved locally; not
+  /// uploaded." The in-flight key set suppresses the §3.3 dirty prompt
+  /// while an upload runs.
   Future<bool> _uploadCheckout(
     ManagedRemoteFile copy,
-    Bookmark bookmark,
+    String serverLabel,
   ) async {
     final session = widget.checkoutSession;
     if (session == null) {
@@ -1189,13 +1663,20 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       );
       return false;
     }
+    // Keyed on (serverId, remotePath), not the record's id: a reconcile
+    // mid-upload can swap in a record with a fresh id, and an id-keyed
+    // guard would miss a second call on the swapped record.
+    final key = _checkoutKey(copy);
+    _uploadingCheckoutKeys.add(key);
     try {
       return await session.uploadLocalCopy(copy);
     } on RemoteFileException catch (error) {
       if (error.kind != RemoteFileErrorKind.conflict || !mounted) rethrow;
-      final overwrite = await _confirmRemoteOverwrite(copy, bookmark);
+      final overwrite = await _confirmRemoteOverwrite(copy, serverLabel);
       if (!overwrite) return false;
       return session.uploadLocalCopy(copy, overwriteRemoteChanges: true);
+    } finally {
+      _uploadingCheckoutKeys.remove(key);
     }
   }
 
@@ -1203,10 +1684,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// first): "Remote file changed" … `Cancel` (default) ·
   /// `Overwrite Remote Version`. The neutral "(or was deleted)" copy
   /// matches the typed conflict message — a deleted target has no newer
-  /// version to overwrite.
+  /// version to overwrite. [serverLabel] names the server the remote
+  /// path lives on (the bookmark's label, or its id as the fallback).
   Future<bool> _confirmRemoteOverwrite(
     ManagedRemoteFile copy,
-    Bookmark bookmark,
+    String serverLabel,
   ) async {
     if (!mounted) return false;
     final l10n = AppLocalizations.of(context);
@@ -1217,7 +1699,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         content: Text(
           l10n.editorConflictBody(
             remoteBasename(copy.remotePath),
-            bookmark.label,
+            serverLabel,
           ),
         ),
         actions: [

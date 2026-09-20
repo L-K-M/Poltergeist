@@ -18,8 +18,9 @@ enum AppMenuId { app, file, edit, view, go, commands, window, help }
 /// renumbering its neighbours. [group] splits one menu into
 /// divider-separated sections — rows with different group values are
 /// separated by a divider on both menu backends. [submenu] names a 02 §9
-/// ▸ submenu (Sort By, Open With, Recent); unused while no parameterized
-/// submenu command exists.
+/// ▸ submenu (Sort By, Open With, Recent) the command joins as a
+/// MEMBER; a command that IS the parameterized submenu carries
+/// [RegisteredCommand.submenuItems] instead.
 class CommandMenuPlacement {
   const CommandMenuPlacement({
     required this.menu,
@@ -69,6 +70,7 @@ class RegisteredCommand {
     required this.run,
     this.activators,
     this.menuPlacement,
+    this.submenuItems,
   });
 
   /// Dotted lowerCamel, grouped by noun (`connect.*`, `pane.*`, 02 §8.1).
@@ -98,6 +100,16 @@ class RegisteredCommand {
   /// invariant still holds for it (a chord exists, or the id sits in
   /// [kMenuReachabilityExceptions]).
   final CommandMenuPlacement? menuPlacement;
+
+  /// The parameterized-command shape (02 §8.1's `file.openWith` /
+  /// `view.sortBy` / `go.recent` family): when set, this command's menu
+  /// slot renders as a ▸ submenu whose rows are parameter-bound
+  /// invocations built fresh per menu render — the item commands carry
+  /// their parameter inside `run`, never take a menuPlacement of their
+  /// own, and are never themselves registered (the parent command owns
+  /// the registry id).
+  final List<RegisteredCommand> Function(AppLocalizations l10n)?
+  submenuItems;
 
   /// Executes the command with the invoking surface's [context].
   /// Implementations must not capture [context] and must re-check

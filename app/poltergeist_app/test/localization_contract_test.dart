@@ -903,6 +903,18 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"'remote:${record.serverId}:${record.remotePath}'",
     "'remote edit reached without a checkout session'",
     "'remote edit upload reached without a checkout session'",
+    // The §3.3 dirty-prompt's in-flight upload key (serverId|remotePath)
+    // and the external-open diagnostics — wiring faults that only reach
+    // the error reporter plus typed-error copy surfaced verbatim, the
+    // same posture as RemoteFileException messages.
+    r"'${record.serverId}|${record.remotePath}'",
+    "'The selected editor no longer exists.'",
+    "'remote open-with reached without a checkout session'",
+    "'remote open reached without a checkout session'",
+    // The extension-binding key's basename arithmetic — path mechanics.
+    r"'\\'",
+    "'/'",
+    "'.'",
   },
   // The built-in editor's document-structure literals — the text field's
   // empty initial value and the newline joiners/splitters are plumbing,
@@ -1545,6 +1557,109 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   },
   // The registered command id (D21 plumbing).
   'lib/ui/settings/backup_settings_command.dart': {"'open-settings-backup'"},
+  // The Editing sections' bounded mount (06 §8): widget keys, the
+  // `*.ext` chip prefix, and the comma separators of the extensions
+  // field — plumbing and machine data, never authored copy.
+  'lib/ui/settings/editor_settings.dart': {
+    "'editors.settings.dialog'",
+    "'editors.settings.close'",
+    "'editors.remove.dialog'",
+    "'editors.remove.confirm'",
+    "'editors.default'",
+    "'editors.default.builtin'",
+    "'editors.default.system'",
+    r"'editors.default.${editor.id}'",
+    "'editors.add'",
+    r"'editors.row.${editor.id}'",
+    r"'*.$extension'",
+    r"'editors.edit.${editor.id}'",
+    r"'editors.remove.${editor.id}'",
+    "', '",
+    "','",
+    "'editors.edit.save'",
+  },
+  // The ported external-editor service (Séance D2): the
+  // `poltergeist/files` channel name and method keys, the reserved
+  // selector ids and prefix, the registry document's schema keys,
+  // extension/id validation regexes and FormatException diagnostics,
+  // and the launch-failure StateError messages — typed diagnostics
+  // surfaced verbatim via error.toString(), the same posture as
+  // RemoteFileException messages; never authored UI copy.
+  'lib/services/external_file_opener.dart': {
+    "'poltergeist/files'",
+    "'poltergeist.system'",
+    "'poltergeist.builtin'",
+    "'poltergeist.'",
+    "'platform'",
+    "'id'",
+    "'displayName'",
+    "'launchTarget'",
+    "'acceptedExtensions'",
+    "'editors'",
+    "'extensionDefaults'",
+    "'defaultEditorId'",
+    "'version'",
+    "'Unknown editor platform'",
+    r"'Unknown editor id: $editorId'",
+    "'Editor id is reserved'",
+    "'At most 64 external editors can be configured.'",
+    r"'.$extension'",
+    r"'file.$extension'",
+    r"'\\'",
+    "'/'",
+    "'.'",
+    "'*'",
+    r"r'[/\\*?\x00-\x1f\x7f]'",
+    r"'Invalid file extension: $value'",
+    "'At most 64 extensions can be configured.'",
+    "'openWithApplication'",
+    "'path'",
+    "'bundleIdentifier'",
+    "'pickApplication'",
+    "'title'",
+    r"'${editor.displayName} is configured for another platform.'",
+    r"'${editor.displayName} is no longer installed at '",
+    r"'${editor.launchTarget}.'",
+    r"'${editor.displayName} is not executable.'",
+    "'The selected application has no bundle identifier.'",
+    "'Choose a regular executable file.'",
+    "'.exe'",
+    "'Windows editors must be .exe applications.'",
+    "'Windows editors must be .exe applications'",
+    "'The selected file is not executable.'",
+    "'exe'",
+    r"r'^[A-Za-z0-9._-]{1,64}$'",
+    "'Invalid editor id'",
+    r"r'[\x00-\x1f\x7f]'",
+    "'Invalid editor name'",
+    r"'\u0000'",
+    "'Invalid editor target'",
+    "'Editor executable paths must be absolute'",
+    // The platform-aware absoluteness check's Windows drive/UNC patterns
+    // — regex and path mechanics, never rendered copy.
+    r"r'^[A-Za-z]:[\\/]'",
+    r"'\\\\'",
+  },
+  // The registry document's settings.json key — machine data.
+  'lib/services/editor_registry_controller.dart': {"'editorRegistry'"},
+  // The parameterized command's ids, item-suffix plumbing, and the
+  // chooser/remember dialog's widget keys — plumbing, never copy.
+  'lib/ui/panes/open_with_commands.dart': {
+    "'open-with-external'",
+    "'open-with-external:other'",
+    r"'$kOpenWithExternalCommandId:$suffix'",
+    "'builtin'",
+    "''",
+    r"'editor.${editor.id}'",
+    "'system'",
+    r"'$kOpenWithExternalCommandId:configure'",
+    "'openWith.builtin'",
+    r"'openWith.${editor.id}'",
+    "'openWith.system'",
+    "'openWith.other'",
+    "'openWith.remember'",
+    "'openWith.confirm'",
+  },
 };
 
 void main() {

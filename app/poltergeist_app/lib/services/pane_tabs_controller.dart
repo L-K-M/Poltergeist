@@ -177,6 +177,7 @@ class PaneTabsController extends ChangeNotifier {
     this.newTabTarget = NewTabTarget.duplicate,
     DoubleClickAction doubleClickAction = DoubleClickAction.open,
     this.builtInEditorOpen,
+    this.externalEditorOpen,
     this.confirmClose,
     this.serverStillShared,
     void Function(Object error, StackTrace stackTrace)? onError,
@@ -239,6 +240,12 @@ class PaneTabsController extends ChangeNotifier {
   /// [_appendTab] — adopted, new, restored, and ghost-reopened
   /// controllers alike open files through the same wiring.
   final BuiltInEditorOpen? builtInEditorOpen;
+
+  /// The external-editor open seam (06 §4.2), wired once at strip
+  /// construction by the shell and stamped on every arriving tab like
+  /// [builtInEditorOpen] — the remote Open verb and every Open With ▸
+  /// choice resolve through it.
+  final ExternalEditorOpen? externalEditorOpen;
 
   /// The close-confirmation presenter (the confirm lives inside the
   /// close operation — call sites never decide). Null makes a triggered
@@ -845,6 +852,7 @@ class PaneTabsController extends ChangeNotifier {
     // adopted, new, and ghost-reopened controllers alike.
     controller.doubleClickAction = _doubleClickAction;
     controller.builtInEditorOpen = builtInEditorOpen;
+    controller.externalEditorOpen = externalEditorOpen;
     final tab = PaneTab(id: controller.paneTabId, controller: controller);
     // Strip surfaces (title, connection dot) follow the tab's own
     // browsing state — forward its changes as strip changes.

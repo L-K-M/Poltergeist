@@ -1911,4 +1911,122 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorConflictOverwrite => 'Overwrite Remote Version';
+
+  @override
+  String get fileOpenWithLabel => 'Open With';
+
+  @override
+  String get openWithBuiltInLabel => 'Built-in text editor';
+
+  @override
+  String get openWithSystemDefaultLabel => 'System default';
+
+  @override
+  String get openWithOtherLabel => 'Other…';
+
+  @override
+  String get openWithConfigureLabel => 'Configure Editors…';
+
+  @override
+  String get editorPickDialogTitle => 'Choose an editor application';
+
+  @override
+  String openWithPickedTitle(String name, String editor) {
+    return 'Open “$name” with $editor?';
+  }
+
+  @override
+  String openWithRememberForExtension(String editor, String extension) {
+    return 'Always use $editor for .$extension files';
+  }
+
+  @override
+  String get openWithCancel => 'Cancel';
+
+  @override
+  String get openWithConfirmOpen => 'Open';
+
+  @override
+  String checkoutDirtyUploadPrompt(String name) {
+    return '“$name” changed locally. Upload it?';
+  }
+
+  @override
+  String get checkoutDirtyUploadAction => 'Upload';
+
+  @override
+  String checkoutUploadSucceeded(String name) {
+    return 'Uploaded $name';
+  }
+
+  @override
+  String get editorSettingsClose => 'Close';
+
+  @override
+  String get editorDefaultLabel => 'Default editor';
+
+  @override
+  String get editorBuiltInOption => 'Built-in editor';
+
+  @override
+  String get editorSystemDefaultOption => 'System default';
+
+  @override
+  String editorNameOtherPlatform(String name) {
+    return '$name (another platform)';
+  }
+
+  @override
+  String get editorListLabel => 'External editors';
+
+  @override
+  String get editorEmptyState => 'No external editors configured.';
+
+  @override
+  String get editorAddLabel => 'Add Editor…';
+
+  @override
+  String get editorEditLabel => 'Edit…';
+
+  @override
+  String get editorRemoveLabel => 'Remove';
+
+  @override
+  String editorRemoveTitle(String name) {
+    return 'Remove $name?';
+  }
+
+  @override
+  String get editorRemoveBody =>
+      'The application is only removed from Poltergeist settings.';
+
+  @override
+  String get editorRemoveDefaultBody =>
+      'This is the current default. Removing it resets the default to System default.';
+
+  @override
+  String get editorEditTitle => 'Edit external editor';
+
+  @override
+  String get editorAddTitle => 'Add external editor';
+
+  @override
+  String get editorNameFieldLabel => 'Display name';
+
+  @override
+  String get editorExtensionsFieldLabel =>
+      'Accepted file extensions (optional)';
+
+  @override
+  String get editorExtensionsFieldHint => 'dart, json, yaml, tar.gz';
+
+  @override
+  String get editorExtensionsFieldHelper =>
+      'Leave blank to show this editor for every file.';
+
+  @override
+  String get editorDialogCancel => 'Cancel';
+
+  @override
+  String get editorDialogSave => 'Save';
 }

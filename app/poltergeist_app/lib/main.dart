@@ -11,6 +11,7 @@ import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
 import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
+import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
 import 'services/probe_settings_store.dart';
@@ -52,6 +53,19 @@ Future<void> main() async {
     syncDeviceId: () => syncEnrollmentState.cachedDeviceId,
   );
   final preferences = AppPreferences(store: settingsStore);
+  // The external-editor registry (06 §4.1): one versioned document in
+  // the shared settings.json — the Open With ▸ submenu and the remote
+  // Open verb resolve through it. Tolerant decode: a malformed document
+  // boots the default registry, never a startup failure.
+  final editorRegistry = EditorRegistryController(
+    store: settingsStore,
+    errors: errorReporter,
+  );
+  try {
+    await editorRegistry.load();
+  } on Object catch (error, stack) {
+    errorReporter.report(error, stack);
+  }
   final paneRatio = await preferences.loadPaneRatio();
   final newTabTarget = await preferences.loadNewTabTarget();
   final doubleClickAction = await preferences.loadDoubleClickAction();
@@ -248,6 +262,7 @@ Future<void> main() async {
       onPaneRatioSaveError: errorReporter.report,
       transferQueue: transferQueueSession?.queue,
       checkoutSession: checkoutSession,
+      editorRegistry: editorRegistry,
       initialActivityPanelHeight: activityPanelHeight,
       onActivityPanelHeightChanged:
           preferences.saveActivityPanelHeight,

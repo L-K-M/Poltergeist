@@ -3025,6 +3025,210 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Overwrite Remote Version'**
   String get editorConflictOverwrite;
+
+  /// Command label and submenu/chooser title: pick the application that opens the selected file (open-with-external, 02 §8.1/§9, 06 §4.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Open With'**
+  String get fileOpenWithLabel;
+
+  /// Open With ▸ row resolving to the built-in editor (poltergeist.builtin, 06 §4.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in text editor'**
+  String get openWithBuiltInLabel;
+
+  /// Open With ▸ row resolving to the OS default application (poltergeist.system, 06 §4.2).
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get openWithSystemDefaultLabel;
+
+  /// Open With ▸ row that picks an application not yet in the registry (06 §4.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Other…'**
+  String get openWithOtherLabel;
+
+  /// Open With ▸ terminal row deep-linking to the Editing settings section (06 §4.1/§8).
+  ///
+  /// In en, this message translates to:
+  /// **'Configure Editors…'**
+  String get openWithConfigureLabel;
+
+  /// Title of the native application picker behind Open With ▸ Other… (06 §4.3) — also forwarded to the macOS NSOpenPanel.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an editor application'**
+  String get editorPickDialogTitle;
+
+  /// Title of the remember-choice prompt after Open With ▸ Other… picked an application (06 §4.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Open “{name}” with {editor}?'**
+  String openWithPickedTitle(String name, String editor);
+
+  /// Checkbox of the remember-choice prompt: persists a per-extension editor binding (06 §4.1's extensionDefaults).
+  ///
+  /// In en, this message translates to:
+  /// **'Always use {editor} for .{extension} files'**
+  String openWithRememberForExtension(String editor, String extension);
+
+  /// Aborts the remember-choice prompt — the file does not open.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get openWithCancel;
+
+  /// Confirms the remember-choice prompt: opens the file with the picked application.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get openWithConfirmOpen;
+
+  /// 06 §3.3's 12-second action toast when an external editor's save marks a managed checkout dirty (watch → debounce → SHA-256 reconcile).
+  ///
+  /// In en, this message translates to:
+  /// **'“{name}” changed locally. Upload it?'**
+  String checkoutDirtyUploadPrompt(String name);
+
+  /// The dirty-checkout toast's action: uploads the changed local copy through the §3.4 pipeline.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get checkoutDirtyUploadAction;
+
+  /// Confirmation toast after a dirty-checkout prompt's upload commits (06 §3.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded {name}'**
+  String checkoutUploadSucceeded(String name);
+
+  /// Dismisses the Editing settings dialog (06 §8's bounded mount).
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get editorSettingsClose;
+
+  /// Label of the §8 Default-editor dropdown — the registry's global defaultEditorId.
+  ///
+  /// In en, this message translates to:
+  /// **'Default editor'**
+  String get editorDefaultLabel;
+
+  /// Default-editor dropdown option resolving to poltergeist.builtin (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Built-in editor'**
+  String get editorBuiltInOption;
+
+  /// Default-editor dropdown option resolving to poltergeist.system (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'System default'**
+  String get editorSystemDefaultOption;
+
+  /// Renders an editor definition configured for a different platform — visible but disabled (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'{name} (another platform)'**
+  String editorNameOtherPlatform(String name);
+
+  /// Section label above the configured external-editors list (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'External editors'**
+  String get editorListLabel;
+
+  /// Empty-state copy of the external-editors list (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'No external editors configured.'**
+  String get editorEmptyState;
+
+  /// Adds an external editor via the platform application picker (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Add Editor…'**
+  String get editorAddLabel;
+
+  /// Row action editing an external editor's display name and accepted extensions (06 §8's Edit Extensions… row action).
+  ///
+  /// In en, this message translates to:
+  /// **'Edit…'**
+  String get editorEditLabel;
+
+  /// Row action removing an external editor — also the confirm button of its dialog (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get editorRemoveLabel;
+
+  /// Title of the remove-editor confirmation (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Remove {name}?'**
+  String editorRemoveTitle(String name);
+
+  /// Remove-editor confirmation body when the editor is not the default (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'The application is only removed from Poltergeist settings.'**
+  String get editorRemoveBody;
+
+  /// Remove-editor confirmation body when the editor is the current default (06 §8's reset rule).
+  ///
+  /// In en, this message translates to:
+  /// **'This is the current default. Removing it resets the default to System default.'**
+  String get editorRemoveDefaultBody;
+
+  /// Title of the editor row's edit dialog (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Edit external editor'**
+  String get editorEditTitle;
+
+  /// Title of the post-pick edit dialog in the Add Editor… flow (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Add external editor'**
+  String get editorAddTitle;
+
+  /// Label of the editor dialog's display-name field (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Display name'**
+  String get editorNameFieldLabel;
+
+  /// Label of the editor dialog's extensions field (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted file extensions (optional)'**
+  String get editorExtensionsFieldLabel;
+
+  /// Hint text of the extensions field — example compound extension included (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'dart, json, yaml, tar.gz'**
+  String get editorExtensionsFieldHint;
+
+  /// Helper text of the extensions field: an empty list accepts every file (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Leave blank to show this editor for every file.'**
+  String get editorExtensionsFieldHelper;
+
+  /// Cancels the editor add/edit/remove dialogs without persisting (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get editorDialogCancel;
+
+  /// Commits the editor add/edit dialog's fields (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get editorDialogSave;
 }
 
 class _AppLocalizationsDelegate
