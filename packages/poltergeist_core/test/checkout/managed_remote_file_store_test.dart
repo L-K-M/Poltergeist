@@ -99,9 +99,7 @@ void main() {
     expect((await store.listForServer('server-a')).single.id, 'edit-1');
     expect(await store.listForServer('server-b'), isEmpty);
     expect(
-      (await store.listForSession('session-a', serverId: 'server-a'))
-          .single
-          .id,
+      (await store.listForSession('session-a', serverId: 'server-a')).single.id,
       'edit-1',
     );
 
@@ -110,10 +108,7 @@ void main() {
       remoteSnapshot: _snapshot('/home/test/renamed.txt'),
     );
     await store.update(updated);
-    expect(
-      (await store.get('edit-1'))!.remotePath,
-      '/home/test/renamed.txt',
-    );
+    expect((await store.get('edit-1'))!.remotePath, '/home/test/renamed.txt');
 
     await store.remove('edit-1');
     expect(await store.get('edit-1'), isNull);
@@ -281,30 +276,26 @@ void main() {
     skip: Platform.isWindows,
   );
 
-  test(
-    'creation and deletion refuse to traverse a parent symlink',
-    () async {
-      final outside = Directory('${temporaryDirectory.path}/outside')
-        ..createSync();
-      final victim = File('${outside.path}/victim.txt');
-      await victim.writeAsString('keep');
-      await store.list();
-      await checkoutRoot.create(recursive: true);
-      await Link('${checkoutRoot.path}/redirect').create(outside.path);
+  test('creation and deletion refuse to traverse a parent symlink', () async {
+    final outside = Directory('${temporaryDirectory.path}/outside')
+      ..createSync();
+    final victim = File('${outside.path}/victim.txt');
+    await victim.writeAsString('keep');
+    await store.list();
+    await checkoutRoot.create(recursive: true);
+    await Link('${checkoutRoot.path}/redirect').create(outside.path);
 
-      await expectLater(
-        store.createCheckout('redirect/new.txt'),
-        throwsA(isA<FileSystemException>()),
-      );
-      await expectLater(
-        store.deleteCheckout('redirect/victim.txt'),
-        throwsA(isA<FileSystemException>()),
-      );
-      expect(await victim.readAsString(), 'keep');
-      expect(await File('${outside.path}/new.txt').exists(), isFalse);
-    },
-    skip: Platform.isWindows,
-  );
+    await expectLater(
+      store.createCheckout('redirect/new.txt'),
+      throwsA(isA<FileSystemException>()),
+    );
+    await expectLater(
+      store.deleteCheckout('redirect/victim.txt'),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(await victim.readAsString(), 'keep');
+    expect(await File('${outside.path}/new.txt').exists(), isFalse);
+  }, skip: Platform.isWindows);
 
   // ---------------------------------------------------------------------
   // Poltergeist lifecycle rails (06 §3.2/§3.7)
@@ -325,12 +316,11 @@ void main() {
     expect(await restarted.list(), isEmpty);
 
     // The bad index survives under a stamped quarantine name.
-    final quarantined =
-        indexFile.parent
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.contains('.corrupt-'))
-            .toList();
+    final quarantined = indexFile.parent
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.contains('.corrupt-'))
+        .toList();
     expect(quarantined, hasLength(1));
     expect(await quarantined.single.readAsString(), '{not json');
 
@@ -400,9 +390,7 @@ void main() {
       expect(await orphanDir.exists(), isTrue);
       expect(await emptyDir.exists(), isFalse);
       expect(
-        await File(
-          '${indexedDir.path}/.poltergeist-notes',
-        ).exists(),
+        await File('${indexedDir.path}/.poltergeist-notes').exists(),
         isTrue,
       );
       expect(
@@ -413,10 +401,7 @@ void main() {
       );
 
       final recovered = await restarted.listRecovered();
-      expect(
-        recovered.map((r) => r.directory),
-        contains('old-epoch-dir'),
-      );
+      expect(recovered.map((r) => r.directory), contains('old-epoch-dir'));
       // The indexed dir is retained, not "recovered" — only recordless
       // payload-bearing dirs surface for §3.7's review.
       expect(
@@ -447,6 +432,246 @@ void main() {
     expect(await local.exists(), isTrue);
     expect((await restarted.list()).single.id, 'edit-1');
     expect(await restarted.listRecovered(), isEmpty);
+  });
+
+  group('the save-temp sweep (06 §2.1 step 5)', () {
+    /// A `.poltergeist-<token>.edit|backup` sibling of the checkout,
+    /// backdated past the in-flight-save window so the sweep treats it
+    /// as crash residue rather than a live save.
+    Future<File> tempSibling(
+      ManagedRemoteFile managed,
+      String suffix, {
+      required String content,
+      bool fresh = false,
+    }) async {
+      final local = store.checkoutFile(managed.localPath);
+      final sibling = File('${local.path}.poltergeist-deadbeef-cafe.$suffix');
+      await sibling.writeAsString(content);
+      if (!fresh) {
+        await sibling.setLastModified(DateTime.utc(2020));
+      }
+      return sibling;
+    }
+
+    test('stale .edit/.backup beside a live target are reaped', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final edit = await tempSibling(managed, 'edit', content: 'x');
+      final backup = await tempSibling(managed, 'backup', content: 'y');
+      // An .upload snapshot is not the save dance's shape — the sweep
+      // leaves it for the store's own generated-temp handling.
+      final upload = await tempSibling(managed, 'upload', content: 'z');
+
+      final reconciled = await store.reconcile('edit-1');
+
+      expect(reconciled!.dirty, isFalse);
+      expect(await edit.exists(), isFalse);
+      expect(await backup.exists(), isFalse);
+      expect(await upload.exists(), isTrue);
+    });
+
+    test(
+      'temps inside the in-flight window are left for the live save',
+      () async {
+        final managed = await _createManagedCheckout(
+          store,
+          id: 'edit-1',
+          serverId: 'server-a',
+          content: 'abc',
+        );
+        await store.put(managed);
+        final edit = await tempSibling(
+          managed,
+          'edit',
+          content: 'x',
+          fresh: true,
+        );
+        final backup = await tempSibling(
+          managed,
+          'backup',
+          content: 'y',
+          fresh: true,
+        );
+
+        final reconciled = await store.reconcile('edit-1');
+
+        expect(reconciled!.dirty, isFalse);
+        expect(await edit.exists(), isTrue);
+        expect(await backup.exists(), isTrue);
+      },
+    );
+
+    test('a lone .backup beside a missing target is restored', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final local = store.checkoutFile(managed.localPath);
+      // The crash shape: rename(file → backup) landed, the temp → file
+      // rename never ran.
+      await local.rename('${local.path}.poltergeist-deadbeef-cafe.backup');
+      final backup = File('${local.path}.poltergeist-deadbeef-cafe.backup');
+      await backup.setLastModified(DateTime.utc(2020));
+
+      final reconciled = await store.reconcile('edit-1');
+
+      // The pre-save copy is back in place — identical to baseline.
+      expect(await local.readAsString(), 'abc');
+      expect(await backup.exists(), isFalse);
+      expect(reconciled!.missing, isFalse);
+      expect(reconciled.dirty, isFalse);
+    });
+
+    test(
+      '.edit + .backup beside a missing target completes the save',
+      () async {
+        final managed = await _createManagedCheckout(
+          store,
+          id: 'edit-1',
+          serverId: 'server-a',
+          content: 'abc',
+        );
+        await store.put(managed);
+        final local = store.checkoutFile(managed.localPath);
+        // Crash after the temp was sealed and file → backup landed: the
+        // just-saved content is what the user last wrote — it completes
+        // the save so the rehash marks the copy dirty for §3.4.
+        await local.rename('${local.path}.poltergeist-deadbeef-cafe.backup');
+        final backup = File('${local.path}.poltergeist-deadbeef-cafe.backup');
+        await backup.setLastModified(DateTime.utc(2020));
+        final edit = await tempSibling(managed, 'edit', content: 'edited');
+
+        final reconciled = await store.reconcile('edit-1');
+
+        expect(await local.readAsString(), 'edited');
+        // The pre-save copy is preserved — not deleted by the pass.
+        expect(await backup.readAsString(), 'abc');
+        expect(await edit.exists(), isFalse);
+        expect(reconciled!.missing, isFalse);
+        expect(reconciled.dirty, isTrue);
+      },
+    );
+
+    test(
+      'a lone .edit beside a missing target is preserved, not applied',
+      () async {
+        final managed = await _createManagedCheckout(
+          store,
+          id: 'edit-1',
+          serverId: 'server-a',
+          content: 'abc',
+        );
+        await store.put(managed);
+        final local = store.checkoutFile(managed.localPath);
+        await local.delete();
+        final edit = await tempSibling(managed, 'edit', content: 'torn?');
+
+        final reconciled = await store.reconcile('edit-1');
+
+        // A .edit without a .backup may be torn — never applied, never
+        // deleted; the copy reports missing.
+        expect(await local.exists(), isFalse);
+        expect(await edit.readAsString(), 'torn?');
+        expect(reconciled!.missing, isTrue);
+      },
+    );
+
+    test('a foreign-stem temp name is never swept — the token must be '
+        'dot-free', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final local = store.checkoutFile(managed.localPath);
+      // `x.poltergeist-y.poltergeist-<tok>.edit` satisfies the record's
+      // prefix AND the generated-name regex, but the span between them
+      // holds a foreign stem's own segment — never this record's temp.
+      final foreign = File(
+        '${local.path}.poltergeist-foreign.poltergeist-deadbeef-cafe'
+        '.edit',
+      );
+      await foreign.writeAsString('not ours');
+      await foreign.setLastModified(DateTime.utc(2020));
+      // The record's own stale temp still sweeps, proving the pass ran.
+      final own = await tempSibling(managed, 'edit', content: 'x');
+
+      final reconciled = await store.reconcile('edit-1');
+
+      expect(reconciled!.dirty, isFalse);
+      expect(await own.exists(), isFalse);
+      expect(await foreign.readAsString(), 'not ours');
+    });
+
+    test('a symlink or directory squatting on the target path is never '
+        'renamed over', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final local = store.checkoutFile(managed.localPath);
+      await local.delete();
+      final squat = File('${local.parent.path}/squat-target')
+        ..writeAsStringSync('squat');
+      final link = await Link(local.path).create(squat.path);
+      final backup = await tempSibling(managed, 'backup', content: 'y');
+
+      var reconciled = await store.reconcile('edit-1');
+
+      // The link is the target — crash-restore does not run, the
+      // sibling is left alone, and the copy reports missing.
+      expect(await FileSystemEntity.isLink(local.path), isTrue);
+      expect(await link.exists(), isTrue);
+      expect(await backup.exists(), isTrue);
+      expect(reconciled!.missing, isTrue);
+
+      // Same refusal for a directory at the path.
+      await link.delete();
+      await Directory(local.path).create();
+      reconciled = await store.reconcile('edit-1');
+
+      expect(
+        await FileSystemEntity.type(local.path, followLinks: false),
+        FileSystemEntityType.directory,
+      );
+      expect(await backup.exists(), isTrue);
+      expect(reconciled!.missing, isTrue);
+    });
+
+    test('foreign stems are never swept', () async {
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final local = store.checkoutFile(managed.localPath);
+      // A temp-shaped file for a DIFFERENT stem must survive — the
+      // sweep deletes only the record's own save-dance siblings.
+      final foreign = File(
+        '${local.parent.path}/other.poltergeist-deadbeef-cafe.edit',
+      );
+      await foreign.writeAsString('not ours');
+      await foreign.setLastModified(DateTime.utc(2020));
+
+      await store.reconcile('edit-1');
+
+      expect(await foreign.readAsString(), 'not ours');
+    });
   });
 
   test('a second store over the same index is locked out', () async {
@@ -490,7 +715,10 @@ void main() {
       content: 'abc',
     );
     failWrites = true;
-    await expectLater(failing.put(managed), throwsA(isA<FileSystemException>()));
+    await expectLater(
+      failing.put(managed),
+      throwsA(isA<FileSystemException>()),
+    );
     // Rolled back: no record, no index mutation.
     expect(await failing.get('edit-1'), isNull);
     failWrites = false;
@@ -557,30 +785,32 @@ void main() {
     expect(recovered.single.files, contains('recovered.txt'));
   });
 
-  test('a failed contender\'s close does not release the holder\'s lock',
-      () async {
-    await store.list(); // forces load + lock acquisition
-    final contender = ManagedRemoteFileStore(
-      indexFile: indexFile,
-      checkoutRoot: checkoutRoot,
-    );
-    await expectLater(
-      contender.list().timeout(const Duration(seconds: 10)),
-      throwsA(isA<FileSystemException>()),
-    );
-    // The contender never held the lock — closing it must not erase the
-    // holder's same-process registration.
-    await contender.close();
-    final third = ManagedRemoteFileStore(
-      indexFile: indexFile,
-      checkoutRoot: checkoutRoot,
-    );
-    await expectLater(
-      third.list().timeout(const Duration(seconds: 10)),
-      throwsA(isA<FileSystemException>()),
-    );
-    await third.close();
-  });
+  test(
+    'a failed contender\'s close does not release the holder\'s lock',
+    () async {
+      await store.list(); // forces load + lock acquisition
+      final contender = ManagedRemoteFileStore(
+        indexFile: indexFile,
+        checkoutRoot: checkoutRoot,
+      );
+      await expectLater(
+        contender.list().timeout(const Duration(seconds: 10)),
+        throwsA(isA<FileSystemException>()),
+      );
+      // The contender never held the lock — closing it must not erase the
+      // holder's same-process registration.
+      await contender.close();
+      final third = ManagedRemoteFileStore(
+        indexFile: indexFile,
+        checkoutRoot: checkoutRoot,
+      );
+      await expectLater(
+        third.list().timeout(const Duration(seconds: 10)),
+        throwsA(isA<FileSystemException>()),
+      );
+      await third.close();
+    },
+  );
 }
 
 Future<ManagedRemoteFile> _createManagedCheckout(

@@ -31,6 +31,7 @@ final class ManagedCheckoutSpec {
     this.expectedSize,
     this.expectedTarget,
     this.preserveMode,
+    this.maximumBytes,
   });
 
   /// The `ManagedRemoteFile` id — correlates queue rows with checkout
@@ -69,4 +70,11 @@ final class ManagedCheckoutSpec {
   /// Upload only: the recorded remote mode re-applied by the destination
   /// adapter — the local checkout file's own mode is never authoritative.
   final int? preserveMode;
+
+  /// Download only: the caller's byte cap (06 §3.2's `_MaximumByteSink`
+  /// seam). When the listing entry carried no size, the sink aborts the
+  /// stream the moment the running total passes the cap — never a full
+  /// download to a certain refusal. Null leaves the stream uncapped
+  /// (external-editor checkouts).
+  final int? maximumBytes;
 }

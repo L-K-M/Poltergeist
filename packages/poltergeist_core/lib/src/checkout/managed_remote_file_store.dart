@@ -109,7 +109,8 @@ class ManagedRemoteFileStore {
     File target,
     String contents, {
     bool restrictToOwner,
-  }) _atomicWriter;
+  })
+  _atomicWriter;
 
   /// Injectable for tests; defaults to the system clock.
   final DateTime Function() _now;
@@ -133,15 +134,20 @@ class ManagedRemoteFileStore {
     required this.checkoutRoot,
     String? generation,
     this.useLock = true,
-    Future<void> Function(
-      File target,
-      String contents, {
-      bool restrictToOwner,
-    })? atomicWriter,
+    this.saveTempWindow = const Duration(milliseconds: 600),
+    Future<void> Function(File target, String contents, {bool restrictToOwner})?
+    atomicWriter,
     DateTime Function()? now,
   }) : generation = generation ?? uuidV4(),
        _atomicWriter = atomicWriter ?? const TransferJournalIo().atomicRewrite,
        _now = now ?? DateTime.now;
+
+  /// The in-flight-save guard window (06 §2.1 step 5): a `.edit`/
+  /// `.backup` sibling touched within this span may belong to a save
+  /// still executing — the reconcile sweep leaves it alone so a
+  /// reconcile running mid-save can neither reap a live temp nor
+  /// crash-recover a live `.backup`. Matches §3.3's watch debounce.
+  final Duration saveTempWindow;
 
   /// The lock's identity for callers that report it (diagnostics only).
   File get lockFile => File(lockPathFor(indexFile));
@@ -174,10 +180,7 @@ class ManagedRemoteFileStore {
     // Win32 ignores trailing dots and spaces in the stem ('aux .txt' is
     // as reserved as 'aux.txt'), so strip them before the match — the
     // same pre-match normalization [validateLocalName] applies.
-    final stem = safeName
-        .split('.')
-        .first
-        .replaceAll(RegExp(r'[ .]+$'), '');
+    final stem = safeName.split('.').first.replaceAll(RegExp(r'[ .]+$'), '');
     if (windowsReservedName.hasMatch(stem)) {
       safeName = 'file-$safeName';
     }
@@ -248,16 +251,13 @@ class ManagedRemoteFileStore {
 
   /// The record write landed — the checkout dir is a completed managed
   /// checkout, no longer a crash-sweeptable in-flight one.
-  Future<void> clearCheckoutInFlight(String localPath) =>
-      _serialized(() async {
-        await _loadUnlocked();
-        final marker = File(
-          _join(checkoutFile(localPath).parent.path, const [
-            abandonedMarkerName,
-          ]),
-        );
-        if (await marker.exists()) await marker.delete();
-      });
+  Future<void> clearCheckoutInFlight(String localPath) => _serialized(() async {
+    await _loadUnlocked();
+    final marker = File(
+      _join(checkoutFile(localPath).parent.path, const [abandonedMarkerName]),
+    );
+    if (await marker.exists()) await marker.delete();
+  });
 
   /// Creates a new empty checkout file without following existing symlinks.
   Future<File> createCheckout(String localPath, {bool exclusive = true}) =>
@@ -265,10 +265,7 @@ class ManagedRemoteFileStore {
         await _loadUnlocked();
         final file = checkoutFile(localPath);
         await _ensureSafeParents(localPath);
-        final type = await FileSystemEntity.type(
-          file.path,
-          followLinks: false,
-        );
+        final type = await FileSystemEntity.type(file.path, followLinks: false);
         if (type != FileSystemEntityType.notFound) {
           if (type != FileSystemEntityType.file || exclusive) {
             throw FileSystemException(
@@ -303,10 +300,7 @@ class ManagedRemoteFileStore {
     final source = checkoutFile(localPath);
     if (await FileSystemEntity.type(source.path, followLinks: false) !=
         FileSystemEntityType.file) {
-      throw FileSystemException(
-        'Checkout file does not exist',
-        source.path,
-      );
+      throw FileSystemException('Checkout file does not exist', source.path);
     }
     final snapshot = File('${source.path}.poltergeist-${uuidV4()}.upload');
     // A frozen plaintext copy of private content — the same 0600 the
@@ -338,9 +332,7 @@ class ManagedRemoteFileStore {
         'Must be a single checkout directory',
       );
     }
-    final dir = Directory(
-      _join(checkoutRoot.absolute.path, [segments.single]),
-    );
+    final dir = Directory(_join(checkoutRoot.absolute.path, [segments.single]));
     if (await FileSystemEntity.type(dir.path, followLinks: false) ==
         FileSystemEntityType.directory) {
       await dir.delete(recursive: true);
@@ -695,10 +687,7 @@ class ManagedRemoteFileStore {
     await for (final entity in checkoutRoot.list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (retained.contains(name)) continue;
-      final type = await FileSystemEntity.type(
-        entity.path,
-        followLinks: false,
-      );
+      final type = await FileSystemEntity.type(entity.path, followLinks: false);
       if (type == FileSystemEntityType.directory) {
         final dir = Directory(entity.path);
         final abandoned = await File(
@@ -886,9 +875,135 @@ class ManagedRemoteFileStore {
     return files;
   }
 
+  /// The per-checkout `.edit`/`.backup` sweep 06 §2.1 step 5 prescribes,
+  /// run inside the serialized section as part of every reconcile:
+  ///
+  /// - Only the record's OWN basename's generated siblings are touched —
+  ///   `<name>.poltergeist-<token>.edit|backup` exactly. A foreign stem
+  ///   (or the record basename itself, decoy-shaped or not) is never
+  ///   swept: inside checkout dirs the sweep deletes only what the save
+  ///   dance created.
+  /// - Anything touched within [saveTempWindow] may belong to a save
+  ///   still executing — the whole pass skips that target (the
+  ///   in-flight-save guard), so a reconcile landing mid-dance can
+  ///   neither reap a live temp nor "recover" a live `.backup`.
+  /// - Beside a live target the siblings are stale temps — deleted.
+  /// - Beside a MISSING target a `.backup` is the sole surviving
+  ///   pre-save copy (a crash landed between the `file → backup` and
+  ///   `temp → file` renames): it is renamed back onto the target, and a
+  ///   `.edit` sibling — the just-saved content — follows onto the
+  ///   target so the subsequent rehash marks the copy dirty and §3.3's
+  ///   prompt routes it through §3.4's conflict flow. Neither is
+  ///   deleted. A `.edit` WITHOUT a `.backup` cannot be a completed
+  ///   save (the dance only removes the target after the temp is
+  ///   written, hashed, and the backup rename has landed) — it is
+  ///   possibly torn and is preserved untouched, never applied.
+  ///
+  /// All sibling failures are tolerated: the sweep is janitorial and a
+  /// failed delete or restore must never mask the reconcile itself.
+  Future<void> _sweepSaveTemps(ManagedRemoteFile managed) async {
+    try {
+      final directory = checkoutDirectory(managed.localPath);
+      final targetName = p.basename(managed.localPath);
+      if (await FileSystemEntity.type(directory.path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        return;
+      }
+      final edits = <File>[];
+      final backups = <File>[];
+      await for (final child in directory.list(followLinks: false)) {
+        if (child is! File) continue;
+        final name = p.basename(child.path);
+        // Stem-match the record's basename: `target.poltergeist-<tok>.edit`.
+        final prefix = '$targetName.poltergeist-';
+        if (!name.startsWith(prefix)) continue;
+        final isEdit = name.endsWith('.edit');
+        final isBackup = name.endsWith('.backup');
+        if (!isEdit && !isBackup) continue;
+        // The token between the prefix and the suffix must be a pure
+        // generated token — a name like `x.poltergeist-y.poltergeist-
+        // <tok>.edit` carries a dot in that span (the foreign stem's own
+        // segment) and is never this record's temp, even though it
+        // satisfies both the prefix and the regex.
+        final token = name.substring(
+          prefix.length,
+          name.length - (isEdit ? '.edit'.length : '.backup'.length),
+        );
+        if (token.contains('.') || !generatedTempName.hasMatch(name)) {
+          continue;
+        }
+        if (isEdit) {
+          edits.add(child);
+        } else if (isBackup) {
+          backups.add(child);
+        }
+      }
+      if (edits.isEmpty && backups.isEmpty) return;
+      // The in-flight-save guard: any sibling inside the window freezes
+      // the whole pass — a save's own `.edit`/`.backup` pair shares one
+      // recency, so checking the freshest sibling covers the set.
+      final now = _now();
+      for (final sibling in [...edits, ...backups]) {
+        FileStat stat;
+        try {
+          stat = await sibling.stat();
+        } on FileSystemException {
+          continue; // vanished mid-list — nothing to guard
+        }
+        if (now.difference(stat.modified) < saveTempWindow) return;
+      }
+      final target = checkoutFile(managed.localPath);
+      final targetType = await FileSystemEntity.type(
+        target.path,
+        followLinks: false,
+      );
+      if (targetType == FileSystemEntityType.file) {
+        for (final sibling in [...edits, ...backups]) {
+          try {
+            await sibling.delete();
+          } on FileSystemException {
+            // A locked stray retries on the next reconcile.
+          }
+        }
+        return;
+      }
+      // Only a genuinely MISSING target gets crash-recovery — a symlink
+      // or directory squatting on the name is left for the caller's
+      // regular safety checks, never renamed over.
+      if (targetType != FileSystemEntityType.notFound) return;
+      // Crash-state restore (06 §2.1 step 5), beside a missing target:
+      // a lone `.backup` is the sole surviving pre-save copy — renamed
+      // back onto the target. With a `.edit` sibling present the save
+      // had already sealed its temp before the crash, so the just-saved
+      // content completes onto the target instead — the rehash marks
+      // the copy dirty and §3.3's prompt routes it through §3.4's
+      // conflict flow — while the `.backup` is left in place rather
+      // than deleted: the pre-save copy survives until the next pass's
+      // normal stale-temp reaping. A `.edit` WITHOUT a `.backup` cannot
+      // be a completed save (the dance removes the target only after
+      // the temp is sealed and the backup rename has landed) — it is
+      // possibly torn and is preserved untouched, never applied.
+      try {
+        if (edits.isNotEmpty && backups.isNotEmpty) {
+          await edits.first.rename(target.path);
+        } else if (edits.isEmpty && backups.isNotEmpty) {
+          await backups.first.rename(target.path);
+        }
+      } on FileSystemException {
+        // A racing recreate — leave everything for the next pass.
+      }
+    } on FileSystemException {
+      // Janitorial: a sweep failure must never mask the reconcile.
+    }
+  }
+
   Future<ManagedRemoteFile> _reconcileUnlocked(
     ManagedRemoteFile managed,
   ) async {
+    // The §2.1 step-5 sweep runs BEFORE the rehash: a restored `.backup`
+    // or a completed `.edit` must land before the digest comparison so
+    // the recovered content drives the dirty verdict.
+    await _sweepSaveTemps(managed);
     final local = await _safeRegularFile(managed.localPath);
     if (local == null) {
       final missing = managed.copyWith(dirty: false, missing: true);
@@ -1080,9 +1195,8 @@ String _truncateToNameMax(String name) {
     units += rune > 0xffff ? 2 : 1;
   }
   if (units >= name.length) return name;
-  final truncated = name.substring(0, units).replaceFirst(
-    RegExp(r'[. ]+$'),
-    '',
-  );
+  final truncated = name
+      .substring(0, units)
+      .replaceFirst(RegExp(r'[. ]+$'), '');
   return truncated.isEmpty ? 'remote-file' : truncated;
 }

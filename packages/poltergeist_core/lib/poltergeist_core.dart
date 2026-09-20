@@ -84,14 +84,13 @@ export 'package:seance_core/seance_core.dart'
         serverGroupKey;
 
 export 'src/bookmarks/bookmark_groups.dart'
-    show BookmarkGroupSection, bookmarkGroupNames, groupBookmarks,
+    show
+        BookmarkGroupSection,
+        bookmarkGroupNames,
+        groupBookmarks,
         kUngroupedBookmarkKey;
 export 'src/bookmarks/bookmark_coordinator.dart'
-    show
-        ApplyReport,
-        BookmarkCoordinator,
-        HostKeyConflict,
-        SyncRoundResult;
+    show ApplyReport, BookmarkCoordinator, HostKeyConflict, SyncRoundResult;
 export 'src/bookmarks/bookmark_store.dart'
     show
         BookmarkRemovedChange,
@@ -199,13 +198,22 @@ export 'src/checkout/managed_remote_file.dart'
         remoteFileEntryToJson,
         sameRemoteSnapshot;
 export 'src/checkout/managed_remote_file_store.dart'
-    show
-        ManagedRemoteFileStore,
-        RecoveredCheckout,
-        streamedFileSha256;
+    show ManagedRemoteFileStore, RecoveredCheckout, streamedFileSha256;
 export 'src/checkout/managed_checkout_spec.dart'
     show ManagedCheckoutDirection, ManagedCheckoutSpec;
 export 'src/checkout/checkout_manager.dart' show CheckoutManager;
+export 'src/editor/built_in_text_document.dart'
+    show
+        BuiltInTextDocument,
+        BuiltInEditorException,
+        CheckoutLimitException,
+        LineEnding,
+        MaximumByteSink,
+        builtInEditorMaximumBytes,
+        loadBuiltInTextDocument,
+        loadBuiltInTextDocumentDetails,
+        resolveBuiltInEditorTarget,
+        saveBuiltInTextDocument;
 export 'src/transfer/bandwidth_limiter.dart'
     show BandwidthLimiter, maxTransferChunkBytes;
 export 'src/transfer/conflict_policy.dart'

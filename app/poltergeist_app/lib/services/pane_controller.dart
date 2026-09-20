@@ -263,6 +263,15 @@ final class _OpenEntryFaultException extends PaneFaultException
   final RemoteFileEntry entry;
 }
 
+/// The built-in-editor open seam (06 §4.2): the shell supplies the
+/// checkout/route wiring; the controller only resolves the gesture to
+/// this verb — `file.editBuiltIn` and the "Double-click action: Edit in
+/// Poltergeist" preference both land here. Null leaves the editor
+/// unwired: activations then post the honest [PaneNotice.editLater]
+/// instead of failing open.
+typedef BuiltInEditorOpen =
+    Future<void> Function(PaneController pane, RemoteFileEntry entry);
+
 /// A transient pane notice (02 §10's notice family): the honest
 /// "not yet" for a registered-but-deferred action — never an error,
 /// so it renders as a dismissible strip, not the error overlay. The
@@ -650,6 +659,12 @@ class PaneController extends ChangeNotifier {
   /// always navigate.
   DoubleClickAction doubleClickAction = DoubleClickAction.open;
 
+  /// The built-in editor's open seam (06 §4.2), stamped by the owning
+  /// strip alongside [doubleClickAction]. The shell supplies the
+  /// checkout/route wiring; null leaves the editor unwired so Edit
+  /// activations post the honest not-yet notice rather than failing.
+  BuiltInEditorOpen? builtInEditorOpen;
+
   /// The active transient notice (02 §10's notice family): set when an
   /// activation resolves to a registered-but-deferred action, cleared
   /// by [dismissNotice], by the next activation (a notice never stacks
@@ -736,8 +751,7 @@ class PaneController extends ChangeNotifier {
   /// Empty while nothing is selected.
   List<RemoteFileEntry> get selectedEntries => [
     for (var i = 0; i < _entries.length; i++)
-      if (i < _rowKeys.length &&
-          _selection.selectedKeys.contains(_rowKeys[i]))
+      if (i < _rowKeys.length && _selection.selectedKeys.contains(_rowKeys[i]))
         _entries[i],
   ];
 
@@ -753,8 +767,7 @@ class PaneController extends ChangeNotifier {
   /// rows are owned (not disowned cache), and a listing is present.
   /// Every row-interaction entry point gates on this so the stale
   /// boundary cannot drift as new entry points appear.
-  bool get _rowsInteractive =>
-      !_disposed && !_staleRows && _entries.isNotEmpty;
+  bool get _rowsInteractive => !_disposed && !_staleRows && _entries.isNotEmpty;
 
   /// Binds the pane to a remote bookmark: closes any previous channel,
   /// subscribes to the server's state lane BEFORE connecting (live
@@ -879,7 +892,7 @@ class PaneController extends ChangeNotifier {
       case DoubleClickAction.nothing:
         return;
       case DoubleClickAction.edit:
-        _postNotice(PaneNotice.editLater);
+        await _openInBuiltInEditor(entry);
         return;
       case DoubleClickAction.transfer:
         _postNotice(PaneNotice.transferLater);
@@ -894,6 +907,29 @@ class PaneController extends ChangeNotifier {
         }
         await _openLocalEntry(entry);
     }
+  }
+
+  /// `file.editBuiltIn` (⌥⌘E / Ctrl+Alt+E, 02 §8.3): the explicit verb —
+  /// same routing as the "Double-click action: Edit in Poltergeist"
+  /// preference's resolution in [openEntry], without consulting that
+  /// preference. Directories never reach here (the command's enablement
+  /// gates them); a stale row is fully inert, matching [openEntry].
+  Future<void> editInBuiltInEditor(RemoteFileEntry entry) async {
+    if (!_rowsInteractive) return;
+    dismissNotice();
+    await _openInBuiltInEditor(entry);
+  }
+
+  /// The shared Edit-in-Poltergeist resolution: a wired seam opens the
+  /// editor; an unwired one posts the honest not-yet notice — never a
+  /// silent no-op (02 §10's notice family).
+  Future<void> _openInBuiltInEditor(RemoteFileEntry entry) async {
+    final open = builtInEditorOpen;
+    if (open == null) {
+      _postNotice(PaneNotice.editLater);
+      return;
+    }
+    await open(this, entry);
   }
 
   /// The local-file Open: hands the row's path to the engine's
@@ -1311,8 +1347,7 @@ class PaneController extends ChangeNotifier {
   /// tab close guard's trigger probe (02 §3). True while the field is
   /// mounted AND while its submitted rename is still in flight, so a
   /// close can never cut under either half.
-  bool get inlineRenameActive =>
-      _renameSession != null || _renameInFlight;
+  bool get inlineRenameActive => _renameSession != null || _renameInFlight;
 
   /// The row under inline edit; null while no session is open.
   RemoteFileEntry? get renameTarget => _renameSession?.entry;
@@ -1397,14 +1432,11 @@ class PaneController extends ChangeNotifier {
       platform: defaultTargetPlatform,
     );
     if (nameError != null) {
-      session.error = PaneFaultException(
-        switch (nameError) {
-          RenameNameError.empty => PaneFault.renameNameEmpty,
-          RenameNameError.separator => PaneFault.renameNameSeparator,
-          RenameNameError.invalid => PaneFault.renameNameInvalid,
-        },
-        operation: 'rename',
-      );
+      session.error = PaneFaultException(switch (nameError) {
+        RenameNameError.empty => PaneFault.renameNameEmpty,
+        RenameNameError.separator => PaneFault.renameNameSeparator,
+        RenameNameError.invalid => PaneFault.renameNameInvalid,
+      }, operation: 'rename');
       notifyListeners();
       return;
     }
@@ -1444,10 +1476,7 @@ class PaneController extends ChangeNotifier {
         trimmed = trimmed.substring(0, trimmed.length - 1);
       }
       if (trimmed.endsWith(entry.name)) {
-        final prefix = trimmed.substring(
-          0,
-          trimmed.length - entry.name.length,
-        );
+        final prefix = trimmed.substring(0, trimmed.length - entry.name.length);
         if (prefix.endsWith(separator)) parent = prefix;
       }
       if (parent.isEmpty) {
@@ -1572,10 +1601,7 @@ class PaneController extends ChangeNotifier {
   void startFolderSize() {
     final target = infoTarget;
     final channel = _channel;
-    if (_disposed ||
-        channel == null ||
-        target == null ||
-        !target.isDirectory) {
+    if (_disposed || channel == null || target == null || !target.isDirectory) {
       return;
     }
     _endFolderSize();
@@ -1625,8 +1651,7 @@ class PaneController extends ChangeNotifier {
         onProgress: (progress) {
           // A superseded or cancelled walk's progress writes nothing —
           // the identity check is the stale-answer drop (09 §3).
-          if (_disposed ||
-              !identical(cancellation, _folderSizeCancellation)) {
+          if (_disposed || !identical(cancellation, _folderSizeCancellation)) {
             return;
           }
           _folderSize = progress;
@@ -1732,8 +1757,7 @@ class PaneController extends ChangeNotifier {
     final session = permissionsEdit;
     if (_disposed || session == null) return;
     session.mode =
-        (set ? session.mode | bit : session.mode & ~bit) &
-        permissionsModeMask;
+        (set ? session.mode | bit : session.mode & ~bit) & permissionsModeMask;
     session.octalText = PermissionsEditSession.octalTextFor(session.mode);
     session.octalInvalid = false;
     session.applyError = null;
@@ -2416,9 +2440,7 @@ class PaneController extends ChangeNotifier {
     final session = _quickSelect;
     if (_disposed || session == null) return;
     _quickSelect = null;
-    _selection = _selection.withSelectedKeys(
-      session.confirm().selectedKeys,
-    );
+    _selection = _selection.withSelectedKeys(session.confirm().selectedKeys);
     notifyListeners();
   }
 
@@ -2904,11 +2926,7 @@ class PaneController extends ChangeNotifier {
         _phase = PanePhase.browsing;
         notifyListeners();
         final target = rootPath == '~' ? channel.homePath : rootPath;
-        _issueNavigation(
-          LocalPaneLocation(target),
-          target,
-          channel,
-        );
+        _issueNavigation(LocalPaneLocation(target), target, channel);
       },
     );
   }
@@ -2978,8 +2996,7 @@ class PaneController extends ChangeNotifier {
     // is the only honest restore target, and a cleared-state snapshot
     // would resurrect the empty pane this seam exists to prevent.
     if (!_loadingActive() && _rollback == null) {
-      _snapshot =
-          _QuiescentSnapshot(
+      _snapshot = _QuiescentSnapshot(
         _location,
         _sortedListing,
         _error,
@@ -3191,8 +3208,7 @@ class PaneController extends ChangeNotifier {
     // [retry] reads the pending local root only under openingLocal —
     // restore the prior binding's root, or the harmless default.
     final priorLocal = rollback.location;
-    _pendingLocalRoot =
-        priorLocal is LocalPaneLocation ? priorLocal.path : '~';
+    _pendingLocalRoot = priorLocal is LocalPaneLocation ? priorLocal.path : '~';
     _location = rollback.location;
     _committedLocation = rollback.committedLocation;
     _error = rollback.error;

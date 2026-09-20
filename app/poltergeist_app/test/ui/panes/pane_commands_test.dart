@@ -645,6 +645,106 @@ void main() {
     expect(leftStrip.infoPanelOpen, isFalse);
   });
 
+  testWidgets('file.editBuiltIn is selection-scoped, opens the cursor row '
+      'through the pane\'s editor seam, and documents its §8.3 keys', (
+    tester,
+  ) async {
+    final lanes = controller_test.FakePaneLanes();
+    final leftChannel = controller_test.FakePaneChannel('/home/tester');
+    leftChannel.listings['/home/tester'] = [
+      _entry('dir', type: RemoteFileType.directory),
+      _entry('note.txt'),
+      _entry('link.txt', type: RemoteFileType.symbolicLink),
+    ];
+    final left = PaneController(paneTabId: 'pane.left', lanes: lanes);
+    final right = PaneController(paneTabId: 'pane.right', lanes: lanes);
+    final leftStrip = testPaneStrip(left);
+    final rightStrip = testPaneStrip(right);
+    final workspace = WorkspaceController(left: leftStrip, right: rightStrip);
+    addTearDown(workspace.dispose);
+
+    lanes.nextLocalChannel = leftChannel;
+    await left.openLocalHome();
+    await tester.pump();
+
+    final edit = buildPaneCommands(
+      workspace: workspace,
+      focusLeft: () {},
+      focusRight: () {},
+      swapFocus: () {},
+    ).firstWhere((c) => c.id == kFileEditBuiltInCommandId);
+
+    // 02 §8.3's table: selection scope; ⌥⌘E on macOS, Ctrl+Alt+E
+    // elsewhere.
+    expect(edit.scope, CommandScope.selection);
+    expect(
+      edit.activators!(TargetPlatform.macOS),
+      [const SingleActivator(LogicalKeyboardKey.keyE, meta: true, alt: true)],
+    );
+    expect(
+      edit.activators!(TargetPlatform.linux),
+      [
+        const SingleActivator(
+          LogicalKeyboardKey.keyE,
+          control: true,
+          alt: true,
+        ),
+      ],
+    );
+    expect(
+      edit.activators!(TargetPlatform.windows),
+      [
+        const SingleActivator(
+          LogicalKeyboardKey.keyE,
+          control: true,
+          alt: true,
+        ),
+      ],
+    );
+    // 02 §9's File menu: between Open (60) and Get Info (65) — order 63
+    // leaves the unregistered Open With slot open.
+    expect(edit.menuPlacement?.menu, AppMenuId.file);
+    expect(edit.menuPlacement?.order, 63);
+    expect(edit.menuPlacement?.group, 1);
+
+    // Enablement needs the ACTIVE pane's cursor on a file or symlink
+    // row (06 §4.2's gate): no cursor, the inactive pane, and a
+    // directory row all stay disabled.
+    workspace.setActivePane(rightStrip);
+    expect(edit.enabled(), isFalse);
+    workspace.setActivePane(leftStrip);
+    expect(edit.enabled(), isFalse);
+    left.setCursorIndex(0);
+    expect(edit.enabled(), isFalse);
+    left.setCursorIndex(2);
+    expect(edit.enabled(), isTrue);
+    // The distinguishing case: a valid cursor on the now-inactive left
+    // pane must not enable the command.
+    workspace.setActivePane(rightStrip);
+    expect(edit.enabled(), isFalse,
+        reason: 'cursor on the inactive pane does not enable the command');
+    workspace.setActivePane(leftStrip);
+    expect(edit.enabled(), isTrue);
+
+    // run dispatches the cursor row through the strip's editor seam —
+    // the same resolution the "Edit in Poltergeist" double-click
+    // preference takes (06 §4.2).
+    final opened = <RemoteFileEntry>[];
+    left.builtInEditorOpen = (pane, entry) async => opened.add(entry);
+    left.setCursorIndex(1);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    await edit.run(tester.element(find.byType(Scaffold)));
+    expect(opened.map((e) => e.path), [left.entries[1].path]);
+    expect(right.builtInEditorOpen, isNull,
+        reason: 'the inactive pane never opens an editor');
+  });
+
   testWidgets('go.open is selection-scoped, dispatches openEntry on the '
       'active pane\'s cursor row, and documents its §8.3 keys', (
     tester,

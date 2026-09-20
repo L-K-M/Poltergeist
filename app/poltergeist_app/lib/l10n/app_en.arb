@@ -1355,7 +1355,7 @@
   "@infoPanelApplyPermissions": {
     "description": "Affordance writing the Get Info inspector's permissions draft to the target (02 §2.6, D28)."
   },
-  "infoPanelApplyEnclosed": "Apply to enclosed items\u2026",
+  "infoPanelApplyEnclosed": "Apply to enclosed items…",
   "@infoPanelApplyEnclosed": {
     "description": "Affordance starting the Get Info inspector's recursive permissions apply on a folder — count, confirm, then walk (02 §2.6, D28). The ellipsis marks that confirmation follows."
   },
@@ -1379,7 +1379,7 @@
   "@infoPanelEnclosedTitle": {
     "description": "Title of the Get Info inspector's recursive-permissions confirmation dialog (02 §2.6, D28; 02 §10's destructive family)."
   },
-  "infoPanelEnclosedCounting": "Counting the items inside \u201c{name}\u201d\u2026",
+  "infoPanelEnclosedCounting": "Counting the items inside “{name}”…",
   "@infoPanelEnclosedCounting": {
     "description": "Progress line of the recursive-permissions confirmation while the read-only count pass lists the folder (02 §2.6, D28).",
     "placeholders": {
@@ -1388,7 +1388,7 @@
       }
     }
   },
-  "infoPanelEnclosedBody": "Apply {octal} to \u201c{name}\u201d and the items inside it?",
+  "infoPanelEnclosedBody": "Apply {octal} to “{name}” and the items inside it?",
   "@infoPanelEnclosedBody": {
     "description": "Unquantified body of the recursive-permissions confirmation — the fallback when the count pass could not complete (02 §2.6, D28).",
     "placeholders": {
@@ -1400,7 +1400,7 @@
       }
     }
   },
-  "infoPanelEnclosedBodyCounted": "{count, plural, =0{Apply {octal} to \u201c{name}\u201d? It has no changeable items inside.} =1{Apply {octal} to \u201c{name}\u201d and the 1 item inside it?} other{Apply {octal} to \u201c{name}\u201d and the {count} items inside it?}}",
+  "infoPanelEnclosedBodyCounted": "{count, plural, =0{Apply {octal} to “{name}”? It has no changeable items inside.} =1{Apply {octal} to “{name}” and the 1 item inside it?} other{Apply {octal} to “{name}” and the {count} items inside it?}}",
   "@infoPanelEnclosedBodyCounted": {
     "description": "Quantified body of the recursive-permissions confirmation once the count pass saw every reachable item (02 §2.6, D28; 02 §10's quantify-then-confirm rule).",
     "placeholders": {
@@ -1445,7 +1445,7 @@
   "@infoPanelEnclosedApply": {
     "description": "Confirm affordance of the recursive-permissions confirmation dialog (02 §2.6, D28)."
   },
-  "infoPanelEnclosedProgress": "Applying {octal}\u2026 {count, plural, =1{1 item changed} other{{count} items changed}}",
+  "infoPanelEnclosedProgress": "Applying {octal}… {count, plural, =1{1 item changed} other{{count} items changed}}",
   "@infoPanelEnclosedProgress": {
     "description": "Live progress line of the recursive permissions apply in the Get Info inspector — the mode being written and the chmods completed so far (02 §2.6, D28).",
     "placeholders": {
@@ -1519,7 +1519,7 @@
   "@menuWorkspaces": {
     "description": "Title of the Commands menu's Workspaces submenu listing the saved workspaces (02 §3, M3 interim until the M5 sidebar)."
   },
-  "workspaceSaveCommand": "Save Workspace\u2026",
+  "workspaceSaveCommand": "Save Workspace…",
   "@workspaceSaveCommand": {
     "description": "Commands-menu item that names and saves the current two-pane arrangement as a workspace (02 §9's table slot, 02 §3)."
   },
@@ -1997,7 +1997,7 @@
   "@settingsTitle": {
     "description": "Title of the Settings surface (02 §10)."
   },
-  "settingsBackupCommand": "Back up bookmarks\u2026",
+  "settingsBackupCommand": "Back up bookmarks…",
   "@settingsBackupCommand": {
     "description": "Menu command opening Settings at the Bookmark backup section (D21)."
   },
@@ -2115,11 +2115,11 @@
   "@backupClose": {
     "description": "Dismisses the Backup settings surface."
   },
-  "backupRegistering": "Registering\u2026",
+  "backupRegistering": "Registering…",
   "@backupRegistering": {
     "description": "Live-region status while a registration runs."
   },
-  "backupLoggingIn": "Logging in\u2026",
+  "backupLoggingIn": "Logging in…",
   "@backupLoggingIn": {
     "description": "Live-region status while a login runs."
   },
@@ -2184,7 +2184,7 @@
   "@backupNow": {
     "description": "04 §3.3's manual round button."
   },
-  "backupSyncing": "Backing up\u2026",
+  "backupSyncing": "Backing up…",
   "@backupSyncing": {
     "description": "Status while a backup round runs."
   },
@@ -2266,7 +2266,7 @@
   "@backupStoreQuarantined": {
     "description": "04 §3.1's durable corrupt-store notice; it must name that deleted bookmarks may reappear, not only that edits may be lost."
   },
-  "backupDeleteAccount": "Delete backup account\u2026",
+  "backupDeleteAccount": "Delete backup account…",
   "@backupDeleteAccount": {
     "description": "04 §4.1's separate-mode account deletion entry point."
   },
@@ -2316,7 +2316,7 @@
   "@backupSignOutBody": {
     "description": "04 §4.2's sign-out consequence copy — local forget only, server data untouched."
   },
-  "backupSwitchToShared": "Switch to shared account\u2026",
+  "backupSwitchToShared": "Switch to shared account…",
   "@backupSwitchToShared": {
     "description": "04 §4.4's verbatim B→A switch entry point, offered behind the fleet gate."
   },
@@ -2324,7 +2324,7 @@
   "@backupSwitchTitle": {
     "description": "Title of the §4.4 B→A switch flow."
   },
-  "backupSwitchWorking": "Switching\u2026",
+  "backupSwitchWorking": "Switching…",
   "@backupSwitchWorking": {
     "description": "Live-region status while the §4.4 switch runs."
   },
@@ -2358,7 +2358,7 @@
       }
     }
   },
-  "backupDeleteSeparateAfterSwitch": "Also delete the separate backup account\u2026",
+  "backupDeleteSeparateAfterSwitch": "Also delete the separate backup account…",
   "@backupDeleteSeparateAfterSwitch": {
     "description": "04 §4.4's verbatim optional post-switch delete, offered only after the first shared sync succeeds."
   },
@@ -2394,5 +2394,153 @@
         "type": "String"
       }
     }
+  },
+  "fileEditBuiltInLabel": "Edit in Poltergeist",
+  "@fileEditBuiltInLabel": {
+    "description": "Command label: open the selected file in the built-in text editor (file.editBuiltIn, 02 §8.3, 06 §4.2)."
+  },
+  "editorDiscardTitle": "Discard unsaved changes?",
+  "@editorDiscardTitle": {
+    "description": "Title of the editor's unsaved-changes guard (06 §2.3), shown when leaving with dirty edits."
+  },
+  "editorDiscardBody": "Changes not saved to the local copy will be lost.",
+  "@editorDiscardBody": {
+    "description": "Body of the editor's unsaved-changes guard (06 §2.3)."
+  },
+  "editorDiscardKeep": "Keep editing",
+  "@editorDiscardKeep": {
+    "description": "Declines the editor's discard confirmation: the editor stays open."
+  },
+  "editorDiscardConfirm": "Discard",
+  "@editorDiscardConfirm": {
+    "description": "Accepts the editor's discard confirmation: unsaved edits are dropped."
+  },
+  "editorFindTooltip": "Find",
+  "@editorFindTooltip": {
+    "description": "Tooltip of the editor's find-bar affordance (06 §2.3)."
+  },
+  "editorSaveLocallyTooltip": "Save locally",
+  "@editorSaveLocallyTooltip": {
+    "description": "Tooltip of the editor's local-only save action (06 §2.4)."
+  },
+  "editorSaveAndUploadTooltip": "Save and upload",
+  "@editorSaveAndUploadTooltip": {
+    "description": "Tooltip of the editor's save-and-upload action on a managed checkout (06 §2.4)."
+  },
+  "editorFindHint": "Find in file",
+  "@editorFindHint": {
+    "description": "Hint text of the editor's find query field (06 §2.3)."
+  },
+  "editorMatchCaseTooltip": "Match case",
+  "@editorMatchCaseTooltip": {
+    "description": "Tooltip of the find bar's case-sensitivity toggle."
+  },
+  "editorPreviousMatchTooltip": "Previous match",
+  "@editorPreviousMatchTooltip": {
+    "description": "Tooltip of the find bar's previous-match button."
+  },
+  "editorNextMatchTooltip": "Next match",
+  "@editorNextMatchTooltip": {
+    "description": "Tooltip of the find bar's next-match button."
+  },
+  "editorCloseSearchTooltip": "Close search",
+  "@editorCloseSearchTooltip": {
+    "description": "Tooltip of the find bar's close button."
+  },
+  "editorNoMatches": "No matches",
+  "@editorNoMatches": {
+    "description": "Find bar counter shown when the query has no hits."
+  },
+  "editorMatchCount": "{current}/{total}",
+  "@editorMatchCount": {
+    "description": "Find bar counter: ordinal of the active match over the total.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "editorMatchCountCapped": "{current}/{total}+",
+  "@editorMatchCountCapped": {
+    "description": "Find bar counter at the match cap: the plus marks a truncated total.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "editorStatusClean": "{lines} lines · {bytes} bytes",
+  "@editorStatusClean": {
+    "description": "Editor status bar for a saved document (06 §2.3).",
+    "placeholders": {
+      "lines": {
+        "type": "int"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  },
+  "editorStatusDirty": "{lines} lines · {bytes} bytes · Unsaved",
+  "@editorStatusDirty": {
+    "description": "Editor status bar with unsaved edits (06 §2.3).",
+    "placeholders": {
+      "lines": {
+        "type": "int"
+      },
+      "bytes": {
+        "type": "int"
+      }
+    }
+  },
+  "editorSavedUploadedDirty": "Uploaded the saved version; newer edits remain unsaved.",
+  "@editorSavedUploadedDirty": {
+    "description": "06 §2.4's toast matrix: the upload completed but the user typed during it — the on-disk copy lags the editor."
+  },
+  "editorSavedUploaded": "Saved and uploaded.",
+  "@editorSavedUploaded": {
+    "description": "06 §2.4's toast matrix: save-and-upload completed with a clean editor."
+  },
+  "editorSavedLocallyNotUploaded": "Saved locally; not uploaded.",
+  "@editorSavedLocallyNotUploaded": {
+    "description": "06 §2.4's toast matrix: the local save landed but the upload was declined (a cancelled conflict escalation)."
+  },
+  "editorSavedLocally": "Saved locally.",
+  "@editorSavedLocally": {
+    "description": "06 §2.4's toast matrix: a local-only save completed."
+  },
+  "editorCheckoutUnavailable": "The checkout store is unavailable; remote files cannot be edited.",
+  "@editorCheckoutUnavailable": {
+    "description": "Toast when a remote Edit in Poltergeist reaches the shell with no checkout session wired — a wiring defect, reported as such."
+  },
+  "editorConflictTitle": "Remote file changed",
+  "@editorConflictTitle": {
+    "description": "Title of the §3.4 conflict-escalation dialog: the remote moved under an open checkout."
+  },
+  "editorConflictBody": "“{name}” changed (or was deleted) on {server} after it was opened locally. Overwrite the remote version?",
+  "@editorConflictBody": {
+    "description": "06 §3.4's conflict-escalation body: names the file and its server. The neutral \"(or was deleted)\" matches the typed message — a deleted target has no newer version to overwrite.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "editorConflictCancel": "Cancel",
+  "@editorConflictCancel": {
+    "description": "Declines the conflict overwrite — the safe default (02 §10)."
+  },
+  "editorConflictOverwrite": "Overwrite Remote Version",
+  "@editorConflictOverwrite": {
+    "description": "Confirms the §3.4 escalation: retries the upload with overwriteRemoteChanges."
   }
 }

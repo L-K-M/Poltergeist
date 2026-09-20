@@ -2,15 +2,22 @@ import 'package:flutter/material.dart';
 
 const _seedColor = Color(0xFF3D8A78);
 
+/// The app's monospace family stack — primary first, then the
+/// cross-platform fallbacks (a bare 'monospace' does not resolve on
+/// every platform, notably macOS/iOS). Also the built-in editor's
+/// `monoFontFallback` seam value (06 §2.3).
+const poltergeistMonoFontFamilies = [
+  'JetBrains Mono',
+  'SF Mono',
+  'Menlo',
+  'Consolas',
+  'DejaVu Sans Mono',
+  'monospace',
+];
+
 const poltergeistMonoTextStyle = TextStyle(
   fontFamily: 'JetBrains Mono',
-  fontFamilyFallback: [
-    'SF Mono',
-    'Menlo',
-    'Consolas',
-    'DejaVu Sans Mono',
-    'monospace',
-  ],
+  fontFamilyFallback: poltergeistMonoFontFamilies,
   fontFeatures: [FontFeature.tabularFigures()],
 );
 

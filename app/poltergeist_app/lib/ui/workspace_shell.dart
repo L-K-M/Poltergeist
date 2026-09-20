@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../l10n/app_localizations.dart';
@@ -30,10 +33,12 @@ import '../services/sync_browsing_controller.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
 import '../services/workspace_state.dart';
+import '../theme/app_theme.dart' show poltergeistMonoFontFamilies;
 import 'activity/activity_commands.dart';
 import 'activity/activity_format.dart';
 import 'activity/activity_panel.dart';
 import 'adaptive_shell.dart';
+import 'built_in_text_editor.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
 import 'menus/app_menu_host.dart';
@@ -211,8 +216,7 @@ class WorkspaceShell extends StatefulWidget {
 
   /// Persist sinks for the popover's writes — the limiter takes the
   /// value immediately; these land it in settings.
-  final FutureOr<void> Function(int? bytesPerSecond)?
-  onDownloadLimitChanged;
+  final FutureOr<void> Function(int? bytesPerSecond)? onDownloadLimitChanged;
   final FutureOr<void> Function(int? bytesPerSecond)? onUploadLimitChanged;
 
   /// 02 §6's "auto-remove on success" setting (default on).
@@ -300,8 +304,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // re-claimed by the left pane.
     _leftFocus = FocusNode(debugLabel: 'pane.left.listing');
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
-    _activitySplitterFocus =
-        FocusNode(debugLabel: 'activity.panel.splitter');
+    _activitySplitterFocus = FocusNode(debugLabel: 'activity.panel.splitter');
     _activityPanelHeight = widget.initialActivityPanelHeight;
     _activity = ActivityPanelController(
       queue: widget.transferQueue,
@@ -314,8 +317,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // D16's anti-hiding rule made concrete: the first live task
       // re-opens the chrome — the panel's rows are the queue's only
       // window, so new work must never sit behind a hidden panel.
-      onTasksArrived: () =>
-          _workspace?.setActivityPanelHidden(false),
+      onTasksArrived: () => _workspace?.setActivityPanelHidden(false),
     );
     _connections = _buildConnections();
     _sidebar = _buildSidebar();
@@ -559,6 +561,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         lanes: lanes,
         newTabTarget: widget.newTabTarget,
         doubleClickAction: widget.doubleClickAction,
+        // 06 §4.2: the built-in editor's open route — wired on every
+        // strip so `file.editBuiltIn` and the "Double-click action:
+        // Edit in Poltergeist" preference resolve the same way.
+        builtInEditorOpen: _openBuiltInEditor,
         confirmClose: _confirmTabClose,
         // The cross-pane half of a remote tab's last-binding check: read
         // the workspace lazily — the strips are built before it exists.
@@ -723,11 +729,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // shared listenable for the toolbar and the registry-driven menus.
     final enablement = Listenable.merge([
       _activity,
-      if (workspace != null) ...[
-        workspace,
-        workspace.left,
-        workspace.right,
-      ],
+      if (workspace != null) ...[workspace, workspace.left, workspace.right],
     ]);
 
     return Scaffold(
@@ -759,119 +761,116 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                     onRun: _runCommand,
                   ),
                 ),
-              Divider(height: 1, color: colors.outlineVariant),
-              Expanded(
-                // `view.toggleSecondPane` and the Sync Browsing link
-                // state ride the workspace listenable — a hide/show or
-                // a suspension must re-lay-out the panes without a
-                // parent rebuild.
-                child: workspace == null || leftFocus == null
-                    ? const SizedBox.shrink()
-                    : ListenableBuilder(
-                        listenable: workspace,
-                        builder: (context, _) => Row(
-                          children: [
-                            // The stage-0 inline sidebar (02 §1/§4):
-                            // mounted at desktop width unless the user
-                            // hid the region — below the boundary the
-                            // Scaffold's drawer carries the same tree.
-                            if (sidebar != null &&
-                                !workspace.sidebarHidden &&
-                                MediaQuery.sizeOf(context).width >=
-                                    desktopStageBoundary) ...[
-                              SizedBox(
-                                key: const ValueKey('sidebar.region'),
-                                width: _sidebarWidth,
-                                child: _buildSidebarView(),
-                              ),
-                              VerticalDivider(
-                                width: 1,
-                                color: colors.outlineVariant,
+                Divider(height: 1, color: colors.outlineVariant),
+                Expanded(
+                  // `view.toggleSecondPane` and the Sync Browsing link
+                  // state ride the workspace listenable — a hide/show or
+                  // a suspension must re-lay-out the panes without a
+                  // parent rebuild.
+                  child: workspace == null || leftFocus == null
+                      ? const SizedBox.shrink()
+                      : ListenableBuilder(
+                          listenable: workspace,
+                          builder: (context, _) => Row(
+                            children: [
+                              // The stage-0 inline sidebar (02 §1/§4):
+                              // mounted at desktop width unless the user
+                              // hid the region — below the boundary the
+                              // Scaffold's drawer carries the same tree.
+                              if (sidebar != null &&
+                                  !workspace.sidebarHidden &&
+                                  MediaQuery.sizeOf(context).width >=
+                                      desktopStageBoundary) ...[
+                                SizedBox(
+                                  key: const ValueKey('sidebar.region'),
+                                  width: _sidebarWidth,
+                                  child: _buildSidebarView(),
+                                ),
+                                VerticalDivider(
+                                  width: 1,
+                                  color: colors.outlineVariant,
+                                ),
+                              ],
+                              Expanded(
+                                child: AdaptiveShell(
+                                  initialPaneRatio: widget.initialPaneRatio,
+                                  secondPaneIntent: workspace.secondPaneHidden
+                                      ? SecondPaneIntent.hidden
+                                      : SecondPaneIntent.shown,
+                                  onSecondPaneVisibilityChanged:
+                                      workspace.setSecondPaneLayoutShown,
+                                  onPaneRatioChanged: widget.onPaneRatioChanged,
+                                  onPaneRatioSaveError:
+                                      widget.onPaneRatioSaveError,
+                                  resizeLabel: strings.resizePanes,
+                                  formatRatio: (ratio) => strings
+                                      .paneRatioPercent((ratio * 100).round()),
+                                  primary: PaneTabsView(
+                                    tabs: workspace.left,
+                                    workspace: workspace,
+                                    focusNode: leftFocus,
+                                    onSwapFocus: () =>
+                                        _focusPane(workspace.right),
+                                    onCancelRecovery: () => _cancelPaneRecovery(
+                                      workspace,
+                                      workspace.left.activeTabController,
+                                    ),
+                                    bookmarks: widget.bookmarks,
+                                    dropDelegate: dropDelegate,
+                                  ),
+                                  secondary: rightFocus == null
+                                      ? const SizedBox.shrink()
+                                      : PaneTabsView(
+                                          tabs: workspace.right,
+                                          workspace: workspace,
+                                          focusNode: rightFocus,
+                                          onSwapFocus: () =>
+                                              _focusPane(workspace.left),
+                                          onCancelRecovery: () =>
+                                              _cancelPaneRecovery(
+                                                workspace,
+                                                workspace
+                                                    .right
+                                                    .activeTabController,
+                                              ),
+                                          bookmarks: widget.bookmarks,
+                                          dropDelegate: dropDelegate,
+                                        ),
+                                ),
                               ),
                             ],
-                            Expanded(
-                              child: AdaptiveShell(
-                                initialPaneRatio: widget.initialPaneRatio,
-                                secondPaneIntent:
-                                    workspace.secondPaneHidden
-                                        ? SecondPaneIntent.hidden
-                                        : SecondPaneIntent.shown,
-                                onSecondPaneVisibilityChanged:
-                                    workspace.setSecondPaneLayoutShown,
-                                onPaneRatioChanged:
-                                    widget.onPaneRatioChanged,
-                                onPaneRatioSaveError:
-                                    widget.onPaneRatioSaveError,
-                                resizeLabel: strings.resizePanes,
-                                formatRatio: (ratio) =>
-                                    strings.paneRatioPercent(
-                                      (ratio * 100).round(),
-                                    ),
-                                primary: PaneTabsView(
-                                  tabs: workspace.left,
-                                  workspace: workspace,
-                                  focusNode: leftFocus,
-                                  onSwapFocus: () =>
-                                      _focusPane(workspace.right),
-                                  onCancelRecovery: () => _cancelPaneRecovery(
-                                    workspace,
-                                    workspace.left.activeTabController,
-                                  ),
-                                  bookmarks: widget.bookmarks,
-                                  dropDelegate: dropDelegate,
-                                ),
-                                secondary: rightFocus == null
-                                    ? const SizedBox.shrink()
-                                    : PaneTabsView(
-                                        tabs: workspace.right,
-                                        workspace: workspace,
-                                        focusNode: rightFocus,
-                                        onSwapFocus: () =>
-                                            _focusPane(workspace.left),
-                                        onCancelRecovery: () =>
-                                            _cancelPaneRecovery(
-                                              workspace,
-                                              workspace
-                                                  .right.activeTabController,
-                                            ),
-                                        bookmarks: widget.bookmarks,
-                                        dropDelegate: dropDelegate,
-                                      ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-              ),
-              // The activity panel's persisted intent rides the
-              // workspace listenable (02 §1: user-shown, never
-              // auto-hidden) — unmounted entirely while hidden.
-              if (workspace != null)
-                ListenableBuilder(
-                  listenable: workspace,
-                  builder: (context, _) {
-                    if (workspace.activityPanelHidden) {
-                      return const SizedBox.shrink();
-                    }
-                    return _ActivitySection(
-                      controller: _activity,
-                      height: _activityPanelHeight,
-                      splitterFocus: _activitySplitterFocus,
-                      onResize: _resizeActivityPanel,
-                      onResizeEnd: _commitActivityPanelHeight,
-                      onClose: () => workspace.setActivityPanelHidden(true),
-                      onReveal: _revealTransferDestination,
-                    );
-                  },
                 ),
-              Divider(height: 1, color: colors.outlineVariant),
-              _StatusBar(
-                label: strings.readyStatus,
-                syncLink: workspace?.syncBrowsing,
-                activity: _activity,
-              ),
-            ],
-          ),
+                // The activity panel's persisted intent rides the
+                // workspace listenable (02 §1: user-shown, never
+                // auto-hidden) — unmounted entirely while hidden.
+                if (workspace != null)
+                  ListenableBuilder(
+                    listenable: workspace,
+                    builder: (context, _) {
+                      if (workspace.activityPanelHidden) {
+                        return const SizedBox.shrink();
+                      }
+                      return _ActivitySection(
+                        controller: _activity,
+                        height: _activityPanelHeight,
+                        splitterFocus: _activitySplitterFocus,
+                        onResize: _resizeActivityPanel,
+                        onResizeEnd: _commitActivityPanelHeight,
+                        onClose: () => workspace.setActivityPanelHidden(true),
+                        onReveal: _revealTransferDestination,
+                      );
+                    },
+                  ),
+                Divider(height: 1, color: colors.outlineVariant),
+                _StatusBar(
+                  label: strings.readyStatus,
+                  syncLink: workspace?.syncBrowsing,
+                  activity: _activity,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -890,8 +889,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         ? minActivityPanelHeight
         : halfWindow;
     setState(() {
-      _activityPanelHeight = (_activityPanelHeight + delta)
-          .clamp(minActivityPanelHeight, max);
+      _activityPanelHeight = (_activityPanelHeight + delta).clamp(
+        minActivityPanelHeight,
+        max,
+      );
     });
   }
 
@@ -1093,6 +1094,223 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     return accepted ?? false;
   }
 
+  /// Live editor routes by §3.1 session key —
+  /// `remote:<serverId>:<remotePath>` for managed checkouts,
+  /// `local:<canonical path>` for plain files: one live built-in editor
+  /// per key, so a second open focuses the existing route instead of
+  /// stacking a duplicate editor on shared state (06 §3.1).
+  final _editorRoutes = <String, Route<void>>{};
+
+  /// The strip's `builtInEditorOpen` seam (06 §4.2): resolves the target
+  /// — a plain local file opens directly (a symlink resolves once at
+  /// open, §2.1 step 2); a remote file rides the managed checkout under
+  /// the 4 MiB cap — then pushes (or focuses) the editor route. Open-time
+  /// failures report and toast the typed message, so the §1 refusal
+  /// strings surface verbatim.
+  Future<void> _openBuiltInEditor(
+    PaneController pane,
+    RemoteFileEntry entry,
+  ) async {
+    final bookmark = pane.remoteBookmark;
+    try {
+      if (bookmark == null) {
+        // A plain local file is edited in place — never through a
+        // checkout (06 §4.2): Poltergeist is its file manager, not its
+        // custodian.
+        final file = await resolveBuiltInEditorTarget(File(entry.path));
+        if (!mounted) return;
+        unawaited(
+          _pushEditorRoute(
+            key: 'local:${file.absolute.path}',
+            file: file,
+            remotePath: null,
+            basenameOf: p.basename,
+            onSaved: null,
+            onUpload: null,
+          ),
+        );
+        return;
+      }
+      final session = widget.checkoutSession;
+      if (session == null) {
+        // Wiring defect, not a user fault: a remote open without the
+        // checkout session cannot honestly become a local-file open.
+        ApplicationErrorReporter().report(
+          StateError('remote edit reached without a checkout session'),
+          StackTrace.current,
+        );
+        if (mounted) {
+          showTopToastIn(
+            context,
+            message: AppLocalizations.of(context).editorCheckoutUnavailable,
+          );
+        }
+        return;
+      }
+      final record = await session.checkout(
+        serverId: bookmark.id,
+        entry: entry,
+        maximumBytes: builtInEditorMaximumBytes,
+      );
+      if (!mounted) return;
+      unawaited(
+        _pushEditorRoute(
+          key: 'remote:${record.serverId}:${record.remotePath}',
+          file: session.localFile(record),
+          remotePath: record.remotePath,
+          basenameOf: remoteBasename,
+          onSaved: () => session.reconcile(record),
+          onUpload: () => _uploadCheckout(record, bookmark),
+        ),
+      );
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) showTopToastIn(context, message: error.toString());
+    }
+  }
+
+  /// The editor's `onUpload` for a managed checkout (06 §3.4): the
+  /// CAS-guarded upload, escalating ONLY a typed `conflict` to the
+  /// overwrite dialog — every other kind rethrows to the screen's error
+  /// toast. Cancelling returns false, which the screen toasts as
+  /// "Saved locally; not uploaded."
+  Future<bool> _uploadCheckout(
+    ManagedRemoteFile copy,
+    Bookmark bookmark,
+  ) async {
+    final session = widget.checkoutSession;
+    if (session == null) {
+      // Wiring defect, not a user fault — mirror the open-time report so
+      // this isn't misreported as a deliberate "Saved locally; not
+      // uploaded."
+      ApplicationErrorReporter().report(
+        StateError('remote edit upload reached without a checkout session'),
+        StackTrace.current,
+      );
+      return false;
+    }
+    try {
+      return await session.uploadLocalCopy(copy);
+    } on RemoteFileException catch (error) {
+      if (error.kind != RemoteFileErrorKind.conflict || !mounted) rethrow;
+      final overwrite = await _confirmRemoteOverwrite(copy, bookmark);
+      if (!overwrite) return false;
+      return session.uploadLocalCopy(copy, overwriteRemoteChanges: true);
+    }
+  }
+
+  /// 06 §3.4's escalation dialog (02 §10's verb rules — safe default
+  /// first): "Remote file changed" … `Cancel` (default) ·
+  /// `Overwrite Remote Version`. The neutral "(or was deleted)" copy
+  /// matches the typed conflict message — a deleted target has no newer
+  /// version to overwrite.
+  Future<bool> _confirmRemoteOverwrite(
+    ManagedRemoteFile copy,
+    Bookmark bookmark,
+  ) async {
+    if (!mounted) return false;
+    final l10n = AppLocalizations.of(context);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.editorConflictTitle),
+        content: Text(
+          l10n.editorConflictBody(
+            remoteBasename(copy.remotePath),
+            bookmark.label,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.editorConflictCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.editorConflictOverwrite),
+          ),
+        ],
+      ),
+    );
+    return accepted ?? false;
+  }
+
+  /// Pushes the full-window editor route (06 §2.3), or focuses the live
+  /// one when [key]'s editor is already on the stack — §3.1's
+  /// one-editor-per-key rule: two editors on one checkout (or one local
+  /// path) would share a file and baseline, so the second open surfaces
+  /// the first instead of arming its save-conflict refusal.
+  Future<void> _pushEditorRoute({
+    required String key,
+    required File file,
+    required String? remotePath,
+    required String Function(String) basenameOf,
+    required Future<void> Function()? onSaved,
+    required Future<bool> Function()? onUpload,
+  }) async {
+    final existing = _editorRoutes[key];
+    if (existing != null && existing.isActive) {
+      final navigator = Navigator.of(context);
+      // Reveal by popping the covering routes one at a time so each
+      // editor's PopScope guard runs — popUntil would force-pop and
+      // silently drop unsaved changes. maybePop reports true even for
+      // a vetoed pop, so progress is judged by the guarded route
+      // actually leaving the top, never by the return value.
+      var unobserved = 0;
+      while (!existing.isCurrent) {
+        if (!mounted) return;
+        Route<void>? guarded;
+        for (final route in _editorRoutes.values) {
+          if (route.isActive && route.isCurrent) {
+            guarded = route;
+            break;
+          }
+        }
+        if (!await navigator.maybePop()) return;
+        if (guarded == null) {
+          // The covering route isn't a tracked editor — its fate is
+          // invisible here, and one that vetoes would spin this loop
+          // forever. Bound the unobserved pops instead of churning.
+          if (++unobserved >= 4) return;
+          continue;
+        }
+        unobserved = 0;
+        // A vetoed editor keeps its route and raises the discard
+        // dialog above it; wait for that choice. Discard kills the
+        // route and the reveal continues; Keep editing leaves it
+        // current and ends the reveal.
+        while (guarded.isActive && !guarded.isCurrent) {
+          await SchedulerBinding.instance.endOfFrame;
+          if (!mounted) return;
+        }
+        if (guarded.isActive) return;
+      }
+      return;
+    }
+    late final MaterialPageRoute<void> route;
+    route = MaterialPageRoute<void>(
+      builder: (routeContext) => BuiltInTextEditorScreen(
+        file: file,
+        remotePath: remotePath,
+        onSaved: onSaved,
+        onUpload: onUpload,
+        showToast: (toastContext, message) =>
+            showTopToastIn(toastContext, message: message),
+        monoFontFallback: poltergeistMonoFontFamilies,
+        basenameOf: basenameOf,
+      ),
+    );
+    _editorRoutes[key] = route;
+    unawaited(
+      route.popped.then((_) {
+        if (identical(_editorRoutes[key], route)) {
+          _editorRoutes.remove(key);
+        }
+      }),
+    );
+    unawaited(Navigator.of(context).push(route));
+  }
+
   /// The banner's cancel, sibling-aware (02 §2.7 in a two-pane, tabbed
   /// world): the engine keys pool references by serverId, so a plain
   /// disconnect would kill every tab and pane browsing the same server.
@@ -1150,7 +1368,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onReviewBlocked: session == null
           ? null
           : (server) =>
-              unawaited(session.reviewBlockedHostKey(server.serverId)),
+                unawaited(session.reviewBlockedHostKey(server.serverId)),
     );
   }
 
@@ -1181,9 +1399,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     if (bookmark.kind == BookmarkKind.localFolder &&
         bookmark.localPath == null) {
       ApplicationErrorReporter().report(
-        StateError(
-          'sidebar.open: localFolder ${bookmark.id} has no path',
-        ),
+        StateError('sidebar.open: localFolder ${bookmark.id} has no path'),
         StackTrace.current,
       );
       return;
@@ -1199,17 +1415,21 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     switch (bookmark.kind) {
       case BookmarkKind.localFolder:
         unawaited(
-          controller.openLocalAt(bookmark.localPath!).catchError(
-            (Object error, StackTrace stackTrace) =>
-                ApplicationErrorReporter().report(error, stackTrace),
-          ),
+          controller
+              .openLocalAt(bookmark.localPath!)
+              .catchError(
+                (Object error, StackTrace stackTrace) =>
+                    ApplicationErrorReporter().report(error, stackTrace),
+              ),
         );
       case BookmarkKind.remotePath:
         unawaited(
-          controller.connectRemote(bookmark).catchError(
-            (Object error, StackTrace stackTrace) =>
-                ApplicationErrorReporter().report(error, stackTrace),
-          ),
+          controller
+              .connectRemote(bookmark)
+              .catchError(
+                (Object error, StackTrace stackTrace) =>
+                    ApplicationErrorReporter().report(error, stackTrace),
+              ),
         );
       case BookmarkKind.workspace || BookmarkKind.savedSync:
         break; // answered above — the switch is exhaustive.
@@ -1332,9 +1552,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         // The row outlived its backing bookmark (deleted between render
         // and tap) — a silent dead tap would read as a broken button.
         ApplicationErrorReporter().report(
-          StateError(
-            'sidebar.connOpen: no bookmark for ${server.serverId}',
-          ),
+          StateError('sidebar.connOpen: no bookmark for ${server.serverId}'),
           StackTrace.current,
         );
         return;
@@ -1385,9 +1603,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// strip (the strip lives inside a pane; a workspace/saved-sync row
   /// opens no pane to strip into).
   void _showSidebarNotice(String message) {
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Runs one registered command. Escaping failures are reported — the
@@ -1537,10 +1755,8 @@ class _ActivitySection extends StatelessWidget {
           focusNode: splitterFocus,
           label: l10n.resizeActivityPanel,
           value: l10n.activityPanelHeightPx(height.round()),
-          increasedValue:
-              l10n.activityPanelHeightPx(height.round() + 16),
-          decreasedValue:
-              l10n.activityPanelHeightPx(height.round() - 16),
+          increasedValue: l10n.activityPanelHeightPx(height.round() + 16),
+          decreasedValue: l10n.activityPanelHeightPx(height.round() - 16),
           onResize: onResize,
           onResizeEnd: onResizeEnd,
         ),
@@ -1644,8 +1860,7 @@ class _TransferChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final platform = Theme.of(context).platform;
-    final live =
-        controller.tasks.where((task) => !task.isTerminal).length;
+    final live = controller.tasks.where((task) => !task.isTerminal).length;
     final down = controller.downloadLimit;
     final up = controller.uploadLimit;
     final rate = controller.aggregateRate;
@@ -1672,9 +1887,7 @@ class _TransferChips extends StatelessWidget {
           if (down != null || up != null)
             Flexible(
               child: Padding(
-                padding: EdgeInsetsDirectional.only(
-                  start: live > 0 ? 10 : 0,
-                ),
+                padding: EdgeInsetsDirectional.only(start: live > 0 ? 10 : 0),
                 child: Text(
                   key: const ValueKey('statusbar.limitChip'),
                   l10n.statusLimitChip(

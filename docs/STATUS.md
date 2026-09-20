@@ -6844,6 +6844,39 @@ upload). Core: 1347 passed / 21 skipped, analyze clean.
 Editor UI, external editors, Quick Look, and the §3.7 review surface
 remain future M7 slices; this lands the pipeline they all build on.
 
+## M7 — built-in editor (document I/O + syntax + checkout wiring) (2026-09-20)
+
+06's Séance-compatible editor lands as the second M7 slice, split
+across the §2.1/§2.3 seam (PORTS.md records every divergence):
+
+- **Document model** (`poltergeist_core/src/editor/`): BOM and
+  per-line-ending state are load-time facts reconstructed exactly on
+  save — BOM-present, BOM-less, CRLF, and mixed-EOL files round-trip
+  byte-identical. The atomic save writes a 0600
+  `.poltergeist-<uuid>.tmp` sibling before rename, the size cap refuses
+  oversized reads, and the `expectedSha256` guard is the
+  modified-on-disk conflict the UI surfaces (never bypasses).
+- **Syntax + find** (`ui/editor_syntax.dart` + the screen): the ported
+  tokenizer/engine covers 06 §7's language set incl. the data-only
+  additions; the find bar counts, navigates, wraps, and toggles case
+  per 06 §2.2.
+- **Checkout wiring** (06 §4.2): `file.editBuiltIn` registers per D21
+  (selection scope, ⌥⌘E / Ctrl+Alt+E, File menu order 63), opens a
+  remote row through the managed checkout download, and pushes the
+  editor route with the checkout session's `reconcile`/`uploadLocalCopy`
+  verbs. Save-and-upload rides the composed queue — the upload row is
+  panel-visible — and a remote that moved under the open checkout
+  surfaces the §3.4 overwrite dialog; cancel keeps the local save and
+  writes nothing.
+- **Captures**: `tasks/run3-task84/` (find bar mid-search, the
+  conflict-blocked save dialog) under `POLTERGEIST_CAPTURE=1`.
+
+Coverage: 28 core document tests, 16 editor widget tests, the syntax
+suite, the `file.editBuiltIn` command test, 3 shell-level
+editor-over-checkout integration tests, and the 2 capture tests.
+External editors, Quick Look, sync, and the §3.7 review surface remain
+open M7 slices.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

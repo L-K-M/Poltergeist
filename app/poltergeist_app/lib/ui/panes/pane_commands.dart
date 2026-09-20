@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
 
 import '../../services/pane_controller.dart';
 import '../../services/registered_command.dart';
@@ -14,6 +15,7 @@ const kGoEnclosingCommandId = 'go.enclosing';
 const kGoForwardCommandId = 'go.forward';
 const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
+const kFileEditBuiltInCommandId = 'file.editBuiltIn';
 const kFileGetInfoCommandId = 'file.getInfo';
 const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
@@ -44,6 +46,7 @@ List<RegisteredCommand> buildPaneCommands({
   required VoidCallback focusRight,
   required VoidCallback swapFocus,
   bool Function()? sidebarAvailable,
+
   /// Opens/closes the stage-1/2 overlay drawer the sidebar mounts in —
   /// the shell supplies its own Scaffold key (a command-run context sits
   /// above that Scaffold, so `Scaffold.maybeOf` cannot find it). Null
@@ -67,9 +70,7 @@ List<RegisteredCommand> buildPaneCommands({
         macOS: const [
           SingleActivator(LogicalKeyboardKey.bracketLeft, meta: true),
         ],
-        other: const [
-          SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true),
-        ],
+        other: const [SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true)],
       ),
       // Disabled at the trail's start (02 §2.1) and on a pane with no
       // live channel — canGoBack is the single definition of both.
@@ -78,10 +79,7 @@ List<RegisteredCommand> buildPaneCommands({
         activeTab()?.goBack();
       },
       // 02 §9's Go menu leads with Back/Forward.
-      menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.go,
-        order: 10,
-      ),
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 10),
     ),
     RegisteredCommand(
       id: kGoForwardCommandId,
@@ -101,10 +99,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goForward();
       },
-      menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.go,
-        order: 20,
-      ),
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 20),
     ),
     RegisteredCommand(
       id: kGoEnclosingCommandId,
@@ -121,10 +116,7 @@ List<RegisteredCommand> buildPaneCommands({
       },
       // 02 §9's Go menu: Back, Forward, Enclosing Folder, Home, then
       // the path-field commands — slot 40 stays open for Home.
-      menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.go,
-        order: 30,
-      ),
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 30),
     ),
     RegisteredCommand(
       id: kGoToFolderCommandId,
@@ -145,10 +137,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.goToFolder();
       },
-      menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.go,
-        order: 50,
-      ),
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 50),
     ),
     RegisteredCommand(
       id: kGoEditPathCommandId,
@@ -164,10 +153,7 @@ List<RegisteredCommand> buildPaneCommands({
       run: (_) async {
         activeTab()?.editPath();
       },
-      menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.go,
-        order: 60,
-      ),
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 60),
     ),
     RegisteredCommand(
       id: kGoOpenCommandId,
@@ -209,6 +195,58 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.file,
         order: 60,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
+      id: kFileEditBuiltInCommandId,
+      scope: CommandScope.selection,
+      label: (l10n) => l10n.fileEditBuiltInLabel,
+      icon: Icons.edit_note_outlined,
+      // ⌥⌘E on macOS, Ctrl+Alt+E elsewhere (02 §8.3's table).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyE, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyE, control: true, alt: true),
+        ],
+      ),
+      // The cursor's FILE row is the editor's target (06 §4.2): files
+      // and symlinks qualify — a remote symlink's checkout refuses with
+      // the typed unsupported error and a local one resolves at open —
+      // directories and untyped entries do not.
+      enabled: () {
+        final pane = activeTab();
+        final cursor = pane?.cursorIndex;
+        if (pane == null ||
+            !pane.verbsEnabled ||
+            cursor == null ||
+            cursor < 0 ||
+            cursor >= pane.entries.length) {
+          return false;
+        }
+        final type = pane.entries[cursor].type;
+        return type == RemoteFileType.file ||
+            type == RemoteFileType.symbolicLink;
+      },
+      run: (_) async {
+        final pane = activeTab();
+        final cursor = pane?.cursorIndex;
+        if (pane == null ||
+            cursor == null ||
+            cursor < 0 ||
+            cursor >= pane.entries.length) {
+          return;
+        }
+        await pane.editInBuiltInEditor(pane.entries[cursor]);
+      },
+      // 02 §9's File menu: Open, the (unregistered) Open With ▸ slot,
+      // Edit in Poltergeist, then Get Info — order 63 leaves the Open
+      // With slot open between 60 and this one.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 63,
         group: 1,
       ),
     ),
@@ -420,10 +458,7 @@ List<RegisteredCommand> buildPaneCommands({
       },
       // 02 §9's Go menu: after Edit Path and the (unregistered) Recent
       // slot, before Open in Terminal.
-      menuPlacement: const CommandMenuPlacement(
-        menu: AppMenuId.go,
-        order: 80,
-      ),
+      menuPlacement: const CommandMenuPlacement(menu: AppMenuId.go, order: 80),
     ),
     RegisteredCommand(
       id: kPaneFocusLeftCommandId,
@@ -658,9 +693,7 @@ List<RegisteredCommand> buildPaneCommands({
             shift: true,
           ),
         ],
-        other: const [
-          SingleActivator(LogicalKeyboardKey.tab, control: true),
-        ],
+        other: const [SingleActivator(LogicalKeyboardKey.tab, control: true)],
       ),
       enabled: () => workspace.activePane.tabs.length >= 2,
       run: (_) async {

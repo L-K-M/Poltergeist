@@ -86,6 +86,14 @@ final class CheckoutSession extends ChangeNotifier {
     overwriteRemoteChanges: overwriteRemoteChanges,
   );
 
+  /// The editor's `onSaved` hook (06 §2.4): a per-copy local re-hash —
+  /// dirty/missing flags and the §2.1 save-temp sweep — plus the §3.4
+  /// stat-only repair when the record needs it. Never touches content
+  /// and never throws: `onSaved` runs inside the save's `finally`, where
+  /// an escaping error would replace the original upload error, so
+  /// failures report through the manager's `onError` instead.
+  Future<void> reconcile(ManagedRemoteFile copy) => _manager.reconcile(copy);
+
   /// Discard: plaintext first, then the record (06 §3.6).
   Future<void> discard(ManagedRemoteFile copy) => _manager.discard(copy);
 

@@ -593,6 +593,77 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   `unsupported` error until STATUS item 23 (engine transfer verbs)
   lands — honest refusal, never a simulated success.
 
+## packages/poltergeist_core/lib/src/editor/built_in_text_document.dart
+
+- Source: app/seance_app/lib/ui/built_in_text_editor.dart (the pure
+  document-I/O layer — load, the atomic temp+rename save, and the size
+  cap — extracted per 06 §2.1)
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: the document carries 06 §2.1's fidelity contract Séance
+  leaves implicit — LF/no-BOM in-memory invariants with the original
+  BOM and per-line endings reconstructed exactly on save (mixed-EOL
+  files round-trip byte-identical), a `LineEnding` enum, and typed
+  `BuiltInEditorException`s. The save writes a
+  `.poltergeist-<uuid>.tmp` sibling at owner-only 0600 through
+  `restrictLocalPathPermissions` before rename (Séance's temp is
+  fixed-name, default-mode), and the `expectedSha256` guard is the
+  modified-on-disk conflict check the editor's conflict flow hangs on.
+- Port-back candidates: the BOM/EOL reconstruction contract and the
+  expected-digest save guard.
+
+## app/poltergeist_app/lib/ui/editor_syntax.dart
+
+- Source: app/seance_app/lib/ui/editor_syntax.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: tokenizer, controller, and engine semantics are
+  verbatim; the `EditorSyntaxTheme` values are Poltergeist's teal-seed
+  palette (06 §2.2), and §7's data-only additions extend the language
+  table (css, ruby, perl, lua, the Apache dot-config mappings,
+  env-aware shebangs) without touching the engine.
+- Port-back candidates: none — palette and table entries are
+  Poltergeist data.
+
+## app/poltergeist_app/lib/ui/built_in_text_editor.dart
+
+- Source: app/seance_app/lib/ui/built_in_text_editor.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences per 06 §2.3/§2.5: document I/O lives in
+  `poltergeist_core` (`BuiltInTextDocument`); the toast presenter,
+  mono-font stack, and basename resolver are injected seams instead of
+  `SeanceTheme`/`remoteBasename` hardcodes; all user-visible copy
+  resolves through `AppLocalizations` (D20). The save callback returns
+  the new baseline digest so the next save's `expectedSha256` stays
+  armed. `onSaved`/`onUpload` carry the checkout session's reconcile
+  and upload verbs — save-and-upload on a managed checkout rides the
+  composed queue and surfaces the typed `conflict` as 06 §3.4's
+  overwrite dialog; cancel keeps the local save and uploads nothing.
+- Port-back candidates: none — the seams exist so Poltergeist's
+  checkout pipeline owns the conflict authority.
+
+## Editor tests and captures (M7)
+
+- Sources: app/seance_app/test/built_in_text_editor_test.dart and
+  app/seance_app/test/editor_syntax_test.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: the Séance suite splits along the seam —
+  `packages/poltergeist_core/test/editor/built_in_text_document_test.dart`
+  takes the document half (BOM-present/BOM-less/CRLF/mixed-EOL
+  round-trips, size cap, atomic-temp window) and
+  `app/poltergeist_app/test/ui/built_in_text_editor_test.dart` keeps
+  the widget half plus §2.5 production-path saves through the real
+  document saver. New Poltergeist-only suites:
+  `test/ui/workspace/built_in_editor_checkout_test.dart` drives the
+  shell-level path — `file.editBuiltIn` → checkout → edit →
+  save-and-upload through the composed queue, the conflict-blocked
+  save that never uploads, and overwrite — and
+  `test/ui/built_in_editor_capture_test.dart` produces the §-required
+  PNGs (find bar, conflict dialog) under `POLTERGEIST_CAPTURE=1`.
+- Port-back candidates: none.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

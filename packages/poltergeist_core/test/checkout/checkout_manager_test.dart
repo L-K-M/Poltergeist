@@ -56,13 +56,12 @@ void main() {
     return created;
   }
 
-  Stream<FileSystemEvent> fakeWatch(String directoryPath) =>
-      watchStreams
-          .putIfAbsent(
-            directoryPath,
-            () => StreamController<FileSystemEvent>.broadcast(),
-          )
-          .stream;
+  Stream<FileSystemEvent> fakeWatch(String directoryPath) => watchStreams
+      .putIfAbsent(
+        directoryPath,
+        () => StreamController<FileSystemEvent>.broadcast(),
+      )
+      .stream;
 
   CheckoutManager newManager({
     Duration watchDebounce = const Duration(milliseconds: 10),
@@ -150,65 +149,55 @@ void main() {
   /// Fires a watch event in the record's parent directory.
   void emitWatchEvent(ManagedRemoteFile record, String name) {
     final dir = manager.localFile(record).parent.path;
-    watchStreams[dir]!.add(
-      FileSystemModifyEvent('$dir/$name', false, true),
-    );
+    watchStreams[dir]!.add(FileSystemModifyEvent('$dir/$name', false, true));
   }
 
   String basenameOf(ManagedRemoteFile record) =>
       record.localPath.split(RegExp(r'[\\/]')).last;
 
   group('checkout', () {
+    test('downloads through the queue into a durable, hashed record', () async {
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+
+      final local = manager.localFile(record);
+      expect(await local.readAsString(), 'remote contents');
+      expect(record.serverId, 's1');
+      // editSessionId is the per-server identity — never a pane/tab id.
+      expect(record.editSessionId, 's1');
+      expect(record.remotePath, '/home/test/file.txt');
+      final digest = sha256.convert(utf8.encode('remote contents')).toString();
+      expect(record.baselineSha256, digest);
+      expect(record.remoteSnapshot.contentSha256, digest);
+      expect(record.remoteSnapshot.size, entry.size);
+      expect(record.dirty, isFalse);
+      expect(record.missing, isFalse);
+      expect(record.needsReconcile, isFalse);
+      if (!Platform.isWindows) {
+        expect((await local.stat()).modeString(), 'rw-------');
+      }
+
+      // The hop rode the shared queue — visible to the activity panel.
+      final task = queue.tasks.single;
+      expect(task.spec.managedCheckout, isNotNull);
+      expect(
+        task.spec.managedCheckout!.direction,
+        ManagedCheckoutDirection.download,
+      );
+      expect(task.state, TransferTaskState.completed);
+      expect(queueEvents.whereType<TransferQueueItemEvent>(), isNotEmpty);
+    });
+
     test(
-      'downloads through the queue into a durable, hashed record',
+      'a second checkout of the same path dedupes onto the record',
       () async {
         final entry = await remoteStat('/home/test/file.txt');
-        final record = await manager.checkout(serverId: 's1', entry: entry);
-
-        final local = manager.localFile(record);
-        expect(await local.readAsString(), 'remote contents');
-        expect(record.serverId, 's1');
-        // editSessionId is the per-server identity — never a pane/tab id.
-        expect(record.editSessionId, 's1');
-        expect(record.remotePath, '/home/test/file.txt');
-        final digest =
-            sha256.convert(utf8.encode('remote contents')).toString();
-        expect(record.baselineSha256, digest);
-        expect(record.remoteSnapshot.contentSha256, digest);
-        expect(record.remoteSnapshot.size, entry.size);
-        expect(record.dirty, isFalse);
-        expect(record.missing, isFalse);
-        expect(record.needsReconcile, isFalse);
-        if (!Platform.isWindows) {
-          expect(
-            (await local.stat()).modeString(),
-            'rw-------',
-          );
-        }
-
-        // The hop rode the shared queue — visible to the activity panel.
-        final task = queue.tasks.single;
-        expect(task.spec.managedCheckout, isNotNull);
-        expect(
-          task.spec.managedCheckout!.direction,
-          ManagedCheckoutDirection.download,
-        );
-        expect(task.state, TransferTaskState.completed);
-        expect(
-          queueEvents.whereType<TransferQueueItemEvent>(),
-          isNotEmpty,
-        );
+        final first = await manager.checkout(serverId: 's1', entry: entry);
+        final second = await manager.checkout(serverId: 's1', entry: entry);
+        expect(identical(first, second) || first.id == second.id, isTrue);
+        expect(queue.tasks, hasLength(1));
       },
     );
-
-    test('a second checkout of the same path dedupes onto the record',
-        () async {
-      final entry = await remoteStat('/home/test/file.txt');
-      final first = await manager.checkout(serverId: 's1', entry: entry);
-      final second = await manager.checkout(serverId: 's1', entry: entry);
-      expect(identical(first, second) || first.id == second.id, isTrue);
-      expect(queue.tasks, hasLength(1));
-    });
 
     test('a non-file entry is refused', () async {
       await s1.createDirectory('/home/test/dir');
@@ -223,9 +212,16 @@ void main() {
       final entry = await remoteStat('/home/test/file.txt');
       await expectLater(
         manager.checkout(serverId: 's1', entry: entry, maximumBytes: 4),
-        throwsStateError,
+        throwsA(
+          isA<CheckoutLimitException>().having(
+            (error) => error.toString(),
+            'message',
+            'The file is larger than the 4-byte editor limit.',
+          ),
+        ),
       );
-      // Remote entries that report no size are caught after download.
+      // Remote entries that report no size are caught mid-download by
+      // the stream cap, or on the post-download length check.
       s1.addFile('/home/test/big.txt', List.filled(64, 0x61));
       final big = await remoteStat('/home/test/big.txt');
       final understated = RemoteFileEntry(
@@ -235,36 +231,41 @@ void main() {
         modifiedAt: big.modifiedAt,
       );
       await expectLater(
-        manager.checkout(
-          serverId: 's1',
-          entry: understated,
-          maximumBytes: 16,
-        ),
-        throwsStateError,
-      );
-    });
-
-    test('the free-space preflight refuses a checkout that cannot fit',
-        () async {
-      final tight = newManager(freeSpaceBytes: (_) async => 4);
-      await tight.start();
-      final entry = await remoteStat('/home/test/file.txt');
-      await expectLater(
-        tight.checkout(serverId: 's1', entry: entry),
+        manager.checkout(serverId: 's1', entry: understated, maximumBytes: 16),
         throwsA(
-          isA<RemoteFileException>().having(
-            (e) => e.operation,
-            'operation',
-            'checkout',
+          isA<CheckoutLimitException>().having(
+            (error) => error.toString(),
+            'message',
+            'The file is larger than the 16-byte editor limit.',
           ),
         ),
       );
+      // The refused download left no record or partial file behind.
+      expect(manager.copiesFor('s1'), isEmpty);
     });
+
+    test(
+      'the free-space preflight refuses a checkout that cannot fit',
+      () async {
+        final tight = newManager(freeSpaceBytes: (_) async => 4);
+        await tight.start();
+        final entry = await remoteStat('/home/test/file.txt');
+        await expectLater(
+          tight.checkout(serverId: 's1', entry: entry),
+          throwsA(
+            isA<RemoteFileException>().having(
+              (e) => e.operation,
+              'operation',
+              'checkout',
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('watching and reconciliation', () {
-    test('a local edit marks the record dirty after the debounce',
-        () async {
+    test('a local edit marks the record dirty after the debounce', () async {
       final entry = await remoteStat('/home/test/file.txt');
       final record = await manager.checkout(serverId: 's1', entry: entry);
 
@@ -277,8 +278,7 @@ void main() {
       expect(updated.missing, isFalse);
     });
 
-    test('a burst of sibling events coalesces into one reconcile',
-        () async {
+    test('a burst of sibling events coalesces into one reconcile', () async {
       final entry = await remoteStat('/home/test/file.txt');
       final record = await manager.checkout(serverId: 's1', entry: entry);
       var changes = 0;
@@ -300,8 +300,9 @@ void main() {
         var changes = 0;
         final sub = manager.changes.listen((_) => changes++);
         final dir = manager.localFile(record).parent.path;
-        void fire(String name) => watchStreams[dir]!
-            .add(FileSystemModifyEvent('$dir/$name', false, true));
+        void fire(String name) => watchStreams[dir]!.add(
+          FileSystemModifyEvent('$dir/$name', false, true),
+        );
 
         fire('x.poltergeist-abcdef12.upload');
         fire('.poltergeist-abcdef12.tmp');
@@ -318,16 +319,40 @@ void main() {
       },
     );
 
+    test('the per-copy reconcile rehashes on demand — the editor '
+        'onSaved hook', () async {
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+      await manager.localFile(record).writeAsString('saved edit');
+
+      // No watch event, no debounce wait — 06 §2.3's onSaved seam
+      // drives the rehash directly and never throws.
+      await manager.reconcile(record);
+      await pump();
+
+      final updated = manager.copiesFor('s1')[record.remotePath]!;
+      expect(updated.dirty, isTrue);
+      expect(errors, isEmpty);
+    });
+
+    test('the per-copy reconcile never throws on a vanished record', () async {
+      final entry = await remoteStat('/home/test/file.txt');
+      final record = await manager.checkout(serverId: 's1', entry: entry);
+      await store.remove(record.id);
+
+      await manager.reconcile(record);
+      await pump();
+
+      expect(errors, isEmpty);
+    });
+
     test('reconcileOnResume catches edits the watcher missed', () async {
       final entry = await remoteStat('/home/test/file.txt');
       final record = await manager.checkout(serverId: 's1', entry: entry);
       await manager.localFile(record).writeAsString('silent edit');
 
       await manager.reconcileOnResume();
-      expect(
-        manager.copiesFor('s1')[record.remotePath]!.dirty,
-        isTrue,
-      );
+      expect(manager.copiesFor('s1')[record.remotePath]!.dirty, isTrue);
 
       await manager.localFile(record).delete();
       await manager.reconcileOnResume();
@@ -336,8 +361,7 @@ void main() {
       expect(updated.dirty, isFalse);
     });
 
-    test('records survive a manager relaunch with reconciled state',
-        () async {
+    test('records survive a manager relaunch with reconciled state', () async {
       final entry = await remoteStat('/home/test/file.txt');
       final record = await manager.checkout(serverId: 's1', entry: entry);
       final localPath = manager.localFile(record).path;
@@ -360,8 +384,7 @@ void main() {
       expect(restored.editSessionId, 's1');
     });
 
-    test('a checkout file deleted while dead restores as missing',
-        () async {
+    test('a checkout file deleted while dead restores as missing', () async {
       final entry = await remoteStat('/home/test/file.txt');
       final record = await manager.checkout(serverId: 's1', entry: entry);
       final localPath = manager.localFile(record).path;
@@ -390,10 +413,7 @@ void main() {
 
       expect(await manager.uploadLocalCopy(record), isTrue);
 
-      expect(
-        utf8.decode(s1.fileBytes['/home/test/file.txt']!),
-        'saved edit',
-      );
+      expect(utf8.decode(s1.fileBytes['/home/test/file.txt']!), 'saved edit');
       final updated = manager.copiesFor('s1')[record.remotePath]!;
       expect(updated.dirty, isFalse);
       final digest = sha256.convert(utf8.encode('saved edit')).toString();
@@ -411,43 +431,45 @@ void main() {
       expect(task.state, TransferTaskState.completed);
     });
 
-    test('a remote change blocks the save and preserves local content',
-        () async {
-      final record = await checkedOut();
-      await manager.localFile(record).writeAsString('saved edit');
-      s1.addFile(
-        '/home/test/file.txt',
-        utf8.encode('someone else wrote this'),
-      );
+    test(
+      'a remote change blocks the save and preserves local content',
+      () async {
+        final record = await checkedOut();
+        await manager.localFile(record).writeAsString('saved edit');
+        s1.addFile(
+          '/home/test/file.txt',
+          utf8.encode('someone else wrote this'),
+        );
 
-      await expectLater(
-        manager.uploadLocalCopy(record),
-        throwsA(
-          isA<RemoteFileException>().having(
-            (e) => e.kind,
-            'kind',
-            RemoteFileErrorKind.conflict,
+        await expectLater(
+          manager.uploadLocalCopy(record),
+          throwsA(
+            isA<RemoteFileException>().having(
+              (e) => e.kind,
+              'kind',
+              RemoteFileErrorKind.conflict,
+            ),
           ),
-        ),
-      );
-      // Remote untouched; local dirty copy preserved for resolution.
-      expect(
-        utf8.decode(s1.fileBytes['/home/test/file.txt']!),
-        'someone else wrote this',
-      );
-      expect(await manager.localFile(record).readAsString(), 'saved edit');
-      // The preflight stat already proved divergence — no upload ever
-      // reached the fake, no upload task was enqueued.
-      expect(s1.uploadCalls, 0);
-      expect(
-        queue.tasks.where(
-          (t) =>
-              t.spec.managedCheckout?.direction ==
-              ManagedCheckoutDirection.upload,
-        ),
-        isEmpty,
-      );
-    });
+        );
+        // Remote untouched; local dirty copy preserved for resolution.
+        expect(
+          utf8.decode(s1.fileBytes['/home/test/file.txt']!),
+          'someone else wrote this',
+        );
+        expect(await manager.localFile(record).readAsString(), 'saved edit');
+        // The preflight stat already proved divergence — no upload ever
+        // reached the fake, no upload task was enqueued.
+        expect(s1.uploadCalls, 0);
+        expect(
+          queue.tasks.where(
+            (t) =>
+                t.spec.managedCheckout?.direction ==
+                ManagedCheckoutDirection.upload,
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test(
       'D7: a same-size same-mtime tamper still conflicts on the digest',
@@ -500,51 +522,43 @@ void main() {
       );
     });
 
+    test('overwriteRemoteChanges drops the CAS and lands the save', () async {
+      final record = await checkedOut();
+      await manager.localFile(record).writeAsString('forced save');
+      s1.addFile('/home/test/file.txt', utf8.encode('remote churn'));
+
+      expect(
+        await manager.uploadLocalCopy(record, overwriteRemoteChanges: true),
+        isTrue,
+      );
+      expect(utf8.decode(s1.fileBytes['/home/test/file.txt']!), 'forced save');
+      // The overwrite hop carried no expectedTarget.
+      expect(queue.tasks.last.spec.managedCheckout!.expectedTarget, isNull);
+    });
+
     test(
-      'overwriteRemoteChanges drops the CAS and lands the save',
+      'concurrent saves of one record share a single upload flight',
       () async {
         final record = await checkedOut();
-        await manager.localFile(record).writeAsString('forced save');
-        s1.addFile('/home/test/file.txt', utf8.encode('remote churn'));
-
+        await manager.localFile(record).writeAsString('saved edit');
+        final first = manager.uploadLocalCopy(record);
+        final second = manager.uploadLocalCopy(record);
+        // Same conflict semantics coalesce onto the one in-flight save —
+        // the futures are distinct wrappers over the shared flight.
+        expect(await first, isTrue);
+        expect(await second, isTrue);
         expect(
-          await manager.uploadLocalCopy(
-            record,
-            overwriteRemoteChanges: true,
-          ),
-          isTrue,
+          queue.tasks
+              .where(
+                (t) =>
+                    t.spec.managedCheckout?.direction ==
+                    ManagedCheckoutDirection.upload,
+              )
+              .length,
+          1,
         );
-        expect(
-          utf8.decode(s1.fileBytes['/home/test/file.txt']!),
-          'forced save',
-        );
-        // The overwrite hop carried no expectedTarget.
-        expect(queue.tasks.last.spec.managedCheckout!.expectedTarget,
-            isNull);
       },
     );
-
-    test('concurrent saves of one record share a single upload flight',
-        () async {
-      final record = await checkedOut();
-      await manager.localFile(record).writeAsString('saved edit');
-      final first = manager.uploadLocalCopy(record);
-      final second = manager.uploadLocalCopy(record);
-      // Same conflict semantics coalesce onto the one in-flight save —
-      // the futures are distinct wrappers over the shared flight.
-      expect(await first, isTrue);
-      expect(await second, isTrue);
-      expect(
-        queue.tasks
-            .where(
-              (t) =>
-                  t.spec.managedCheckout?.direction ==
-                  ManagedCheckoutDirection.upload,
-            )
-            .length,
-        1,
-      );
-    });
 
     test(
       'a degraded snapshot repairs remotely and clears needsReconcile',
@@ -578,37 +592,33 @@ void main() {
       },
     );
 
-    test(
-      'a needsReconcile record whose remote moved stays marked',
-      () async {
-        final record = await checkedOut();
-        var failStats = true;
-        s1.statFailure = (path) => failStats && s1.uploadCalls > 0
-            ? RemoteFileException(
-                kind: RemoteFileErrorKind.other,
-                operation: 'stat',
-                path: path,
-                message: 'stat exploded',
-              )
-            : null;
-        await manager.localFile(record).writeAsString('saved edit');
-        await manager.uploadLocalCopy(record);
-        failStats = false;
-        // Remote diverged from the synthesized snapshot's digest.
-        s1.addFile('/home/test/file.txt', utf8.encode('remote churn again'));
+    test('a needsReconcile record whose remote moved stays marked', () async {
+      final record = await checkedOut();
+      var failStats = true;
+      s1.statFailure = (path) => failStats && s1.uploadCalls > 0
+          ? RemoteFileException(
+              kind: RemoteFileErrorKind.other,
+              operation: 'stat',
+              path: path,
+              message: 'stat exploded',
+            )
+          : null;
+      await manager.localFile(record).writeAsString('saved edit');
+      await manager.uploadLocalCopy(record);
+      failStats = false;
+      // Remote diverged from the synthesized snapshot's digest.
+      s1.addFile('/home/test/file.txt', utf8.encode('remote churn again'));
 
-        await manager.reconcileOnResume();
-        expect(
-          manager.copiesFor('s1')[record.remotePath]!.needsReconcile,
-          isTrue,
-        );
-      },
-    );
+      await manager.reconcileOnResume();
+      expect(
+        manager.copiesFor('s1')[record.remotePath]!.needsReconcile,
+        isTrue,
+      );
+    });
   });
 
   group('rename migration', () {
-    test('a remote rename re-keys the record and the save target',
-        () async {
+    test('a remote rename re-keys the record and the save target', () async {
       final entry = await remoteStat('/home/test/file.txt');
       final record = await manager.checkout(serverId: 's1', entry: entry);
       await s1.rename('/home/test/file.txt', '/home/test/renamed.txt');
@@ -623,8 +633,7 @@ void main() {
       expect(moved.id, record.id);
       expect(moved.remoteSnapshot.path, '/home/test/renamed.txt');
       // The local checkout file did not move.
-      expect(manager.localFile(moved).path,
-          manager.localFile(record).path);
+      expect(manager.localFile(moved).path, manager.localFile(record).path);
 
       await manager.localFile(moved).writeAsString('post-rename save');
       expect(await manager.uploadLocalCopy(moved), isTrue);
@@ -644,24 +653,21 @@ void main() {
         oldPath: '/dir',
         newPath: '/dir2',
       );
-      expect(
-        manager.checkoutFor('s1', '/dir2/sub/leaf.txt')!.id,
-        record.id,
-      );
+      expect(manager.checkoutFor('s1', '/dir2/sub/leaf.txt')!.id, record.id);
     });
 
-    test('an arrival onto an occupied path displaces the occupant',
-        () async {
+    test('an arrival onto an occupied path displaces the occupant', () async {
       final entryA = await remoteStat('/home/test/file.txt');
       s1.addFile('/home/test/other.txt', utf8.encode('other bytes'));
       final entryB = await remoteStat('/home/test/other.txt');
-      final recordA =
-          await manager.checkout(serverId: 's1', entry: entryA);
-      final recordB =
-          await manager.checkout(serverId: 's1', entry: entryB);
+      final recordA = await manager.checkout(serverId: 's1', entry: entryA);
+      final recordB = await manager.checkout(serverId: 's1', entry: entryB);
 
-      await s1.rename('/home/test/other.txt', '/home/test/file.txt',
-          overwrite: true);
+      await s1.rename(
+        '/home/test/other.txt',
+        '/home/test/file.txt',
+        overwrite: true,
+      );
       await manager.migrateRename(
         serverId: 's1',
         oldPath: '/home/test/other.txt',
@@ -709,8 +715,7 @@ void main() {
       );
     });
 
-    test('recovered recordless payloads list and forget explicitly',
-        () async {
+    test('recovered recordless payloads list and forget explicitly', () async {
       // A payload-bearing dir the index never recorded — preserved by
       // the sweep, surfaced for explicit review.
       final orphan = Directory('${checkoutRoot.path}/orphan-dir');
@@ -1001,44 +1006,46 @@ void main() {
       },
     );
 
-    test('two mismatched waiters coalesce onto one serialized flight',
-        () async {
-      final entry = await remoteStat('/home/test/file.txt');
-      final record = await manager.checkout(serverId: 's1', entry: entry);
-      await manager.localFile(record).writeAsString('v1');
-      final gate1 = Completer<void>();
-      final gate2 = Completer<void>();
-      var useSecondGate = false;
-      s1.uploadGate = (_) => useSecondGate ? gate2 : gate1;
-      final casSave = manager.uploadLocalCopy(record);
-      await pumpUntil(
-        () => s1.uploadCalls > 0,
-        reason: 'first upload never reached the gate',
-      );
+    test(
+      'two mismatched waiters coalesce onto one serialized flight',
+      () async {
+        final entry = await remoteStat('/home/test/file.txt');
+        final record = await manager.checkout(serverId: 's1', entry: entry);
+        await manager.localFile(record).writeAsString('v1');
+        final gate1 = Completer<void>();
+        final gate2 = Completer<void>();
+        var useSecondGate = false;
+        s1.uploadGate = (_) => useSecondGate ? gate2 : gate1;
+        final casSave = manager.uploadLocalCopy(record);
+        await pumpUntil(
+          () => s1.uploadCalls > 0,
+          reason: 'first upload never reached the gate',
+        );
 
-      // Both overwrite saves sleep on the CAS flight; when it lands,
-      // the second waiter must find the first waiter's flight in the
-      // map — never fork a duplicate upload of the same record.
-      final waitA = manager.uploadLocalCopy(
-        record,
-        overwriteRemoteChanges: true,
-      );
-      final waitB = manager.uploadLocalCopy(
-        record,
-        overwriteRemoteChanges: true,
-      );
-      useSecondGate = true;
-      gate1.complete();
-      expect(await casSave, isTrue);
-      await pumpUntil(
-        () => s1.uploadCalls > 1,
-        reason: 'serialized upload never reached the second gate',
-      );
-      gate2.complete();
-      expect(await waitA, isTrue);
-      expect(await waitB, isTrue);
-      expect(s1.uploadCalls, 2);
-    });
+        // Both overwrite saves sleep on the CAS flight; when it lands,
+        // the second waiter must find the first waiter's flight in the
+        // map — never fork a duplicate upload of the same record.
+        final waitA = manager.uploadLocalCopy(
+          record,
+          overwriteRemoteChanges: true,
+        );
+        final waitB = manager.uploadLocalCopy(
+          record,
+          overwriteRemoteChanges: true,
+        );
+        useSecondGate = true;
+        gate1.complete();
+        expect(await casSave, isTrue);
+        await pumpUntil(
+          () => s1.uploadCalls > 1,
+          reason: 'serialized upload never reached the second gate',
+        );
+        gate2.complete();
+        expect(await waitA, isTrue);
+        expect(await waitB, isTrue);
+        expect(s1.uploadCalls, 2);
+      },
+    );
 
     test('continuous sibling noise cannot starve reconciliation', () async {
       final throttled = newManager(
