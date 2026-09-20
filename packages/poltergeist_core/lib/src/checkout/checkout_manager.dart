@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
 import '../connection/connection_manager.dart';
+import '../editor/built_in_text_document.dart';
 import '../fs/local_fs_safety.dart';
 import '../transfer/transfer_queue.dart';
 import '../transfer/transfer_task.dart';
@@ -60,8 +61,7 @@ final class CheckoutManager {
   final ManagedRemoteFileStore _store;
   final ConnectionManager _connections;
   final ManagedCheckoutQueue _queue;
-  final Stream<FileSystemEvent> Function(String directoryPath)
-  _watchDirectory;
+  final Stream<FileSystemEvent> Function(String directoryPath) _watchDirectory;
 
   /// Per-checkout debounce — injectable so tests never pay real 600 ms.
   final Duration watchDebounce;
@@ -118,10 +118,9 @@ final class CheckoutManager {
   /// Re-keyed records whose remotePath a rename arrival claimed — the
   /// §3.7 review surface lists these as recovered edits; they are still
   /// watched and still save toward their original remotePath under CAS.
-  List<ManagedRemoteFile> displacedFor(String serverId) =>
-      _records.values
-          .where((r) => r.serverId == serverId && r.displaced)
-          .toList();
+  List<ManagedRemoteFile> displacedFor(String serverId) => _records.values
+      .where((r) => r.serverId == serverId && r.displaced)
+      .toList();
 
   /// Preserved recordless checkout payloads — never uploadable, only
   /// reviewable/disposable through [forgetRecovered].
@@ -200,15 +199,11 @@ final class CheckoutManager {
     int? maximumBytes,
   }) async {
     if (entry.type != RemoteFileType.file) {
-      throw StateError(
-        'Only regular remote files can be opened for editing.',
-      );
+      throw StateError('Only regular remote files can be opened for editing.');
     }
     final existing = _records.values.where(
       (r) =>
-          r.serverId == serverId &&
-          !r.displaced &&
-          r.remotePath == entry.path,
+          r.serverId == serverId && !r.displaced && r.remotePath == entry.path,
     );
     if (existing.isNotEmpty) return existing.first;
     final key = (serverId, entry.path);
@@ -256,7 +251,7 @@ final class CheckoutManager {
     if (maximumBytes != null &&
         entry.size != null &&
         entry.size! > maximumBytes) {
-      throw StateError(
+      throw CheckoutLimitException(
         'The file is larger than the $maximumBytes-byte editor limit.',
       );
     }
@@ -293,13 +288,34 @@ final class CheckoutManager {
           localPath: local.path,
           direction: ManagedCheckoutDirection.download,
           expectedSize: entry.size,
+          // The stream cap is the unknown-size guard: a listing entry
+          // with no size aborts mid-download at the limit (06 §3.2).
+          maximumBytes: maximumBytes,
         ),
       );
-      final remoteEntry = await _awaitTask(task);
+      RemoteFileEntry remoteEntry;
+      try {
+        remoteEntry = await _awaitTask(task);
+      } on RemoteFileException catch (error) {
+        // The stream cap aborts an unknown-size download mid-pipe and
+        // the queue's error attribution wraps the typed limit error
+        // ('transfer source: …'). The partial file cannot re-derive it —
+        // the cap counts bytes READ while BoundedTransferSink may hold
+        // the tail unflushed — so the pin is the cap's own §3.2 message
+        // suffix, which only MaximumByteSink produces.
+        if (maximumBytes != null &&
+            error.message.endsWith('-byte editor limit.')) {
+          throw CheckoutLimitException(
+            'The file is larger than the $maximumBytes-byte '
+            'editor limit.',
+          );
+        }
+        rethrow;
+      }
       if (maximumBytes != null) {
         final length = await local.length();
         if (length > maximumBytes) {
-          throw StateError(
+          throw CheckoutLimitException(
             'The file is larger than the $maximumBytes-byte editor limit.',
           );
         }
@@ -331,9 +347,7 @@ final class CheckoutManager {
         baselineSha256: digest,
       );
       if (_disposed) {
-        throw StateError(
-          'The file session closed before checkout completed.',
-        );
+        throw StateError('The file session closed before checkout completed.');
       }
       // 06 §3.5's final-key re-validation runs inside the store's
       // serialized section: a rename race may have seated another live
@@ -343,9 +357,7 @@ final class CheckoutManager {
       await _store.clearCheckoutInFlight(localPath);
       if (_disposed) {
         await _store.remove(record.id);
-        throw StateError(
-          'The file session closed before checkout completed.',
-        );
+        throw StateError('The file session closed before checkout completed.');
       }
       _records[record.id] = record;
       _watch(record);
@@ -412,11 +424,7 @@ final class CheckoutManager {
       try {
         latest = await _statOrNull(lease.fs, record.remotePath);
         if (record.needsReconcile) {
-          record = await _repairSnapshotAgainst(
-            lease.fs,
-            record,
-            latest,
-          );
+          record = await _repairSnapshotAgainst(lease.fs, record, latest);
         }
       } finally {
         await lease.release();
@@ -556,8 +564,7 @@ final class CheckoutManager {
       (r) => r.remotePath == oldPath || r.remotePath.startsWith('$oldPath/'),
     );
     for (final record in affected) {
-      final nextPath =
-          newPath + record.remotePath.substring(oldPath.length);
+      final nextPath = newPath + record.remotePath.substring(oldPath.length);
       final occupant = _records.values.where(
         (r) =>
             r.serverId == serverId &&
@@ -591,6 +598,27 @@ final class CheckoutManager {
     _emitChange();
   }
 
+  /// The per-copy reconcile the editor's `onSaved` hook drives
+  /// (06 §2.3/§3.3): a local re-hash — dirty/missing flags, the §2.1
+  /// save-temp sweep — plus the §3.4 stat-only repair when the record
+  /// carries `needsReconcile`. It never touches content and never
+  /// throws: `onSaved` runs inside the save's `finally`, where an
+  /// escaping error would replace the original upload error, so
+  /// failures are reported through [onError] instead.
+  Future<void> reconcile(ManagedRemoteFile copy) async {
+    try {
+      final updated = await _store.reconcile(copy.id);
+      if (_disposed || updated == null) return;
+      _records[updated.id] = updated;
+      _emitChange();
+      if (updated.needsReconcile) {
+        unawaited(_repairRemote(updated));
+      }
+    } on Object catch (error, stack) {
+      onError?.call(error, stack);
+    }
+  }
+
   /// Accept the local copy's current contents as the baseline (the
   /// conflict flow's keep-local path before the next save).
   Future<void> acceptLocalCopy(ManagedRemoteFile copy) async {
@@ -613,9 +641,7 @@ final class CheckoutManager {
   /// anything else keeps the mark (the next save's CAS still guards).
   Future<void> _repairRemote(ManagedRemoteFile record) async {
     try {
-      final lease = await _connections.leaseTransferChannel(
-        record.serverId,
-      );
+      final lease = await _connections.leaseTransferChannel(record.serverId);
       try {
         final latest = await _statOrNull(lease.fs, record.remotePath);
         await _repairSnapshotAgainst(lease.fs, record, latest);
@@ -692,9 +718,7 @@ final class CheckoutManager {
           if (name != ownName &&
               (name == ManagedRemoteFileStore.epochMarkerName ||
                   name == ManagedRemoteFileStore.abandonedMarkerName ||
-                  ManagedRemoteFileStore.generatedTempName.hasMatch(
-                    name,
-                  ))) {
+                  ManagedRemoteFileStore.generatedTempName.hasMatch(name))) {
             return;
           }
           _scheduleReconcile(record.id);
@@ -927,8 +951,7 @@ final class _DiscardingSink implements StreamSink<List<int>> {
   const _DiscardingSink();
 
   @override
-  Future<void> addStream(Stream<List<int>> stream) =>
-      stream.drain<void>();
+  Future<void> addStream(Stream<List<int>> stream) => stream.drain<void>();
 
   @override
   Future<void> close() async {}
@@ -940,8 +963,5 @@ final class _DiscardingSink implements StreamSink<List<int>> {
   void add(List<int> data) {}
 
   @override
-  void addError(
-    Object error, [
-    StackTrace? stackTrace,
-  ]) {}
+  void addError(Object error, [StackTrace? stackTrace]) {}
 }

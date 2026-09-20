@@ -9,6 +9,7 @@ import '../browse/unicode_simple_fold.dart';
 import '../checkout/managed_checkout_spec.dart';
 import '../connection/connection_manager.dart';
 import '../connection/pool_policy.dart';
+import '../editor/built_in_text_document.dart';
 import '../fs/local_file_system.dart';
 import '../fs/local_fs_safety.dart';
 import 'bandwidth_limiter.dart';
@@ -418,8 +419,7 @@ class TransferQueue implements ManagedCheckoutQueue {
     if (_disposed) {
       throw StateError('the transfer queue is disposed');
     }
-    final isDownload =
-        managed.direction == ManagedCheckoutDirection.download;
+    final isDownload = managed.direction == ManagedCheckoutDirection.download;
     final task = TransferTask(
       TransferTaskSpec(
         source: isDownload
@@ -856,8 +856,7 @@ class TransferQueue implements ManagedCheckoutQueue {
   Future<void> _runManagedCheckout(_TaskRuntime runtime) async {
     final task = runtime.task;
     final managed = task.spec.managedCheckout!;
-    final isDownload =
-        managed.direction == ManagedCheckoutDirection.download;
+    final isDownload = managed.direction == ManagedCheckoutDirection.download;
     task.startedAt ??= DateTime.now();
     task.plan ??= TransferPlan();
     // In-memory only — deliberately never journaled, so a restored task
@@ -918,6 +917,7 @@ class TransferQueue implements ManagedCheckoutQueue {
                 ? managed.localPath
                 : managed.remotePath,
             length: managed.expectedSize,
+            maximumBytes: isDownload ? managed.maximumBytes : null,
             // Download: the target is the store's exclusive-created
             // empty checkout — overwrite is the expected shape. Upload:
             // always overwrite, CAS-guarded by expectedTarget.
@@ -932,8 +932,7 @@ class TransferQueue implements ManagedCheckoutQueue {
                 _onFileProgress(runtime, item!, transferred, total),
           );
           task.retryCount = 0;
-          item.resultEntry =
-              isDownload ? result.source : result.destination;
+          item.resultEntry = isDownload ? result.source : result.destination;
           _finishItem(runtime, item, TransferItemState.completed);
           break;
         } on RemoteFileException catch (error) {
@@ -1024,7 +1023,8 @@ class TransferQueue implements ManagedCheckoutQueue {
       // record. Without a terminal record a later restore would
       // resurrect them, so each gets an explicit removal (03 §4.6's
       // no-resurrection rule needs the record, not silence).
-      for (final bucket in runtime.restoredIndex?.values ?? <List<RestoredPlanItem>>[]) {
+      for (final bucket
+          in runtime.restoredIndex?.values ?? <List<RestoredPlanItem>>[]) {
         for (final item in bucket) {
           if (item.outcome == null) {
             persistence?.appendJournal(
@@ -2757,6 +2757,7 @@ class TransferQueue implements ManagedCheckoutQueue {
     required String sourcePath,
     required String destinationPath,
     int? length,
+    int? maximumBytes,
     required bool overwrite,
     RemoteFileEntry? expectedTarget,
     int? preserveMode,
@@ -2831,7 +2832,14 @@ class TransferQueue implements ManagedCheckoutQueue {
     try {
       sourceResult = await source.download(
         sourcePath,
-        sink,
+        // 06 §3.2's stream cap: an unknown-size managed download aborts
+        // the moment the running total passes the caller's cap rather
+        // than fetching in full to a certain refusal. The cap lives on
+        // the download side only — a capped sink on an upload would
+        // mislabel the remote write as the oversized party.
+        maximumBytes == null
+            ? sink
+            : MaximumByteSink(sink, maximumBytes: maximumBytes),
         onProgress: pipeProgress,
         cancellation: cancellation,
         computeHash: computeHash,
@@ -3429,8 +3437,7 @@ class TransferQueue implements ManagedCheckoutQueue {
 
   /// The History tab's Clear History (02 §6): drops every persisted
   /// record through the store's writer chain; the journal is untouched.
-  Future<void> clearHistory() =>
-      persistence?.clearHistory() ?? Future.value();
+  Future<void> clearHistory() => persistence?.clearHistory() ?? Future.value();
 
   /// Reorders one not-yet-running task in admission order — 02 §6's
   /// drag. `queued` and `scanning` both move (a scanning task has
@@ -3501,9 +3508,7 @@ class TransferQueue implements ManagedCheckoutQueue {
         ),
       );
     }
-    runtime.conflictWaiters.removeWhere(
-      (work) => _workItemId(work) == itemId,
-    );
+    runtime.conflictWaiters.removeWhere((work) => _workItemId(work) == itemId);
     runtime.eligible.removeWhere((work) => work.item.id == itemId);
     runtime.deleteWork.remove(itemId);
 
@@ -3559,8 +3564,7 @@ class TransferQueue implements ManagedCheckoutQueue {
   /// row still has a work order to re-arm.
   bool canRetryTask(String taskId) {
     final runtime = _tasks[taskId];
-    if (runtime == null ||
-        runtime.task.state != TransferTaskState.failed) {
+    if (runtime == null || runtime.task.state != TransferTaskState.failed) {
       return false;
     }
     if (!runtime.task.scanComplete) return true;
@@ -3676,8 +3680,7 @@ class TransferQueue implements ManagedCheckoutQueue {
     final parentByItemId = <String, String?>{
       for (final file in plan?.files ?? const <PlannedFile>[])
         file.itemId: file.containerKey,
-      for (final dir
-          in plan?.directoriesInOrder ?? const <PlannedDirectory>[])
+      for (final dir in plan?.directoriesInOrder ?? const <PlannedDirectory>[])
         dir.itemId: dir.containerKey,
     };
     return [
@@ -3733,8 +3736,7 @@ class TransferQueue implements ManagedCheckoutQueue {
         file.itemId: file,
     };
     final dirsById = {
-      for (final dir
-          in plan?.directoriesInOrder ?? const <PlannedDirectory>[])
+      for (final dir in plan?.directoriesInOrder ?? const <PlannedDirectory>[])
         dir.itemId: dir,
     };
     final index = <String, List<RestoredPlanItem>>{};

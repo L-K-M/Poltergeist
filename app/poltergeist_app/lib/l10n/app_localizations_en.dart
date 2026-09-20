@@ -1817,4 +1817,98 @@ class AppLocalizationsEn extends AppLocalizations {
   String backupDeleteSeparateFailed(String error) {
     return 'Could not delete the separate account: $error';
   }
+
+  @override
+  String get fileEditBuiltInLabel => 'Edit in Poltergeist';
+
+  @override
+  String get editorDiscardTitle => 'Discard unsaved changes?';
+
+  @override
+  String get editorDiscardBody =>
+      'Changes not saved to the local copy will be lost.';
+
+  @override
+  String get editorDiscardKeep => 'Keep editing';
+
+  @override
+  String get editorDiscardConfirm => 'Discard';
+
+  @override
+  String get editorFindTooltip => 'Find';
+
+  @override
+  String get editorSaveLocallyTooltip => 'Save locally';
+
+  @override
+  String get editorSaveAndUploadTooltip => 'Save and upload';
+
+  @override
+  String get editorFindHint => 'Find in file';
+
+  @override
+  String get editorMatchCaseTooltip => 'Match case';
+
+  @override
+  String get editorPreviousMatchTooltip => 'Previous match';
+
+  @override
+  String get editorNextMatchTooltip => 'Next match';
+
+  @override
+  String get editorCloseSearchTooltip => 'Close search';
+
+  @override
+  String get editorNoMatches => 'No matches';
+
+  @override
+  String editorMatchCount(int current, int total) {
+    return '$current/$total';
+  }
+
+  @override
+  String editorMatchCountCapped(int current, int total) {
+    return '$current/$total+';
+  }
+
+  @override
+  String editorStatusClean(int lines, int bytes) {
+    return '$lines lines · $bytes bytes';
+  }
+
+  @override
+  String editorStatusDirty(int lines, int bytes) {
+    return '$lines lines · $bytes bytes · Unsaved';
+  }
+
+  @override
+  String get editorSavedUploadedDirty =>
+      'Uploaded the saved version; newer edits remain unsaved.';
+
+  @override
+  String get editorSavedUploaded => 'Saved and uploaded.';
+
+  @override
+  String get editorSavedLocallyNotUploaded => 'Saved locally; not uploaded.';
+
+  @override
+  String get editorSavedLocally => 'Saved locally.';
+
+  @override
+  String get editorCheckoutUnavailable =>
+      'The checkout store is unavailable; remote files cannot be edited.';
+
+  @override
+  String get editorConflictTitle => 'Remote file changed';
+
+  @override
+  String editorConflictBody(String name, String server) {
+    return '\"$name\" changed (or was deleted) on $server after it was opened locally. Overwrite the remote version?';
+  }
+
+  @override
+  String get editorConflictCancel => 'Cancel';
+
+  @override
+  String get editorConflictOverwrite => 'Overwrite Remote Version';
 }

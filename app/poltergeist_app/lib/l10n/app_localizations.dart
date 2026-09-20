@@ -2863,6 +2863,168 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not delete the separate account: {error}'**
   String backupDeleteSeparateFailed(String error);
+
+  /// Command label: open the selected file in the built-in text editor (file.editBuiltIn, 02 §8.3, 06 §4.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Edit in Poltergeist'**
+  String get fileEditBuiltInLabel;
+
+  /// Title of the editor's unsaved-changes guard (06 §2.3), shown when leaving with dirty edits.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard unsaved changes?'**
+  String get editorDiscardTitle;
+
+  /// Body of the editor's unsaved-changes guard (06 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Changes not saved to the local copy will be lost.'**
+  String get editorDiscardBody;
+
+  /// Declines the editor's discard confirmation: the editor stays open.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep editing'**
+  String get editorDiscardKeep;
+
+  /// Accepts the editor's discard confirmation: unsaved edits are dropped.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get editorDiscardConfirm;
+
+  /// Tooltip of the editor's find-bar affordance (06 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Find'**
+  String get editorFindTooltip;
+
+  /// Tooltip of the editor's local-only save action (06 §2.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Save locally'**
+  String get editorSaveLocallyTooltip;
+
+  /// Tooltip of the editor's save-and-upload action on a managed checkout (06 §2.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Save and upload'**
+  String get editorSaveAndUploadTooltip;
+
+  /// Hint text of the editor's find query field (06 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Find in file'**
+  String get editorFindHint;
+
+  /// Tooltip of the find bar's case-sensitivity toggle.
+  ///
+  /// In en, this message translates to:
+  /// **'Match case'**
+  String get editorMatchCaseTooltip;
+
+  /// Tooltip of the find bar's previous-match button.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous match'**
+  String get editorPreviousMatchTooltip;
+
+  /// Tooltip of the find bar's next-match button.
+  ///
+  /// In en, this message translates to:
+  /// **'Next match'**
+  String get editorNextMatchTooltip;
+
+  /// Tooltip of the find bar's close button.
+  ///
+  /// In en, this message translates to:
+  /// **'Close search'**
+  String get editorCloseSearchTooltip;
+
+  /// Find bar counter shown when the query has no hits.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches'**
+  String get editorNoMatches;
+
+  /// Find bar counter: ordinal of the active match over the total.
+  ///
+  /// In en, this message translates to:
+  /// **'{current}/{total}'**
+  String editorMatchCount(int current, int total);
+
+  /// Find bar counter at the match cap: the plus marks a truncated total.
+  ///
+  /// In en, this message translates to:
+  /// **'{current}/{total}+'**
+  String editorMatchCountCapped(int current, int total);
+
+  /// Editor status bar for a saved document (06 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'{lines} lines · {bytes} bytes'**
+  String editorStatusClean(int lines, int bytes);
+
+  /// Editor status bar with unsaved edits (06 §2.3).
+  ///
+  /// In en, this message translates to:
+  /// **'{lines} lines · {bytes} bytes · Unsaved'**
+  String editorStatusDirty(int lines, int bytes);
+
+  /// 06 §2.4's toast matrix: the upload completed but the user typed during it — the on-disk copy lags the editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded the saved version; newer edits remain unsaved.'**
+  String get editorSavedUploadedDirty;
+
+  /// 06 §2.4's toast matrix: save-and-upload completed with a clean editor.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved and uploaded.'**
+  String get editorSavedUploaded;
+
+  /// 06 §2.4's toast matrix: the local save landed but the upload was declined (a cancelled conflict escalation).
+  ///
+  /// In en, this message translates to:
+  /// **'Saved locally; not uploaded.'**
+  String get editorSavedLocallyNotUploaded;
+
+  /// 06 §2.4's toast matrix: a local-only save completed.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved locally.'**
+  String get editorSavedLocally;
+
+  /// Toast when a remote Edit in Poltergeist reaches the shell with no checkout session wired — a wiring defect, reported as such.
+  ///
+  /// In en, this message translates to:
+  /// **'The checkout store is unavailable; remote files cannot be edited.'**
+  String get editorCheckoutUnavailable;
+
+  /// Title of the §3.4 conflict-escalation dialog: the remote moved under an open checkout.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote file changed'**
+  String get editorConflictTitle;
+
+  /// 06 §3.4's conflict-escalation body: names the file and its server. The neutral "(or was deleted)" matches the typed message — a deleted target has no newer version to overwrite.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{name}\" changed (or was deleted) on {server} after it was opened locally. Overwrite the remote version?'**
+  String editorConflictBody(String name, String server);
+
+  /// Declines the conflict overwrite — the safe default (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get editorConflictCancel;
+
+  /// Confirms the §3.4 escalation: retries the upload with overwriteRemoteChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Overwrite Remote Version'**
+  String get editorConflictOverwrite;
 }
 
 class _AppLocalizationsDelegate

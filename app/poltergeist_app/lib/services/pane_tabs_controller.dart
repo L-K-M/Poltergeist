@@ -176,6 +176,7 @@ class PaneTabsController extends ChangeNotifier {
     PaneEngineLanes? lanes,
     this.newTabTarget = NewTabTarget.duplicate,
     DoubleClickAction doubleClickAction = DoubleClickAction.open,
+    this.builtInEditorOpen,
     this.confirmClose,
     this.serverStillShared,
     void Function(Object error, StackTrace stackTrace)? onError,
@@ -233,6 +234,12 @@ class PaneTabsController extends ChangeNotifier {
 
   DoubleClickAction _doubleClickAction;
 
+  /// The built-in editor's open seam (06 §4.2), wired once at strip
+  /// construction by the shell and stamped on every arriving tab in
+  /// [_appendTab] — adopted, new, restored, and ghost-reopened
+  /// controllers alike open files through the same wiring.
+  final BuiltInEditorOpen? builtInEditorOpen;
+
   /// The close-confirmation presenter (the confirm lives inside the
   /// close operation — call sites never decide). Null makes a triggered
   /// close fail closed: a guard that cannot ask never drops in-flight
@@ -273,10 +280,9 @@ class PaneTabsController extends ChangeNotifier {
   List<PaneTab> get tabs => List.unmodifiable(_tabs);
 
   /// The tab the pane renders; null while the pane sits on the launcher.
-  PaneTab? get activeTab =>
-      _activeIndex >= 0 && _activeIndex < _tabs.length
-          ? _tabs[_activeIndex]
-          : null;
+  PaneTab? get activeTab => _activeIndex >= 0 && _activeIndex < _tabs.length
+      ? _tabs[_activeIndex]
+      : null;
 
   /// Whether ⇧⌘T has a ghost to reopen.
   bool get canReopen => _ghosts.isNotEmpty;
@@ -364,14 +370,15 @@ class PaneTabsController extends ChangeNotifier {
           unawaited(
             controller.connectRemote(
               bookmark,
-              initialPath:
-                  location is RemotePaneLocation ? location.path : null,
+              initialPath: location is RemotePaneLocation
+                  ? location.path
+                  : null,
             ),
           );
         } else if (location is LocalPaneLocation) {
           unawaited(controller.openLocalAt(location.path));
         }
-        // An unbound source duplicates to an unbound tab.
+      // An unbound source duplicates to an unbound tab.
       case NewTabTarget.home:
         final bookmark = source?.controller.remoteBookmark;
         if (bookmark != null) {
@@ -837,6 +844,7 @@ class PaneTabsController extends ChangeNotifier {
     // Every arrival opens files under the strip's current setting —
     // adopted, new, and ghost-reopened controllers alike.
     controller.doubleClickAction = _doubleClickAction;
+    controller.builtInEditorOpen = builtInEditorOpen;
     final tab = PaneTab(id: controller.paneTabId, controller: controller);
     // Strip surfaces (title, connection dot) follow the tab's own
     // browsing state — forward its changes as strip changes.
