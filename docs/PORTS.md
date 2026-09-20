@@ -485,6 +485,114 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
 - Port-back candidates: none — the typed-issue reporting is D20-local;
   the rules did not change.
 
+## packages/poltergeist_core/lib/src/checkout/managed_remote_file.dart
+
+- Source: app/seance_app/lib/services/managed_remote_file.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: two persisted fields Séance's record lacks —
+  `needsReconcile` (06 §3.4's degraded-snapshot mark: a post-upload
+  remote re-stat failure synthesizes size+digest and must not be
+  laundered into an authoritative snapshot across a restart) and
+  `displaced` (06 §3.5: a rename arrival onto a record's remotePath
+  displaces the standing record instead of overwriting it — the
+  record keeps its original path as the CAS-guarded upload target).
+  Both decode as absent → false so a Séance-shaped index stays
+  readable. The strict codec (required-field types, digest shape,
+  remotePath==snapshot.path, no dirty+missing) is ported semantics.
+- Port-back candidates: the two marks, if Séance adopts the
+  synthesized-snapshot repair and rename-displacement rails.
+
+## packages/poltergeist_core/lib/src/checkout/managed_remote_file_store.dart
+
+- Source: app/seance_app/lib/services/managed_remote_file_store.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: the Poltergeist lifecycle rails 06 §3.2/§3.7 add —
+  generation epoch markers, the `.poltergeist-abandoned` in-flight
+  marker dropped at checkout creation and cleared at commit (a
+  marker-bearing unindexed dir is swept wholesale; a payload-bearing
+  unindexed dir is preserved), the recovered-payload listing
+  (`listRecovered`) with explicit-only `deleteRecovered`, the
+  cross-process `fcntl` lock plus a same-process held-paths guard
+  (POSIX fcntl locks are per-process — Séance's OS lock alone cannot
+  stop a second in-process store), symlink-safe create/delete, the
+  frozen `.poltergeist-<uuid>.upload` sibling snapshot, and streamed
+  SHA-256 hashing. Sanitizer divergences per 06 §3.1's pinned
+  contract: a Windows reserved device name keeps its extension under
+  a `file-` prefix (`nul.conf` → `file-nul.conf`, stem matched
+  case-insensitively against the full 09 §3.5 reserved list —
+  CONIN$/CONOUT$/CLOCK$/superscripts included) instead of Séance's
+  fixed `remote-file` replacement, and overlong names truncate to the
+  255-byte NAME_MAX floor on a codepoint boundary rather than failing
+  at the OS. Owner-only modes extend Séance's Linux-only helper: the
+  index, its atomic-write temp, quarantine destinations, checkout
+  dirs/files, and `.upload` snapshots are chmod 600/700 on Linux and
+  macOS (Windows relies on the per-user app-support ACLs).
+- Port-back candidates: the device-name prefix contract, the
+  NAME_MAX truncation, the epoch/abandoned markers, the
+  recovered-payload surface, and the in-process lock guard.
+
+## packages/poltergeist_core/lib/src/checkout/checkout_manager.dart
+
+- Source: app/seance_app/lib/services/remote_files_controller.dart (the
+  managed-checkout pipeline extracted from the controller per 03 §6:
+  `checkoutRemoteFile`/`uploadLocalCopy`, the checkout watcher and
+  debounce, `_restoreLocalCopies`, renameEntry's local-copy re-keying,
+  `_sameSnapshot`)
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: extracted from the per-pane controller into an
+  app-wide core manager — `editSessionId` is the per-server constant
+  (D17: checkout ownership is per server, never per pane/tab — Séance
+  keyed checkouts per tab). Every byte rides the composed
+  `TransferQueue` through `enqueueManagedCheckout` (journaled,
+  panel-visible, priority-dispatched) instead of the controller's
+  direct adapter calls; the upload carries the record snapshot as
+  `expectedTarget` so the destination adapter's mandatory
+  contentSha256 CAS is the conflict authority (D7) — Séance relied on
+  the preflight stat alone for the same-size/same-mtime case.
+  Post-upload re-stat failure degrades to a synthesized snapshot plus
+  `needsReconcile` rather than failing the committed save. Directory
+  renames re-key descendants prefix-wise (06 §3.5) and an arrival onto
+  an occupied path displaces the occupant rather than dropping it.
+  Watch events filter only the exact generated temp shapes and
+  lifecycle markers — never the record's own basename, so a checkout
+  named `.poltergeist-<hex>.upload` keeps dirty detection.
+- Port-back candidates: the CAS-carrying upload spec, the
+  synthesized-snapshot repair, and prefix-wise rename migration.
+
+## packages/poltergeist_core/test/checkout/
+
+- Source: app/seance_app/test/managed_remote_file_store_test.dart
+- Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (the live pin)
+- Ported: 2026-09-20
+- Divergences: the store suite keeps the ported cases (sanitizing,
+  validation, persisted round-trips, quarantine, serialization) and
+  adds the Poltergeist rails (epoch sweep, abandoned markers, the lock,
+  recovered listings, needsReconcile/displaced persistence, the
+  device-name prefix and NAME_MAX truncation). `checkout_manager_test`
+  is new: round-trip through a scripted remote, per-server
+  editSessionId stability, watch debounce and the exact-temp-shape
+  filter, reconcile-on-resume and relaunch recovery, the
+  remote-change/deletion/tamper conflict blocks, explicit overwrite,
+  rename migration, and queue-visibility of both directions.
+- Port-back candidates: none — the new suites cover Poltergeist
+  semantics upstream lacks.
+
+## app/poltergeist_app/lib/services/checkout_session.dart
+
+- Source: none — new Poltergeist composition (03 §6's app seam).
+- Ported: 2026-09-20
+- Notes: the `ChangeNotifier` session wraps the core
+  `CheckoutManager`, exposes the record surface and verbs to the
+  future editor UI, drives uploads through the composed
+  `TransferQueue` (the activity panel's instance), and reconciles on
+  `AppLifecycleState.resumed`. It shares the queue's
+  `LocalOnlyConnectionManager`, so remote verbs fail with the typed
+  `unsupported` error until STATUS item 23 (engine transfer verbs)
+  lands — honest refusal, never a simulated success.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

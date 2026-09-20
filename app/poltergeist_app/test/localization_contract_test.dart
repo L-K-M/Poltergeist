@@ -125,6 +125,17 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/services/transfer_queue_session.dart': {
     "'transfer channel'",
   },
+  // The checkout session's store paths, the `df` probe invocation, and
+  // its output parsing — machine data, never rendered UI copy.
+  'lib/services/checkout_session.dart': {
+    "'\$supportDirectoryPath\${Platform.pathSeparator}'",
+    "'managed_remote_files.json'",
+    "'\$supportDirectoryPath\${Platform.pathSeparator}checkouts'",
+    "'df'",
+    "'-k'",
+    r"'\n'",
+    r"r'\s+'",
+  },
   'lib/services/app_preferences.dart': {
     "'layout.paneRatio'",
     "'window.left'",

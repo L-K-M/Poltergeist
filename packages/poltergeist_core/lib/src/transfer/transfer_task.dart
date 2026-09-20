@@ -9,6 +9,8 @@ library;
 
 import 'package:seance_core/seance_core.dart';
 
+import '../checkout/managed_checkout_spec.dart';
+
 /// The transfer verb of a task (02 §5.1). `copy` never touches the source;
 /// `move` deletes each source only after its copy committed (02 §5.2's
 /// per-verb source disposition — the engine, never the UI, owns it so no
@@ -218,9 +220,14 @@ class TransferTaskSpec {
     required this.policy,
     this.operation = TransferOperation.copy,
     this.disposition,
+    this.managedCheckout,
   }) : assert(
          (operation == TransferOperation.delete) == (disposition != null),
          'disposition must be set exactly when operation is delete',
+       ),
+       assert(
+         managedCheckout == null || operation == TransferOperation.copy,
+         'a managed-checkout task is always a single-file copy',
        );
 
   final FsLocation source;
@@ -244,6 +251,13 @@ class TransferTaskSpec {
   /// The delete story's disposition (D15): required iff [operation] is
   /// [TransferOperation.delete], null otherwise.
   final DeleteDisposition? disposition;
+
+  /// The managed-checkout payload (06 §3.4): when set, the task is a
+  /// single-file hop the [TransferQueue.enqueueManagedCheckout] verb
+  /// produced — the scan/conflict machinery is bypassed in favor of the
+  /// spec's own CAS and destination parameters. Journaled verbatim like
+  /// every other spec field (03 §4.6).
+  final ManagedCheckoutSpec? managedCheckout;
 }
 
 /// One queued transfer task (03 §4.1). Mutable fields are engine-owned:
@@ -387,6 +401,12 @@ class TransferItem {
   /// worth showing (e.g. why a move's source directory stayed behind).
   String? error;
   RemoteFileErrorKind? failureKind;
+
+  /// The remote-side entry a managed-checkout task captured at commit
+  /// (06 §3.4): the post-download stat + digest for a checkout, the
+  /// post-upload stat for a save. `null` on ordinary transfer items and
+  /// on any item that never committed.
+  RemoteFileEntry? resultEntry;
 
   bool get isTerminal =>
       state == TransferItemState.completed ||

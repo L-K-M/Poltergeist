@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
 import '../browse/unicode_simple_fold.dart';
+import '../checkout/managed_checkout_spec.dart';
 import '../connection/connection_manager.dart';
 import '../connection/pool_policy.dart';
 import '../fs/local_file_system.dart';
@@ -66,7 +67,17 @@ import 'trash_service.dart';
 ///
 /// Deferred to later M4 slices: the D14 produce-on-demand hook, the
 /// occupant-replacement integration of D15, and all UI.
-class TransferQueue {
+/// The narrow queue surface a checkout manager needs — the managed verb
+/// plus the event stream its completions arrive on. [TransferQueue]
+/// implements it; the seam exists so tests and composition can
+/// substitute.
+abstract interface class ManagedCheckoutQueue {
+  TransferTask enqueueManagedCheckout(ManagedCheckoutSpec spec);
+  Stream<TransferQueueEvent> get events;
+  List<TransferTask> get tasks;
+}
+
+class TransferQueue implements ManagedCheckoutQueue {
   TransferQueue({
     required this.connections,
     RemoteFileSystem? localFileSystem,
@@ -219,12 +230,14 @@ class TransferQueue {
   Completer<void> _notPaused = Completer()..complete();
 
   /// Queue-order snapshot of tasks (unmodifiable).
+  @override
   List<TransferTask> get tasks =>
       List.unmodifiable(_tasks.values.map((rt) => rt.task));
 
   bool get isPaused => _paused;
 
   /// Lifecycle, item-state, and byte-progress events for mirrors/UI.
+  @override
   Stream<TransferQueueEvent> get events => _events.stream;
 
   /// The parked conflicts awaiting an answer — the future conflict UI's
@@ -347,6 +360,16 @@ class TransferQueue {
         'only a delete task carries a disposition',
       );
     }
+    // The managed-checkout payload is the guarded verb's to build — a
+    // hand-built spec could disagree with its own endpoints, so the
+    // generic door refuses it like an un-dispositioned delete.
+    if (spec.managedCheckout != null) {
+      throw ArgumentError.value(
+        spec.managedCheckout,
+        'managedCheckout',
+        'use enqueueManagedCheckout — a managed spec must be built by the verb',
+      );
+    }
     final task = TransferTask(
       TransferTaskSpec(
         source: spec.source,
@@ -362,6 +385,64 @@ class TransferQueue {
     // Journal the enqueue before the task becomes visible to dispatch —
     // the write-ahead rule that makes a crash between "the user hit
     // transfer" and the first scan recoverable (03 §4.6).
+    persistence?.appendJournal(
+      TaskEnqueuedRecord(
+        taskId: task.id,
+        spec: task.spec,
+        enqueuedAt: task.enqueuedAt,
+      ),
+    );
+    _tasks[task.id] = runtime;
+    _emit(TransferQueueTaskEvent(task.id, task.state));
+    unawaited(_runTask(runtime));
+    return task;
+  }
+
+  // ---------------------------------------------------------------------
+  // Managed checkouts (06 §3.2/§3.4) — the 03 §4.7 produce-task consumer:
+  // one journaled, queue-visible, cancellable file hop per save/checkout.
+  // ---------------------------------------------------------------------
+
+  /// Enqueues one managed-checkout hop and returns its live task handle —
+  /// `unawaited(_runTask)` starts it immediately (the §4.7 priority
+  /// exemption: these tasks ride inside the journaled queue and the
+  /// activity surface, but outside the in-flight file cap and the
+  /// queue-level pause; a per-task pause and cancel still hold).
+  ///
+  /// The spec's endpoints are derived here, never from the caller:
+  /// a download crosses server→local into the store-created checkout
+  /// file, an upload crosses local→server onto the record's own
+  /// `remotePath` under the spec's CAS target.
+  @override
+  TransferTask enqueueManagedCheckout(ManagedCheckoutSpec managed) {
+    if (_disposed) {
+      throw StateError('the transfer queue is disposed');
+    }
+    final isDownload =
+        managed.direction == ManagedCheckoutDirection.download;
+    final task = TransferTask(
+      TransferTaskSpec(
+        source: isDownload
+            ? ServerFsLocation(managed.serverId)
+            : const LocalFsLocation(),
+        destination: isDownload
+            ? const LocalFsLocation()
+            : ServerFsLocation(managed.serverId),
+        rootPaths: [managed.remotePath],
+        destinationDir: isDownload
+            ? p.dirname(managed.localPath)
+            : remoteParent(managed.remotePath),
+        // The managed path never reaches `_decideFile` — the spec's own
+        // expectedTarget is the conflict authority. The policy fields
+        // exist only to satisfy the journaled shape.
+        policy: ResolvedConflictPolicy(
+          files: ConflictResolution.replace,
+          folders: ConflictResolution.replace,
+        ),
+        managedCheckout: managed,
+      ),
+    );
+    final runtime = _TaskRuntime(task);
     persistence?.appendJournal(
       TaskEnqueuedRecord(
         taskId: task.id,
@@ -731,6 +812,12 @@ class TransferQueue {
 
   Future<void> _runTask(_TaskRuntime runtime) async {
     final task = runtime.task;
+    // A managed checkout carries its own execution contract — one hop,
+    // no scan, no conflict machinery (06 §3.4).
+    if (task.spec.managedCheckout != null) {
+      await _runManagedCheckout(runtime);
+      return;
+    }
     task.startedAt ??= DateTime.now();
     _setTaskState(runtime, TransferTaskState.scanning);
     try {
@@ -746,6 +833,154 @@ class TransferQueue {
       }
     } catch (error) {
       _failTask(runtime, error);
+    }
+    _maybeFinishTask(runtime);
+  }
+
+  /// Executes the managed-checkout task's single hop (06 §3.2/§3.4).
+  ///
+  /// Unlike `_runFile` work this item never enters `eligible`, never
+  /// consults `_decideFile`, and never claims a destination-registry key —
+  /// the spec's `expectedTarget` IS the conflict decision (the caller's
+  /// recorded snapshot, carrying `contentSha256`, so the destination
+  /// adapter's mandatory remote hash re-read decides; 00 D7). Per-task
+  /// pause cancels the in-flight attempt and the hop restarts from byte
+  /// zero on resume, exactly like §4.4's ordinary files; a `disconnected`
+  /// failure re-leases in place under the task retry budget.
+  ///
+  /// Crash semantics: nothing here journals a scan or plan record, so a
+  /// restored task replays the whole hop — for an upload the CAS
+  /// re-verifies the remote (and a load-swept `.upload` snapshot fails
+  /// the replay honestly), for a download the store's abandoned-marker
+  /// sweep has already dropped the half-written target.
+  Future<void> _runManagedCheckout(_TaskRuntime runtime) async {
+    final task = runtime.task;
+    final managed = task.spec.managedCheckout!;
+    final isDownload =
+        managed.direction == ManagedCheckoutDirection.download;
+    task.startedAt ??= DateTime.now();
+    task.plan ??= TransferPlan();
+    // In-memory only — deliberately never journaled, so a restored task
+    // replays the hop instead of adopting a torn plan.
+    task.scanComplete = true;
+    task.totalBytes = managed.expectedSize;
+    task.totalFiles = 1;
+
+    var item = _itemOf(task, managed.checkoutId);
+    if (item == null) {
+      // The checkout id keys the row — the manager correlates terminal
+      // events back to its record without a second map.
+      item = TransferItem(
+        id: managed.checkoutId,
+        sourcePath: isDownload
+            ? managed.remotePath
+            : managed.displayLocalPath ?? managed.localPath,
+        isDirectory: false,
+        destinationPath: isDownload ? managed.localPath : managed.remotePath,
+        size: managed.expectedSize,
+      );
+      task.items.add(item);
+      _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+    }
+
+    while (!item.isTerminal && !task.isTerminal) {
+      // Per-task pause only: §4.7 exempts managed transfers from the
+      // queue-level pause (a paused queue must not silently stall a
+      // save), while an explicit per-task pause or cancel still wins.
+      while (task.state == TransferTaskState.paused &&
+          !task.cancellation.isCancelled &&
+          !_disposed) {
+        // Invariant: pauseTask swaps in a fresh incomplete completer on
+        // each pause, and resumeTask/cancelTask/dispose complete it —
+        // this await can neither spin on a completed future nor hang.
+        await runtime.notPaused.future;
+      }
+      _throwIfTaskCancelled(task);
+      if (_disposed) throw _cancelledException();
+      if (item.isTerminal || task.isTerminal) break;
+
+      var attempt = RemoteTransferCancellation();
+      runtime.attempts[item.id] = attempt;
+      item.state = TransferItemState.active;
+      _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+      _setTaskState(runtime, TransferTaskState.running);
+      try {
+        final leases = await _leaseServerIds([managed.serverId], attempt);
+        try {
+          final serverFs = leases[managed.serverId]!.fs;
+          final result = await _pipe(
+            source: isDownload ? serverFs : _localFileSystem,
+            destination: isDownload ? _localFileSystem : serverFs,
+            readLimiter: isDownload ? downloadLimiter : _localLimiter,
+            writeLimiter: isDownload ? _localLimiter : uploadLimiter,
+            sourcePath: isDownload ? managed.remotePath : managed.localPath,
+            destinationPath: isDownload
+                ? managed.localPath
+                : managed.remotePath,
+            length: managed.expectedSize,
+            // Download: the target is the store's exclusive-created
+            // empty checkout — overwrite is the expected shape. Upload:
+            // always overwrite, CAS-guarded by expectedTarget.
+            overwrite: true,
+            expectedTarget: managed.expectedTarget,
+            preserveMode: managed.preserveMode,
+            // D7: the returned remote entry must carry the content
+            // digest — the record's snapshot/baseline authority.
+            computeHash: true,
+            cancellation: attempt,
+            onProgress: (transferred, total) =>
+                _onFileProgress(runtime, item!, transferred, total),
+          );
+          task.retryCount = 0;
+          item.resultEntry =
+              isDownload ? result.source : result.destination;
+          _finishItem(runtime, item, TransferItemState.completed);
+          break;
+        } on RemoteFileException catch (error) {
+          if (error.kind != RemoteFileErrorKind.disconnected) rethrow;
+          task.retryCount++;
+          if (task.retryCount > poolPolicy.taskRetryLimit) rethrow;
+          _debitItemProgress(runtime, item);
+          item.state = TransferItemState.pending;
+          _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+          _setTaskState(runtime, TransferTaskState.queued);
+          attempt = RemoteTransferCancellation();
+          runtime.attempts[item.id] = attempt;
+        } finally {
+          await _releaseLeases(leases);
+        }
+      } on RemoteFileException catch (error) {
+        if (error.kind == RemoteFileErrorKind.cancelled ||
+            task.cancellation.isCancelled) {
+          if (task.cancellation.isCancelled) {
+            _finishItem(runtime, item, TransferItemState.cancelled);
+          } else {
+            // The attempt token died to pauseTask — return to pending
+            // and re-enter the wait; resumeTask completes notPaused.
+            _debitItemProgress(runtime, item);
+            item.state = TransferItemState.pending;
+            _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+          }
+        } else {
+          _finishItem(
+            runtime,
+            item,
+            TransferItemState.failed,
+            error: error.message,
+            failureKind: error.kind,
+          );
+        }
+      } catch (error) {
+        _finishItem(
+          runtime,
+          item,
+          TransferItemState.failed,
+          error: '$error',
+          failureKind: RemoteFileErrorKind.other,
+        );
+      } finally {
+        runtime.attempts.remove(item.id);
+      }
     }
     _maybeFinishTask(runtime);
   }
@@ -2509,7 +2744,12 @@ class TransferQueue {
   /// max-of-sides combiner counts each byte once even when the two
   /// sides report in lockstep, and still progresses when one side
   /// stays silent.
-  Future<void> _pipe({
+  /// Streams [sourcePath] into [destinationPath] and returns both
+  /// endpoints' committed entries (`source` is the download's result,
+  /// `destination` the upload's). Managed checkouts read the remote
+  /// side's entry off the result — the post-commit stat plus, with
+  /// [computeHash], the content digest the record's snapshot needs (D7).
+  Future<({RemoteFileEntry source, RemoteFileEntry destination})> _pipe({
     required RemoteFileSystem source,
     required RemoteFileSystem destination,
     required BandwidthLimiter readLimiter,
@@ -2520,6 +2760,7 @@ class TransferQueue {
     required bool overwrite,
     RemoteFileEntry? expectedTarget,
     int? preserveMode,
+    bool computeHash = false,
     required RemoteTransferCancellation cancellation,
     required RemoteTransferProgress onProgress,
   }) async {
@@ -2554,7 +2795,7 @@ class TransferQueue {
       expectedTarget: expectedTarget,
       cancellation: cancellation,
       onProgress: pipeProgress,
-      computeHash: false,
+      computeHash: computeHash,
     );
     unawaited(
       uploadFuture.then(
@@ -2586,13 +2827,14 @@ class TransferQueue {
         onError: (Object _) => sink.abort(),
       ),
     );
+    late final RemoteFileEntry sourceResult;
     try {
-      await source.download(
+      sourceResult = await source.download(
         sourcePath,
         sink,
         onProgress: pipeProgress,
         cancellation: cancellation,
-        computeHash: false,
+        computeHash: computeHash,
       );
     } catch (error) {
       if (uploadError == null) sink.abort(error);
@@ -2613,8 +2855,15 @@ class TransferQueue {
       throw _sideError('source', error);
     }
     try {
-      await sink.close();
-      await uploadFuture;
+      // Never await close() itself: a destination that died before
+      // subscribing leaves buffered chunks nobody drains, and
+      // StreamController.close() waits on delivery forever — the
+      // upload's own completion is the drain proof. An aborted sink
+      // can still fail close() incidentally — ignore() keeps that
+      // unwind artifact off the zone's unhandled-error path.
+      sink.close().ignore();
+      final destinationResult = await uploadFuture;
+      return (source: sourceResult, destination: destinationResult);
     } catch (error) {
       // A real upload failure beats the sink's incidental close error on
       // an already-aborted sink — surface the remote cause, not the

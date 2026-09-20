@@ -9,6 +9,7 @@ import 'app.dart';
 import 'services/app_preferences.dart';
 import 'services/application_error_reporter.dart';
 import 'services/bookmark_backup_service.dart';
+import 'services/checkout_session.dart';
 import 'services/desktop_window_lifecycle.dart';
 import 'services/engine_session.dart';
 import 'services/file_stores.dart';
@@ -151,6 +152,21 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
 
+  // The managed-checkout pipeline (06 §3, M7): one CheckoutManager over
+  // the app-support store, driving every byte through the queue session
+  // above so checkout downloads and upload-on-save rows surface in the
+  // activity panel. The session is the future editor UI's only handle —
+  // no editor surface exists yet. Remote endpoints fail honestly under
+  // the same unsupported lease the queue's tasks do (item 23).
+  final checkoutSession = transferQueueSession == null
+      ? null
+      : await startCheckoutSession(
+          supportDirectoryPath: supportDirectory.path,
+          queue: transferQueueSession.concreteQueue,
+          connections: transferQueueSession.connections,
+          onError: errorReporter.report,
+        );
+
   // Settings → Backup (04 §3.3, M6): the bookmark-backup service over
   // the same seams the enrolled state renders — the OS keystore for the
   // token and vault key (never settings.json), the shared bookmark and
@@ -231,6 +247,7 @@ Future<void> main() async {
       onPaneRatioChanged: preferences.savePaneRatio,
       onPaneRatioSaveError: errorReporter.report,
       transferQueue: transferQueueSession?.queue,
+      checkoutSession: checkoutSession,
       initialActivityPanelHeight: activityPanelHeight,
       onActivityPanelHeightChanged:
           preferences.saveActivityPanelHeight,

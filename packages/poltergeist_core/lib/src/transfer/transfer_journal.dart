@@ -33,6 +33,9 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
+import '../checkout/managed_checkout_spec.dart';
+import '../checkout/managed_remote_file.dart';
+import '../fs/local_fs_safety.dart';
 import 'transfer_task.dart';
 
 /// The journal file's basename inside the support directory (03 §4.6).
@@ -919,7 +922,71 @@ Map<String, Object?> _specToJson(TransferTaskSpec spec) => {
   'folders': spec.policy.folders.name,
   'operation': spec.operation.name,
   if (spec.disposition != null) 'disposition': spec.disposition!.name,
+  if (spec.managedCheckout != null)
+    'managedCheckout': _managedCheckoutToJson(spec.managedCheckout!),
 };
+
+/// The managed-checkout payload rides the journaled spec verbatim (03
+/// §4.6): `expectedTarget`'s `contentSha256` must round-trip intact —
+/// it is the D7 conflict authority a replayed upload still enforces.
+Map<String, Object?> _managedCheckoutToJson(ManagedCheckoutSpec managed) => {
+  'checkoutId': managed.checkoutId,
+  'serverId': managed.serverId,
+  'remotePath': managed.remotePath,
+  'localPath': managed.localPath,
+  'direction': managed.direction.name,
+  if (managed.displayLocalPath != null)
+    'displayLocalPath': managed.displayLocalPath,
+  if (managed.expectedSize != null) 'expectedSize': managed.expectedSize,
+  if (managed.preserveMode != null) 'preserveMode': managed.preserveMode,
+  if (managed.expectedTarget != null)
+    'expectedTarget': remoteFileEntryToJson(managed.expectedTarget!),
+};
+
+ManagedCheckoutSpec _managedCheckoutFromJson(Map<String, Object?> json) {
+  final direction = switch (json['direction']) {
+    'download' => ManagedCheckoutDirection.download,
+    'upload' => ManagedCheckoutDirection.upload,
+    _ => throw const FormatException('unknown managed-checkout direction'),
+  };
+  final expectedSize = json['expectedSize'];
+  if (expectedSize != null && expectedSize is! int) {
+    throw const FormatException('malformed managed-checkout spec');
+  }
+  final preserveMode = json['preserveMode'];
+  if (preserveMode != null && preserveMode is! int) {
+    throw const FormatException('malformed managed-checkout spec');
+  }
+  final targetJson = json['expectedTarget'];
+  if (targetJson != null && targetJson is! Map) {
+    throw const FormatException('malformed managed-checkout spec');
+  }
+  return ManagedCheckoutSpec(
+    checkoutId: _requiredString(json['checkoutId'], 'checkoutId'),
+    serverId: _requiredString(json['serverId'], 'serverId'),
+    remotePath: _requiredString(json['remotePath'], 'remotePath'),
+    localPath: _requiredString(json['localPath'], 'localPath'),
+    direction: direction,
+    displayLocalPath: _optionalString(
+      json['displayLocalPath'],
+      'displayLocalPath',
+    ),
+    expectedSize: expectedSize as int?,
+    expectedTarget: targetJson == null
+        ? null
+        : remoteFileEntryFromJson(
+            (targetJson as Map).cast<String, Object?>(),
+          ),
+    preserveMode: preserveMode as int?,
+  );
+}
+
+String _requiredString(Object? value, String field) {
+  if (value is! String || value.isEmpty) {
+    throw FormatException('managed-checkout spec is missing $field');
+  }
+  return value;
+}
 
 TransferTaskSpec _specFromJson(Map<String, Object?> json) {
   final rootPaths = json['rootPaths'];
@@ -943,6 +1010,18 @@ TransferTaskSpec _specFromJson(Map<String, Object?> json) {
   if (operation == TransferOperation.delete && disposition == null) {
     throw const FormatException('a delete spec is missing disposition');
   }
+  // Same strictness as disposition: a managed payload on a non-copy spec
+  // is dropped data the writer never intended — refuse the record rather
+  // than silently degrade the replayed task.
+  final managedJson = json['managedCheckout'];
+  if (managedJson != null && managedJson is! Map) {
+    throw const FormatException('malformed managed-checkout journal record');
+  }
+  if (managedJson != null && operation != TransferOperation.copy) {
+    throw FormatException(
+      'a ${operation.name} spec must not carry a managed checkout',
+    );
+  }
   return TransferTaskSpec(
     source: _locationFromJson(json['source']),
     destination: _locationFromJson(json['destination']),
@@ -954,6 +1033,11 @@ TransferTaskSpec _specFromJson(Map<String, Object?> json) {
     ),
     operation: operation,
     disposition: disposition,
+    managedCheckout: managedJson == null
+        ? null
+        : _managedCheckoutFromJson(
+            (managedJson as Map).cast<String, Object?>(),
+          ),
   );
 }
 
@@ -1151,10 +1235,22 @@ class TransferJournalIo {
   /// impossible) is written, fsynced, renamed over the target, and the
   /// containing directory fsynced so the rename itself survives power
   /// loss.
-  Future<void> atomicRewrite(File file, String contents) async {
+  Future<void> atomicRewrite(
+    File file,
+    String contents, {
+    bool restrictToOwner = false,
+  }) async {
     await file.parent.create(recursive: true);
     final temporary = File('${file.path}.tmp-${_randomHexSuffix()}');
     try {
+      if (restrictToOwner) {
+        // Restrict before any content lands (Séance's writeStringAtomically
+        // privacy order): the empty temp briefly exists at the umask
+        // default, but nothing is written until it is 0600 — and the
+        // containing dir being 0700 closes the open-fd race entirely.
+        await temporary.create();
+        await restrictLocalPathPermissions(temporary.path, '600');
+      }
       final raf = await temporary.open(mode: FileMode.writeOnly);
       try {
         await raf.writeString(contents);
@@ -1163,6 +1259,12 @@ class TransferJournalIo {
         await raf.close();
       }
       await temporary.rename(file.path);
+      if (restrictToOwner) {
+        // Rename carries the temp's mode, but the pinned contract names
+        // the index itself too — an explicit post-rename chmod also
+        // tightens a destination that outlived an odd rename path.
+        await restrictLocalPathPermissions(file.path, '600');
+      }
       await fsyncDirectory(file.parent);
     } on Object {
       try {
