@@ -261,6 +261,56 @@ jobs:
       - name: Run SSH integration fixture
         run: test/integration/run.sh
 
+  # 07 §3.7's convergence criterion names seance_sync_server in Docker.
+  # The server build comes from the pinned Séance checkout pub already
+  # resolved (same rev the client pins), so the protocol pair cannot skew.
+  sync_integration:
+    name: Sync-server integration tests
+    needs: detect_integration
+    if: needs.detect_integration.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve workspace
+        run: dart pub get
+      - name: Build and start the pinned seance_sync_server in Docker
+        run: |
+          set -euo pipefail
+          # The pinned Séance checkout, wherever pub put it — read from the
+          # resolved package config rather than guessing a cache path.
+          src="$(python3 -c 'import json; pc = json.load(open(".dart_tool/package_config.json")); print(next(p["rootUri"] for p in pc["packages"] if p["name"] == "seance_core").removeprefix("file://").removesuffix("/packages/seance_core"))')"
+          docker build \
+            -f "$src/packages/seance_sync_server/Dockerfile" \
+            -t seance-sync-test "$src"
+          # SEANCE_DB_PATH emptied: in-memory storage — the fixture is
+          # ephemeral and the slim image needs no sqlite volume.
+          docker run -d --name seance-sync \
+            -e SEANCE_OPEN_REGISTRATION=1 \
+            -e SEANCE_BIND=0.0.0.0 \
+            -e SEANCE_PORT=8787 \
+            -e SEANCE_DB_PATH= \
+            -p 127.0.0.1:8799:8787 \
+            seance-sync-test
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8799/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs seance-sync
+          exit 1
+      - name: Run sync-server integration tests
+        env:
+          POLTERGEIST_SYNC_SERVER: http://127.0.0.1:8799
+        run: dart test --concurrency=1 -t integration packages/poltergeist_core
+      - name: Stop the fixture
+        if: always()
+        run: docker rm -f seance-sync || true
+
   detect_bench:
     name: Detect bench-relevant changes
     runs-on: ubuntu-latest

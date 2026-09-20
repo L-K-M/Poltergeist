@@ -4,25 +4,25 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-20. **M3, M4, and M5 are closed; M6 is open** —
-its engine-side foundation (04 §3.1–3.2: `PersistentLocalRecordStore`,
-`BookmarkCoordinator`, and the verdict/tripwire seams) plus the Design B
-enrollment slice (04 §4.1/§4.5) and the Settings → Backup surface with
-the B→A switch (04 §4.3/§4.4) are implemented in the dated M6 sections
-below —
-v0.2.0 remains the latest published pre-release (M3, M4, and M5 closed
-untagged per their closure records; M5's §3.12 tag chore is recorded in
-[tasks/m5-closure-record.md](../tasks/m5-closure-record.md)). Every M5
-§3.6 exit criterion is on main through the closure audit PR, audited
-per-criterion in the dated closure section below. M0, M1, and M2 stay
-closed per the Done table; **open item 4 (the M1/M2 overlap
-authorization) remains an OPEN owner decision**, and new open item 24
-carries the AltGr/Ctrl+Alt-letter chord collision to a spec decision.
-Open item 23's M4 gap is closed app-side: `main.dart` now composes the
-journaled queue and every consumer shares it — its remaining half
-(remote transfers fail honestly until the engine protocol grows
-transfer verbs) stays open for the engine-host slice. Next milestone:
-M6 (bookmark sync, 07 §3.7).
+_Last updated: 2026-09-20. **M3, M4, M5, and M6 are closed; M7 is
+open** — M6's engine-side foundation (04 §3.1–3.2), Design B
+enrollment (04 §4.1/§4.5), and the Settings → Backup surface with the
+B→A switch (04 §4.3/§4.4) landed through #165–#167, and the §3.7
+exit-criteria audit closed the milestone per the dated section below
+(record:
+[tasks/m6-closure-record.md](../tasks/m6-closure-record.md)) —
+v0.2.0 remains the latest published pre-release (M3–M6 closed untagged
+per their closure records; M6's §3.12 tag chore is recorded in the
+closure record). M0, M1, and M2 stay closed per the Done table; **open
+item 4 (the M1/M2 overlap authorization) remains an OPEN owner
+decision**; open item 24 carries the AltGr/Ctrl+Alt-letter chord
+collision to a spec decision; new open item 25 records that Séance
+v0.9.1 now contains both the pinned rev and PR-S1 — the tag re-pin and
+the shared-mode "Your Séance servers" surface are the recorded
+follow-ups. Open item 23's remaining half (remote transfers fail
+honestly until the engine protocol grows transfer verbs) stays open
+for the engine-host slice. Next milestone: M7 (editor, checkouts,
+preview, 07 §3.8).
 
 ## Done
 
@@ -6708,6 +6708,75 @@ with five `POLTERGEIST_CAPTURE` states under
 `tasks/run3-task81-captures/` (not committed). App suite 1378 and
 core 1303 green; analyze clean on both sides.
 
+## M6 — exit-criteria audit and close (2026-09-20)
+
+All five 07 §3.7 exit criteria audited against the post-#167 main
+head `2aee7d3`; the per-criterion evidence record lives in
+[tasks/m6-closure-record.md](../tasks/m6-closure-record.md).
+Verdicts:
+
+1. **Two-device convergence against `seance_sync_server` in Docker —
+   MET**, launch form recorded. Docker is absent on the audit host;
+   the committed
+   `test/integration/sync_server_convergence_test.dart`
+   (`@Tags(['integration'])`, `POLTERGEIST_SYNC_SERVER`-gated) ran
+   locally against the pinned server compiled natively from the
+   `2e6d1f1` checkout — real `HttpSyncClient`, real register/login
+   enrollments, create/edit/delete convergence, a server-verified
+   tombstone that stays won against a stale push. The criterion's
+   named Docker form runs in the new `sync_integration` CI job
+   (builds the same pinned checkout via its Dockerfile, exports the
+   variable, runs the tagged suite) — evidence attaches to the audit
+   PR's CI run.
+2. **flurb survives / malformed skips — MET on the real round
+   path.** The fake-side proofs stay cited; the new suite re-proves
+   both over real HTTP: byte-identical blob AND unchanged server seq
+   across rounds for `flurb:x1`, tripwire-not-abort for
+   `bookmark:bad` while `bookmark:good` applies.
+3. **Enrollment security behaviors — MET on HEAD:** KDF-downgrade
+   refusal, §4.5 trial-decrypt + foreign-record + push hold (14
+   enrollment tests), token-in-keystore confinement, §4.4 switch
+   ordering/retention/restore, gate-disabled-without-tag and
+   Continue-gated-on-fleet-checkbox widget proofs.
+4. **Design A against a patched Séance — PARTIAL (open item 25).**
+   Correcting the brief's premise: PR-S1 IS released — v0.9.0/v0.9.1
+   both contain merge `599ff936` (ancestry-verified), so the gate
+   correctly *offers* the shared option behind the fleet checkbox
+   (verified: null-tag disables outright; recorded tag gates
+   Continue; the #56 disclosure renders while
+   `kMinSharedVersionIncludesSeance56Fix` is false). Against a
+   patched Séance, the new suite drives the pinned
+   `seance_core` `SyncCoordinator` itself to the real server:
+   shared-mode login trial-decrypts Séance's own record, the catalog
+   materializes (`fleet-web`), the pin lands, and `TofuVerifier`
+   returns `trusted` — connect with no first-use prompt; Séance's
+   `excludeFromSync` tombstone empties the catalog. Residuals
+   recorded honestly: no "Your Séance servers" picker/sidebar
+   section exists on HEAD, and no running-Séance-app + real-SSH leg
+   ran.
+5. **§4.3 strings verbatim + 403 copy — MET.** `app_en.arb` carries
+   every §4.3 string verbatim (diffed against the chapter during the
+   audit); `RegistrationClosedException` carries the copy and the
+   enrollment test asserts nothing persisted on a 403.
+
+The 04 §5.6 shim question re-checked on the final state: **not
+needed** — the `2e6d1f1` pin contains PR-S1 (ancestry-verified;
+`RecordKind.bookmark`/`unknown` in the pinned record.dart), records
+seal through the real `RecordCodec`, no shim was ever written and
+none exists to delete or migrate.
+
+§3.12 chores at this close: STATUS swept (header, this section, item
+25); PORTS.md needed no update (the M6 validator entry is accurate,
+no new ports this audit); the pin CAN now bump — `v0.9.1` contains
+`2e6d1f1` — deferred per the audit task's non-goals into item 25; no
+`TODO(pin)` markers; the §5 M6 mobile invariant **re-verifies clean**
+— sync enrollment and the record store are pure core Dart with no
+pane, watcher, or window coupling, durable state in file stores +
+settings, credentials only in the keystore seam; earlier rows hold.
+The `v0.6.0` tag chore is **not run here**, matching the prior
+untagged closes — a tag push publishes release assets, left to the
+supervisor/owner.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -7400,6 +7469,26 @@ core 1303 green; analyze clean on both sides.
     app-scope activators while a text field holds focus (does not
     help outside fields), or both — possibly per-chord. The M5
     audit records the collision; no chord changed under it.
+25. **2026-09-20: Séance v0.9.1 closes the rev-pin bridge and the
+    PR-S1 release wait — re-pin to the tag; the shared-mode "Your
+    Séance servers" surface is still unbuilt.** Two releases landed
+    during M6: `v0.9.0` (2026-09-13) and `v0.9.1` (2026-09-14), both
+    containing merge `599ff936` (PR-S1) AND the current pin rev
+    `2e6d1f1` (ancestry-verified against the fetched tags). Item 2's
+    re-pin is now satisfiable: bump both declarations and the locks
+    to `v0.9.1` (D2 steady state), re-diff the PORTS ledger, and
+    close item 2. The Design A gate constant already records
+    `'v0.9.0'` (verified at its tag tree during #167; #56 stays
+    open so the `false` companion boolean and the §4.3 disclosure
+    remain correct). The M6 residual: §4.2's "Your Séance servers"
+    picker/sidebar section does not exist on HEAD —
+    `SeanceServerCatalog` materializes at the service seam (proven
+    end-to-end by the audit's shared-mode integration test) but no
+    UI renders it, so `serverConfigId` bookmarks cannot yet be
+    created and the shared option is honest-but-unproductive until
+    that surface lands. The running-patched-Séance + real-SSH legs
+    of the §3.7 criterion ride the same follow-up. Deferred per the
+    M6 audit task's non-goals (no pin bump, no new features).
 
 ## Independent audit
 

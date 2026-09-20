@@ -31,6 +31,15 @@ Ordinary package tests skip these cases unless `POLTERGEIST_SSHD` and the
 suite's service-port variable are set; `run.sh` exports the complete fixture
 environment. Use Docker Compose and the Dart SDK to run the command above.
 
+The bookmark-sync convergence suite
+(`packages/poltergeist_core/test/integration/sync_server_convergence_test.dart`)
+is a second, independent leg: it speaks the real sync protocol through the
+pinned `HttpSyncClient` to a running `seance_sync_server` and skips unless
+`POLTERGEIST_SYNC_SERVER` names its base URL. CI's `sync_integration` job
+builds the pinned server through its own Dockerfile and exports the variable;
+locally, compile the pinned checkout's server binary and launch it with open
+registration — the test file's header has the recipe.
+
 `sshd-legacy/Dockerfile` records how the public GHCR artifact was built. CI
 never rebuilds it, so an archive or package-index change cannot alter M0.
 
