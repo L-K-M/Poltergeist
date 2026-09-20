@@ -312,7 +312,6 @@ jobs:
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then
-            docker logs seance-sync
             exit 1
           fi
       - name: Run sync-server integration tests
@@ -320,7 +319,7 @@ jobs:
           POLTERGEIST_SYNC_SERVER: http://127.0.0.1:8799
         run: dart test --concurrency=1 -t integration packages/poltergeist_core
       - name: Dump fixture logs
-        if: failure()
+        if: ${{ !success() }}
         run: docker logs seance-sync || true
       - name: Stop the fixture
         if: always()
