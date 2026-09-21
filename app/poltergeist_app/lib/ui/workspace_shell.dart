@@ -944,7 +944,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         // immediate-persist idiom).
         await widget.onPreviewCacheCapacityChanged?.call(bytes);
         cache.capacityBytes = bytes;
-        unawaited(cache.enforce());
+        unawaited(
+          cache.enforce().catchError((Object error, StackTrace stack) {
+            ApplicationErrorReporter().report(error, stack);
+          }),
+        );
       },
       onThresholdChanged: (bytes) async {
         await widget.onPreviewThresholdChanged?.call(bytes);

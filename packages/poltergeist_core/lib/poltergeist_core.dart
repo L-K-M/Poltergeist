@@ -217,7 +217,6 @@ export 'src/preview/preview_kinds.dart'
         previewProduceSlotLimit,
         previewRawExtension,
         previewTextMaximumBytes,
-        previewUnknownSizeMaximumBytes,
         previewWindowsExecutableExtensions,
         sanitizePreviewExtension;
 export 'src/preview/preview_text.dart'

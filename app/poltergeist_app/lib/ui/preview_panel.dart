@@ -677,37 +677,78 @@ class _PreviewBody extends StatelessWidget {
 /// The dimensions caption under an image preview — resolved from the
 /// decoded frame so a file lying about its extension reports the real
 /// dimensions.
-class _ImageDimensionsCaption extends StatelessWidget {
+class _ImageDimensionsCaption extends StatefulWidget {
   const _ImageDimensionsCaption({required this.file});
 
   final File file;
 
   @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return FutureBuilder<ui.Image>(
-      future: _decode(file),
-      builder: (context, snapshot) {
-        final image = snapshot.data;
-        if (image == null) return const SizedBox(height: 18);
-        return Padding(
-          padding: const EdgeInsetsDirectional.only(start: 14, bottom: 10),
-          child: Text(
-            l10n.previewImageDimensions(image.width, image.height),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        );
-      },
-    );
+  State<_ImageDimensionsCaption> createState() =>
+      _ImageDimensionsCaptionState();
+}
+
+class _ImageDimensionsCaptionState extends State<_ImageDimensionsCaption> {
+  /// The decoded probe frame. A `ui.Image` owns GPU-side memory, so the
+  /// decode runs once per file here — not per build like a FutureBuilder
+  /// would — and the image is disposed with the state.
+  ui.Image? _image;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_decode(widget.file));
   }
 
-  Future<ui.Image> _decode(File file) async {
-    final bytes = await file.readAsBytes();
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
-    return frame.image;
+  @override
+  void didUpdateWidget(_ImageDimensionsCaption oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.path != widget.file.path) {
+      _image?.dispose();
+      _image = null;
+      unawaited(_decode(widget.file));
+    }
+  }
+
+  Future<void> _decode(File file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes);
+      try {
+        final frame = await codec.getNextFrame();
+        if (!mounted) {
+          frame.image.dispose();
+          return;
+        }
+        setState(() => _image = frame.image);
+      } finally {
+        codec.dispose();
+      }
+    } on Object {
+      // An unreadable/undecodable file leaves the caption blank — the
+      // image widget's own errorBuilder carries the honest state.
+    }
+  }
+
+  @override
+  void dispose() {
+    _image?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _image;
+    if (image == null) return const SizedBox(height: 18);
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 14, bottom: 10),
+      child: Text(
+        l10n.previewImageDimensions(image.width, image.height),
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
   }
 }
 

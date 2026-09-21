@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:seance_core/seance_core.dart';
 
+import '../editor/built_in_text_document.dart' show CheckoutLimitException;
 import '../transfer/transfer_queue.dart';
 import '../transfer/transfer_task.dart';
 
@@ -292,6 +293,25 @@ final class QueuePreviewProducer implements PreviewProducer {
           kind: RemoteFileErrorKind.cancelled,
           operation: 'preview produce',
           message: 'preview production cancelled',
+        ),
+      );
+      return;
+    }
+    // The unknown-size stream cap aborts the hop mid-pipe and the
+    // queue's error attribution flattens MaximumByteSink's typed throw
+    // to a 'transfer source: …-byte editor limit.' item string. Re-pin
+    // it here — the same suffix trick CheckoutManager uses — as the
+    // typed exception so the caller can render the over-cap refusal
+    // rather than a retryable failure carrying the editor's wording.
+    final maximumBytes = task.spec.produce?.maximumBytes;
+    final errorMessage = task.error;
+    if (maximumBytes != null &&
+        errorMessage != null &&
+        errorMessage.endsWith('$maximumBytes-byte editor limit.')) {
+      completer.completeError(
+        CheckoutLimitException(
+          'The file is larger than the $maximumBytes-byte '
+          'preview limit.',
         ),
       );
       return;

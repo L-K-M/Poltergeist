@@ -265,6 +265,13 @@ final class PreviewSession extends ChangeNotifier {
   /// sweeps them so a dying session leaves no `.part` behind.
   final _openSlots = <PreviewCacheSlot>{};
 
+  /// 09 §3's disposed guard: the shell can tear the session down while
+  /// a production/lookup/commit is still in flight, and a completion
+  /// that then called [notifyListeners] would throw inside an
+  /// unawaited future. Every async continuation and sync callback
+  /// (progress, gate, close edge) early-returns on this.
+  bool _disposed = false;
+
   void _onFocusChainChanged() {
     final strip = _workspace.activePane;
     if (!identical(strip, _boundStrip)) {
@@ -430,20 +437,29 @@ final class PreviewSession extends ChangeNotifier {
       switch (_quickLookCard) {
         case QuickLookCardKind.confirm:
           _quickLookCard = QuickLookCardKind.none;
+          // Answering a Quick Look card retracts the pending request
+          // unless the surface itself is still open — otherwise a late
+          // completion would deliver into showPreview the user just
+          // declined, and a never-opened request would wedge Space
+          // into a permanent no-op.
+          _quickLookRequested = _quickLookActive;
           notifyListeners();
           return true;
         case QuickLookCardKind.gateConfirm:
           _gate?.deny();
           _quickLookCard = QuickLookCardKind.none;
+          _quickLookRequested = _quickLookActive;
           notifyListeners();
           return true;
         case QuickLookCardKind.producing:
+          _quickLookRequested = _quickLookActive;
           _cancelProduction();
           return true;
         case QuickLookCardKind.refused:
           // The metadata refusal card dismisses under Quick Look like
           // the panel's promptless cards — the native surface stays up.
           _quickLookCard = QuickLookCardKind.none;
+          _quickLookRequested = _quickLookActive;
           notifyListeners();
           return true;
         case QuickLookCardKind.none:
@@ -652,6 +668,7 @@ final class PreviewSession extends ChangeNotifier {
     final key = _focusedKey!;
     unawaited(
       _cache.lookup(key).then((file) {
+        if (_disposed) return;
         if (!identical(_focusedPane, pane) || _focusedKey != key) return;
         if (file == null) {
           // An in-flight production for this key re-attaches — rapid
@@ -681,6 +698,7 @@ final class PreviewSession extends ChangeNotifier {
       }).catchError((Object error) {
         // A cache read failure is not a production failure — fall back
         // to the prompt so a retry still exists.
+        if (_disposed) return;
         if (_focusedKey == key) {
           _refusal = PreviewRefusal.failed;
           _setPhase(PreviewPhase.prompt);
@@ -692,36 +710,35 @@ final class PreviewSession extends ChangeNotifier {
   Future<void> _sniffLocal(File file, int generation) async {
     try {
       if (await fileLooksLikeUtf8Text(file)) {
+        if (_disposed) return;
         _kind = PreviewKind.text;
         await _loadText(file, generation);
         return;
       }
     } on FileSystemException {
-      if (_generation == generation) {
-        _refusal = PreviewRefusal.missing;
-        _setPhase(PreviewPhase.rendered);
-      }
+      if (_disposed || _generation != generation) return;
+      _refusal = PreviewRefusal.missing;
+      _setPhase(PreviewPhase.rendered);
       return;
     }
-    if (_generation == generation) {
-      _setPhase(PreviewPhase.rendered);
-    }
+    if (_disposed || _generation != generation) return;
+    _setPhase(PreviewPhase.rendered);
   }
 
   Future<void> _loadText(File file, int generation) async {
     try {
       final content = await loadPreviewText(file);
-      if (_generation != generation) return;
+      if (_disposed || _generation != generation) return;
       _text = content;
       _file = file;
       _setPhase(PreviewPhase.rendered);
     } on BuiltInEditorException {
-      if (_generation != generation) return;
+      if (_disposed || _generation != generation) return;
       _refusal = PreviewRefusal.notText;
       _file = file;
       _setPhase(PreviewPhase.rendered);
     } on FileSystemException {
-      if (_generation != generation) return;
+      if (_disposed || _generation != generation) return;
       _refusal = PreviewRefusal.missing;
       _setPhase(PreviewPhase.rendered);
     }
@@ -733,7 +750,7 @@ final class PreviewSession extends ChangeNotifier {
   Future<void> _renderFile(File file, PreviewKind kind, int generation) async {
     try {
       final length = await file.length();
-      if (_generation != generation) return;
+      if (_disposed || _generation != generation) return;
       final kindCap = previewKindCapBytes(kind);
       if (kindCap != null && length > kindCap) {
         _refusal = PreviewRefusal.overKindCap;
@@ -743,7 +760,7 @@ final class PreviewSession extends ChangeNotifier {
       _file = file;
       _setPhase(PreviewPhase.rendered);
     } on FileSystemException {
-      if (_generation != generation) return;
+      if (_disposed || _generation != generation) return;
       _refusal = PreviewRefusal.missing;
       _setPhase(PreviewPhase.rendered);
     }
@@ -800,14 +817,17 @@ final class PreviewSession extends ChangeNotifier {
     } on Object {
       _pendingStarts.remove(key);
       _startCancels.remove(key);
+      if (_disposed) return;
       _refusal = PreviewRefusal.failed;
       _setPhase(PreviewPhase.prompt);
       return;
     }
     _pendingStarts.remove(key);
-    if (_startCancels.remove(key)) {
+    if (_disposed || _startCancels.remove(key)) {
       // Esc landed while the temp was being prepared — drop the slot,
-      // never the task (§5.2's cancel-before-bytes rule).
+      // never the task (§5.2's cancel-before-bytes rule). A disposed
+      // session aborts it the same way: the slot is ours alone and a
+      // late prepare must not leak a live temp past dispose's sweep.
       await slot.abort();
       return;
     }
@@ -824,6 +844,7 @@ final class PreviewSession extends ChangeNotifier {
         ? PreviewByteGate(
             thresholdBytes: threshold,
             onThresholdReached: (transferred) {
+              if (_disposed) return;
               _transferred = transferred;
               if (_generation == generation &&
                   _phase == PreviewPhase.producing) {
@@ -845,6 +866,7 @@ final class PreviewSession extends ChangeNotifier {
         maximumBytes: maximumBytes,
         gate: gate,
         onProgress: (transferred, total) {
+          if (_disposed) return;
           final production = _productions[key];
           if (production != null) {
             production.transferred = transferred;
@@ -876,11 +898,27 @@ final class PreviewSession extends ChangeNotifier {
     }
     try {
       await ticket.result;
+      if (_disposed) return; // dispose() already aborted the slot
       _openSlots.remove(slot);
       // Commit always runs — a stale generation's file lands in the
       // cache for a later preview (§5.1/§5.2's close rule).
       final file = await slot.commit();
+      if (_disposed) return;
       _productions.remove(key);
+      if (!await file.exists()) {
+        // The commit's own enforce pass evicted the just-committed
+        // bytes — they alone exceeded the cap. That is the §5.3
+        // over-cap refusal, not a vanished file.
+        _gate = null;
+        _refusal = PreviewRefusal.overCacheCap;
+        if (_quickLookCard != QuickLookCardKind.none) {
+          _quickLookCard = QuickLookCardKind.refused;
+          notifyListeners();
+        } else if (_generation == generation && !_panelHidden) {
+          _setPhase(PreviewPhase.rendered);
+        }
+        return;
+      }
       if (_generation == generation) {
         _gate = null;
         if (_kind == PreviewKind.text) {
@@ -897,22 +935,38 @@ final class PreviewSession extends ChangeNotifier {
       _productions.remove(key);
       await slot.abort();
       _gate = null;
+      if (_disposed) return;
+      // The unknown-size stream cap arrives typed (the produce seam's
+      // suffix-pin): render the §5.3 over-cap refusal, never a
+      // retryable failure — Space on a prompt would re-download the
+      // same bytes into the same cap forever.
+      final overCap =
+          error is CheckoutLimitException && maximumBytes != null;
+      final capRefusal = maximumBytes == kindCap
+          ? PreviewRefusal.overKindCap
+          : PreviewRefusal.overCacheCap;
       if (_quickLookCard != QuickLookCardKind.none) {
         // A cancelled/failed Quick Look production leaves the native
         // panel on its previous item — the card clears, the surface
-        // stays (§5.1's "keeps the current item visible").
-        _quickLookCard = QuickLookCardKind.none;
+        // stays (§5.1's "keeps the current item visible"); a refused
+        // one shows the refusal card instead, which reads _refusal —
+        // the docked panel stays hidden under Quick Look, so set it
+        // here rather than inside the panel-hidden guard below.
+        if (overCap) _refusal = capRefusal;
+        _quickLookCard =
+            overCap ? QuickLookCardKind.refused : QuickLookCardKind.none;
         notifyListeners();
       }
       if (_generation == generation && !_panelHidden) {
         // Failed or cancelled → the prompt card returns so Space
-        // retries (§5.2).
-        _refusal =
-            error is RemoteFileException &&
-                error.kind == RemoteFileErrorKind.cancelled
+        // retries (§5.2); a cap refusal renders the promptless card.
+        _refusal = overCap
+            ? capRefusal
+            : error is RemoteFileException &&
+                  error.kind == RemoteFileErrorKind.cancelled
             ? PreviewRefusal.cancelled
             : PreviewRefusal.failed;
-        _setPhase(PreviewPhase.prompt);
+        _setPhase(overCap ? PreviewPhase.rendered : PreviewPhase.prompt);
       }
     }
   }
@@ -921,12 +975,14 @@ final class PreviewSession extends ChangeNotifier {
 
   Future<void> _quickLookOpen(PaneController pane) async {
     if (!await _quickLook.isAvailable()) {
+      if (_disposed) return;
       // Channel absent on a non-macOS host or a headless test — the
       // panel is the honest fallback surface.
       _workspace.setPreviewPanelHidden(false);
       _evaluate();
       return;
     }
+    if (_disposed) return;
     final location = pane.location;
     final cursor = pane.cursorIndex!;
     if (location is RemotePaneLocation) {
@@ -942,6 +998,7 @@ final class PreviewSession extends ChangeNotifier {
       (item) => item.path == pane.entries[cursor].path,
     );
     await _quickLook.showPreview(paths, index < 0 ? 0 : index);
+    if (_disposed) return;
     _quickLookRequested = true;
     _quickLookActive = true;
     _quickLookListenClose();
@@ -990,8 +1047,14 @@ final class PreviewSession extends ChangeNotifier {
     final location = pane.location as RemotePaneLocation;
     // A remote directory has no producible bytes — the native panel
     // keeps its current item (§5.1's keep-visible rule) rather than
-    // queuing a download that cannot run.
-    if (entry.isDirectory) return;
+    // queuing a download that cannot run. The request flag collapses
+    // back to whether the surface is actually up, so a declined or
+    // never-opened request can't make a later completion pop the
+    // panel (or wedge Space into a permanent no-op).
+    if (entry.isDirectory) {
+      _quickLookRequested = _quickLookActive;
+      return;
+    }
     final key = previewCacheKey(
       location.serverId,
       entry.path,
@@ -1013,11 +1076,13 @@ final class PreviewSession extends ChangeNotifier {
       return;
     }
     final cached = await _cache.lookup(key);
+    if (_disposed) return;
     if (cached != null) {
       if (_quickLookActive) {
         await _quickLook.updatePreview([cached.path], 0);
       } else {
         await _quickLook.showPreview([cached.path], 0);
+        if (_disposed) return;
         _quickLookActive = true;
         _quickLookListenClose();
       }
@@ -1050,13 +1115,18 @@ final class PreviewSession extends ChangeNotifier {
   /// first remote Space opens the panel here; a mid-session completion
   /// updates it.
   Future<void> _quickLookDeliver(_Production production, File file) async {
-    if (!_quickLookRequested || production.generation != _generation) {
+    if (_disposed ||
+        !_quickLookRequested ||
+        production.generation != _generation) {
       return;
     }
     if (_quickLookActive) {
       await _quickLook.updatePreview([file.path], 0);
     } else {
       await _quickLook.showPreview([file.path], 0);
+    }
+    if (_disposed) return;
+    if (!_quickLookActive) {
       _quickLookActive = true;
       _quickLookListenClose();
     }
@@ -1066,6 +1136,7 @@ final class PreviewSession extends ChangeNotifier {
 
   void _quickLookListenClose() {
     _quickLookCloseSub ??= _quickLook.onClosed.listen((_) {
+      if (_disposed) return;
       _quickLookActive = false;
       _quickLookRequested = false;
       _quickLookCard = QuickLookCardKind.none;
@@ -1101,6 +1172,11 @@ final class PreviewSession extends ChangeNotifier {
       _gate?.deny();
     }
     _quickLookCard = QuickLookCardKind.none;
+    // The decline retracts the pending request — collapse the flag to
+    // whether the surface is actually up, else a same-generation
+    // production could still deliver into showPreview (and a
+    // never-opened request would wedge Space into a no-op).
+    _quickLookRequested = _quickLookActive;
     notifyListeners();
   }
 
@@ -1114,6 +1190,8 @@ final class PreviewSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
     _workspace.removeListener(_onFocusChainChanged);
     _boundStrip?.removeListener(_onFocusChainChanged);
     _boundTab?.removeListener(_onFocusChainChanged);

@@ -2034,6 +2034,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filePreviewLabel => 'Quick Look';
 
   @override
+  String get filePreviewLabelNeutral => 'Preview';
+
+  @override
   String get viewTogglePreviewLabel => 'Show/Hide Preview';
 
   @override

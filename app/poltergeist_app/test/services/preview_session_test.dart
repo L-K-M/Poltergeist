@@ -153,6 +153,66 @@ void main() {
       expect(h.session.refusal, PreviewRefusal.cancelled);
     });
 
+    test(
+      'unknown-size over-cap produce renders the refusal, not a '
+      'retryable failure',
+      () async {
+        final h = await PreviewHarness.create();
+        await h.connectRemote([previewEntry('stream.txt')]);
+        h.session.previewFocused();
+        await untilPhase(h.session, PreviewPhase.prompt);
+        h.session.previewFocused();
+        await untilPhase(h.session, PreviewPhase.producing);
+        // The queue re-pins the stream-cap abort to the typed limit
+        // error (the produce seam's suffix-pin); the session maps it
+        // to the over-cap refusal card — never failed→prompt→retry.
+        h.producer.fail(
+          0,
+          const CheckoutLimitException('preview limit exceeded'),
+        );
+        await untilPhase(h.session, PreviewPhase.rendered);
+        expect(h.session.refusal, PreviewRefusal.overCacheCap);
+      },
+    );
+
+    test(
+      'unknown-size image over the kind cap renders overKindCap',
+      () async {
+        final h = await PreviewHarness.create();
+        await h.connectRemote([previewEntry('photo.png')]);
+        h.session.previewFocused();
+        await untilPhase(h.session, PreviewPhase.prompt);
+        h.session.previewFocused();
+        await untilPhase(h.session, PreviewPhase.producing);
+        expect(
+          h.producer.specs.single.maximumBytes,
+          previewKindCapBytes(PreviewKind.image),
+        );
+        h.producer.fail(
+          0,
+          const CheckoutLimitException('preview limit exceeded'),
+        );
+        await untilPhase(h.session, PreviewPhase.rendered);
+        expect(h.session.refusal, PreviewRefusal.overKindCap);
+      },
+    );
+
+    test('disposing mid-production swallows the late completion',
+        () async {
+      final h = await PreviewHarness.create();
+      await h.connectRemote([previewEntry('a.txt', size: 2)]);
+      h.session.previewFocused();
+      await untilPhase(h.session, PreviewPhase.prompt);
+      h.session.previewFocused();
+      await untilPhase(h.session, PreviewPhase.producing);
+
+      // The shell tears the session down while the hop is in flight —
+      // a completion then must not notify a disposed ChangeNotifier.
+      h.session.dispose();
+      await h.producer.complete(0, utf8.encode('hi'));
+      await previewSettle();
+    });
+
     test('a failed production returns the prompt with the failure card',
         () async {
       final h = await PreviewHarness.create();

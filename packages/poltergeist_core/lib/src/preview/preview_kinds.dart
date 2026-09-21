@@ -43,12 +43,6 @@ enum PreviewKind {
 const int previewImageKindCapBytes = 64 * 1024 * 1024;
 const int previewPdfKindCapBytes = 64 * 1024 * 1024;
 
-/// The pane's whole-file ceiling for streams that arrive without a known
-/// size (06 §5.3: "a maximum-bytes cap is used only when the produced
-/// stream arrives without a known size"). Sized above the largest kind
-/// cap so every bounded kind completes whole.
-const int previewUnknownSizeMaximumBytes = 64 * 1024 * 1024;
-
 /// The preview text loader's read window (06 §5.3: "the pane reads the
 /// first 1 MiB only").
 const int previewTextMaximumBytes = 1024 * 1024;

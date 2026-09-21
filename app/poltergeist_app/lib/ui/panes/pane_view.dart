@@ -632,6 +632,11 @@ class _PaneViewState extends State<PaneView> {
   /// button holding focus must not skip the tiers above the panel's
   /// slot). One press fires one tier.
   KeyEventResult _handleEscapeTier(KeyEvent event) {
+    // One press fires one tier — a held Esc's repeats are consumed here
+    // rather than cascading down to the next tier on each repeat.
+    if (event is KeyRepeatEvent) {
+      return KeyEventResult.handled;
+    }
     // 02 §8.2's total order puts the preview tier first: an open Quick
     // Look or docked panel answers Esc before the pane's own rename,
     // navigation, inspector, filter, and type-ahead slots see it. The

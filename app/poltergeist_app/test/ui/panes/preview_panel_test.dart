@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/l10n/app_localizations_en.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/preview_session.dart';
 import 'package:poltergeist_app/ui/panes/pane_commands.dart';
@@ -338,6 +340,30 @@ void main() {
 
       await h.connectRemote([previewEntry('a.txt', size: 2)]);
       expect(preview.enabled(), isTrue);
+    });
+
+    test('file.preview names the surface Space actually opens', () async {
+      final h = await PreviewHarness.create();
+      final commands = buildPaneCommands(
+        workspace: h.workspace,
+        focusLeft: () {},
+        focusRight: () {},
+        swapFocus: () {},
+        preview: h.session,
+      );
+      final preview = commands.firstWhere(
+        (c) => c.id == kFilePreviewCommandId,
+      );
+      final l10n = AppLocalizationsEn();
+
+      // Quick Look is the macOS-only surface; the docked panel owns
+      // Space everywhere else, so the menu label stays neutral there.
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      expect(preview.label(l10n), 'Quick Look');
+
+      debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+      expect(preview.label(l10n), 'Preview');
     });
   });
 }

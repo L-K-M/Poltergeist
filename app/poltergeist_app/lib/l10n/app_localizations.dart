@@ -3230,11 +3230,17 @@ abstract class AppLocalizations {
   /// **'Save'**
   String get editorDialogSave;
 
-  /// Command label: preview the focused row — macOS Quick Look or the in-app panel elsewhere (file.preview, Space, 02 §8.3/§9, 06 §5).
+  /// Command label on macOS, where Space opens the native Quick Look surface (file.preview, Space, 02 §8.3/§9, 06 §5).
   ///
   /// In en, this message translates to:
   /// **'Quick Look'**
   String get filePreviewLabel;
+
+  /// file.preview's command label off macOS — the docked in-app panel owns Space there, so the macOS-only 'Quick Look' name would be wrong (02 §8.3/§9, 06 §5).
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get filePreviewLabelNeutral;
 
   /// Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed.
   ///

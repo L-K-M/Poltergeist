@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
 
@@ -293,7 +294,12 @@ List<RegisteredCommand> buildPaneCommands({
     RegisteredCommand(
       id: kFilePreviewCommandId,
       scope: CommandScope.selection,
-      label: (l10n) => l10n.filePreviewLabel,
+      // The label names the surface Space actually opens: Quick Look is
+      // the macOS-only native panel; everywhere else the docked in-app
+      // panel answers, so the label stays neutral there.
+      label: (l10n) => defaultTargetPlatform == TargetPlatform.macOS
+          ? l10n.filePreviewLabel
+          : l10n.filePreviewLabelNeutral,
       icon: Icons.visibility_outlined,
       // Space on every platform (02 §8.3's table). Unmodified, so the
       // chord layer skips it by design — the pane's focus node

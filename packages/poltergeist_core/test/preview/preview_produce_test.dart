@@ -210,6 +210,35 @@ void main() {
     expect(task.state, TransferTaskState.failed);
   });
 
+  test('the over-cap ticket error is the typed limit exception', () async {
+    // The stream cap's throw reaches the queue as a wrapped
+    // 'transfer source: …-byte editor limit.' failure — the produce
+    // seam re-pins it to CheckoutLimitException (the suffix-pin trick
+    // CheckoutManager uses) so the session can render the over-cap
+    // refusal instead of a retryable failure.
+    s1.addFile('/r/big.bin', List<int>.filled(100, 9));
+    final producer = QueuePreviewProducer(queue);
+    addTearDown(producer.dispose);
+    final ticket = producer.start(
+      PreviewProduceSpec(
+        serverId: 's1',
+        remotePath: '/r/big.bin',
+        destinationPath: '${outDir.path}/big.bin',
+        maximumBytes: 10,
+      ),
+    );
+    await expectLater(
+      ticket.result,
+      throwsA(
+        isA<CheckoutLimitException>().having(
+          (e) => e.message,
+          'message',
+          contains('10-byte preview limit'),
+        ),
+      ),
+    );
+  });
+
   test('produceLocalCopy completes with the committed entry', () async {
     s1.addFile('/r/m.txt', [65]);
     final entry = await queue.produceLocalCopy(
