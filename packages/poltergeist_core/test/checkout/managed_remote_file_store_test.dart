@@ -816,6 +816,21 @@ void main() {
         store.deleteRecoveredFile('dir', 'a/b.txt'),
         throwsArgumentError,
       );
+      // Lifecycle markers are never deletable payload rows.
+      await expectLater(
+        store.deleteRecoveredFile(
+          'dir',
+          ManagedRemoteFileStore.epochMarkerName,
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        store.deleteRecoveredFile(
+          'dir',
+          ManagedRemoteFileStore.abandonedMarkerName,
+        ),
+        throwsArgumentError,
+      );
     },
   );
 

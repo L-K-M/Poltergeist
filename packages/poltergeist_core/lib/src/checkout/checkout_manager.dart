@@ -144,9 +144,15 @@ final class CheckoutManager {
       _store.checkoutFile(record.localPath);
 
   /// The local file a recovered payload's bytes live in — the §3.7
-  /// review surface's `Open` target, validated the same way.
-  File recoveredFile(RecoveredCheckout recovered, String name) =>
-      _store.checkoutFile('${recovered.directory}/$name');
+  /// review surface's `Open` target, validated the same way. `name`
+  /// carries the same single-segment rule as [forgetRecoveredFile] —
+  /// the recovered listing is flat, so both verbs share one grammar.
+  File recoveredFile(RecoveredCheckout recovered, String name) {
+    if (name.split('/').length != 1) {
+      throw ArgumentError.value(name, 'name', 'Must be a single file name');
+    }
+    return _store.checkoutFile('${recovered.directory}/$name');
+  }
 
   /// Loads persisted records, reconciles them, starts watchers, and
   /// subscribes to the queue — once. Call after construction, before

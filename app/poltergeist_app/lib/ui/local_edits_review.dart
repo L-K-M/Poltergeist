@@ -186,9 +186,12 @@ class _LocalEditsReviewDialogState extends State<LocalEditsReviewDialog> {
   // discard can preserve its payload as a recovered row, and a
   // connection flip re-gates Upload). Awaited rather than stored as a
   // Future: an errored refetch outliving an unmounted FutureBuilder
-  // would surface as an unhandled async error.
+  // would surface as an unhandled async error. The generation counter
+  // drops stale completions — overlapping fetches must never let an
+  // older listing overwrite a newer one.
   List<RecoveredCheckout>? _recovered;
   bool _recoveredLoaded = false;
+  int _reloadGeneration = 0;
 
   @override
   void initState() {
@@ -210,18 +213,19 @@ class _LocalEditsReviewDialogState extends State<LocalEditsReviewDialog> {
   }
 
   Future<void> _reload() async {
+    final generation = ++_reloadGeneration;
     try {
       final next = await widget.session.recoveredCheckouts();
-      if (!mounted) return;
+      if (!mounted || generation != _reloadGeneration) return;
       setState(() {
         _recovered = next;
         _recoveredLoaded = true;
       });
     } on Object {
       // A teardown-time notification can race the store's close — the
-      // dialog dies with the shell; keep the last listing.
-      if (!mounted) return;
-      setState(() => _recoveredLoaded = true);
+      // dialog dies with the shell; keep the last listing. Never mark
+      // loaded without one: a failed first fetch must not render the
+      // "no local edits" empty state while payloads may exist.
     }
   }
 
@@ -249,7 +253,13 @@ class _LocalEditsReviewDialogState extends State<LocalEditsReviewDialog> {
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    await action();
+    try {
+      await action();
+    } on Object {
+      // The shell lanes own their error surface (report + toast); this
+      // guard keeps a rejecting lane from escaping a fire-and-forget
+      // onPressed closure as an unhandled async error.
+    }
   }
 
   @override
@@ -432,15 +442,19 @@ class _RecordRow extends StatelessWidget {
                 onPressed: () => onOpen(record),
                 child: Text(l10n.checkoutLocalEditsOpen),
               ),
-              Tooltip(
-                message: connected
-                    ? null
-                    : l10n.checkoutLocalEditsConnectToUpload,
-                child: TextButton(
-                  onPressed: connected ? () => onUpload(record) : null,
+              if (connected)
+                TextButton(
+                  onPressed: () => onUpload(record),
                   child: Text(l10n.checkoutLocalEditsUpload),
+                )
+              else
+                Tooltip(
+                  message: l10n.checkoutLocalEditsConnectToUpload,
+                  child: TextButton(
+                    onPressed: null,
+                    child: Text(l10n.checkoutLocalEditsUpload),
+                  ),
                 ),
-              ),
               TextButton(
                 onPressed: () => onDiscard(record),
                 child: Text(l10n.checkoutLocalEditsDiscard),

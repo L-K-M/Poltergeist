@@ -79,10 +79,14 @@ Finder dialogButton(String label) => find.descendant(
 );
 
 void main() {
-  late EditorCheckoutHarness harness;
+  // Nullable so a body that fails before `relaunch` never leaves
+  // tearDown throwing LateInitializationError over the real failure —
+  // or double-closing a previous test's harness.
+  EditorCheckoutHarness? harness;
 
   tearDown(() async {
-    await harness.close();
+    await harness?.close();
+    harness = null;
   });
 
   group('06 §3.7 resume surface', () {
@@ -93,8 +97,8 @@ void main() {
         await tester.runAsync(() async {
           final supportDir = await dirtyCheckoutThenDie();
           harness = await relaunch(supportDir);
-          harness.bookmarks.bookmarks = [serverBookmark()];
-          await mountEditorShell(tester, harness);
+          harness!.bookmarks.bookmarks = [serverBookmark()];
+          await mountEditorShell(tester, harness!);
 
           // The persistent banner — not the 12 s toast — is what a
           // previous session's edit is owed (§3.7's resume offer).
@@ -134,7 +138,7 @@ void main() {
           await tester.tap(dialogButton('Upload'));
           await pollUntil(
             tester,
-            () => harness.queue.tasks.any(
+            () => harness!.queue.tasks.any(
               (task) =>
                   task.spec.managedCheckout?.direction ==
                       ManagedCheckoutDirection.upload &&
@@ -143,7 +147,7 @@ void main() {
             reason: 'no completed upload task for $remoteConfigPath',
           );
           expect(
-            utf8.decode(harness.fs.bytes(remoteConfigPath)!),
+            utf8.decode(harness!.fs.bytes(remoteConfigPath)!),
             'edited offline\n',
           );
           // Resolved edits leave the surface — banner and row both gone.
@@ -175,7 +179,7 @@ void main() {
         // 'b1' row → _serverConnected reports false: the offline
         // posture §3.7 pins (banner still shows, Upload disables,
         // Open/Discard stay reachable).
-        await mountEditorShell(tester, harness);
+        await mountEditorShell(tester, harness!);
 
         await pollFor(
           tester,
@@ -185,6 +189,9 @@ void main() {
         await tester.pump();
         await pollFor(tester, find.byType(AlertDialog));
 
+        // §3.7's posture pins a visible-but-disabled Upload — an absent
+        // button would be a different (failing) surface.
+        expect(dialogButton('Upload'), findsOneWidget);
         expect(uploadButton(tester)?.onPressed, isNull);
         expect(
           tester.widget<TextButton>(dialogButton('Open')).onPressed,
@@ -196,7 +203,7 @@ void main() {
         );
         // And nothing silently uploaded while disconnected.
         expect(
-          harness.queue.tasks.where(
+          harness!.queue.tasks.where(
             (t) =>
                 t.spec.managedCheckout?.direction ==
                 ManagedCheckoutDirection.upload,
@@ -211,10 +218,10 @@ void main() {
       await tester.runAsync(() async {
         final supportDir = await dirtyCheckoutThenDie();
         harness = await relaunch(supportDir);
-        harness.bookmarks.bookmarks = [serverBookmark()];
-        await mountEditorShell(tester, harness);
-        final record = harness.checkout.copiesFor('b1')[remoteConfigPath]!;
-        final local = harness.checkout.localFile(record);
+        harness!.bookmarks.bookmarks = [serverBookmark()];
+        await mountEditorShell(tester, harness!);
+        final record = harness!.checkout.copiesFor('b1')[remoteConfigPath]!;
+        final local = harness!.checkout.localFile(record);
         expect(await local.exists(), isTrue);
 
         await pollFor(
@@ -234,12 +241,12 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Discard'));
         await pollUntil(
           tester,
-          () => harness.checkout.copiesFor('b1').isEmpty,
+          () => harness!.checkout.copiesFor('b1').isEmpty,
           reason: 'discarded record still listed',
         );
         expect(await local.exists(), isFalse);
         // The remote was never touched — discard is a local verb.
-        expect(harness.fs.uploadCalls, isEmpty);
+        expect(harness!.fs.uploadCalls, isEmpty);
         await pollUntil(
           tester,
           () => find
@@ -270,8 +277,8 @@ void main() {
             p.join(recoveredDir.path, '.edit.txt.swp'),
           ).writeAsString('swap\n');
           harness = await relaunch(supportDir);
-          harness.bookmarks.bookmarks = [serverBookmark()];
-          await mountEditorShell(tester, harness);
+          harness!.bookmarks.bookmarks = [serverBookmark()];
+          await mountEditorShell(tester, harness!);
 
           await pollFor(
             tester,
@@ -359,8 +366,8 @@ void main() {
       await tester.runAsync(() async {
         final supportDir = await dirtyCheckoutThenDie();
         harness = await relaunch(supportDir);
-        harness.bookmarks.bookmarks = [serverBookmark()];
-        await mountEditorShell(tester, harness);
+        harness!.bookmarks.bookmarks = [serverBookmark()];
+        await mountEditorShell(tester, harness!);
         await pollFor(
           tester,
           find.text('1 file has local edits from a previous session.'),
@@ -405,11 +412,11 @@ void main() {
           final supportDir = first.supportDir.path;
           await killProcess(first);
           harness = await relaunch(supportDir);
-          harness.bookmarks.bookmarks = [serverBookmark()];
-          await mountEditorShell(tester, harness);
+          harness!.bookmarks.bookmarks = [serverBookmark()];
+          await mountEditorShell(tester, harness!);
           await pollUntil(
             tester,
-            () => harness.checkout.copiesFor('b1').isNotEmpty,
+            () => harness!.checkout.copiesFor('b1').isNotEmpty,
             reason: 'relaunched store never restored the clean record',
           );
           // Give the banner a beat to (not) appear — the reconcile is

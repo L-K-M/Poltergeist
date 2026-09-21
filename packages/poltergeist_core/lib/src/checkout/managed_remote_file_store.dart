@@ -369,6 +369,17 @@ class ManagedRemoteFileStore {
           );
         }
         final dirName = dirSegments.single;
+        final fileName = nameSegments.single;
+        // Markers are lifecycle bookkeeping, never payload — they are
+        // excluded from the recovered listing, so a caller holding a
+        // marker name is working from something other than a row.
+        if (fileName == epochMarkerName || fileName == abandonedMarkerName) {
+          throw ArgumentError.value(
+            name,
+            'name',
+            'Lifecycle markers are not recovered payload',
+          );
+        }
         for (final file in _files.values) {
           if (file.localPath.split('/').first == dirName) {
             throw ArgumentError.value(
@@ -386,7 +397,7 @@ class ManagedRemoteFileStore {
         if (targetType != FileSystemEntityType.directory) {
           return;
         }
-        final target = _join(dir.path, [nameSegments.single]);
+        final target = _join(dir.path, [fileName]);
         switch (await FileSystemEntity.type(target, followLinks: false)) {
           case FileSystemEntityType.file:
             await File(target).delete();
@@ -400,18 +411,28 @@ class ManagedRemoteFileStore {
             return; // already gone — a racing unlink is a no-op
         }
         // The dir goes when its last payload file does: markers are
-        // lifecycle bookkeeping, not payload.
+        // lifecycle bookkeeping, not payload. They are removed
+        // explicitly so the dir delete is non-recursive — a payload an
+        // external editor races in between the scan and the delete
+        // surfaces as "directory not empty" instead of being silently
+        // destroyed.
+        final husks = <FileSystemEntity>[];
         var payloadLeft = false;
         await for (final child in dir.list(followLinks: false)) {
           final childName = p.basename(child.path);
-          if (childName != epochMarkerName &&
-              childName != abandonedMarkerName) {
+          if (childName == epochMarkerName ||
+              childName == abandonedMarkerName) {
+            husks.add(child);
+          } else {
             payloadLeft = true;
             break;
           }
         }
         if (!payloadLeft) {
-          await dir.delete(recursive: true);
+          for (final husk in husks) {
+            await husk.delete();
+          }
+          await dir.delete(recursive: false);
         }
         await _enumerateRecovered();
       });

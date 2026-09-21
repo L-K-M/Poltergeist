@@ -785,7 +785,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onOpen: (record) =>
           _reportedLocalEditAction(() => _openCheckoutLocalFile(record)),
       onUpload: (record) => _reportedLocalEditAction(() async {
-        final uploaded = await _uploadCheckout(record, serverLabel);
+        // Re-resolve the label per upload — a rename while the dialog
+        // is open must not reach the progress/toast copy stale.
+        final label =
+            (await widget.bookmarks?.byId(serverId))?.label ?? serverId;
+        final uploaded = await _uploadCheckout(record, label);
         if (uploaded && mounted) {
           showTopToastIn(
             context,
@@ -846,7 +850,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             onSaved: () => session.reconcile(record),
             onUpload: () =>
                 _uploadCheckout(record, bookmark?.label ?? record.serverId),
-          ),
+          ).catchError((Object error, StackTrace stackTrace) {
+            // The fire-and-forget push would otherwise escape the row's
+            // reported-lane posture as an unhandled async error.
+            ApplicationErrorReporter().report(error, stackTrace);
+          }),
         );
       },
     );
@@ -870,7 +878,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
               basenameOf: p.basename,
               onSaved: null,
               onUpload: null,
-            ),
+            ).catchError((Object error, StackTrace stackTrace) {
+              ApplicationErrorReporter().report(error, stackTrace);
+            }),
           );
         },
       );
@@ -1177,6 +1187,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
             queue: transferQueue,
             conflictPolicy: widget.conflictPolicy,
           );
+    // 06 §3.7's banner verb — one closure for both panes.
+    void onReviewLocalEdits(String serverId) =>
+        unawaited(_showLocalEditsReview(serverId));
 
     // Re-evaluate enablement without rebuilding the pane listings — one
     // shared listenable for the toolbar and the registry-driven menus.
@@ -1288,10 +1301,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     bookmarks: widget.bookmarks,
                                     dropDelegate: dropDelegate,
                                     checkoutSession: widget.checkoutSession,
-                                    onReviewLocalEdits: (serverId) =>
-                                        unawaited(
-                                          _showLocalEditsReview(serverId),
-                                        ),
+                                    onReviewLocalEdits: onReviewLocalEdits,
                                   ),
                                   secondary: rightFocus == null
                                       ? const SizedBox.shrink()
@@ -1313,12 +1323,8 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                           dropDelegate: dropDelegate,
                                           checkoutSession:
                                               widget.checkoutSession,
-                                          onReviewLocalEdits: (serverId) =>
-                                              unawaited(
-                                                _showLocalEditsReview(
-                                                  serverId,
-                                                ),
-                                              ),
+                                          onReviewLocalEdits:
+                                              onReviewLocalEdits,
                                         ),
                                     ),
                                     if (preview != null)

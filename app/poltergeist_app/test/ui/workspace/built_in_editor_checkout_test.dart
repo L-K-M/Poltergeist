@@ -356,6 +356,12 @@ final class EditorCheckoutHarness {
     harness.supportDir = supportDirectoryPath != null
         ? Directory(supportDirectoryPath)
         : await Directory.systemTemp.createTemp('pg-editor-checkout-');
+    assert(
+      supportDirectoryPath == null || harness.supportDir.existsSync(),
+      'A caller-owned support dir must already exist — the simulated '
+      'dead process creates and seeds it. close() takes ownership and '
+      'deletes it.',
+    );
     harness.fs = FakeEditorRemoteFs()
       ..seed(remoteConfigPath, utf8.encode('one\ntwo\n'))
       ..seed(remoteNotesPath, utf8.encode('notes\n'));
