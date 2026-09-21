@@ -7192,8 +7192,10 @@ re-scans or recomputes behavior.
   divergence, recreates emptied chains shallowest-first, and
   hash-verifies copy-fallback trash entries. Pruning keeps the newest
   20 per pair and never a journal guarding live trash.
-- Core seam: `uuidV4` re-exported through the `poltergeist_core`
-  barrel; `SyncItem.destinationSubtree` added for rule-4 snapshots.
+- Core seam: `SyncItem.destinationSubtree` added for rule-4
+  snapshots. Run ids reuse the `RemoteTrash` minter for their uuid
+  half — no `uuidV4` barrel re-export (it would collide with the
+  app's own `services/uuid.dart` under `ambiguous_import`).
   `journal.dart` is the package's one `dart:io` user — the invariants
   test's allowlist records exactly that.
 

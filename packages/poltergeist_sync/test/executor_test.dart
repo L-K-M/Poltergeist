@@ -40,6 +40,12 @@ final class _ExdevTrashFs extends LocalFileSystem {
   }
 }
 
+/// Basename that works on listed local entities — `remoteBasename`
+/// only splits POSIX separators, so it returns the whole path for a
+/// Windows `entity.path`.
+String entityName(FileSystemEntity entity) =>
+    entity.uri.pathSegments.lastWhere((s) => s.isNotEmpty);
+
 void main() {
   const deviceId = 'test-device';
   const pairId = 'pair-under-test';
@@ -113,7 +119,7 @@ void main() {
     final entries = <String, EntrySnapshot>{};
     Future<void> walk(String abs, String relBase) async {
       for (final entity in Directory(abs).listSync()) {
-        final name = remoteBasename(entity.path);
+        final name = entityName(entity);
         final relative = '$relBase/$name';
         entries[relative] = await snapOf(root, relative);
         if (entity is Directory) await walk(entity.path, relative);
@@ -210,7 +216,7 @@ void main() {
     );
     if (!dir.existsSync()) return null;
     for (final entity in dir.listSync()) {
-      if (entity is File && remoteBasename(entity.path).endsWith('-$name')) {
+      if (entity is File && entityName(entity).endsWith('-$name')) {
         return entity;
       }
     }
@@ -784,7 +790,7 @@ void main() {
       );
       final names = trashDir
           .listSync()
-          .map((e) => remoteBasename(e.path))
+          .map((e) => entityName(e))
           .toList();
       // Flat entries, seq-prefixed in delete order (deepest-first —
       // the child moves before its parent dir is touched), with no

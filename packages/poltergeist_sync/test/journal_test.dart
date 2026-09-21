@@ -3,7 +3,6 @@ library;
 
 import 'dart:io';
 
-import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 import 'package:test/test.dart';
 
@@ -189,7 +188,7 @@ void main() {
 
     final remaining = runsDir
         .listSync()
-        .map((e) => remoteBasename(e.path))
+        .map((e) => e.uri.pathSegments.last)
         .toList();
     // 20 retained + the 2 live-trash journals the prune refuses.
     expect(remaining, hasLength(20 + 2));

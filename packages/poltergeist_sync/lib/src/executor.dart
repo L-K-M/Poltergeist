@@ -357,13 +357,15 @@ final class SyncExecutor {
 
   final RemoteTrash _trash;
 
-  /// `<first 8 hex of sha256(deviceId)>-<uuidV4>` (05 §6).
+  /// `<first 8 hex of sha256(deviceId)>-<uuidV4>` (05 §6) — the uuid
+  /// half comes from the RemoteTrash seam's minter so one injected
+  /// instance controls run-id shape for trash and journal alike.
   String mintRunId() {
     final prefix = sha256
         .convert(utf8.encode(deviceId))
         .toString()
         .substring(0, 8);
-    return '$prefix-${uuidV4()}';
+    return '$prefix-${_trash.newRunId()}';
   }
 
   /// Whether the pair's clocks are untrusted for precondition
@@ -1216,8 +1218,52 @@ final class _RunSession {
             journal.record.runId,
           )
         : remoteJoin(configured, journal.record.runId);
-    await executor._trash.ensureExistingRunDirectory(fs, runDir);
+    try {
+      await executor._trash.ensureExistingRunDirectory(fs, runDir);
+    } on RemoteFileException catch (error) {
+      // The 0700 rule guards server-side exposure; a Windows local
+      // filesystem cannot express POSIX modes at all (setMode is
+      // `unsupported` there), so refusing would make trash unusable
+      // on a platform where the mode is meaningless. Create the
+      // directories plainly instead. A POSIX chmod refusal is a real
+      // exposure problem — it still propagates.
+      if (fs is! LocalFileSystem ||
+          error.kind != RemoteFileErrorKind.unsupported) {
+        rethrow;
+      }
+      await _ensureDir(fs, remoteParent(runDir));
+      await _ensureDir(fs, runDir);
+    }
     return _trashDirs[side] = runDir;
+  }
+
+  /// Creates [path] when absent, tolerating the create race; a
+  /// non-directory occupant is refused exactly like the RemoteTrash
+  /// seam refuses it.
+  Future<void> _ensureDir(RemoteFileSystem fs, String path) async {
+    RemoteFileEntry? existing;
+    try {
+      existing = await fs.stat(path, followLinks: false);
+    } on RemoteFileException catch (error) {
+      if (error.kind != RemoteFileErrorKind.notFound) rethrow;
+    }
+    if (existing == null) {
+      try {
+        await fs.createDirectory(path);
+      } on RemoteFileException catch (error) {
+        if (error.kind != RemoteFileErrorKind.conflict) rethrow;
+        existing = await fs.stat(path, followLinks: false);
+      }
+    }
+    if (existing != null && !existing.isDirectory) {
+      throw RemoteFileException(
+        kind: RemoteFileErrorKind.conflict,
+        operation: 'trash',
+        path: path,
+        message: '"$path" exists and is not a directory; refusing to '
+            'use it as trash',
+      );
+    }
   }
 
   /// Streams one file through the bounded pipe between two
