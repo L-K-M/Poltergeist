@@ -1321,10 +1321,15 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           entry: entry,
           maximumBytes: builtInEditorMaximumBytes,
         );
-        if (!mounted) {
-          unawaited(session.discard(record));
-          return;
-        }
+      } on CheckoutLimitException catch (error) {
+        if (mounted) _toastRefusalWithRouter(error, pane, entry);
+        return;
+      }
+      if (!mounted) {
+        unawaited(session.discard(record));
+        return;
+      }
+      try {
         // The explicit built-in choice refuses with the §1 reason and
         // the Open With ▸ router — never a silent system hand-off (06
         // §4.2): preflight the fetched copy so a binary/non-UTF-8 file
@@ -1333,14 +1338,18 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           session.localFile(record),
         );
       } on CheckoutLimitException catch (error) {
-        if (mounted) _toastRefusalWithRouter(error, pane, entry);
+        if (mounted) {
+          _toastRefusalWithRouter(error, pane, entry);
+        } else {
+          unawaited(session.discard(record));
+        }
         return;
       } on BuiltInEditorException catch (error) {
-        if (mounted) _toastRefusalWithRouter(error, pane, entry);
-        return;
-      }
-      if (!mounted) {
-        unawaited(session.discard(record));
+        if (mounted) {
+          _toastRefusalWithRouter(error, pane, entry);
+        } else {
+          unawaited(session.discard(record));
+        }
         return;
       }
       unawaited(
