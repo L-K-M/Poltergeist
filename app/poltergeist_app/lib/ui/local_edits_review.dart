@@ -434,7 +434,7 @@ class _RecordRow extends StatelessWidget {
               ),
               Tooltip(
                 message: connected
-                    ? ''
+                    ? null
                     : l10n.checkoutLocalEditsConnectToUpload,
                 child: TextButton(
                   onPressed: connected ? () => onUpload(record) : null,
