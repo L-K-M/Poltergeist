@@ -240,7 +240,7 @@ List<InvalidNameOnDestination> invalidDestinationNames(
 }) {
   if (!destinationEnforcesLocalNames) return const [];
   final hazards = <InvalidNameOnDestination>[];
-  for (final path in source.entries.keys) {
+  for (final path in source.entries.keys.toList()..sort()) {
     for (final component in path.split('/')) {
       try {
         validateLocalName(component);
