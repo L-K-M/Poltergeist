@@ -1960,6 +1960,75 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String checkoutLocalEditsBanner(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count files have local edits from a previous session.',
+      one: '1 file has local edits from a previous session.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get checkoutLocalEditsReview => 'Review…';
+
+  @override
+  String checkoutLocalEditsTitle(String server) {
+    return 'Local edits — $server';
+  }
+
+  @override
+  String get checkoutLocalEditsEmpty => 'No local edits for this server.';
+
+  @override
+  String get checkoutLocalEditsDirty => 'Modified locally';
+
+  @override
+  String get checkoutLocalEditsMissing => 'Local file missing';
+
+  @override
+  String get checkoutLocalEditsRecoveredRecord => 'Recovered';
+
+  @override
+  String get checkoutLocalEditsRecoveredSection => 'Recovered files';
+
+  @override
+  String get checkoutLocalEditsRecoveredHint =>
+      'Recovered files can\'t upload from here — upload the file through a pane when you\'re done.';
+
+  @override
+  String get checkoutLocalEditsOpen => 'Open';
+
+  @override
+  String get checkoutLocalEditsUpload => 'Upload';
+
+  @override
+  String get checkoutLocalEditsDiscard => 'Discard…';
+
+  @override
+  String get checkoutLocalEditsConnectToUpload => 'Connect to upload';
+
+  @override
+  String get checkoutLocalEditsDiscardTitle => 'Discard local copy?';
+
+  @override
+  String get checkoutLocalEditsDiscardBody =>
+      'Any changes not uploaded to the server are deleted.';
+
+  @override
+  String get checkoutLocalEditsDiscardCancel => 'Cancel';
+
+  @override
+  String get checkoutLocalEditsDiscardConfirm => 'Discard';
+
+  @override
+  String get checkoutLocalEditsClose => 'Close';
+
+  @override
+  String get sidebarLocalEdits => 'Local Edits…';
+
+  @override
   String get editorSettingsClose => 'Close';
 
   @override

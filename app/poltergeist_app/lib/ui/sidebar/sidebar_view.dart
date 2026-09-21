@@ -40,6 +40,7 @@ class SidebarView extends StatelessWidget {
     this.onDisconnect,
     this.onReviewBlocked,
     this.onUpdateWorkspace,
+    this.onLocalEdits,
     super.key,
   });
 
@@ -78,6 +79,11 @@ class SidebarView extends StatelessWidget {
   /// both panes over the existing favorite. Null hides the item —
   /// surfaces without a workspace seam offer open only.
   final void Function(Bookmark bookmark)? onUpdateWorkspace;
+
+  /// The remotePath row's `Local Edits…` (06 §3.7): opens the server's
+  /// local-edits review dialog. Null hides the item — a shell without a
+  /// checkout session owns no edits to review.
+  final void Function(Bookmark bookmark)? onLocalEdits;
 
   @override
   Widget build(BuildContext context) {
@@ -735,6 +741,17 @@ class _FavoriteRowState extends State<_FavoriteRow> {
           key: const ValueKey('sidebar.menu.updateWorkspace'),
           onPressed: () => view.onUpdateWorkspace!(bookmark),
           child: Text(l10n.sidebarWorkspaceUpdate),
+        ),
+      // 06 §3.7's review entry: server-scoped, so remotePath favorites
+      // surface it — a managed copy's record belongs to the server,
+      // including edits on paths no pane currently shows. The dialog
+      // still opens when nothing is pending (empty state) so the verb
+      // never looks like a dead end.
+      if (bookmark.kind == BookmarkKind.remotePath && view.onLocalEdits != null)
+        MenuItemButton(
+          key: const ValueKey('sidebar.menu.localEdits'),
+          onPressed: () => view.onLocalEdits!(bookmark),
+          child: Text(l10n.sidebarLocalEdits),
         ),
       const Divider(height: 1),
       MenuItemButton(

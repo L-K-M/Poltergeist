@@ -2621,6 +2621,92 @@
       }
     }
   },
+  "checkoutLocalEditsBanner": "{count, plural, =1{1 file has local edits from a previous session.} other{{count} files have local edits from a previous session.}}",
+  "@checkoutLocalEditsBanner": {
+    "description": "06 §3.7's persistent pane banner while a bound server's managed checkouts hold dirty or missing local edits — the resume offer a relaunch owes the user.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "checkoutLocalEditsReview": "Review…",
+  "@checkoutLocalEditsReview": {
+    "description": "The local-edits banner's action — opens the §3.7 review dialog."
+  },
+  "checkoutLocalEditsTitle": "Local edits — {server}",
+  "@checkoutLocalEditsTitle": {
+    "description": "Title of the 06 §3.7 local-edits review dialog, naming the server its rows belong to.",
+    "placeholders": {
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "checkoutLocalEditsEmpty": "No local edits for this server.",
+  "@checkoutLocalEditsEmpty": {
+    "description": "Empty state of the §3.7 review dialog (reachable from a remotePath favorite's Local Edits… with nothing pending)."
+  },
+  "checkoutLocalEditsDirty": "Modified locally",
+  "@checkoutLocalEditsDirty": {
+    "description": "Badge on a review-dialog row whose local copy differs from its checkout baseline (06 §3.7)."
+  },
+  "checkoutLocalEditsMissing": "Local file missing",
+  "@checkoutLocalEditsMissing": {
+    "description": "Badge on a review-dialog row whose local copy was deleted underneath the checkout (06 §3.7)."
+  },
+  "checkoutLocalEditsRecoveredRecord": "Recovered",
+  "@checkoutLocalEditsRecoveredRecord": {
+    "description": "Badge on a review-dialog row for a displaced record — 06 §3.5's occupant, still holding its local copy under a reclaimed remotePath."
+  },
+  "checkoutLocalEditsRecoveredSection": "Recovered files",
+  "@checkoutLocalEditsRecoveredSection": {
+    "description": "Section header for the preserved recordless checkout payloads in the §3.7 review dialog."
+  },
+  "checkoutLocalEditsRecoveredHint": "Recovered files can't upload from here — upload the file through a pane when you're done.",
+  "@checkoutLocalEditsRecoveredHint": {
+    "description": "06 §3.7's pinned copy beside the recovered-payload rows — a recordless payload has no upload lane."
+  },
+  "checkoutLocalEditsOpen": "Open",
+  "@checkoutLocalEditsOpen": {
+    "description": "Row action opening the local copy — a record row resolves through effectiveDefaultFor, a recovered row opens its file."
+  },
+  "checkoutLocalEditsUpload": "Upload",
+  "@checkoutLocalEditsUpload": {
+    "description": "Row action uploading the dirty local copy through the §3.4 CAS-guarded pipeline."
+  },
+  "checkoutLocalEditsDiscard": "Discard…",
+  "@checkoutLocalEditsDiscard": {
+    "description": "Row action deleting the local copy after confirmation (06 §3.7)."
+  },
+  "checkoutLocalEditsConnectToUpload": "Connect to upload",
+  "@checkoutLocalEditsConnectToUpload": {
+    "description": "Tooltip on the disabled Upload action while the server is disconnected (06 §3.7)."
+  },
+  "checkoutLocalEditsDiscardTitle": "Discard local copy?",
+  "@checkoutLocalEditsDiscardTitle": {
+    "description": "Confirmation title before a §3.7 row's Discard deletes the local copy."
+  },
+  "checkoutLocalEditsDiscardBody": "Any changes not uploaded to the server are deleted.",
+  "@checkoutLocalEditsDiscardBody": {
+    "description": "Confirmation body before a §3.7 row's Discard — the loss the button commits to."
+  },
+  "checkoutLocalEditsDiscardCancel": "Cancel",
+  "@checkoutLocalEditsDiscardCancel": {
+    "description": "Aborts a §3.7 row's Discard — the local copy stays."
+  },
+  "checkoutLocalEditsDiscardConfirm": "Discard",
+  "@checkoutLocalEditsDiscardConfirm": {
+    "description": "Confirms a §3.7 row's Discard — deletes the local copy."
+  },
+  "checkoutLocalEditsClose": "Close",
+  "@checkoutLocalEditsClose": {
+    "description": "Dismisses the §3.7 local-edits review dialog."
+  },
+  "sidebarLocalEdits": "Local Edits…",
+  "@sidebarLocalEdits": {
+    "description": "RemotePath favorite's context item opening the §3.7 local-edits review dialog — server-scoped, so it shows every dirty copy on that server including records no pane currently touches."
+  },
   "editorSettingsClose": "Close",
   "@editorSettingsClose": {
     "description": "Dismisses the Editing settings dialog (06 §8's bounded mount)."

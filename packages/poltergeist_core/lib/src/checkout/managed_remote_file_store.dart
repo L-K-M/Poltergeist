@@ -342,6 +342,101 @@ class ManagedRemoteFileStore {
         .toList();
   });
 
+  /// Removes ONE payload file inside a preserved recordless directory —
+  /// 06 §3.7's per-row `Discard…`: external editors leave siblings
+  /// beside the plaintext, so the surface deletes a row's file, never
+  /// the whole dir. When the dir's last payload file goes, the dir
+  /// itself (markers included) is deleted — a marker-only husk is not a
+  /// payload. Refuses [directory] values a live record owns (the
+  /// record's lifecycle — never this verb — deletes those bytes).
+  Future<void> deleteRecoveredFile(String directory, String name) =>
+      _serialized(() async {
+        await _loadUnlocked();
+        final dirSegments = _validateRelativePath(directory);
+        final nameSegments = _validateRelativePath(name);
+        if (dirSegments.length != 1) {
+          throw ArgumentError.value(
+            directory,
+            'directory',
+            'Must be a single checkout directory',
+          );
+        }
+        if (nameSegments.length != 1) {
+          throw ArgumentError.value(
+            name,
+            'name',
+            'Must be a single file name',
+          );
+        }
+        final dirName = dirSegments.single;
+        final fileName = nameSegments.single;
+        // Markers are lifecycle bookkeeping, never payload — they are
+        // excluded from the recovered listing, so a caller holding a
+        // marker name is working from something other than a row.
+        if (fileName == epochMarkerName || fileName == abandonedMarkerName) {
+          throw ArgumentError.value(
+            name,
+            'name',
+            'Lifecycle markers are not recovered payload',
+          );
+        }
+        for (final file in _files.values) {
+          if (file.localPath.split('/').first == dirName) {
+            throw ArgumentError.value(
+              directory,
+              'directory',
+              'Record-owned checkout dirs are not recovered payload',
+            );
+          }
+        }
+        final dir = Directory(_join(checkoutRoot.absolute.path, [dirName]));
+        final targetType = await FileSystemEntity.type(
+          dir.path,
+          followLinks: false,
+        );
+        if (targetType != FileSystemEntityType.directory) {
+          return;
+        }
+        final target = _join(dir.path, [fileName]);
+        switch (await FileSystemEntity.type(target, followLinks: false)) {
+          case FileSystemEntityType.file:
+            await File(target).delete();
+          case FileSystemEntityType.link:
+            await Link(target).delete();
+          case FileSystemEntityType.directory:
+            // A foreign-writer subdir is payload too — listed as a row,
+            // discarded as a row.
+            await Directory(target).delete(recursive: true);
+          default:
+            return; // already gone — a racing unlink is a no-op
+        }
+        // The dir goes when its last payload file does: markers are
+        // lifecycle bookkeeping, not payload. They are removed
+        // explicitly so the dir delete is non-recursive — a payload an
+        // external editor races in between the scan and the delete
+        // surfaces as "directory not empty" instead of being silently
+        // destroyed.
+        final husks = <FileSystemEntity>[];
+        var payloadLeft = false;
+        await for (final child in dir.list(followLinks: false)) {
+          final childName = p.basename(child.path);
+          if (childName == epochMarkerName ||
+              childName == abandonedMarkerName) {
+            husks.add(child);
+          } else {
+            payloadLeft = true;
+            break;
+          }
+        }
+        if (!payloadLeft) {
+          for (final husk in husks) {
+            await husk.delete();
+          }
+          await dir.delete(recursive: false);
+        }
+        await _enumerateRecovered();
+      });
+
   Future<ManagedRemoteFile?> get(String id) => _serialized(() async {
     await _loadUnlocked();
     return _files[id];

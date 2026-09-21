@@ -923,6 +923,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // wiring fault — machine data and a dev-facing diagnostic, never
     // rendered copy (the toast is the ARB string).
     r"'local:${file.absolute.path}'",
+    r"'local:${resolved.absolute.path}'",
     r"'remote:${record.serverId}:${record.remotePath}'",
     "'remote edit reached without a checkout session'",
     "'remote edit upload reached without a checkout session'",
@@ -1267,6 +1268,13 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/import/ssh_config_import_command.dart': {
     "'favorite.importSshConfig'",
   },
+  // The §3.7 surface's widget keys — plumbing, not copy. Rendered text
+  // comes from the checkoutLocalEdits* ARB keys.
+  'lib/ui/local_edits_review.dart': {
+    "'localEdits.review'",
+    r"'localEdits.record.${record.id}'",
+    r"'localEdits.recovered.${entry.directory}/$name'",
+  },
   // The composed indicator's empty label for the "neither truth" case: it
   // paints nothing, so there is no wording to author.
   // '' is the none-appearance's empty label. The two long literals are a
@@ -1291,6 +1299,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'sidebar.menu.openNewTab'",
     "'sidebar.menu.openOtherPane'",
     "'sidebar.menu.updateWorkspace'",
+    "'sidebar.menu.localEdits'",
     "'sidebar.menu.rename'",
     "'sidebar.menu.moveToGroup'",
     "'sidebar.menu.delete'",

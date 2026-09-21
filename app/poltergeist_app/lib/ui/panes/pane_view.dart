@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../services/checkout_session.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
@@ -17,6 +18,7 @@ import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
 import '../../services/sync_browsing_controller.dart';
 import '../../services/workspace_controller.dart';
+import '../local_edits_review.dart';
 import 'info_panel.dart';
 import 'pane_drop_area.dart';
 import 'pane_format.dart';
@@ -105,6 +107,8 @@ class PaneView extends StatefulWidget {
     this.dropDelegate,
     this.supportsOsDrop,
     this.preview,
+    this.checkoutSession,
+    this.onReviewLocalEdits,
     this.clock = _systemClock,
   });
 
@@ -151,6 +155,15 @@ class PaneView extends StatefulWidget {
   /// held before a session existed.
   final PreviewSession? preview;
 
+  /// The managed-checkout truth behind 06 §3.7's local-edits banner —
+  /// null leaves the banner unmounted (a shell without a checkout
+  /// session owns no edits to surface).
+  final CheckoutSession? checkoutSession;
+
+  /// The banner's `Review…`, resolved by the shell with the pane's
+  /// bound server id — the shell owns the modal.
+  final void Function(String serverId)? onReviewLocalEdits;
+
   /// Injectable clock for deterministic relative-date rendering.
   final DateTime Function() clock;
 
@@ -175,6 +188,10 @@ class _PaneViewState extends State<PaneView> {
     // 02 §2.6's inspector flag lives on the strip — its open/close
     // notifies here, not through the tab's controller.
     widget.pane,
+    // 06 §3.7's banner follows the checkout truth: a dirty edge mounts
+    // it, a clean upload unmounts it — neither comes through the pane
+    // controller.
+    ?widget.checkoutSession,
   ]);
   Timer? _graceTimer;
   bool _pastGrace = false;
@@ -227,12 +244,14 @@ class _PaneViewState extends State<PaneView> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.controller, widget.controller) ||
         !identical(oldWidget.workspace, widget.workspace) ||
-        !identical(oldWidget.pane, widget.pane)) {
+        !identical(oldWidget.pane, widget.pane) ||
+        !identical(oldWidget.checkoutSession, widget.checkoutSession)) {
       _listenable = Listenable.merge([
         widget.controller,
         widget.workspace,
         widget.workspace.syncBrowsing,
         widget.pane,
+        ?widget.checkoutSession,
       ]);
     }
     if (!identical(oldWidget.controller, widget.controller)) {
@@ -818,6 +837,8 @@ class _PaneViewState extends State<PaneView> {
                 bookmarks: widget.bookmarks,
                 dropDelegate: widget.dropDelegate,
                 supportsOsDrop: widget.supportsOsDrop,
+                checkoutSession: widget.checkoutSession,
+                onReviewLocalEdits: widget.onReviewLocalEdits,
                 listAreaKey: _listAreaKey,
                 dropTargetRow: _dropTargetRow,
                 onDropHoverRow: _onDropHoverRow,
@@ -873,6 +894,8 @@ class _PaneSurface extends StatelessWidget {
     required this.bookmarks,
     required this.dropDelegate,
     required this.supportsOsDrop,
+    required this.checkoutSession,
+    required this.onReviewLocalEdits,
     required this.listAreaKey,
     required this.dropTargetRow,
     required this.onDropHoverRow,
@@ -918,6 +941,12 @@ class _PaneSurface extends StatelessWidget {
 
   /// See [PaneView.supportsOsDrop].
   final bool? supportsOsDrop;
+
+  /// See [PaneView.checkoutSession] — the §3.7 banner's truth source.
+  final CheckoutSession? checkoutSession;
+
+  /// See [PaneView.onReviewLocalEdits] — the banner's `Review…`.
+  final void Function(String serverId)? onReviewLocalEdits;
 
   /// Keys the listing's `ListView` for drop hit-testing — see
   /// [PaneDropArea.listAreaKey].
@@ -1033,6 +1062,19 @@ class _PaneSurface extends StatelessWidget {
             },
             store: bookmarks,
             onNoStore: controller.noteSaveFavoriteUnavailable,
+          ),
+        // 06 §3.7's resume surface: while this pane's bound server has
+        // checkouts holding dirty/missing local edits — the relaunch
+        // case above all — the banner persists until they're resolved.
+        // remoteBookmark is the pane's server binding (it survives a
+        // connection-lost phase, where Upload would dead-end but the
+        // review dialog stays reachable).
+        if (checkoutSession != null && controller.remoteBookmark != null)
+          LocalEditsBanner(
+            session: checkoutSession!,
+            serverId: controller.remoteBookmark!.id,
+            onReview: () =>
+                onReviewLocalEdits?.call(controller.remoteBookmark!.id),
           ),
         // D14's drop zone wraps the listing body only — the path bar,
         // field strips, and footer stay outside it. The OS-drop gate

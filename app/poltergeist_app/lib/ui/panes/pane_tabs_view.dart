@@ -7,6 +7,7 @@ import 'package:poltergeist_core/poltergeist_core.dart'
     show BookmarkStore, FsLocation;
 
 import '../../l10n/app_localizations.dart';
+import '../../services/checkout_session.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
@@ -75,6 +76,8 @@ class PaneTabsView extends StatelessWidget {
     this.dropDelegate,
     this.supportsOsDrop,
     this.preview,
+    this.checkoutSession,
+    this.onReviewLocalEdits,
     this.clock,
   });
 
@@ -112,6 +115,13 @@ class PaneTabsView extends StatelessWidget {
   /// The 06 §5 preview driver — forwarded to the mounted [PaneView],
   /// which dispatches Space to it and gives its Esc tier top slot.
   final PreviewSession? preview;
+
+  /// The managed-checkout truth behind 06 §3.7's local-edits banner —
+  /// forwarded to the mounted [PaneView].
+  final CheckoutSession? checkoutSession;
+
+  /// The banner's `Review…` — forwarded to the mounted [PaneView].
+  final void Function(String serverId)? onReviewLocalEdits;
 
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
@@ -155,6 +165,8 @@ class PaneTabsView extends StatelessWidget {
                 dropDelegate: dropDelegate,
                 supportsOsDrop: supportsOsDrop,
                 preview: preview,
+                checkoutSession: checkoutSession,
+                onReviewLocalEdits: onReviewLocalEdits,
                 clock: clock ?? DateTime.now,
               );
             },

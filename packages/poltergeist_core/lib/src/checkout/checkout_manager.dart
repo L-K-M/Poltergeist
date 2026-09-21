@@ -143,6 +143,17 @@ final class CheckoutManager {
   File localFile(ManagedRemoteFile record) =>
       _store.checkoutFile(record.localPath);
 
+  /// The local file a recovered payload's bytes live in — the §3.7
+  /// review surface's `Open` target, validated the same way. `name`
+  /// carries the same single-segment rule as [forgetRecoveredFile] —
+  /// the recovered listing is flat, so both verbs share one grammar.
+  File recoveredFile(RecoveredCheckout recovered, String name) {
+    if (name.split('/').length != 1) {
+      throw ArgumentError.value(name, 'name', 'Must be a single file name');
+    }
+    return _store.checkoutFile('${recovered.directory}/$name');
+  }
+
   /// Loads persisted records, reconciles them, starts watchers, and
   /// subscribes to the queue — once. Call after construction, before
   /// any checkout.
@@ -643,6 +654,18 @@ final class CheckoutManager {
   /// recovered plaintext ever gets. It is never auto-uploaded.
   Future<void> forgetRecovered(RecoveredCheckout recovered) async {
     await _store.deleteRecovered(recovered.directory);
+    _emitChange();
+  }
+
+  /// 06 §3.7's per-row `Discard…` for a recovered payload: removes one
+  /// file inside [recovered]'s directory — external editors leave
+  /// siblings beside the plaintext, so the surface drops a row's file,
+  /// never the whole dir. The dir itself goes when its last file does.
+  Future<void> forgetRecoveredFile(
+    RecoveredCheckout recovered,
+    String name,
+  ) async {
+    await _store.deleteRecoveredFile(recovered.directory, name);
     _emitChange();
   }
 

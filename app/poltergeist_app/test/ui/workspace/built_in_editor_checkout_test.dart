@@ -346,10 +346,21 @@ final class EditorCheckoutHarness {
   late final session_test.FakeAppEngine appEngine;
   final navigatorKey = GlobalKey<NavigatorState>();
 
-  static Future<EditorCheckoutHarness> open() async {
+  static Future<EditorCheckoutHarness> open({
+    String? supportDirectoryPath,
+  }) async {
     final harness = EditorCheckoutHarness._();
-    harness.supportDir = await Directory.systemTemp.createTemp(
-      'pg-editor-checkout-',
+    // A caller-owned support dir is the relaunch case: the index and
+    // checkout payloads a "dead" process left behind load under the
+    // fresh store (§3.7's process-death recovery).
+    harness.supportDir = supportDirectoryPath != null
+        ? Directory(supportDirectoryPath)
+        : await Directory.systemTemp.createTemp('pg-editor-checkout-');
+    assert(
+      supportDirectoryPath == null || harness.supportDir.existsSync(),
+      'A caller-owned support dir must already exist — the simulated '
+      'dead process creates and seeds it. close() takes ownership and '
+      'deletes it.',
     );
     harness.fs = FakeEditorRemoteFs()
       ..seed(remoteConfigPath, utf8.encode('one\ntwo\n'))
