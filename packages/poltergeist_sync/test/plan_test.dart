@@ -96,12 +96,28 @@ void main() {
         throwsA(isA<AssertionError>()),
       );
       // The runtime twin of the assert (for release builds, where the
-      // assert is stripped) accepts every supported combination.
+      // assert is stripped) accepts every supported combination and
+      // rejects the invalid one — the static form is directly testable
+      // where the constructor's own assert fires first in debug.
       const SyncRuleSet().ensureSupported();
       const SyncRuleSet(deletions: DeletionPolicy.trash).ensureSupported();
       const SyncRuleSet(
         direction: SyncDirection.bidirectional,
       ).ensureSupported();
+      expect(
+        () => SyncRuleSet.validateDirectionDeletions(
+          SyncDirection.bidirectional,
+          DeletionPolicy.trash,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => SyncRuleSet.validateDirectionDeletions(
+          SyncDirection.bidirectional,
+          DeletionPolicy.none,
+        ),
+        returnsNormally,
+      );
     });
   });
 

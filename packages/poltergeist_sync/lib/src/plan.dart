@@ -211,7 +211,14 @@ class SyncRuleSet {
   /// reconstructs must not carry an invalid direction × deletions
   /// combination to the planner. Call at deserialization and before
   /// handing a set to the differ/executor.
-  void ensureSupported() {
+  void ensureSupported() => validateDirectionDeletions(direction, deletions);
+
+  /// The same invariant the constructor asserts, in a form tests (and
+  /// release builds) can execute directly.
+  static void validateDirectionDeletions(
+    SyncDirection direction,
+    DeletionPolicy deletions,
+  ) {
     if (direction == SyncDirection.bidirectional &&
         deletions != DeletionPolicy.none) {
       throw ArgumentError(

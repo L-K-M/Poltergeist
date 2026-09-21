@@ -942,7 +942,7 @@ content-addressed by SHA-256; line counts aid review. Use
 `--print-findings` to reproduce them without adding names to docs.
 
 - Pin: `035b0d880b47639e390af8cbbd6d316cb5edc86d` from `https://github.com/L-K-M/Seance.git`
-- Pin: `035b0d880b47639e390af8cbbd6d316cb5edc86d` from `https://github.com/L-K-M/Seance.git`
+- Pin: `035b0d880b47639e390af8cbbd6d316cb5edc86d` from `https://github.com/L-K-M/Seance.git` (requested ref: `v0.9.1`)
 - Identity: 144 lines; `sha256:9f01616a755c8b7644945cc187439db98324a442932d5bb291bd1d0fa92a6812`
 - Companion: 974 lines; `sha256:5fe9e038a53ecbb19f67fa659b787b701a7d5ad181b42f7aaf14001ff8b67c7c`
 - Companion orphans: 0 lines; `sha256:d9aed34197440111a0f1a54dd0af36e9e664cc61374ecf38137fad1cf58c6e2b`
@@ -953,9 +953,8 @@ content-addressed by SHA-256; line counts aid review. Use
 - Tree: 1034 lines; `sha256:d95a0743bc331ba9d4f033c47bd6050388b3709834844f7aa772dc7a70f97a2b`
 <!-- SEANCE_PIN_AUDIT_V1:END -->
 
-The two identical-looking `Pin:` lines are correct tool output, not a
-paste error: the audit emits one line per distinct locked pin tuple, and
-the tag pin produces two — `seance_core` locked via `ref: v0.9.1` and
-transitive `seance_protocol` locked via `ref: <resolved sha>` — which
-render identically because the line shows only the resolved revision.
-Under a pure SHA pin both tuples collapse to one line.
+Two `Pin:` lines are correct tool output: the audit emits one line per
+distinct locked pin tuple — `seance_core` locked via `ref: v0.9.1`
+(rendered with its requested ref) and transitive `seance_protocol`
+locked via `ref: <resolved sha>` (requested ref equals the revision, so
+no suffix). Under a pure SHA pin both tuples collapse to one line.

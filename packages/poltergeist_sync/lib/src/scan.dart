@@ -135,6 +135,10 @@ final class TreeScanner {
     ScanCancellation? cancellation,
     void Function(int entriesScanned)? onProgress,
   }) async {
+    // The one rule-set boundary that exists in this slice: a malformed
+    // set fails fast here rather than after the walk (release builds
+    // strip the constructor's assert).
+    rules.ensureSupported();
     final root = await _fileSystem.canonicalize(rootPath);
     final trashRelative = await _trashRelative(root, trashPath);
     final ignores = SyncIgnoreRules(

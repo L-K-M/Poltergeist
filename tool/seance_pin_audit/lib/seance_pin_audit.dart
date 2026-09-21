@@ -662,7 +662,14 @@ String _renderRecord(List<_LockedPin> pins, _Evidence evidence) {
     )
     ..writeln();
   for (final pin in pins) {
-    buffer.writeln('- Pin: `${pin.revision}` from `${pin.url}`');
+    // Distinct lock tuples can resolve to one revision — a tag pin
+    // (`ref: v0.9.1`) and its transitive path dep (`ref: <sha>`) — so
+    // render the requested ref when it differs from the revision;
+    // otherwise two identical-looking lines read as a paste error.
+    final suffix = pin.requestedRef == pin.revision
+        ? ''
+        : ' (requested ref: `${pin.requestedRef}`)';
+    buffer.writeln('- Pin: `${pin.revision}` from `${pin.url}`$suffix');
   }
   buffer
     ..writeln(
