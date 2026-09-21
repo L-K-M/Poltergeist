@@ -1382,13 +1382,14 @@ final class _RunSession {
     String relativePath,
   ) async {
     final entries = <String, EntrySnapshot>{};
-    final queue = <String>[destAbs];
+    // Keys are plan-style relative paths — built from entry names, not
+    // substring surgery on absolute paths (listed local paths carry
+    // the platform separator, which must never leak into a key).
+    final queue = <(String, String)>[(destAbs, relativePath)];
     while (queue.isNotEmpty) {
-      final dir = queue.removeLast();
+      final (dir, rel) = queue.removeLast();
       for (final entry in await fs.listDirectory(dir)) {
-        final relative = entry.path.substring(
-          destAbs.length - relativePath.length,
-        );
+        final relative = remoteJoin(rel, entry.name);
         entries[relative] = EntrySnapshot(
           kind: switch (entry.type) {
             RemoteFileType.file => EntryKind.file,
@@ -1400,7 +1401,7 @@ final class _RunSession {
           mtimeSecs: _seconds(entry.modifiedAt),
           mode: entry.mode,
         );
-        if (entry.isDirectory) queue.add(entry.path);
+        if (entry.isDirectory) queue.add((entry.path, relative));
       }
     }
     return entries;

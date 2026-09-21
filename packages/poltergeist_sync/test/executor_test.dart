@@ -265,7 +265,18 @@ void main() {
       final line = run.journal.items.singleWhere(
         (l) => l.relativePath == 'changed.txt',
       );
-      expect(line.trashLocation, backup.path);
+      // trashLocation is a VFS path — built with remoteJoin, so its
+      // separators match however the executor joined it.
+      expect(
+        line.trashLocation,
+        remoteJoin(
+          remoteJoin(
+            remoteJoin(rightRoot.path, RemoteTrash.rootDirectoryName),
+            run.runId,
+          ),
+          '000001-changed.txt',
+        ),
+      );
       expect(line.trashBytes, 'old-version'.length);
     });
 
@@ -745,7 +756,16 @@ void main() {
       expect(await trashed!.readAsString(), 'orphan-content');
       // Copy-fallback entries journal their digest for rail-9 verify.
       final line = run.journal.items.single;
-      expect(line.trashLocation, trashed.path);
+      expect(
+        line.trashLocation,
+        remoteJoin(
+          remoteJoin(
+            remoteJoin(rightRoot.path, RemoteTrash.rootDirectoryName),
+            run.runId,
+          ),
+          '000002-orphan.txt',
+        ),
+      );
       expect(line.trashContentSha256, isNotNull);
       expect(
         line.trashContentSha256,

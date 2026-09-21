@@ -779,9 +779,12 @@ Future<String?> _dirPostStateMismatch(
         e.key.substring(side.name.length + 1): e.value,
   };
   final liveEntries = <String, RemoteFileEntry>{};
-  final queue = <String>[live.path];
+  // Keys are plan-style relative paths — built from entry names, not
+  // substring surgery on absolute paths (listed local paths carry
+  // the platform separator, which must never leak into a key).
+  final queue = <(String, String)>[(live.path, relativePath)];
   while (queue.isNotEmpty) {
-    final dir = queue.removeLast();
+    final (dir, rel) = queue.removeLast();
     final List<RemoteFileEntry> listing;
     try {
       listing = await fs.listDirectory(dir);
@@ -789,11 +792,9 @@ Future<String?> _dirPostStateMismatch(
       return 'could not list "$relativePath": ${error.message}';
     }
     for (final child in listing) {
-      final relative = child.path.substring(
-        live.path.length - relativePath.length,
-      );
+      final relative = remoteJoin(rel, child.name);
       liveEntries[relative] = child;
-      if (child.isDirectory) queue.add(child.path);
+      if (child.isDirectory) queue.add((child.path, relative));
     }
   }
   for (final expectedEntry in expected.entries) {
