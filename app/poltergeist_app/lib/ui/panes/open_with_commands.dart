@@ -97,7 +97,11 @@ RegisteredCommand buildOpenWithCommand({
               const <ExternalEditorDefinition>[])
         item('editor.${editor.id}', editor.displayName, editor.id),
       if (currentEditorHostPlatform != null)
-        item('system', l10n.openWithSystemDefaultLabel, EditorRegistry.systemDefaultId),
+        item(
+          'system',
+          l10n.openWithSystemDefaultLabel,
+          EditorRegistry.systemDefaultId,
+        ),
       RegisteredCommand(
         id: kOpenWithOtherChoice,
         scope: CommandScope.selection,
