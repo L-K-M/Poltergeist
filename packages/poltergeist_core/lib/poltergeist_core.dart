@@ -81,7 +81,8 @@ export 'package:seance_core/seance_core.dart'
         remoteJoin,
         remoteParent,
         secureRandomBytes,
-        serverGroupKey;
+        serverGroupKey,
+        uuidV4;
 
 export 'src/bookmarks/bookmark_groups.dart'
     show

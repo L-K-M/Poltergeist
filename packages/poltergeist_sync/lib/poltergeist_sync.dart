@@ -6,6 +6,8 @@
 library;
 
 export 'src/compare.dart';
+export 'src/executor.dart';
 export 'src/ignore.dart';
+export 'src/journal.dart';
 export 'src/plan.dart';
 export 'src/scan.dart';
