@@ -30,11 +30,10 @@ final class SyncIgnoreRules {
          for (final glob in appDefaults) _IgnorePattern.parse(glob),
        ],
        _excludedPrefixes = trashRelativePath == null
-           ? const []
-           : [trashRelativePath] {
+          ? const []
+          : [trashRelativePath] {
     if (trashRelativePath != null &&
         (trashRelativePath.isEmpty ||
-            trashRelativePath.contains('\\') ||
             trashRelativePath.startsWith('/') ||
             trashRelativePath.endsWith('/') ||
             trashRelativePath.split('/').any(

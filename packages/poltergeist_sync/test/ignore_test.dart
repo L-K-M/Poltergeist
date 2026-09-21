@@ -144,10 +144,9 @@ void main() {
         () => SyncIgnoreRules(trashRelativePath: ''),
         throwsArgumentError,
       );
-      expect(
-        () => SyncIgnoreRules(trashRelativePath: r'a\b'),
-        throwsArgumentError,
-      );
+      // A backslash is a legal component character on POSIX — a\b is
+      // one literal segment, not a Windows-style separator.
+      SyncIgnoreRules(trashRelativePath: r'a\b');
       expect(
         () => SyncIgnoreRules(trashRelativePath: 'a/'),
         throwsArgumentError,

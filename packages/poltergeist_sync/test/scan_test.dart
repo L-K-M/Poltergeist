@@ -369,6 +369,32 @@ void main() {
     );
 
     test(
+      'a literal-backslash POSIX component does not trigger Windows '
+      'handling',
+      () async {
+        // 'cache\dir' is ONE component on POSIX — the Windows branch
+        // must not rewrite it into 'cache/dir' (a key no scan entry
+        // has) or the trash subtree would silently never be excluded.
+        Directory('${root.path}/cache\\dir/.trash').createSync(
+          recursive: true,
+        );
+        File('${root.path}/cache\\dir/.trash/deleted.txt')
+            .writeAsStringSync('d');
+        File('${root.path}/cache\\dir/normal.txt').writeAsStringSync('n');
+
+        final result = await scan(
+          trashPath: '${root.path}/cache\\dir/.trash',
+        );
+
+        expect(
+          result.entries.keys,
+          [r'cache\dir', r'cache\dir/normal.txt'],
+        );
+      },
+      skip: Platform.isWindows,
+    );
+
+    test(
       'a case-variant trash equal to the Windows root is refused',
       () async {
         final win = _WindowsPathFs(fs, 'C:\\Sync', root.path);

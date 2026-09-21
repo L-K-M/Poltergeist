@@ -320,13 +320,15 @@ final class TreeScanner {
     }
     final normalizedRoot = _stripTrailingSeparator(root);
     final normalizedTrash = _stripTrailingSeparator(resolved);
-    // Backslash-separator canonical roots are Windows-local volumes —
-    // case-insensitive by default — so a differently-cased trashPath
-    // must still be recognized (and rejected when it IS the root).
-    // Test the unstripped forms: a canonical drive root "C:\" loses its
-    // only backslash to _stripTrailingSeparator above.
+    // Windows volumes by shape (drive root or UNC), not by any
+    // backslash — on POSIX '\' is a legal filename character, and
+    // folding or rewriting separators there would silently un-exclude
+    // a trash root under a backslash-named component. Test the
+    // unstripped forms: a canonical drive root "C:\" loses its only
+    // backslash to _stripTrailingSeparator above.
     final caseInsensitive =
-        root.contains('\\') || resolved.contains('\\');
+        _windowsVolumeShape.hasMatch(root) ||
+        _windowsVolumeShape.hasMatch(resolved);
     final rootCmp = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
     final trashCmp = caseInsensitive ? normalizedTrash.toLowerCase() : normalizedTrash;
     if (trashCmp == rootCmp) {
@@ -358,6 +360,13 @@ final class TreeScanner {
     }
     return relative.isEmpty ? null : relative;
   }
+
+  /// Windows volume shapes: `C:\`, `C:/`, a bare `C:` drive root, or a
+  /// UNC `\\host\share` lead-in. A mid-path backslash does not match —
+  /// POSIX names may contain literal backslashes.
+  static final RegExp _windowsVolumeShape = RegExp(
+    r'^[A-Za-z]:($|[\\/])|^\\\\',
+  );
 
   static String _stripTrailingSeparator(String path) =>
       path.length > 1 && (path.endsWith('/') || path.endsWith('\\'))
