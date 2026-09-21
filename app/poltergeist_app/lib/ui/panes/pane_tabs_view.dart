@@ -11,6 +11,7 @@ import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
+import '../../services/preview_session.dart';
 import '../../services/workspace_controller.dart';
 import '../server_appearance.dart';
 import '../server_state_indicator.dart';
@@ -73,6 +74,7 @@ class PaneTabsView extends StatelessWidget {
     this.bookmarks,
     this.dropDelegate,
     this.supportsOsDrop,
+    this.preview,
     this.clock,
   });
 
@@ -106,6 +108,10 @@ class PaneTabsView extends StatelessWidget {
   /// Whether the OS drop-in `DropTarget` mounts — see
   /// [PaneView.supportsOsDrop].
   final bool? supportsOsDrop;
+
+  /// The 06 §5 preview driver — forwarded to the mounted [PaneView],
+  /// which dispatches Space to it and gives its Esc tier top slot.
+  final PreviewSession? preview;
 
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
@@ -148,6 +154,7 @@ class PaneTabsView extends StatelessWidget {
                 bookmarks: bookmarks,
                 dropDelegate: dropDelegate,
                 supportsOsDrop: supportsOsDrop,
+                preview: preview,
                 clock: clock ?? DateTime.now,
               );
             },

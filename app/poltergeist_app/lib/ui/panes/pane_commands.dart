@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'dart:async';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
 
 import '../../services/pane_controller.dart';
+import '../../services/preview_session.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
 import '../layout/pane_allocation.dart' show desktopStageBoundary;
@@ -17,11 +19,13 @@ const kGoOpenCommandId = 'go.open';
 const kGoToFolderCommandId = 'go.toFolder';
 const kFileEditBuiltInCommandId = 'file.editBuiltIn';
 const kFileGetInfoCommandId = 'file.getInfo';
+const kFilePreviewCommandId = 'file.preview';
 const kFileRenameCommandId = 'file.rename';
 const kViewRefreshCommandId = 'view.refresh';
 const kViewToggleSidebarCommandId = 'view.toggleSidebar';
 const kViewToggleSecondPaneCommandId = 'view.toggleSecondPane';
 const kViewToggleActivityPanelCommandId = 'view.toggleActivityPanel';
+const kViewTogglePreviewCommandId = 'view.togglePreview';
 const kViewToggleSyncBrowsingCommandId = 'view.toggleSyncBrowsing';
 const kPaneFocusLeftCommandId = 'pane.focusLeft';
 const kPaneFocusRightCommandId = 'pane.focusRight';
@@ -52,6 +56,12 @@ List<RegisteredCommand> buildPaneCommands({
   /// above that Scaffold, so `Scaffold.maybeOf` cannot find it). Null
   /// leaves the narrow-window branch inert.
   void Function()? toggleSidebarDrawer,
+
+  /// The 06 §5 preview driver behind `file.preview` and
+  /// `view.togglePreview`. Both commands register unconditionally
+  /// (D21); a null session leaves them visible-disabled — the same
+  /// posture `queue.togglePause` takes without a queue.
+  PreviewSession? preview,
 }) {
   // Browsing commands resolve the active pane's ACTIVE TAB at invocation
   // time (02 §8.1) — null while the pane sits on the launcher, and every
@@ -282,6 +292,48 @@ List<RegisteredCommand> buildPaneCommands({
       ),
     ),
     RegisteredCommand(
+      id: kFilePreviewCommandId,
+      scope: CommandScope.selection,
+      // The label names the surface Space actually opens: Quick Look is
+      // the macOS-only native panel; everywhere else the docked in-app
+      // panel answers, so the label stays neutral there.
+      label: (l10n) => defaultTargetPlatform == TargetPlatform.macOS
+          ? l10n.filePreviewLabel
+          : l10n.filePreviewLabelNeutral,
+      icon: Icons.visibility_outlined,
+      // Space on every platform (02 §8.3's table). Unmodified, so the
+      // chord layer skips it by design — the pane's focus node
+      // dispatches (02 §8.2); the activator documents the binding for
+      // menus and reachability, it never fires here.
+      activators: (_) => const [SingleActivator(LogicalKeyboardKey.space)],
+      // Live while a previewable surface can answer: a focused row, or
+      // an already-open preview the same key closes (Space toggles —
+      // 06 §5.2's state machine owns the per-phase answer).
+      enabled: () {
+        if (preview != null &&
+            (!workspace.previewPanelHidden || preview.quickLookActive)) {
+          return true;
+        }
+        final pane = activeTab();
+        final cursor = pane?.cursorIndex;
+        return pane != null &&
+            pane.verbsEnabled &&
+            cursor != null &&
+            cursor >= 0 &&
+            cursor < pane.entries.length;
+      },
+      run: (_) async {
+        preview?.previewFocused();
+      },
+      // 02 §9's File menu: Quick Look sits in the file-verb group
+      // between Get Info and the (unregistered) Duplicate slot.
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.file,
+        order: 67,
+        group: 1,
+      ),
+    ),
+    RegisteredCommand(
       id: kFileRenameCommandId,
       scope: CommandScope.selection,
       label: (l10n) => l10n.fileRenameLabel,
@@ -432,6 +484,33 @@ List<RegisteredCommand> buildPaneCommands({
       menuPlacement: const CommandMenuPlacement(
         menu: AppMenuId.view,
         order: 80,
+      ),
+    ),
+    RegisteredCommand(
+      id: kViewTogglePreviewCommandId,
+      scope: CommandScope.app,
+      label: (l10n) => l10n.viewTogglePreviewLabel,
+      icon: Icons.preview_outlined,
+      // ⌥⌘P on macOS, Ctrl+Alt+P elsewhere (02 §8.3's table). While the
+      // docked panel is visible on macOS it owns Space — Quick Look is
+      // suppressed for as long as it stays open (06 §5's split).
+      activators: _perPlatform(
+        macOS: const [
+          SingleActivator(LogicalKeyboardKey.keyP, meta: true, alt: true),
+        ],
+        other: const [
+          SingleActivator(LogicalKeyboardKey.keyP, control: true, alt: true),
+        ],
+      ),
+      enabled: () => preview != null,
+      run: (_) async {
+        preview?.togglePanel();
+      },
+      // 02 §9's View menu: the Show/Hide Preview slot between Show/Hide
+      // Activity (80) and Customize Sidebar (100).
+      menuPlacement: const CommandMenuPlacement(
+        menu: AppMenuId.view,
+        order: 90,
       ),
     ),
     RegisteredCommand(

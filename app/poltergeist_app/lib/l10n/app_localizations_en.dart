@@ -2029,4 +2029,151 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorDialogSave => 'Save';
+
+  @override
+  String get filePreviewLabel => 'Quick Look';
+
+  @override
+  String get filePreviewLabelNeutral => 'Preview';
+
+  @override
+  String get viewTogglePreviewLabel => 'Show/Hide Preview';
+
+  @override
+  String get previewPanelLabel => 'Preview';
+
+  @override
+  String get previewPanelClose => 'Close preview';
+
+  @override
+  String get previewPanelEmpty => 'Nothing to preview';
+
+  @override
+  String get previewPressSpace => 'Press Space to download a preview.';
+
+  @override
+  String get previewDownloadLabel => 'Download';
+
+  @override
+  String get previewCancelLabel => 'Cancel';
+
+  @override
+  String get previewDismissLabel => 'Dismiss';
+
+  @override
+  String previewDownloadConfirm(String size, String name) {
+    return 'Download $size to preview “$name”?';
+  }
+
+  @override
+  String get previewDownloadingLabel => 'Downloading preview';
+
+  @override
+  String previewDownloadProgress(String transferred, String total) {
+    return '$transferred of $total';
+  }
+
+  @override
+  String previewDownloadingNamed(String name, String progress) {
+    return 'Downloading $name — $progress';
+  }
+
+  @override
+  String previewGatePrompt(String transferred) {
+    return '$transferred downloaded so far. Keep going?';
+  }
+
+  @override
+  String get previewKeepDownloadingLabel => 'Keep downloading';
+
+  @override
+  String get previewDownloadFailed => 'The preview download failed.';
+
+  @override
+  String get previewDownloadCancelled => 'The preview download was cancelled.';
+
+  @override
+  String get previewRefusalOverCacheCap =>
+      'This file is larger than the preview cache allows.';
+
+  @override
+  String get previewRefusalOverKindCap => 'This file is too large to preview.';
+
+  @override
+  String get previewRefusalNotText => 'This file isn\'t UTF-8 text.';
+
+  @override
+  String get previewRefusalMissing => 'This file no longer exists.';
+
+  @override
+  String get previewOpenLabel => 'Open';
+
+  @override
+  String get previewOpenWithLabel => 'Open With…';
+
+  @override
+  String get previewOpenInEditorLabel => 'Open in editor';
+
+  @override
+  String get previewTruncatedLabel => 'Preview truncated';
+
+  @override
+  String previewImageLabel(String name) {
+    return 'Preview of $name';
+  }
+
+  @override
+  String previewImageDimensions(int width, int height) {
+    return '$width × $height pixels';
+  }
+
+  @override
+  String previewSelectionSummary(int count, String size, int unknown) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items',
+      one: '1 item',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      unknown,
+      locale: localeName,
+      other: ' · $unknown size unknown',
+      zero: '',
+    );
+    return '$_temp0 · $size$_temp1';
+  }
+
+  @override
+  String previewPdfPageRange(int shown, int total) {
+    return 'Page 1–$shown of $total';
+  }
+
+  @override
+  String previewPdfPageLabel(int page, int total) {
+    return 'Page $page of $total';
+  }
+
+  @override
+  String get previewPdfFailed => 'Couldn\'t render this PDF.';
+
+  @override
+  String get previewSettingsSectionTitle => 'Preview & downloads';
+
+  @override
+  String get previewCacheLimitLabel => 'Preview cache limit';
+
+  @override
+  String get previewClearCacheLabel => 'Clear Preview Cache';
+
+  @override
+  String previewCacheCleared(int mib) {
+    return 'Cleared $mib MiB of cached previews.';
+  }
+
+  @override
+  String get previewThresholdLabel => 'Confirm downloads larger than';
+
+  @override
+  String get previewMiBSuffix => 'MiB';
 }

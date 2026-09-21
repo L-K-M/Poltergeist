@@ -12,6 +12,8 @@ import '../connection/pool_policy.dart';
 import '../editor/built_in_text_document.dart';
 import '../fs/local_file_system.dart';
 import '../fs/local_fs_safety.dart';
+import '../preview/preview_kinds.dart';
+import '../preview/preview_produce.dart';
 import 'bandwidth_limiter.dart';
 import 'bounded_transfer_sink.dart';
 import 'conflict_policy.dart';
@@ -78,7 +80,7 @@ abstract interface class ManagedCheckoutQueue {
   List<TransferTask> get tasks;
 }
 
-class TransferQueue implements ManagedCheckoutQueue {
+class TransferQueue implements ManagedCheckoutQueue, TransferProducer {
   TransferQueue({
     required this.connections,
     RemoteFileSystem? localFileSystem,
@@ -179,6 +181,17 @@ class TransferQueue implements ManagedCheckoutQueue {
   /// pipe path stays literal) but unlimited, so a local→local hop never
   /// pays into the network budgets.
   final BandwidthLimiter _localLimiter = BandwidthLimiter();
+
+  /// The produce path's own bucket (03 §4.7): preview downloads bypass
+  /// the user-set [downloadLimiter] throttle — a foreground Quick Look
+  /// read must not crawl at the background bandwidth limit.
+  final BandwidthLimiter _produceLimiter = BandwidthLimiter();
+
+  /// 03 §4.7's dedicated produce-slot cap: at most
+  /// [previewProduceSlotLimit] produce hops hold a channel at once;
+  /// further requests wait in [_produceWaiters] holding no lease.
+  int _produceInFlight = 0;
+  final ListQueue<Completer<void>> _produceWaiters = ListQueue();
 
   /// The durability barrier a move landing on a local destination runs
   /// before its source is unlinked (00 D26): fsync the landed file's
@@ -371,6 +384,15 @@ class TransferQueue implements ManagedCheckoutQueue {
         'use enqueueManagedCheckout — a managed spec must be built by the verb',
       );
     }
+    // Same guard for the produce payload: `enqueueProduce` builds the
+    // spec so the unjournaled, head-inserted shape is the only shape.
+    if (spec.produce != null) {
+      throw ArgumentError.value(
+        spec.produce,
+        'produce',
+        'use enqueueProduce — a produce spec must be built by the verb',
+      );
+    }
     final task = TransferTask(
       TransferTaskSpec(
         source: spec.source,
@@ -454,6 +476,315 @@ class TransferQueue implements ManagedCheckoutQueue {
     _emit(TransferQueueTaskEvent(task.id, task.state));
     unawaited(_runTask(runtime));
     return task;
+  }
+
+  // ---------------------------------------------------------------------
+  // Produce-on-demand (03 §4.7, 06 §5.3) — the Quick Look / preview hook:
+  // one unjournaled, head-inserted download hop per request, exempt from
+  // queue pause, in-flight caps, and the throttle, under a dedicated
+  // two-slot ceiling.
+  // ---------------------------------------------------------------------
+
+  /// Enqueues one produce hop and returns its live task handle. The task
+  /// lands at the HEAD of [tasks] — the one programmatic exception to
+  /// §4.3's strict-FIFO admission (Quick Look waits on it) — and is
+  /// journaled NOWHERE: the caller's completion rides the returned
+  /// task's awaited Future, which dies with the process, so a restored
+  /// queue must never resurrect it (03 §4.6's rule for futures a caller
+  /// cannot re-await). Every journal/history write site guards on
+  /// `spec.produce != null`.
+  ///
+  /// The row stays queue-visible like a managed checkout — the activity
+  /// panel lists it with byte progress and a working Cancel — but
+  /// progress rides item events, never `TransferQueueProgressEvent`
+  /// (03 §4.7: the awaited Future is the completion signal; the §6
+  /// mirror's per-flush event bound is sized for §4.3-capped tasks).
+  TransferTask enqueueProduce(PreviewProduceSpec produce) {
+    if (_disposed) {
+      throw StateError('the transfer queue is disposed');
+    }
+    final task = TransferTask(
+      TransferTaskSpec(
+        source: ServerFsLocation(produce.serverId),
+        destination: const LocalFsLocation(),
+        rootPaths: [produce.remotePath],
+        destinationDir: p.dirname(produce.destinationPath),
+        // The produce path never reaches `_decideFile` — the caller's
+        // exclusive temp target is the authority. The policy fields
+        // exist only to satisfy the task shape.
+        policy: ResolvedConflictPolicy(
+          files: ConflictResolution.replace,
+          folders: ConflictResolution.replace,
+        ),
+        produce: produce,
+      ),
+    );
+    final runtime = _TaskRuntime(task);
+    // Head insertion: LinkedHashMap iteration order is queue order, so
+    // the row renders ahead of every waiting task.
+    final existing = Map.of(_tasks);
+    _tasks
+      ..clear()
+      ..[task.id] = runtime
+      ..addAll(existing);
+    _emit(TransferQueueTaskEvent(task.id, task.state));
+    unawaited(_runTask(runtime));
+    return task;
+  }
+
+  /// 03 §4.7's `TransferProducer` surface: enqueues a produce hop for
+  /// [path] on [source] into [destinationPath] and awaits the task,
+  /// completing with the produced entry (its size and SHA-256 digest
+  /// are the caller's cache metadata). [cancellation] cancels the
+  /// queue task — the same machinery the row's Cancel verb uses.
+  @override
+  Future<RemoteFileEntry> produceLocalCopy(
+    FsLocation source,
+    String path, {
+    required String destinationPath,
+    RemoteTransferCancellation? cancellation,
+  }) async {
+    if (source is! ServerFsLocation) {
+      throw ArgumentError.value(
+        source,
+        'source',
+        'produceLocalCopy produces remote files into local paths',
+      );
+    }
+    final task = enqueueProduce(
+      PreviewProduceSpec(
+        serverId: source.serverId,
+        remotePath: path,
+        destinationPath: destinationPath,
+      ),
+    );
+    if (cancellation != null) {
+      unawaited(
+        cancellation.whenCancelled.then(
+          (_) => cancelTask(task.id),
+          // A faulted token must not wedge the produce.
+          onError: (Object _) {},
+        ),
+      );
+    }
+    await _tasks[task.id]?.done.future;
+    final item = task.items.where((i) => !i.isDirectory).firstOrNull;
+    if (task.state == TransferTaskState.completed &&
+        item?.resultEntry != null) {
+      return item!.resultEntry!;
+    }
+    if (task.state == TransferTaskState.cancelled ||
+        task.cancellation.isCancelled ||
+        cancellation?.isCancelled == true) {
+      throw _cancelledException();
+    }
+    throw RemoteFileException(
+      kind: task.failureKind ?? RemoteFileErrorKind.other,
+      operation: 'produce',
+      path: path,
+      message: task.error ?? 'the produce task failed',
+    );
+  }
+
+  /// Waits for a free produce slot (03 §4.7's cap of two), holding no
+  /// lease while queued. Cancellation — the task token or the attempt
+  /// token a per-task pause trips — abandons the wait; a grant that
+  /// arrives as the wait dies is handed to the next waiter rather than
+  /// leaked.
+  Future<void> _acquireProduceSlot(
+    TransferTask task,
+    RemoteTransferCancellation attempt,
+  ) async {
+    _throwIfTaskCancelled(task);
+    if (attempt.isCancelled) throw _cancelledException();
+    if (_produceInFlight < previewProduceSlotLimit) {
+      _produceInFlight++;
+      return;
+    }
+    final waiter = Completer<void>();
+    _produceWaiters.addLast(waiter);
+    await Future.any([
+      waiter.future,
+      task.cancellation.whenCancelled,
+      attempt.whenCancelled,
+    ]);
+    if (_produceWaiters.remove(waiter)) {
+      // Still queued when we woke: the wait died to a cancel — no slot
+      // was granted.
+      throw _cancelledException();
+    }
+    if (task.cancellation.isCancelled || attempt.isCancelled) {
+      // Granted concurrently with the cancel: pass the slot on.
+      final next = _produceWaiters.isEmpty
+          ? null
+          : _produceWaiters.removeFirst();
+      next?.complete();
+      throw _cancelledException();
+    }
+    _produceInFlight++;
+  }
+
+  void _releaseProduceSlot() {
+    _produceInFlight--;
+    final next = _produceWaiters.isEmpty
+        ? null
+        : _produceWaiters.removeFirst();
+    next?.complete();
+  }
+
+  /// Executes the produce task's single hop (03 §4.7, 06 §5.3): server
+  /// → the caller's exclusive local temp path. The exemptions are the
+  /// contract — no queue-pause gate, no `_inFlightFiles` accounting, no
+  /// user throttle ([_produceLimiter] stands in) — while per-task pause
+  /// and cancel, the disconnect retry budget, and the queue row all
+  /// behave exactly like a managed checkout's.
+  ///
+  /// Progress emits `TransferQueueItemEvent`s (byte counts live on the
+  /// item) rather than `TransferQueueProgressEvent` — §4.7's rule that
+  /// the produce Future is the completion signal keeps the §6 mirror's
+  /// per-flush bound honest.
+  Future<void> _runProduce(_TaskRuntime runtime) async {
+    final task = runtime.task;
+    final produce = task.spec.produce!;
+    task.startedAt ??= DateTime.now();
+    task.plan ??= TransferPlan();
+    task.scanComplete = true;
+    task.totalBytes = produce.expectedSize;
+    task.totalFiles = 1;
+
+    final item = TransferItem(
+      id: 'produce-${task.id}',
+      sourcePath: produce.remotePath,
+      isDirectory: false,
+      destinationPath: produce.destinationPath,
+      size: produce.expectedSize,
+    );
+    task.items.add(item);
+    _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+
+    while (!item.isTerminal && !task.isTerminal) {
+      // Per-task pause only: §4.7 exempts produce tasks from the
+      // queue-level pause — a foreground preview read must never wait
+      // behind a paused queue.
+      while (task.state == TransferTaskState.paused &&
+          !task.cancellation.isCancelled &&
+          !_disposed) {
+        await runtime.notPaused.future;
+      }
+      _throwIfTaskCancelled(task);
+      if (_disposed) throw _cancelledException();
+      if (item.isTerminal || task.isTerminal) break;
+
+      var attempt = RemoteTransferCancellation();
+      runtime.attempts[item.id] = attempt;
+      item.state = TransferItemState.active;
+      _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+      _setTaskState(runtime, TransferTaskState.running);
+      try {
+        await _acquireProduceSlot(task, attempt);
+        try {
+          final leases = await _leaseServerIds([produce.serverId], attempt);
+          try {
+            final serverFs = leases[produce.serverId]!.fs;
+            final result = await _pipe(
+              source: serverFs,
+              destination: _localFileSystem,
+              readLimiter: _produceLimiter,
+              writeLimiter: _localLimiter,
+              sourcePath: produce.remotePath,
+              destinationPath: produce.destinationPath,
+              length: produce.expectedSize,
+              maximumBytes: produce.maximumBytes,
+              // The temp is the cache's exclusive sibling — overwrite is
+              // the expected shape; the commit rename serializes it.
+              overwrite: true,
+              // The produced entry's digest is the cache's honesty
+              // check — record it beside the file (06 §5.3).
+              computeHash: true,
+              downloadGate: produce.gate,
+              cancellation: attempt,
+              onProgress: (transferred, total) {
+                _onProduceProgress(runtime, item, transferred, total);
+                // The session's progress card reads bytes off this
+                // hook — produce rows never emit queue-mirror progress
+                // events (03 §4.7).
+                produce.onProgress?.call(transferred, total);
+              },
+            );
+            task.retryCount = 0;
+            item.resultEntry = result.source;
+            _finishItem(runtime, item, TransferItemState.completed);
+            break;
+          } on RemoteFileException catch (error) {
+            if (error.kind != RemoteFileErrorKind.disconnected) rethrow;
+            task.retryCount++;
+            if (task.retryCount > poolPolicy.taskRetryLimit) rethrow;
+            _debitItemProgress(runtime, item);
+            item.state = TransferItemState.pending;
+            _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+            _setTaskState(runtime, TransferTaskState.queued);
+            attempt = RemoteTransferCancellation();
+            runtime.attempts[item.id] = attempt;
+          } finally {
+            await _releaseLeases(leases);
+          }
+        } finally {
+          _releaseProduceSlot();
+        }
+      } on RemoteFileException catch (error) {
+        if (error.kind == RemoteFileErrorKind.cancelled ||
+            task.cancellation.isCancelled) {
+          if (task.cancellation.isCancelled) {
+            _finishItem(runtime, item, TransferItemState.cancelled);
+          } else {
+            // The attempt token died to pauseTask (or a denied gate —
+            // same unwind shape): return to pending so a resume re-runs
+            // the hop, except a denied gate leaves the task cancelled.
+            if (produce.gate?.isDenied == true) {
+              cancelTask(task.id);
+              break;
+            }
+            _debitItemProgress(runtime, item);
+            item.state = TransferItemState.pending;
+            _emit(TransferQueueItemEvent(task.id, item.id, item.state));
+          }
+        } else {
+          _finishItem(
+            runtime,
+            item,
+            TransferItemState.failed,
+            error: error.message,
+            failureKind: error.kind,
+          );
+        }
+      } catch (error) {
+        _finishItem(
+          runtime,
+          item,
+          TransferItemState.failed,
+          error: '$error',
+          failureKind: RemoteFileErrorKind.other,
+        );
+      } finally {
+        runtime.attempts.remove(item.id);
+      }
+    }
+    _maybeFinishTask(runtime);
+  }
+
+  /// Produce progress updates the counters and emits an item event —
+  /// the row's byte progress — but never `TransferQueueProgressEvent`
+  /// (03 §4.7). The pane's own progress card keys off the same events.
+  void _onProduceProgress(
+    _TaskRuntime runtime,
+    TransferItem item,
+    int transferred,
+    int? total,
+  ) {
+    final task = runtime.task;
+    task.transferredBytes += transferred - item.transferredBytes;
+    item.transferredBytes = transferred;
+    _emit(TransferQueueItemEvent(task.id, item.id, item.state));
   }
 
   // ---------------------------------------------------------------------
@@ -816,6 +1147,12 @@ class TransferQueue implements ManagedCheckoutQueue {
     // no scan, no conflict machinery (06 §3.4).
     if (task.spec.managedCheckout != null) {
       await _runManagedCheckout(runtime);
+      return;
+    }
+    // A produce task's single download hop is likewise self-contained
+    // (03 §4.7) — and unjournaled, so no scan state exists to replay.
+    if (task.spec.produce != null) {
+      await _runProduce(runtime);
       return;
     }
     task.startedAt ??= DateTime.now();
@@ -2762,6 +3099,7 @@ class TransferQueue implements ManagedCheckoutQueue {
     RemoteFileEntry? expectedTarget,
     int? preserveMode,
     bool computeHash = false,
+    PreviewByteGate? downloadGate,
     required RemoteTransferCancellation cancellation,
     required RemoteTransferProgress onProgress,
   }) async {
@@ -2830,16 +3168,26 @@ class TransferQueue implements ManagedCheckoutQueue {
     );
     late final RemoteFileEntry sourceResult;
     try {
+      // The download-side decorations: the §5.2 byte gate sits
+      // outermost so its parked confirmation stalls the remote read
+      // itself (backpressure, not buffering), and §3.2's stream cap sits
+      // inside it so gated bytes don't count toward the cap until the
+      // user's answer releases them. The cap lives on the download side
+      // only — a capped sink on an upload would mislabel the remote
+      // write as the oversized party.
+      StreamSink<List<int>> downloadSink = sink;
+      if (maximumBytes != null) {
+        downloadSink = MaximumByteSink(
+          downloadSink,
+          maximumBytes: maximumBytes,
+        );
+      }
+      if (downloadGate != null) {
+        downloadSink = downloadGate.wrap(downloadSink);
+      }
       sourceResult = await source.download(
         sourcePath,
-        // 06 §3.2's stream cap: an unknown-size managed download aborts
-        // the moment the running total passes the caller's cap rather
-        // than fetching in full to a certain refusal. The cap lives on
-        // the download side only — a capped sink on an upload would
-        // mislabel the remote write as the oversized party.
-        maximumBytes == null
-            ? sink
-            : MaximumByteSink(sink, maximumBytes: maximumBytes),
+        downloadSink,
         onProgress: pipeProgress,
         cancellation: cancellation,
         computeHash: computeHash,
@@ -3267,9 +3615,13 @@ class TransferQueue implements ManagedCheckoutQueue {
     if (task.isTerminal) {
       // The task's journal records precede this append on the writer
       // chain, and the store fsyncs the journal before the history line
-      // lands (03 §4.6's ordering rule).
+      // lands (03 §4.6's ordering rule). Produce tasks keep their
+      // unjournaled posture all the way through history — a produce
+      // row is session state, never a durable record.
       task.finishedAt ??= DateTime.now();
-      persistence?.appendHistory(TransferHistoryEntry.fromTask(task));
+      if (task.spec.produce == null) {
+        persistence?.appendHistory(TransferHistoryEntry.fromTask(task));
+      }
     }
     runtime.done.complete();
   }
@@ -3419,7 +3771,9 @@ class TransferQueue implements ManagedCheckoutQueue {
   bool removeTask(String taskId) {
     final runtime = _tasks[taskId];
     if (runtime == null || !runtime.task.isTerminal) return false;
-    persistence?.appendJournal(TaskRemovedRecord(taskId: taskId));
+    if (runtime.task.spec.produce == null) {
+      persistence?.appendJournal(TaskRemovedRecord(taskId: taskId));
+    }
     _tasks.remove(taskId);
     return true;
   }
@@ -4175,6 +4529,9 @@ class TransferQueue implements ManagedCheckoutQueue {
     String? error,
     RemoteFileErrorKind? failureKind,
   }) {
+    // Produce tasks are unjournaled (03 §4.6/§4.7): the caller's Future
+    // dies with the process, so no record may resurrect them.
+    if (task.spec.produce != null) return;
     persistence?.appendJournal(
       TaskStateRecord(
         taskId: task.id,
@@ -4228,7 +4585,7 @@ class TransferQueue implements ManagedCheckoutQueue {
     ItemDisposition? disposition,
   }) {
     final store = persistence;
-    if (store == null) return;
+    if (store == null || task.spec.produce != null) return;
     switch (state) {
       case TransferItemState.completed:
         store.appendJournal(

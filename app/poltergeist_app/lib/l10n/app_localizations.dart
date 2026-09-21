@@ -3229,6 +3229,234 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Save'**
   String get editorDialogSave;
+
+  /// Command label on macOS, where Space opens the native Quick Look surface (file.preview, Space, 02 §8.3/§9, 06 §5).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Look'**
+  String get filePreviewLabel;
+
+  /// file.preview's command label off macOS — the docked in-app panel owns Space there, so the macOS-only 'Quick Look' name would be wrong (02 §8.3/§9, 06 §5).
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get filePreviewLabelNeutral;
+
+  /// Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed.
+  ///
+  /// In en, this message translates to:
+  /// **'Show/Hide Preview'**
+  String get viewTogglePreviewLabel;
+
+  /// Accessibility label of the docked preview rail (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get previewPanelLabel;
+
+  /// Tooltip of the preview panel's close button (06 §5.2's ✕ affordance).
+  ///
+  /// In en, this message translates to:
+  /// **'Close preview'**
+  String get previewPanelClose;
+
+  /// The docked preview panel's empty state — no focused file (06 §5.2's idle phase).
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to preview'**
+  String get previewPanelEmpty;
+
+  /// The remote prompt card: selection alone never downloads — Space or the Download button starts it (06 §5.3's explicit-action rule).
+  ///
+  /// In en, this message translates to:
+  /// **'Press Space to download a preview.'**
+  String get previewPressSpace;
+
+  /// Button that starts (or confirms) a remote preview download (06 §5.3, §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get previewDownloadLabel;
+
+  /// Cancels a preview download confirmation, gate, or in-flight production (06 §5.2/§5.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get previewCancelLabel;
+
+  /// Closes the Quick Look overlay's refusal card (06 §5.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get previewDismissLabel;
+
+  /// The §8 large-download confirmation for a known over-threshold remote preview (06 §5.2/§5.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Download {size} to preview “{name}”?'**
+  String previewDownloadConfirm(String size, String name);
+
+  /// Accessibility label of the preview download progress bar (06 §5.2's in-flight card).
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading preview'**
+  String get previewDownloadingLabel;
+
+  /// Preview download progress line over a known total (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'{transferred} of {total}'**
+  String previewDownloadProgress(String transferred, String total);
+
+  /// The Quick Look overlay's in-flight line: the item's name plus its progress (06 §5.1).
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading {name} — {progress}'**
+  String previewDownloadingNamed(String name, String progress);
+
+  /// The unknown-size gate card: a remote preview stream parked at the large-download threshold asks before continuing (06 §5.3).
+  ///
+  /// In en, this message translates to:
+  /// **'{transferred} downloaded so far. Keep going?'**
+  String previewGatePrompt(String transferred);
+
+  /// Releases the parked unknown-size stream — the gate card's confirm answer (06 §5.3).
+  ///
+  /// In en, this message translates to:
+  /// **'Keep downloading'**
+  String get previewKeepDownloadingLabel;
+
+  /// Note on the prompt card after a failed production — Space retries (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'The preview download failed.'**
+  String get previewDownloadFailed;
+
+  /// Note after a cancelled production — honest cancel copy, not a failure (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'The preview download was cancelled.'**
+  String get previewDownloadCancelled;
+
+  /// Promptless-card refusal: the known remote size exceeds the preview-cache cap (06 §5.3).
+  ///
+  /// In en, this message translates to:
+  /// **'This file is larger than the preview cache allows.'**
+  String get previewRefusalOverCacheCap;
+
+  /// Promptless-card refusal: the file exceeds its kind's decode cap (64 MiB image/PDF, 06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'This file is too large to preview.'**
+  String get previewRefusalOverKindCap;
+
+  /// The text row's refusal for binary or non-UTF-8 content (06 §5.2/§1).
+  ///
+  /// In en, this message translates to:
+  /// **'This file isn\'t UTF-8 text.'**
+  String get previewRefusalNotText;
+
+  /// Refusal when the focused file vanished between selection and render (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'This file no longer exists.'**
+  String get previewRefusalMissing;
+
+  /// The metadata card's Open verb — launches the focused entry through its real open path, never the cache copy (06 §5.3's open boundary).
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get previewOpenLabel;
+
+  /// The metadata card's Open With verb — the editor chooser (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Open With…'**
+  String get previewOpenWithLabel;
+
+  /// The truncated-text bar's affordance — opens the file in the built-in editor (06 §5.2's text row).
+  ///
+  /// In en, this message translates to:
+  /// **'Open in editor'**
+  String get previewOpenInEditorLabel;
+
+  /// The bar heading a capped preview — the text row's 1 MiB window or the PDF row's 20-page cap (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Preview truncated'**
+  String get previewTruncatedLabel;
+
+  /// Accessibility label of the rendered image preview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview of {name}'**
+  String previewImageLabel(String name);
+
+  /// The caption under an image preview — the decoded frame's real dimensions (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'{width} × {height} pixels'**
+  String previewImageDimensions(int width, int height);
+
+  /// The panel header's multi-selection line (06 §5.2): count, the summed size of the size-known entries, and an explicit unknown-size count — never a silently incomplete total.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 item} other{{count} items}} · {size}{unknown, plural, =0{} other{ · {unknown} size unknown}}'**
+  String previewSelectionSummary(int count, String size, int unknown);
+
+  /// The PDF preview's header (06 §5.2): shown is min(20, total) — a 5-page PDF reads 'Page 1–5 of 5', never '1–20 of 5'.
+  ///
+  /// In en, this message translates to:
+  /// **'Page 1–{shown} of {total}'**
+  String previewPdfPageRange(int shown, int total);
+
+  /// Accessibility label of one rasterized PDF page in the preview rail.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} of {total}'**
+  String previewPdfPageLabel(int page, int total);
+
+  /// The PDF row's error body — a corrupt or password-locked document (06 §5.2).
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t render this PDF.'**
+  String get previewPdfFailed;
+
+  /// Settings → Editing section header for the preview cache and the shared large-download threshold (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Preview & downloads'**
+  String get previewSettingsSectionTitle;
+
+  /// Label of the preview-cache size-limit field (06 §8, default 512 MiB).
+  ///
+  /// In en, this message translates to:
+  /// **'Preview cache limit'**
+  String get previewCacheLimitLabel;
+
+  /// Button that empties the preview cache (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Clear Preview Cache'**
+  String get previewClearCacheLabel;
+
+  /// Toast after Clear Preview Cache — reports bytes ACTUALLY reclaimed, never the pre-clear total (06 §8).
+  ///
+  /// In en, this message translates to:
+  /// **'Cleared {mib} MiB of cached previews.'**
+  String previewCacheCleared(int mib);
+
+  /// Label of the shared large-download confirmation threshold (06 §8, default 100 MiB) — gates remote previews, Quick Look productions, compare sides, and external-editor checkouts.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm downloads larger than'**
+  String get previewThresholdLabel;
+
+  /// Unit suffix of the Preview & downloads numeric fields (mebibytes).
+  ///
+  /// In en, this message translates to:
+  /// **'MiB'**
+  String get previewMiBSuffix;
 }
 
 class _AppLocalizationsDelegate

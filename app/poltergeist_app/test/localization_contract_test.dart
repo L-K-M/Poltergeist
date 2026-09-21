@@ -81,6 +81,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The §3.1 record store's file name inside app support — a path
     // literal, not copy.
     r"'${supportDirectory.path}${Platform.pathSeparator}sync_records.json'",
+    // The M7 preview cache's directory name inside app support — a path
+    // literal, not copy.
+    r"'${supportDirectory.path}${Platform.pathSeparator}preview-cache'",
     // The engine-less pin-store fallback path — same machine path data.
     r"'${supportDirectory.path}${Platform.pathSeparator}'",
     r"'$kPinStoreFileName'",
@@ -102,6 +105,22 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // The setPermissions assert's mode-range diagnostic — a programming-
     // error message, never rendered.
     "'permissions must be a twelve-bit mode (0x000-0xFFF)'",
+  },
+  // The M7 preview session's cache-key prefix for a local file — machine
+  // identity handed to PreviewCache, never rendered UI copy.
+  'lib/services/preview_session.dart': {r"'local:${entry.path}'"},
+  // The Quick Look platform channel's method and argument names
+  // (06 §5.1) — channel plumbing, never rendered UI copy.
+  'lib/services/quick_look_channel.dart': {
+    "'poltergeist/quicklook'",
+    "'showPreview'",
+    "'updatePreview'",
+    "'hidePreview'",
+    "'isAvailable'",
+    "'isVisible'",
+    "'paths'",
+    "'index'",
+    "'closed'",
   },
   // The D15 trash channel server (03 §7.1): Platform.operatingSystem ids
   // and wiring-fault diagnostics that only reach the error reporter,
@@ -150,6 +169,10 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // collapsed-group set — settings.json keys, never rendered.
     "'layout.sidebarHidden'",
     "'sidebar.collapsedGroups'",
+    // The preview panel's persisted keys (06 §8): cache capacity and the
+    // large-download confirmation threshold — settings.json keys.
+    "'preview.cacheCapacityBytes'",
+    "'preview.largeDownloadThresholdBytes'",
   },
   'lib/services/atomic_file.dart': {r"'.poltergeist-${uuidV4()}.tmp'"},
   // The session-state document's on-disk schema (02 §3): settings.json
@@ -1062,6 +1085,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'view.toggleSidebar'",
     "'view.toggleActivityPanel'",
     "'view.toggleSyncBrowsing'",
+    // The M7 preview commands (06 §5.3/D21): command ids, never rendered.
+    "'file.preview'",
+    "'view.togglePreview'",
     "'tab.new'",
     "'tab.close'",
     "'tab.reopenClosed'",
@@ -1671,6 +1697,43 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'openWith.other'",
     "'openWith.remember'",
     "'openWith.confirm'",
+  },
+  // The M7 preview panel's widget keys (06 §5.3) — test/plumbing handles
+  // for the card buttons, never authored copy — plus the metadata-card
+  // joiners (empty segments and the line break composing the detail
+  // string, all machine data beside ARB-labelled rows).
+  'lib/ui/preview_panel.dart': {
+    "''",
+    r"'\n'",
+    "'preview.close'",
+    "'preview.download'",
+    "'preview.confirm.cancel'",
+    "'preview.confirm.download'",
+    "'preview.progress'",
+    "'preview.produce.cancel'",
+    "'preview.gate.cancel'",
+    "'preview.gate.keep'",
+    "'preview.text'",
+    "'preview.image'",
+    "'preview.open'",
+    "'preview.openWith'",
+    "'preview.truncated.open'",
+    "'preview.quickLookCard'",
+    "'preview.quickLookCard.cancel'",
+    "'preview.quickLookCard.confirm'",
+  },
+  // The PDF builder seam's external-open button key — plumbing, not copy.
+  'lib/ui/pdf_preview.dart': {"'preview.pdf.open'"},
+  // The §8 downloads settings section's field/button widget keys and the
+  // MiB integer text fed to TextFields — plumbing and numeric machine
+  // data, never authored copy.
+  'lib/ui/settings/preview_settings.dart': {
+    r"'${widget.settings.capacityBytes ~/ _mib}'",
+    r"'${widget.settings.thresholdBytes ~/ _mib}'",
+    r"'${liveBytes ~/ _mib}'",
+    "'preview.cacheLimitField'",
+    "'preview.clearCache'",
+    "'preview.thresholdField'",
   },
 };
 

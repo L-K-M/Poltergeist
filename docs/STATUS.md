@@ -6932,6 +6932,78 @@ detection, menu rows, remember/cancel) and the capture test.
 
 Quick Look, sync, and the §3.7 review surface remain open M7 slices.
 
+## M7 — preview and Quick Look (cache + produce + panel) (2026-09-21)
+
+06 §5 lands end to end — Space previews local files directly and
+remote files through the new preview cache, on macOS via the native
+Quick Look panel and everywhere via the docked in-app panel:
+
+- **Core** (`packages/poltergeist_core/lib/src/preview/`): the §5.2
+  kind classifier (extension table + UTF-8 sniff for unknown text,
+  case-insensitive names, per-kind size caps), `PreviewCache` under
+  `<app-support>/preview-cache/` (hash-keyed entries, unsafe extensions
+  dropped so sniffing decides, executable extensions kept — the
+  blocklist guards OS launches, not cache writes; prepare/commit with
+  temp-file sweep and `canAccommodate` refusal, LRU-ish eviction,
+  `sweepTemps`/`clear`), and the produce seam — `PreviewProduceSpec`,
+  `PreviewByteGate` (the unknown-size mid-stream threshold park with
+  confirm/cancel and resume), `TransferQueue.enqueueProduce` (head
+  insertion, pause/cap/throttle bypass, two-task in-flight cap, never
+  journaled per 03 §4.6 — the Future dies with the process), and
+  `QueuePreviewProducer` bridging the session to the queue.
+- **Session** (`services/preview_session.dart`): the §5.2/§5.3 state
+  machine — selection shows the metadata card or a prompt; Space
+  downloads via produce; known over-threshold sizes confirm first;
+  unknown sizes park at the byte gate; Esc cancels production
+  (including inside the cache-prepare window, before the task
+  registers), closes cards, then the panel; refusal cards keep the
+  Open/Open With affordances. Quick Look routing follows §5.1: Space
+  opens the native panel on macOS when the docked panel is hidden, the
+  produced cache path delivers via `showPreview`/`updatePreview` even
+  when the panel hasn't opened yet, and the in-window overlay card
+  hosts the confirm/gate/progress states Quick Look cannot render.
+- **Panel** (`ui/preview_panel.dart`): the docked 320px panel per
+  02 §1 — metadata rows, prompt/progress/confirm/gate/refused cards,
+  rendered text on the §2.1 document+syntax layer (first-1 MiB partial
+  read truncating on a codepoint boundary), image rows with dimension
+  captions, and the PDF row through the `PreviewPdfBuilder` seam
+  (`ui/pdf_preview.dart` binds it to `pdfrx` — new dependency).
+- **Quick Look channel** (`services/quick_look_channel.dart` +
+  `macos/Runner/MainFlutterWindow.swift`): `poltergeist/quicklook`
+  carries `showPreview`/`updatePreview`/`hidePreview`/`isAvailable`/
+  `isVisible` to `QLPreviewPanel` — the same seam shape as
+  `poltergeist/files`.
+- **Settings** (`ui/settings/preview_settings.dart` +
+  `services/app_preferences.dart`): the §8 "Preview & downloads"
+  rows — cache cap and the shared large-download threshold — persist
+  through `preview.cacheCapacityBytes` /
+  `preview.largeDownloadThresholdBytes`, mounted in the bounded
+  Editing-settings dialog with the immediate-persist revert idiom;
+  `Clear Preview Cache` toasts the reclaimed bytes.
+- **Commands/keys** (D21): `file.preview` and `view.togglePreview`
+  registered; Space hits the pane dispatch below the §-ordered Esc
+  tiers, Option/Command+P on macOS and Control/Alt+P elsewhere toggle
+  the docked panel.
+
+Test findings folded back into the implementation: Quick Look's
+first-press delivery gated on the panel's active flag so a produced
+remote preview never reached the native panel (now keyed on the
+request flag); the confirm/gate cards' action rows overflowed the
+320px panel (now `Wrap`); the rendered path never loaded text content
+(text-kind dispatch added); Esc during `cache.prepare` could not
+cancel (pending-start tracking added). `Process.run`/`chmod` hangs
+under the widget-test fake zone, so production-driving steps run in
+`tester.runAsync` with real-delay waits, and the capture test loads
+real faces in a runAsync that returns before any mount — paragraphs
+laid out mid-registration stay tofu; `tasks/run3-task86/` holds the
+ten PNGs (prompt, producing, rendered text/image/PDF, confirm, gate,
+refusal, Quick Look overlay, settings dialog).
+
+Coverage: 45 core preview tests (kinds, cache, gate, produce), 28
+session tests, the panel/settings widget suites, and the capture test.
+Sync and the §3.7 review surface remain open M7 slices; the §4.6
+pool-level produce reservation is a recorded follow-up (PORTS.md).
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

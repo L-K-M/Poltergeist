@@ -1,10 +1,29 @@
 import Cocoa
 import FlutterMacOS
+import Quartz
 import macos_window_utils
+
+/// One produced local path handed to QLPreviewPanel (06 §5.1) — the
+/// session only ever passes preview-cache hits or pane-local files.
+private final class QuickLookPreviewItem: NSObject, QLPreviewItem {
+  let previewItemURL: URL?
+  let previewItemTitle: String?
+
+  init(path: String) {
+    previewItemURL = URL(fileURLWithPath: path)
+    previewItemTitle = URL(fileURLWithPath: path).lastPathComponent
+  }
+}
 
 class MainFlutterWindow: NSWindow {
   private var trashChannel: FlutterMethodChannel?
   private var filesChannel: FlutterMethodChannel?
+  private var quickLookChannel: FlutterMethodChannel?
+
+  /// The panel's current item set — only ever produced LOCAL paths
+  /// (remote previews are materialized into the §5.3 cache first).
+  fileprivate var quickLookItems: [QuickLookPreviewItem] = []
+  fileprivate var quickLookIndex = 0
 
   override func awakeFromNib() {
     // Poltergeist has its own per-pane tab model (02 §9): the system must
@@ -157,6 +176,112 @@ class MainFlutterWindow: NSWindow {
         }
     }
 
+    // Quick Look (06 §5.1): `poltergeist/quicklook` drives
+    // QLPreviewPanel — show/update/hide/isVisible plus the `closed`
+    // edge the Dart session listens for (the panel can close itself
+    // on Esc, the ✕, or focus loss; every route must notify).
+    quickLookChannel = FlutterMethodChannel(
+      name: "poltergeist/quicklook",
+      binaryMessenger: macOSWindowUtilsViewController.flutterViewController.engine.binaryMessenger
+    )
+    quickLookChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      switch call.method {
+      case "isAvailable":
+        result(true)
+      case "isVisible":
+        result(QLPreviewPanel.sharedPreviewPanelExists()
+          && (QLPreviewPanel.shared()?.isVisible ?? false))
+      case "showPreview", "updatePreview":
+        guard let arguments = call.arguments as? [String: Any],
+              let paths = arguments["paths"] as? [String],
+              let index = arguments["index"] as? Int,
+              !paths.isEmpty else {
+          result(FlutterError(
+            code: "QL_BAD_ARGS",
+            message: "showPreview/updatePreview need 'paths' and 'index'.",
+            details: nil))
+          return
+        }
+        self.quickLookItems = paths.map { QuickLookPreviewItem(path: $0) }
+        self.quickLookIndex = max(0, min(index, paths.count - 1))
+        self.presentQuickLook()
+        result(nil)
+      case "hidePreview":
+        if QLPreviewPanel.sharedPreviewPanelExists() {
+          QLPreviewPanel.shared()?.orderOut(nil)
+        }
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     super.awakeFromNib()
+  }
+
+  /// Orders the panel front over this window, or re-keys the visible
+  /// one to the current item set. Ordering front is what makes the
+  /// panel query the responder chain — our `acceptsPreviewPanelControl`
+  /// below hands it this window as its controller.
+  private func presentQuickLook() {
+    guard let panel = QLPreviewPanel.shared() else { return }
+    if panel.isVisible {
+      panel.dataSource = self
+      panel.delegate = self
+      panel.reloadData()
+      panel.currentPreviewItemIndex = quickLookIndex
+      panel.refreshCurrentPreviewItem()
+    } else {
+      // beginPreviewPanelControl sets the data source; the index lands
+      // once the panel exists.
+      panel.makeKeyAndOrderFront(nil)
+      panel.currentPreviewItemIndex = quickLookIndex
+    }
+  }
+
+  // -- QLPreviewPanel control (03 §7.1's channel surface) -------------
+
+  override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+    true
+  }
+
+  override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    panel.dataSource = self
+    panel.delegate = self
+    panel.reloadData()
+    panel.currentPreviewItemIndex = quickLookIndex
+  }
+
+  override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    panel.dataSource = nil
+    panel.delegate = nil
+    // Every close route funnels here — the session drops its
+    // quickLookActive state on this edge (06 §5.1).
+    quickLookChannel?.invokeMethod("closed", arguments: nil)
+  }
+}
+
+extension MainFlutterWindow: QLPreviewPanelDataSource {
+  func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+    quickLookItems.count
+  }
+
+  func previewPanel(
+    _ panel: QLPreviewPanel!,
+    previewItemAt index: Int
+  ) -> QLPreviewItem! {
+    quickLookItems[index]
+  }
+}
+
+extension MainFlutterWindow: QLPreviewPanelDelegate {
+  /// The ✕ / Esc close on the panel itself — the `closed` edge rides
+  /// endPreviewPanelControl, so this only lets the close proceed.
+  func windowShouldClose(_ sender: NSWindow!) -> Bool {
+    true
   }
 }

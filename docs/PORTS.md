@@ -708,6 +708,34 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   Séance's `File.isAbsolute` decode fails the same synced-Windows case
   upstream.
 
+## Preview and Quick Look (M7)
+
+- Sources: none — 06 §5.2 names `preview_panel.dart` new code, and
+  Séance ships no preview cache, Quick Look channel, or produce-task
+  plumbing to port.
+- Ported: nothing; recorded 2026-09-21.
+- Local files (all new Poltergeist compositions):
+  `packages/poltergeist_core/lib/src/preview/` (kind classifier, cache,
+  produce spec/byte gate, queue producer),
+  `app/poltergeist_app/lib/services/preview_session.dart`,
+  `lib/services/quick_look_channel.dart`, `lib/ui/preview_panel.dart`,
+  `lib/ui/pdf_preview.dart`, `lib/ui/settings/preview_settings.dart`,
+  the `poltergeist/quicklook` channel block in
+  `macos/Runner/MainFlutterWindow.swift`, and the suites under
+  `test/` (`services/preview_session_test.dart`,
+  `ui/panes/preview_panel_test.dart`,
+  `ui/panes/preview_panel_capture_test.dart` — the §-required PNGs under
+  `POLTERGEIST_CAPTURE=1`, in `tasks/run3-task86/` —
+  `ui/settings/preview_settings_test.dart`).
+- Divergences: produce tasks get the queue-side exemption set the spec
+  requires (head insertion; pause/cap/throttle bypass; two-task in-flight
+  cap; never journaled), but the connection-pool reservation 03 §4.6
+  contemplates is not landed — it needs a `ConnectionManager` surface
+  change and is recorded as a bounded follow-up rather than hacked in.
+  The PDF row rasterizes through `pdfrx` (new dependency) behind the
+  `PreviewPdfBuilder` seam.
+- Port-back candidates: none.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

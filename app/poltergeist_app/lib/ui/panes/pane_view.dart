@@ -11,6 +11,7 @@ import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
+import '../../services/preview_session.dart';
 import '../../services/quick_connect_address.dart';
 import '../../services/quick_select_state.dart';
 import '../../services/selection_state.dart';
@@ -103,6 +104,7 @@ class PaneView extends StatefulWidget {
     this.bookmarks,
     this.dropDelegate,
     this.supportsOsDrop,
+    this.preview,
     this.clock = _systemClock,
   });
 
@@ -142,6 +144,12 @@ class PaneView extends StatefulWidget {
   /// Whether the OS drop-in `DropTarget` mounts — null defers to the
   /// platform default (desktop_drop serves Linux/macOS/Windows only).
   final bool? supportsOsDrop;
+
+  /// The 06 §5 preview driver: this pane's Space dispatches to it and
+  /// its Esc tier sits at the top of [_handleEscapeTier]. Null leaves
+  /// Space falling through to ancestors — the same posture the pane
+  /// held before a session existed.
+  final PreviewSession? preview;
 
   /// Injectable clock for deterministic relative-date rendering.
   final DateTime Function() clock;
@@ -556,6 +564,17 @@ class _PaneViewState extends State<PaneView> {
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
+      case LogicalKeyboardKey.space:
+        // Space is `file.preview`'s universal trigger (06 §5): the pane
+        // owns the key while its listing is live (the owned-key gate
+        // already swallowed it on stale/error rows) and the session
+        // decides the phase-appropriate action — open, toggle closed,
+        // or a producing/confirm-phase no-op. Repeats are consumed: a
+        // held Space must not toggle a surface open and shut.
+        final preview = widget.preview;
+        if (preview == null) return KeyEventResult.ignored;
+        if (event is! KeyRepeatEvent) preview.previewFocused();
+        return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
         return _handleEscapeTier(event);
       case LogicalKeyboardKey.tab:
@@ -613,6 +632,19 @@ class _PaneViewState extends State<PaneView> {
   /// button holding focus must not skip the tiers above the panel's
   /// slot). One press fires one tier.
   KeyEventResult _handleEscapeTier(KeyEvent event) {
+    // One press fires one tier — a held Esc's repeats are consumed here
+    // rather than cascading down to the next tier on each repeat.
+    if (event is KeyRepeatEvent) {
+      return KeyEventResult.handled;
+    }
+    // 02 §8.2's total order puts the preview tier first: an open Quick
+    // Look or docked panel answers Esc before the pane's own rename,
+    // navigation, inspector, filter, and type-ahead slots see it. The
+    // session answers false while no preview surface is live, leaving
+    // the tiers below untouched — one press still fires one tier.
+    if (widget.preview?.escape() ?? false) {
+      return KeyEventResult.handled;
+    }
     final controller = widget.controller;
     if (controller.renameTarget != null) {
       // 02 §8.2's field-first order: an open rename session owns the

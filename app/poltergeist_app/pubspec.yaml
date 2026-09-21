@@ -32,6 +32,7 @@ dependencies:
   screen_retriever: 0.2.2
   uuid: 4.6.0
   window_manager: 0.5.2
+  pdfrx: 2.6.1
 
 dev_dependencies:
   analyzer: 14.1.0

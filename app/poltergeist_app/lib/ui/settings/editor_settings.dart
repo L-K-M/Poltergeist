@@ -14,13 +14,18 @@ import '../../services/application_error_reporter.dart';
 import '../../services/editor_registry_controller.dart';
 import '../../services/external_file_opener.dart';
 import '../top_toast.dart';
+import 'preview_settings.dart';
 
 /// The `open-with-external` Configure Editors… destination (06 §4.1's
 /// menu tail): the Editing sections that already have a backing store.
+/// [previewSettings] mounts the §8 "Preview & downloads" rows when a
+/// preview cache is wired — null leaves the tab's remaining sections
+/// absent rather than rendered-dead.
 Future<void> showEditorsSettingsDialog(
   BuildContext context, {
   required EditorRegistryController controller,
   ExternalFileOpener opener = const ExternalFileOpener(),
+  PreviewDownloadsSettings? previewSettings,
 }) =>
     showDialog<void>(
       context: context,
@@ -32,9 +37,19 @@ Future<void> showEditorsSettingsDialog(
           content: SizedBox(
             width: 560,
             child: SingleChildScrollView(
-              child: EditorsSettingsSection(
-                controller: controller,
-                opener: opener,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  EditorsSettingsSection(
+                    controller: controller,
+                    opener: opener,
+                  ),
+                  if (previewSettings != null) ...[
+                    const SizedBox(height: 20),
+                    PreviewDownloadsSection(settings: previewSettings),
+                  ],
+                ],
               ),
             ),
           ),

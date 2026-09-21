@@ -2714,5 +2714,195 @@
   "editorDialogSave": "Save",
   "@editorDialogSave": {
     "description": "Commits the editor add/edit dialog's fields (06 §8)."
+  },
+  "filePreviewLabel": "Quick Look",
+  "@filePreviewLabel": {
+    "description": "Command label on macOS, where Space opens the native Quick Look surface (file.preview, Space, 02 §8.3/§9, 06 §5)."
+  },
+  "filePreviewLabelNeutral": "Preview",
+  "@filePreviewLabelNeutral": {
+    "description": "file.preview's command label off macOS — the docked in-app panel owns Space there, so the macOS-only 'Quick Look' name would be wrong (02 §8.3/§9, 06 §5)."
+  },
+  "viewTogglePreviewLabel": "Show/Hide Preview",
+  "@viewTogglePreviewLabel": {
+    "description": "Command label: hide or show the docked preview rail (view.togglePreview, 02 §8.3/§9, 06 §5.2). While it shows on macOS, Space owns the panel and Quick Look is suppressed."
+  },
+  "previewPanelLabel": "Preview",
+  "@previewPanelLabel": {
+    "description": "Accessibility label of the docked preview rail (06 §5.2)."
+  },
+  "previewPanelClose": "Close preview",
+  "@previewPanelClose": {
+    "description": "Tooltip of the preview panel's close button (06 §5.2's ✕ affordance)."
+  },
+  "previewPanelEmpty": "Nothing to preview",
+  "@previewPanelEmpty": {
+    "description": "The docked preview panel's empty state — no focused file (06 §5.2's idle phase)."
+  },
+  "previewPressSpace": "Press Space to download a preview.",
+  "@previewPressSpace": {
+    "description": "The remote prompt card: selection alone never downloads — Space or the Download button starts it (06 §5.3's explicit-action rule)."
+  },
+  "previewDownloadLabel": "Download",
+  "@previewDownloadLabel": {
+    "description": "Button that starts (or confirms) a remote preview download (06 §5.3, §8)."
+  },
+  "previewCancelLabel": "Cancel",
+  "@previewCancelLabel": {
+    "description": "Cancels a preview download confirmation, gate, or in-flight production (06 §5.2/§5.3)."
+  },
+  "previewDismissLabel": "Dismiss",
+  "@previewDismissLabel": {
+    "description": "Closes the Quick Look overlay's refusal card (06 §5.1)."
+  },
+  "previewDownloadConfirm": "Download {size} to preview “{name}”?",
+  "@previewDownloadConfirm": {
+    "description": "The §8 large-download confirmation for a known over-threshold remote preview (06 §5.2/§5.3).",
+    "placeholders": {
+      "size": {"type": "String"},
+      "name": {"type": "String"}
+    }
+  },
+  "previewDownloadingLabel": "Downloading preview",
+  "@previewDownloadingLabel": {
+    "description": "Accessibility label of the preview download progress bar (06 §5.2's in-flight card)."
+  },
+  "previewDownloadProgress": "{transferred} of {total}",
+  "@previewDownloadProgress": {
+    "description": "Preview download progress line over a known total (06 §5.2).",
+    "placeholders": {
+      "transferred": {"type": "String"},
+      "total": {"type": "String"}
+    }
+  },
+  "previewDownloadingNamed": "Downloading {name} — {progress}",
+  "@previewDownloadingNamed": {
+    "description": "The Quick Look overlay's in-flight line: the item's name plus its progress (06 §5.1).",
+    "placeholders": {
+      "name": {"type": "String"},
+      "progress": {"type": "String"}
+    }
+  },
+  "previewGatePrompt": "{transferred} downloaded so far. Keep going?",
+  "@previewGatePrompt": {
+    "description": "The unknown-size gate card: a remote preview stream parked at the large-download threshold asks before continuing (06 §5.3).",
+    "placeholders": {
+      "transferred": {"type": "String"}
+    }
+  },
+  "previewKeepDownloadingLabel": "Keep downloading",
+  "@previewKeepDownloadingLabel": {
+    "description": "Releases the parked unknown-size stream — the gate card's confirm answer (06 §5.3)."
+  },
+  "previewDownloadFailed": "The preview download failed.",
+  "@previewDownloadFailed": {
+    "description": "Note on the prompt card after a failed production — Space retries (06 §5.2)."
+  },
+  "previewDownloadCancelled": "The preview download was cancelled.",
+  "@previewDownloadCancelled": {
+    "description": "Note after a cancelled production — honest cancel copy, not a failure (06 §5.2)."
+  },
+  "previewRefusalOverCacheCap": "This file is larger than the preview cache allows.",
+  "@previewRefusalOverCacheCap": {
+    "description": "Promptless-card refusal: the known remote size exceeds the preview-cache cap (06 §5.3)."
+  },
+  "previewRefusalOverKindCap": "This file is too large to preview.",
+  "@previewRefusalOverKindCap": {
+    "description": "Promptless-card refusal: the file exceeds its kind's decode cap (64 MiB image/PDF, 06 §5.2)."
+  },
+  "previewRefusalNotText": "This file isn't UTF-8 text.",
+  "@previewRefusalNotText": {
+    "description": "The text row's refusal for binary or non-UTF-8 content (06 §5.2/§1)."
+  },
+  "previewRefusalMissing": "This file no longer exists.",
+  "@previewRefusalMissing": {
+    "description": "Refusal when the focused file vanished between selection and render (06 §5.2)."
+  },
+  "previewOpenLabel": "Open",
+  "@previewOpenLabel": {
+    "description": "The metadata card's Open verb — launches the focused entry through its real open path, never the cache copy (06 §5.3's open boundary)."
+  },
+  "previewOpenWithLabel": "Open With…",
+  "@previewOpenWithLabel": {
+    "description": "The metadata card's Open With verb — the editor chooser (06 §5.2)."
+  },
+  "previewOpenInEditorLabel": "Open in editor",
+  "@previewOpenInEditorLabel": {
+    "description": "The truncated-text bar's affordance — opens the file in the built-in editor (06 §5.2's text row)."
+  },
+  "previewTruncatedLabel": "Preview truncated",
+  "@previewTruncatedLabel": {
+    "description": "The bar heading a capped preview — the text row's 1 MiB window or the PDF row's 20-page cap (06 §5.2)."
+  },
+  "previewImageLabel": "Preview of {name}",
+  "@previewImageLabel": {
+    "description": "Accessibility label of the rendered image preview.",
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "previewImageDimensions": "{width} × {height} pixels",
+  "@previewImageDimensions": {
+    "description": "The caption under an image preview — the decoded frame's real dimensions (06 §5.2).",
+    "placeholders": {
+      "width": {"type": "int"},
+      "height": {"type": "int"}
+    }
+  },
+  "previewSelectionSummary": "{count, plural, =1{1 item} other{{count} items}} · {size}{unknown, plural, =0{} other{ · {unknown} size unknown}}",
+  "@previewSelectionSummary": {
+    "description": "The panel header's multi-selection line (06 §5.2): count, the summed size of the size-known entries, and an explicit unknown-size count — never a silently incomplete total.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "size": {"type": "String"},
+      "unknown": {"type": "int"}
+    }
+  },
+  "previewPdfPageRange": "Page 1–{shown} of {total}",
+  "@previewPdfPageRange": {
+    "description": "The PDF preview's header (06 §5.2): shown is min(20, total) — a 5-page PDF reads 'Page 1–5 of 5', never '1–20 of 5'.",
+    "placeholders": {
+      "shown": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "previewPdfPageLabel": "Page {page} of {total}",
+  "@previewPdfPageLabel": {
+    "description": "Accessibility label of one rasterized PDF page in the preview rail.",
+    "placeholders": {
+      "page": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "previewPdfFailed": "Couldn't render this PDF.",
+  "@previewPdfFailed": {
+    "description": "The PDF row's error body — a corrupt or password-locked document (06 §5.2)."
+  },
+  "previewSettingsSectionTitle": "Preview & downloads",
+  "@previewSettingsSectionTitle": {
+    "description": "Settings → Editing section header for the preview cache and the shared large-download threshold (06 §8)."
+  },
+  "previewCacheLimitLabel": "Preview cache limit",
+  "@previewCacheLimitLabel": {
+    "description": "Label of the preview-cache size-limit field (06 §8, default 512 MiB)."
+  },
+  "previewClearCacheLabel": "Clear Preview Cache",
+  "@previewClearCacheLabel": {
+    "description": "Button that empties the preview cache (06 §8)."
+  },
+  "previewCacheCleared": "Cleared {mib} MiB of cached previews.",
+  "@previewCacheCleared": {
+    "description": "Toast after Clear Preview Cache — reports bytes ACTUALLY reclaimed, never the pre-clear total (06 §8).",
+    "placeholders": {
+      "mib": {"type": "int"}
+    }
+  },
+  "previewThresholdLabel": "Confirm downloads larger than",
+  "@previewThresholdLabel": {
+    "description": "Label of the shared large-download confirmation threshold (06 §8, default 100 MiB) — gates remote previews, Quick Look productions, compare sides, and external-editor checkouts."
+  },
+  "previewMiBSuffix": "MiB",
+  "@previewMiBSuffix": {
+    "description": "Unit suffix of the Preview & downloads numeric fields (mebibytes)."
   }
 }

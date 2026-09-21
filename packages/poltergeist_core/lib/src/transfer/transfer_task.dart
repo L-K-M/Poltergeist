@@ -10,6 +10,7 @@ library;
 import 'package:seance_core/seance_core.dart';
 
 import '../checkout/managed_checkout_spec.dart';
+import '../preview/preview_produce.dart';
 
 /// The transfer verb of a task (02 §5.1). `copy` never touches the source;
 /// `move` deletes each source only after its copy committed (02 §5.2's
@@ -221,6 +222,7 @@ class TransferTaskSpec {
     this.operation = TransferOperation.copy,
     this.disposition,
     this.managedCheckout,
+    this.produce,
   }) : assert(
          (operation == TransferOperation.delete) == (disposition != null),
          'disposition must be set exactly when operation is delete',
@@ -228,6 +230,14 @@ class TransferTaskSpec {
        assert(
          managedCheckout == null || operation == TransferOperation.copy,
          'a managed-checkout task is always a single-file copy',
+       ),
+       assert(
+         produce == null || managedCheckout == null,
+         'a task is a managed checkout or a produce task, never both',
+       ),
+       assert(
+         produce == null || operation == TransferOperation.copy,
+         'a produce task is always a single-file download',
        );
 
   final FsLocation source;
@@ -258,6 +268,13 @@ class TransferTaskSpec {
   /// spec's own CAS and destination parameters. Journaled verbatim like
   /// every other spec field (03 §4.6).
   final ManagedCheckoutSpec? managedCheckout;
+
+  /// The produce payload (03 §4.7, 06 §5.3): when set, the task is the
+  /// preview/produce path's one download hop built by
+  /// [TransferQueue.enqueueProduce]. Unlike [managedCheckout] it is
+  /// NEVER journaled — the produce caller's Future dies with the
+  /// process, so a restored queue must not resurrect it.
+  final PreviewProduceSpec? produce;
 }
 
 /// One queued transfer task (03 §4.1). Mutable fields are engine-owned:
