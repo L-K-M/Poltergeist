@@ -1352,6 +1352,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         }
         return;
       }
+      if (!mounted) {
+        unawaited(session.discard(record));
+        return;
+      }
       unawaited(
         _pushEditorRoute(
           key: 'remote:${record.serverId}:${record.remotePath}',
