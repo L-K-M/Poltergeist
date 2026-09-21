@@ -711,20 +711,20 @@ packages:
     dependency: transitive
     description:
       path: "packages/seance_core"
-      ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
-      resolved-ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
+      ref: "v0.9.1"
+      resolved-ref: "035b0d880b47639e390af8cbbd6d316cb5edc86d"
       url: "https://github.com/L-K-M/Seance.git"
     source: git
-    version: "0.8.0"
+    version: "0.9.1"
   seance_protocol:
     dependency: transitive
     description:
       path: "packages/seance_protocol"
-      ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
-      resolved-ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
+      ref: "035b0d880b47639e390af8cbbd6d316cb5edc86d"
+      resolved-ref: "035b0d880b47639e390af8cbbd6d316cb5edc86d"
       url: "https://github.com/L-K-M/Seance.git"
     source: git
-    version: "0.8.0"
+    version: "0.9.1"
   sky_engine:
     dependency: transitive
     description: flutter

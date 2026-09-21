@@ -67,6 +67,17 @@ class FileVaultStore implements VaultStore {
   }
 
   @override
+  Future<void> putSecretBlobs(Map<String, Uint8List> blobs) async {
+    await _load();
+    // One flush for the whole batch: the atomic write is the "all or none"
+    // durability the interface requires of a re-key.
+    for (final entry in blobs.entries) {
+      _blobs[entry.key] = base64.encode(entry.value);
+    }
+    await _flush();
+  }
+
+  @override
   Future<void> deleteSecret(String id) async {
     await _load();
     _blobs.remove(id);

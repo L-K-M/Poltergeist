@@ -15,25 +15,25 @@ v0.2.0 remains the latest published pre-release (M3–M7 closed untagged
 per their closure records). M0, M1, and M2 stay closed per the Done
 table; **open item 4 (the M1/M2 overlap authorization) remains an OPEN
 owner decision**; open item 24 carries the AltGr/Ctrl+Alt-letter chord
-collision to a spec decision; open item 25 records that Séance v0.9.1
-now contains both the pinned rev and PR-S1 — the tag re-pin and the
-shared-mode "Your Séance servers" surface are the recorded
-follow-ups; new open item 26 carries M7's manual-QA residual (native
-macOS Quick Look runtime). Open item 23's remaining half (remote
+collision to a spec decision; open item 25's tag re-pin landed with
+M8's first slice — the shared-mode "Your Séance servers" surface is
+the recorded follow-up; new open item 26 carries M7's manual-QA
+residual (native macOS Quick Look runtime). Open item 23's remaining half (remote
 transfers fail honestly until the engine protocol grows transfer
-verbs) stays open for the engine-host slice. Next milestone: M8 (sync,
-07 §3.9).
+verbs) stays open for the engine-host slice. M8 is underway (sync,
+07 §3.9): the first slice re-pinned Séance to tag `v0.9.1` and landed
+`packages/poltergeist_sync`'s scanner core (see the dated section).
 
 ## Done
 
 | Area | State |
 |---|---|
 | Repo infrastructure | CI (`ci.yml`: Dart analyze+test now; Flutter + client-matrix jobs self-activate when `app/poltergeist_app` appears), GLM PR review workflow, release workflow (`v*` tags → per-platform client assets), `scripts/build.sh` / `release.sh` / `package-linux.sh` adapted from Séance, Unlicense, analyzer config, pub workspace. |
-| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `2e6d1f1`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Connection suites run socket-free per 08 §3.2. This is an initial slice, not M2 completion; audit follow-ups remain in open item 5. |
+| `poltergeist_core` | Product identity constants plus the connection layer's first slice: the Séance git pin (upstream `v0.9.1` / `035b0d8`), `PoolPolicy` (D9's frozen numbers, test-pinned), the endpoint-keyed `PooledConnectionManager` with the 03 §3.2 growth rules (serialized first connect + single TOFU prompt, interactive-auth single-transport cap, prompting-disabled growth with auth-challenge fallback to sharing, on-demand transports, LRU browse sharing at exhaustion, refcounted shared pools, pane-lifetime teardown), the changed-key hard block with its one prompt-cleared re-pin path, and the `scripts/check-imports.sh` CI guard for the 03 §1 dartssh2 boundary. Connection suites run socket-free per 08 §3.2. This is an initial slice, not M2 completion; audit follow-ups remain in open item 5. |
 | The plan | Complete in [`docs/plan/`](plan/) — overview + decision log (D1–D31), product, UX spec, architecture, Séance integration, sync, editor, milestones, testing, playbook. Reviewed via the GLM PR workflow, internal consistency passes, and a final whole-plan coherence pass (2026-08-31). |
-| Séance pin | Upstream `L-K-M/Seance@2e6d1f1` (main, Séance #81 merge — contains #79's probe-lifecycle repair, #80/#81's audit work, and #74's SSH-trace redaction) — still a commit-rev bridge: no Séance tag contains #79 (all eleven tags checked by ancestry), so open item 2 keeps owning the next-tag re-pin. Both declarations and all three locks moved together; nothing else in the locks drifted (dartssh2 sha-identical at 3.0.2). The M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; the bench harness's live-revision constant follows the pin while committed-bundle validation keeps binding to the pins M0 actually measured, so frozen evidence is unaffected. Ported sources re-diffed at the new pin with dated dispositions in PORTS.md; the full ancestor/tree/license/identity audit is regenerated. The pool's transcript bridge now forwards the upstream-redacted record (see the dated section). |
+| Séance pin | Upstream `L-K-M/Seance@v0.9.1` (`035b0d880b47639e390af8cbbd6d316cb5edc86d`) — the tag re-pin open item 2 waited for: `v0.9.1` contains the previous rev pin `2e6d1f1` (and therefore the PR-S3 merge `2f99f4e`, the PR-S1 merge `599ff936`, and #79's probe repair), so the commit-rev bridge is retired. `poltergeist_core` declares `ref: v0.9.1`; the bench harness's live-revision constant and every lockfile resolve to `035b0d8` (dartssh2 sha-identical at 3.0.2). Pin fallout at the tag was repaired red-first: `FileVaultStore.putSecretBlobs` (upstream's batched vault write) and the widened `ServerIcon` switch. Ported sources re-diffed at the tag with dated dispositions in PORTS.md; the full ancestor/tree/license/identity audit is regenerated and matches. The M0 fork bridge (`BigBoyDevBox/Seance@0a69597`) is retired; committed-bundle validation keeps binding to the pins M0 actually measured, so frozen evidence is unaffected. |
 | Séance PR-S0 | LICENSE audit and Unlicense grant merged in [Séance #57](https://github.com/L-K-M/Seance/pull/57), merge `4d8ee1e026ce4e5d939d6390d9fd98a78fabcf6e`. |
-| Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. A release is still required before M6 Design A. |
+| Séance PR-S1 | Record-kind forward compatibility merged in [Séance #58](https://github.com/L-K-M/Seance/pull/58), merge `599ff936b8222e6cd77920495dcdcc4a50643f44`. The release wait ended 2026-09-14 (`v0.9.1` contains the merge; the pin now sits on that tag — M8 dated section). |
 | Séance cancellation cleanup | dartssh2 3.0.2 and bounded asynchronous SSH teardown merged in [Séance #59](https://github.com/L-K-M/Seance/pull/59), merge `da9d45492ac7d25cbc4eefb97a6ec29254de219f`. |
 | Séance PR-S2 | `openAuthenticatedClient` split merged in [Séance #61](https://github.com/L-K-M/Seance/pull/61), merge `dad6d4f66dbfba6c170b98c204980e5801a890cb`. |
 | Séance PR-S3 | `RemoteFileSystem` additions (`setTimes`, `setOwner`, opt-out `computeHash` on transfers) merged in [Séance #62](https://github.com/L-K-M/Seance/pull/62), merge `2f99f4efb25a83340605464635bdf0f3ba95d931`. The upstream-and-pin gate is satisfied by #13 (bench) and #14 (core); remote sync, chown UI, and bulk verification remain future milestone work. |
@@ -7051,6 +7051,92 @@ and preview cache stay pure core Dart; the Quick Look channel is an
 app-side platform seam). The tag chore is **not run**, matching the
 prior untagged closes.
 
+## M8 — Séance v0.9.1 tag re-pin + `poltergeist_sync` scanner core (2026-09-21)
+
+The first M8 slice satisfies the §3.9 S3 gate in its steady-state form
+and lands the engine's scan/comparison foundation.
+
+**Pin re-pin (open items 2 and 25).** `2e6d1f1` → tag `v0.9.1`
+(`035b0d880b47639e390af8cbbd6d316cb5edc86d`). The tag contains the
+pinned rev, which itself descends from the PR-S3 merge
+`2f99f4efb25a83340605464635bdf0f3ba95d931` — so `setTimes`, `setOwner`,
+and opt-out `computeHash` are all in the pin's ancestry, and the rev-pin
+bridge retires per D2. `packages/poltergeist_core/pubspec.yaml` and the
+bench declaration carry `ref: v0.9.1`; `pubspec.lock`,
+`packages/poltergeist_bench/pubspec.lock`, `tool/bench/pubspec.lock`,
+and `app/poltergeist_app/pubspec.lock` all resolve to `035b0d8`, and the
+bench harness's `pinnedSeanceRevision` follows. The full
+ancestor/tree/license/identity audit was regenerated into `docs/PORTS.md`
+and `scripts/audit-seance-pin.sh` verifies clean
+("Séance pin audit matches docs/PORTS.md").
+
+**Pin fallout, fixed red-first at the tag:**
+
+- `VaultStore.putSecretBlobs` (upstream's batched, all-or-none vault
+  write) — `FileVaultStore` now loads once, encodes every blob, updates
+  the in-memory map, and flushes once atomically
+  (`app/poltergeist_app/lib/services/file_stores.dart`).
+- `ServerIcon` widened to ~45 values upstream — the app switch was
+  extended exhaustively with the upstream glyph mapping
+  (`app/poltergeist_app/lib/ui/server_appearance.dart`).
+
+`flutter analyze` clean and the full app suite green (+1546) at the
+tag; `dart analyze`/`dart test` green for `poltergeist_core` (the
+`linux_watch_backend` descriptor test flaked once and passed on
+rerun — timing-sensitive FD accounting, not fallout).
+
+**`packages/poltergeist_sync` (new workspace member, pure Dart).** The
+05 §11 package boundary: `poltergeist_core` (the one VFS — D3) plus
+`unorm_dart 0.3.2` for NFC matching; no Flutter, no dartssh2, no
+`dart:io` `Process` — the package's own analyzer-walked invariants test
+enforces the whole set (aliased imports included, 08 §3.3), alongside
+the repo-wide `check-imports.sh` coverage every `packages/*` member
+already gets. What landed:
+
+- `plan.dart` — the §6 model verbatim: `SyncPair`/`SyncEndpoint`
+  (Local + Remote over `BookmarkServerRef`), `SyncRuleSet` with the
+  spec'd defaults (Update = one-way/no-deletes, Mirror = one-way +
+  `DeletionPolicy`, additive two-way = bidirectional/never-deletes),
+  `EntrySnapshot`, `SyncItem`, `ScanWarning`, `SyncPlan`/`PlanTotals`,
+  `SyncRunRecord`.
+- `ignore.dart` — gitignore-style `SyncIgnoreRules` with the §3 fixed
+  ordering (pair globs → `.*` when `includeHidden:false` → app
+  defaults, so no `!` can re-include `.poltergeist*`, `.DS_Store`,
+  `Thumbs.db`, `desktop.ini`, `*.poltergeist-*`), full `*`/`?`/`**`
+  semantics, anchored vs floating patterns, dir-only rules, `!`
+  re-include, and the always-excluded effective trash root.
+- `scan.dart` — `TreeScanner` over `RemoteFileSystem` (D3 — no second
+  VFS): pipelined `listDirectory` at the M0-tuned depth of 8
+  outstanding calls, `/`-separated flat map, symlinks recorded as
+  `kind: symlink` and never followed (cycles terminate), unlistable
+  subtrees warn-and-exclude while an unlistable root aborts ("errors
+  are exclusions, never emptiness"), out-of-range mtimes keep their
+  originals and warn, cooperative `ScanCancellation`, progress
+  callbacks, the before-walk case-sensitivity write probe
+  (override > probe > assumption, `CaseSensitivityBasis` recorded),
+  and the effective trash root always excluded — including a hard
+  refusal when trash == root, which would otherwise scan empty and
+  invite Mirror to delete the other side.
+- `compare.dart` — `EntryComparator` for `sizeAndMtime`/`sizeOnly`/
+  `contentHash` with the frozen boundary (truncated Δmtime of exactly
+  2 s equal, 3 s different), `acceptedTimeShifts` (DST ±N within
+  tolerance), §4's clamped comparison whenever either original mtime
+  lies outside the SFTP v3 uint32 range, `streamedSha256` through
+  `RemoteFileSystem.download` for the hash mode, `nfcKey`/`foldedKey`
+  matching, and the §3 first-class hazards (`NormalizationCollision`,
+  `CaseCollision`, `InvalidNameOnDestination` via `validateLocalName`).
+
+63 tests cover tree-walk parity, symlink recording/never-follow/cycle,
+permission-error exclusion and root abort, glob semantics including
+`!` and app-default immunity, the mtime tolerance and clamping
+boundaries, size-only detection, streamed hashing, NFC/case/invalid-name
+hazards, cancellation, progress, and the case-probe paths (probed
+sensitive, unwritable → assumed + warning, explicit override).
+
+Not in this slice (per the task bound): `diff.dart`, `executor.dart`,
+`journal.dart`, `rsync_export.dart`, engine-side two-side concurrency,
+remote-pair scanning, `SyncPlan` preview UI, chown UI.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -7107,6 +7193,12 @@ prior untagged closes.
    next release (the same S1 release the M6 Design A gate needs), re-pin
    both declarations to that tag (D2's steady state) and drop the rev pins.
    Tag S1 before M6 Design A.
+   **Closed 2026-09-21:** Séance `v0.9.1` (2026-09-14, `035b0d8`) contains
+   the pinned rev `2e6d1f1` and PR-S1's `599ff936` — both declarations
+   moved to `ref: v0.9.1`, all locks resolve to `035b0d8`, the bench
+   harness's live-revision constant follows, and the regenerated audit
+   matches `docs/PORTS.md`. The rev-pin bridge is retired (see the M8
+   dated section).
 3. **2026-09-04 — M2 remaining slices** (implementation complete
    2026-09-10; consolidated 2026-09-11). Every implementation slice below
    landed — each bullet carries its dated Done record, and the Done
@@ -7763,6 +7855,11 @@ prior untagged closes.
     that surface lands. The running-patched-Séance + real-SSH legs
     of the §3.7 criterion ride the same follow-up. Deferred per the
     M6 audit task's non-goals (no pin bump, no new features).
+    **2026-09-21 — the re-pin half is done:** `ref: v0.9.1` in both
+    declarations, `035b0d8` in every lock, audit regenerated and
+    matching (M8 dated section; item 2 closed). Still open: the
+    shared-mode "Your Séance servers" UI surface and its
+    running-patched-Séance/real-SSH QA legs.
 26. **2026-09-21: M7's native-boundary QA is manual — Quick Look's
     real `QLPreviewPanel` runtime and the engine-driven remote
     checkout path.** The §3.8 audit's criterion 4 is met on the
