@@ -664,6 +664,50 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   PNGs (find bar, conflict dialog) under `POLTERGEIST_CAPTURE=1`.
 - Port-back candidates: none.
 
+## External editors (M7)
+
+- Sources: app/seance_app/lib/services/external_file_opener.dart,
+  the `seance/files` channel block in
+  app/seance_app/macos/Runner/MainFlutterWindow.swift, and
+  app/seance_app/test/external_editor_test.dart
+- Séance commit: bb3fa4bfa4e1c0345afbd95093f2cb02eff11e3f (in the live
+  pin's ancestry — the channel block postdates nothing in the pin)
+- Ported: 2026-09-20
+- Local files:
+  `app/poltergeist_app/lib/services/external_file_opener.dart` (the
+  registry, opener, and picker seams) and
+  `app/poltergeist_app/test/services/external_editor_test.dart` (the
+  registry/persistence port). The `poltergeist/files` channel block in
+  `macos/Runner/MainFlutterWindow.swift` mirrors the Séance handler
+  under the renamed channel. New Poltergeist compositions:
+  `lib/services/editor_registry_controller.dart` (SettingsStore
+  persistence — Séance persists through its own prefs path),
+  `lib/ui/panes/open_with_commands.dart` (D21's `open-with-external`
+  command, the chooser, and the remember-choice dialog),
+  `lib/ui/settings/editor_settings.dart` (the §8 bounded mount),
+  `test/ui/workspace/external_editor_checkout_test.dart` (the
+  shell-level drive), and `test/ui/workspace/external_editor_capture_test.dart`
+  (the §-required PNGs under `POLTERGEIST_CAPTURE=1`, in
+  `tasks/run3-task85/`).
+- Divergences: the reserved selector prefix is `poltergeist.` (the
+  whole prefix, not just the two sentinels, so synced definitions can
+  never shadow `poltergeist.system`/`poltergeist.builtin`). Launch-target
+  validation is platform-aware rather than host-aware — Séance's
+  `File.isAbsolute` check fails to DECODE a Windows definition on a
+  Linux/macOS host, yet §8 requires other-platform rows to render
+  disabled, so Poltergeist validates the target against the definition's
+  own `platform` field. `Other…` carries §4.1's remember-choice prompt
+  (the per-extension binding write) — Séance has no such flow.
+  User-visible copy resolves through `AppLocalizations` (D20); the
+  dirty→toast→upload loop rides `CheckoutSession`'s watcher and the
+  composed `TransferQueue` rather than Séance's files-pane plumbing,
+  and `WorkspaceShell` schedules a frame beside its post-frame re-check
+  because a watcher-driven prompt on an idle window would otherwise
+  wait for an unrelated repaint.
+- Port-back candidates: the platform-aware launch-target validation —
+  Séance's `File.isAbsolute` decode fails the same synced-Windows case
+  upstream.
+
 ## Pin findings
 
 The 2026-09-08 pin bump moves both live declarations and all three locks from

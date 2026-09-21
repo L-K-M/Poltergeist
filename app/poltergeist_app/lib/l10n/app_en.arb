@@ -2542,5 +2542,177 @@
   "editorConflictOverwrite": "Overwrite Remote Version",
   "@editorConflictOverwrite": {
     "description": "Confirms the §3.4 escalation: retries the upload with overwriteRemoteChanges."
+  },
+  "fileOpenWithLabel": "Open With",
+  "@fileOpenWithLabel": {
+    "description": "Command label and submenu/chooser title: pick the application that opens the selected file (open-with-external, 02 §8.1/§9, 06 §4.2)."
+  },
+  "openWithBuiltInLabel": "Built-in text editor",
+  "@openWithBuiltInLabel": {
+    "description": "Open With ▸ row resolving to the built-in editor (poltergeist.builtin, 06 §4.2)."
+  },
+  "openWithSystemDefaultLabel": "System default",
+  "@openWithSystemDefaultLabel": {
+    "description": "Open With ▸ row resolving to the OS default application (poltergeist.system, 06 §4.2)."
+  },
+  "openWithOtherLabel": "Other…",
+  "@openWithOtherLabel": {
+    "description": "Open With ▸ row that picks an application not yet in the registry (06 §4.1)."
+  },
+  "openWithConfigureLabel": "Configure Editors…",
+  "@openWithConfigureLabel": {
+    "description": "Open With ▸ terminal row deep-linking to the Editing settings section (06 §4.1/§8)."
+  },
+  "editorPickDialogTitle": "Choose an editor application",
+  "@editorPickDialogTitle": {
+    "description": "Title of the native application picker behind Open With ▸ Other… (06 §4.3) — also forwarded to the macOS NSOpenPanel."
+  },
+  "openWithPickedTitle": "Open “{name}” with {editor}?",
+  "@openWithPickedTitle": {
+    "description": "Title of the remember-choice prompt after Open With ▸ Other… picked an application (06 §4.1).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "editor": {
+        "type": "String"
+      }
+    }
+  },
+  "openWithRememberForExtension": "Always use {editor} for .{extension} files",
+  "@openWithRememberForExtension": {
+    "description": "Checkbox of the remember-choice prompt: persists a per-extension editor binding (06 §4.1's extensionDefaults).",
+    "placeholders": {
+      "editor": {
+        "type": "String"
+      },
+      "extension": {
+        "type": "String"
+      }
+    }
+  },
+  "openWithCancel": "Cancel",
+  "@openWithCancel": {
+    "description": "Aborts the remember-choice prompt — the file does not open."
+  },
+  "openWithConfirmOpen": "Open",
+  "@openWithConfirmOpen": {
+    "description": "Confirms the remember-choice prompt: opens the file with the picked application."
+  },
+  "checkoutDirtyUploadPrompt": "“{name}” changed locally. Upload it?",
+  "@checkoutDirtyUploadPrompt": {
+    "description": "06 §3.3's 12-second action toast when an external editor's save marks a managed checkout dirty (watch → debounce → SHA-256 reconcile).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "checkoutDirtyUploadAction": "Upload",
+  "@checkoutDirtyUploadAction": {
+    "description": "The dirty-checkout toast's action: uploads the changed local copy through the §3.4 pipeline."
+  },
+  "checkoutUploadSucceeded": "Uploaded {name}",
+  "@checkoutUploadSucceeded": {
+    "description": "Confirmation toast after a dirty-checkout prompt's upload commits (06 §3.4).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "editorSettingsClose": "Close",
+  "@editorSettingsClose": {
+    "description": "Dismisses the Editing settings dialog (06 §8's bounded mount)."
+  },
+  "editorDefaultLabel": "Default editor",
+  "@editorDefaultLabel": {
+    "description": "Label of the §8 Default-editor dropdown — the registry's global defaultEditorId."
+  },
+  "editorBuiltInOption": "Built-in editor",
+  "@editorBuiltInOption": {
+    "description": "Default-editor dropdown option resolving to poltergeist.builtin (06 §8)."
+  },
+  "editorSystemDefaultOption": "System default",
+  "@editorSystemDefaultOption": {
+    "description": "Default-editor dropdown option resolving to poltergeist.system (06 §8)."
+  },
+  "editorNameOtherPlatform": "{name} (another platform)",
+  "@editorNameOtherPlatform": {
+    "description": "Renders an editor definition configured for a different platform — visible but disabled (06 §8).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "editorListLabel": "External editors",
+  "@editorListLabel": {
+    "description": "Section label above the configured external-editors list (06 §8)."
+  },
+  "editorEmptyState": "No external editors configured.",
+  "@editorEmptyState": {
+    "description": "Empty-state copy of the external-editors list (06 §8)."
+  },
+  "editorAddLabel": "Add Editor…",
+  "@editorAddLabel": {
+    "description": "Adds an external editor via the platform application picker (06 §8)."
+  },
+  "editorEditLabel": "Edit…",
+  "@editorEditLabel": {
+    "description": "Row action editing an external editor's display name and accepted extensions (06 §8's Edit Extensions… row action)."
+  },
+  "editorRemoveLabel": "Remove",
+  "@editorRemoveLabel": {
+    "description": "Row action removing an external editor — also the confirm button of its dialog (06 §8)."
+  },
+  "editorRemoveTitle": "Remove {name}?",
+  "@editorRemoveTitle": {
+    "description": "Title of the remove-editor confirmation (06 §8).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "editorRemoveBody": "The application is only removed from Poltergeist settings.",
+  "@editorRemoveBody": {
+    "description": "Remove-editor confirmation body when the editor is not the default (06 §8)."
+  },
+  "editorRemoveDefaultBody": "This is the current default. Removing it resets the default to System default.",
+  "@editorRemoveDefaultBody": {
+    "description": "Remove-editor confirmation body when the editor is the current default (06 §8's reset rule)."
+  },
+  "editorEditTitle": "Edit external editor",
+  "@editorEditTitle": {
+    "description": "Title of the editor row's edit dialog (06 §8)."
+  },
+  "editorAddTitle": "Add external editor",
+  "@editorAddTitle": {
+    "description": "Title of the post-pick edit dialog in the Add Editor… flow (06 §8)."
+  },
+  "editorNameFieldLabel": "Display name",
+  "@editorNameFieldLabel": {
+    "description": "Label of the editor dialog's display-name field (06 §8)."
+  },
+  "editorExtensionsFieldLabel": "Accepted file extensions (optional)",
+  "@editorExtensionsFieldLabel": {
+    "description": "Label of the editor dialog's extensions field (06 §8)."
+  },
+  "editorExtensionsFieldHint": "dart, json, yaml, tar.gz",
+  "@editorExtensionsFieldHint": {
+    "description": "Hint text of the extensions field — example compound extension included (06 §8)."
+  },
+  "editorExtensionsFieldHelper": "Leave blank to show this editor for every file.",
+  "@editorExtensionsFieldHelper": {
+    "description": "Helper text of the extensions field: an empty list accepts every file (06 §8)."
+  },
+  "editorDialogCancel": "Cancel",
+  "@editorDialogCancel": {
+    "description": "Cancels the editor add/edit/remove dialogs without persisting (06 §8)."
+  },
+  "editorDialogSave": "Save",
+  "@editorDialogSave": {
+    "description": "Commits the editor add/edit dialog's fields (06 §8)."
   }
 }

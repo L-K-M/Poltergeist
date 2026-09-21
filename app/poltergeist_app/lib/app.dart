@@ -14,6 +14,7 @@ import 'services/checkout_session.dart';
 import 'services/connection_state_bridge.dart';
 import 'services/content_size_reporter.dart';
 import 'services/double_click_action.dart';
+import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/pane_tabs_controller.dart' show NewTabTarget;
 import 'services/probe_settings_store.dart' show ProbeSettings;
@@ -48,6 +49,7 @@ class PoltergeistApp extends StatefulWidget {
     this.engineSession,
     this.transferQueue,
     this.checkoutSession,
+    this.editorRegistry,
     this.quitGuard,
     this.conflictPolicy,
     this.initialActivityPanelHeight = 200,
@@ -137,6 +139,12 @@ class PoltergeistApp extends StatefulWidget {
   /// reconcile rides this app's lifecycle listener. Null leaves the
   /// checkout surface absent (queue-less boots compose no session).
   final CheckoutSession? checkoutSession;
+
+  /// The external-editor registry owner (06 §4.1): the Open With ▸
+  /// submenu's source of configured editors and the persisted home of
+  /// user choices. Null leaves the registry surface unwired (tests and
+  /// settings-less boots).
+  final EditorRegistryController? editorRegistry;
 
   /// 07 §3.5's quit gate: consulted by the intercepted window close and
   /// by `onExitRequested` (the macOS/OS quit path), so quitting with
@@ -359,6 +367,7 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       engineSession: widget.engineSession,
       transferQueue: widget.transferQueue,
       checkoutSession: widget.checkoutSession,
+      editorRegistry: widget.editorRegistry,
       quitGuard: widget.quitGuard,
       conflictPolicy: widget.conflictPolicy,
       initialActivityPanelHeight: widget.initialActivityPanelHeight,

@@ -147,8 +147,9 @@ List<List<AppMenuRow>> _menuGroups(
   }());
 
   // Per divider-separated section: `ordered` keeps each row's
-  // first-occurrence position (a command, or a submenu title for merged
-  // submenu rows whose members buffer in `submenuItems`).
+  // first-occurrence position (a command, an AppMenuSubmenuRow built
+  // from a parameterized command's own items, or a submenu title for
+  // merged submenu rows whose members buffer in `submenuItems`).
   final groups = <List<AppMenuRow>>[];
   int? group;
   List<Object>? ordered;
@@ -160,9 +161,14 @@ List<List<AppMenuRow>> _menuGroups(
     if (entries == null || submenus == null) return;
     groups.add([
       for (final entry in entries)
-        entry is String
-            ? AppMenuSubmenuRow(title: entry, items: submenus[entry]!)
-            : AppMenuCommandRow(entry as RegisteredCommand),
+        switch (entry) {
+          String() => AppMenuSubmenuRow(
+            title: entry,
+            items: submenus[entry]!,
+          ),
+          AppMenuSubmenuRow() => entry,
+          _ => AppMenuCommandRow(entry as RegisteredCommand),
+        },
     ]);
   }
 
@@ -175,7 +181,20 @@ List<List<AppMenuRow>> _menuGroups(
       submenuItems = {};
     }
     final submenu = placement.submenu;
-    if (submenu == null) {
+    final items = command.submenuItems;
+    if (items != null) {
+      // A parameterized command renders its own ▸ submenu at its slot:
+      // the row's items are the parameter-bound invocations, built at
+      // render time so they track the live selection/registry.
+      ordered!.add(
+        AppMenuSubmenuRow(
+          title: command.label(l10n),
+          items: [
+            for (final item in items(l10n)) AppMenuCommandRow(item),
+          ],
+        ),
+      );
+    } else if (submenu == null) {
       ordered!.add(command);
     } else {
       final title = submenu(l10n);

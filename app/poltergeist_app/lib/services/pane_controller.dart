@@ -272,6 +272,23 @@ final class _OpenEntryFaultException extends PaneFaultException
 typedef BuiltInEditorOpen =
     Future<void> Function(PaneController pane, RemoteFileEntry entry);
 
+/// The external-editor open seam (06 §4.2): the shell resolves a
+/// concrete editor id — a configured registry editor or a
+/// `poltergeist.*` reserved selector — into the launch path (local file
+/// directly; remote file through the managed checkout). A null
+/// [editorId] is the Open verb: the shell resolves the registry's
+/// `effectiveDefaultFor` for the entry. Implementations own their error
+/// surfacing (the shell reports and toasts); the pane does not add a
+/// second error path. Null leaves the surface unwired — remote Open
+/// keeps posting the honest [PaneNotice.openRemoteUnavailable] and an
+/// explicit open-with posts [PaneNotice.editLater].
+typedef ExternalEditorOpen =
+    Future<void> Function(
+      PaneController pane,
+      RemoteFileEntry entry,
+      String? editorId,
+    );
+
 /// A transient pane notice (02 §10's notice family): the honest
 /// "not yet" for a registered-but-deferred action — never an error,
 /// so it renders as a dismissible strip, not the error overlay. The
@@ -665,6 +682,13 @@ class PaneController extends ChangeNotifier {
   /// activations post the honest not-yet notice rather than failing.
   BuiltInEditorOpen? builtInEditorOpen;
 
+  /// The external-editor open seam (06 §4.2), stamped by the owning
+  /// strip alongside [builtInEditorOpen]. Covers the remote file's
+  /// Open verb (registry default resolution) and every Open With ▸
+  /// choice on either binding — local files launch directly, remote
+  /// ones ride the managed checkout.
+  ExternalEditorOpen? externalEditorOpen;
+
   /// The active transient notice (02 §10's notice family): set when an
   /// activation resolves to a registered-but-deferred action, cleared
   /// by [dismissNotice], by the next activation (a notice never stacks
@@ -902,11 +926,55 @@ class PaneController extends ChangeNotifier {
         // first listing leaves the location null under a live remote
         // channel, and a null location must never mint a local open.
         if (_pendingRemote != null) {
-          _postNotice(PaneNotice.openRemoteUnavailable);
+          // 06 §4.2's Open verb on a remote file: the seam resolves
+          // `effectiveDefaultFor` into the checkout path; unwired it
+          // keeps the honest not-yet notice.
+          final open = externalEditorOpen;
+          if (open == null) {
+            _postNotice(PaneNotice.openRemoteUnavailable);
+            return;
+          }
+          await open(this, entry, null);
           return;
         }
         await _openLocalEntry(entry);
     }
+  }
+
+  /// The Open With ▸ verbs (06 §4.2's context-menu row): [editorId] is
+  /// a configured registry id or a `poltergeist.*` reserved selector —
+  /// an explicit choice, never the preference-resolved default. The
+  /// same row-interactivity gate and notice clear as
+  /// [editInBuiltInEditor]; an unwired seam posts the honest not-yet
+  /// notice rather than failing silently.
+  Future<void> openInExternalEditor(
+    RemoteFileEntry entry, {
+    required String editorId,
+  }) async {
+    if (!_rowsInteractive) return;
+    dismissNotice();
+    final open = externalEditorOpen;
+    if (open == null) {
+      _postNotice(PaneNotice.editLater);
+      return;
+    }
+    await open(this, entry, editorId);
+  }
+
+  /// The local file's OS-default open, exposed for the Open With ▸
+  /// `System default` row: routes through [_openLocalEntry] so the
+  /// launch's outcome lands on the pane's one inline error affordance
+  /// (02 §2.8) exactly like the Open verb. A remote binding keeps
+  /// [openEntry]'s invariant — never mint a local open — and posts the
+  /// honest not-yet notice instead.
+  Future<void> openInSystemDefaultApp(RemoteFileEntry entry) async {
+    if (!_rowsInteractive) return;
+    dismissNotice();
+    if (_pendingRemote != null) {
+      _postNotice(PaneNotice.openRemoteUnavailable);
+      return;
+    }
+    await _openLocalEntry(entry);
   }
 
   /// `file.editBuiltIn` (⌥⌘E / Ctrl+Alt+E, 02 §8.3): the explicit verb —

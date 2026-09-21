@@ -17,7 +17,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
 import 'package:poltergeist_app/services/app_transfer_queue.dart';
 import 'package:poltergeist_app/services/checkout_session.dart';
+import 'package:poltergeist_app/services/editor_registry_controller.dart';
 import 'package:poltergeist_app/services/engine_session.dart';
+import 'package:poltergeist_app/services/external_file_opener.dart';
 import 'package:poltergeist_app/services/pane_controller.dart';
 import 'package:poltergeist_app/services/session_state.dart';
 import 'package:poltergeist_app/ui/built_in_text_editor.dart';
@@ -389,7 +391,7 @@ final class EditorCheckoutHarness {
 /// this file rides real I/O (channel opens, checkout downloads, disk
 /// saves), so fake-zone frame counts would flake.
 Future<void> pollFor(WidgetTester tester, Finder finder) async {
-  for (var i = 0; i < 80 && finder.evaluate().isEmpty; i++) {
+  for (var i = 0; i < 160 && finder.evaluate().isEmpty; i++) {
     await tester.pump();
     await Future<void>.delayed(const Duration(milliseconds: 50));
   }
@@ -410,6 +412,25 @@ PaneController leftPane(WidgetTester tester) {
 
 late EditorCheckoutHarness harness;
 
+/// Fails loudly instead of handing a path to `open`/`xdg-open` — the
+/// built-in suite never opens externally, so a reach here is a wiring
+/// regression, not a launch.
+final class _FailingSystemOpener implements LocalFileOpener {
+  @override
+  Future<void> open(String path) =>
+      throw StateError('test reached the real OS opener: $path');
+}
+
+/// The [ExternalFileOpener] fallback for [mountEditorShell]: every seam
+/// throws — suites that exercise external opens inject their own.
+final _unwiredExternalOpener = ExternalFileOpener(
+  systemOpener: _FailingSystemOpener(),
+  processStarter: (executable, arguments) =>
+      throw StateError('test reached the real process launcher'),
+  executablePicker: (platform, title) =>
+      throw StateError('test reached the real picker'),
+);
+
 /// Mounts the shell with a session-restored remote tab (the live pane
 /// a remote file row can be edited from) and the real seams: engine
 /// lanes → the scripted browse channel, the checkout session → the
@@ -421,10 +442,21 @@ Future<void> mountEditorShell(
   EditorCheckoutHarness harness, {
   Key? boundaryKey,
   ThemeData? theme,
+  EditorRegistryController? editorRegistry,
+  ExternalFileOpener? externalOpener,
+  List<RemoteFileEntry> extraEntries = const [],
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  // Extra files exist on the "remote" too — the restored snapshot's
+  // cached rows get replaced by the live listing at bind.
+  final liveListing = harness.appEngine.channel?.listings['/srv/www'];
+  assert(
+    liveListing != null,
+    'mountEditorShell expects the fake channel to serve /srv/www',
+  );
+  liveListing?.addAll(extraEntries);
   Widget app = MaterialApp(
     theme: theme,
     debugShowCheckedModeBanner: false,
@@ -436,6 +468,10 @@ Future<void> mountEditorShell(
       engineSession: harness.engine,
       transferQueue: TransferQueueAdapter(harness.queue),
       checkoutSession: harness.checkout,
+      editorRegistry: editorRegistry,
+      // Never default to the real opener in widget tests — a missing
+      // injection must fail loudly, not spawn a process on the host.
+      externalOpener: externalOpener ?? _unwiredExternalOpener,
       // Keep the completed row: the default auto-clear would evict
       // the finished upload before the assertion reads the panel.
       autoClearCompletedTransfers: false,
@@ -455,7 +491,7 @@ Future<void> mountEditorShell(
                 serverId: 'b1',
                 path: '/srv/www',
                 bookmark: _bookmark(),
-                listing: [_listing(), _notesListing()],
+                listing: [_listing(), _notesListing(), ...extraEntries],
               ),
             ],
           ),

@@ -107,6 +107,12 @@ final class CheckoutManager {
   /// re-reads the snapshot getters; the record set itself is the truth.
   Stream<void> get changes => _changes.stream;
 
+  /// Every tracked record across servers — displaced ones included
+  /// (they remain watched and still save toward their original
+  /// remotePath under CAS). The app-wide dirty-prompt scan (06 §3.3)
+  /// is its consumer; per-server surfaces keep using [copiesFor].
+  List<ManagedRemoteFile> get records => List.unmodifiable(_records.values);
+
   /// Live (non-displaced) checkouts of one server, keyed by remotePath —
   /// Séance's `localCopies` shape.
   Map<String, ManagedRemoteFile> copiesFor(String serverId) => {

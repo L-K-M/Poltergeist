@@ -6877,6 +6877,61 @@ editor-over-checkout integration tests, and the 2 capture tests.
 External editors, Quick Look, sync, and the §3.7 review surface remain
 open M7 slices.
 
+## M7 — external editors (registry + Open With + upload-on-save) (2026-09-20)
+
+06 §4/§3.3's external-editor slice lands, ported from Séance's
+`external_file_opener.dart` and `external_editor_test.dart` at
+`bb3fa4b` (in the live pin's ancestry; PORTS.md records every
+divergence):
+
+- **Registry + opener** (`services/external_file_opener.dart`):
+  `EditorRegistry` carries the `poltergeist.system`/`poltergeist.builtin`
+  selectors (the whole `poltergeist.` prefix is reserved — a synced
+  definition can never shadow them), per-extension bindings via
+  `extensionDefaults`, `effectiveDefaultFor` resolution (extension
+  first, then global), orphan-binding cleanup on remove, and
+  compatible-editor filtering. `ExternalFileOpener` launches bundle ids
+  through the ported `poltergeist/files` macOS channel, detaches
+  executables on Linux/Windows, opens the system default through the
+  core `LocalFileOpener` (no `open_file` plugin), and picks
+  applications through the channel or `file_picker`.
+- **Persistence** (`services/editor_registry_controller.dart`):
+  `editorRegistry` in the shared `SettingsStore` — mutations persist
+  first, restore the pre-mutation registry and report the error on a
+  failed write, and only then notify.
+- **Open With** (`ui/panes/open_with_commands.dart`, D21's
+  `open-with-external` at File-menu order 62): built-in / compatible
+  configured editors / system default / Other… / Configure Editors…
+  as a `SubmenuButton` and as the chooser dialog. `Other…` picks,
+  registers, offers §4.1's remember-choice per-extension binding, then
+  opens — cancel aborts without launching. Configure Editors… opens
+  the §8 bounded settings mount (default-editor dropdown plus the
+  registry list with edit/remove/add) until the full Settings screen
+  lands.
+- **Dispatch + upload-on-save**: remote Open routes through the
+  effective default — an explicit external choice runs the managed
+  checkout without the built-in cap, an explicit built-in choice
+  refuses over-cap with the reason plus an Open With action, and the
+  unconfigured path keeps its system-default fallback. The §3.3 loop
+  watches the managed copy (600 ms debounce + SHA-256 reconcile), posts
+  the once-per-dirty-edge `"name" changed locally. Upload it?` toast,
+  and uploads through the composed queue — a typed `conflict` opens
+  the §3.4 overwrite dialog; cancel writes nothing. The prompt's
+  post-frame re-check schedules its own frame so an idle window can't
+  starve it.
+- **Captures**: `tasks/run3-task85/` (Open With submenu, chooser,
+  remember prompt, editor settings, dirty-upload toast) under
+  `POLTERGEIST_CAPTURE=1`.
+
+Coverage: the `external_editor_test` registry/persistence port plus 15
+shell-level integration tests in `external_editor_checkout_test.dart`
+(default resolution both directions, uncapped external open, built-in
+refusal with the Open With action, unknown-size fallback, local
+launch, dirty→upload, conflict cancel/overwrite, atomic-replace
+detection, menu rows, remember/cancel) and the capture test.
+
+Quick Look, sync, and the §3.7 review surface remain open M7 slices.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**

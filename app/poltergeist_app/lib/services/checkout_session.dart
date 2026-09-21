@@ -35,6 +35,10 @@ final class CheckoutSession extends ChangeNotifier {
   Future<void>? _shutdown;
   Future<void>? _reconcileInFlight;
 
+  /// Every tracked record across servers — the §3.3 dirty-prompt scan's
+  /// input (the toast is app-wide, not pane-scoped).
+  List<ManagedRemoteFile> get records => _manager.records;
+
   /// Live checkouts of one server keyed by remote path — the editor's
   /// "is this already open as a managed copy" lookup.
   Map<String, ManagedRemoteFile> copiesFor(String serverId) =>
