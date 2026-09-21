@@ -202,6 +202,28 @@ void main() {
       );
     });
 
+    test('a bound system selector takes the same host fallback as the '
+        'global default', () {
+      final registry = EditorRegistry()
+        ..setDefaultForExtension('txt', EditorRegistry.systemDefaultId);
+      addTearDown(() => debugEditorHostPlatform = null);
+
+      // No desktop host (Android/iOS): the binding must degrade to the
+      // built-in editor exactly like a system global default does —
+      // an OS open hands another app a copy, not the checkout.
+      debugEditorHostPlatform = () => null;
+      expect(
+        registry.effectiveDefaultFor('/tmp/a.txt'),
+        EditorRegistry.builtInId,
+      );
+
+      debugEditorHostPlatform = () => EditorHostPlatform.linux;
+      expect(
+        registry.effectiveDefaultFor('/tmp/a.txt'),
+        EditorRegistry.systemDefaultId,
+      );
+    });
+
     test('removing an editor strips its bindings and resets a default',
         () {
       final editor = _editor(acceptedExtensions: const ['txt']);

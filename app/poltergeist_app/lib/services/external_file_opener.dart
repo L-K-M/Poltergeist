@@ -250,7 +250,12 @@ class EditorRegistry {
     }
     if (match == null) return null;
     final target = extensionDefaults[match]!;
-    if (_isReservedSelector(target)) return target;
+    // Reserved selectors resolve through the same path as the global
+    // default so a synced `poltergeist.system` binding still degrades
+    // to the built-in editor where no desktop host platform exists.
+    if (_isReservedSelector(target)) {
+      return _resolvedSelectorFor(path, target);
+    }
     final editor = byId(target);
     if (editor == null ||
         !editor.isAvailableOnCurrentPlatform ||
@@ -342,11 +347,18 @@ bool _isReservedEditorId(String id) =>
     _isReservedSelector(id) || id.startsWith(EditorRegistry.reservedIdPrefix);
 
 EditorHostPlatform? get currentEditorHostPlatform {
+  final override = debugEditorHostPlatform;
+  if (override != null) return override();
   if (Platform.isMacOS) return EditorHostPlatform.macos;
   if (Platform.isLinux) return EditorHostPlatform.linux;
   if (Platform.isWindows) return EditorHostPlatform.windows;
   return null;
 }
+
+/// Test seam for [currentEditorHostPlatform]; assign `() => null` to
+/// simulate a host with no desktop editor platform (Android/iOS).
+@visibleForTesting
+EditorHostPlatform? Function()? debugEditorHostPlatform;
 
 List<String> normalizeEditorExtensions(Iterable<String> values) {
   final result = <String>{};
