@@ -115,8 +115,8 @@ sweep, and this record; no pin bump, no M8 work, no Séance edits.
 
 ## M7 risk: atomic-replace saves
 
-Confirmed with the design's own answer: the store watches the checkout
-'s parent directory, not the file, so a write-temp/rename-over (the
+Confirmed with the design's own answer: the store watches the
+checkout's parent directory, not the file, so a write-temp/rename-over (the
 inode change that file-watching misses) still marks the record dirty
 after the 600 ms debounce —
 `external_editor_checkout_test.dart`'s `an atomic-replace save
