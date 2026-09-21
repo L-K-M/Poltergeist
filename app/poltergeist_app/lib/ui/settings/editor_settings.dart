@@ -355,6 +355,11 @@ Future<ExternalEditorDefinition?> _editEditorDialog(
               ),
               TextField(
                 controller: extensions,
+                onChanged: (_) {
+                  if (validationError != null) {
+                    setDialogState(() => validationError = null);
+                  }
+                },
                 decoration: InputDecoration(
                   labelText: l10n.editorExtensionsFieldLabel,
                   hintText: l10n.editorExtensionsFieldHint,
