@@ -194,7 +194,7 @@ class MainFlutterWindow: NSWindow {
         result(true)
       case "isVisible":
         result(QLPreviewPanel.sharedPreviewPanelExists()
-          && QLPreviewPanel.shared().isVisible)
+          && (QLPreviewPanel.shared()?.isVisible ?? false))
       case "showPreview", "updatePreview":
         guard let arguments = call.arguments as? [String: Any],
               let paths = arguments["paths"] as? [String],
@@ -212,7 +212,7 @@ class MainFlutterWindow: NSWindow {
         result(nil)
       case "hidePreview":
         if QLPreviewPanel.sharedPreviewPanelExists() {
-          QLPreviewPanel.shared().orderOut(nil)
+          QLPreviewPanel.shared()?.orderOut(nil)
         }
         result(nil)
       default:
@@ -228,7 +228,7 @@ class MainFlutterWindow: NSWindow {
   /// panel query the responder chain — our `acceptsPreviewPanelControl`
   /// below hands it this window as its controller.
   private func presentQuickLook() {
-    let panel = QLPreviewPanel.shared()
+    guard let panel = QLPreviewPanel.shared() else { return }
     if panel.isVisible {
       panel.dataSource = self
       panel.delegate = self

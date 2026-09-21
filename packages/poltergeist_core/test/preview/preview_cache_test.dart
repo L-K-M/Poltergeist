@@ -221,7 +221,7 @@ void main() {
     // bare hash, which content sniffing serves.
     final key = previewCacheKey('s', '/x', null, 1);
     final file = await commitEntry(key, [1], extension: 'a b');
-    expect(file.path, endsWith('/$key'));
+    expect(file.path, endsWith('${Platform.pathSeparator}$key'));
     final overlong = await commitEntry(
       previewCacheKey('s', '/y', null, 1),
       [1],
