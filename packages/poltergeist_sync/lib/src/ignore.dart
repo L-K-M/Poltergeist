@@ -37,7 +37,9 @@ final class SyncIgnoreRules {
             trashRelativePath.contains('\\') ||
             trashRelativePath.startsWith('/') ||
             trashRelativePath.endsWith('/') ||
-            trashRelativePath.split('/').any((s) => s == '.' || s == '..'))) {
+            trashRelativePath.split('/').any(
+              (s) => s.isEmpty || s == '.' || s == '..',
+            ))) {
       throw ArgumentError.value(
         trashRelativePath,
         'trashRelativePath',

@@ -206,6 +206,21 @@ class SyncRuleSet {
   /// Default 4, clamped to 1..8.
   final int transferConcurrency;
 
+  /// The mode check as a runtime validation — the constructor's assert
+  /// is stripped in release builds, so a stored set the journal
+  /// reconstructs must not carry an invalid direction × deletions
+  /// combination to the planner. Call at deserialization and before
+  /// handing a set to the differ/executor.
+  void ensureSupported() {
+    if (direction == SyncDirection.bidirectional &&
+        deletions != DeletionPolicy.none) {
+      throw ArgumentError(
+        'bidirectional pairs cannot delete (05 §6: deletions live only '
+        'in one-way Mirror)',
+      );
+    }
+  }
+
   // Value equality: the journal stores this set at run time and §9's
   // rulesChangedSincePreview compares a later set against it — identity
   // equality would report every structurally identical set as changed.

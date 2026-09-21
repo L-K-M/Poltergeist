@@ -329,8 +329,11 @@ void main() {
     });
 
     test('a stranded probe file never enters the snapshot', () async {
-      // Even under rules that do NOT cover .poltergeist*, leftover probe
-      // debris is engine junk, not tree content.
+      // NOTE: the `.poltergeist*` app default (evaluated after per-pair
+      // rules) already excludes this file, so this test also passes with
+      // the scanner's explicit skip removed — it pins the combined
+      // behavior, which is the contract that matters (debris never
+      // reaches a plan).
       touch('${TreeScanner.caseProbePrefix}-stranded');
 
       final result = await scan(

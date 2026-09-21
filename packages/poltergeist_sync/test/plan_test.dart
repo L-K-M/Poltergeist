@@ -95,6 +95,13 @@ void main() {
         ),
         throwsA(isA<AssertionError>()),
       );
+      // The runtime twin of the assert (for release builds, where the
+      // assert is stripped) accepts every supported combination.
+      const SyncRuleSet().ensureSupported();
+      const SyncRuleSet(deletions: DeletionPolicy.trash).ensureSupported();
+      const SyncRuleSet(
+        direction: SyncDirection.bidirectional,
+      ).ensureSupported();
     });
   });
 

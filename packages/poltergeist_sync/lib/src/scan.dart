@@ -107,6 +107,13 @@ final class TreeScanner {
   final RemoteFileSystem _fileSystem;
   final int readdirConcurrency;
 
+  /// Random once per scanner: repeated probes overwrite the same name
+  /// (bounding crash debris to one file per scanner instance) while a
+  /// pre-existing case-variant still cannot spoof the check.
+  late final String _probeSuffix = secureRandomBytes(
+    8,
+  ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
   /// Scans [rootPath] and returns the flat snapshot map plus warnings.
   ///
   /// [side] labels every [ScanWarning].
@@ -373,10 +380,7 @@ final class TreeScanner {
       // A randomly-suffixed name: a pre-existing case-variant of a
       // FIXED probe name would spoof case-insensitivity on a sensitive
       // filesystem; a random name cannot have a pre-existing variant.
-      final suffix = secureRandomBytes(
-        8,
-      ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-      final probeName = '$caseProbePrefix-$suffix';
+      final probeName = '$caseProbePrefix-$_probeSuffix';
       probeEntry = await _fileSystem.upload(
         _joinPath(root, probeName),
         const Stream<List<int>>.empty(),

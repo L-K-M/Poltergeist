@@ -166,6 +166,15 @@ void main() {
         () => SyncIgnoreRules(trashRelativePath: 'a/./b'),
         throwsArgumentError,
       );
+      // Interior empty segments can never match a scan key either.
+      expect(
+        () => SyncIgnoreRules(trashRelativePath: 'a//b'),
+        throwsArgumentError,
+      );
+      expect(
+        () => SyncIgnoreRules(trashRelativePath: 'a/b//'),
+        throwsArgumentError,
+      );
     });
   });
 }
