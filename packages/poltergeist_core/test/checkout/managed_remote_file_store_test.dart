@@ -751,6 +751,74 @@ void main() {
     await expectLater(store.deleteRecovered('a/b'), throwsArgumentError);
   });
 
+  test(
+    'deleteRecoveredFile drops one payload; the last takes the dir',
+    () async {
+      // A preserved recordless dir: two payloads beside the epoch
+      // marker (an external editor's sibling backup is exactly this).
+      final dir = Directory('${checkoutRoot.path}/recovered-dir');
+      await dir.create(recursive: true);
+      await File(
+        '${dir.path}/${ManagedRemoteFileStore.epochMarkerName}',
+      ).writeAsString('old-generation');
+      await File('${dir.path}/edit.txt').writeAsString('keep me');
+      await File('${dir.path}/.edit.txt.swp').writeAsString('swap');
+      await store.list(); // loads so the recovered index exists
+
+      await store.deleteRecoveredFile('recovered-dir', 'edit.txt');
+      expect(await File('${dir.path}/edit.txt').exists(), isFalse);
+      // The sibling and the dir itself survive — the §3.7 surface
+      // removes a row's file, never the whole dir.
+      expect(await File('${dir.path}/.edit.txt.swp').exists(), isTrue);
+      expect(await dir.exists(), isTrue);
+      var recovered = await store.listRecovered();
+      expect(recovered.single.directory, 'recovered-dir');
+      expect(recovered.single.files, ['.edit.txt.swp']);
+
+      // The last payload file's discard deletes the dir — markers and
+      // all — per 06 §3.7 ("the dir itself is deleted when its last
+      // file goes").
+      await store.deleteRecoveredFile('recovered-dir', '.edit.txt.swp');
+      expect(await dir.exists(), isFalse);
+      recovered = await store.listRecovered();
+      expect(recovered, isEmpty);
+    },
+  );
+
+  test(
+    'deleteRecoveredFile never touches a record-owned dir or escapes',
+    () async {
+      // An indexed checkout's dir is record-owned: the recovered-file
+      // verb must refuse it (the record's own lifecycle owns the dir).
+      final managed = await _createManagedCheckout(
+        store,
+        id: 'edit-1',
+        serverId: 'server-a',
+        content: 'abc',
+      );
+      await store.put(managed);
+      final ownedDir = managed.localPath.split('/').first;
+
+      await expectLater(
+        store.deleteRecoveredFile(ownedDir, 'edit-1.txt'),
+        throwsArgumentError,
+      );
+      expect(await store.checkoutFile(managed.localPath).exists(), isTrue);
+      await expectLater(
+        store.deleteRecoveredFile('dir', '../outside.txt'),
+        throwsArgumentError,
+      );
+      await expectLater(
+        store.deleteRecoveredFile('a/b', 'file.txt'),
+        throwsArgumentError,
+      );
+      await expectLater(
+        store.deleteRecoveredFile('dir', 'a/b.txt'),
+        throwsArgumentError,
+      );
+    },
+  );
+
   test('prepareCheckout tolerates a marker left by a failed attempt', () async {
     final localPath = store.checkoutPathFor(id: 'edit-9', fileName: 'f.txt');
     await store.prepareCheckout(localPath);

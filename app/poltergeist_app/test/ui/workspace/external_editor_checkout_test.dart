@@ -639,6 +639,27 @@ void main() {
             'changed\n',
           );
           await pollFor(tester, find.text('Uploaded config.txt'));
+
+          // 07 §3.8's criterion-3 wording: the upload is visible in the
+          // activity panel — the managed-upload task completed on the
+          // same queue the panel mirrors, and its row lists there.
+          expect(
+            harness.queue.tasks.where(
+              (task) =>
+                  task.spec.managedCheckout?.direction ==
+                      ManagedCheckoutDirection.upload &&
+                  task.state == TransferTaskState.completed,
+            ),
+            hasLength(1),
+          );
+          await pollFor(
+            tester,
+            find.descendant(
+              of: find.byKey(const ValueKey('activity.panel')),
+              matching: find.text('config.txt'),
+            ),
+          );
+
           // Clean again — the prompted set released the record.
           final record = harness.checkout.copiesFor(
             'b1',

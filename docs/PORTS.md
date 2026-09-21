@@ -513,7 +513,9 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   marker dropped at checkout creation and cleared at commit (a
   marker-bearing unindexed dir is swept wholesale; a payload-bearing
   unindexed dir is preserved), the recovered-payload listing
-  (`listRecovered`) with explicit-only `deleteRecovered`, the
+  (`listRecovered`) with explicit-only `deleteRecovered` plus the §3.7
+  per-row `deleteRecoveredFile` (drops one payload file, never a
+  record-owned dir, deletes the dir when its last payload goes), the
   cross-process `fcntl` lock plus a same-process held-paths guard
   (POSIX fcntl locks are per-process — Séance's OS lock alone cannot
   stop a second in-process store), symlink-safe create/delete, the
@@ -558,7 +560,10 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   an occupied path displaces the occupant rather than dropping it.
   Watch events filter only the exact generated temp shapes and
   lifecycle markers — never the record's own basename, so a checkout
-  named `.poltergeist-<hex>.upload` keeps dirty detection.
+  named `.poltergeist-<hex>.upload` keeps dirty detection. The §3.7
+  review surface adds `forgetRecoveredFile`/`recoveredFile` (per-row
+  discard/open for preserved recordless payloads — Séance's surface
+  deletes whole dirs).
 - Port-back candidates: the CAS-carrying upload spec, the
   synthesized-snapshot repair, and prefix-wise rename migration.
 

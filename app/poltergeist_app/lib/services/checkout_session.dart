@@ -110,6 +110,20 @@ final class CheckoutSession extends ChangeNotifier {
   Future<void> forgetRecovered(RecoveredCheckout recovered) =>
       _manager.forgetRecovered(recovered);
 
+  /// 06 §3.7's per-row `Discard…` for a recovered payload: one file
+  /// inside the recovered directory — siblings an external editor left
+  /// beside the plaintext are preserved until their own row is
+  /// discarded.
+  Future<void> forgetRecoveredFile(RecoveredCheckout recovered, String name) =>
+      _manager.forgetRecoveredFile(recovered, name);
+
+  /// The local file a recovered payload's bytes live in — the review
+  /// dialog's `Open` target. Recovered files are never uploadable
+  /// through the checkout lane (the record that would carry the
+  /// upload's `expectedTarget` is gone).
+  File recoveredFile(RecoveredCheckout recovered, String name) =>
+      _manager.recoveredFile(recovered, name);
+
   /// Re-keys managed records — and in-flight checkouts — when a remote
   /// path is renamed (06 §3.5). The pane's rename command calls this;
   /// the local checkout file never moves.

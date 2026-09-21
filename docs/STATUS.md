@@ -4,25 +4,25 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-20. **M3, M4, M5, and M6 are closed; M7 is
-open** — M6's engine-side foundation (04 §3.1–3.2), Design B
-enrollment (04 §4.1/§4.5), and the Settings → Backup surface with the
-B→A switch (04 §4.3/§4.4) landed through #165–#167, and the §3.7
-exit-criteria audit closed the milestone per the dated section below
-(record:
-[tasks/m6-closure-record.md](../tasks/m6-closure-record.md)) —
-v0.2.0 remains the latest published pre-release (M3–M6 closed untagged
-per their closure records; M6's §3.12 tag chore is recorded in the
-closure record). M0, M1, and M2 stay closed per the Done table; **open
-item 4 (the M1/M2 overlap authorization) remains an OPEN owner
-decision**; open item 24 carries the AltGr/Ctrl+Alt-letter chord
-collision to a spec decision; new open item 25 records that Séance
-v0.9.1 now contains both the pinned rev and PR-S1 — the tag re-pin and
-the shared-mode "Your Séance servers" surface are the recorded
-follow-ups. Open item 23's remaining half (remote transfers fail
-honestly until the engine protocol grows transfer verbs) stays open
-for the engine-host slice. Next milestone: M7 (editor, checkouts,
-preview, 07 §3.8).
+_Last updated: 2026-09-21. **M3, M4, M5, M6, and M7 are closed; M8 is
+next** — M7's managed checkouts (#169), built-in editor (#170),
+external editors (#171), and preview/Quick Look (#172) landed, and the
+§3.8 exit-criteria audit closed the milestone per the dated section
+below (record:
+[tasks/m7-closure-record.md](../tasks/m7-closure-record.md)); the
+audit itself added the missing 06 §3.7 resume/review surface it found.
+v0.2.0 remains the latest published pre-release (M3–M7 closed untagged
+per their closure records). M0, M1, and M2 stay closed per the Done
+table; **open item 4 (the M1/M2 overlap authorization) remains an OPEN
+owner decision**; open item 24 carries the AltGr/Ctrl+Alt-letter chord
+collision to a spec decision; open item 25 records that Séance v0.9.1
+now contains both the pinned rev and PR-S1 — the tag re-pin and the
+shared-mode "Your Séance servers" surface are the recorded
+follow-ups; new open item 26 carries M7's manual-QA residual (native
+macOS Quick Look runtime). Open item 23's remaining half (remote
+transfers fail honestly until the engine protocol grows transfer
+verbs) stays open for the engine-host slice. Next milestone: M8 (sync,
+07 §3.9).
 
 ## Done
 
@@ -7004,6 +7004,53 @@ session tests, the panel/settings widget suites, and the capture test.
 Sync and the §3.7 review surface remain open M7 slices; the §4.6
 pool-level produce reservation is a recorded follow-up (PORTS.md).
 
+## M7 — exit-criteria audit and close (2026-09-21)
+
+All four 07 §3.8 exit criteria audited against the post-#172 main head
+`31a15ab`; the per-criterion evidence record lives in
+[tasks/m7-closure-record.md](../tasks/m7-closure-record.md). Verdicts:
+
+1. **Edit round-trip conflict — MET on HEAD.** The core remote-change/
+   deletion/tamper cases block with CAS intact; the built-in suite's
+   `conflict dialog — cancel writes nothing` reseeds the remote under a
+   live checkout and asserts the save is blocked, never a silent
+   overwrite (the overwrite path retries with CAS waived).
+2. **Kill with dirty checkouts; relaunch reconciles and offers resume
+   per 06 — MET after the audit's gap fix.** The reconcile half
+   (record reload + `reconcileAll` + watcher re-arm) was already
+   proven; the §3.7 *offer* was absent — HEAD had only the transient
+   dirty toast. The audit lands the missing surface: a persistent
+   per-pane `LocalEditsBanner` (count of `dirty || missing` copies for
+   the bound server), the server-scoped `LocalEditsReviewDialog`
+   (records with Open / Upload — disabled offline — / confirmed
+   Discard; displaced rows marked Recovered; preserved recordless
+   payloads listed per-file with Open/Discard only, never
+   uploadable), a remotePath favorite's `Local Edits…` context item,
+   and the store's new per-row `deleteRecoveredFile` verb — driven by
+   six widget tests over a real process-death relaunch.
+3. **External editor save → upload with activity-panel progress —
+   MET.** The watch → debounce → dirty → CAS-upload loop was already
+   proven; the audit added the missing panel-side assertion (the
+   completed managed-upload task lists inside the activity panel,
+   progress rendered through `_TaskProgress`).
+4. **Spacebar preview local + remote (preview cache), preview pane
+   text/images/PDF — MET with the native boundary recorded.** The
+   channel contract and dispatch decisions are CI-proven (28 session
+   tests; the panel/widget/capture suites); the real
+   `QLPreviewPanel` runtime needs a macOS host — open item 26.
+
+The §3.7 risk re-checked: parent-directory watching catches
+atomic-replace saves — proven by the external suite's
+write-temp/rename-over case against the real watcher.
+
+§3.12 chores at this close: STATUS swept (header, this section, item
+26); PORTS.md updated for the two new recovered-payload verbs; pin
+unchanged (the `v0.9.1` bump stays in item 25); no `TODO(pin)`
+markers; the §5 mobile invariant re-verifies (checkout store/manager
+and preview cache stay pure core Dart; the Quick Look channel is an
+app-side platform seam). The tag chore is **not run**, matching the
+prior untagged closes.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -7716,6 +7763,17 @@ pool-level produce reservation is a recorded follow-up (PORTS.md).
     that surface lands. The running-patched-Séance + real-SSH legs
     of the §3.7 criterion ride the same follow-up. Deferred per the
     M6 audit task's non-goals (no pin bump, no new features).
+26. **2026-09-21: M7's native-boundary QA is manual — Quick Look's
+    real `QLPreviewPanel` runtime and the engine-driven remote
+    checkout path.** The §3.8 audit's criterion 4 is met on the
+    CI-provable contract — the `poltergeist/quicklook` channel,
+    dispatch decisions, and cache/produce flow are test-covered — but
+    no CI runner opens the native panel; the macOS
+    open/update/close/hide leg needs a manual pass on a macOS host.
+    Likewise, every M7 checkout leg drives the scripted
+    `FakeEditorRemoteFs` endpoint; the production engine's remote
+    `checkout`/`upload` calls join open item 23's remaining half once
+    the engine protocol grows transfer verbs.
 
 ## Independent audit
 

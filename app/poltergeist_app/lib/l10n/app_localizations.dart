@@ -3104,6 +3104,120 @@ abstract class AppLocalizations {
   /// **'Uploaded {name}'**
   String checkoutUploadSucceeded(String name);
 
+  /// 06 §3.7's persistent pane banner while a bound server's managed checkouts hold dirty or missing local edits — the resume offer a relaunch owes the user.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 file has local edits from a previous session.} other{{count} files have local edits from a previous session.}}'**
+  String checkoutLocalEditsBanner(int count);
+
+  /// The local-edits banner's action — opens the §3.7 review dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Review…'**
+  String get checkoutLocalEditsReview;
+
+  /// Title of the 06 §3.7 local-edits review dialog, naming the server its rows belong to.
+  ///
+  /// In en, this message translates to:
+  /// **'Local edits — {server}'**
+  String checkoutLocalEditsTitle(String server);
+
+  /// Empty state of the §3.7 review dialog (reachable from a remotePath favorite's Local Edits… with nothing pending).
+  ///
+  /// In en, this message translates to:
+  /// **'No local edits for this server.'**
+  String get checkoutLocalEditsEmpty;
+
+  /// Badge on a review-dialog row whose local copy differs from its checkout baseline (06 §3.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Modified locally'**
+  String get checkoutLocalEditsDirty;
+
+  /// Badge on a review-dialog row whose local copy was deleted underneath the checkout (06 §3.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Local file missing'**
+  String get checkoutLocalEditsMissing;
+
+  /// Badge on a review-dialog row for a displaced record — 06 §3.5's occupant, still holding its local copy under a reclaimed remotePath.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovered'**
+  String get checkoutLocalEditsRecoveredRecord;
+
+  /// Section header for the preserved recordless checkout payloads in the §3.7 review dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovered files'**
+  String get checkoutLocalEditsRecoveredSection;
+
+  /// 06 §3.7's pinned copy beside the recovered-payload rows — a recordless payload has no upload lane.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovered files can\'t upload from here — upload the file through a pane when you\'re done.'**
+  String get checkoutLocalEditsRecoveredHint;
+
+  /// Row action opening the local copy — a record row resolves through effectiveDefaultFor, a recovered row opens its file.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get checkoutLocalEditsOpen;
+
+  /// Row action uploading the dirty local copy through the §3.4 CAS-guarded pipeline.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload'**
+  String get checkoutLocalEditsUpload;
+
+  /// Row action deleting the local copy after confirmation (06 §3.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Discard…'**
+  String get checkoutLocalEditsDiscard;
+
+  /// Tooltip on the disabled Upload action while the server is disconnected (06 §3.7).
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to upload'**
+  String get checkoutLocalEditsConnectToUpload;
+
+  /// Confirmation title before a §3.7 row's Discard deletes the local copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard local copy?'**
+  String get checkoutLocalEditsDiscardTitle;
+
+  /// Confirmation body before a §3.7 row's Discard — the loss the button commits to.
+  ///
+  /// In en, this message translates to:
+  /// **'Any changes not uploaded to the server are deleted.'**
+  String get checkoutLocalEditsDiscardBody;
+
+  /// Aborts a §3.7 row's Discard — the local copy stays.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get checkoutLocalEditsDiscardCancel;
+
+  /// Confirms a §3.7 row's Discard — deletes the local copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get checkoutLocalEditsDiscardConfirm;
+
+  /// Dismisses the §3.7 local-edits review dialog.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get checkoutLocalEditsClose;
+
+  /// RemotePath favorite's context item opening the §3.7 local-edits review dialog — server-scoped, so it shows every dirty copy on that server including records no pane currently touches.
+  ///
+  /// In en, this message translates to:
+  /// **'Local Edits…'**
+  String get sidebarLocalEdits;
+
   /// Dismisses the Editing settings dialog (06 §8's bounded mount).
   ///
   /// In en, this message translates to:

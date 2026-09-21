@@ -45,6 +45,7 @@ import 'adaptive_shell.dart';
 import 'built_in_text_editor.dart';
 import 'import/ssh_config_import_command.dart';
 import 'layout/pane_allocation.dart';
+import 'local_edits_review.dart';
 import 'menus/app_menu_host.dart';
 import 'panes/open_with_commands.dart';
 import 'panes/pane_commands.dart';
@@ -764,6 +765,156 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
   }
 
+
+  /// 06 §3.7's review surface: the pane banner's `Review…` and the
+  /// remotePath favorite's `Local Edits…` both open the same dialog —
+  /// server-scoped, so records no pane currently touches still list.
+  Future<void> _showLocalEditsReview(String serverId) async {
+    final session = widget.checkoutSession;
+    if (session == null || !mounted) return;
+    final bookmark = await widget.bookmarks?.byId(serverId);
+    if (!mounted) return;
+    final serverLabel = bookmark?.label ?? serverId;
+    await showLocalEditsReview(
+      context,
+      session: session,
+      serverId: serverId,
+      serverLabel: serverLabel,
+      connected: () => _serverConnected(serverId),
+      connections: _connections,
+      onOpen: (record) =>
+          _reportedLocalEditAction(() => _openCheckoutLocalFile(record)),
+      onUpload: (record) => _reportedLocalEditAction(() async {
+        final uploaded = await _uploadCheckout(record, serverLabel);
+        if (uploaded && mounted) {
+          showTopToastIn(
+            context,
+            message: AppLocalizations.of(
+              context,
+            ).checkoutUploadSucceeded(remoteBasename(record.remotePath)),
+          );
+        }
+      }),
+      onDiscard: (record) =>
+          _reportedLocalEditAction(() => session.discard(record)),
+      onOpenRecovered: (recovered, name) => _reportedLocalEditAction(
+        () => _openRecoveredLocalFile(
+          session.recoveredFile(recovered, name),
+        ),
+      ),
+      onDiscardRecovered: (recovered, name) => _reportedLocalEditAction(
+        () => session.forgetRecoveredFile(recovered, name),
+      ),
+    );
+  }
+
+  /// The dialog verbs' shared error posture — the same report + toast
+  /// as the dirty-prompt's upload path, so a failing row action never
+  /// dies silently inside the modal.
+  Future<void> _reportedLocalEditAction(
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) showTopToastIn(context, message: error.toString());
+    }
+  }
+
+  /// 06 §3.7's row `Open` for a managed copy: the
+  /// `effectiveDefaultFor` chain — the built-in selector preflights
+  /// the copy and pushes the editor route on the record's seams, the
+  /// system selector OS-opens it, a configured editor launches
+  /// detached on it. No fresh checkout: the record already exists.
+  Future<void> _openCheckoutLocalFile(ManagedRemoteFile record) async {
+    final session = widget.checkoutSession;
+    if (session == null) return;
+    final file = session.localFile(record);
+    await _openLocalEditFile(
+      file,
+      registryPath: record.remotePath,
+      onBuiltIn: (resolved) async {
+        final bookmark = await widget.bookmarks?.byId(record.serverId);
+        if (!mounted) return;
+        unawaited(
+          _pushEditorRoute(
+            key: 'remote:${record.serverId}:${record.remotePath}',
+            file: resolved,
+            remotePath: record.remotePath,
+            basenameOf: remoteBasename,
+            onSaved: () => session.reconcile(record),
+            onUpload: () =>
+                _uploadCheckout(record, bookmark?.label ?? record.serverId),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The recovered payload's `Open` — its file resolves through the
+  /// same `effectiveDefaultFor` chain (the registry's extension rules
+  /// still apply), with the built-in opening it in place like a local
+  /// file: no record, so no remote seams.
+  Future<void> _openRecoveredLocalFile(File file) =>
+      _openLocalEditFile(
+        file,
+        registryPath: file.path,
+        onBuiltIn: (resolved) async {
+          if (!mounted) return;
+          unawaited(
+            _pushEditorRoute(
+              key: 'local:${resolved.absolute.path}',
+              file: resolved,
+              remotePath: null,
+              basenameOf: p.basename,
+              onSaved: null,
+              onUpload: null,
+            ),
+          );
+        },
+      );
+
+  /// The `effectiveDefaultFor` chain shared by the review dialog's Open
+  /// verbs: the built-in selector preflights the copy — an over-cap or
+  /// non-UTF-8 payload re-resolves through the system default rather
+  /// than dead-ending an existing local edit — the system selector
+  /// OS-opens it, and a configured editor launches detached on the file
+  /// (06 §4.3's no-shell rule lives inside the opener).
+  Future<void> _openLocalEditFile(
+    File file, {
+    required String registryPath,
+    required Future<void> Function(File resolved) onBuiltIn,
+  }) async {
+    final registry = widget.editorRegistry?.registry;
+    final selected =
+        registry?.effectiveDefaultFor(registryPath) ??
+        EditorRegistry.systemDefaultId;
+    if (selected == EditorRegistry.builtInId) {
+      try {
+        await loadBuiltInTextDocumentDetails(file);
+      } on Object {
+        // The built-in refuses over-cap/binary/non-UTF-8 — the system
+        // default can still open an existing local copy, so the row's
+        // Open never strands the edit.
+        await widget.externalOpener.openSystemDefault(file.path);
+        return;
+      }
+      if (!mounted) return;
+      await onBuiltIn(file);
+      return;
+    }
+    if (selected == EditorRegistry.systemDefaultId) {
+      await widget.externalOpener.openSystemDefault(file.path);
+      return;
+    }
+    final editor = registry?.byId(selected);
+    if (editor == null) {
+      throw StateError('The selected editor no longer exists.');
+    }
+    await widget.externalOpener.openWith(file.path, editor);
+  }
+
   /// Whether the launch session document was already consumed: it seeds
   /// exactly one workspace build — an engine-session rebind later must
   /// not replay launch state over the session the user has since built.
@@ -1136,6 +1287,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     ),
                                     bookmarks: widget.bookmarks,
                                     dropDelegate: dropDelegate,
+                                    checkoutSession: widget.checkoutSession,
+                                    onReviewLocalEdits: (serverId) =>
+                                        unawaited(
+                                          _showLocalEditsReview(serverId),
+                                        ),
                                   ),
                                   secondary: rightFocus == null
                                       ? const SizedBox.shrink()
@@ -1155,6 +1311,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                               ),
                                           bookmarks: widget.bookmarks,
                                           dropDelegate: dropDelegate,
+                                          checkoutSession:
+                                              widget.checkoutSession,
+                                          onReviewLocalEdits: (serverId) =>
+                                              unawaited(
+                                                _showLocalEditsReview(
+                                                  serverId,
+                                                ),
+                                              ),
                                         ),
                                     ),
                                     if (preview != null)
@@ -2090,6 +2254,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       onUpdateWorkspace: _workspace == null || widget.workspaces == null
           ? null
           : (bookmark) => unawaited(_updateWorkspaceFavorite(bookmark)),
+      // 06 §3.7's review entry: the dialog needs the checkout session —
+      // without it the row's menu offers no dead-end verb.
+      onLocalEdits: widget.checkoutSession == null
+          ? null
+          : (bookmark) => unawaited(_showLocalEditsReview(bookmark.id)),
       // The blocked-review affordance exists only where a composition
       // can start a connect: the session's engine raises the pool's
       // changed-key review at the attempt (D18).

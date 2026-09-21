@@ -342,6 +342,80 @@ class ManagedRemoteFileStore {
         .toList();
   });
 
+  /// Removes ONE payload file inside a preserved recordless directory —
+  /// 06 §3.7's per-row `Discard…`: external editors leave siblings
+  /// beside the plaintext, so the surface deletes a row's file, never
+  /// the whole dir. When the dir's last payload file goes, the dir
+  /// itself (markers included) is deleted — a marker-only husk is not a
+  /// payload. Refuses [directory] values a live record owns (the
+  /// record's lifecycle — never this verb — deletes those bytes).
+  Future<void> deleteRecoveredFile(String directory, String name) =>
+      _serialized(() async {
+        await _loadUnlocked();
+        final dirSegments = _validateRelativePath(directory);
+        final nameSegments = _validateRelativePath(name);
+        if (dirSegments.length != 1) {
+          throw ArgumentError.value(
+            directory,
+            'directory',
+            'Must be a single checkout directory',
+          );
+        }
+        if (nameSegments.length != 1) {
+          throw ArgumentError.value(
+            name,
+            'name',
+            'Must be a single file name',
+          );
+        }
+        final dirName = dirSegments.single;
+        for (final file in _files.values) {
+          if (file.localPath.split('/').first == dirName) {
+            throw ArgumentError.value(
+              directory,
+              'directory',
+              'Record-owned checkout dirs are not recovered payload',
+            );
+          }
+        }
+        final dir = Directory(_join(checkoutRoot.absolute.path, [dirName]));
+        final targetType = await FileSystemEntity.type(
+          dir.path,
+          followLinks: false,
+        );
+        if (targetType != FileSystemEntityType.directory) {
+          return;
+        }
+        final target = _join(dir.path, [nameSegments.single]);
+        switch (await FileSystemEntity.type(target, followLinks: false)) {
+          case FileSystemEntityType.file:
+            await File(target).delete();
+          case FileSystemEntityType.link:
+            await Link(target).delete();
+          case FileSystemEntityType.directory:
+            // A foreign-writer subdir is payload too — listed as a row,
+            // discarded as a row.
+            await Directory(target).delete(recursive: true);
+          default:
+            return; // already gone — a racing unlink is a no-op
+        }
+        // The dir goes when its last payload file does: markers are
+        // lifecycle bookkeeping, not payload.
+        var payloadLeft = false;
+        await for (final child in dir.list(followLinks: false)) {
+          final childName = p.basename(child.path);
+          if (childName != epochMarkerName &&
+              childName != abandonedMarkerName) {
+            payloadLeft = true;
+            break;
+          }
+        }
+        if (!payloadLeft) {
+          await dir.delete(recursive: true);
+        }
+        await _enumerateRecovered();
+      });
+
   Future<ManagedRemoteFile?> get(String id) => _serialized(() async {
     await _loadUnlocked();
     return _files[id];
