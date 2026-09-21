@@ -290,10 +290,16 @@ void main() {
       },
     );
 
-    test('write probe detects a case-sensitive root', () async {
+    test('write probe reports the root\'s real case sensitivity', () async {
+      // Ground truth independent of the probe: a differently-cased lookup
+      // resolves on insensitive filesystems (APFS/NTFS) but not ext4.
+      touch('CaseProbe.Source');
+      final fsIsSensitive =
+          !File('${root.path}/caseprobe.source').existsSync();
+
       final result = await scan(probeCaseSensitivity: true);
 
-      expect(result.caseSensitive, isTrue);
+      expect(result.caseSensitive, fsIsSensitive);
       expect(result.caseSensitivityBasis, CaseSensitivityBasis.probe);
       expect(
         File('${root.path}/.poltergeist-caseprobe').existsSync(),
