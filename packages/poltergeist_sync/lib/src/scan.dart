@@ -323,7 +323,10 @@ final class TreeScanner {
     // Backslash-separator canonical roots are Windows-local volumes —
     // case-insensitive by default — so a differently-cased trashPath
     // must still be recognized (and rejected when it IS the root).
-    final caseInsensitive = normalizedRoot.contains('\\');
+    // Test the unstripped forms: a canonical drive root "C:\" loses its
+    // only backslash to _stripTrailingSeparator above.
+    final caseInsensitive =
+        root.contains('\\') || resolved.contains('\\');
     final rootCmp = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
     final trashCmp = caseInsensitive ? normalizedTrash.toLowerCase() : normalizedTrash;
     if (trashCmp == rootCmp) {
@@ -350,7 +353,7 @@ final class TreeScanner {
     }
     // On hosts whose canonical form uses '\' (Windows), the relative
     // path arrives backslash-separated; scan keys are always '/'.
-    if (normalizedRoot.contains('\\')) {
+    if (caseInsensitive) {
       relative = relative.replaceAll('\\', '/');
     }
     return relative.isEmpty ? null : relative;

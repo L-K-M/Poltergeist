@@ -7,6 +7,48 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 import 'package:test/test.dart';
 
+/// Serves Windows-style paths over a real POSIX temp directory, so the
+/// drive-root and case-mismatch branches of trash exclusion can run on
+/// non-Windows CI. canonicalize echoes the caller's path verbatim —
+/// like a remote FS that does not case-normalize — which is precisely
+/// what the case-folded trash comparison exists to survive.
+final class _WindowsPathFs implements RemoteFileSystem {
+  _WindowsPathFs(this._inner, this._winRoot, this._realRoot);
+
+  final LocalFileSystem _inner;
+
+  /// The Windows path (e.g. `C:\` or `C:\Sync`) [_realRoot] stands for.
+  final String _winRoot;
+
+  /// The POSIX directory standing in for [_winRoot].
+  final String _realRoot;
+
+  String _toReal(String path) {
+    final winLower = _winRoot.toLowerCase().replaceAll(
+      RegExp(r'[\\/]+$'),
+      '',
+    );
+    final lower = path.toLowerCase();
+    if (lower == winLower || lower == '$winLower\\') return _realRoot;
+    if (lower.startsWith('$winLower\\')) {
+      return '$_realRoot/${path.substring(winLower.length + 1).replaceAll('\\', '/')}';
+    }
+    return path;
+  }
+
+  @override
+  Future<String> canonicalize(String path) async => path;
+
+  @override
+  Future<List<RemoteFileEntry>> listDirectory(String path) =>
+      _inner.listDirectory(_toReal(path));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+    '_WindowsPathFs does not implement ${invocation.memberName}',
+  );
+}
+
 /// Robust root detection — the `USER` env var is unset in many root
 /// containers, where chmod-based permission tests silently misbehave.
 bool runningAsRoot() {
@@ -285,6 +327,63 @@ void main() {
 
       expect(result.entries.keys, ['normal.txt']);
     });
+
+    test(
+      'a case-mismatched Windows trash path is still excluded',
+      () async {
+        touch('trash/deleted.txt', 'd');
+        touch('normal.txt', 'n');
+        final win = _WindowsPathFs(fs, 'C:\\Sync', root.path);
+
+        final result = await TreeScanner(win).scan(
+          'C:\\Sync',
+          side: SyncSide.left,
+          trashPath: 'c:\\sync\\trash',
+        );
+
+        expect(result.entries.keys, ['normal.txt']);
+      },
+      skip: Platform.isWindows,
+    );
+
+    test(
+      'a Windows drive-root pair excludes a nested trash subtree',
+      () async {
+        touch('trash/deep/deleted.txt', 'd');
+        touch('normal.txt', 'n');
+        final win = _WindowsPathFs(fs, 'C:\\', root.path);
+
+        // The canonical root "C:\" loses its only backslash to trailing-
+        // separator stripping — the case-insensitive branch must still
+        // engage, and the relative must normalize to '/' separators.
+        // (trash/ itself stays: the configured subtree is trash/deep.)
+        final result = await TreeScanner(win).scan(
+          'C:\\',
+          side: SyncSide.left,
+          trashPath: 'c:\\trash\\deep',
+        );
+
+        expect(result.entries.keys, ['normal.txt', 'trash']);
+      },
+      skip: Platform.isWindows,
+    );
+
+    test(
+      'a case-variant trash equal to the Windows root is refused',
+      () async {
+        final win = _WindowsPathFs(fs, 'C:\\Sync', root.path);
+
+        await expectLater(
+          TreeScanner(win).scan(
+            'C:\\Sync',
+            side: SyncSide.left,
+            trashPath: 'c:\\SYNC',
+          ),
+          throwsArgumentError,
+        );
+      },
+      skip: Platform.isWindows,
+    );
 
     test(
       'an out-of-range mtime keeps its original and warns',
