@@ -606,10 +606,10 @@ void main() {
       ).openEntry(cursorEntry(tester, 'config.txt'));
       final record = await checkoutOf(tester, remoteConfigPath);
       await pollUntil(
-            tester,
-            () => seams.launches.isNotEmpty,
-            reason: 'editor never launched',
-          );
+        tester,
+        () => seams.launches.isNotEmpty,
+        reason: 'editor never launched',
+      );
 
       final file = harness.checkout.localFile(record);
       await file.writeAsString(contents);

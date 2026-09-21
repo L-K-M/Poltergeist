@@ -1464,7 +1464,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   ) async {
     final file = session.localFile(record);
     if (editorId == EditorRegistry.systemDefaultId) {
-      await widget.externalOpener.openSystemDefault(file.path);
+      try {
+        await widget.externalOpener.openSystemDefault(file.path);
+      } catch (_) {
+        unawaited(session.discard(record));
+        rethrow;
+      }
       return;
     }
     final registry = widget.editorRegistry?.registry;
@@ -1479,7 +1484,12 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       unawaited(session.discard(record));
       throw StateError('The selected editor no longer exists.');
     }
-    await widget.externalOpener.openWith(file.path, editor);
+    try {
+      await widget.externalOpener.openWith(file.path, editor);
+    } catch (_) {
+      unawaited(session.discard(record));
+      rethrow;
+    }
   }
 
   /// The remote Open verb (06 §4.2's first row): `effectiveDefaultFor`
