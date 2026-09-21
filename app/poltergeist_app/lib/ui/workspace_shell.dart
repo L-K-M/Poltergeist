@@ -1321,7 +1321,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           entry: entry,
           maximumBytes: builtInEditorMaximumBytes,
         );
-        if (!mounted) return;
+        if (!mounted) {
+          unawaited(session.discard(record));
+          return;
+        }
         // The explicit built-in choice refuses with the §1 reason and
         // the Open With ▸ router — never a silent system hand-off (06
         // §4.2): preflight the fetched copy so a binary/non-UTF-8 file
@@ -1336,7 +1339,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
         if (mounted) _toastRefusalWithRouter(error, pane, entry);
         return;
       }
-      if (!mounted) return;
+      if (!mounted) {
+        unawaited(session.discard(record));
+        return;
+      }
       unawaited(
         _pushEditorRoute(
           key: 'remote:${record.serverId}:${record.remotePath}',
@@ -1545,7 +1551,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       await _openRemoteEntryWith(pane, entry, EditorRegistry.systemDefaultId);
       return;
     }
-    if (!mounted) return;
+    if (!mounted) {
+      unawaited(session.discard(record));
+      return;
+    }
     final file = session.localFile(record);
     try {
       await loadBuiltInTextDocumentDetails(
@@ -1557,18 +1566,27 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       // binary) re-resolves to the OS default on the checkout file —
       // §4.2: a default-resolution chain never dead-ends in a built-in
       // refusal.
-      if (!mounted) return;
+      if (!mounted) {
+        unawaited(session.discard(record));
+        return;
+      }
       await widget.externalOpener.openSystemDefault(file.path);
       return;
     } on CheckoutLimitException {
       // The checkout already held a complete copy over the cap —
       // §4.2's "a complete local copy already exists" case takes the
       // same system-default fallback (nothing new downloaded).
-      if (!mounted) return;
+      if (!mounted) {
+        unawaited(session.discard(record));
+        return;
+      }
       await widget.externalOpener.openSystemDefault(file.path);
       return;
     }
-    if (!mounted) return;
+    if (!mounted) {
+      unawaited(session.discard(record));
+      return;
+    }
     unawaited(
       _pushEditorRoute(
         key: 'remote:${record.serverId}:${record.remotePath}',
