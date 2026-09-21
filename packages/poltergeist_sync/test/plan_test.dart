@@ -31,6 +31,43 @@ void main() {
       expect(const SyncRuleSet(transferConcurrency: 0).transferConcurrency, 1);
       expect(const SyncRuleSet(transferConcurrency: 99).transferConcurrency, 8);
     });
+
+    test('the other numeric knobs refuse nonsense values', () {
+      // maxDelete 0 would trip the delete cap on the first deletion;
+      // DeletionPolicy.none already expresses "no deletes".
+      expect(const SyncRuleSet(maxDelete: 0).maxDelete, 1);
+      expect(const SyncRuleSet(maxDelete: -3).maxDelete, 1);
+      // A negative tolerance made |Δ| <= tolerance always false — every
+      // equal file would look different.
+      expect(const SyncRuleSet(mtimeToleranceSecs: -1).mtimeToleranceSecs, 0);
+      expect(
+        const SyncRuleSet(deleteFractionWarn: -0.5).deleteFractionWarn,
+        0.0,
+      );
+      expect(
+        const SyncRuleSet(deleteFractionWarn: 1.5).deleteFractionWarn,
+        1.0,
+      );
+    });
+
+    test('structurally equal sets compare equal', () {
+      const a = SyncRuleSet(
+        deletions: DeletionPolicy.trash,
+        excludeGlobs: ['*.log'],
+        acceptedTimeShifts: [3600],
+        maxDelete: 100,
+      );
+      const b = SyncRuleSet(
+        deletions: DeletionPolicy.trash,
+        excludeGlobs: ['*.log'],
+        acceptedTimeShifts: [3600],
+        maxDelete: 100,
+      );
+      expect(a, equals(b));
+      expect(a.hashCode, b.hashCode);
+      expect(a, isNot(equals(const SyncRuleSet())));
+      expect(a, isNot(equals(const SyncRuleSet(excludeGlobs: ['*.tmp']))));
+    });
   });
 
   group('the three v1 modes encode as direction x deletion policy', () {
@@ -49,6 +86,15 @@ void main() {
       const additive = SyncRuleSet(direction: SyncDirection.bidirectional);
       expect(additive.direction, SyncDirection.bidirectional);
       expect(additive.deletions, DeletionPolicy.none);
+      // Not a v1 mode — the constructor refuses the combination rather
+      // than letting a nonsense set reach the differ.
+      expect(
+        () => SyncRuleSet(
+          direction: SyncDirection.bidirectional,
+          deletions: DeletionPolicy.trash,
+        ),
+        throwsA(isA<AssertionError>()),
+      );
     });
   });
 

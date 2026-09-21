@@ -152,6 +152,20 @@ void main() {
         () => SyncIgnoreRules(trashRelativePath: 'a/'),
         throwsArgumentError,
       );
+      // A leading separator would silently exclude nothing — the
+      // relative keys it is compared against never carry one.
+      expect(
+        () => SyncIgnoreRules(trashRelativePath: '/a'),
+        throwsArgumentError,
+      );
+      expect(
+        () => SyncIgnoreRules(trashRelativePath: 'a/../b'),
+        throwsArgumentError,
+      );
+      expect(
+        () => SyncIgnoreRules(trashRelativePath: 'a/./b'),
+        throwsArgumentError,
+      );
     });
   });
 }

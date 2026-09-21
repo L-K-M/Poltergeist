@@ -9,7 +9,16 @@
 /// includeHidden is false, then [appDefaults] — evaluated in list order,
 /// last match wins, and a negated match only un-ignores paths no later
 /// pattern re-excludes. Because the app defaults sit last, no per-pair
-/// `!` can re-include them (05 §3).
+/// `!` can re-include them (05 §3) — and because the `.*` hidden pattern
+/// also sits after the per-pair rules, no `!` can re-include a hidden
+/// file while includeHidden is false either.
+///
+/// Supported pattern syntax: `*` and `?` (never crossing `/`), `**`
+/// (leading `**/`, trailing `/**`, or bare), a trailing `/` for
+/// directory-only, a leading `/` or mid-pattern `/` to anchor at the
+/// root, `!` negation, and `\!`/`\#` escapes. gitignore's character
+/// classes (`[...]`) and other backslash escapes are NOT supported —
+/// they match literally.
 final class SyncIgnoreRules {
   SyncIgnoreRules({
     List<String> excludeGlobs = const [],
@@ -26,11 +35,14 @@ final class SyncIgnoreRules {
     if (trashRelativePath != null &&
         (trashRelativePath.isEmpty ||
             trashRelativePath.contains('\\') ||
-            trashRelativePath.endsWith('/'))) {
+            trashRelativePath.startsWith('/') ||
+            trashRelativePath.endsWith('/') ||
+            trashRelativePath.split('/').any((s) => s == '.' || s == '..'))) {
       throw ArgumentError.value(
         trashRelativePath,
         'trashRelativePath',
-        'must be a /-separated relative path with no trailing separator',
+        'must be a /-separated relative path with no leading or trailing '
+            'separator and no . or .. segments',
       );
     }
   }

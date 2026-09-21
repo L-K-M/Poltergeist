@@ -92,7 +92,7 @@ final class EntryComparator {
     }
     if (leftSecs == null) return CompareVerdict.rightNewer;
     if (rightSecs == null) return CompareVerdict.leftNewer;
-    final (l, r) = _effectiveMtames(leftSecs, rightSecs);
+    final (l, r) = _effectiveMtimes(leftSecs, rightSecs);
     final delta = l - r;
     if (_withinTolerance(delta.abs())) return CompareVerdict.equal;
     return delta > 0 ? CompareVerdict.leftNewer : CompareVerdict.rightNewer;
@@ -102,7 +102,7 @@ final class EntryComparator {
   /// outside, comparison switches to the clamped values — a pre-1970 file
   /// and a >2106 file must never accidentally compare equal (they clamp
   /// to different ends unless the other side sits at that end too).
-  static (int, int) _effectiveMtames(int left, int right) {
+  static (int, int) _effectiveMtimes(int left, int right) {
     if (sftpMtimeInRange(left) && sftpMtimeInRange(right)) {
       return (left, right);
     }
@@ -199,7 +199,10 @@ final class InvalidNameOnDestination extends NameHazard {
 /// Groups [source]'s paths by their NFC key and reports every collision.
 List<NormalizationCollision> normalizationCollisions(ScanResult source) {
   final groups = <String, List<String>>{};
-  for (final path in source.entries.keys) {
+  // Sorted iteration keeps the hazard list (and each group's flagged
+  // representative) identical across runs — remote readdir order is
+  // arbitrary, and a previewable engine owes a deterministic plan.
+  for (final path in source.entries.keys.toList()..sort()) {
     groups.putIfAbsent(nfcKey(path), () => []).add(path);
   }
   return [
@@ -218,7 +221,7 @@ List<CaseCollision> caseCollisions(
 }) {
   if (destinationCaseSensitive) return const [];
   final groups = <String, List<String>>{};
-  for (final path in source.entries.keys) {
+  for (final path in source.entries.keys.toList()..sort()) {
     groups.putIfAbsent(foldedKey(path), () => []).add(path);
   }
   return [

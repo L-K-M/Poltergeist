@@ -7,6 +7,18 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 import 'package:test/test.dart';
 
+/// Robust root detection — the `USER` env var is unset in many root
+/// containers, where chmod-based permission tests silently misbehave.
+bool runningAsRoot() {
+  if (Platform.isWindows) return false;
+  try {
+    final result = Process.runSync('id', ['-u']);
+    return result.exitCode == 0 && result.stdout.toString().trim() == '0';
+  } catch (_) {
+    return false;
+  }
+}
+
 void main() {
   late LocalFileSystem fs;
   late Directory root;
@@ -50,7 +62,7 @@ void main() {
     void Function(int)? onProgress,
   }) => TreeScanner(fs).scan(
     root.path,
-    side: 'left',
+    side: SyncSide.left,
     rules: rules,
     trashPath: trashPath,
     caseSensitivityOverride: caseSensitivityOverride,
@@ -174,7 +186,7 @@ void main() {
             result.warnings.any(
               (w) =>
                   w.relativePath == 'locked' &&
-                  w.side == 'left' &&
+                  w.side == SyncSide.left &&
                   w.message.contains('Could not list'),
             ),
             isTrue,
@@ -185,7 +197,7 @@ void main() {
       },
       // chmod 000 does not restrict the owner on Windows, and root
       // bypasses it on POSIX.
-      skip: Platform.isWindows || Platform.environment['USER'] == 'root',
+      skip: Platform.isWindows || runningAsRoot(),
     );
 
     test(
@@ -193,18 +205,23 @@ void main() {
       () async {
         chmod(root.path, 0);
         try {
-          await expectLater(scan(), throwsA(anything));
+          await expectLater(
+            scan(),
+            throwsA(isA<RemoteFileException>()),
+          );
         } finally {
           chmod(root.path, 0x1C0);
         }
       },
-      skip: Platform.isWindows || Platform.environment['USER'] == 'root',
+      skip: Platform.isWindows || runningAsRoot(),
     );
 
     test('a missing root aborts instead of scanning empty', () async {
       await expectLater(
-        TreeScanner(fs).scan('${root.path}/does-not-exist', side: 'left'),
-        throwsA(anything),
+        TreeScanner(
+          fs,
+        ).scan('${root.path}/does-not-exist', side: SyncSide.left),
+        throwsA(isA<RemoteFileException>()),
       );
     });
 
@@ -302,9 +319,27 @@ void main() {
       expect(result.caseSensitive, fsIsSensitive);
       expect(result.caseSensitivityBasis, CaseSensitivityBasis.probe);
       expect(
-        File('${root.path}/.poltergeist-caseprobe').existsSync(),
+        root
+            .listSync()
+            .whereType<File>()
+            .any((f) => f.path.contains(TreeScanner.caseProbePrefix)),
         isFalse,
         reason: 'the probe file is cleaned up',
+      );
+    });
+
+    test('a stranded probe file never enters the snapshot', () async {
+      // Even under rules that do NOT cover .poltergeist*, leftover probe
+      // debris is engine junk, not tree content.
+      touch('${TreeScanner.caseProbePrefix}-stranded');
+
+      final result = await scan(
+        rules: const SyncRuleSet(excludeGlobs: ['!*']),
+      );
+
+      expect(
+        result.entries.keys.any((k) => k.contains('caseprobe')),
+        isFalse,
       );
     });
 
@@ -327,7 +362,7 @@ void main() {
           chmod(root.path, 0x1C0);
         }
       },
-      skip: Platform.isWindows || Platform.environment['USER'] == 'root',
+      skip: Platform.isWindows || runningAsRoot(),
     );
 
     test('an explicit override answers without probing', () async {

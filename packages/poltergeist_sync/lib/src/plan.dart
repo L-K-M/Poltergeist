@@ -66,6 +66,9 @@ enum SymlinkPolicy { skip, copyAsLink, follow }
 
 enum EntryKind { file, directory, symlink, other }
 
+/// Which side of a pair a warning or journal line belongs to.
+enum SyncSide { left, right }
+
 enum SyncActionType {
   /// Create at destination.
   copyLeftToRight,
@@ -126,7 +129,7 @@ class SyncRuleSet {
     this.deletions = DeletionPolicy.none,
     this.backups = BackupPolicy.trash,
     this.comparison = ComparisonMode.sizeAndMtime,
-    this.mtimeToleranceSecs = 2,
+    int mtimeToleranceSecs = 2,
     this.acceptedTimeShifts = const [],
     this.conflictDefault = ConflictDefault.ask,
     this.excludeGlobs = const [],
@@ -134,11 +137,22 @@ class SyncRuleSet {
     this.symlinks = SymlinkPolicy.skip,
     this.trashPathLeft,
     this.trashPathRight,
-    this.maxDelete = 500,
-    this.deleteFractionWarn = 0.5,
+    int maxDelete = 500,
+    double deleteFractionWarn = 0.5,
     this.preserveMtime = true,
     int transferConcurrency = 4,
-  }) : transferConcurrency = transferConcurrency < 1
+  }) : assert(
+         direction != SyncDirection.bidirectional ||
+             deletions == DeletionPolicy.none,
+         'bidirectional pairs cannot delete (05 §6: deletions live only '
+         'in one-way Mirror)',
+       ),
+       mtimeToleranceSecs = mtimeToleranceSecs < 0 ? 0 : mtimeToleranceSecs,
+       maxDelete = maxDelete < 1 ? 1 : maxDelete,
+       deleteFractionWarn = deleteFractionWarn < 0
+           ? 0.0
+           : (deleteFractionWarn > 1 ? 1.0 : deleteFractionWarn),
+       transferConcurrency = transferConcurrency < 1
            ? 1
            : (transferConcurrency > 8 ? 8 : transferConcurrency);
 
@@ -191,6 +205,58 @@ class SyncRuleSet {
 
   /// Default 4, clamped to 1..8.
   final int transferConcurrency;
+
+  // Value equality: the journal stores this set at run time and §9's
+  // rulesChangedSincePreview compares a later set against it — identity
+  // equality would report every structurally identical set as changed.
+  @override
+  bool operator ==(Object other) =>
+      other is SyncRuleSet &&
+      other.direction == direction &&
+      other.deletions == deletions &&
+      other.backups == backups &&
+      other.comparison == comparison &&
+      other.mtimeToleranceSecs == mtimeToleranceSecs &&
+      _listEquals(other.acceptedTimeShifts, acceptedTimeShifts) &&
+      other.conflictDefault == conflictDefault &&
+      _listEquals(other.excludeGlobs, excludeGlobs) &&
+      other.includeHidden == includeHidden &&
+      other.symlinks == symlinks &&
+      other.trashPathLeft == trashPathLeft &&
+      other.trashPathRight == trashPathRight &&
+      other.maxDelete == maxDelete &&
+      other.deleteFractionWarn == deleteFractionWarn &&
+      other.preserveMtime == preserveMtime &&
+      other.transferConcurrency == transferConcurrency;
+
+  @override
+  int get hashCode => Object.hash(
+    direction,
+    deletions,
+    backups,
+    comparison,
+    mtimeToleranceSecs,
+    Object.hashAll(acceptedTimeShifts),
+    conflictDefault,
+    Object.hashAll(excludeGlobs),
+    includeHidden,
+    symlinks,
+    trashPathLeft,
+    trashPathRight,
+    maxDelete,
+    deleteFractionWarn,
+    preserveMtime,
+    transferConcurrency,
+  );
+
+  static bool _listEquals<T>(List<T> a, List<T> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 }
 
 class EntrySnapshot {
@@ -266,8 +332,8 @@ class ScanWarning {
 
   final String relativePath;
 
-  /// "left" | "right".
-  final String side;
+  /// Serialized into the JSONL journal as `side.name`.
+  final SyncSide side;
 
   /// e.g. 'Could not list "logs/"…'.
   final String message;

@@ -192,6 +192,16 @@ void main() {
         () => comparator.compare(at(100), at(100)),
         throwsStateError,
       );
+      // One-sided missing hash is the realistic mid-run race — refused
+      // exactly like the both-missing case, never compared as nulls.
+      expect(
+        () => comparator.compare(at(100, sha: 'a'), at(100)),
+        throwsStateError,
+      );
+      expect(
+        () => comparator.compare(at(100), at(100, sha: 'a')),
+        throwsStateError,
+      );
     });
   });
 
@@ -220,6 +230,15 @@ void main() {
       expect(ha, hasLength(64));
       expect(ha, hb);
       expect(ha, isNot(hc));
+    });
+
+    test('a vanished file throws, it does not return a null digest', () {
+      // Pinned contract for the mid-plan race: callers distinguish "no
+      // hash mode" from "file gone" by exception, not by null.
+      expect(
+        streamedSha256(fs, '${root.path}/missing.bin'),
+        throwsA(isA<RemoteFileException>()),
+      );
     });
   });
 

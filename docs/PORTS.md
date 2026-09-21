@@ -116,7 +116,13 @@ port candidates.
   port gained `putSecretBlobs` only: load once, encode every blob, one
   atomic flush (the interface's all-or-none batch contract). The journal
   and queue stay upstream; adopting them is their own decision, not pin
-  fallout.
+  fallout. Semantics verified against upstream at `035b0d8`
+  (`file_stores.dart:426-430`): upstream MERGES the batch into the
+  existing map — ids absent from the batch survive — so the port's merge
+  matches; it is not a wholesale replace. The accepted divergence is the
+  missing serialized mutation queue: a `putSecret`/`deleteSecret`
+  racing the batch can interleave flushes (the port-back candidate
+  below already records that gap).
 - Divergences: only `FileVaultStore` and `FileHostKeyStore` are ported —
   `FileConfigStore`/`FileSnippetStore` have no Poltergeist counterpart
   (bookmark identities carry connections per 04 §2.1–2.2; the synced record
@@ -946,3 +952,10 @@ content-addressed by SHA-256; line counts aid review. Use
 - Gitlinks: 0 lines; `sha256:d9aed34197440111a0f1a54dd0af36e9e664cc61374ecf38137fad1cf58c6e2b`
 - Tree: 1034 lines; `sha256:d95a0743bc331ba9d4f033c47bd6050388b3709834844f7aa772dc7a70f97a2b`
 <!-- SEANCE_PIN_AUDIT_V1:END -->
+
+The two identical-looking `Pin:` lines are correct tool output, not a
+paste error: the audit emits one line per distinct locked pin tuple, and
+the tag pin produces two — `seance_core` locked via `ref: v0.9.1` and
+transitive `seance_protocol` locked via `ref: <resolved sha>` — which
+render identically because the line shows only the resolved revision.
+Under a pure SHA pin both tuples collapse to one line.

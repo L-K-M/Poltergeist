@@ -79,14 +79,35 @@ final class _InvariantVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitImportDirective(ImportDirective node) {
-    final uri = node.uri.stringValue ?? '';
-    final banned =
-        uri == 'dart:io' && !_dartIoAllowed ||
-        _bannedPrefixes.any(uri.startsWith);
-    if (banned) {
-      violations.add('$_path: banned import $uri (05 §11)');
-    }
+    _checkDirectiveUris(node, 'import');
     super.visitImportDirective(node);
+  }
+
+  @override
+  void visitExportDirective(ExportDirective node) {
+    // `export 'dart:ffi'` leaks a banned API through the public surface
+    // just as surely as an import does.
+    _checkDirectiveUris(node, 'export');
+    super.visitExportDirective(node);
+  }
+
+  /// Checks the directive's own URI plus every configured URI —
+  /// `if (dart.library.io) 'dart:io'` bypasses a URI-only scan.
+  void _checkDirectiveUris(NamespaceDirective node, String kind) {
+    void check(String? uri) {
+      if (uri == null) return;
+      final banned =
+          uri == 'dart:io' && !_dartIoAllowed ||
+          _bannedPrefixes.any(uri.startsWith);
+      if (banned) {
+        violations.add('$_path: banned $kind $uri (05 §11)');
+      }
+    }
+
+    check(node.uri.stringValue);
+    for (final configuration in node.configurations) {
+      check(configuration.uri.stringValue);
+    }
   }
 
   @override

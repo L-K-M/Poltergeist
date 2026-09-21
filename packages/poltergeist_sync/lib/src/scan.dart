@@ -98,16 +98,18 @@ final class TreeScanner {
   /// 3,639 LAN entries/s versus 482 serially.
   static const int defaultReaddirConcurrency = 8;
 
-  /// Fixed name for the write probe, excluded from scans by the
-  /// `.poltergeist*` app default so a leftover never enters a plan.
-  static const String caseProbeName = '.poltergeist-caseprobe';
+  /// Prefix of the write-probe name. Each probe appends a uuidV4 so no
+  /// pre-existing case-variant file can spoof the insensitivity check,
+  /// and the `.poltergeist*` app default plus the explicit skip below
+  /// keep a stranded probe out of every snapshot.
+  static const String caseProbePrefix = '.poltergeist-caseprobe';
 
   final RemoteFileSystem _fileSystem;
   final int readdirConcurrency;
 
   /// Scans [rootPath] and returns the flat snapshot map plus warnings.
   ///
-  /// [side] is `'left'` or `'right'` and labels every [ScanWarning].
+  /// [side] labels every [ScanWarning].
   /// [trashPath] is this side's effective trash root on this host (the
   /// SyncRuleSet.trashPath* value the caller resolved); anything under it
   /// is excluded regardless of rules. [caseSensitivityOverride] is the
@@ -118,7 +120,7 @@ final class TreeScanner {
   /// from the scan itself.
   Future<ScanResult> scan(
     String rootPath, {
-    required String side,
+    required SyncSide side,
     SyncRuleSet rules = const SyncRuleSet(),
     String? trashPath,
     bool? caseSensitivityOverride,
@@ -229,7 +231,10 @@ final class TreeScanner {
               ? name
               : '${listing.relative}/$name';
           final isDirectory = entry.type == RemoteFileType.directory;
-          if (ignores.isExcluded(relative, isDirectory: isDirectory)) {
+          // A stranded probe file never enters a snapshot, rules or no
+          // rules — it is engine debris, not tree content.
+          if (name.startsWith(caseProbePrefix) ||
+              ignores.isExcluded(relative, isDirectory: isDirectory)) {
             continue;
           }
           final snapshot = _snapshot(entry);
@@ -293,10 +298,24 @@ final class TreeScanner {
   /// sits outside the scanned root (then nothing extra is excluded).
   Future<String?> _trashRelative(String root, String? trashPath) async {
     if (trashPath == null) return null;
-    final resolved = await _fileSystem.canonicalize(trashPath);
+    final String resolved;
+    try {
+      resolved = await _fileSystem.canonicalize(trashPath);
+    } on RemoteFileException catch (e) {
+      if (e.kind != RemoteFileErrorKind.notFound) rethrow;
+      // Trash commonly does not exist yet on a first run (the executor
+      // creates it on the first delete); nothing to exclude until then.
+      return null;
+    }
     final normalizedRoot = _stripTrailingSeparator(root);
     final normalizedTrash = _stripTrailingSeparator(resolved);
-    if (normalizedTrash == normalizedRoot) {
+    // Backslash-separator canonical roots are Windows-local volumes —
+    // case-insensitive by default — so a differently-cased trashPath
+    // must still be recognized (and rejected when it IS the root).
+    final caseInsensitive = normalizedRoot.contains('\\');
+    final rootCmp = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
+    final trashCmp = caseInsensitive ? normalizedTrash.toLowerCase() : normalizedTrash;
+    if (trashCmp == rootCmp) {
       // A trash root equal to the sync root would exclude every entry —
       // an empty scan that Mirror reads as "delete the other side".
       // Refuse the configuration rather than produce it.
@@ -307,12 +326,12 @@ final class TreeScanner {
       );
     }
     final inside =
-        normalizedTrash.length > normalizedRoot.length &&
-        normalizedTrash.startsWith(normalizedRoot) &&
-        (normalizedRoot.endsWith('/') ||
-            normalizedRoot.endsWith('\\') ||
-            normalizedTrash[normalizedRoot.length] == '/' ||
-            normalizedTrash[normalizedRoot.length] == '\\');
+        trashCmp.length > rootCmp.length &&
+        trashCmp.startsWith(rootCmp) &&
+        (rootCmp.endsWith('/') ||
+            rootCmp.endsWith('\\') ||
+            trashCmp[rootCmp.length] == '/' ||
+            trashCmp[rootCmp.length] == '\\');
     if (!inside) return null;
     var relative = normalizedTrash.substring(normalizedRoot.length);
     if (relative.startsWith('/') || relative.startsWith('\\')) {
@@ -343,7 +362,7 @@ final class TreeScanner {
   /// falls back to assuming case-sensitive and says so.
   Future<(bool, CaseSensitivityBasis, ScanWarning?)> _resolveCaseSensitivity(
     String root, {
-    required String side,
+    required SyncSide side,
     required bool? override,
     required bool probe,
   }) async {
@@ -351,15 +370,22 @@ final class TreeScanner {
     if (!probe) return (true, CaseSensitivityBasis.assumption, null);
     RemoteFileEntry? probeEntry;
     try {
+      // A randomly-suffixed name: a pre-existing case-variant of a
+      // FIXED probe name would spoof case-insensitivity on a sensitive
+      // filesystem; a random name cannot have a pre-existing variant.
+      final suffix = secureRandomBytes(
+        8,
+      ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final probeName = '$caseProbePrefix-$suffix';
       probeEntry = await _fileSystem.upload(
-        _joinPath(root, caseProbeName),
+        _joinPath(root, probeName),
         const Stream<List<int>>.empty(),
         overwrite: true,
       );
       bool sensitive;
       try {
         await _fileSystem.stat(
-          _joinPath(root, caseProbeName.toUpperCase()),
+          _joinPath(root, probeName.toUpperCase()),
           followLinks: false,
         );
         sensitive = false;

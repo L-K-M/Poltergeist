@@ -13,7 +13,8 @@ environment:
 
 dependencies:
   # The one VFS (D3): RemoteFileSystem/LocalFileSystem arrive through the
-  # core barrel, never a direct package:seance_core import (03 §1).
+  # core barrel, never a direct package:seance_core import (03 §1) —
+  # poltergeist_core re-exports the pinned seance_core surface itself.
   poltergeist_core:
     path: ../poltergeist_core
   # NFC/NFD name matching (05 §3). Dart ships no Unicode normalization;
