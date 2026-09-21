@@ -1,0 +1,28 @@
+name: poltergeist_sync
+description: >-
+  The previewable sync engine for Poltergeist (docs/plan/05-SYNC.md):
+  pipelined tree scanner, comparison modes, plan model, executor, journal,
+  and the rsync exporter. Pure Dart over RemoteFileSystem (D3) — no
+  Flutter, no dartssh2, no Process (05 §2/§11).
+version: 0.2.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  # The one VFS (D3): RemoteFileSystem/LocalFileSystem arrive through the
+  # core barrel, never a direct package:seance_core import (03 §1) —
+  # poltergeist_core re-exports the pinned seance_core surface itself.
+  poltergeist_core:
+    path: ../poltergeist_core
+  # NFC/NFD name matching (05 §3). Dart ships no Unicode normalization;
+  # pinned exactly — filename identity is correctness-critical.
+  unorm_dart: 0.3.2
+
+dev_dependencies:
+  # The 05 §11 / 08 §3.3 static invariants walk the package's own AST.
+  analyzer: 14.1.0
+  lints: ^5.0.0
+  test: ^1.25.0

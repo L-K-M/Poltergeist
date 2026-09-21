@@ -49,6 +49,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
+  characters:
+    dependency: transitive
+    description:
+      name: characters
+      sha256: faf38497bda5ead2a8c7615f4f7939df04333478bf32e4173fcb06d428b5716b
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.4.1"
   cli_config:
     dependency: transitive
     description:
@@ -269,20 +277,20 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/seance_core"
-      ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
-      resolved-ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
+      ref: "v0.9.1"
+      resolved-ref: "035b0d880b47639e390af8cbbd6d316cb5edc86d"
       url: "https://github.com/L-K-M/Seance.git"
     source: git
-    version: "0.8.0"
+    version: "0.9.1"
   seance_protocol:
     dependency: transitive
     description:
       path: "packages/seance_protocol"
-      ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
-      resolved-ref: "2e6d1f138f1704e683870f75e11262bf50e37379"
+      ref: "035b0d880b47639e390af8cbbd6d316cb5edc86d"
+      resolved-ref: "035b0d880b47639e390af8cbbd6d316cb5edc86d"
       url: "https://github.com/L-K-M/Seance.git"
     source: git
-    version: "0.8.0"
+    version: "0.9.1"
   shelf:
     dependency: transitive
     description:

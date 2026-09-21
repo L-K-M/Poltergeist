@@ -109,6 +109,20 @@ port candidates.
 - Source: app/seance_app/lib/services/file_stores.dart
 - Séance commit: e11206a94b5672225432fcd9990750a2ab1002c2 (tag v0.3.0; re-diffed unchanged at a9add15, 2026-09-07)
 - Ported: 2026-09-07
+- 2026-09-21 at the `v0.9.1` pin (`035b0d8`): upstream reworked the file
+  around a vault re-key journal (`VaultRekeyJournal`) and a serialized
+  mutation queue — none of that architecture is consumed here — and added
+  `putSecretBlobs` to the `VaultStore` interface the port implements. The
+  port gained `putSecretBlobs` only: load once, encode every blob, one
+  atomic flush (the interface's all-or-none batch contract). The journal
+  and queue stay upstream; adopting them is their own decision, not pin
+  fallout. Semantics verified against upstream at `035b0d8`
+  (`file_stores.dart:426-430`): upstream MERGES the batch into the
+  existing map — ids absent from the batch survive — so the port's merge
+  matches; it is not a wholesale replace. The accepted divergence is the
+  missing serialized mutation queue: a `putSecret`/`deleteSecret`
+  racing the batch can interleave flushes (the port-back candidate
+  below already records that gap).
 - Divergences: only `FileVaultStore` and `FileHostKeyStore` are ported —
   `FileConfigStore`/`FileSnippetStore` have no Poltergeist counterpart
   (bookmark identities carry connections per 04 §2.1–2.2; the synced record
@@ -421,6 +435,12 @@ counterpart is ported here.
 - Séance commit: 2e6d1f138f1704e683870f75e11262bf50e37379 (rev pin, no
   tag — the live pin this task shipped against)
 - Ported: 2026-09-15
+- 2026-09-21 at the `v0.9.1` pin (`035b0d8`): upstream reworked the file
+  for custom colours/SVG marks and row accents (#101/#102) and widened
+  the `ServerIcon` enum to ~45 values. The port's `serverIconData`
+  switch was extended exhaustively over the widened enum using the
+  upstream glyph choices; the rest of the rework stays unported per the
+  divergences below.
 - Divergences: only the seed map, `ServerAccent`/`serverAccent`,
   `serverIconData`, and `ServerBadge` are carried — the tab chip needs
   the badge, not the rest. `ServerAvatar` (badge + status-dot overhang)
@@ -743,6 +763,23 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
 
 ## Pin findings
 
+The 2026-09-21 tag re-pin (M8's first slice) moves both live declarations
+from rev `2e6d1f138f1704e683870f75e11262bf50e37379` to tag `v0.9.1`
+(`035b0d880b47639e390af8cbbd6d316cb5edc86d`), the D2 steady state open
+item 2 waited for: the tag contains the rev pin by ancestry and
+therefore the PR-S3 merge `2f99f4e` (the M8 gate), PR-S1's `599ff936`,
+and #79's probe repair. All four lockfiles resolve to `035b0d8`; the
+bench harness's `pinnedSeanceRevision` follows; `dartssh2` stays exactly
+3.0.2. Upstream changes in the consumed surface at the tag:
+`VaultStore.putSecretBlobs` (batched vault write — port fix recorded in
+the `file_stores` entry), the `ServerIcon` enum widening (port fix in
+the `server_appearance` entry), plus unconsumed additions (the
+`VaultRekeyJournal` interface, the serialized vault mutation queue,
+custom server colours/SVG marks, the re-key flow) that stay upstream
+like the assistant surfaces before them. `flutter analyze` and the full
+app suite verify at the tag; the regenerated audit block below verifies
+with `tool/seance_pin_audit`.
+
 The 2026-09-08 pin bump moves both live declarations and all three locks from
 upstream `a9add15` to `2e6d1f138f1704e683870f75e11262bf50e37379` (Séance
 #81's merge; a commit-rev bridge per D2 — no Séance tag contains #79's
@@ -904,13 +941,20 @@ Full, non-shallow ancestor and tree audit. Raw streams are
 content-addressed by SHA-256; line counts aid review. Use
 `--print-findings` to reproduce them without adding names to docs.
 
-- Pin: `2e6d1f138f1704e683870f75e11262bf50e37379` from `https://github.com/L-K-M/Seance.git`
-- Identity: 51 lines; `sha256:644500f7f065b2103543d300aee698f0c940547e34b50070f44516cfb2f3033e`
-- Companion: 401 lines; `sha256:ec80181de09261fcba405b5d848b976640e06771e8b016681943fae7d2db2047`
-- Companion orphans: 3 lines; `sha256:cc2cba9a8662f129c19fdd790a6fd8c242033597118971576b039102bdfd92cc`
-- Pinpoints: 717 lines; `sha256:ab8a547be2ef620f895be3ec4cc8f142e72043a80adb99a5db64ace4e4c77115`
-- License scan: 31 lines; `sha256:27317917d7065cf9adb99fb4caefe74064f12a1bf362905bc70b9db2ce9591ba`
-- Vendored paths: 209 lines; `sha256:621fe5d365980d36c9940de8abba22190a8499d78945f3bc79350b45557f5c4e`
-- Gitlinks: 0 lines; `sha256:75fa9b1a198dfbacdcf8f2dfc2ace7d8988f2a7db103e084e8094217f538b6be`
-- Tree: 477 lines; `sha256:a9416355d909803fed9a52477d1adb7cdafb459f665da8027f809a33a0430f82`
+- Pin: `035b0d880b47639e390af8cbbd6d316cb5edc86d` from `https://github.com/L-K-M/Seance.git`
+- Pin: `035b0d880b47639e390af8cbbd6d316cb5edc86d` from `https://github.com/L-K-M/Seance.git` (requested ref: `v0.9.1`)
+- Identity: 144 lines; `sha256:9f01616a755c8b7644945cc187439db98324a442932d5bb291bd1d0fa92a6812`
+- Companion: 974 lines; `sha256:5fe9e038a53ecbb19f67fa659b787b701a7d5ad181b42f7aaf14001ff8b67c7c`
+- Companion orphans: 0 lines; `sha256:d9aed34197440111a0f1a54dd0af36e9e664cc61374ecf38137fad1cf58c6e2b`
+- Pinpoints: 1748 lines; `sha256:6fd10bcc6e8380605b74d424850e4661d0a04a41c94bb07c64862e0bf5b2cbe2`
+- License scan: 64 lines; `sha256:9fc1950c432536a00f751294a2a795f281c94d6cf67d3eb517328d9bd48c3d56`
+- Vendored paths: 440 lines; `sha256:d9d50d9cfb5ba6eaff3ad2b74c5789e06f2fc473606747de232574a699c2fb82`
+- Gitlinks: 0 lines; `sha256:d9aed34197440111a0f1a54dd0af36e9e664cc61374ecf38137fad1cf58c6e2b`
+- Tree: 1034 lines; `sha256:d95a0743bc331ba9d4f033c47bd6050388b3709834844f7aa772dc7a70f97a2b`
 <!-- SEANCE_PIN_AUDIT_V1:END -->
+
+Two `Pin:` lines are correct tool output: the audit emits one line per
+distinct locked pin tuple — `seance_core` locked via `ref: v0.9.1`
+(rendered with its requested ref) and transitive `seance_protocol`
+locked via `ref: <resolved sha>` (requested ref equals the revision, so
+no suffix). Under a pure SHA pin both tuples collapse to one line.

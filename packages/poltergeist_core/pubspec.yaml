@@ -10,15 +10,14 @@ environment:
   sdk: ^3.12.0
 
 dependencies:
-  # D2: git-pinned to Séance, never forked or copied. The steady state is a
-  # tag pin; this rev pin (Séance #79's probe-lifecycle repair, #80/#81's
-  # identity-audit work, and #74's SSH-trace redaction, pre-next-tag) is
-  # recorded as a dated open item in docs/STATUS.md and re-pinned at
-  # Séance's next release.
+  # D2: git-pinned to Séance, never forked or copied. Tag pin at Séance
+  # v0.9.1 — the first release containing the PR-S3 merge (Séance #62:
+  # setTimes/setOwner/opt-out transfer hashing, merge 2f99f4e) and PR-S1;
+  # the M8 S3 gate (07 §3.9) is satisfied by this rev.
   seance_core:
     git:
       url: https://github.com/L-K-M/Seance.git
-      ref: 2e6d1f138f1704e683870f75e11262bf50e37379
+      ref: v0.9.1
       path: packages/seance_core
   # Pinned exactly like seance_core pins it, and confined to
   # lib/src/connection/ by the CI import check (03 §1).
