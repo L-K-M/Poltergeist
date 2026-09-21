@@ -1,5 +1,10 @@
 import 'dart:ui';
 
+import 'package:poltergeist_core/poltergeist_core.dart'
+    show
+        defaultLargeDownloadThresholdBytes,
+        defaultPreviewCacheCapacityBytes;
+
 import 'double_click_action.dart';
 import 'pane_tabs_controller.dart' show NewTabTarget;
 import 'settings_store.dart';
@@ -19,6 +24,8 @@ const _uploadLimitKey = 'transfer.uploadLimitBytesPerSecond';
 const _autoClearCompletedKey = 'transfer.autoClearCompleted';
 const _sidebarHiddenKey = 'layout.sidebarHidden';
 const _sidebarCollapsedGroupsKey = 'sidebar.collapsedGroups';
+const _previewCacheCapacityKey = 'preview.cacheCapacityBytes';
+const _previewThresholdKey = 'preview.largeDownloadThresholdBytes';
 
 /// The activity panel's persisted height floor/default (02 §1's
 /// persistence block: default 200 px, min 120, max half the window).
@@ -225,6 +232,44 @@ class AppPreferences {
 
   Future<void> saveSidebarCollapsedGroups(Set<String> keys) =>
       _store.set(_sidebarCollapsedGroupsKey, List<String>.of(keys));
+
+  /// The §8 "Preview & downloads" cache cap (06 §8): bytes, default
+  /// 512 MiB. A missing or corrupt value decodes to the default.
+  Future<int> loadPreviewCacheCapacityBytes() => _loadBytes(
+    _previewCacheCapacityKey,
+    defaultPreviewCacheCapacityBytes,
+  );
+
+  Future<void> savePreviewCacheCapacityBytes(int bytes) => _store.set(
+    _previewCacheCapacityKey,
+    bytes > 0 ? bytes : defaultPreviewCacheCapacityBytes,
+  );
+
+  /// The §8 shared large-download confirmation threshold (06 §8):
+  /// bytes, default 100 MiB — one setting gating remote previews,
+  /// Quick Look productions, compare sides, and external-editor
+  /// checkouts.
+  Future<int> loadPreviewThresholdBytes() => _loadBytes(
+    _previewThresholdKey,
+    defaultLargeDownloadThresholdBytes,
+  );
+
+  Future<void> savePreviewThresholdBytes(int bytes) => _store.set(
+    _previewThresholdKey,
+    bytes > 0 ? bytes : defaultLargeDownloadThresholdBytes,
+  );
+
+  Future<int> _loadBytes(String key, int fallback) async {
+    num? stored;
+    try {
+      stored = await _store.get<num>(key);
+    } catch (_) {
+      return fallback;
+    }
+    if (stored == null || !stored.isFinite) return fallback;
+    final value = stored.toInt();
+    return value > 0 ? value : fallback;
+  }
 
   Future<Rect?> loadWindowBounds() async {
     late final List<num?> storedValues;

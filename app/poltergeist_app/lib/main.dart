@@ -166,6 +166,25 @@ Future<void> main() async {
     onError: errorReporter.report,
   );
 
+  // 06 §5.3's preview cache + produce seam (M7): an LRU store under
+  // app-support `preview-cache/` seeded with the persisted cap, and a
+  // QueuePreviewProducer over the same composed queue every other
+  // managed download rides (D14). A queue-less boot still previews
+  // local files — only remote production needs the producer.
+  final previewCacheCapacity =
+      await preferences.loadPreviewCacheCapacityBytes();
+  final previewThreshold = await preferences.loadPreviewThresholdBytes();
+  final previewCache = PreviewCache(
+    directory: Directory(
+      '${supportDirectory.path}${Platform.pathSeparator}preview-cache',
+    ),
+    capacityBytes: previewCacheCapacity,
+  );
+  await errorReporter.guard(previewCache.open);
+  final previewProducer = transferQueueSession == null
+      ? null
+      : QueuePreviewProducer(transferQueueSession.concreteQueue);
+
   // The managed-checkout pipeline (06 §3, M7): one CheckoutManager over
   // the app-support store, driving every byte through the queue session
   // above so checkout downloads and upload-on-save rows surface in the
@@ -280,6 +299,12 @@ Future<void> main() async {
       onSidebarCollapsedGroupsChanged: (keys) => errorReporter.observe(
         preferences.saveSidebarCollapsedGroups(keys),
       ),
+      previewCache: previewCache,
+      previewProducer: previewProducer,
+      initialPreviewThresholdBytes: previewThreshold,
+      onPreviewCacheCapacityChanged:
+          preferences.savePreviewCacheCapacityBytes,
+      onPreviewThresholdChanged: preferences.savePreviewThresholdBytes,
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },

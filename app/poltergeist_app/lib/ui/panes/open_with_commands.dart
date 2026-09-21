@@ -8,6 +8,7 @@ import '../../services/pane_controller.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
 import '../settings/editor_settings.dart';
+import '../settings/preview_settings.dart';
 
 /// The parameterized open-with command (02 §8.1's `file.openWith`
 /// shape; the task-brief id is `open-with-external`). Its File-menu
@@ -43,6 +44,11 @@ RegisteredCommand buildOpenWithCommand({
     RemoteFileEntry entry,
   )
   pickAndOpen,
+
+  /// The §8 "Preview & downloads" rows behind `Configure Editors…` —
+  /// a lookup (not a snapshot) so the dialog reads the live cap and
+  /// threshold at open. Null mounts the dialog without the section.
+  PreviewDownloadsSettings? Function()? previewSettings,
 }) {
   // The cursor's file/symlink row is the target — the same enablement
   // gate as file.editBuiltIn (directories never open with an editor).
@@ -128,6 +134,7 @@ RegisteredCommand buildOpenWithCommand({
             context,
             controller: controller,
             opener: externalOpener,
+            previewSettings: previewSettings?.call(),
           );
         },
       ),

@@ -107,6 +107,26 @@ class WorkspaceController extends ChangeNotifier {
 
   void toggleSidebar() => setSidebarHidden(!_sidebarHidden);
 
+  /// `view.togglePreview`'s user intent (06 §5.2): the docked preview
+  /// panel is optional chrome, hidden by default. While it is visible
+  /// on macOS, Space routes to the panel and Quick Look is suppressed
+  /// (06 §5's surface split — the two macOS surfaces never both claim
+  /// the key). Session state only — 02 §1's persistence list carries no
+  /// preview flag, so a relaunch always starts panel-hidden.
+  bool _previewPanelHidden = true;
+
+  /// Whether the user intent hides the preview panel. Written only
+  /// through [setPreviewPanelHidden] so every flip notifies.
+  bool get previewPanelHidden => _previewPanelHidden;
+
+  void setPreviewPanelHidden(bool hidden) {
+    if (hidden == _previewPanelHidden) return;
+    _previewPanelHidden = hidden;
+    notifyListeners();
+  }
+
+  void togglePreviewPanel() => setPreviewPanelHidden(!_previewPanelHidden);
+
   /// Whether pane B is on screen: not user-hidden and not layout-hidden.
   bool get secondPaneShown => !_secondPaneHidden && _secondPaneLayoutShown;
 

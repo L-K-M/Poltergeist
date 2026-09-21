@@ -23,7 +23,9 @@ import '../services/external_file_opener.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
 import '../services/pane_tabs_controller.dart';
+import '../services/preview_session.dart';
 import '../services/probe_settings_store.dart';
+import '../services/quick_look_channel.dart';
 import '../services/quit_guard.dart';
 import '../services/registered_command.dart';
 import '../services/session_persistence.dart';
@@ -49,7 +51,10 @@ import 'panes/pane_commands.dart';
 import 'panes/pane_format.dart' show paneUnevaluated;
 import 'panes/pane_tabs_view.dart';
 import 'panes/sync_browse_chip.dart';
+import 'pdf_preview.dart';
+import 'preview_panel.dart';
 import 'settings/backup_settings_command.dart';
+import 'settings/preview_settings.dart';
 import 'sidebar/sidebar_view.dart';
 import 'top_toast.dart';
 import 'workspace/workspace_commands.dart';
@@ -103,6 +108,13 @@ class WorkspaceShell extends StatefulWidget {
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
     this.onSidebarCollapsedGroupsChanged,
+    this.previewCache,
+    this.previewProducer,
+    this.quickLook,
+    this.initialPreviewThresholdBytes =
+        defaultLargeDownloadThresholdBytes,
+    this.onPreviewCacheCapacityChanged,
+    this.onPreviewThresholdChanged,
   });
 
   final double initialPaneRatio;
@@ -261,6 +273,36 @@ class WorkspaceShell extends StatefulWidget {
   final Set<String> initialSidebarCollapsedGroups;
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
 
+  /// 06 §5.3's preview cache — the seam the whole preview slice keys
+  /// on. Null composes no [PreviewSession]: Space keeps its pre-preview
+  /// fallthrough, `file.preview`/`view.togglePreview` stay disabled,
+  /// and no panel or Quick Look surface mounts. Same
+  /// identity-stability contract as [bookmarks].
+  final PreviewCache? previewCache;
+
+  /// The §5.3 production seam (a `QueuePreviewProducer` over the
+  /// composed queue in production): null leaves the session able to
+  /// preview local files and cache hits but greying out every remote
+  /// Download — honest absence, never a stub.
+  final PreviewProducer? previewProducer;
+
+  /// The macOS `QLPreviewPanel` channel (06 §5.1) — injectable for
+  /// tests; null binds the real method channel, which answers
+  /// unavailable off-macOS and falls the verb back to the panel.
+  final QuickLookChannel? quickLook;
+
+  /// The persisted §8 large-download confirmation threshold seeding the
+  /// session's live value (default 100 MiB — shared by remote previews,
+  /// Quick Look productions, compare sides, and external-editor
+  /// checkouts).
+  final int initialPreviewThresholdBytes;
+
+  /// The §8 settings section's persist sinks — invoked BEFORE the live
+  /// value moves so a failed write leaves nothing applied. Null keeps
+  /// the change session-local.
+  final FutureOr<void> Function(int bytes)? onPreviewCacheCapacityChanged;
+  final FutureOr<void> Function(int bytes)? onPreviewThresholdChanged;
+
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
 }
@@ -291,6 +333,24 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// The shell's Scaffold: `view.toggleSidebar` opens its drawer below
   /// the stage-0 boundary (02 §1's stage-1 collapse).
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// 06 §5's preview driver: owned here so the pane's Space/Esc
+  /// dispatch, the docked panel, and the Quick Look overlay share one
+  /// session. Rebuilt with the workspace (it binds the focus chain —
+  /// an engine swap rebinds panes); null while no
+  /// [WorkspaceShell.previewCache] seam exists.
+  PreviewSession? _preview;
+
+  /// The §8 shared large-download threshold's live value — seeded once
+  /// from the persisted setting and written live by the Preview &
+  /// downloads section; the session reads it per gate decision.
+  late int _previewThresholdBytes;
+
+  /// The production Quick Look channel, created once so session
+  /// rebuilds share the one native binding (06 §5.1).
+  QuickLookChannel? _defaultQuickLook;
+  QuickLookChannel get _resolvedQuickLook =>
+      widget.quickLook ?? (_defaultQuickLook ??= MethodChannelQuickLook());
 
   /// The pane pair and active pane (03 §6's WorkspaceController, foundation
   /// slice) plus the per-pane listing focus nodes (02 §8.2). Rebuilt when
@@ -334,6 +394,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     _rightFocus = FocusNode(debugLabel: 'pane.right.listing');
     _activitySplitterFocus = FocusNode(debugLabel: 'activity.panel.splitter');
     _activityPanelHeight = widget.initialActivityPanelHeight;
+    _previewThresholdBytes = widget.initialPreviewThresholdBytes;
     _activity = ActivityPanelController(
       queue: widget.transferQueue,
       autoClearCompleted: widget.autoClearCompletedTransfers,
@@ -428,6 +489,22 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _workspace?.dispose();
       _workspace = null;
       _buildWorkspace();
+    } else if (!identical(oldWidget.previewCache, widget.previewCache) ||
+        !identical(oldWidget.previewProducer, widget.previewProducer) ||
+        !identical(oldWidget.quickLook, widget.quickLook)) {
+      // A preview-seam swap rebuilds the session over the SAME
+      // workspace — the cache/producer/channel identities are its
+      // wiring. (An engine swap already rebuilt it inside
+      // [_buildWorkspace].)
+      _preview?.dispose();
+      _preview = _buildPreviewSession();
+    }
+    // The threshold's live value follows a changed seed — same
+    // contract as the other persisted seeds: the settings section's
+    // own writes can never arrive through here.
+    if (widget.initialPreviewThresholdBytes !=
+        oldWidget.initialPreviewThresholdBytes) {
+      _previewThresholdBytes = widget.initialPreviewThresholdBytes;
     }
     if (!identical(oldWidget.transferQueue, widget.transferQueue)) {
       // A later-arriving queue seam rebinds the mirror; the persisted
@@ -799,6 +876,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     workspace.addListener(_onWorkspaceChanged);
     _secondPaneWasShown = workspace.secondPaneShown;
     _sidebarWasHidden = workspace.sidebarHidden;
+    // 06 §5's preview driver binds the workspace's focus chain — it is
+    // rebuilt with the workspace (a dispose→create swap keeps the
+    // session's listeners on the live controller).
+    _preview?.dispose();
+    _preview = _buildPreviewSession();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final left = _leftFocus;
       final right = _rightFocus;
@@ -819,8 +901,57 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     // The writer outlives the shell (the app owns it) — detach so a
     // rebuild's notify storm cannot write a torn-down workspace's doc.
     widget.sessionPersistence?.detach();
+    // The session unbinds from the workspace in its dispose — run it
+    // before the workspace's own teardown so no removal lands on a
+    // disposed notifier.
+    _preview?.dispose();
+    _preview = null;
     _workspace?.dispose();
     _workspace = null;
+  }
+
+  /// 06 §5's preview driver over the current workspace — the seam
+  /// tuple (cache, producer, Quick Look channel) is its wiring; a null
+  /// cache composes no session at all (Space falls through, the
+  /// preview commands stay disabled).
+  PreviewSession? _buildPreviewSession() {
+    final cache = widget.previewCache;
+    final workspace = _workspace;
+    if (cache == null || workspace == null) return null;
+    return PreviewSession(
+      workspace: workspace,
+      cache: cache,
+      largeDownloadThresholdBytes: () => _previewThresholdBytes,
+      producer: widget.previewProducer,
+      quickLook: _resolvedQuickLook,
+    );
+  }
+
+  /// The §8 "Preview & downloads" rows behind Configure Editors… — a
+  /// lookup (not a snapshot) so the dialog reads the live cap and
+  /// threshold at open. Null while no cache seam exists: a cache-less
+  /// boot has nothing to size or clear.
+  PreviewDownloadsSettings? _previewDownloadsSettings() {
+    final cache = widget.previewCache;
+    if (cache == null) return null;
+    return PreviewDownloadsSettings(
+      cache: cache,
+      capacityBytes: cache.capacityBytes,
+      thresholdBytes: _previewThresholdBytes,
+      onCapacityChanged: (bytes) async {
+        // Persist first — a failed write leaves the live cap
+        // untouched, so the field's revert returns to truth (the
+        // immediate-persist idiom).
+        await widget.onPreviewCacheCapacityChanged?.call(bytes);
+        cache.capacityBytes = bytes;
+        unawaited(cache.enforce());
+      },
+      onThresholdChanged: (bytes) async {
+        await widget.onPreviewThresholdChanged?.call(bytes);
+        _previewThresholdBytes = bytes;
+      },
+      onClearCache: cache.clear,
+    );
   }
 
   @override
@@ -834,6 +965,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     final leftFocus = _leftFocus;
     final rightFocus = _rightFocus;
 
+    final preview = _preview;
     final commands = <RegisteredCommand>[
       if (sshConfigImport != null)
         buildSshConfigImportCommand(
@@ -859,6 +991,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           swapFocus: () => _focusPane(workspace.swapFocus()),
           sidebarAvailable: () => _sidebar != null,
           toggleSidebarDrawer: _toggleSidebarDrawer,
+          preview: preview,
         ),
       // `open-with-external` registers whenever a workspace exists
       // (D21): the Open With ▸ submenu renders disabled rows while no
@@ -871,6 +1004,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           openWith: (pane, entry, editorId) =>
               _openWithExternal(pane, entry, editorId),
           pickAndOpen: _pickAndOpenExternal,
+          previewSettings: _previewDownloadsSettings,
         ),
       // `queue.togglePause` registers unconditionally (D21): its menu
       // row stays visible-disabled while no queue seam is bound.
@@ -897,6 +1031,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       _activity,
       if (workspace != null) ...[workspace, workspace.left, workspace.right],
       ?widget.editorRegistry,
+      // file.preview's enablement keys off the live surface state too
+      // (an open Quick Look / visible panel keeps the verb live).
+      ?preview,
     ]);
 
     return Scaffold(
@@ -959,7 +1096,17 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                 ),
                               ],
                               Expanded(
-                                child: AdaptiveShell(
+                                child: Stack(
+                                  // `expand`: the shell fills the
+                                  // region and the Quick Look card is a
+                                  // Positioned overlay on top of it —
+                                  // 06 §5.1's in-window surface (the
+                                  // native panel cannot host Flutter
+                                  // content and modals over it are
+                                  // forbidden).
+                                  fit: StackFit.expand,
+                                  children: [
+                                    AdaptiveShell(
                                   initialPaneRatio: widget.initialPaneRatio,
                                   secondPaneIntent: workspace.secondPaneHidden
                                       ? SecondPaneIntent.hidden
@@ -976,6 +1123,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     tabs: workspace.left,
                                     workspace: workspace,
                                     focusNode: leftFocus,
+                                    preview: preview,
                                     onSwapFocus: () =>
                                         _focusPane(workspace.right),
                                     onCancelRecovery: () => _cancelPaneRecovery(
@@ -991,6 +1139,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                           tabs: workspace.right,
                                           workspace: workspace,
                                           focusNode: rightFocus,
+                                          preview: preview,
                                           onSwapFocus: () =>
                                               _focusPane(workspace.left),
                                           onCancelRecovery: () =>
@@ -1003,8 +1152,43 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                           bookmarks: widget.bookmarks,
                                           dropDelegate: dropDelegate,
                                         ),
+                                    ),
+                                    if (preview != null)
+                                      PreviewQuickLookOverlay(
+                                        session: preview,
+                                      ),
+                                  ],
                                 ),
                               ),
+                              // The docked preview rail (06 §5.2): the
+                              // window's rightmost region while
+                              // `view.togglePreview` shows it — Space
+                              // then routes to the panel and Quick Look
+                              // is suppressed on macOS (§5's split).
+                              if (preview != null &&
+                                  !workspace.previewPanelHidden)
+                                PreviewPanel(
+                                  session: preview,
+                                  pdfRenderer: pdfPreviewBuilder,
+                                  // Every launch verb routes onto the
+                                  // focused ENTRY — never the
+                                  // `preview-cache/` path (§5.3's
+                                  // open-boundary rule).
+                                  onOpen: (pane, entry) =>
+                                      unawaited(pane.openEntry(entry)),
+                                  onOpenWith: (context, pane, entry) =>
+                                      unawaited(
+                                        _chooseEditorFor(pane, entry),
+                                      ),
+                                  onOpenInEditor: (pane, entry) =>
+                                      unawaited(
+                                        pane.editInBuiltInEditor(entry),
+                                      ),
+                                  onClose: preview.closePanel,
+                                  onEscape: (event) => preview.escape()
+                                      ? KeyEventResult.handled
+                                      : KeyEventResult.ignored,
+                                ),
                             ],
                           ),
                         ),

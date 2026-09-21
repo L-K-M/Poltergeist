@@ -202,6 +202,36 @@ export 'src/checkout/managed_remote_file_store.dart'
 export 'src/checkout/managed_checkout_spec.dart'
     show ManagedCheckoutDirection, ManagedCheckoutSpec;
 export 'src/checkout/checkout_manager.dart' show CheckoutManager;
+export 'src/preview/preview_kinds.dart'
+    show
+        PreviewKind,
+        defaultLargeDownloadThresholdBytes,
+        defaultPreviewCacheCapacityBytes,
+        previewCacheKey,
+        previewExtension,
+        previewImageKindCapBytes,
+        previewKindCapBytes,
+        previewKindForName,
+        previewKindIsRenderable,
+        previewPdfKindCapBytes,
+        previewProduceSlotLimit,
+        previewRawExtension,
+        previewTextMaximumBytes,
+        previewUnknownSizeMaximumBytes,
+        previewWindowsExecutableExtensions,
+        sanitizePreviewExtension;
+export 'src/preview/preview_text.dart'
+    show PreviewTextContent, fileLooksLikeUtf8Text, loadPreviewText;
+export 'src/preview/preview_cache.dart'
+    show PreviewCache, PreviewCacheSlot;
+export 'src/preview/preview_produce.dart'
+    show
+        PreviewByteGate,
+        PreviewProduceSpec,
+        PreviewProduceTicket,
+        PreviewProducer,
+        QueuePreviewProducer,
+        TransferProducer;
 export 'src/editor/built_in_text_document.dart'
     show
         BuiltInTextDocument,

@@ -5,7 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:macos_window_utils/widgets/titlebar_safe_area.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
-    show BookmarkStore, ConflictPolicy;
+    show
+        BookmarkStore,
+        ConflictPolicy,
+        PreviewCache,
+        PreviewProducer,
+        defaultLargeDownloadThresholdBytes;
 
 import 'l10n/app_localizations.dart';
 import 'services/app_transfer_queue.dart';
@@ -18,6 +23,7 @@ import 'services/editor_registry_controller.dart';
 import 'services/engine_session.dart';
 import 'services/pane_tabs_controller.dart' show NewTabTarget;
 import 'services/probe_settings_store.dart' show ProbeSettings;
+import 'services/quick_look_channel.dart' show QuickLookChannel;
 import 'services/quit_guard.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
@@ -66,6 +72,13 @@ class PoltergeistApp extends StatefulWidget {
     this.onSidebarHiddenSaveError,
     this.initialSidebarCollapsedGroups = const {},
     this.onSidebarCollapsedGroupsChanged,
+    this.previewCache,
+    this.previewProducer,
+    this.quickLook,
+    this.initialPreviewThresholdBytes =
+        defaultLargeDownloadThresholdBytes,
+    this.onPreviewCacheCapacityChanged,
+    this.onPreviewThresholdChanged,
   });
 
   final double initialPaneRatio;
@@ -189,6 +202,27 @@ class PoltergeistApp extends StatefulWidget {
   /// device-local expansion state).
   final Set<String> initialSidebarCollapsedGroups;
   final void Function(Set<String> keys)? onSidebarCollapsedGroupsChanged;
+
+  /// 06 §5.3's preview cache behind the whole preview slice — null
+  /// composes no preview session (Space falls through, the preview
+  /// commands stay disabled). `main.dart` supplies the app-support
+  /// `preview-cache/` store seeded with the persisted cap.
+  final PreviewCache? previewCache;
+
+  /// The §5.3 remote-production seam — a `QueuePreviewProducer` over
+  /// the composed queue in production (D14); null leaves remote
+  /// previews promptless-disabled while local ones still render.
+  final PreviewProducer? previewProducer;
+
+  /// The macOS Quick Look channel seam (06 §5.1) — injectable for
+  /// tests; null binds the real method channel.
+  final QuickLookChannel? quickLook;
+
+  /// The persisted §8 large-download threshold (default 100 MiB) and
+  /// the §8 settings section's persist sinks.
+  final int initialPreviewThresholdBytes;
+  final FutureOr<void> Function(int bytes)? onPreviewCacheCapacityChanged;
+  final FutureOr<void> Function(int bytes)? onPreviewThresholdChanged;
 
   /// The prompt coordinator and other dialog owners show through this key;
   /// null keeps the default navigator. The session's coordinator and the
@@ -386,6 +420,13 @@ class _PoltergeistAppState extends State<PoltergeistApp> {
       initialSidebarCollapsedGroups: widget.initialSidebarCollapsedGroups,
       onSidebarCollapsedGroupsChanged:
           widget.onSidebarCollapsedGroupsChanged,
+      previewCache: widget.previewCache,
+      previewProducer: widget.previewProducer,
+      quickLook: widget.quickLook,
+      initialPreviewThresholdBytes: widget.initialPreviewThresholdBytes,
+      onPreviewCacheCapacityChanged:
+          widget.onPreviewCacheCapacityChanged,
+      onPreviewThresholdChanged: widget.onPreviewThresholdChanged,
     );
     final callback = widget.onContentSizeChanged;
     if (callback == null) return workspace;
