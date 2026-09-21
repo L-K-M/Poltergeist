@@ -95,7 +95,8 @@ void main() {
         );
         await exe.writeAsString('# capture\n');
         if (!Platform.isWindows) {
-          await Process.run('chmod', ['0755', exe.path]);
+          final chmod = await Process.run('chmod', ['0755', exe.path]);
+          expect(chmod.exitCode, 0, reason: 'chmod failed: ${chmod.stderr}');
         }
         final seams = ext.OpenerSeams()..pickedExecutablePath = exe.path;
         final store = SettingsStore(
