@@ -277,10 +277,11 @@ typedef BuiltInEditorOpen =
 /// `poltergeist.*` reserved selector — into the launch path (local file
 /// directly; remote file through the managed checkout). A null
 /// [editorId] is the Open verb: the shell resolves the registry's
-/// `effectiveDefaultFor` for the entry. Null leaves the surface
-/// unwired — remote Open keeps posting the honest
-/// [PaneNotice.openRemoteUnavailable] and an explicit open-with posts
-/// [PaneNotice.editLater].
+/// `effectiveDefaultFor` for the entry. Implementations own their error
+/// surfacing (the shell reports and toasts); the pane does not add a
+/// second error path. Null leaves the surface unwired — remote Open
+/// keeps posting the honest [PaneNotice.openRemoteUnavailable] and an
+/// explicit open-with posts [PaneNotice.editLater].
 typedef ExternalEditorOpen =
     Future<void> Function(
       PaneController pane,
@@ -963,10 +964,16 @@ class PaneController extends ChangeNotifier {
   /// The local file's OS-default open, exposed for the Open With ▸
   /// `System default` row: routes through [_openLocalEntry] so the
   /// launch's outcome lands on the pane's one inline error affordance
-  /// (02 §2.8) exactly like the Open verb.
+  /// (02 §2.8) exactly like the Open verb. A remote binding keeps
+  /// [openEntry]'s invariant — never mint a local open — and posts the
+  /// honest not-yet notice instead.
   Future<void> openInSystemDefaultApp(RemoteFileEntry entry) async {
     if (!_rowsInteractive) return;
     dismissNotice();
+    if (_pendingRemote != null) {
+      _postNotice(PaneNotice.openRemoteUnavailable);
+      return;
+    }
     await _openLocalEntry(entry);
   }
 

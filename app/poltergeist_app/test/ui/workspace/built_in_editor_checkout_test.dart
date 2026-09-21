@@ -412,6 +412,25 @@ PaneController leftPane(WidgetTester tester) {
 
 late EditorCheckoutHarness harness;
 
+/// Fails loudly instead of handing a path to `open`/`xdg-open` — the
+/// built-in suite never opens externally, so a reach here is a wiring
+/// regression, not a launch.
+final class _FailingSystemOpener implements LocalFileOpener {
+  @override
+  Future<void> open(String path) =>
+      throw StateError('test reached the real OS opener: $path');
+}
+
+/// The [ExternalFileOpener] fallback for [mountEditorShell]: every seam
+/// throws — suites that exercise external opens inject their own.
+final _unwiredExternalOpener = ExternalFileOpener(
+  systemOpener: _FailingSystemOpener(),
+  processStarter: (executable, arguments) =>
+      throw StateError('test reached the real process launcher'),
+  executablePicker: (platform, title) =>
+      throw StateError('test reached the real picker'),
+);
+
 /// Mounts the shell with a session-restored remote tab (the live pane
 /// a remote file row can be edited from) and the real seams: engine
 /// lanes → the scripted browse channel, the checkout session → the
@@ -432,7 +451,12 @@ Future<void> mountEditorShell(
   addTearDown(tester.view.reset);
   // Extra files exist on the "remote" too — the restored snapshot's
   // cached rows get replaced by the live listing at bind.
-  harness.appEngine.channel?.listings['/srv/www']?.addAll(extraEntries);
+  final liveListing = harness.appEngine.channel?.listings['/srv/www'];
+  assert(
+    liveListing != null,
+    'mountEditorShell expects the fake channel to serve /srv/www',
+  );
+  liveListing?.addAll(extraEntries);
   Widget app = MaterialApp(
     theme: theme,
     debugShowCheckedModeBanner: false,
@@ -445,8 +469,9 @@ Future<void> mountEditorShell(
       transferQueue: TransferQueueAdapter(harness.queue),
       checkoutSession: harness.checkout,
       editorRegistry: editorRegistry,
-      externalOpener:
-          externalOpener ?? const ExternalFileOpener(),
+      // Never default to the real opener in widget tests — a missing
+      // injection must fail loudly, not spawn a process on the host.
+      externalOpener: externalOpener ?? _unwiredExternalOpener,
       // Keep the completed row: the default auto-clear would evict
       // the finished upload before the assertion reads the panel.
       autoClearCompletedTransfers: false,

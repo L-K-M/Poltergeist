@@ -28,7 +28,12 @@ import 'package:poltergeist_app/ui/settings/editor_settings.dart';
 import 'built_in_editor_checkout_test.dart';
 import 'external_editor_checkout_test.dart' as ext;
 
-const _captureDir = '../../tasks/run3-task85';
+// The fallback resolves against the invocation CWD — it only lands at
+// the repo root when `flutter test` runs from app/poltergeist_app, so
+// POLTERGEIST_CAPTURE_DIR overrides it for other roots.
+final _captureDir =
+    Platform.environment['POLTERGEIST_CAPTURE_DIR'] ??
+    '../../tasks/run3-task85';
 
 Future<ByteData> _fontBytes(String path) async =>
     ByteData.view(File(path).readAsBytesSync().buffer);
@@ -71,7 +76,6 @@ void main() {
       await tester.runAsync(() async {
         await _loadRealFonts();
         final harness = await EditorCheckoutHarness.open();
-        addTearDown(harness.close);
         // The shared helpers in external_editor_checkout_test read that
         // library's harness global — point it at this run's instance.
         ext.harness = harness;
@@ -79,7 +83,10 @@ void main() {
         // connection list — seed it before the shell mounts.
         harness.bookmarks.bookmarks = [ext.serverBookmark()];
         final dir = await Directory.systemTemp.createTemp('pg-ext-cap-');
+        // Teardown is LIFO: close the harness — and the settings-backed
+        // registry living inside the temp dir — before the dir delete.
         addTearDown(() => dir.delete(recursive: true));
+        addTearDown(harness.close);
         final exe = File(
           p.join(
             dir.path,
@@ -226,7 +233,9 @@ void main() {
                   .isNotEmpty,
         );
         expect(
-          find.textContaining('Always use Fake Editor for .txt files'),
+          find.textContaining(
+            l10n.openWithRememberForExtension('Fake Editor', 'txt'),
+          ),
           findsOneWidget,
         );
         await settleDialog();
@@ -277,7 +286,10 @@ void main() {
         await ext.pollForDirtyPrompt(tester, 'config.txt');
         await tester.pump(const Duration(milliseconds: 300));
         await capture('dirty-upload-toast');
-        expect(find.widgetWithText(TextButton, 'Upload'), findsWidgets);
+        expect(
+          find.widgetWithText(TextButton, l10n.checkoutDirtyUploadAction),
+          findsWidgets,
+        );
       });
     },
   );

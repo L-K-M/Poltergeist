@@ -909,6 +909,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     // same posture as RemoteFileException messages.
     r"'${record.serverId}|${record.remotePath}'",
     "'The selected editor no longer exists.'",
+    "'open-with reached without a configured editor registry'",
     "'remote open-with reached without a checkout session'",
     "'remote open reached without a checkout session'",
     // The extension-binding key's basename arithmetic — path mechanics.
@@ -1640,8 +1641,19 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     r"r'^[A-Za-z]:[\\/]'",
     r"'\\\\'",
   },
-  // The registry document's settings.json key — machine data.
-  'lib/services/editor_registry_controller.dart': {"'editorRegistry'"},
+  // The registry document's settings.json key and the refuse-at-write
+  // diagnostic — machine data and a typed-error message surfaced
+  // verbatim through the error-toast convention, never ARB copy.
+  'lib/services/editor_registry_controller.dart': {
+    "'editorRegistry'",
+    r"'Unknown editor id: $id'",
+  },
+  // The submenuItems/menuPlacement.submenu exclusivity assert — a
+  // dev-facing invariant message, never rendered copy.
+  'lib/services/registered_command.dart': {
+    "'A parameterized command must not also join a merged submenu '",
+    "'via menuPlacement.submenu.'",
+  },
   // The parameterized command's ids, item-suffix plumbing, and the
   // chooser/remember dialog's widget keys — plumbing, never copy.
   'lib/ui/panes/open_with_commands.dart': {

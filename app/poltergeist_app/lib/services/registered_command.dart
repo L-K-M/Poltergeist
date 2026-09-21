@@ -61,7 +61,9 @@ const Map<String, String> kMenuReachabilityExceptions = {};
 /// invariant, and replaces this shape together with the debug-only
 /// surface that consumes it.
 class RegisteredCommand {
-  const RegisteredCommand({
+  // Not const: the initializer assert reads a function-typed field,
+  // which is not a potentially-constant expression.
+  RegisteredCommand({
     required this.id,
     required this.scope,
     required this.label,
@@ -71,7 +73,11 @@ class RegisteredCommand {
     this.activators,
     this.menuPlacement,
     this.submenuItems,
-  });
+  }) : assert(
+         submenuItems == null || menuPlacement?.submenu == null,
+         'A parameterized command must not also join a merged submenu '
+         'via menuPlacement.submenu.',
+       );
 
   /// Dotted lowerCamel, grouped by noun (`connect.*`, `pane.*`, 02 §8.1).
   final String id;

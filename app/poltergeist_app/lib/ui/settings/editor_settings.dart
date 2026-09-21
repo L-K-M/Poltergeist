@@ -172,12 +172,16 @@ final class EditorsSettingsSection extends StatelessWidget {
                       value: EditorRegistry.builtInId,
                       child: Text(l10n.editorBuiltInOption),
                     ),
-                    if (currentEditorHostPlatform != null)
-                      DropdownMenuItem(
-                        key: const ValueKey('editors.default.system'),
-                        value: EditorRegistry.systemDefaultId,
-                        child: Text(l10n.editorSystemDefaultOption),
-                      ),
+                    // Always present so `value` can always match an
+                    // item — a synced registry may carry the system
+                    // default to a host that can't launch it; disabled
+                    // there, same as other-platform editors below.
+                    DropdownMenuItem(
+                      key: const ValueKey('editors.default.system'),
+                      value: EditorRegistry.systemDefaultId,
+                      enabled: currentEditorHostPlatform != null,
+                      child: Text(l10n.editorSystemDefaultOption),
+                    ),
                     // §8: other-platform definitions stay visible in
                     // the dropdown but disabled, suffixed "(another
                     // platform)" — synced registries can carry them.
@@ -338,6 +342,11 @@ Future<ExternalEditorDefinition?> _editEditorDialog(
               TextField(
                 controller: name,
                 autofocus: true,
+                onChanged: (_) {
+                  if (validationError != null) {
+                    setDialogState(() => validationError = null);
+                  }
+                },
                 textInputAction: TextInputAction.next,
                 decoration: InputDecoration(
                   labelText: l10n.editorNameFieldLabel,

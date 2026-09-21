@@ -5,6 +5,7 @@
 // `extensionDefaults` bind ahead of the global default, and persistence
 // rides the shared settings.json through EditorRegistryController.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -355,7 +356,11 @@ void main() {
       await controller.setExtensionDefault('txt', picked.id);
       await store.flush();
 
-      final reloaded = EditorRegistryController(store: store);
+      // A fresh store instance forces the read through disk — reusing
+      // the writer's in-memory values would not prove the round-trip.
+      final reloaded = EditorRegistryController(
+        store: SettingsStore(path: p.join(tempDir.path, 'settings.json')),
+      );
       await reloaded.load();
 
       expect(reloaded.registry.byId('editor.picked'), isNotNull);
@@ -379,6 +384,72 @@ void main() {
       expect(EditorRegistry.fromJson(42).editors, isEmpty);
     });
 
+    test('a malformed extensionDefaults key drops instead of '
+        'failing the load', () {
+      final registry = EditorRegistry.fromJson({
+        'extensionDefaults': {
+          'bad/key': EditorRegistry.systemDefaultId,
+          'txt': EditorRegistry.builtInId,
+        },
+      });
+      expect(registry.extensionDefaults, {'txt': EditorRegistry.builtInId});
+    });
+
+    test('register normalizes stored extensions so matching and the '
+        'binding strip work in-session', () async {
+      final editor = _editor(
+        id: 'editor.upper',
+        acceptedExtensions: ['.TXT'],
+      );
+      await controller.register(editor);
+
+      final stored = controller.registry.byId('editor.upper')!;
+      expect(stored.acceptsPath('note.txt'), isTrue);
+
+      await controller.setExtensionDefault('txt', 'editor.upper');
+      // Re-put (the §8 edit path) must not strip the binding it honors.
+      await controller.register(stored);
+      expect(
+        controller.registry.extensionDefaults['txt'],
+        'editor.upper',
+      );
+    });
+
+    test('setDefault refuses an unresolvable id', () async {
+      await expectLater(
+        controller.setDefault('poltergeist.bogus'),
+        throwsFormatException,
+      );
+      await expectLater(
+        controller.setDefault('editor.missing'),
+        throwsFormatException,
+      );
+      expect(
+        controller.registry.defaultEditorId,
+        EditorRegistry.systemDefaultId,
+      );
+    });
+
+    test('a failed write notifies listeners of the rollback', () async {
+      final failing = SettingsStore(
+        path: p.join(tempDir.path, 'notify.json'),
+        atomicWriter: (target, contents, {restrictToOwner = false}) =>
+            Future.error(StateError('disk full')),
+      );
+      final failingController = EditorRegistryController(store: failing);
+      await failingController.load();
+      var notified = 0;
+      failingController.addListener(() => notified++);
+
+      await expectLater(
+        failingController.register(_editor(id: 'editor.rolled')),
+        throwsStateError,
+      );
+
+      expect(notified, greaterThan(0));
+      expect(failingController.registry.byId('editor.rolled'), isNull);
+    });
+
     test('a failed settings write restores the pre-mutation registry',
         () async {
       final failing = SettingsStore(
@@ -398,6 +469,37 @@ void main() {
       expect(failingController.registry.byId('editor.lost'), isNull);
     });
 
+    test('an older failed write cannot roll back a newer mutation', () async {
+      final firstWriteStarted = Completer<void>();
+      final releaseFirstWrite = Completer<void>();
+      var writeCount = 0;
+      final racingStore = SettingsStore(
+        path: p.join(tempDir.path, 'racing.json'),
+        atomicWriter: (target, contents, {restrictToOwner = false}) async {
+          writeCount++;
+          if (writeCount != 1) return;
+
+          firstWriteStarted.complete();
+          await releaseFirstWrite.future;
+          throw StateError('first write failed');
+        },
+      );
+      final racingController = EditorRegistryController(store: racingStore);
+      await racingController.load();
+      final editor = _editor(id: 'editor.concurrent');
+
+      final register = racingController.register(editor);
+      await firstWriteStarted.future;
+      final setDefault = racingController.setDefault(editor.id);
+      releaseFirstWrite.complete();
+
+      await expectLater(register, throwsStateError);
+      await setDefault;
+
+      expect(racingController.registry.byId(editor.id), same(editor));
+      expect(racingController.registry.defaultEditorId, editor.id);
+    });
+
     test('removing an editor persists the stripped bindings', () async {
       final editor = _editor(id: 'editor.gone', acceptedExtensions: ['txt']);
       await controller.register(editor);
@@ -405,7 +507,9 @@ void main() {
       await controller.remove(editor.id);
       await store.flush();
 
-      final reloaded = EditorRegistryController(store: store);
+      final reloaded = EditorRegistryController(
+        store: SettingsStore(path: p.join(tempDir.path, 'settings.json')),
+      );
       await reloaded.load();
 
       expect(reloaded.registry.editors, isEmpty);

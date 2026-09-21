@@ -3,6 +3,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -135,7 +136,8 @@ class EditorRegistry {
     final ids = <String>{};
     final entries = json['editors'];
     if (entries is List) {
-      for (final entry in entries.take(64)) {
+      for (final entry in entries) {
+        if (editors.length >= 64) break;
         if (entry is! Map) continue;
         try {
           final editor = ExternalEditorDefinition.fromJson(
@@ -158,9 +160,13 @@ class EditorRegistry {
         if (entry.key is! String || entry.value is! String) continue;
         final target = entry.value as String;
         if (!_isReservedSelector(target) && !ids.contains(target)) continue;
-        final normalized = normalizeEditorExtensions(
-          [entry.key as String],
-        );
+        final List<String> normalized;
+        try {
+          normalized = normalizeEditorExtensions([entry.key as String]);
+        } on FormatException {
+          // A malformed persisted key drops rather than failing load.
+          continue;
+        }
         if (normalized.isEmpty) continue;
         extensionDefaults[normalized.single] = target;
       }
@@ -282,7 +288,17 @@ class EditorRegistry {
     }
     validateEditorDisplayName(editor.displayName);
     _validatedTarget(editor.launchTarget, editor.platform);
-    normalizeEditorExtensions(editor.acceptedExtensions);
+    // Store the normalized form: acceptsPath suffix-matches lowercase,
+    // so an unnormalized list ('.TXT', '*.txt') would never match and
+    // the §8 strip below would drop the editor's valid bindings. The
+    // copy is skipped when the list is already normalized so put()
+    // preserves identity for callers holding the definition.
+    final normalizedExtensions = normalizeEditorExtensions(
+      editor.acceptedExtensions,
+    );
+    if (!listEquals(normalizedExtensions, editor.acceptedExtensions)) {
+      editor = editor.copyWith(acceptedExtensions: normalizedExtensions);
+    }
     final index = editors.indexWhere((item) => item.id == editor.id);
     if (index < 0) {
       if (editors.length >= 64) {

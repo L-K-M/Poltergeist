@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import 'application_error_reporter.dart';
@@ -51,9 +53,17 @@ final class EditorRegistryController extends ChangeNotifier {
 
   /// The global default editor — `poltergeist.system`,
   /// `poltergeist.builtin`, or a registered editor id (06 §8's
-  /// Default-editor dropdown writes here).
-  Future<void> setDefault(String id) =>
-      _mutate(() => _registry.defaultEditorId = id);
+  /// Default-editor dropdown writes here). Refuses an unresolvable id
+  /// at write time, matching [setExtensionDefault]'s rule — a dangling
+  /// default would sit in settings.json until the next load's repair.
+  Future<void> setDefault(String id) => _mutate(() {
+    if (id != EditorRegistry.systemDefaultId &&
+        id != EditorRegistry.builtInId &&
+        _registry.byId(id) == null) {
+      throw FormatException('Unknown editor id: $id');
+    }
+    _registry.defaultEditorId = id;
+  });
 
   /// The remember-choice write (06 §4.1): binds one extension to an
   /// editor id or a reserved selector.
@@ -66,11 +76,21 @@ final class EditorRegistryController extends ChangeNotifier {
   Future<void> _mutate(void Function() apply) async {
     final before = _registry.toJson();
     apply();
+    final after = _registry.toJson();
     try {
-      await _store.set(_settingsKey, _registry.toJson());
+      await _store.set(_settingsKey, after);
     } on Object catch (error, stackTrace) {
-      _registry = EditorRegistry.fromJson(before);
+      // Roll back only this mutation: a newer one may have applied on
+      // top while the write was in flight, and blindly restoring
+      // `before` would clobber it — the registry mutates in place, so
+      // compare snapshots, not identity.
+      if (jsonEncode(_registry.toJson()) == jsonEncode(after)) {
+        _registry = EditorRegistry.fromJson(before);
+      }
       _errors.report(error, stackTrace);
+      // Listeners may have read the mutated registry while the write
+      // was in flight — publish the rollback so they re-render.
+      notifyListeners();
       rethrow;
     }
     notifyListeners();

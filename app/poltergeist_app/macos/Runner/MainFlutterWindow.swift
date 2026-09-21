@@ -117,11 +117,19 @@ class MainFlutterWindow: NSWindow {
         }
         return
       }
-      guard call.method == "openWithApplication",
-            let arguments = call.arguments as? [String: Any],
+      guard call.method == "openWithApplication" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      // Malformed args are a wiring bug on the Dart side — report them
+      // as such rather than looking like an unregistered handler.
+      guard let arguments = call.arguments as? [String: Any],
             let path = arguments["path"] as? String,
             let bundleIdentifier = arguments["bundleIdentifier"] as? String else {
-        result(FlutterMethodNotImplemented)
+        result(FlutterError(
+          code: "INVALID_ARGUMENTS",
+          message: "openWithApplication requires 'path' and 'bundleIdentifier'.",
+          details: nil))
         return
       }
       guard let application = NSWorkspace.shared.urlForApplication(

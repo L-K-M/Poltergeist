@@ -117,11 +117,15 @@ RegisteredCommand buildOpenWithCommand({
         scope: CommandScope.selection,
         label: (l10n) => l10n.openWithConfigureLabel,
         enabled: () => registry != null,
-        run: (context) => showEditorsSettingsDialog(
-          context,
-          controller: registry!,
-          opener: externalOpener,
-        ),
+        run: (context) async {
+          final controller = registry;
+          if (controller == null) return;
+          await showEditorsSettingsDialog(
+            context,
+            controller: controller,
+            opener: externalOpener,
+          );
+        },
       ),
     ];
   }
@@ -131,7 +135,10 @@ RegisteredCommand buildOpenWithCommand({
     scope: CommandScope.selection,
     label: (l10n) => l10n.fileOpenWithLabel,
     icon: Icons.open_in_new_outlined,
-    enabled: () => target() != null,
+    // The submenu stays openable without a selection when a registry
+    // exists: the per-editor rows gate on target() individually, and
+    // Configure Editors… must stay reachable as the settings deep link.
+    enabled: () => target() != null || registry != null,
     // The non-menu invocation path (palette later; the §1 refusal
     // router today): the same rows as the submenu, as a chooser dialog.
     run: (context) async {

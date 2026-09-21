@@ -164,6 +164,11 @@ late SettingsStore settingsStore;
 late EditorRegistryController registry;
 late OpenerSeams seams;
 
+/// Resolves l10n off the shell's root Scaffold — `.first` because a
+/// dialog/route can mount its own Scaffold later in the overlay.
+AppLocalizations l10nOf(WidgetTester tester) =>
+    AppLocalizations.of(tester.element(find.byType(Scaffold).first));
+
 /// The cursor's row — finds the entry by name on the live left pane.
 RemoteFileEntry cursorEntry(WidgetTester tester, String name) {
   final pane = leftPane(tester);
@@ -217,11 +222,14 @@ void main() {
     harness.bookmarks.bookmarks = [serverBookmark()];
     harness.fs.seed(
       remoteBigPath,
-      List<int>.filled(builtInEditorMaximumBytes + 1, 0x41),
+      // Flat bytes, not a boxed List<int> — 4 MiB per seed per test.
+      Uint8List(builtInEditorMaximumBytes + 1)
+        ..fillRange(0, builtInEditorMaximumBytes + 1, 0x41),
     );
     harness.fs.seed(
       remoteMysteryPath,
-      List<int>.filled(builtInEditorMaximumBytes + 64, 0x42),
+      Uint8List(builtInEditorMaximumBytes + 64)
+        ..fillRange(0, builtInEditorMaximumBytes + 64, 0x42),
     );
     scratchDir = await Directory.systemTemp.createTemp(
       'pg-external-editor-test-',
@@ -286,7 +294,11 @@ void main() {
             tester,
           ).openEntry(cursorEntry(tester, 'config.txt'));
           final record = await checkoutOf(tester, remoteConfigPath);
-          await pollUntil(tester, () => seams.launches.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
 
           expect(seams.launches.single.$1, editor.launchTarget);
           expect(
@@ -315,7 +327,11 @@ void main() {
             tester,
           ).openEntry(cursorEntry(tester, 'config.txt'));
           await checkoutOf(tester, remoteConfigPath);
-          await pollUntil(tester, () => seams.launches.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
           expect(seams.launches.single.$1, editor.launchTarget);
         });
       },
@@ -339,6 +355,7 @@ void main() {
           await pollUntil(
             tester,
             () => seams.systemOpener.opens.isNotEmpty,
+            reason: 'system opener never fired',
           );
           expect(
             seams.systemOpener.opens.single,
@@ -369,7 +386,11 @@ void main() {
             editorId: editor.id,
           );
           final record = await checkoutOf(tester, remoteBigPath);
-          await pollUntil(tester, () => seams.launches.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
           expect(
             seams.launches.single.$2,
             harness.checkout.localFile(record).path,
@@ -432,6 +453,7 @@ void main() {
           await pollUntil(
             tester,
             () => seams.systemOpener.opens.isNotEmpty,
+            reason: 'system opener never fired',
           );
           expect(
             seams.systemOpener.opens.single,
@@ -498,12 +520,11 @@ void main() {
           ),
         ),
       );
-      for (var i = 0; i < 80; i++) {
-        await tester.pump();
-        if (leftPane(tester).verbsEnabled) return;
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-      fail('local tab did not bind in time');
+      await pollUntil(
+        tester,
+        () => leftPane(tester).verbsEnabled,
+        reason: 'local tab did not bind in time',
+      );
     }
 
     testWidgets(
@@ -520,7 +541,11 @@ void main() {
             cursorEntry(tester, 'notes.txt'),
             editorId: editor.id,
           );
-          await pollUntil(tester, () => seams.launches.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
 
           expect(seams.launches.single.$1, editor.launchTarget);
           expect(
@@ -544,7 +569,11 @@ void main() {
           await pane.openInSystemDefaultApp(
             cursorEntry(tester, 'notes.txt'),
           );
-          await pollUntil(tester, () => channel.openCalls.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => channel.openCalls.isNotEmpty,
+            reason: 'pane channel open never arrived',
+          );
 
           expect(
             channel.openCalls,
@@ -576,7 +605,11 @@ void main() {
         tester,
       ).openEntry(cursorEntry(tester, 'config.txt'));
       final record = await checkoutOf(tester, remoteConfigPath);
-      await pollUntil(tester, () => seams.launches.isNotEmpty);
+      await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
 
       final file = harness.checkout.localFile(record);
       await file.writeAsString(contents);
@@ -635,9 +668,14 @@ void main() {
           await pollUntil(
             tester,
             () => find.text('Remote file changed').evaluate().isEmpty,
+            reason: 'conflict dialog never closed',
           );
 
           // One preflight stat, zero uploads; the remote keeps its bytes.
+          expect(
+            harness.fs.statCalls.where((path) => path == remoteConfigPath),
+            hasLength(1),
+          );
           expect(
             harness.fs.uploadCalls,
             isNot(contains(remoteConfigPath)),
@@ -697,7 +735,11 @@ void main() {
             tester,
           ).openEntry(cursorEntry(tester, 'config.txt'));
           final record = await checkoutOf(tester, remoteConfigPath);
-          await pollUntil(tester, () => seams.launches.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
 
           final file = harness.checkout.localFile(record);
           final temp = File('${file.path}.save-tmp');
@@ -721,9 +763,7 @@ void main() {
 
   group('Open With ▸ menu and remember-choice (06 §4.1)', () {
     Future<void> openWithSubmenu(WidgetTester tester) async {
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(Scaffold)),
-      );
+      final l10n = l10nOf(tester);
       await tester.tap(find.text(l10n.menuFile));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
@@ -753,9 +793,7 @@ void main() {
           );
           cursorEntry(tester, 'config.txt');
           await tester.pump();
-          final l10n = AppLocalizations.of(
-            tester.element(find.byType(Scaffold)),
-          );
+          final l10n = l10nOf(tester);
 
           await openWithSubmenu(tester);
 
@@ -784,9 +822,7 @@ void main() {
           );
           cursorEntry(tester, 'config.txt');
           await tester.pump();
-          final l10n = AppLocalizations.of(
-            tester.element(find.byType(Scaffold)),
-          );
+          final l10n = l10nOf(tester);
 
           await openWithSubmenu(tester);
           await tester.tap(
@@ -817,7 +853,11 @@ void main() {
           await tester.pump();
           await tester.tap(find.byKey(const ValueKey('openWith.confirm')));
           final record = await checkoutOf(tester, remoteConfigPath);
-          await pollUntil(tester, () => seams.launches.isNotEmpty);
+          await pollUntil(
+            tester,
+            () => seams.launches.isNotEmpty,
+            reason: 'editor never launched',
+          );
 
           expect(registry.registry.extensionDefaults['txt'], picked.id);
           expect(
@@ -840,9 +880,7 @@ void main() {
           );
           cursorEntry(tester, 'config.txt');
           await tester.pump();
-          final l10n = AppLocalizations.of(
-            tester.element(find.byType(Scaffold)),
-          );
+          final l10n = l10nOf(tester);
 
           await openWithSubmenu(tester);
           await tester.tap(

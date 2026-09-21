@@ -640,6 +640,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       }
       if (current == null ||
           !current.dirty ||
+          current.missing ||
           _uploadingCheckoutKeys.contains(_checkoutKey(current)) ||
           !_serverConnected(current.serverId)) {
         _promptedDirtyCheckouts.remove(record.id);
@@ -1399,7 +1400,13 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       await pane.openInSystemDefaultApp(entry);
       return;
     }
-    final editor = widget.editorRegistry?.registry.byId(id);
+    final registry = widget.editorRegistry?.registry;
+    if (registry == null) {
+      throw StateError(
+        'open-with reached without a configured editor registry',
+      );
+    }
+    final editor = registry.byId(id);
     if (editor == null) {
       throw StateError('The selected editor no longer exists.');
     }
@@ -1437,13 +1444,19 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       return;
     }
     final record = await session.checkout(serverId: bookmark.id, entry: entry);
-    if (!mounted) return;
+    if (!mounted) {
+      // The checkout finished after the shell went away — nothing can
+      // edit the copy, so release it rather than leaking a managed dir.
+      unawaited(session.discard(record));
+      return;
+    }
     await _launchCheckout(session, record, editorId);
   }
 
   /// Launches [editorId] on a checked-out copy: the system selector
   /// OS-opens the file, a configured editor launches detached (06
-  /// §4.3's no-shell rule lives inside the opener).
+  /// §4.3's no-shell rule lives inside the opener). A launch that never
+  /// happens discards the checkout — no editor means no edits to watch.
   Future<void> _launchCheckout(
     CheckoutSession session,
     ManagedRemoteFile record,
@@ -1454,8 +1467,16 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       await widget.externalOpener.openSystemDefault(file.path);
       return;
     }
-    final editor = widget.editorRegistry?.registry.byId(editorId);
+    final registry = widget.editorRegistry?.registry;
+    if (registry == null) {
+      unawaited(session.discard(record));
+      throw StateError(
+        'open-with reached without a configured editor registry',
+      );
+    }
+    final editor = registry.byId(editorId);
     if (editor == null) {
+      unawaited(session.discard(record));
       throw StateError('The selected editor no longer exists.');
     }
     await widget.externalOpener.openWith(file.path, editor);
@@ -1665,9 +1686,11 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
     }
     // Keyed on (serverId, remotePath), not the record's id: a reconcile
     // mid-upload can swap in a record with a fresh id, and an id-keyed
-    // guard would miss a second call on the swapped record.
+    // guard would miss a second call on the swapped record. Only the
+    // call that inserted the key removes it — an overlapping second
+    // upload must not clear the first's suppression.
     final key = _checkoutKey(copy);
-    _uploadingCheckoutKeys.add(key);
+    final ownsKey = _uploadingCheckoutKeys.add(key);
     try {
       return await session.uploadLocalCopy(copy);
     } on RemoteFileException catch (error) {
@@ -1676,7 +1699,7 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       if (!overwrite) return false;
       return session.uploadLocalCopy(copy, overwriteRemoteChanges: true);
     } finally {
-      _uploadingCheckoutKeys.remove(key);
+      if (ownsKey) _uploadingCheckoutKeys.remove(key);
     }
   }
 
