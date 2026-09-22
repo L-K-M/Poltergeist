@@ -229,7 +229,12 @@ final class SyncRunJournal {
   /// appended past it — are skipped, never misparsed.
   static Future<SyncRunJournal> open(String path) async {
     final file = File(path);
-    final lines = await file.readAsLines();
+    // Malformed-tolerant decode: a kill can sever a multi-byte UTF-8
+    // character inside the torn write — strict decoding would throw
+    // before the skip-undecodable-lines logic ever runs.
+    final bytes = await file.readAsBytes();
+    final lines =
+        const LineSplitter().convert(utf8.decode(bytes, allowMalformed: true));
     SyncRunRecord? record;
     SyncRunJournal? journal;
     for (final raw in lines) {
@@ -880,7 +885,11 @@ Future<void> _removeVerifiedTree(
       if (error.kind != RemoteFileErrorKind.notFound) rethrow;
     }
   }
-  await fs.delete(live);
+  try {
+    await fs.delete(live);
+  } on RemoteFileException catch (error) {
+    if (error.kind != RemoteFileErrorKind.notFound) rethrow;
+  }
 }
 
 /// Recreates every missing ancestor of [relativePath] under [root],

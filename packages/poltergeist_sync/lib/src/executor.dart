@@ -555,13 +555,17 @@ final class _RunSession {
   Future<void> execute() async {
     removalBudget[SyncSide.left] = rules.maxDelete;
     removalBudget[SyncSide.right] = rules.maxDelete;
+    Object? phaseError;
     try {
       await _executePhases();
+    } on Object catch (error) {
+      phaseError = error;
+      rethrow;
     } finally {
       // Whatever the phases left behind, the run still terminates
       // honestly: pending items read as cancelled, an item abandoned
       // mid-throw reads as failed, and the journal gets its summary
-      // line. A throwing _finish must not mask the original error.
+      // line.
       if (cancelled) {
         for (final item in plan.items) {
           if (item.status == SyncItemStatus.pending) {
@@ -579,8 +583,10 @@ final class _RunSession {
       try {
         await _finish();
       } on Object {
-        // The summary line is the one record we could not write —
-        // never mask an in-flight exception for it.
+        // While a phase error is propagating, a failed summary write
+        // must not mask it; on a clean run the failure surfaces
+        // instead of silently leaving the journal unfinished.
+        if (phaseError == null) rethrow;
         _failed = true;
       }
     }

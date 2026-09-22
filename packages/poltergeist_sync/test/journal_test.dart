@@ -257,6 +257,32 @@ void main() {
     );
   });
 
+  test('invalid UTF-8 in a torn line does not fail replay', () async {
+    // A kill can sever a multi-byte character mid-write; strict
+    // decoding would throw before the skip-undecodable logic runs.
+    final journal = await SyncRunJournal.create(
+      runsDir.path,
+      record('run-utf8', DateTime.fromMillisecondsSinceEpoch(1700000000000)),
+    );
+    await journal.appendItem(
+      SyncJournalItemLine(
+        relativePath: 'kept.txt',
+        side: SyncSide.right,
+        action: SyncActionType.deleteRight,
+        outcome: SyncItemStatus.done,
+        attempt: 1,
+        bytes: 1,
+      ),
+    );
+    // Raw invalid bytes (a lone continuation byte) mid-file.
+    final file = File(journal.path);
+    await file.writeAsBytes([0xFF, 0xFE, 0x0A], mode: FileMode.append);
+
+    final replayed = await SyncRunJournal.open(journal.path);
+    expect(replayed.items, hasLength(1));
+    expect(replayed.items.single.relativePath, 'kept.txt');
+  });
+
   test('a duplicate header line is refused', () async {
     final journal = await SyncRunJournal.create(
       runsDir.path,
