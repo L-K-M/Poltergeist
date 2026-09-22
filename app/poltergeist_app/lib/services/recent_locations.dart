@@ -110,18 +110,19 @@ final class RecentLocationsStore extends ChangeNotifier {
   final _entries = <RecentLocation>[];
   void Function()? _cancelScheduled;
   Future<void> _tail = Future<void>.value();
-  bool _loaded = false;
+  Future<void>? _loadFuture;
 
   /// The live list, newest first. Read at palette-open time — the
   /// section snapshots rather than subscribing.
   List<RecentLocation> get entries => List.unmodifiable(_entries);
 
-  /// Reads the persisted document once. Tolerant: a malformed document
-  /// or entry reports and yields an empty/partial list, never a boot
+  /// Reads the persisted document once — memoized so concurrent
+  /// callers await the same read. Tolerant: a malformed document or
+  /// entry reports and yields an empty/partial list, never a boot
   /// failure.
-  Future<void> load() async {
-    if (_loaded) return;
-    _loaded = true;
+  Future<void> load() => _loadFuture ??= _readPersisted();
+
+  Future<void> _readPersisted() async {
     try {
       final raw = await _store.get<Object>(settingsKey);
       if (raw == null) return;
@@ -135,7 +136,15 @@ final class RecentLocationsStore extends ChangeNotifier {
       for (final entry in entries) {
         if (entry is! Map) continue;
         try {
-          _entries.add(RecentLocation.fromJson(entry.cast<String, Object?>()));
+          final decoded = RecentLocation.fromJson(
+            entry.cast<String, Object?>(),
+          );
+          // A record() that beat the load wins: the live entry is
+          // newer than its persisted twin.
+          final duplicate = _entries.any(
+            (existing) => existing.dedupeKey == decoded.dedupeKey,
+          );
+          if (!duplicate) _entries.add(decoded);
         } catch (error, stack) {
           _report(error, stack);
         }
@@ -195,7 +204,13 @@ final class RecentLocationsStore extends ChangeNotifier {
   }
 
   Future<void> _writeNow() {
-    final operation = _tail.then((_) => _write());
+    // Capture the tail BEFORE reassigning it: awaiting the field inside
+    // the closure would make the operation wait on itself. And a write
+    // must never land before the persisted read — without this ordering
+    // a record() issued pre-load would flush only the live list and
+    // clobber entries that were never read.
+    final previous = _tail;
+    final operation = load().then((_) => previous.then((_) => _write()));
     _tail = operation.then((_) {}, onError: (_, _) {});
     return operation;
   }

@@ -429,13 +429,18 @@ class _SectionHeaderState extends State<_SectionHeader> {
                       ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: Text(
-                          widget.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.labelMedium?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
+                        // The merged header node already announces the
+                        // full "title, N items" label; exclude the raw
+                        // text so screen readers don't read it twice.
+                        child: ExcludeSemantics(
+                          child: Text(
+                            widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: text.labelMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),

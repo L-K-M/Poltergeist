@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart' show RemoteFileType;
 
 import '../../services/pane_controller.dart';
+import '../../services/pane_permissions.dart' show nameIsFlagged;
 import '../../services/preview_session.dart';
 import '../../services/registered_command.dart';
 import '../../services/workspace_controller.dart';
@@ -363,7 +364,11 @@ List<RegisteredCommand> buildPaneCommands({
             pane.verbsEnabled &&
             cursor != null &&
             cursor >= 0 &&
-            cursor < pane.entries.length;
+            cursor < pane.entries.length &&
+            // A flagged (U+FFFD) name can't round-trip to the wire —
+            // §13 withholds the verb rather than letting the command
+            // run and the controller refuse.
+            !nameIsFlagged(pane.entries[cursor].name);
       },
       disabledReason: (l10n) => l10n.commandDisabledNoSelection,
       run: (_) async {

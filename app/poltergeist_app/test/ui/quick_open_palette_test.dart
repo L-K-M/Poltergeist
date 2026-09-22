@@ -67,6 +67,7 @@ void main() {
     void Function(RegisteredCommand)? onCommand,
     void Function(Bookmark, QuickOpenAction)? onFavorite,
     void Function(RecentLocation, QuickOpenAction)? onRecent,
+    Bookmark? Function(RecentLocation)? resolveRecentBookmark,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -83,7 +84,8 @@ void main() {
                 commands: commands,
                 favorites: favorites,
                 recents: recents,
-                resolveRecentBookmark: (_) => null,
+                resolveRecentBookmark:
+                    resolveRecentBookmark ?? (_) => null,
                 onCommand: onCommand ?? (_) {},
                 onFavorite: onFavorite ?? (_, _) {},
                 onRecent: onRecent ?? (_, _) {},
@@ -332,5 +334,27 @@ void main() {
       ],
     );
     expect(find.text(l10n.quickOpenRecentUnavailable), findsOneWidget);
+  });
+
+  testWidgets('Ctrl+Enter on a command row collapses to a plain run', (
+    tester,
+  ) async {
+    // §8.4: the modifier-Enter family is a location-row affordance;
+    // command rows run the same action regardless of the modifier.
+    final ran = <String>[];
+    await pumpPalette(
+      tester,
+      commands: [_command('app.verb')],
+      onCommand: (command) => ran.add(command.id),
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(ran, ['app.verb']);
+    expect(find.byKey(const ValueKey('quickOpen.field')), findsNothing);
   });
 }

@@ -2495,6 +2495,14 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   void _openRecentLocation(RecentLocation recent, QuickOpenAction action) {
     final workspace = _workspace;
     if (workspace == null) return;
+    // Resolve before any state change: an unopenable remote must not
+    // switch the active pane or strand a fresh launcher tab.
+    final bookmark = recent.isRemote
+        ? _resolveRecentBookmark(recent) ?? recent.remoteBookmark
+        : null;
+    if (recent.isRemote && bookmark == null) {
+      return; // the row renders disabled instead
+    }
     final active = workspace.activePane;
     final strip = _shownPane(
       workspace,
@@ -2520,11 +2528,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       );
       return;
     }
-    final bookmark = _resolveRecentBookmark(recent) ?? recent.remoteBookmark;
-    if (bookmark == null) return; // the row renders disabled instead
     unawaited(
       controller
-          .connectRemote(bookmark, initialPath: recent.path)
+          .connectRemote(bookmark!, initialPath: recent.path)
           .catchError(
             (Object error, StackTrace stackTrace) =>
                 ApplicationErrorReporter().report(error, stackTrace),

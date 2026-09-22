@@ -225,6 +225,8 @@ void main() {
     testWidgets('no import seam mounts no offer', (tester) async {
       final lanes = controller_test.FakePaneLanes();
       await pumpLauncher(tester, lanes);
+      // Guard against a vacuous pass: the launcher itself must be up.
+      expect(find.byType(TextField), findsWidgets);
       expect(
         find.byKey(const ValueKey('quickConnect.importSshConfig')),
         findsNothing,

@@ -18,7 +18,10 @@ int? quickOpenScore(String query, String candidate) {
     score += 1;
     // Word boundary: start of string, after a separator, or a
     // camelCase hump — the chars users actually type to reach a row.
-    if (ci == 0 || _isBoundary(candidate, ci)) score += 8;
+    if (ci == 0 ||
+        (ci < candidate.length && _isBoundary(candidate, ci))) {
+      score += 8;
+    }
     if (lastMatch == ci - 1) score += 4; // consecutive run
     lastMatch = ci;
     qi++;
