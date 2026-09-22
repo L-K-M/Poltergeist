@@ -4,10 +4,16 @@ Living snapshot of where Poltergeist is, what's proven, and what to pick up
 next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
-_Last updated: 2026-09-22. **M3, M4, M5, M6, M7, and M8 are closed; M9
-is in progress** — its first polish slice (Quick Open palette, the
-ssh_config adoption finish, the §13 a11y audit, the i18n sweep, and the
-§9–11 chrome QA) landed per the dated section below. M8's scanner core
+_Last updated: 2026-09-22. **M3–M9 are closed; M10 (v1.0 release) is
+next.** M9's two polish slices landed (#184 palette/import/a11y/i18n/
+chrome, #185 tier-B flip + fast path + update check) and the §3.10
+exit-criteria audit closed the milestone per the dated section below
+(record: [tasks/m9-closure-record.md](../tasks/m9-closure-record.md)) —
+with recorded residuals: the `BENCH_ENFORCE_B` arming tail (open item
+31, supervisor-owned), the still-unscheduled D28 chown UI (item 30), and
+the human-only QA residual now collected in
+[`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md) (item 32).
+M8's scanner core
 (#174), executor + safety rails (#175),
 plan view + savedSync + activity-panel runs (#176), and rsync exporter
 (#177) landed, and the §3.9 exit-criteria audit closed the milestone
@@ -7529,6 +7535,42 @@ suite 138 pass with the contract pins updated for the flip; app
 analyze clean; 17 targeted D19 tests pass. The first enforced tier-B
 main run is verified post-merge per the arming order.
 
+## M9 — exit-criteria audit and close (2026-09-22)
+
+M9 is CLOSED on evidence; the full per-criterion record is
+[tasks/m9-closure-record.md](../tasks/m9-closure-record.md), audited at
+main head `495dd9e`. The audit PR is documentation-only — every gap
+found was a missing committed artifact, not a code defect: the README
+known-issues section (Linux a11y + Windows IME, upstream issues linked
+and dated), `docs/qa/RELEASE-CHECKLIST.md` (08 §9/DoD — required to
+exist at M9; neither polish PR created it),
+`docs/qa/screen-reader-notes.md` (the §3.10 walkthrough-notes criterion,
+answered honestly — no VoiceOver/NVDA walkthrough has run on a native
+host; the notes record exactly what the automated semantics suites prove
+and what release QA still owes), and the PORTS.md entry #185 owed for
+the ported `update_banner.dart` (source verified at pin `v0.9.1`).
+
+Verified highlights: palette/imports/a11y/i18n/chrome/update-check all
+test- and capture-backed per the record; the D26 spike adopted Linux
+`copy_file_range` (~6–15× streamed, chunked, decline-safe). The tier-B
+flip's code is landed and its audit table is committed; the
+**`BENCH_ENFORCE_B` variable is unset at audit time — that arming is the
+supervisor's open tail (item 31), recorded precisely rather than
+duplicated**: the post-#185 main runs seeded the drift store while
+measuring on the pre-rotation runner image, so
+`tier-b/controlled/runnerImage` sits at 8 consecutive main runs and an
+early flip would red main until a clean committed-fingerprint run lands.
+Tier-A is likewise armed-but-inert on the same drift (the job annotates
+it). D28 chown UI (item 30) is now flagged as unscheduled — M8 deferred
+it to M9 but §3.10's scope never contained it; closing M9 does not
+resolve D28 and the disposition needs an owner/plan decision.
+
+§3.12 chores: PORTS swept (the banner entry; no other ported file
+moved), pin holds `v0.9.1` (still latest upstream tag), no `TODO(pin)`
+markers, mobile invariant row re-verified, tag chore not run per the
+standing untagged-close pattern. Local: dart/flutter analyze clean;
+190-test focused battery green.
+
 ## Open items
 
 1. **M3 — OS Dart client matrix: validated 2026-09-12.**
@@ -8311,6 +8353,33 @@ main run is verified post-merge per the arming order.
     name resolution, per-platform legality, failure surfacing) that
     belong to a feature slice, not an audit patch. The pin capability
     is already proven by the pin itself; the work is UI + wiring.
+    **2026-09-22 update (M9 close):** still unlanded, and now
+    unscheduled — §3.10's M9 scope never contained it, so the deferral
+    target passed without the work. Closing M9 does not resolve D28;
+    disposition (v1.x vs a scoped slice) is an owner/plan decision.
+31. **2026-09-22: M9 — `BENCH_ENFORCE_B` arming tail (supervisor-owned).**
+    The flip's code is on main (#185): `budgets.json` marks P1/P2/P4
+    landed, `ci.yml` forwards `vars.BENCH_ENFORCE_B`, the drift-state
+    store and rerun-before-red are wired. The repo variable itself is
+    deliberately unset: the post-#185 main runs seeded the drift store
+    while measuring on the pre-rotation image
+    (`ubuntu-latest@20260907.300.1` vs the committed `20260920.314.1`),
+    so `tier-b/controlled/runnerImage` stands at 8 consecutive main runs
+    (≥ the 7-run stale threshold). Arming before a fully clean main run
+    lands — matching image *and* baseline CPU (`AMD EPYC 7763`) — reds
+    main on the stale streak. Until then tier-A enforcement is also
+    inert (drift-skipped; the bench job annotates this). Supervisor
+    dispatch runs 35781589991 (completed soft) and 35782936812 (pending
+    at audit time) are the apparent seeding attempts; both observed runs
+    drew the old image. Do not flip until the store shows a clean
+    committed-fingerprint observation.
+32. **2026-09-22: M9 — human-only QA residual.** Everything automation
+    cannot see is collected in
+    [`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md): native
+    screen-reader walkthroughs (VoiceOver/NVDA — honestly unrun, per
+    `docs/qa/screen-reader-notes.md`), native chrome and dialogs, scroll
+    feel, macOS Quick Look on real hardware, and real-IME entry. First
+    fill is due with the v1.0 release PR.
 
 ## Independent audit
 

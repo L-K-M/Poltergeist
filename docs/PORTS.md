@@ -761,6 +761,25 @@ could ride a future Séance PR if Séance adopts §2.5 ordering.
   `PreviewPdfBuilder` seam.
 - Port-back candidates: none.
 
+## app/poltergeist_app/lib/ui/update_banner.dart
+
+- Source: app/seance_app/lib/ui/server_list_pane.dart (`_UpdateBanner`)
+- Séance commit: 035b0d880b47639e390af8cbbd6d316cb5edc86d (`v0.9.1`, the
+  live pin)
+- Ported: 2026-09-22 (M9 polish pass 2, PR #185; PORTS entry added by the
+  M9 closure audit — the entry was missed in the landing PR)
+- Divergences: mounts inside the workspace shell between toolbar and
+  panes rather than Séance's server list; strings are ARB (D20); the
+  release-page hand-off goes through an injectable `launch` seam
+  (url_launcher `LaunchMode.externalApplication` by default) so tests
+  observe it without the platform channel, and a failed launch routes to
+  `ApplicationErrorReporter`. The checker's repo constant lives in
+  `poltergeist_core`'s `src/update/update_check.dart`
+  (`poltergeistUpdateRepo`); `UpdateChecker`/`UpdateInfo` themselves are
+  consumed from the pin, not ported (D2).
+- Port-back candidates: none — the divergences are Poltergeist-local
+  (shell mount point, D20 localization, test seam).
+
 ## Pin findings
 
 The 2026-09-21 tag re-pin (M8's first slice) moves both live declarations

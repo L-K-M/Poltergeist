@@ -35,6 +35,23 @@ proven foundations (SSH/SFTP transport, TOFU host keys, vault, sync protocol,
 editor). Improvements made here are ported back to Séance where they apply;
 the porting policy is part of the plan.
 
+## Known issues
+
+- **Linux screen readers.** Flutter's Linux embedder exposes semantics
+  through the legacy ATK layer; custom widgets are largely invisible to
+  Orca/AT-SPI. Upstream tracks the rework in
+  [flutter/flutter#159460](https://github.com/flutter/flutter/issues/159460)
+  (checked 2026-09-22). Poltergeist builds the full semantics tree —
+  merged row nodes, sort state, live-region completion announcements,
+  focus-visible rings — and verifies it with automated semantics tests,
+  but Linux screen-reader coverage is not claimed until upstream lands.
+- **Windows IME (IMM32).** Text input on Windows uses the legacy IMM32
+  path: candidate-window positioning and composition-event delivery have
+  known upstream defects (e.g.
+  [flutter/flutter#128323](https://github.com/flutter/flutter/issues/128323),
+  checked 2026-09-22). Rename fields and the editor inherit these
+  behaviors; they are tracked upstream, not worked around locally.
+
 ## Where things stand
 
 The repository carries infrastructure (CI, review workflow, build and
