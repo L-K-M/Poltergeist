@@ -141,10 +141,13 @@ Future<void> _runScenario({
       '$remoteRoot/uploads/host/sync-it-$serviceId-'
       '${DateTime.now().millisecondsSinceEpoch}';
   addTearDown(() async {
-    await manager.disconnectServer(serviceId);
-    expect(unexpectedPrompts, isEmpty);
-    localDir.deleteSync(recursive: true);
-    journalDir.deleteSync(recursive: true);
+    try {
+      await manager.disconnectServer(serviceId);
+    } finally {
+      expect(unexpectedPrompts, isEmpty);
+      localDir.deleteSync(recursive: true);
+      journalDir.deleteSync(recursive: true);
+    }
   });
 
   final source = File('${localDir.path}/a.txt')
