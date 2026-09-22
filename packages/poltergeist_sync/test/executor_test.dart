@@ -141,9 +141,13 @@ void main() {
   }
 
   Future<EntrySnapshot> snapOf(Directory root, String rel) async {
-    final stat = await FileStat.stat(remoteJoin(root.path, rel));
+    final path = remoteJoin(root.path, rel);
+    final stat = await FileStat.stat(path);
+    // lstat-style kind detection — FileStat.stat follows links and
+    // would misclassify a symlink-to-file as a plain file.
+    final type = await FileSystemEntity.type(path, followLinks: false);
     return EntrySnapshot(
-      kind: switch (stat.type) {
+      kind: switch (type) {
         FileSystemEntityType.file => EntryKind.file,
         FileSystemEntityType.directory => EntryKind.directory,
         FileSystemEntityType.link => EntryKind.symlink,
