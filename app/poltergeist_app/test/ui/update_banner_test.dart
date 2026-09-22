@@ -115,7 +115,7 @@ void main() {
       expect(find.byType(UpdateBanner), findsNothing);
     });
 
-    testWidgets('the app.settings command registers with the seam', (
+    testWidgets('the File menu carries the Settings row', (
       tester,
     ) async {
       await pumpShell(tester, controller());

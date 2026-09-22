@@ -157,7 +157,15 @@ Future<bool> _copyFileRangePump(
   required RemoteTransferCancellation? cancellation,
   required void Function(int bytes) onBytes,
 }) async {
-  final libc = _linuxCopyBindings();
+  final _LinuxCopyBindings libc;
+  try {
+    libc = _linuxCopyBindings();
+  } on Object {
+    // libc or its symbols missing (musl/bionic/stripped environments):
+    // decline so the caller restarts through the streamed pump rather
+    // than failing the copy outright.
+    return false;
+  }
   final nativeSource = sourcePath.toNativeUtf8();
   final nativeDestination = destinationPath.toNativeUtf8();
   var sourceFd = -1;
@@ -198,11 +206,17 @@ Future<bool> _copyFileRangePump(
         0,
       );
       if (copied < 0) {
-        if (_copyFileRangeDeclineErrnos.contains(libc.errno)) {
+        // errno is a TLS slot: read it once — a second lookup could see
+        // a value a later call overwrote.
+        final errno = libc.errno;
+        // EINTR copied nothing; retrying is loss-free (the standard
+        // TEMP_FAILURE_RETRY idiom).
+        if (errno == 4) continue;
+        if (_copyFileRangeDeclineErrnos.contains(errno)) {
           return false;
         }
         throw FileSystemException(
-          'copy_file_range failed (errno ${libc.errno})',
+          'copy_file_range failed (errno $errno)',
           destinationPath,
         );
       }

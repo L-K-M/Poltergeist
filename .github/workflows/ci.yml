@@ -489,9 +489,12 @@ jobs:
           DRIFT_STATE: bench-drift-state.json
         # `bash` on Actions is -eo pipefail: the tees below capture the
         # report for the annotation step without swallowing the checker's
-        # exit code.
+        # exit code. `set +e` keeps -o pipefail but drops -e — a failed
+        # evaluation must fall through to the rerun and drift-update
+        # passes rather than abort the script mid-step.
         shell: bash
         run: |
+          set +e
           tiers=ab
           if [ "${{ github.event_name }}" = 'pull_request' ]; then
             tiers=a

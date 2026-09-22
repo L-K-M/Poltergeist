@@ -189,6 +189,11 @@ void main() {
 
         expect(task.state, TransferTaskState.completed);
         expect(pumpCalls, 1);
+        // The fallback streamed inside copyLocalFile — pin that it never
+        // reroutes through the download/upload VFS pair (the pipe round
+        // trip the M9 fast path removed).
+        expect(localFs.downloadCalls, 0);
+        expect(localFs.uploadCalls, 0);
         expect(dstFile('fallback.bin').readAsBytesSync(), bytes);
         final progress = events
             .whereType<TransferQueueProgressEvent>()

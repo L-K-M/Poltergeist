@@ -99,8 +99,10 @@ String _errnoName(_LibC libc) =>
 
 int _errno() {
   // dart:ffi has no errno accessor; read it through libc's
-  // __errno_location on Linux (glibc/musl both provide it).
-  final loc = DynamicLibrary.open('libc.so.6').lookupFunction<
+  // __errno_location on Linux (glibc/musl both provide it). The process
+  // handle resolves symbols from the already-loaded libc regardless of
+  // its on-disk soname.
+  final loc = DynamicLibrary.process().lookupFunction<
     Pointer<Int32> Function(),
     Pointer<Int32> Function()
   >('__errno_location');
@@ -162,7 +164,7 @@ Future<void> _cfrChunked(File src, File dst, void Function(int) onBytes) =>
 Future<void> _cfrSingle(File src, File dst, void Function(int) onBytes) =>
     _kernelCopy(src, dst, onBytes, chunkBytes: _cfrSingleShotBytes, ficlone: false);
 
-final _libc = _LibC(DynamicLibrary.open('libc.so.6'));
+final _libc = _LibC(DynamicLibrary.process());
 
 Future<void> _kernelCopy(
   File src,
@@ -204,7 +206,17 @@ Future<void> _kernelCopy(
         chunk,
         0,
       );
-      if (copied < 0) throw _KernelCopyUnsupported(_errno());
+      if (copied < 0) {
+        final errnoCode = _errno();
+        // Only the "this mechanism cannot serve this pair" errnos are
+        // capability results; anything else is a real copy error.
+        if (errnoCode == _eopnotsupp || errnoCode == 18) {
+          throw _KernelCopyUnsupported(errnoCode);
+        }
+        throw StateError(
+          'copy_file_range: errno $errnoCode (${_errnoName(_libc)})',
+        );
+      }
       if (copied == 0) {
         throw StateError('copy_file_range stalled at $remaining bytes left');
       }
@@ -234,16 +246,21 @@ final class _KernelCopyUnsupported implements Exception {
 Future<void> _fill(File file, int bytes) async {
   final sink = file.openWrite();
   const blockSize = 1 << 20;
-  final block = List<int>.generate(
-    blockSize,
-    (i) => (i * 31 + (i >> 8)) & 0xFF,
-  );
+  var offset = 0;
   var remaining = bytes;
   while (remaining > 0) {
     final n = remaining < blockSize ? remaining : blockSize;
-    sink.add(n == blockSize ? block : block.sublist(0, n));
+    // Position-dependent bytes keyed on the absolute file offset, so a
+    // truncated or offset clone fails the tail check, not just the
+    // length check.
+    final block = List<int>.generate(
+      n,
+      (i) => ((offset + i) * 31 + ((offset + i) >> 8)) & 0xFF,
+    );
+    sink.add(block);
     await sink.flush();
     remaining -= n;
+    offset += n;
   }
   await sink.close();
 }
@@ -286,24 +303,46 @@ Future<int> main(List<String> args) async {
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--dir':
-        dirs = [if (++i < args.length) args[i]];
+        if (++i >= args.length) {
+          stderr.writeln('--dir needs a value');
+          exitCode = 2;
+          return 2;
+        }
+        dirs = [args[i]];
         while (i + 1 < args.length && !args[i + 1].startsWith('--')) {
           dirs.add(args[++i]);
         }
       case '--sizes':
         if (++i >= args.length) {
           stderr.writeln('--sizes needs a value');
+          exitCode = 2;
           return 2;
         }
-        sizesMiB = [for (final s in args[i].split(',')) int.parse(s)];
+        final sizes = [
+          for (final s in args[i].split(',')) int.tryParse(s),
+        ];
+        if (sizes.any((s) => s == null)) {
+          stderr.writeln('--sizes needs comma-separated integers');
+          exitCode = 2;
+          return 2;
+        }
+        sizesMiB = [for (final s in sizes) s!];
       case '--reps':
         if (++i >= args.length) {
           stderr.writeln('--reps needs a value');
+          exitCode = 2;
           return 2;
         }
-        reps = int.parse(args[i]);
+        final parsedReps = int.tryParse(args[i]);
+        if (parsedReps == null) {
+          stderr.writeln('--reps needs an integer');
+          exitCode = 2;
+          return 2;
+        }
+        reps = parsedReps;
       default:
         stderr.writeln('unknown argument ${args[i]}');
+        exitCode = 2;
         return 2;
     }
   }
