@@ -486,7 +486,7 @@ jobs:
           fi
       - name: Upload bench results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-results
           path: |
@@ -555,7 +555,7 @@ jobs:
         timeout-minutes: 330
         run: packages/poltergeist_bench/run-ci-shard.sh "${{ matrix.shard }}"
       # JSON evidence contains no Séance code or executable artifact (D30).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: upload_shard
         if: always()
         continue-on-error: true
@@ -567,7 +567,7 @@ jobs:
           retention-days: 14
       - name: Retry shard evidence upload
         if: always() && steps.upload_shard.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: m0-bench-source-${{ matrix.shard }}
           path: packages/poltergeist_bench/bench-shard.json
@@ -609,7 +609,7 @@ jobs:
             --git-sha "${{ github.sha }}"
       - name: Upload canonical M0 evidence
         id: upload_evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: m0-bench-results
@@ -619,7 +619,7 @@ jobs:
           retention-days: 14
       - name: Retry canonical M0 evidence upload
         if: always() && steps.upload_evidence.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: m0-bench-results
           path: packages/poltergeist_bench/evidence
