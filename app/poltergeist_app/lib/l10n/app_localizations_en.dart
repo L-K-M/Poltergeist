@@ -2660,6 +2660,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get syncCopyReport => 'Copy Report';
 
   @override
+  String get syncCopyRsyncCommand => 'Copy as rsync Command';
+
+  @override
+  String get syncCopiedRsyncCommand => 'Copied rsync command';
+
+  @override
+  String get syncCopiedRsyncCommandPermanent =>
+      'Copied rsync command — deletions are permanent when pasted';
+
+  @override
+  String get syncRsyncCopyFailed =>
+      'Couldn\'t copy the rsync command — clipboard unavailable';
+
+  @override
   String get syncHeavySuggestionAccept => 'Exclude';
 
   @override

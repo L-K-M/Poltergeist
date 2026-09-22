@@ -381,6 +381,9 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
     "'poltergeist.sync.tripwireIds'",
     r"'$entry'",
   },
+  // The rsync export seam's `Platform.operatingSystem` id — machine
+  // data compared, never rendered.
+  'lib/services/rsync_endpoints.dart': {"'windows'"},
   // The §3.3 status keys, the §4.4 retained-account record's field
   // names, and the programmer-error diagnostics (missing token, wrong
   // mode, failed typed confirmation) — machine data and reported
@@ -1799,6 +1802,7 @@ const _allowedTechnicalLiterals = <String, Set<String>>{
   'lib/ui/sync/sync_commands.dart': {
     "'sync.synchronizePanes'",
     "'sync.newSavedSync'",
+    "'sync.copyRsyncCommand'",
   },
   // The pair editor's machine literals: numeric TextField seeds, the
   // 1–8 concurrency labels, and the decimal input-filter regex —

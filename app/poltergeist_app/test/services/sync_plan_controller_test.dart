@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:poltergeist_app/services/rsync_endpoints.dart';
 import 'package:poltergeist_app/services/sync_environment.dart';
 import 'package:poltergeist_app/services/sync_plan_controller.dart';
 import 'package:poltergeist_app/services/sync_queue_facade.dart';
@@ -79,6 +80,7 @@ void main() {
           right: testScanResult('/right', const {}),
         ),
         differ: FakeSyncDiffer(null, error: StateError('boom')),
+        rsyncEndpoints: resolveRsyncEndpoints,
       );
       addTearDown(controller.dispose);
       controller.start();
@@ -460,6 +462,7 @@ void main() {
         scanner: scanner,
         differ: FakeSyncDiffer(testPlan(pair, const [])),
         deviceId: 'test-device',
+        rsyncEndpoints: resolveRsyncEndpoints,
       );
       addTearDown(controller.dispose);
       controller.start();
@@ -583,6 +586,7 @@ void main() {
       environment: environment ?? testSyncEnvironment(scratch),
       syncTasks: tasks ?? SyncQueueTasks(),
       deviceId: 'test-device',
+      rsyncEndpoints: resolveRsyncEndpoints,
     );
 
     test('copy run completes, item rows land in the panel task',
@@ -828,6 +832,190 @@ void main() {
       gateFs.failUploads = false;
       await controller.retryFailed();
       expect(controller.pairState.lastRunAt, isNotNull);
+    });
+  });
+
+  // 05 §2.1's export seam: `rsyncExport` renders the effective
+  // ruleset with the plan's override count and engine-imposed skips;
+  // the resolver is the injected seam the shell binds to the catalog.
+  group('rsyncExport', () {
+    final stamp = DateTime.utc(2026, 9, 22, 15, 4, 7);
+
+    test('renders the effective ruleset with the injected resolver',
+        () async {
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(deletions: DeletionPolicy.trash),
+      );
+      final controller = await _ready(
+        _controller(
+          pair: pair,
+          plan: testPlan(pair, [
+            testItem(
+              'a.txt',
+              left: testFile(size: 4),
+              suggested: SyncActionType.copyLeftToRight,
+              reason: SyncReason.onlyOnLeft,
+            ),
+          ]),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      expect(controller.canExportRsync, isTrue);
+      final export = controller.rsyncExport(now: stamp);
+      expect(export, isNotNull);
+      expect(export!.text, contains('rsync -n -i'));
+      expect(export.text, contains('--delete-delay'));
+      expect(export.text, contains('rsync-20260922-150407'));
+      expect(export.permanentDeletions, isFalse);
+    });
+
+    test('permanent+none flags the toast differentiation', () async {
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(
+          deletions: DeletionPolicy.permanent,
+          backups: BackupPolicy.none,
+        ),
+      );
+      final controller = await _ready(
+        _controller(
+          pair: pair,
+          plan: testPlan(pair, [
+            testItem(
+              'old.txt',
+              right: testFile(),
+              suggested: SyncActionType.deleteRight,
+              reason: SyncReason.onlyOnRight,
+            ),
+          ]),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      final export = controller.rsyncExport(now: stamp)!;
+      expect(export.permanentDeletions, isTrue);
+    });
+
+    test('manual overrides and engine skips land in the export',
+        () async {
+      final pair = testSyncPair();
+      final plan = testPlan(pair, [
+        testItem(
+          'a.txt',
+          left: testFile(size: 4),
+          suggested: SyncActionType.copyLeftToRight,
+          reason: SyncReason.onlyOnLeft,
+        ),
+        testItem(
+          'bad/sub',
+          left: testDir,
+          reason: SyncReason.scanError,
+        ),
+      ]);
+      final controller = await _ready(
+        _controller(pair: pair, plan: plan),
+      );
+      addTearDown(controller.dispose);
+      // One manual override on the plan's first row.
+      controller.applyOverrideTo([plan.items.first], SyncActionType.skip);
+
+      final export = controller.rsyncExport(now: stamp)!;
+      expect(export.text, contains('1 manual per-item override'));
+      expect(export.text, contains("--exclude='/bad/sub'"));
+      expect(
+        export.text,
+        contains('scan-error subtrees and symlinks are excluded'),
+      );
+    });
+
+    test('a null resolver answer disables the export', () async {
+      final pair = testSyncPair();
+      final scratch = Directory.systemTemp.createTempSync();
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      final controller = testController(
+        pair: pair,
+        scanner: FakeSyncScanner(
+          left: testScanResult('/left', const {}),
+          right: testScanResult('/right', const {}),
+        ),
+        differ: FakeSyncDiffer(testPlan(pair, const [])),
+        environment: testSyncEnvironment(scratch),
+        rsyncEndpoints: (_) => null,
+      );
+      addTearDown(controller.dispose);
+      await _ready(controller);
+
+      expect(controller.canExportRsync, isFalse);
+      expect(controller.rsyncExport(now: stamp), isNull);
+    });
+
+    test('no plan yet — nothing to export', () {
+      final pair = testSyncPair();
+      final scratch = Directory.systemTemp.createTempSync();
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      final controller = testController(
+        pair: pair,
+        scanner: FakeSyncScanner(
+          left: testScanResult('/left', const {}),
+          right: testScanResult('/right', const {}),
+        ),
+        differ: FakeSyncDiffer(testPlan(pair, const [])),
+        environment: testSyncEnvironment(scratch),
+      );
+      addTearDown(controller.dispose);
+
+      expect(controller.canExportRsync, isFalse);
+      expect(controller.rsyncExport(now: stamp), isNull);
+    });
+
+    test('a mid-rescan stale plan is not exportable', () async {
+      final pair = testSyncPair();
+      final controller = await _ready(
+        _controller(pair: pair, plan: testPlan(pair, const [])),
+      );
+      addTearDown(controller.dispose);
+      expect(controller.canExportRsync, isTrue);
+
+      unawaited(controller.rescan());
+      expect(controller.phase, SyncPlanPhase.scanning);
+      // `_plan` still holds the previous scan's result — exporting it
+      // would render current rules against stale skip paths.
+      expect(controller.canExportRsync, isFalse);
+      expect(controller.rsyncExport(now: stamp), isNull);
+
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+      expect(controller.canExportRsync, isTrue);
+    });
+
+    test('untrusted mtimes downgrade the export to --size-only',
+        () async {
+      final pair = testSyncPair();
+      final scratch = Directory.systemTemp.createTempSync();
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      // Seed the §4 flag under the id the scan will settle on — the
+      // fakes report caseSensitive roots and no probe answers, so the
+      // pairId resolves with the default fold flags.
+      final states = MemorySyncStateStore();
+      await states.save(
+        syncPairId(pair),
+        SyncPairState(mtimeUnreliableLeft: true),
+      );
+      final controller = await _ready(
+        _controller(
+          pair: pair,
+          plan: testPlan(pair, const []),
+          environment: testSyncEnvironment(scratch, states: states),
+        ),
+      );
+      addTearDown(controller.dispose);
+
+      final export = controller.rsyncExport(now: stamp)!;
+      expect(export.text, contains('--size-only'));
+      expect(export.text, isNot(contains('--modify-window')));
+      expect(
+        export.text,
+        contains('mtimes untrusted'),
+      );
     });
   });
 }

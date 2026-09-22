@@ -13,6 +13,7 @@ import 'package:poltergeist_sync/poltergeist_sync.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../services/sync_plan_controller.dart';
+import 'rsync_copy.dart';
 import 'sync_plan_format.dart';
 
 /// One filter chip's bucket over effective actions.
@@ -1069,6 +1070,16 @@ class _ActionBar extends StatelessWidget {
           runSpacing: 4,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            // §7's action-bar order: Copy as rsync Command · Save as
+            // Favorite… · the Run cluster — the first two render the
+            // registered commands (D21).
+            TextButton.icon(
+              icon: const Icon(Icons.terminal, size: 16),
+              label: Text(l10n.syncCopyRsyncCommand),
+              onPressed: controller.canExportRsync
+                  ? () => unawaited(copyRsyncCommand(context, controller))
+                  : null,
+            ),
             if (controller.lastRun != null)
               TextButton.icon(
                 icon: const Icon(Icons.summarize_outlined, size: 16),

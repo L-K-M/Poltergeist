@@ -1,0 +1,4 @@
+# note: --size-only replaces mtime comparison (mtimes untrusted) — a file whose content changed while its size did not is skipped as unchanged
+# note: rsync is single-stream
+# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --size-only --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'
+rsync -r -p -t --size-only --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'

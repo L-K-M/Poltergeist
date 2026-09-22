@@ -1,0 +1,6 @@
+# note: pattern 'a[ b' is emitted escaped as 'a\[ b' — rsync would otherwise read the engine's literal characters as filter syntax
+# note: rsync is single-stream
+# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='a\[ b' -- '/home/me/site/' '/srv/si te'
+rsync -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='a\[
+b' -- '/home/me/site/' '/srv/si
+te'

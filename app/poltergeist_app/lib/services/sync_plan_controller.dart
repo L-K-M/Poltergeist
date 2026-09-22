@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 
+import 'rsync_endpoints.dart';
 import 'sync_environment.dart';
 import 'sync_queue_facade.dart';
 
@@ -173,13 +174,22 @@ final class SyncPlanController extends ChangeNotifier {
     SyncPlanDiffer? differ,
     this.deviceId = 'local',
     SyncCaseOverrides? caseOverrides,
-  // `_pair` stays private: an initializing formal would make the
-  // named parameter unusable outside this library (ui/ constructs
-  // sessions by `pair:`).
+    // Required rather than defaulted to `resolveRsyncEndpoints`: the
+    // plain resolver cannot see the shared-mode server catalog, so a
+    // construction site that forgot to bind one would silently disable
+    // rsync export for every serverConfigId pair. Forcing the argument
+    // makes the choice visible (tests pass the plain resolver or a
+    // stub; the shell binds the catalog lookup).
+    required RsyncEndpointResolver rsyncEndpoints,
+  // `_pair`/`_rsyncEndpoints` stay private: initializing formals would
+  // make the named parameters unusable outside this library (ui/
+  // constructs sessions by `pair:`/`rsyncEndpoints:`).
   // ignore: prefer_initializing_formals
   }) : _pair = pair,
        _environment = environment,
        _pendingCaseOverrides = caseOverrides,
+       // ignore: prefer_initializing_formals
+       _rsyncEndpoints = rsyncEndpoints,
        _scanner = scanner ?? _TreeScannerAdapter(environment),
        _differ = differ ?? _EngineDiffer(environment);
 
@@ -190,6 +200,11 @@ final class SyncPlanController extends ChangeNotifier {
   final SyncQueueTasks syncTasks;
   final SyncPairScanner _scanner;
   final SyncPlanDiffer _differ;
+
+  /// Resolves the pair's server refs to the rsync exporter's
+  /// connection-shaped endpoints (rsync_endpoints.dart); the shell
+  /// binds the shared-mode catalog lookup, tests inject their own.
+  final RsyncEndpointResolver _rsyncEndpoints;
 
   /// 04 §3.1's device identity — the runId prefix source (05 §6).
   final String deviceId;
@@ -555,6 +570,56 @@ final class SyncPlanController extends ChangeNotifier {
       _pair.rules.preserveMtime &&
       !_pairState.mtimeUnreliableLeft &&
       !_pairState.mtimeUnreliableRight;
+
+  /// The `sync.copyRsyncCommand` enablement probe (05 §2.1): true when
+  /// [rsyncExport] would produce text — a settled plan exists and every
+  /// remote side resolves. Cheap: no string is built.
+  bool get canExportRsync =>
+      _exportablePlan != null && _rsyncEndpoints(_pair) != null;
+
+  /// The plan export may quote: settled only. During `scanning`/`error`
+  /// `_plan` can hold a PREVIOUS scan's result while `_pair.rules` have
+  /// already moved on — exporting the mix would render new rules against
+  /// a stale plan's skip paths.
+  SyncPlan? get _exportablePlan => switch (_phase) {
+    SyncPlanPhase.scanning || SyncPlanPhase.error => null,
+    _ => _plan,
+  };
+
+  /// §2.1's "Copy as rsync command" body: the EFFECTIVE ruleset
+  /// rendered as the commented rsync block — §4's `mtimeUnreliable`
+  /// downgrade resolved here because it lives in sync_state, outside
+  /// the ruleset. Null when there is no plan yet or a remote side's
+  /// `serverConfigId` resolves to nothing (shared-mode catalog not
+  /// pulled) — the caller hides the affordance rather than emit a
+  /// silently wrong command. [now] is a seam so the timestamped
+  /// backup-dir stays deterministic under test.
+  ({String text, bool permanentDeletions})? rsyncExport({DateTime? now}) {
+    final plan = _exportablePlan;
+    if (plan == null) return null;
+    final endpoints = _rsyncEndpoints(_pair);
+    if (endpoints == null) return null;
+    final downgraded =
+        _pair.rules.comparison == ComparisonMode.sizeAndMtime &&
+        (_pairState.mtimeUnreliableLeft || _pairState.mtimeUnreliableRight);
+    final rules = downgraded
+        ? _rulesWith(comparison: ComparisonMode.sizeOnly)
+        : _pair.rules;
+    return (
+      text: buildRsyncCommand(
+        endpoints,
+        rules,
+        manualOverrides:
+            plan.items.where((item) => item.userOverridden).length,
+        mtimesUntrusted: downgraded,
+        engineSkipPaths: rsyncEngineSkipPaths(plan),
+        now: now ?? DateTime.now(),
+      ),
+      permanentDeletions:
+          rules.deletions == DeletionPolicy.permanent &&
+          rules.backups == BackupPolicy.none,
+    );
+  }
 
   /// Bulk override on a multi-selection (§7: same menu). Returns the
   /// rows the action could not apply to — Update/Additive bulk copies
@@ -1085,6 +1150,7 @@ final class SyncPlanController extends ChangeNotifier {
     SyncDirection? direction,
     DeletionPolicy? deletions,
     List<String>? excludeGlobs,
+    ComparisonMode? comparison,
   }) {
     final rules = _pair.rules;
     final nextDirection = direction ?? rules.direction;
@@ -1099,7 +1165,7 @@ final class SyncPlanController extends ChangeNotifier {
       direction: nextDirection,
       deletions: effectiveDeletions,
       backups: rules.backups,
-      comparison: rules.comparison,
+      comparison: comparison ?? rules.comparison,
       mtimeToleranceSecs: rules.mtimeToleranceSecs,
       acceptedTimeShifts: rules.acceptedTimeShifts,
       conflictDefault: rules.conflictDefault,
