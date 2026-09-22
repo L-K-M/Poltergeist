@@ -209,6 +209,25 @@ final class _GatedUploadFs extends LocalFileSystem {
   }
 }
 
+/// A filesystem whose setTimes is refused — the local stand-in for
+/// sshd-restricted's `sftp-server -P setstat,fsetstat` (the Docker leg
+/// proves the same path over the wire in poltergeist_sync's integration
+/// test). The run must still complete, flag the side mtime-unreliable,
+/// and surface 05 §4's size-only notice.
+final class _SetTimesRefusingFs extends LocalFileSystem {
+  @override
+  Future<void> setTimes(
+    String path, {
+    DateTime? accessedAt,
+    DateTime? modifiedAt,
+  }) => throw RemoteFileException(
+    kind: RemoteFileErrorKind.permissionDenied,
+    operation: 'setTimes',
+    path: path,
+    message: 'this server refuses setstat',
+  );
+}
+
 void main() {
   setUpAll(() async {
     if (Platform.environment['POLTERGEIST_CAPTURE'] == '1') {
@@ -653,6 +672,65 @@ void main() {
         expect(
           File('${right.path}/a.txt').readAsStringSync(),
           'x',
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'a refused setTimes flags the side mtime-unreliable and surfaces '
+    'the size-only notice',
+    (tester) async {
+      await tester.runAsync(() async {
+        final scratch = Directory.systemTemp.createTempSync('pg-view-');
+        addTearDown(() => scratch.deleteSync(recursive: true));
+        final left = Directory('${scratch.path}/left')..createSync();
+        final right = Directory('${scratch.path}/right')..createSync();
+        File('${left.path}/a.txt').writeAsStringSync('payload');
+        final refusing = _SetTimesRefusingFs();
+        final controller = SyncPlanController(
+          pair: testSyncPair(left: left.path, right: right.path),
+          environment: testSyncEnvironment(
+            scratch,
+            localFileSystem: () => refusing,
+          ),
+          syncTasks: SyncQueueTasks(),
+          deviceId: 'test-device',
+          rsyncEndpoints: resolveRsyncEndpoints,
+        );
+        addTearDown(controller.dispose);
+
+        await pumpSyncPlanView(tester, controller);
+        await pumpUntil(
+          () => controller.phase == SyncPlanPhase.ready,
+        );
+        await tester.pump();
+
+        // Before the run both sides are trusted — no notice.
+        expect(
+          find.textContaining('comparing by size only'),
+          findsNothing,
+        );
+
+        await controller.run();
+        await pumpUntil(
+          () => controller.phase == SyncPlanPhase.completed,
+        );
+        await tester.pump();
+
+        // The refused stamp completed the item, flagged the
+        // destination side, and the header now warns (05 §4).
+        expect(File('${right.path}/a.txt').existsSync(), isTrue);
+        expect(controller.pairState.mtimeUnreliableRight, isTrue);
+        expect(controller.pairState.mtimeUnreliableLeft, isFalse);
+        expect(
+          find.textContaining('comparing by size only'),
+          findsOneWidget,
+        );
+        await capturePlan(
+          tester,
+          'sync-plan-sizeonly-notice',
+          inRunAsync: true,
         );
       });
     },
