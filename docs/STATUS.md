@@ -7668,9 +7668,10 @@ criterion:
 
 **Exit-criteria state:** docs/code criteria prepared as above; the
 release command, the tag, `release.yml` green, the fresh-machine
-install tests, and the STATUS "shipped" flip remain — all owner-side
-by design. **Remaining QA:** the whole OWNER MANUAL QA set in
-`docs/qa/RELEASE-CHECKLIST.md`.
+install tests, the STATUS "shipped" flip, and stripping the
+CHANGELOG 1.0.0 heading's "(prepared; ships with the v1.0.0 tag)"
+parenthetical remain — all owner-side by design. **Remaining QA:**
+the whole OWNER MANUAL QA set in `docs/qa/RELEASE-CHECKLIST.md`.
 
 **Fast-follows (§3.13) staged as the post-tag next-steps:** agent auth
 + ProxyJump first (D10/PR-S4); OS drag-out (D14, `super_drag_and_drop`

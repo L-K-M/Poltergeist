@@ -58,7 +58,8 @@ known-divergent surface.
   Windows — both match the steps documented in `docs/INSTALL.md`.
 - [ ] Trash per platform (D15): macOS Put Back — OWNER MANUAL QA;
   Windows Explorer undo — OWNER MANUAL QA; Linux restore-from-trash —
-  `gio trash --restore` where the installed GLib supports the flag (it
+  OWNER MANUAL QA: `gio trash --restore` where the installed GLib
+  supports the flag (it
   takes the trash-side suffixed name, not the original path), else
   `gio open trash://` + a file-manager restore; record which path the QA
   machine used. (Linux trash round-trip is additionally covered by

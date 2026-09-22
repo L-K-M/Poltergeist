@@ -15,8 +15,10 @@ downloaded is what CI built:
 # Linux
 sha256sum -c SHA256SUMS --ignore-missing   # run in the download directory
 
-# macOS
-shasum -a 256 -c SHA256SUMS --ignore-missing
+# macOS — bundled shasum is old enough that --ignore-missing may not
+# exist, so digest the one file you downloaded and compare by eye
+shasum -a 256 poltergeist-macos-universal.zip
+# compare the printed hash with the release-notes line for that file
 
 # Windows (PowerShell)
 Get-FileHash .\poltergeist-windows-x64.zip -Algorithm SHA256
