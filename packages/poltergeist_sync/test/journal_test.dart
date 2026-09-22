@@ -292,7 +292,7 @@ void main() {
     final replayed = await SyncRunJournal.open(journal.path);
     expect(
       replayed.items.map((i) => i.relativePath),
-      containsAll(<String>['kept.txt', 'after.txt']),
+      equals(<String>['kept.txt', 'after.txt']),
     );
   });
 
