@@ -18,7 +18,7 @@ sha256sum -c SHA256SUMS --ignore-missing   # run in the download directory
 # macOS — bundled shasum is old enough that --ignore-missing may not
 # exist, so filter the one file you downloaded out of SHA256SUMS and
 # check it mechanically (run in the download directory)
-grep 'poltergeist-macos-universal.zip$' SHA256SUMS > SHA256SUMS.mac
+grep 'poltergeist-macos-universal.zip$' SHA256SUMS | tee SHA256SUMS.mac
 shasum -a 256 -c SHA256SUMS.mac   # expect: poltergeist-macos-universal.zip: OK
 
 # Windows (PowerShell)
