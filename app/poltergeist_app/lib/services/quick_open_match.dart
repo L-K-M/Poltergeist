@@ -18,8 +18,12 @@ int? quickOpenScore(String query, String candidate) {
     score += 1;
     // Word boundary: start of string, after a separator, or a
     // camelCase hump — the chars users actually type to reach a row.
+    // The probe reads the ORIGINAL candidate (camelCase needs the case
+    // that toLowerCase erased), so it only applies when lowercasing
+    // didn't drift the length — e.g. U+0130 lowercases to two chars,
+    // which would misalign ci against candidate.
     if (ci == 0 ||
-        (ci < candidate.length && _isBoundary(candidate, ci))) {
+        (candidate.length == c.length && _isBoundary(candidate, ci))) {
       score += 8;
     }
     if (lastMatch == ci - 1) score += 4; // consecutive run
