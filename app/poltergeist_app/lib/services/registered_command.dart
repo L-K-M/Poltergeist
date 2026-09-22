@@ -69,6 +69,7 @@ class RegisteredCommand {
     required this.label,
     this.icon,
     this.enabled = _alwaysEnabled,
+    this.disabledReason,
     required this.run,
     this.activators,
     this.menuPlacement,
@@ -95,6 +96,11 @@ class RegisteredCommand {
   final bool Function() enabled;
 
   static bool _alwaysEnabled() => true;
+
+  /// Why the command is unavailable while [enabled] is false (02 §8.4:
+  /// the palette shows the reason under a disabled row). Null means no
+  /// spelled-out reason — the row renders dimmed with no subtitle.
+  final String Function(AppLocalizations l10n)? disabledReason;
 
   /// Per-platform shortcut chords; null when the command has none.
   /// The returned list is freshly built (or const) per call and must be

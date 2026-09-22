@@ -16,6 +16,7 @@ import 'services/engine_session.dart';
 import 'services/file_stores.dart';
 import 'services/probe_settings_store.dart';
 import 'services/quit_guard.dart';
+import 'services/recent_locations.dart';
 import 'services/secure_master_key.dart';
 import 'services/session_persistence.dart';
 import 'services/session_state.dart';
@@ -107,6 +108,16 @@ Future<void> main() async {
     store: sessionStore,
     onError: errorReporter.report,
   );
+  // Quick Open's Recents (02 §8.4): one versioned document inside the
+  // shared settings.json, fed by the panes' location-commit hook and
+  // flushed inside onExitRequested's bounded wait. Same fail-closed
+  // decode as the session document — a malformed or newer-schema
+  // document reports and yields an empty list, never a boot failure.
+  final recentLocations = RecentLocationsStore(
+    store: settingsStore,
+    onError: errorReporter.report,
+  );
+  await errorReporter.guard(recentLocations.load);
   // The saved-workspace list (02 §3, M5): the workspace favorites live
   // in the shared bookmark store — label, sidebar order, endpoints —
   // while each one's full tab-set snapshot stays device-local in its own
@@ -284,6 +295,7 @@ Future<void> main() async {
       sessionPersistence: sessionPersistence,
       bookmarks: bookmarks,
       workspaces: workspaces,
+      recentLocations: recentLocations,
       engineSession: engineSession,
       bookmarkBackup: bookmarkBackup,
       navigatorKey: navigatorKey,

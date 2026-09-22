@@ -23,6 +23,7 @@ List<RegisteredCommand> buildActivityCommands({
       // disabled rather than vanishing (a registered command keeps its
       // menu path either way).
       enabled: () => activity?.queue != null,
+      disabledReason: (l10n) => l10n.commandDisabledNoQueue,
       run: (_) async {
         activity?.toggleQueuePause();
       },

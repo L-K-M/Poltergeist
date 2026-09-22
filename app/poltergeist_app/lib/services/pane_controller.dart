@@ -369,6 +369,14 @@ class PaneController extends ChangeNotifier {
   /// ([openLocalHome]) so a session replacement can re-drive it.
   final String paneTabId;
 
+  /// Quick Open's recents feed (02 §8.4): invoked when an accepted
+  /// listing commits a location — navigations, connects, back/forward.
+  /// Restored tabs and rollback restores do NOT call it (a restored
+  /// listing is presentation, not a visit). The strip stamps the same
+  /// callback on every tab; the shell binds the store.
+  void Function(PaneLocation location, {Bookmark? remoteBookmark})?
+  onLocationCommitted;
+
   final PaneEngineLanes? _lanes;
   final void Function(Object error, StackTrace)? _onError;
 
@@ -1450,6 +1458,10 @@ class PaneController extends ChangeNotifier {
     // The cursor is kept in-range by the listing prune, but the session
     // owns its own precondition rather than borrowing that invariant.
     if (cursor == null || cursor < 0 || cursor >= _entries.length) return;
+    // 02 §13's flagged-name rule: a U+FFFD name cannot be sent back to
+    // the wire — the row's rename action is withheld and the keyboard
+    // path refuses here too, so no route can reach the channel.
+    if (nameIsFlagged(_entries[cursor].name)) return;
     _renameSession = _RenameSession(
       entry: _entries[cursor],
       rowKey: _rowKeys[cursor],
@@ -3125,6 +3137,15 @@ class PaneController extends ChangeNotifier {
       // generation check above already pins `_location` to this
       // navigation's target.
       _committedLocation = _location;
+      final committed = _location;
+      if (committed != null) {
+        onLocationCommitted?.call(
+          committed,
+          remoteBookmark: committed is RemotePaneLocation
+              ? _pendingRemote
+              : null,
+        );
+      }
       _error = null;
       notifyListeners();
     } on RemoteFileException catch (error) {

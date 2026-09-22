@@ -1071,6 +1071,23 @@ abstract class AppLocalizations {
     String modified,
   );
 
+  /// Accessible label of a listing row whose decoded name carries U+FFFD (02 §13's flagged-name rule: the row's disabled reason is part of the node).
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {kind}, {size}, {modified} — name not valid UTF-8'**
+  String paneRowSemanticsFlagged(
+    String name,
+    String kind,
+    String size,
+    String modified,
+  );
+
+  /// Tooltip on the warning badge of a listing row whose decoded name carries U+FFFD (02 §13's flagged-name rule).
+  ///
+  /// In en, this message translates to:
+  /// **'Name is not valid UTF-8 — shown approximately'**
+  String get paneFlaggedNameTooltip;
+
   /// Screen-reader kind word for a regular file row (RemoteFileType.file).
   ///
   /// In en, this message translates to:
@@ -2311,6 +2328,12 @@ abstract class AppLocalizations {
     String bytes,
     String totalBytes,
   );
+
+  /// Accessible label of one transfer-task row (02 §13: label + state on a live region so completion and failure announce, while progress stays silent).
+  ///
+  /// In en, this message translates to:
+  /// **'{label}, {state}'**
+  String activityRowSemantics(String label, String state);
 
   /// The status bar's transfer summary chip (02 §1: rate plus live task count).
   ///
@@ -4422,6 +4445,192 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Saved sync \"{name}\" added to favorites'**
   String syncSavedFavoriteToast(String name);
+
+  /// Command label: opens the Quick Open palette (02 §8.4, app.quickOpen, ⇧⌘P / Ctrl+Shift+P).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Open…'**
+  String get quickOpenCommandLabel;
+
+  /// Semantics label of the Quick Open palette dialog (02 §8.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Open'**
+  String get quickOpenTitle;
+
+  /// Placeholder inside the Quick Open palette's filter field.
+  ///
+  /// In en, this message translates to:
+  /// **'Type a command or location'**
+  String get quickOpenFieldHint;
+
+  /// Footer hint under the Quick Open palette's list on macOS (⌥/⌘ glyphs).
+  ///
+  /// In en, this message translates to:
+  /// **'Enter runs · ⌥Enter opens in the other pane · ⌘Enter opens in a new tab · Esc closes'**
+  String get quickOpenHintMacos;
+
+  /// Footer hint under the Quick Open palette's list on Windows/Linux.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter runs · Alt+Enter opens in the other pane · Ctrl+Enter opens in a new tab · Esc closes'**
+  String get quickOpenHint;
+
+  /// Section header over the palette's registered-command rows (02 §8.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Commands'**
+  String get quickOpenSectionCommands;
+
+  /// Section header over the palette's bookmark rows (02 §8.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get quickOpenSectionFavorites;
+
+  /// Section header over the palette's recently visited locations (02 §8.4).
+  ///
+  /// In en, this message translates to:
+  /// **'Recents'**
+  String get quickOpenSectionRecents;
+
+  /// The palette's filtered-empty state (02 §8.4) — the field's literal query.
+  ///
+  /// In en, this message translates to:
+  /// **'No matches for “{query}”'**
+  String quickOpenNoMatches(String query);
+
+  /// Accessibility label of one palette row: the row's title and its section name.
+  ///
+  /// In en, this message translates to:
+  /// **'{label}, {section}'**
+  String quickOpenRowSemantics(String label, String section);
+
+  /// A command row's subtitle: the menu path the command lives under (02 §8.4's 'Commands ▸ name' shape).
+  ///
+  /// In en, this message translates to:
+  /// **'{menu} ▸ {label}'**
+  String quickOpenMenuPath(String menu, String label);
+
+  /// Disabled-reason under a Recents row whose remote bookmark can no longer be resolved.
+  ///
+  /// In en, this message translates to:
+  /// **'This server is no longer available'**
+  String get quickOpenRecentUnavailable;
+
+  /// Palette reason under a disabled Go Back row.
+  ///
+  /// In en, this message translates to:
+  /// **'No earlier location'**
+  String get commandDisabledNoBack;
+
+  /// Palette reason under a disabled Go Forward row.
+  ///
+  /// In en, this message translates to:
+  /// **'No later location'**
+  String get commandDisabledNoForward;
+
+  /// Palette reason under commands disabled while the pane has no live listing (verb/path commands).
+  ///
+  /// In en, this message translates to:
+  /// **'Requires a browsed folder'**
+  String get commandDisabledNoListing;
+
+  /// Palette reason under commands disabled until a row is selected.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires a selected item'**
+  String get commandDisabledNoSelection;
+
+  /// Palette reason under the preview commands while no preview session is bound.
+  ///
+  /// In en, this message translates to:
+  /// **'Previews are unavailable'**
+  String get commandDisabledNoPreview;
+
+  /// Palette reason under Show/Hide Sidebar while no bookmark store is wired.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires the sidebar'**
+  String get commandDisabledNoSidebar;
+
+  /// Palette reason under Sync Browsing / Synchronize Panes while either pane lacks a committed directory.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires browsed folders on both panes'**
+  String get commandDisabledSyncAnchors;
+
+  /// Palette reason under commands disabled while the pane holds no tab.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires an open tab'**
+  String get commandDisabledNoTab;
+
+  /// Palette reason under Reopen Closed Tab while the ghost ring is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No recently closed tab'**
+  String get commandDisabledNoClosedTab;
+
+  /// Palette reason under tab-strip commands disabled on a single-tab strip.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires at least two tabs'**
+  String get commandDisabledMultipleTabs;
+
+  /// Palette reason under queue commands while no transfer-queue seam is bound.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires the transfer queue'**
+  String get commandDisabledNoQueue;
+
+  /// Palette reason under Copy rsync Command while the active tab is not a sync plan.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires an open sync plan'**
+  String get commandDisabledNoPlan;
+
+  /// Palette reason under commands that need the bookmark store.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires saved favorites'**
+  String get commandDisabledNoBookmarks;
+
+  /// Palette reason under app-scope commands gated on an in-flight command session (the one-shot rule).
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable while another command is running'**
+  String get commandDisabledBusy;
+
+  /// Palette reason under Open With rows while no editor registry is bound.
+  ///
+  /// In en, this message translates to:
+  /// **'Requires a configured external editor'**
+  String get commandDisabledNoEditors;
+
+  /// Palette reason and submenu empty-state under Workspaces ▸ while the library is empty.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved workspaces'**
+  String get commandDisabledNoWorkspaces;
+
+  /// Button inside the sidebar's empty-favorites state: opens the ssh_config import preview (D22's adoption offer). Kept parallel to the command label sshImportCommandLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Import from ssh config…'**
+  String get sidebarImportSshConfig;
+
+  /// Accessible label of one clickable ancestor segment in the pane's path bar (02 §13: button semantics, "Go to var").
+  ///
+  /// In en, this message translates to:
+  /// **'Go to {segment}'**
+  String panePathSegmentGoTo(String segment);
+
+  /// Accessible label of a collapsible sidebar group header (02 §13: expanded state rides the node's expanded flag, the count is spelled out). {count} is an item-count clause like "3 items".
+  ///
+  /// In en, this message translates to:
+  /// **'{title}, {count}'**
+  String sidebarSectionSemantics(String title, String count);
 }
 
 class _AppLocalizationsDelegate

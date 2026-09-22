@@ -5,7 +5,10 @@ next. Read [AGENTS.md](../AGENTS.md) for build/test commands and
 [09-PLAYBOOK.md](plan/09-PLAYBOOK.md) for the PR process.
 
 _Last updated: 2026-09-22. **M3, M4, M5, M6, M7, and M8 are closed; M9
-is next** — M8's scanner core (#174), executor + safety rails (#175),
+is in progress** — its first polish slice (Quick Open palette, the
+ssh_config adoption finish, the §13 a11y audit, the i18n sweep, and the
+§9–11 chrome QA) landed per the dated section below. M8's scanner core
+(#174), executor + safety rails (#175),
 plan view + savedSync + activity-panel runs (#176), and rsync exporter
 (#177) landed, and the §3.9 exit-criteria audit closed the milestone
 per the dated section below (record:
@@ -7378,6 +7381,100 @@ changed), no `TODO(pin)` markers, the mobile invariant re-verifies
 and the tag chore is not run, matching every prior untagged close.
 Docker is unavailable on this host — the new integration leg is
 CI-verified, and its env-gated skip keeps local runs honest.
+
+## M9 — polish pass part 1: Quick Open, import finish, a11y, i18n, chrome (2026-09-22)
+
+The first M9 slice (02 §8.4, §13, §9–11; D20/D21/D22) — the flip plus an
+audit, not a rescue. One app PR; no engine, core, or sync changes.
+
+- **Quick Open palette (02 §8.4, D21).** `app.quickOpen` is a registered
+  command (⇧⌘P on macOS, Ctrl+Shift+P elsewhere, File-menu placement)
+  opening a centered 560-wide dialog over the live command registry —
+  no parallel command list. Three ranked sections: commands, favorites,
+  recent locations. Fuzzy match: commands by label + menu path,
+  favorites by label + host + path, recents by path + host. Enabled
+  commands rank before disabled; disabled rows render greyed with a
+  localized reason; shortcuts sit right-aligned and menu paths show
+  only on rows that carry a shortcut; favorites/recents get no shortcut
+  gutter. Enter runs the normal action; Alt/Option+Enter opens a
+  location row in the other pane; Ctrl/Cmd+Enter opens it in a new tab;
+  command rows collapse every Enter variant to plain execution. Escape
+  and the palette's own chord close it. While open, pane/selection
+  chords are suspended, app-scoped chords still dispatch (disabled ones
+  stay highlighted with their reason visible), and text-editing chords
+  keep text-field behavior. A re-entrancy guard blocks a second open.
+  Recents live in `RecentLocationsStore` — a device-local, capped
+  (100), deduped, debounced list persisted inside the shared
+  settings.json, stamped onto every tab controller and flushed at app
+  exit; remote rows re-resolve the live bookmark by id, falling back to
+  the record-time snapshot. Service tests pin the fuzzy ordering, the
+  store's dedupe/cap/persist/flush contracts, and the shortcut
+  formatter; widget tests pin open/navigate/accept, modifier-Enter
+  variants, disabled reasons, chord scope, and the toggle.
+- **Import experience (D22).** The `favorite.importSshConfig` command
+  is the single entry point: File menu, the Quick Connect launcher's
+  adoption offer, and the empty-favorites sidebar offer all run it
+  through `_runCommand`, so enablement/session guards can't be bypassed
+  and the offer can't be hit while a session modal owns the run. The
+  empty state hides the offer once favorites exist. The preview dialog
+  keeps its selection/duplicate/limitation surface; row checkboxes
+  carry merged `sshImportRowSemantics` labels and non-importable rows
+  stay inert. Verified: no FileZilla/WinSCP strings or UI remnants
+  anywhere in `lib/` — ssh_config remains the only v1 source.
+- **Accessibility audit (02 §13, D20).** File rows expose one merged
+  semantics node with name, kind, size, and modified date; selection
+  follows actual selection, not cursor; activation is a semantic
+  action; rename surfaces as a `CustomSemanticsAction` only where
+  valid. Flagged U+FFFD names carry a warning badge, tooltip, and
+  semantics reason, and `PaneController.startRename` refuses them so a
+  replacement character never reaches the wire. Path bars expose each
+  segment as its own labeled button (`Go to …`) with decorative text
+  excluded. Sidebar group headers merge title + spelled-out item count
+  + expanded state + header/button traits. Tab chips are buttons with
+  selected state and a labeled close control. Focus-visible rings are
+  2px everywhere M9 touched (sidebar rows, headers, the pane splitter
+  was already compliant). A new theme contrast-matrix test pins every
+  foreground×surface pair M9 uses at WCAG AA; hairline dividers and the
+  disabled-command reason text are recorded as exempt (decorative /
+  inactive-component) with the rationale in the test. Transfer/sync
+  progress retains its live-region announcements. **Linux caveat
+  (honest):** Flutter Linux has no AT-SPI bridge for custom widgets —
+  the semantics tree we build is largely invisible to Orca, so Linux
+  screen-reader coverage is not claimed; every §13 behavior is
+  verified via `flutter_test`'s semantics tree, not a native reader.
+- **i18n sweep (D20).** Every new string lands in `app_en.arb` (Quick
+  Open labels/placeholder/footer/reasons, the import offer, sidebar
+  counts, flagged-name copy, path-segment labels). The localization
+  contract test still proves zero hard-coded user-facing strings — the
+  allowlist gained only technical literals (keyboard-key names,
+  ellipsis) with per-entry comments; plural/reason strings are
+  exercised by the palette and sidebar tests.
+- **Chrome QA (02 §9–11).** The menu-invariant test re-verifies every
+  command — Quick Open included — is reachable by menu or chord on
+  macOS, Linux, and Windows maps, and the chord table keeps Meta on
+  macOS vs Ctrl on Windows/Linux. Titlebar posture is unchanged
+  (`TitlebarSafeArea` on macOS; native frames elsewhere). No custom
+  scroll physics were added — Flutter's defaults already give macOS
+  momentum and desktop discrete scrolling; the existing menu captures
+  still cover the platform strip. **Windows IME/IMM32 caveat
+  (documented, not automated):** rename is a text-field overlay, so it
+  inherits Flutter's known IMM32 limitations on Windows — pre-edit
+  (composition) text can render at the wrong offset and some IMEs never
+  deliver composition events to the field. There is no automatable
+  surface for this without a Windows desktop + IME harness; it stays a
+  manual-QA item. **Manual-QA note (2026-09-22):** the automated legs
+  cover chord maps, menu reachability, contrast constants,
+  focus-visible presence, and captures; what remains human-only is
+  real-platform verification of the macOS unified titlebar traffic
+  lights, Windows/Linux native frames, momentum-vs-discrete scroll
+  feel, native dialogs, Quick Look, and screen readers (VoiceOver /
+  Narrator; Orca is the caveat above). PNGs:
+  `tasks/run3-task93/` (`quick-open.png`, `quick-open-filtered.png`,
+  `ssh-import-preview.png`) alongside the existing menu captures.
+
+Deferred to the next M9 slice per the task split: the fast-path spike,
+the `ENFORCE_B` flip, the update check, and the D28 chown UI (open item
+30). No engine changes; no new features beyond the spec'd surfaces.
 
 ## Open items
 

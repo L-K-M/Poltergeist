@@ -191,6 +191,7 @@ class PaneTabsController extends ChangeNotifier {
     DoubleClickAction doubleClickAction = DoubleClickAction.open,
     this.builtInEditorOpen,
     this.externalEditorOpen,
+    this.onLocationCommitted,
     this.confirmClose,
     this.serverStillShared,
     void Function(Object error, StackTrace stackTrace)? onError,
@@ -259,6 +260,13 @@ class PaneTabsController extends ChangeNotifier {
   /// [builtInEditorOpen] — the remote Open verb and every Open With ▸
   /// choice resolve through it.
   final ExternalEditorOpen? externalEditorOpen;
+
+  /// The recents feed (02 §8.4): the shell's location-commit callback,
+  /// stamped on every arriving tab in [_appendTab] like
+  /// [builtInEditorOpen] — adopted, new, and ghost-reopened tabs all
+  /// record through the same seam.
+  final void Function(PaneLocation location, {Bookmark? remoteBookmark})?
+  onLocationCommitted;
 
   /// The close-confirmation presenter (the confirm lives inside the
   /// close operation — call sites never decide). Null makes a triggered
@@ -924,6 +932,7 @@ class PaneTabsController extends ChangeNotifier {
     controller.doubleClickAction = _doubleClickAction;
     controller.builtInEditorOpen = builtInEditorOpen;
     controller.externalEditorOpen = externalEditorOpen;
+    controller.onLocationCommitted = onLocationCommitted;
     final tab = PaneTab(id: controller.paneTabId, controller: controller);
     // Strip surfaces (title, connection dot) follow the tab's own
     // browsing state — forward its changes as strip changes.

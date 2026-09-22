@@ -24,6 +24,7 @@ RegisteredCommand buildSshConfigImportCommand({
     label: (l10n) => l10n.sshImportCommandLabel,
     icon: Icons.download_outlined,
     enabled: enabled,
+    disabledReason: (l10n) => l10n.commandDisabledBusy,
     run: (context) => _runSshConfigImport(context, setup),
     // No shortcut (02 §8.3 binds none), so §8.1's invariant needs a menu
     // path: the File menu's trailing group, after the connect block.

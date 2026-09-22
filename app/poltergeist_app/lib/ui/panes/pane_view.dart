@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -11,6 +12,7 @@ import '../../services/checkout_session.dart';
 import '../../services/pane_controller.dart';
 import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
+import '../../services/pane_permissions.dart' show nameIsFlagged;
 import '../../services/pane_tabs_controller.dart';
 import '../../services/preview_session.dart';
 import '../../services/quick_connect_address.dart';
@@ -1425,6 +1427,16 @@ class _PaneSurface extends StatelessWidget {
       clock: clock,
       onTap: (modifiers) => onActivateRow(index, modifiers),
       onDoubleTap: () => onOpenRow(index),
+      // 02 §13's row-level rename action: select the row (rename acts on
+      // the cursor), then open the inline editor. Flagged names carry
+      // no action — their reason is spelled out in the row's label.
+      onRename:
+          controller.verbsEnabled && !nameIsFlagged(controller.entries[index].name)
+          ? () {
+              onActivateRow(index, null);
+              controller.startRename();
+            }
+          : null,
     );
     // Rows drag only where a pointer drag is the platform's gesture —
     // on touch platforms the immediate recognizer would steal the
@@ -1792,19 +1804,30 @@ class _PathBarState extends State<_PathBar> {
                           for (final (label, path) in segments)
                             Padding(
                               padding: const EdgeInsetsDirectional.only(end: 2),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(4),
+                              // 02 §13: one button node per segment —
+                              // "Go to var", not the bare path fragment.
+                              child: Semantics(
+                                button: true,
+                                label: l10n.panePathSegmentGoTo(label),
                                 onTap: () => controller.navigate(path),
-                                child: Padding(
-                                  padding:
-                                      const EdgeInsetsDirectional.symmetric(
+                                child: ExcludeSemantics(
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(4),
+                                    onTap: () => controller.navigate(path),
+                                    child: Padding(
+                                      padding:
+                                          const EdgeInsetsDirectional.symmetric(
                                         horizontal: 6,
                                         vertical: 8,
                                       ),
-                                  child: Text(
-                                    label,
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(color: segmentColor),
+                                      child: Text(
+                                        label,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(color: segmentColor),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -2039,6 +2062,7 @@ class _PaneRow extends StatefulWidget {
     required this.clock,
     required this.onTap,
     required this.onDoubleTap,
+    this.onRename,
   });
 
   final RemoteFileEntry entry;
@@ -2058,6 +2082,11 @@ class _PaneRow extends StatefulWidget {
   final DateTime Function() clock;
   final ValueChanged<_PointerModifiers?> onTap;
   final VoidCallback onDoubleTap;
+
+  /// §13's rename affordance on the row's semantics node (keyboard/AT
+  /// parity with Enter/F2). Null when rename is unavailable — verbs
+  /// gated off or a flagged name.
+  final VoidCallback? onRename;
 
   @override
   State<_PaneRow> createState() => _PaneRowState();
@@ -2110,8 +2139,20 @@ class _PaneRowState extends State<_PaneRow> {
       RemoteFileType.other => l10n.paneRowKindOther,
     };
 
+    // 02 §13's flagged-name rule: a U+FFFD name is undecodable — the
+    // row keeps a warning badge + tooltip visually and spells the
+    // reason into the semantics label; rename is withheld above.
+    final flagged = nameIsFlagged(widget.entry.name);
+
     return Semantics(
-      label: l10n.paneRowSemantics(widget.entry.name, kind, size, modified),
+      label: flagged
+          ? l10n.paneRowSemanticsFlagged(
+              widget.entry.name,
+              kind,
+              size,
+              modified,
+            )
+          : l10n.paneRowSemantics(widget.entry.name, kind, size, modified),
       // The composed label replaces the child text's own semantics —
       // without this, screen readers announce the name twice. The
       // excluded child no longer provides the tap action either, so
@@ -2126,6 +2167,13 @@ class _PaneRowState extends State<_PaneRow> {
       // cursor is announced selected except in the one state where it
       // is not selected — a toggled-off row.
       selected: widget.selected,
+      // §13's open/rename action pair: open rides onTap; rename is a
+      // custom action, absent when the row cannot take one.
+      customSemanticsActions: {
+        if (widget.onRename != null)
+          CustomSemanticsAction(label: l10n.fileRenameLabel):
+              widget.onRename!,
+      },
       child: Material(
         // The row owns its surface so ink feedback paints above the
         // row color (an opaque ColoredBox inside the InkWell would
@@ -2173,6 +2221,22 @@ class _PaneRowState extends State<_PaneRow> {
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
+                      // 02 §13's flagged-name marker: the name already
+                      // shows U+FFFD; the badge + tooltip say why.
+                      if (flagged)
+                        Tooltip(
+                          message: l10n.paneFlaggedNameTooltip,
+                          child: Padding(
+                            padding: const EdgeInsetsDirectional.only(
+                              start: 4,
+                            ),
+                            child: Icon(
+                              Icons.warning_amber_outlined,
+                              size: 14,
+                              color: colors.error,
+                            ),
+                          ),
+                        ),
                       const SizedBox(width: 12),
                       SizedBox(
                         width: MediaQuery.textScalerOf(context).scale(64),
