@@ -221,8 +221,44 @@ void main() {
         syncHeaderClauses(_l10n, controller),
         [
           'update 1 on right.',
-          'Replace 2 files of a different kind on right '
-          '(previous versions moved to trash at .poltergeist-trash).',
+          // §7: {j} counts ROWS (one per replaced path) — the row's
+          // 2-file toll rides the chip/rails/typed gate, not this
+          // clause.
+          'Replace 1 file of a different kind on right '
+          '(previous version moved to trash at .poltergeist-trash).',
+        ],
+      );
+    });
+
+    test('empty-folder cleanups replace the green tail, never sit '
+        'beside it', () async {
+      // §7 + rail 3: a plan whose only removals are empty-dir cleanups
+      // renders the Remove tail INSTEAD of 'Nothing will be deleted.'
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(deletions: DeletionPolicy.trash),
+      );
+      final controller = await _readyController(
+        pair,
+        testPlan(pair, [
+          testItem(
+            'empty',
+            right: testDir,
+            suggested: SyncActionType.deleteRight,
+            reason: SyncReason.onlyOnRight,
+          ),
+          testItem(
+            'a.txt',
+            left: testFile(size: 4),
+            suggested: SyncActionType.copyLeftToRight,
+            reason: SyncReason.onlyOnLeft,
+          ),
+        ]),
+      );
+      expect(
+        syncHeaderClauses(_l10n, controller),
+        [
+          'Copy 1 new file (4 B) on right.',
+          'Remove 1 empty folder on right.',
         ],
       );
     });

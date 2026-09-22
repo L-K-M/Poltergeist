@@ -4,12 +4,14 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/services/sync_environment.dart';
 import 'package:poltergeist_app/services/sync_plan_controller.dart';
 import 'package:poltergeist_app/services/sync_queue_facade.dart';
+import 'package:poltergeist_app/services/sync_state_store.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:poltergeist_sync/poltergeist_sync.dart';
 
@@ -242,6 +244,41 @@ void main() {
       expect(typeChange.effective, SyncActionType.skip);
       expect(plain.effective, SyncActionType.copyLeftToRight);
     });
+
+    test('a bulk copy skips a typeDiffers row through its offered '
+        'action', () async {
+      // The carve-out is about the ACTION being rule-4 authorization:
+      // the row's own offered copy/update verb is exactly that, so the
+      // bulk path must skip it too — the exemption lives on the
+      // per-row menu (applyOverride), not the bulk verb.
+      final pair = testSyncPair(); // Update — deletions: none.
+      final typeChange = testItem(
+        'thing',
+        left: testDir,
+        right: testFile(),
+        suggested: SyncActionType.skip,
+        reason: SyncReason.typeDiffers,
+        destinationSubtree: const {
+          'thing/a.txt': EntrySnapshot(kind: EntryKind.file, size: 1),
+        },
+      );
+      final controller = await _ready(
+        _controller(pair: pair, plan: testPlan(pair, [typeChange])),
+      );
+      addTearDown(controller.dispose);
+      // updateLeftToRight IS this row's offered action (destination is
+      // a file) — the offer-set check cannot catch it.
+      expect(
+        controller.availableOverrides(typeChange),
+        contains(SyncActionType.updateLeftToRight),
+      );
+      final skipped = controller.applyOverrideTo(
+        [typeChange],
+        SyncActionType.updateLeftToRight,
+      );
+      expect(skipped, contains(typeChange));
+      expect(typeChange.effective, SyncActionType.skip);
+    });
   });
 
   group('resolveConflicts', () {
@@ -295,6 +332,161 @@ void main() {
       expect(conflict.effective, SyncActionType.updateLeftToRight);
       controller.pairState.mtimeUnreliableLeft = true;
       expect(controller.offersNewerWins, isFalse);
+    });
+
+    test('a bulk keep leaves a typeDiffers row unresolved in a '
+        'no-delete mode', () async {
+      // §7: rule-4 authorization is per-item only — the bulk bar must
+      // not smuggle it in on a typeDiffers row (every such row is a
+      // conflict in a no-delete mode, so it lands in the bulk set).
+      final pair = testSyncPair(); // Update — deletions: none.
+      final typeChange = testItem(
+        'thing',
+        left: testDir,
+        right: testFile(),
+        suggested: SyncActionType.conflict,
+        reason: SyncReason.typeDiffers,
+        destinationSubtree: const {
+          'thing/a.txt': EntrySnapshot(kind: EntryKind.file, size: 1),
+        },
+      );
+      final controller = await _ready(
+        _controller(pair: pair, plan: testPlan(pair, [typeChange])),
+      );
+      addTearDown(controller.dispose);
+      expect(
+        controller.resolveConflicts(SyncConflictChoice.keepLeft),
+        0,
+      );
+      expect(typeChange.effective, SyncActionType.conflict);
+    });
+
+    test('keep-destination in a one-way pair resolves to skip', () async {
+      // Mirror L→R: keeping the right (destination) side writes
+      // against the direction — the differ's keep-side semantics make
+      // that a deliberate skip, never a source-side write.
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(
+          direction: SyncDirection.leftToRight,
+          deletions: DeletionPolicy.trash,
+        ),
+      );
+      final conflict = testItem(
+        'a.txt',
+        left: testFile(mtimeSecs: 10),
+        right: testFile(mtimeSecs: 20),
+        suggested: SyncActionType.conflict,
+        reason: SyncReason.bothChanged,
+      );
+      final controller = await _ready(
+        _controller(pair: pair, plan: testPlan(pair, [conflict])),
+      );
+      addTearDown(controller.dispose);
+      expect(
+        controller.resolveConflicts(SyncConflictChoice.keepRight),
+        1,
+      );
+      expect(conflict.effective, SyncActionType.skip);
+      // keepLeft keeps the source — that direction is permitted.
+      conflict.effective = SyncActionType.conflict;
+      expect(
+        controller.resolveConflicts(SyncConflictChoice.keepLeft),
+        1,
+      );
+      expect(conflict.effective, SyncActionType.updateLeftToRight);
+    });
+
+    test('newerWins treats a sub-tolerance delta as equal and refuses '
+        'flagged clocks', () async {
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(direction: SyncDirection.bidirectional),
+      );
+      // Default mtimeToleranceSecs is 2 — a 1-second gap is not
+      // "newer", matching EntryComparator's verdict.
+      final closeCall = testItem(
+        'a.txt',
+        left: testFile(mtimeSecs: 21),
+        right: testFile(mtimeSecs: 20),
+        suggested: SyncActionType.conflict,
+        reason: SyncReason.bothChanged,
+      );
+      final realGap = testItem(
+        'b.txt',
+        left: testFile(mtimeSecs: 1000),
+        right: testFile(mtimeSecs: 20),
+        suggested: SyncActionType.conflict,
+        reason: SyncReason.bothChanged,
+      );
+      final controller = await _ready(
+        _controller(
+          pair: pair,
+          plan: testPlan(pair, [closeCall, realGap]),
+        ),
+      );
+      addTearDown(controller.dispose);
+      expect(
+        controller.resolveConflicts(SyncConflictChoice.newerWins),
+        1,
+      );
+      expect(closeCall.effective, SyncActionType.conflict);
+      expect(realGap.effective, SyncActionType.updateLeftToRight);
+
+      // An engine-flagged clock refuses even a real gap.
+      realGap.effective = SyncActionType.conflict;
+      controller.pairState.mtimeUnreliableRight = true;
+      expect(
+        controller.resolveConflicts(SyncConflictChoice.newerWins),
+        0,
+      );
+      expect(realGap.effective, SyncActionType.conflict);
+    });
+  });
+
+  group('updatePairDefinition', () {
+    test('case overrides persist under the post-edit pairId through '
+        'the rescan', () async {
+      final scratch = Directory.systemTemp.createTempSync();
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      final states = MemorySyncStateStore();
+      final scanner = FakeSyncScanner(
+        left: testScanResult('/left', const {}),
+        right: testScanResult('/right', const {}),
+      );
+      final pair = testSyncPair();
+      final controller = SyncPlanController(
+        pair: pair,
+        environment: testSyncEnvironment(scratch, states: states),
+        syncTasks: SyncQueueTasks(),
+        scanner: scanner,
+        differ: FakeSyncDiffer(testPlan(pair, const [])),
+        deviceId: 'test-device',
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+      final originalPairId = controller.pairId!;
+
+      // The editor's save: new endpoints plus a remote-side override
+      // that disagrees with the probe — the override-mismatch rescan
+      // fires, and the overrides must survive its state reload.
+      final edited = SyncPair(
+        id: pair.id,
+        name: pair.name,
+        left: const LocalEndpoint('/left2'),
+        right: const LocalEndpoint('/right2'),
+        rules: pair.rules,
+      );
+      await controller.updatePairDefinition(
+        edited,
+        caseOverrides: const SyncCaseOverrides(right: false),
+      );
+      expect(controller.phase, SyncPlanPhase.ready);
+      expect(controller.pairId, isNot(originalPairId));
+      expect(scanner.overrides[SyncSide.right], isFalse);
+      expect(controller.pairState.caseSensitiveOverrideRight, isFalse);
+      // Persisted under the FINAL pair id — not the stale pre-edit one.
+      final stored = await states.load(controller.pairId!);
+      expect(stored.caseSensitiveOverrideRight, isFalse);
     });
   });
 
@@ -501,5 +693,191 @@ void main() {
       expect(controller.phase, SyncPlanPhase.completed);
       expect(File('${right.path}/gone0.txt').existsSync(), isFalse);
     });
+
+    test('a retry rebinds the task — panel pause/cancel reach the '
+        'retry run', () async {
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      final gateFs = _CancelAwareGateFs();
+      final tasks = SyncQueueTasks();
+      final controller = realController(
+        const SyncRuleSet(),
+        tasks: tasks,
+        environment: testSyncEnvironment(
+          scratch,
+          localFileSystem: () => gateFs,
+        ),
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+
+      // Fail the run: uploads throw — `failed` is the status
+      // retryFailed re-runs (a vanished source reads `conflicted`).
+      gateFs.failUploads = true;
+      await controller.run();
+      expect(controller.canRetryFailed, isTrue);
+      final task = tasks.tasks.single;
+      final binding = tasks.bindingFor(task.id)!;
+      final firstCancellation = binding.cancellation;
+      final firstPause = binding.pause;
+
+      // Arm the gate so the retry blocks mid-upload, then drive the
+      // panel verbs: they must land on the RETRY's controls, not the
+      // dead run's detached objects.
+      gateFs.failUploads = false;
+      gateFs.arm();
+      unawaited(controller.retryFailed());
+      await pumpUntil(() => controller.isRunning);
+      expect(binding.cancellation, isNot(same(firstCancellation)));
+      expect(binding.pause, isNot(same(firstPause)));
+      expect(tasks.cancel(task.id), isTrue);
+      await pumpUntil(() => !controller.isRunning);
+      expect(controller.phase, SyncPlanPhase.cancelled);
+    });
+
+    test('a fresh run retires the previous task row\u2019s retry', () async {
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      final tasks = SyncQueueTasks();
+      final controller = realController(const SyncRuleSet(),
+          tasks: tasks);
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+
+      File('${left.path}/a.txt').deleteSync();
+      await controller.run();
+      final firstTask = tasks.tasks.single;
+      expect(tasks.canRetry(firstTask.id), isTrue);
+
+      // A fresh run supersedes the failed one — the old row must not
+      // keep routing retry into the newest _lastRun.
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      await controller.run();
+      expect(controller.phase, SyncPlanPhase.completed);
+      expect(tasks.canRetry(firstTask.id), isFalse);
+    });
+
+    test('a rescan retires Retry Failed and the stale task row', () async {
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      final tasks = SyncQueueTasks();
+      final controller = realController(const SyncRuleSet(),
+          tasks: tasks);
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+
+      File('${left.path}/a.txt').deleteSync();
+      await controller.run();
+      expect(controller.canRetryFailed, isTrue);
+      final firstTask = tasks.tasks.single;
+
+      // A rescan renders a NEW plan — retrying the old run's failures
+      // would execute work the reviewed plan no longer shows (rail 1).
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      await controller.rescan();
+      expect(controller.phase, SyncPlanPhase.ready);
+      expect(controller.canRetryFailed, isFalse);
+      expect(tasks.canRetry(firstTask.id), isFalse);
+    });
+
+    test('a cancelled run never stamps lastRunAt', () async {
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      final gateFs = _CancelAwareGateFs();
+      final controller = realController(
+        const SyncRuleSet(),
+        environment: testSyncEnvironment(
+          scratch,
+          localFileSystem: () => gateFs,
+        ),
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+
+      // A cancelled run is not a sync — 'last synced' stays unset.
+      gateFs.arm();
+      unawaited(controller.run());
+      await pumpUntil(() => controller.isRunning);
+      controller.cancelRun();
+      await pumpUntil(() => !controller.isRunning);
+      expect(controller.phase, SyncPlanPhase.cancelled);
+      expect(controller.pairState.lastRunAt, isNull);
+    });
+
+    test('a retry that completes stamps lastRunAt like a run',
+        () async {
+      File('${left.path}/a.txt').writeAsStringSync('x');
+      final gateFs = _CancelAwareGateFs();
+      final controller = realController(
+        const SyncRuleSet(),
+        environment: testSyncEnvironment(
+          scratch,
+          localFileSystem: () => gateFs,
+        ),
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      await pumpUntil(() => controller.phase == SyncPlanPhase.ready);
+
+      // The failed item is what retryFailed re-runs — an upload throw
+      // rather than a vanished source (which reads `conflicted`).
+      gateFs.failUploads = true;
+      await controller.run();
+      expect(controller.canRetryFailed, isTrue);
+      controller.pairState.lastRunAt = null;
+      gateFs.failUploads = false;
+      await controller.retryFailed();
+      expect(controller.pairState.lastRunAt, isNotNull);
+    });
   });
+}
+
+/// An upload gate that releases early on cancellation — arming it
+/// holds a run mid-copy until [disarm] or the run's own cancellation
+/// unwinds it. Disarmed during scans: the case probe writes through
+/// the same verb.
+final class _CancelAwareGateFs extends LocalFileSystem {
+  Completer<void>? _gate;
+  bool failUploads = false;
+
+  void arm() => _gate = Completer<void>();
+  void disarm() => _gate = null;
+
+  @override
+  Future<RemoteFileEntry> upload(
+    String path,
+    Stream<List<int>> content, {
+    int? length,
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) async {
+    // A generic throw lands in the executor's non-conflict bucket —
+    // the item is `failed`, which is the status `retryFailed` re-runs
+    // (a vanished source reads `conflicted` and is deliberately not
+    // retryable).
+    if (failUploads) throw StateError('injected upload failure');
+    final gate = _gate;
+    if (gate != null) {
+      await Future.any([
+        gate.future,
+        if (cancellation != null) cancellation.whenCancelled,
+      ]);
+      cancellation?.throwIfCancelled();
+    }
+    return super.upload(
+      path,
+      content,
+      length: length,
+      overwrite: overwrite,
+      preserveMode: preserveMode,
+      expectedTarget: expectedTarget,
+      onProgress: onProgress,
+      cancellation: cancellation,
+      computeHash: computeHash,
+    );
+  }
 }

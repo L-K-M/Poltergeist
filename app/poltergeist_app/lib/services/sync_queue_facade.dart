@@ -31,10 +31,23 @@ final class SyncTaskBinding {
   final TransferTask task;
 
   /// §10's between-items hold — `pauseTask`/`resumeTask` land here.
-  final SyncRunPause pause;
+  /// Mutable: a retry mints fresh run controls and [rebind] swaps
+  /// them, so the panel's verbs never drive a dead run's objects.
+  SyncRunPause pause;
 
   /// The sticky whole-run cancel — `cancelTask` trips it.
-  final RemoteTransferCancellation cancellation;
+  RemoteTransferCancellation cancellation;
+
+  /// A retry mints a fresh [SyncRunPause]/[RemoteTransferCancellation]
+  /// — the controller calls this so the panel row keeps driving the
+  /// live attempt.
+  void rebind({
+    required SyncRunPause pause,
+    required RemoteTransferCancellation cancellation,
+  }) {
+    this.pause = pause;
+    this.cancellation = cancellation;
+  }
 
   /// `retryTask` → the controller's `retryFailed`. Null once the run is
   /// superseded by a fresh plan (a retried run keeps the same binding).
@@ -130,7 +143,13 @@ final class SyncTaskBinding {
     RemoteFileErrorKind? failureKind,
   }) {
     task.state = state;
-    if (task.isTerminal) task.finishedAt = DateTime.now();
+    if (task.isTerminal) {
+      task.finishedAt = DateTime.now();
+    } else if (state == TransferTaskState.running) {
+      // A retry flips the row live again — mirror TransferQueue's
+      // restart semantics (transfer_queue.dart clears it the same way).
+      task.finishedAt = null;
+    }
     task.error = error ?? task.error;
     task.failureKind = failureKind ?? task.failureKind;
     _owner._emit(

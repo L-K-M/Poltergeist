@@ -248,8 +248,12 @@ class _SyncPlanViewState extends State<SyncPlanView> {
         item.effective == SyncActionType.updateLeftToRight ||
             item.effective == SyncActionType.updateRightToLeft,
       SyncFilter.deletes =>
+        // §7's badge groups file removals AND rule-4 pre-deletes —
+        // a replace row whose destination subtree the run removes
+        // belongs in this bucket too.
         item.effective == SyncActionType.deleteLeft ||
-            item.effective == SyncActionType.deleteRight,
+            item.effective == SyncActionType.deleteRight ||
+            _controller.itemCarriesPreDelete(item),
       SyncFilter.conflicts =>
         item.effective == SyncActionType.conflict,
       SyncFilter.skipped => item.effective == SyncActionType.skip,
@@ -904,11 +908,15 @@ class _FilterBar extends StatelessWidget {
       ),
       (
         SyncFilter.deletes,
+        // §7's Deletes badge counts every FILE the plan removes —
+        // §6 rule-4 pre-deletes included, matching the rail
+        // consequences and the header's delete clause.
         l10n.syncFilterDeletes(
           stats == null
               ? 0
-              : stats.countOf(SyncActionType.deleteLeft) +
-                    stats.countOf(SyncActionType.deleteRight),
+              : stats.deletesOn(SyncSide.left) +
+                    stats.deletesOn(SyncSide.right) +
+                    stats.replacedFiles,
         ),
       ),
       (
@@ -1151,8 +1159,10 @@ class _ActionBar extends StatelessWidget {
           ),
         if (stats.foldersTo(side) > 0)
           l10n.syncRunCreateFolders(stats.foldersTo(side)),
-        if (stats.deletesOn(side) > 0)
-          l10n.syncRunDeletePart(stats.deletesOn(side)),
+        if (stats.deletesOn(side) + (stats.replacedBySide[side] ?? 0) > 0)
+          l10n.syncRunDeletePart(
+            stats.deletesOn(side) + (stats.replacedBySide[side] ?? 0),
+          ),
       ],
     ];
     return parts.isEmpty ? l10n.syncRunNothingToDo : parts.join(' · ');

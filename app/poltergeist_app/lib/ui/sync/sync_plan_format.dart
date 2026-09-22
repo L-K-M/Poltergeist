@@ -201,7 +201,9 @@ List<String> syncHeaderClauses(
             : l10n.syncHeaderDeletePermanent(deletes, sideLabel),
       );
     }
-    final replaced = stats.replacedBySide[side] ?? 0;
+    // §7's {j} counts ROWS — one per replaced path; the per-file toll
+    // rides the chips, the rails, and the typed-confirmation total.
+    final replaced = stats.replacedRowsBySide[side] ?? 0;
     if (replaced > 0) {
       anyDeletionClause = true;
       final trash = controller.trashPathFor(side);
@@ -217,6 +219,9 @@ List<String> syncHeaderClauses(
     }
     final emptyDirs = stats.emptyDirsOn(side);
     if (emptyDirs > 0) {
+      // §7: the Remove tail replaces the green 'nothing deleted'
+      // tail — rail 3's wording holds even at zero file deletions.
+      anyDeletionClause = true;
       clauses.add(l10n.syncHeaderRemoveEmptyFolders(emptyDirs, sideLabel));
     }
   }

@@ -600,6 +600,12 @@ final class _RunSession {
       // honestly: pending items read as cancelled, an item abandoned
       // mid-throw reads as failed, and the journal gets its summary
       // line.
+      //
+      // A cancellation that lands INSIDE an item's I/O throws through
+      // `_runItem` as a generic failure (the cancel exception type is
+      // private to seance_core); without this last look a run whose
+      // final item died mid-upload would report failed, not cancelled.
+      cancelled = cancelled || cancellation?.isCancelled == true;
       if (cancelled) {
         for (final item in plan.items) {
           if (item.status == SyncItemStatus.pending) {

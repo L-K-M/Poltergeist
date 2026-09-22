@@ -653,4 +653,58 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'a kind-change row counts its removed files in Deletes and stays '
+    'in the filter',
+    (tester) async {
+      final scratch = Directory.systemTemp.createTempSync('pg-view-');
+      addTearDown(() => scratch.deleteSync(recursive: true));
+      // Mirror: one authorized rule-4 replace (file over a 2-file
+      // folder) plus one plain delete — §7's chip counts removed
+      // files: 1 delete row + 2-file toll = Deletes (3).
+      final pair = testSyncPair(
+        rules: const SyncRuleSet(deletions: DeletionPolicy.trash),
+      );
+      final replace = testItem(
+        'thing',
+        left: testFile(size: 3),
+        right: testDir,
+        suggested: SyncActionType.updateLeftToRight,
+        reason: SyncReason.typeDiffers,
+        destinationSubtree: const {
+          'thing/a.txt': EntrySnapshot(kind: EntryKind.file, size: 1),
+          'thing/b.txt': EntrySnapshot(kind: EntryKind.file, size: 1),
+        },
+      );
+      final plan = testPlan(pair, [
+        replace,
+        testItem(
+          'old.txt',
+          right: testFile(),
+          suggested: SyncActionType.deleteRight,
+          reason: SyncReason.onlyOnRight,
+        ),
+      ]);
+      final controller = fakeController(scratch, pair: pair, plan: plan);
+      addTearDown(controller.dispose);
+      await pumpSyncPlanView(tester, controller);
+      await pumpToReady(tester, controller);
+
+      expect(
+        find.widgetWithText(FilterChip, 'Deletes (3)'),
+        findsOneWidget,
+      );
+      // The Run button states the full consequence — the replace
+      // row's toll lands in its Delete part.
+      expect(find.textContaining('Delete 3'), findsOneWidget);
+
+      // Filtering to Deletes keeps the replace row visible — its
+      // red removal badge is why the visible rows sum under N.
+      await tester.tap(find.widgetWithText(FilterChip, 'Deletes (3)'));
+      await tester.pump();
+      expect(find.text('thing'), findsOneWidget);
+      expect(find.text('old.txt'), findsOneWidget);
+    },
+  );
 }

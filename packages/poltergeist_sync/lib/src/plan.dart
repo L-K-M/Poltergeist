@@ -384,7 +384,7 @@ class ScanWarning {
     required this.relativePath,
     required this.side,
     required this.message,
-    this.kind = ScanWarningKind.malformedName,
+    required this.kind,
   });
 
   final String relativePath;

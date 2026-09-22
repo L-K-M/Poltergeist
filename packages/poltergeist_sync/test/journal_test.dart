@@ -40,6 +40,7 @@ void main() {
         relativePath: 'locked/',
         side: SyncSide.right,
         message: 'Could not list "locked/"',
+        kind: ScanWarningKind.listingFailure,
       ),
     ],
   );
@@ -110,6 +111,36 @@ void main() {
     expect(replayed.summary!.mtimeUnreliableRight, isTrue);
     expect(replayed.purged, isFalse);
     expect(replayed.hasUnpurgedTrash, isTrue);
+  });
+
+  test('an unknown or absent warning kind falls back on replay only',
+      () async {
+    final written = await writeRun('run-kinds');
+    // Forward tolerance: a journal from a newer build whose warning
+    // vocabulary has grown must still replay — the informational
+    // bucket keeps the line without mistaking it for a listing failure.
+    var text = await File(written.path).readAsString();
+    text = text.replaceFirst(
+      '"kind":"listingFailure"',
+      '"kind":"fromAFutureBuild"',
+    );
+    await File(written.path).writeAsString(text);
+
+    var replayed = await SyncRunJournal.open(written.path);
+    expect(
+      replayed.record.warnings.single.kind,
+      ScanWarningKind.malformedName,
+    );
+
+    // Older journals carry no kind at all — same fallback.
+    text = await File(written.path).readAsString();
+    text = text.replaceFirst(',"kind":"fromAFutureBuild"', '');
+    await File(written.path).writeAsString(text);
+    replayed = await SyncRunJournal.open(written.path);
+    expect(
+      replayed.record.warnings.single.kind,
+      ScanWarningKind.malformedName,
+    );
   });
 
   test('a torn final line is dropped on replay', () async {

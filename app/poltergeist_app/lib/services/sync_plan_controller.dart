@@ -40,6 +40,7 @@ final class SyncEffectiveStats {
     required this.replacedFiles,
     required this.replacedBytes,
     required this.replacedBySide,
+    required this.replacedRowsBySide,
     required this.fileDeletesBySide,
     required this.dirDeletesBySide,
   });
@@ -51,9 +52,13 @@ final class SyncEffectiveStats {
   /// sizes — creates and deletes carry none).
   final Map<SyncActionType, int> bytes;
 
-  /// §6 rule 4 pre-delete removals by destination side — the replace
-  /// clause and the rails count these per removed file.
+  /// §6 rule 4 pre-delete removals by destination side — the rails and
+  /// the Deletes chip count these per removed FILE.
   final Map<SyncSide, int> replacedBySide;
+
+  /// §7's replace clause counts ROWS — one per replaced path — where
+  /// [replacedBySide] keeps the per-file toll.
+  final Map<SyncSide, int> replacedRowsBySide;
   final int replacedFiles;
   final int replacedBytes;
 
@@ -174,7 +179,7 @@ final class SyncPlanController extends ChangeNotifier {
   // ignore: prefer_initializing_formals
   }) : _pair = pair,
        _environment = environment,
-       _initialCaseOverrides = caseOverrides,
+       _pendingCaseOverrides = caseOverrides,
        _scanner = scanner ?? _TreeScannerAdapter(environment),
        _differ = differ ?? _EngineDiffer(environment);
 
@@ -189,11 +194,13 @@ final class SyncPlanController extends ChangeNotifier {
   /// 04 §3.1's device identity — the runId prefix source (05 §6).
   final String deviceId;
 
-  /// Case-sensitivity overrides the pair editor set at session open —
-  /// applied onto the loaded pair state BEFORE the stored-override
-  /// rescan check, so a definition-time override steers the first
-  /// walk. Null leaves the stored state authoritative.
-  final SyncCaseOverrides? _initialCaseOverrides;
+  /// Case-sensitivity overrides awaiting application — set by the
+  /// constructor (session open) and by [updatePairDefinition] (the
+  /// editor's save). Applied onto each freshly loaded pair state so
+  /// an override-mismatch rescan's reload cannot drop them, and
+  /// persisted under the FINAL pairId — never saved under the
+  /// pre-edit one. Null leaves the stored state authoritative.
+  SyncCaseOverrides? _pendingCaseOverrides;
 
   // -- Session state -----------------------------------------------------
 
@@ -338,13 +345,10 @@ final class SyncPlanController extends ChangeNotifier {
   }) async {
     if (_phase == SyncPlanPhase.running) return;
     _pair = pair;
-    if (caseOverrides != null) {
-      _pairState.caseSensitiveOverrideLeft = caseOverrides.left;
-      _pairState.caseSensitiveOverrideRight = caseOverrides.right;
-      if (_pairId != null) {
-        await _environment.states.save(_pairId!, _pairState);
-      }
-    }
+    // The overrides land on the state the rescan loads — saving under
+    // the pre-edit pairId here would write a record the post-edit
+    // pairId never sees, and the rescan's load() would discard it.
+    _pendingCaseOverrides = caseOverrides;
     await rescan();
   }
 
@@ -467,18 +471,44 @@ final class SyncPlanController extends ChangeNotifier {
       final action = switch (choice) {
         SyncConflictChoice.skip => SyncActionType.skip,
         SyncConflictChoice.keepLeft =>
-          item.left != null ? _copyAction(item, SyncSide.right) : null,
+          item.left != null ? _keepResolution(item, SyncSide.left) : null,
         SyncConflictChoice.keepRight =>
-          item.right != null ? _copyAction(item, SyncSide.left) : null,
+          item.right != null ? _keepResolution(item, SyncSide.right) : null,
         SyncConflictChoice.newerWins => _newerWinsAction(item),
       };
       if (action == null) continue;
+      // The bulk bar follows the bulk-override rules (§7): only the
+      // row's offered actions, and in a no-delete mode a rule-4
+      // pre-delete stays per-item-only — a typeDiffers row keeps its
+      // conflict until the user picks it per-row.
+      if (!availableOverrides(item).contains(action)) continue;
+      if (_pair.rules.deletions == DeletionPolicy.none &&
+          _isTypeChangePreDelete(item, action)) {
+        continue;
+      }
       item.effective = action;
       item.userOverridden = true;
       resolved++;
     }
     if (resolved > 0) _reassess();
     return resolved;
+  }
+
+  /// What the differ's `_keepSide` decides (diff.dart): a one-way pair
+  /// never writes its destination side, so keeping that side resolves
+  /// to a deliberate skip — never a counter-direction write.
+  SyncActionType _keepResolution(SyncItem item, SyncSide keep) {
+    final writesRight = keep == SyncSide.left;
+    final permitted = switch (_pair.rules.direction) {
+      SyncDirection.bidirectional => true,
+      SyncDirection.leftToRight => writesRight,
+      SyncDirection.rightToLeft => !writesRight,
+    };
+    if (!permitted) return SyncActionType.skip;
+    return _copyAction(
+      item,
+      keep == SyncSide.left ? SyncSide.right : SyncSide.left,
+    );
   }
 
   SyncActionType _copyAction(SyncItem item, SyncSide destination) {
@@ -496,12 +526,27 @@ final class SyncPlanController extends ChangeNotifier {
   }
 
   SyncActionType? _newerWinsAction(SyncItem item) {
+    // §7 hides the button on untrusted clocks — the verb honors the
+    // same guard so a direct call can't trust a clock the engine
+    // itself flagged.
+    if (!offersNewerWins) return null;
     final left = item.left?.mtimeSecs;
     final right = item.right?.mtimeSecs;
-    if (left == null || right == null || left == right) return null;
-    return left > right
-        ? _copyAction(item, SyncSide.right)
-        : _copyAction(item, SyncSide.left);
+    if (left == null || right == null) return null;
+    // EntryComparator semantics: out-of-range originals compare
+    // clamped, and a delta inside mtimeToleranceSecs (or within
+    // tolerance of an accepted shift) is equal — not "newer".
+    final (l, r) = sftpMtimeInRange(left) && sftpMtimeInRange(right)
+        ? (left, right)
+        : (clampSftpMtimeSecs(left), clampSftpMtimeSecs(right));
+    final delta = (l - r).abs();
+    final tolerance = _pair.rules.mtimeToleranceSecs;
+    final equal = delta <= tolerance ||
+        _pair.rules.acceptedTimeShifts.any(
+          (shift) => (delta - shift).abs() <= tolerance,
+        );
+    if (equal) return null;
+    return _keepResolution(item, l > r ? SyncSide.left : SyncSide.right);
   }
 
   /// Whether `newerWins` may be offered — §7 hides it when mtimes are
@@ -533,8 +578,7 @@ final class SyncPlanController extends ChangeNotifier {
       }
       if (!availableOverrides(item).contains(action) ||
           (_pair.rules.deletions == DeletionPolicy.none &&
-              _isTypeChangePreDelete(item, action) &&
-              item.reason != SyncReason.typeDiffers)) {
+              _isTypeChangePreDelete(item, action))) {
         skipped.add(item);
         continue;
       }
@@ -545,6 +589,12 @@ final class SyncPlanController extends ChangeNotifier {
     if (changed) _reassess();
     return List.unmodifiable(skipped);
   }
+
+  /// Whether the item's EFFECTIVE action carries a §6 rule-4
+  /// pre-delete — the Deletes filter bucket and chip count these rows
+  /// with their removed-file toll (§7's badge bookkeeping).
+  bool itemCarriesPreDelete(SyncItem item) =>
+      _isTypeChangePreDelete(item, item.effective);
 
   /// §6 rule 4's test: the effective action creates/copies over a
   /// destination of a different kind, which the executor will
@@ -590,6 +640,10 @@ final class SyncPlanController extends ChangeNotifier {
   Future<void> _scanAndDiff() async {
     final generation = ++_scanGeneration;
     _scanCancellation = ScanCancellation();
+    // A rescan renders a NEW plan — the previous run's journal/retry
+    // belong to the plan the user is no longer reviewing (rail 1).
+    _lastRun = null;
+    _binding?.retry = null;
     _phase = SyncPlanPhase.scanning;
     _errorMessage = null;
     _errorKind = null;
@@ -602,31 +656,11 @@ final class SyncPlanController extends ChangeNotifier {
       if (_disposed || generation != _scanGeneration) return;
       _leftRoot = left.rootPath;
       _rightRoot = right.rootPath;
-      // §9: the pairId's fold flags settle from THIS scan's
-      // case-sensitivity answers. Normalization insensitivity rides the
-      // probe record in pair state — the scan reports no form verdict
-      // of its own, so the flags come from the cached record only.
-      _pairId = syncPairId(
-        _pair,
-        leftCaseInsensitive: !left.caseSensitive,
-        rightCaseInsensitive: !right.caseSensitive,
-        leftNormalizationInsensitive: _pairState
-                .caseProbe[left.rootPath]
-                ?.normalizationInsensitive ??
-            false,
-        rightNormalizationInsensitive: _pairState
-                .caseProbe[right.rootPath]
-                ?.normalizationInsensitive ??
-            false,
-      );
+      _pairId = _computePairId(left, right);
       _pairState = await _environment.states.load(_pairId!);
       // A definition-time override (pair editor) supersedes the stored
       // flags — the editor is the remote side's only sensitivity input.
-      final initialOverrides = _initialCaseOverrides;
-      if (initialOverrides != null) {
-        _pairState.caseSensitiveOverrideLeft = initialOverrides.left;
-        _pairState.caseSensitiveOverrideRight = initialOverrides.right;
-      }
+      _applyPendingCaseOverrides();
       // A stored per-side override that disagrees with the scan's
       // answer rescans that side under the override — once — and the
       // pairId settles on the override answers.
@@ -647,15 +681,15 @@ final class SyncPlanController extends ChangeNotifier {
         if (_disposed || generation != _scanGeneration) return;
         _leftRoot = left.rootPath;
         _rightRoot = right.rootPath;
-        _pairId = syncPairId(
-          _pair,
-          leftCaseInsensitive: !left.caseSensitive,
-          rightCaseInsensitive: !right.caseSensitive,
-        );
+        _pairId = _computePairId(left, right);
         _pairState = await _environment.states.load(_pairId!);
+        // The reload returned a different state record — re-apply the
+        // pending overrides so they persist under this pairId.
+        _applyPendingCaseOverrides();
       }
       _pairState.touchedAt = DateTime.now().toUtc();
       await _environment.states.save(_pairId!, _pairState);
+      _pendingCaseOverrides = null;
       _plan = await _differ.diff(
         left,
         right,
@@ -703,6 +737,36 @@ final class SyncPlanController extends ChangeNotifier {
         if (!_disposed) notifyListeners();
       },
     );
+  }
+
+  /// §9: the pairId's fold flags settle from THIS scan's
+  /// case-sensitivity answers. Normalization insensitivity rides the
+  /// probe record in pair state — the scan reports no form verdict of
+  /// its own, so the flags come from the cached record only. One
+  /// helper for both call sites so the override-mismatch recompute
+  /// cannot drop a flag the first computation passed.
+  String _computePairId(ScanResult left, ScanResult right) => syncPairId(
+    _pair,
+    leftCaseInsensitive: !left.caseSensitive,
+    rightCaseInsensitive: !right.caseSensitive,
+    leftNormalizationInsensitive: _pairState
+            .caseProbe[left.rootPath]
+            ?.normalizationInsensitive ??
+        false,
+    rightNormalizationInsensitive: _pairState
+            .caseProbe[right.rootPath]
+            ?.normalizationInsensitive ??
+        false,
+  );
+
+  /// Writes the pending definition-time overrides onto the loaded
+  /// pair state — a null side clears the stored flag (the editor's
+  /// 'auto' choice is authoritative).
+  void _applyPendingCaseOverrides() {
+    final pending = _pendingCaseOverrides;
+    if (pending == null) return;
+    _pairState.caseSensitiveOverrideLeft = pending.left;
+    _pairState.caseSensitiveOverrideRight = pending.right;
   }
 
   /// First-run suggestion (§9): a known heavy name covering more than
@@ -759,6 +823,9 @@ final class SyncPlanController extends ChangeNotifier {
     _phase = SyncPlanPhase.running;
     _pause = SyncRunPause();
     _runCancellation = RemoteTransferCancellation();
+    // A fresh run supersedes the previous task row — its retry verb
+    // must not keep routing into the newest _lastRun.
+    _binding?.retry = null;
     notifyListeners();
     try {
       final executor = _buildExecutor();
@@ -779,7 +846,11 @@ final class SyncPlanController extends ChangeNotifier {
         onEvent: _onRunEvent,
       );
       _lastRun = run;
-      _pairState.lastRunAt = DateTime.now().toUtc();
+      // A cancelled run is not a sync — 'last synced', the heavy-dir
+      // suppression, and the 90-day ad-hoc prune all key on real work.
+      if (!run.cancelled) {
+        _pairState.lastRunAt = DateTime.now().toUtc();
+      }
       // §9: the executor's write-back verification refreshes the
       // untrust flags — persist what the run observed, not the inputs.
       _pairState.mtimeUnreliableLeft = run.mtimeUnreliableLeft;
@@ -829,6 +900,14 @@ final class SyncPlanController extends ChangeNotifier {
     _phase = SyncPlanPhase.running;
     _pause = SyncRunPause();
     _runCancellation = RemoteTransferCancellation();
+    // The retry mints fresh run controls — rebind so the panel row's
+    // pause/cancel drive the live attempt, not the dead run's objects;
+    // flip the row back to running so those verbs stay reachable.
+    _binding?.rebind(
+      pause: _pause!,
+      cancellation: _runCancellation!,
+    );
+    _binding?.emitTaskState(TransferTaskState.running);
     notifyListeners();
     try {
       final run = await executor.retryFailed(
@@ -838,6 +917,9 @@ final class SyncPlanController extends ChangeNotifier {
         onEvent: _onRunEvent,
       );
       _lastRun = run;
+      if (!run.cancelled) {
+        _pairState.lastRunAt = DateTime.now().toUtc();
+      }
       _pairState.mtimeUnreliableLeft = run.mtimeUnreliableLeft;
       _pairState.mtimeUnreliableRight = run.mtimeUnreliableRight;
       _pairState.touchedAt = DateTime.now().toUtc();
@@ -1112,6 +1194,10 @@ SyncEffectiveStats computeSyncEffectiveStats(SyncPlan plan) {
   final counts = <SyncActionType, int>{};
   final bytes = <SyncActionType, int>{};
   final replacedBySide = <SyncSide, int>{SyncSide.left: 0, SyncSide.right: 0};
+  final replacedRowsBySide = <SyncSide, int>{
+    SyncSide.left: 0,
+    SyncSide.right: 0,
+  };
   final fileDeletes = <SyncSide, int>{SyncSide.left: 0, SyncSide.right: 0};
   final dirDeletes = <SyncSide, int>{SyncSide.left: 0, SyncSide.right: 0};
   var replacedFiles = 0;
@@ -1189,6 +1275,7 @@ SyncEffectiveStats computeSyncEffectiveStats(SyncPlan plan) {
     replacedFiles += weight;
     replacedBytes += weightBytes;
     replacedBySide[destSide] = replacedBySide[destSide]! + weight;
+    replacedRowsBySide[destSide] = replacedRowsBySide[destSide]! + 1;
   }
   return SyncEffectiveStats(
     counts: counts,
@@ -1196,6 +1283,7 @@ SyncEffectiveStats computeSyncEffectiveStats(SyncPlan plan) {
     replacedFiles: replacedFiles,
     replacedBytes: replacedBytes,
     replacedBySide: replacedBySide,
+    replacedRowsBySide: replacedRowsBySide,
     fileDeletesBySide: fileDeletes,
     dirDeletesBySide: dirDeletes,
   );
