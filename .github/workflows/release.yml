@@ -98,7 +98,7 @@ jobs:
               exit 1
               ;;
           esac
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
           fetch-depth: 0
@@ -304,7 +304,7 @@ jobs:
               exit 1
               ;;
           esac
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4 (SHA-pinned: the publish path must not follow a mutable tag)
         with:
           ref: ${{ steps.checkout-ref.outputs.ref }}
       # Pin the JDK so the Gradle build is deterministic rather than tracking

@@ -37,7 +37,7 @@ jobs:
         # Git Bash on Windows; never interpret the package loops as PowerShell.
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -81,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dart-lang/setup-dart@v1
@@ -163,7 +163,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         if: github.event_name != 'workflow_dispatch'
         id: changes
@@ -204,7 +204,7 @@ jobs:
     outputs:
       run: ${{ steps.fixture.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         if: github.event_name == 'pull_request'
         id: changes
@@ -251,7 +251,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -271,7 +271,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -335,7 +335,7 @@ jobs:
     outputs:
       run: ${{ steps.fixture.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v3
         if: github.event_name == 'pull_request'
         id: changes
@@ -402,7 +402,7 @@ jobs:
       contents: read
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -521,7 +521,7 @@ jobs:
           - rtt100-1gb-upload-openssh-r2
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -585,7 +585,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
@@ -637,7 +637,7 @@ jobs:
     outputs:
       app: ${{ steps.d.outputs.app }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: d
         run: echo "app=$([ -d app/poltergeist_app ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
@@ -648,7 +648,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30   # first run downloads the Flutter toolchain
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -702,7 +702,7 @@ jobs:
             target: windows
             build: windows --release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Pin the JDK so the Gradle build is deterministic rather than tracking
       # the runner's default; keep in step with the app's compileOptions.
       - uses: actions/setup-java@v4
