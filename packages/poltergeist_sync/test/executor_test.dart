@@ -87,8 +87,12 @@ final class _SetstatDenyingFs extends LocalFileSystem {
     uploads++;
     if (preserveMode != null) {
       uploadsWithMode++;
-      return Future.error(
-        RemoteFileException(
+      // The real server accepts the bytes, then refuses the trailing
+      // fsetstat — drain the content first, then fail the mode stamp.
+      // (Failing via super.upload() would commit the rename and the
+      // retry would hit an exists-conflict.)
+      return content.drain<void>().then(
+        (_) => throw RemoteFileException(
           kind: RemoteFileErrorKind.permissionDenied,
           operation: 'upload',
           path: path,
@@ -927,6 +931,7 @@ void main() {
       expect(run.journal.items.every((i) => i.setstatIgnored), isTrue);
       // Only the first item pays the doomed mode-stamped attempt —
       // the run remembers the refusal and uploads the rest plainly.
+      expect(denyingFs.uploads, 3);
       expect(denyingFs.uploadsWithMode, 1);
     });
 

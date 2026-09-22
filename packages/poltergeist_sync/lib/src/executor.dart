@@ -935,7 +935,6 @@ final class _RunSession {
           );
         } on RemoteFileException catch (error) {
           if (preserveMode == null || !_modeStampDenied(error)) rethrow;
-          _noPreserveMode.add(destSide);
           uploaded = await _transfer(
             srcFs,
             srcAbs,
@@ -947,6 +946,11 @@ final class _RunSession {
             item: item,
             computeHash: false,
           );
+          // Latch only once the plain copy succeeds — a retry that
+          // fails for its own reasons says the mode wasn't the
+          // blocker, and latching would silently drop mode
+          // preservation for the rest of the run.
+          _noPreserveMode.add(destSide);
         }
         final stamp = await _stampAndVerify(
           destFs,
