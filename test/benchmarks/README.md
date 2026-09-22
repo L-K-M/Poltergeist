@@ -7,14 +7,17 @@ plan's status. The
 tier-A scenarios P3/P5/P7 are `landed: true` under a populated
 `calibratedFingerprint` — they crossed both gates on 2026-09-17 (owner
 decision on STATUS item 22; provenance under "Tier-A calibration and
-the landed flip" below) — while every tier-B scenario stays
-`landed: false` until the M9 harness/job introduces its surface (07 §1).
-The tier-B baseline **is** committed
+the landed flip" below) — and the tier-B scenarios P1/P2/P4 are
+`landed: true` since the M9 enforcement flip (2026-09-22): the trend
+gate compares each run's median against the committed baseline and
+fails a > 25 % regression once `BENCH_ENFORCE_B` is set. P6 stays
+`landed: false` — its suite only ever produced insufficient-frame
+error rows, so no honest median exists to trend against; the checker
+reports its rows but never judges them. The tier-B baseline **is**
+committed
 (`tier-b-baseline.json`, measured from real main-branch bench artifacts —
-provenance below), so a declared tier-B scope now runs the per-run
-fingerprint-drift evaluation against it instead of printing the
-absent-baseline notice; per-scenario trend lines still wait on the
-`landed` flips, which are a separate step.
+provenance below), so a declared tier-B scope runs the per-run
+fingerprint-drift evaluation plus per-scenario trend lines.
 
 ## Invocation
 
@@ -150,11 +153,16 @@ The `bench` job in `.github/workflows/ci.yml` writes
 for P1/P2/P4/P6 — see below), evaluates it here with `if: always()` so
 partial results are graded, and uploads it as the always-present
 `bench-results` artifact. The evaluate step forwards the
-`BENCH_ENFORCE_A` repo variable into the checker's environment (set
-2026-09-17 with the tier-A landed flip — an unset/empty variable reads
-as unenforced), so landed tier-A rows now gate on their calibrated
-fingerprint. `BENCH_ENFORCE_B` is not forwarded: tier B stays
-trend-only until M9.
+`BENCH_ENFORCE_A` and `BENCH_ENFORCE_B` repo variables into the
+checker's environment (`BENCH_ENFORCE_A` was set 2026-09-17 with the
+tier-A landed flip — an unset/empty variable reads as unenforced), so
+landed tier-A rows gate on their calibrated fingerprint and landed
+tier-B rows gate on the committed baseline trend once the B variable
+is set. The step also wires 08 §6's de-flaking policy: the drift-state
+store is restored from `actions/cache` before grading, main-branch
+runs regrade with `--update-drift-state` and save the store back, and
+a failed `ab` evaluation reruns the tier-B collectors once before
+reddening.
 
 **Tier-B leg (M3 spike).** On pushes to `main` and manual dispatch the
 job additionally runs the profile-mode UI benchmarks under Xvfb:
@@ -194,27 +202,27 @@ a software stack.
 
 Tier-B rows land in the same `bench-results.json` and the checker runs
 `--tiers ab` on main/dispatch, `--tiers a` on PRs (the tier-B leg never
-runs on a PR — PR invocations must not write drift state). The leg is
-trend-only until M9: no `BENCH_ENFORCE_B` and no `landed` flips — the
-committed baseline (below) arms the fingerprint-drift evaluation on
-`--tiers ab` runs while every scenario stays reported-not-judged.
+runs on a PR — PR invocations must not write drift state). Since the
+M9 flip P1/P2/P4 are landed and trend-checked against the committed
+baseline (below); P6 remains unlanded — reported, never judged —
+because every run so far produced insufficient-frame error rows.
 
 Local iteration needs a display plus the Linux toolchain; the same
 script honors `XVFB_RUN`/`FLUTTER_BIN`/`DART_BIN` overrides, e.g.
 `XVFB_RUN="xvfb-run -a" scripts/bench-tier-b.sh`, and software GL via
 `LIBGL_ALWAYS_SOFTWARE=1` suffices for real Impeller raster timings.
 
-Still ahead for tier B (08 §6/§8): flip each tier-B scenario's `landed`
-as its surface's introduction step allows, so the committed baseline
-starts producing per-scenario trend lines; fetch the drift
-state from the latest main-branch bench job's artifact and pass it via
-`--drift-state` (the checker's drift state is its own standalone JSON
-file — the always-present artifact, or an `actions/cache` entry keyed
-on the fingerprint, is the documented single state store); add
-`--update-drift-state` on main-branch runs only — the checker rejects
-it on tier-B-blind runs, so drift state only ever flows through a run
-that evaluated tier B. PR invocations stay read-only and never mutate
-the store.
+The drift-state store rides `actions/cache` (the second documented
+store option): the job restores the newest `d12-drift-state-*` entry
+before grading and saves a fresh entry on main-branch runs — push to
+`main` or dispatch on `main` — only. PR invocations and side-branch
+dispatches stay read-only and never mutate the store. The checker
+rejects `--update-drift-state` on tier-B-blind runs, so drift state
+only ever flows through a run that evaluated tier B.
+
+Still ahead for tier B: a P6 harness fix (the llvmpipe capture floor —
+see P6's entry under "First committed baseline") before any P6 landing
+or baseline is possible.
 
 ## Baseline refresh procedure (08 §6's dedicated PR)
 
@@ -297,6 +305,29 @@ The file moved to schema `poltergeist-d12-baseline-2` the same day
 against a median measured under the same workload. Medians, repetition
 counts, and the fingerprint are unchanged from the -1 commit (re-verified
 against the same artifacts).
+
+## Baseline refresh — runner image rotation (2026-09-22)
+
+The `ubuntu-latest` image rotated to `20260920.314.1` (a controlled
+axis): every post-rotation run would fingerprint-drift against the
+`20260907.300.1` baseline. The baseline and the tier-A
+`calibratedFingerprint` were re-measured/recalibrated on the new image
+as part of the M9 enforcement-flip PR — a deliberate deviation from the
+dedicated-refresh-PR procedure above, because a landed tier-B gate on a
+stale fingerprint would hard-fail the very run that arms it.
+
+The only main-branch run on the new fingerprint so far is 35763533669
+(CPU `AMD EPYC 7763 64-Core Processor`, matching the recorded pool
+axis), so it is the whole pool — `repetitions` records the shortfall
+(3/3/5). Pooled medians: P1 1044.803 ms, P2 11836.997 ms, P4 40.004 ms
+— each scenario's `scenarioConfig` unchanged. **P6 still has no
+entry**: the rotation run's three repetitions all errored on the same
+insufficient-frame floor (827–829 frames vs the >= 1800 required).
+The tier-A `calibratedFingerprint` moved to the same image and P5's
+`calibratedScenarioConfig` tracks the rotation's readdir-order shift
+(`first-file` is now `entry-02814.txt`); the tier-A budgets themselves
+are unchanged — P3/P5/P7 all still pass on the new image
+(4498.053/4818.734 ms, 2248.033 entries/s).
 
 ## First fixture-backed observations (2026-09-14)
 

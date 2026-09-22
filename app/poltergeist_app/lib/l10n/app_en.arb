@@ -2027,6 +2027,39 @@
   "@settingsBackupCommand": {
     "description": "Menu command opening Settings at the Bookmark backup section (D21)."
   },
+  "settingsCommand": "Settings…",
+  "@settingsCommand": {
+    "description": "02 §9's app.settings menu command — opens the Settings surface."
+  },
+  "settingsGeneralSection": "General",
+  "@settingsGeneralSection": {
+    "description": "Section header for the General tab's rows inside Settings (02 §10)."
+  },
+  "updateCheckEnabledLabel": "Check for updates",
+  "@updateCheckEnabledLabel": {
+    "description": "Settings toggle for the D19 link-only update check (opt-out)."
+  },
+  "updateCheckEnabledSubtitle": "Checks GitHub on launch and only links to the release page — it never downloads anything.",
+  "@updateCheckEnabledSubtitle": {
+    "description": "Explainer under the update-check toggle; the D19/D23 trust claim."
+  },
+  "updateBannerText": "Poltergeist {version} is available.",
+  "@updateBannerText": {
+    "description": "Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).",
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateViewRelease": "View release",
+  "@updateViewRelease": {
+    "description": "Update banner button opening the GitHub releases page in the OS browser (a link, never a download)."
+  },
+  "updateDismissTooltip": "Dismiss",
+  "@updateDismissTooltip": {
+    "description": "Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks)."
+  },
   "backupTitle": "Bookmark backup",
   "@backupTitle": {
     "description": "04 §4.3's verbatim section title."

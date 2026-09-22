@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart' show GlobalKey, ScaffoldMessengerState;
 import 'package:flutter/widgets.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:poltergeist_core/poltergeist_core.dart';
 
@@ -29,6 +31,7 @@ import 'services/sync_queue_facade.dart';
 import 'services/sync_transport.dart';
 import 'services/sync_verdict_stores.dart';
 import 'services/transfer_queue_session.dart';
+import 'services/update_check_controller.dart';
 import 'services/workspace_library.dart';
 import 'services/workspace_list_store.dart';
 
@@ -285,6 +288,15 @@ Future<void> main() async {
   // because one status key failed to decode.
   await errorReporter.guard(bookmarkBackup.load);
 
+  // The D19 link-only update check (07 §3.10, 01 §6): one plain GET of
+  // GitHub's latest-release endpoint per launch, compared locally —
+  // opt-out via Settings → General, and never a download. The checker
+  // is Séance's UpdateChecker pinned to this repo.
+  final updateCheck = UpdateCheckController(
+    enabled: await preferences.loadUpdateChecksEnabled(),
+    onEnabledChanged: preferences.saveUpdateChecksEnabled,
+  );
+
   runApp(
     PoltergeistApp(
       initialPaneRatio: paneRatio,
@@ -337,10 +349,27 @@ Future<void> main() async {
       onPreviewThresholdChanged: preferences.savePreviewThresholdBytes,
       syncEnvironment: syncEnvironment,
       syncTasks: syncTasks,
+      updateCheck: updateCheck,
       onContentSizeChanged: (size) {
         errorReporter.observe(windowLifecycle.calibrateMinimumSize(size));
       },
     ),
   );
+  // The launch-time check fires beside the window bring-up — the
+  // banner mounts whenever the answer lands, and any failure here
+  // (no package info, no network) simply leaves it absent.
+  unawaited(_checkForUpdate(updateCheck));
   await errorReporter.guard(windowLifecycle.show);
+}
+
+/// Look up the running version and ask the controller to compare it
+/// against GitHub's latest release tag. Best-effort; a failure must
+/// never affect startup.
+Future<void> _checkForUpdate(UpdateCheckController updateCheck) async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    await updateCheck.checkForUpdate(info.version);
+  } catch (_) {
+    // No version info / platform channel unavailable — skip silently.
+  }
 }

@@ -1088,9 +1088,10 @@ void main() {
     // check.dart resolves --budgets/--baseline to the committed files by
     // default; this run exercises exactly what the bench job's
     // `--tiers ab` invocation does on a matching fingerprint: no
-    // absent-baseline notice, no drift, exit zero. Relies on the
-    // committed catalog keeping every tier-B scenario unlanded; the
-    // first `landed` flip should re-examine this test's assertions.
+    // absent-baseline notice, no drift, exit zero. P1 is landed since
+    // the M9 flip, so its rows now run the baseline trend comparison —
+    // a 40 ms median against the committed ~1 s baseline passes (the
+    // gate fires only on a > 25 % regression).
     final baselineDoc =
         jsonDecode(File(defaultBaselinePath).readAsStringSync())
             as Map<String, Object?>;
@@ -1100,16 +1101,24 @@ void main() {
       'results.json',
       _resultsJson(
         rows: [
-          for (var i = 0; i < 3; i++)
-            _rowJson(
-              scenario: 'P1',
-              repetition: i,
-              unit: 'ms',
-              fingerprint: {
-                ...baselineFingerprint,
-                'scenarioConfig': 'local-entries-10000-first-paint',
-              },
-            ),
+          // Every landed tier-B scenario must appear: a missing expected
+          // scenario fails in every mode. Configs match the committed
+          // baseline entries so the comparisons execute.
+          for (final (scenario, config) in [
+            ('P1', 'local-entries-10000-first-paint'),
+            ('P2', 'local-entries-100000-first-paint'),
+            ('P4', 'local-tabs-5-entries-10000-tab-switch'),
+          ])
+            for (var i = 0; i < 3; i++)
+              _rowJson(
+                scenario: scenario,
+                repetition: i,
+                unit: 'ms',
+                fingerprint: {
+                  ...baselineFingerprint,
+                  'scenarioConfig': config,
+                },
+              ),
         ],
       ),
     );
@@ -1117,7 +1126,7 @@ void main() {
       arguments: ['--results', results, '--tiers', 'b'],
     );
     expect(exitCodeValue, 0, reason: stdoutText);
-    expect(stdoutText, contains('reported (unlanded)'));
+    expect(stdoutText, contains('pass'));
     expect(
       stdoutText,
       isNot(contains('NOT ENFORCED: no committed tier-B baseline')),
@@ -1131,16 +1140,17 @@ void main() {
       'drifted.json',
       _resultsJson(
         rows: [
-          for (var i = 0; i < 3; i++)
-            _rowJson(
-              scenario: 'P1',
-              repetition: i,
-              unit: 'ms',
-              fingerprint: {
-                ...baselineFingerprint,
-                'runnerImage': 'ubuntu-latest@20991231.999.9',
-              },
-            ),
+          for (final scenario in ['P1', 'P2', 'P4'])
+            for (var i = 0; i < 3; i++)
+              _rowJson(
+                scenario: scenario,
+                repetition: i,
+                unit: 'ms',
+                fingerprint: {
+                  ...baselineFingerprint,
+                  'runnerImage': 'ubuntu-latest@20991231.999.9',
+                },
+              ),
         ],
       ),
     );

@@ -7,6 +7,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:seance_core/seance_core.dart';
 
+import 'local_copy_pump.dart';
 import 'local_fs_safety.dart';
 
 /// The local half of the one VFS (D3): a second *implementation* of
@@ -40,13 +41,27 @@ class LocalFileSystem implements RemoteFileSystem {
   /// to deterministic English). Injecting both makes subprocess-exit
   /// mapping and home resolution testable (a test may prepend a fake
   /// `chmod` directory to `PATH`).
-  LocalFileSystem({Map<String, String>? environment, bool? isMacOS})
-    : _environment = environment ?? Platform.environment,
-      _isMacOS = isMacOS ?? Platform.isMacOS;
+  /// [localCopyPump] is D26's native fast-path seam (00 D26, 07 §3.10):
+  /// the mechanism [copyLocalFile] moves bytes with — `copy_file_range`
+  /// on Linux, the streamed loop elsewhere. A pump returning `false`
+  /// declines its mechanism and the copy restarts through the streamed
+  /// pump; pass [streamedLocalCopyPump] to pin the fallback shape (tests).
+  LocalFileSystem({
+    Map<String, String>? environment,
+    bool? isMacOS,
+    LocalCopyPump? localCopyPump,
+  }) : _environment = environment ?? Platform.environment,
+       _isMacOS = isMacOS ?? Platform.isMacOS,
+       localCopyPump = localCopyPump ?? platformLocalCopyPump();
 
   final Map<String, String> _environment;
   final bool _isMacOS;
   final Random _random = Random.secure();
+
+  /// The local→local byte mover (00 D26's copy seam). Mutable so a test
+  /// fake can reseat its scripted faults without a constructor that
+  /// forwards through `super`.
+  LocalCopyPump localCopyPump;
 
   // Temp siblings: `.poltergeist-` everywhere Séance uses
   // `.seance-` — the one deliberate rename 03 §2.2 ships for this
@@ -703,6 +718,185 @@ class LocalFileSystem implements RemoteFileSystem {
               : _copyEntryWithDigest(uploaded, digestSink.value.toString());
         } catch (_) {
           // The temp never survives a failed upload — commit or cleanup.
+          try {
+            if (await temp.exists()) await temp.delete();
+          } on Object {
+            // Cleanup must not mask the original failure.
+          }
+          rethrow;
+        }
+      },
+      cancellation: cancellation,
+    );
+  }
+
+  /// D26's local→local file copy (00 D26, 07 §3.10): the fast path the
+  /// transfer queue takes when both legs resolve to this filesystem —
+  /// bytes move through [localCopyPump] (`copy_file_range` on Linux,
+  /// the streamed loop as fallback and elsewhere) instead of round-
+  /// tripping the whole file through `download`→`upload`'s bounded pipe.
+  ///
+  /// The commit protocol is `upload`'s verbatim: the destination's
+  /// conflict policy is checked before and after the byte move, the
+  /// copy lands in an exclusive sibling temp, [replaceLocalFile] swaps
+  /// it in atomically, and a failed copy deletes the temp — never the
+  /// destination. The source side mirrors `download`'s integrity rules:
+  /// regular files only, and a snapshot that changed mid-copy is a
+  /// `conflict`, not a silently torn result. Progress reports cumulative
+  /// bytes per pump chunk; cancellation is honored between chunks (the
+  /// kernel pump's 16 MiB stride keeps cancel latency sub-second on
+  /// rotational media). mtime is NOT set here — `_postCommit` owns the
+  /// setTimes fixup (and the move verb's fsync+delete ordering) for
+  /// every local destination alike.
+  Future<RemoteFileEntry> copyLocalFile(
+    String sourcePath,
+    String destinationPath, {
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+  }) {
+    // Same leaf-validation as upload: a remote-derived name is checked
+    // before it touches the disk.
+    validateLocalName(p.basename(destinationPath));
+    return _guard(
+      'copy',
+      destinationPath,
+      () async {
+        final existing = await _statOrNull(destinationPath);
+        if (existing != null && !overwrite) {
+          throw _conflictExists('copy', destinationPath);
+        }
+        if (expectedTarget != null &&
+            (existing == null ||
+                !await _matchesExpectedTarget(
+                  existing,
+                  expectedTarget,
+                  destinationPath,
+                ))) {
+          throw RemoteFileException(
+            kind: RemoteFileErrorKind.conflict,
+            operation: 'copy',
+            path: destinationPath,
+            message:
+                '"${p.basename(destinationPath)}" changed on disk before '
+                'the copy started.',
+          );
+        }
+
+        cancellation?.throwIfCancelled();
+        final sourceType = await FileSystemEntity.type(
+          sourcePath,
+          followLinks: false,
+        );
+        if (sourceType == FileSystemEntityType.notFound) {
+          await _throwIfNotActuallyMissing(sourcePath);
+          throw _notFound('copy', sourcePath);
+        }
+        if (sourceType != FileSystemEntityType.file) {
+          throw RemoteFileException(
+            kind: RemoteFileErrorKind.unsupported,
+            operation: 'copy',
+            path: sourcePath,
+            message: 'Only regular local files can be copied.',
+          );
+        }
+        final initial = await FileStat.stat(sourcePath);
+        // FileStat.size is non-nullable — a size is always reported.
+        final length = initial.size;
+
+        final tempPath = await _createExclusiveTemp(destinationPath);
+        final temp = File(tempPath);
+        try {
+          var transferred = 0;
+          void chunkProgress(int bytes) {
+            transferred += bytes;
+            onProgress?.call(transferred, length);
+          }
+
+          final pumped = await localCopyPump(
+            sourcePath,
+            tempPath,
+            length: length,
+            cancellation: cancellation,
+            onBytes: chunkProgress,
+          );
+          if (!pumped) {
+            // The mechanism declined (EXDEV, EOPNOTSUPP, ENOSYS, …):
+            // restart through the streamed pump — it truncates the
+            // temp's partial bytes itself.
+            transferred = 0;
+            await streamedLocalCopyPump(
+              sourcePath,
+              tempPath,
+              length: length,
+              cancellation: cancellation,
+              onBytes: chunkProgress,
+            );
+          }
+          cancellation?.throwIfCancelled();
+          if (transferred != length) {
+            throw RemoteFileException(
+              kind: RemoteFileErrorKind.conflict,
+              operation: 'copy',
+              path: sourcePath,
+              message:
+                  'The local file changed while it was copying '
+                  '($transferred of $length bytes received).',
+            );
+          }
+          final finalStat = await FileStat.stat(sourcePath);
+          if (!_sameSnapshot(initial, finalStat)) {
+            throw RemoteFileException(
+              kind: RemoteFileErrorKind.conflict,
+              operation: 'copy',
+              path: sourcePath,
+              message: 'The local file changed while it was copying.',
+            );
+          }
+
+          final mode = preserveMode ?? existing?.mode;
+          if (mode != null && !Platform.isWindows) {
+            final result = await _runUtility('chmod', [
+              (mode & 0xFFF).toRadixString(8),
+              tempPath,
+            ]);
+            _throwForUtilityExit(result, 'copy', tempPath);
+          }
+
+          final latest = await _statOrNull(destinationPath);
+          if (!overwrite && latest != null) {
+            throw RemoteFileException(
+              kind: RemoteFileErrorKind.conflict,
+              operation: 'copy',
+              path: destinationPath,
+              message:
+                  'A local item named "${p.basename(destinationPath)}" '
+                  'was created while the copy was running.',
+            );
+          }
+          if (expectedTarget != null &&
+              (latest == null ||
+                  !await _matchesExpectedTarget(
+                    latest,
+                    expectedTarget,
+                    destinationPath,
+                  ))) {
+            throw RemoteFileException(
+              kind: RemoteFileErrorKind.conflict,
+              operation: 'copy',
+              path: destinationPath,
+              message:
+                  '"${p.basename(destinationPath)}" changed on disk while '
+                  'the copy was running.',
+            );
+          }
+          await replaceLocalFile(temp, File(destinationPath));
+
+          return await stat(destinationPath, followLinks: false);
+        } catch (_) {
+          // The temp never survives a failed copy — commit or cleanup.
           try {
             if (await temp.exists()) await temp.delete();
           } on Object {

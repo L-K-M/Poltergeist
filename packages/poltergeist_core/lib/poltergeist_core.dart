@@ -16,6 +16,12 @@ library;
 
 export 'package:seance_core/seance_core.dart'
     show
+        // D19/D23's link-only update check (07 §3.10): Séance's checker,
+        // version compare, and info record — bound to this repo by
+        // [poltergeistUpdateRepo] below.
+        AppVersion,
+        UpdateChecker,
+        UpdateInfo,
         Argon2Params,
         AuthKind,
         AuthMethod,
@@ -131,6 +137,7 @@ export 'src/sync/enrollment.dart'
         syncPassphraseCheckFailedMessage,
         syncRegistrationClosedMessage;
 export 'src/sync/seance_server_catalog.dart' show SeanceServerCatalog;
+export 'src/update/update_check.dart' show poltergeistUpdateRepo;
 export 'src/sync/sync_verdicts.dart'
     show
         InMemoryPinVerdictStore,
@@ -181,6 +188,11 @@ export 'src/fs/local_file_system.dart'
         LocalFileSystem,
         LocalCrossDeviceRenameException,
         LocalPathTypeChangedException;
+export 'src/fs/local_copy_pump.dart'
+    show
+        LocalCopyPump,
+        platformLocalCopyPump,
+        streamedLocalCopyPump;
 export 'src/fs/local_fs_safety.dart'
     show
         ensureSafeLocalDirectory,

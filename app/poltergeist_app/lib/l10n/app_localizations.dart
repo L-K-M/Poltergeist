@@ -2437,6 +2437,48 @@ abstract class AppLocalizations {
   /// **'Back up bookmarks…'**
   String get settingsBackupCommand;
 
+  /// 02 §9's app.settings menu command — opens the Settings surface.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings…'**
+  String get settingsCommand;
+
+  /// Section header for the General tab's rows inside Settings (02 §10).
+  ///
+  /// In en, this message translates to:
+  /// **'General'**
+  String get settingsGeneralSection;
+
+  /// Settings toggle for the D19 link-only update check (opt-out).
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get updateCheckEnabledLabel;
+
+  /// Explainer under the update-check toggle; the D19/D23 trust claim.
+  ///
+  /// In en, this message translates to:
+  /// **'Checks GitHub on launch and only links to the release page — it never downloads anything.'**
+  String get updateCheckEnabledSubtitle;
+
+  /// Dismissible banner shown when GitHub's latest release tag is newer than the running version (D19).
+  ///
+  /// In en, this message translates to:
+  /// **'Poltergeist {version} is available.'**
+  String updateBannerText(String version);
+
+  /// Update banner button opening the GitHub releases page in the OS browser (a link, never a download).
+  ///
+  /// In en, this message translates to:
+  /// **'View release'**
+  String get updateViewRelease;
+
+  /// Tooltip for the update banner's close affordance (session dismiss; the next launch re-checks).
+  ///
+  /// In en, this message translates to:
+  /// **'Dismiss'**
+  String get updateDismissTooltip;
+
   /// 04 §4.3's verbatim section title.
   ///
   /// In en, this message translates to:
