@@ -79,8 +79,9 @@ class _GeneralSectionState extends State<GeneralSection> {
       await widget.settings.onCheckForUpdatesChanged(value);
     } on Object catch (error, stackTrace) {
       ApplicationErrorReporter().report(error, stackTrace);
+      if (!mounted) return;
       setState(() => _checkForUpdates = !value);
-      if (mounted) showTopToastIn(context, message: error.toString());
+      showTopToastIn(context, message: error.toString());
     }
   }
 

@@ -208,9 +208,10 @@ Future<void> _kernelCopy(
       );
       if (copied < 0) {
         final errnoCode = _errno();
-        // Only the "this mechanism cannot serve this pair" errnos are
-        // capability results; anything else is a real copy error.
-        if (errnoCode == _eopnotsupp || errnoCode == 18) {
+        // EXDEV (18): cross-device pair; ENOSYS (38): syscall absent on
+        // this kernel — capability results like EOPNOTSUPP, not copy
+        // errors. Anything else is a real failure.
+        if (errnoCode == _eopnotsupp || errnoCode == 18 || errnoCode == 38) {
           throw _KernelCopyUnsupported(errnoCode);
         }
         throw StateError(

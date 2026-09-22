@@ -10,6 +10,7 @@ import 'package:poltergeist_core/poltergeist_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
+import '../services/application_error_reporter.dart';
 
 /// The default "View release" launch: the releases URL to the OS
 /// browser as an external application. Injectable so tests can observe
@@ -60,8 +61,13 @@ class UpdateBanner extends StatelessWidget {
             ),
             TextButton(
               key: const ValueKey('update.viewRelease'),
-              onPressed: () =>
-                  unawaited((launch ?? _launchReleasePage)(info.releasesUrl)),
+              onPressed: () => unawaited(
+                (launch ?? _launchReleasePage)(info.releasesUrl)
+                    .catchError((Object error, StackTrace stackTrace) {
+                      ApplicationErrorReporter().report(error, stackTrace);
+                      return false;
+                    }),
+              ),
               child: Text(l10n.updateViewRelease),
             ),
             IconButton(
