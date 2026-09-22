@@ -374,7 +374,9 @@ void main() {
               'missing golden ${file.path} — regenerate with '
               'UPDATE_GOLDENS=1',
         );
-        expect(actual, file.readAsStringSync());
+        // The exporter always emits LF; a Windows checkout may hand
+        // the file back with CRLF — normalize before comparing.
+        expect(actual, file.readAsStringSync().replaceAll('\r\n', '\n'));
       });
     }
   });
