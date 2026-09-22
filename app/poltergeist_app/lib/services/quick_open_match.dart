@@ -18,12 +18,12 @@ int? quickOpenScore(String query, String candidate) {
     score += 1;
     // Word boundary: start of string, after a separator, or a
     // camelCase hump — the chars users actually type to reach a row.
-    // The probe reads the ORIGINAL candidate (camelCase needs the case
-    // that toLowerCase erased), so it only applies when lowercasing
-    // didn't drift the length — e.g. U+0130 lowercases to two chars,
-    // which would misalign ci against candidate.
+    // CamelCase needs the ORIGINAL candidate (toLowerCase erases the
+    // hump); when lowercasing drifts the length (U+0130 → two chars)
+    // ci no longer aligns with it, so probe the lowercased copy —
+    // separators are case-invariant, and the hump check can't fire.
     if (ci == 0 ||
-        (candidate.length == c.length && _isBoundary(candidate, ci))) {
+        _isBoundary(candidate.length == c.length ? candidate : c, ci)) {
       score += 8;
     }
     if (lastMatch == ci - 1) score += 4; // consecutive run
