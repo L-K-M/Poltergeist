@@ -62,6 +62,67 @@ final class _SetTimesIgnoringFs extends LocalFileSystem {
   }) async {}
 }
 
+/// A LocalFileSystem that answers attribute writes the way
+/// `sftp-server -P setstat,fsetstat` does: an upload carrying
+/// preserveMode fails with permissionDenied (the mode stamp happens
+/// inside the upload), and setTimes fails the same. The denied-request
+/// shape §4's fallback exists for — as opposed to
+/// _SetTimesIgnoringFs's silent clamp.
+final class _SetstatDenyingFs extends LocalFileSystem {
+  var uploads = 0;
+  var uploadsWithMode = 0;
+
+  @override
+  Future<RemoteFileEntry> upload(
+    String path,
+    Stream<List<int>> content, {
+    int? length,
+    bool overwrite = false,
+    int? preserveMode,
+    RemoteFileEntry? expectedTarget,
+    RemoteTransferProgress? onProgress,
+    RemoteTransferCancellation? cancellation,
+    bool computeHash = true,
+  }) {
+    uploads++;
+    if (preserveMode != null) {
+      uploadsWithMode++;
+      return Future.error(
+        RemoteFileException(
+          kind: RemoteFileErrorKind.permissionDenied,
+          operation: 'upload',
+          path: path,
+          message: 'The server refused the setstat request.',
+        ),
+      );
+    }
+    return super.upload(
+      path,
+      content,
+      length: length,
+      overwrite: overwrite,
+      expectedTarget: expectedTarget,
+      onProgress: onProgress,
+      cancellation: cancellation,
+      computeHash: computeHash,
+    );
+  }
+
+  @override
+  Future<void> setTimes(
+    String path, {
+    DateTime? accessedAt,
+    DateTime? modifiedAt,
+  }) => Future.error(
+    RemoteFileException(
+      kind: RemoteFileErrorKind.permissionDenied,
+      operation: 'setTimes',
+      path: path,
+      message: 'The server refused the setstat request.',
+    ),
+  );
+}
+
 /// A LocalFileSystem whose renames into the trash root throw
 /// EXDEV — the cross-filesystem trash move shape (05 §8 rail 5's
 /// local fallback trigger).
@@ -813,6 +874,60 @@ void main() {
       expect(run.journal.items.single.setstatIgnored, isTrue);
       expect(run.journal.summary!.mtimeUnreliableRight, isTrue);
       expect(find(plan, 'f.txt')!.status, SyncItemStatus.done);
+    });
+
+    test('a setstat-denying destination retries without the mode stamp',
+        () async {
+      final denyingFs = _SetstatDenyingFs();
+      final denying = SyncExecutor(
+        leftFileSystem: leftFs,
+        rightFileSystem: denyingFs,
+        leftRoot: leftRoot.path,
+        rightRoot: rightRoot.path,
+        syncRunsDirectory: runsDir.path,
+        deviceId: deviceId,
+      );
+      await writeFile(leftRoot, 'a.txt', 'payload-a', mtimeSecs: 1577936400);
+      await writeFile(leftRoot, 'b.txt', 'payload-b', mtimeSecs: 1577936400);
+      final plan = makePlan([
+        item(
+          'a.txt',
+          left: await snapOf(leftRoot, 'a.txt'),
+          suggested: SyncActionType.copyLeftToRight,
+          reason: SyncReason.onlyOnLeft,
+        ),
+        item(
+          'b.txt',
+          left: await snapOf(leftRoot, 'b.txt'),
+          suggested: SyncActionType.copyLeftToRight,
+          reason: SyncReason.onlyOnLeft,
+        ),
+        // Serial transfers — under concurrency the first refusal can
+        // race sibling uploads and the count below stops being exact.
+      ], const SyncRuleSet(
+        direction: SyncDirection.leftToRight,
+        deletions: DeletionPolicy.none,
+        backups: BackupPolicy.trash,
+        transferConcurrency: 1,
+      ));
+
+      final run = await denying.run(plan, pairId: pairId);
+
+      expect(find(plan, 'a.txt')!.status, SyncItemStatus.done);
+      expect(find(plan, 'b.txt')!.status, SyncItemStatus.done);
+      expect(
+        await File('${rightRoot.path}/a.txt').readAsString(),
+        'payload-a',
+      );
+      expect(
+        await File('${rightRoot.path}/b.txt').readAsString(),
+        'payload-b',
+      );
+      expect(denying.mtimeUnreliableRight, isTrue);
+      expect(run.journal.items.every((i) => i.setstatIgnored), isTrue);
+      // Only the first item pays the doomed mode-stamped attempt —
+      // the run remembers the refusal and uploads the rest plainly.
+      expect(denyingFs.uploadsWithMode, 1);
     });
 
     test('EXDEV on a trash rename falls back to copy-then-delete',

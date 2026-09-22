@@ -5,8 +5,11 @@ is CLOSED on evidence with bounded residuals recorded as open items
 27–30 (DoD item 8 PARTIAL; D28 chown deferred to M9). Audited against
 main head `187d5b7` (post-#177, the rsync
 exporter merge). One audit PR adds the missing setstat-ignoring
-integration leg and the sizeOnly-notice render proof (the only
-testable gaps the audit found), the STATUS sweep, and this record; no
+integration leg and the sizeOnly-notice render proof, one narrow
+executor fix the new leg exposed (a server refusing `setstat` rejects
+the upload's mode stamp too — the copy now retries without
+`preserveMode` so `_stampAndVerify` reaches the designed
+flag+sizeOnly path), the STATUS sweep, and this record; no
 feature work, no pin bump, no Séance edits.
 
 ## What the audit PR changes
@@ -36,6 +39,18 @@ feature work, no pin bump, no Séance edits.
   `pairState.mtimeUnreliableRight` flag lands, and the header renders
   05 §4's size-only notice (`comparing by size only`) — absent before
   the run, present after.
+- `packages/poltergeist_sync/lib/src/executor.dart`: the restricted
+  leg's first real Docker run caught a genuine engine defect —
+  `RemoteFileSystem.upload` applies `preserveMode` via `setStat` on
+  the temp file before rename, so a `setstat`-denying server failed
+  every copy outright and the fallback chain never engaged. The copy
+  now retries once without the mode stamp when the upload fails with
+  a denial-shaped error (`permissionDenied`/`unsupported`/`other`),
+  remembers the refusal per side for the rest of the run, and lets
+  `_stampAndVerify`'s refused `setTimes` flag the side and journal
+  `setstatIgnored` as designed. `executor_test.dart` gains a
+  `_SetstatDenyingFs` regression covering the retry, the flag, and
+  the per-run skip.
 - `docs/STATUS.md`: header sweep, the missing dated section for #177,
   this audit's close section, open items 27–30.
 - `tasks/m8-closure-record.md`: this record.
@@ -98,7 +113,7 @@ feature work, no pin bump, no Séance edits.
 | 1 | `poltergeist_sync` per §11; no Flutter/dartssh2/`Process` | MET | `invariants_test.dart` AST-walks the package: `Process` banned at symbol level (comments/strings excluded), Flutter/dartssh2 imports banned, `dart:io` allowlisted to `journal.dart` only. |
 | 2 | Scanner: pipelined readdirs (8), progress, both-sides subtree exclusion, symlinks skipped+counted, gitignore + `.poltergeist*` defaults | MET | `scan.dart` (`defaultReaddirConcurrency = 8`, `onProgress`, `symlinksSkipped` warning with count), `ignore.dart` (gitignore matcher + compiled defaults incl. `.poltergeist*` and the trash-root prefix exclusion), `diff.dart` rule-8 subtree mirroring; `scan_test.dart`, `ignore_test.dart`, `diff_test.dart` (`a hazard counterpart never plans as an orphan delete`, scan-error exclusion cases). |
 | 3 | Name hazards → conflict-class items with §7 reasons, never silently fixed | MET | `compare.dart` hazard detection + `diff.dart` classification; `compare_test.dart`/`diff_test.dart` hazard groups (NFC/NFD pairing keeps the destination byte form, case collisions, Windows-invalid names → `conflict`). |
-| 4 | Comparison: size+mtime 2 s + whole-second truncation; sizeOnly; contentHash size-gated; setTimes+mode preservation + re-stat; auto sizeOnly fallback + notice | MET | `compare_test.dart` boundary fixtures (exact-2 s equal, 3 s different, sub-second dropped); executor uploads carry `preserveMode` and `_stampAndVerify` re-stats; fallback chain proven by `executor_test.dart` (`a setstat-ignoring destination flags the side unreliable`), the new Docker leg, and the new widget test. |
+| 4 | Comparison: size+mtime 2 s + whole-second truncation; sizeOnly; contentHash size-gated; setTimes+mode preservation + re-stat; auto sizeOnly fallback + notice | MET | `compare_test.dart` boundary fixtures (exact-2 s equal, 3 s different, sub-second dropped); executor uploads carry `preserveMode` (retrying without it when a `setstat`-denying server rejects the stamp — see the executor fix above) and `_stampAndVerify` re-stats; fallback chain proven by `executor_test.dart` (`a setstat-ignoring destination flags the side unreliable`, `a setstat-denying destination retries without the mode stamp`), the new Docker leg, and the new widget test. |
 | 5 | Exactly three modes = direction × deletion policy; unresolved conflicts skip | MET | `SyncRuleSet` (Update default, Mirror, Additive = bidirectional + no deletes, `validateDirectionDeletions`); `diff_test.dart` (`a no-delete mode auto-resolves to skip, suggested conflict`). |
 | 6 | `SyncPlan` per §6 incl. ordering (mkdirs first, deletes last deepest-first, delete phase behind a clean copy phase, rule-4 pre-delete) | MET | `executor.dart` three phases + rule-4 barrier items; `executor_test.dart` ordering/pre-delete/delete-gate cases. |
 | 7 | Plan view per §7: exact header copy, glyph+color+reason table, filter chips with counts, override cycling + context menu, bulk conflict resolve, consequence-stating Run | MET | `sync_plan_view.dart` + `sync_plan_format.dart`; `sync_plan_view_test.dart` (header clauses, chips, override menu, conflict bar, typed-DELETE, refusal banner, consequence labels); header goldens via format tests; captures under `tasks/run3-task90/captures/`. |

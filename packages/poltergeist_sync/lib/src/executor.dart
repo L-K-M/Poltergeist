@@ -580,6 +580,11 @@ final class _RunSession {
   /// nothing never creates them).
   final Map<SyncSide, String> _trashDirs = {};
 
+  /// Sides whose server refused an upload's mode stamp this run —
+  /// subsequent items skip `preserveMode` instead of paying a doomed
+  /// second transfer per file.
+  final Set<SyncSide> _noPreserveMode = {};
+
   var _failed = false;
   var cancelled = false;
   var _trashSequence = 0;
@@ -907,18 +912,42 @@ final class _RunSession {
         } else {
           await _verifyAbsent(destFs, destAbs);
         }
-        final uploaded = await _transfer(
-          srcFs,
-          srcAbs,
-          destFs,
-          destAbs,
-          length: srcSnapshot?.size ?? liveSource.size,
-          preserveMode: liveSource.mode,
-          expectedTarget: expectedTarget,
-          overwrite: expectedTarget != null,
-          item: item,
-          computeHash: false,
-        );
+        // A server refusing setstat (e.g. `sftp-server -P setstat`)
+        // rejects the mode stamp inside the upload itself, before
+        // `_stampAndVerify` can observe it — retry the copy without
+        // mode preservation; the setTimes refusal that follows flags
+        // the side for §9's sizeOnly fallback as designed.
+        final preserveMode =
+            _noPreserveMode.contains(destSide) ? null : liveSource.mode;
+        RemoteFileEntry uploaded;
+        try {
+          uploaded = await _transfer(
+            srcFs,
+            srcAbs,
+            destFs,
+            destAbs,
+            length: srcSnapshot?.size ?? liveSource.size,
+            preserveMode: preserveMode,
+            expectedTarget: expectedTarget,
+            overwrite: expectedTarget != null,
+            item: item,
+            computeHash: false,
+          );
+        } on RemoteFileException catch (error) {
+          if (preserveMode == null || !_modeStampDenied(error)) rethrow;
+          _noPreserveMode.add(destSide);
+          uploaded = await _transfer(
+            srcFs,
+            srcAbs,
+            destFs,
+            destAbs,
+            length: srcSnapshot?.size ?? liveSource.size,
+            expectedTarget: expectedTarget,
+            overwrite: expectedTarget != null,
+            item: item,
+            computeHash: false,
+          );
+        }
         final stamp = await _stampAndVerify(
           destFs,
           destSide,
@@ -1536,6 +1565,18 @@ final class _RunSession {
       executor.mtimeUnreliableRight = true;
     }
   }
+
+  /// Whether [error] is a shape a refused attribute write can take —
+  /// `permissionDenied` (OpenSSH's `-P` denylist), `unsupported`, or
+  /// the generic `failure` some servers answer with. The retry it
+  /// gates is safe for all three: a destination that is unwritable
+  /// for other reasons simply fails the second attempt too, while
+  /// conflict/notFound/cancelled/disconnected must never re-run a
+  /// transfer.
+  bool _modeStampDenied(RemoteFileException error) =>
+      error.kind == RemoteFileErrorKind.permissionDenied ||
+      error.kind == RemoteFileErrorKind.unsupported ||
+      error.kind == RemoteFileErrorKind.other;
 
   /// A live recursive listing under [destAbs], keyed by root-relative
   /// path — shared by the subtree precondition and the pre-delete
