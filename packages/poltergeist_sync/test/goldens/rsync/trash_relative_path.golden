@@ -1,3 +1,4 @@
+# note: the trash exclude '/tmp/trash' also filters the source side — files under the same relative path in the source are not copied
 # note: --delete-delay approximates the plan's delete-after-clean-copy gate — on a partial failure that is not an I/O error rsync may still delete where the executor would not
 # note: --max-delete=500 caps deletions per run — rsync performs up to the cap and stops with an error, where the plan refuses to start at all
 # note: rsync is single-stream

@@ -1,4 +1,4 @@
-# note: pattern 'releases[0-9]' is approximated — the engine's gitignore dialect treats it literally where rsync reads filter syntax
+# note: pattern 'releases[0-9]' is emitted escaped as 'releases\[0-9\]' — rsync would otherwise read the engine's literal characters as filter syntax
 # note: rsync is single-stream
-# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='releases[0-9]' -- '/home/me/site/' '/srv/site'
-rsync -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='releases[0-9]' -- '/home/me/site/' '/srv/site'
+# Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='releases\[0-9\]' -- '/home/me/site/' '/srv/site'
+rsync -r -p -t --modify-window=2 --backup --backup-dir='.poltergeist-trash/rsync-20260922-150407' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' --exclude='releases\[0-9\]' -- '/home/me/site/' '/srv/site'

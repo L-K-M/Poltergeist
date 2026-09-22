@@ -174,15 +174,22 @@ final class SyncPlanController extends ChangeNotifier {
     SyncPlanDiffer? differ,
     this.deviceId = 'local',
     SyncCaseOverrides? caseOverrides,
-    RsyncEndpointResolver? rsyncEndpoints,
-  // `_pair` stays private: an initializing formal would make the
-  // named parameter unusable outside this library (ui/ constructs
-  // sessions by `pair:`).
+    // Required rather than defaulted to `resolveRsyncEndpoints`: the
+    // plain resolver cannot see the shared-mode server catalog, so a
+    // construction site that forgot to bind one would silently disable
+    // rsync export for every serverConfigId pair. Forcing the argument
+    // makes the choice visible (tests pass the plain resolver or a
+    // stub; the shell binds the catalog lookup).
+    required RsyncEndpointResolver rsyncEndpoints,
+  // `_pair`/`_rsyncEndpoints` stay private: initializing formals would
+  // make the named parameters unusable outside this library (ui/
+  // constructs sessions by `pair:`/`rsyncEndpoints:`).
   // ignore: prefer_initializing_formals
   }) : _pair = pair,
        _environment = environment,
        _pendingCaseOverrides = caseOverrides,
-       _rsyncEndpoints = rsyncEndpoints ?? resolveRsyncEndpoints,
+       // ignore: prefer_initializing_formals
+       _rsyncEndpoints = rsyncEndpoints,
        _scanner = scanner ?? _TreeScannerAdapter(environment),
        _differ = differ ?? _EngineDiffer(environment);
 
@@ -565,10 +572,19 @@ final class SyncPlanController extends ChangeNotifier {
       !_pairState.mtimeUnreliableRight;
 
   /// The `sync.copyRsyncCommand` enablement probe (05 §2.1): true when
-  /// [rsyncExport] would produce text — a plan exists and every remote
-  /// side resolves. Cheap: no string is built.
+  /// [rsyncExport] would produce text — a settled plan exists and every
+  /// remote side resolves. Cheap: no string is built.
   bool get canExportRsync =>
-      _plan != null && _rsyncEndpoints(_pair) != null;
+      _exportablePlan != null && _rsyncEndpoints(_pair) != null;
+
+  /// The plan export may quote: settled only. During `scanning`/`error`
+  /// `_plan` can hold a PREVIOUS scan's result while `_pair.rules` have
+  /// already moved on — exporting the mix would render new rules against
+  /// a stale plan's skip paths.
+  SyncPlan? get _exportablePlan => switch (_phase) {
+    SyncPlanPhase.scanning || SyncPlanPhase.error => null,
+    _ => _plan,
+  };
 
   /// §2.1's "Copy as rsync command" body: the EFFECTIVE ruleset
   /// rendered as the commented rsync block — §4's `mtimeUnreliable`
@@ -579,7 +595,7 @@ final class SyncPlanController extends ChangeNotifier {
   /// silently wrong command. [now] is a seam so the timestamped
   /// backup-dir stays deterministic under test.
   ({String text, bool permanentDeletions})? rsyncExport({DateTime? now}) {
-    final plan = _plan;
+    final plan = _exportablePlan;
     if (plan == null) return null;
     final endpoints = _rsyncEndpoints(_pair);
     if (endpoints == null) return null;
@@ -595,6 +611,7 @@ final class SyncPlanController extends ChangeNotifier {
         rules,
         manualOverrides:
             plan.items.where((item) => item.userOverridden).length,
+        mtimesUntrusted: downgraded,
         engineSkipPaths: rsyncEngineSkipPaths(plan),
         now: now ?? DateTime.now(),
       ),

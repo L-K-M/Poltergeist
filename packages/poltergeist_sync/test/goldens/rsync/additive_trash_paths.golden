@@ -1,3 +1,4 @@
+# note: the trash exclude '/tmp/trash-left' also filters the source side — files under the same relative path in the source are not copied
 # note: -u approximates conflicts as newer-wins; Poltergeist surfaces them instead
 # note: rsync is single-stream
 # Preview first (matches Poltergeist's plan):  rsync -n -i -r -p -t --modify-window=2 -u --backup --backup-dir='/srv/trash-right' --exclude='/tmp/trash-left' --exclude='*.poltergeist-*' --exclude='.poltergeist*' --exclude='desktop.ini' --exclude='Thumbs.db' --exclude='.DS_Store' -- '/home/me/site/' '/srv/site'

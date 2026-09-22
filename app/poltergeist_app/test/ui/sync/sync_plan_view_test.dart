@@ -16,6 +16,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:poltergeist_app/l10n/app_localizations.dart';
+import 'package:poltergeist_app/services/rsync_endpoints.dart';
 import 'package:poltergeist_app/services/sync_plan_controller.dart';
 import 'package:poltergeist_app/services/sync_queue_facade.dart';
 import 'package:poltergeist_app/theme/app_theme.dart';
@@ -475,6 +476,7 @@ void main() {
           environment: testSyncEnvironment(scratch),
           syncTasks: SyncQueueTasks(),
           deviceId: 'test-device',
+          rsyncEndpoints: resolveRsyncEndpoints,
         );
         addTearDown(controller.dispose);
 
@@ -551,6 +553,7 @@ void main() {
           ),
           syncTasks: SyncQueueTasks(),
           deviceId: 'test-device',
+          rsyncEndpoints: resolveRsyncEndpoints,
         );
         addTearDown(controller.dispose);
 
@@ -612,6 +615,7 @@ void main() {
           environment: testSyncEnvironment(scratch),
           syncTasks: SyncQueueTasks(),
           deviceId: 'test-device',
+          rsyncEndpoints: resolveRsyncEndpoints,
         );
         addTearDown(controller.dispose);
 
@@ -717,6 +721,9 @@ void main() {
       WidgetTester tester,
       SyncPlanController controller,
     ) async {
+      // Reset between captures — a copy that never reaches the channel
+      // must fail the assert, not pass on a previous test's text.
+      clipboardText = null;
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
         (message) async {

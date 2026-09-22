@@ -169,7 +169,7 @@ SyncPlanController testController({
   scanner: scanner,
   differ: differ,
   deviceId: 'test-device',
-  rsyncEndpoints: rsyncEndpoints,
+  rsyncEndpoints: rsyncEndpoints ?? resolveRsyncEndpoints,
 );
 
 /// Pumps the microtask queue until [condition] holds or the deadline

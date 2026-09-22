@@ -13,8 +13,14 @@
 //   never `-s`/`--protect-args`, which the common peers lack);
 // - positional paths always follow `--` so a `-…` path cannot be read
 //   as bundled options;
+// - when a remote side exists, every forwarded flag value is also
+//   backslash-escaped — rsync without `-s` joins args into one remote
+//   command line the remote shell re-parses, so a space in a backup
+//   dir or a glob char in a pattern would otherwise split or expand;
 // - every unrepresentable piece lands as a `# note:` in the leading
-//   comment block — nothing is silently dropped.
+//   comment block — nothing is silently dropped — and untrusted text
+//   reaching a comment is CR/LF-scrubbed so a newline inside a path
+//   or pattern cannot escape the comment into a live shell line.
 import 'ignore.dart';
 import 'plan.dart';
 
@@ -123,12 +129,17 @@ List<String> rsyncEngineSkipPaths(SyncPlan plan) {
 ///
 /// [rules] is the EFFECTIVE ruleset — the caller resolves §4's
 /// `mtimeUnreliable` fallback to `sizeOnly` before calling, exactly as
-/// it resolves the endpoints. [now] is required so the timestamped
-/// backup-dir stays a pure function of the inputs (golden-tested).
+/// it resolves the endpoints — and [mtimesUntrusted] marks that a
+/// caller-side downgrade happened, so the rendered `--size-only`
+/// carries its divergence note (the ruleset alone can no longer tell
+/// an untrusted-mtime downgrade from a configured size-only pair).
+/// [now] is required so the timestamped backup-dir stays a pure
+/// function of the inputs (golden-tested).
 String buildRsyncCommand(
   ResolvedSyncEndpoints endpoints,
   SyncRuleSet rules, {
   int manualOverrides = 0,
+  bool mtimesUntrusted = false,
   required List<String> engineSkipPaths,
   required DateTime now,
 }) {
@@ -172,6 +183,13 @@ String buildRsyncCommand(
       'scan-error subtrees and symlinks are excluded to match the plan',
     );
   }
+  if (trashSkipPaths.isNotEmpty) {
+    notes.add(
+      'the trash exclude ${trashSkipPaths.map((p) => _sq('/$p')).join(' ')} '
+      'also filters the source side — files under the same relative '
+      'path in the source are not copied',
+    );
+  }
   for (final side in remoteSides) {
     if (side.connectionShape.contains(SyncConnectionFlag.identityFile)) {
       notes.add(
@@ -189,6 +207,14 @@ String buildRsyncCommand(
   }
 
   // Approximation notes in the order §2.1's table introduces them.
+  if (effectiveComparison == ComparisonMode.sizeOnly &&
+      (rules.comparison != ComparisonMode.sizeOnly || mtimesUntrusted)) {
+    notes.add(
+      '--size-only replaces mtime comparison (mtimes untrusted) — a '
+      'file whose content changed while its size did not is skipped '
+      'as unchanged',
+    );
+  }
   if (mirror && rules.maxDelete >= 1) {
     notes.add(
       "--delete-delay approximates the plan's delete-after-clean-copy "
@@ -233,11 +259,11 @@ String buildRsyncCommand(
       'trash, no backup-dir)',
     );
   }
-  for (final pattern in filters.divergent) {
+  for (final escaped in filters.escaped) {
     notes.add(
-      'pattern ${_sq(pattern)} is approximated — the engine\'s '
-      'gitignore dialect treats it literally where rsync reads filter '
-      'syntax',
+      'pattern ${_sq(escaped.raw)} is emitted escaped as '
+      '${_sq(escaped.emitted)} — rsync would otherwise read the '
+      'engine\'s literal characters as filter syntax',
     );
   }
   if (!rules.includeHidden &&
@@ -271,7 +297,9 @@ String buildRsyncCommand(
     notes.add('adjust the local Windows path for your rsync build');
   }
 
-  final lines = <String>[for (final note in notes) '# note: $note'];
+  final lines = <String>[
+    for (final note in notes) '# note: ${_commentSafe(note)}',
+  ];
   if (bothRemote) {
     lines.add(
       '# note: both endpoints are remote — rsync refuses a '
@@ -304,7 +332,7 @@ String buildRsyncCommand(
       remote: remote,
       engineSkipPaths: engineSkipPaths,
       trashSkipPaths: trashSkipPaths,
-      filters: filters.args,
+      filters: filters.patterns,
     );
     final source = _renderEndpoint(
       sourceSide == SyncSide.left ? endpoints.left : endpoints.right,
@@ -316,7 +344,7 @@ String buildRsyncCommand(
     );
     lines.add(
       "# Preview first (matches Poltergeist's plan):  "
-      'rsync -n -i $flags -- $source $destination',
+      '${_commentSafe('rsync -n -i $flags -- $source $destination')}',
     );
     lines.add('rsync $flags -- $source $destination');
   }
@@ -324,7 +352,12 @@ String buildRsyncCommand(
 }
 
 /// The shared flag list for one direction (§2.1) — everything between
-/// `rsync` and `--`, in a fixed order the goldens pin.
+/// `rsync` and `--`, in a fixed order the goldens pin. When a remote
+/// side exists, every forwarded VALUE (backup dir, filter patterns)
+/// gets the remote-shell escape on top of single-quoting — the remote
+/// rsync invocation is one shell line, so an unescaped space would
+/// split the arg and an unescaped `*` could glob-expand against the
+/// remote cwd. `-e` is exempt: it is consumed by the LOCAL rsync.
 String _flags({
   required SyncRuleSet rules,
   required ComparisonMode effectiveComparison,
@@ -334,8 +367,10 @@ String _flags({
   required ResolvedRemoteEndpoint? remote,
   required List<String> engineSkipPaths,
   required List<String> trashSkipPaths,
-  required List<String> filters,
+  required List<({String pattern, bool include})> filters,
 }) {
+  String arg(String value) =>
+      _sq(remote == null ? value : _escapeRemotePath(value));
   return [
     '-r',
     '-p',
@@ -353,15 +388,18 @@ String _flags({
     ],
     if (backups) ...[
       '--backup',
-      '--backup-dir=${_sq(backupDir)}',
+      '--backup-dir=${arg(backupDir)}',
     ],
     if (remote != null)
       remote.port == 22 ? "-e 'ssh'" : '-e ${_sq('ssh -p ${remote.port}')}',
     // Engine-imposed exclusions lead every ruleset filter — rsync is
     // first-match-wins, so nothing downstream can re-admit them (§2.1).
-    for (final path in engineSkipPaths) '--exclude=${_sq('/$path')}',
-    for (final path in trashSkipPaths) '--exclude=${_sq('/$path')}',
-    ...filters,
+    for (final path in engineSkipPaths) '--exclude=${arg('/$path')}',
+    for (final path in trashSkipPaths) '--exclude=${arg('/$path')}',
+    for (final filter in filters)
+      filter.include
+          ? '--include=${arg(filter.pattern)}'
+          : '--exclude=${arg(filter.pattern)}',
   ].join(' ');
 }
 
@@ -385,11 +423,14 @@ String _backupDir(SyncSide destinationSide, SyncRuleSet rules, DateTime now) {
 /// spellings) — the scan excludes them, so the export must too or a
 /// Mirror's `--delete-delay` could delete inside the destination's
 /// trash (and a relative source-side trash would copy into the
-/// transfer). Absolute trash paths live outside the tree by
-/// construction and need no filter.
+/// transfer). Absolute spellings — POSIX `/`, drive-letter, and UNC
+/// `\\…` alike — live outside the tree by construction and need no
+/// filter.
 List<String> _trashSkipPaths(SyncRuleSet rules) {
   bool inRoot(String path) =>
-      !path.startsWith('/') && !RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path);
+      !path.startsWith('/') &&
+      !path.startsWith(r'\') &&
+      !RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path);
   return {
     for (final path in [rules.trashPathLeft, rules.trashPathRight])
       if (path != null && inRoot(path)) path,
@@ -401,20 +442,22 @@ List<String> _trashSkipPaths(SyncRuleSet rules) {
 /// last-match-wins, so the engine's evaluation order — user globs, the
 /// `.*` hidden filter, app defaults — emits backwards: app defaults
 /// first, `.*` between, user globs last. `!` negations become
-/// `--include`. [divergent] collects the patterns whose syntax the two
-/// dialects genuinely disagree on (character classes, backslash
-/// escapes — literal to the engine, live filter syntax to rsync).
-({List<String> args, List<String> divergent}) _filtersFor(
-  SyncRuleSet rules,
-) {
-  final args = <String>[];
-  final divergent = <String>[];
+/// `--include`. [escaped] records every pattern whose emission had to
+/// backslash characters the engine matches literally but rsync reads
+/// as filter syntax (a `[` class, a `\` escape) — the translation is
+/// exact, so the note is informational rather than an approximation.
+({
+  List<({String pattern, bool include})> patterns,
+  List<({String raw, String emitted})> escaped,
+})
+_filtersFor(SyncRuleSet rules) {
+  final patterns = <({String pattern, bool include})>[];
+  final escaped = <({String raw, String emitted})>[];
   void emit(String pattern, {required bool include}) {
-    args.add(
-      include ? '--include=${_sq(pattern)}' : '--exclude=${_sq(pattern)}',
-    );
-    if (pattern.contains('[') || pattern.contains(r'\')) {
-      divergent.add(pattern);
+    final translated = _escapeRsyncGlob(pattern);
+    patterns.add((pattern: translated, include: include));
+    if (translated != pattern) {
+      escaped.add((raw: pattern, emitted: translated));
     }
   }
 
@@ -426,18 +469,23 @@ List<String> _trashSkipPaths(SyncRuleSet rules) {
   for (final raw in rules.excludeGlobs.reversed) {
     var pattern = raw.trim();
     var negated = false;
-    if (pattern.startsWith('!')) {
+    var literal = false;
+    if (pattern.startsWith(r'\!') || pattern.startsWith(r'\#')) {
+      // gitignore's escape — a literal `!`/`#` leading character, which
+      // is exactly the plain pattern to emit (never a comment or a
+      // negation).
+      literal = true;
+      pattern = pattern.substring(1);
+    } else if (pattern.startsWith('!')) {
       negated = true;
       pattern = pattern.substring(1);
-    } else if (pattern.startsWith(r'\!') || pattern.startsWith(r'\#')) {
-      // gitignore's escape — a literal `!`/`#` leading character, which
-      // is exactly the plain pattern to emit.
-      pattern = pattern.substring(1);
     }
-    if (pattern.startsWith('#') || pattern.isEmpty) continue;
+    if (!literal && (pattern.startsWith('#') || pattern.isEmpty)) {
+      continue;
+    }
     emit(pattern, include: negated);
   }
-  return (args: args, divergent: divergent);
+  return (patterns: patterns, escaped: escaped);
 }
 
 /// One positional argument: a remote spec as a single quoted word
@@ -465,7 +513,10 @@ String _renderEndpoint(ResolvedSyncEndpoint endpoint, {required bool source}) {
 
 /// The source's trailing-`/` normalization: strips existing trailing
 /// separators (plus `\` on Windows roots) so the emitted path ends in
-/// exactly one `/`; an all-separator root collapses to `/`.
+/// exactly one `/`; an all-separator root collapses to `/`. An empty
+/// path stays empty — it renders `''` and rsync errors on it, where
+/// collapsing it to `/` would offer a root-filesystem source for what
+/// was a degenerate input.
 String _sourceTail(String path, {required bool windows}) {
   var trimmed = path;
   while (trimmed.length > 1 &&
@@ -473,12 +524,32 @@ String _sourceTail(String path, {required bool windows}) {
           (windows && trimmed.endsWith(r'\')))) {
     trimmed = trimmed.substring(0, trimmed.length - 1);
   }
-  if (trimmed.isEmpty) return '/';
+  if (trimmed.isEmpty) return path;
   return trimmed.endsWith('/') ? trimmed : '$trimmed/';
 }
 
 /// POSIX single-quoting for one generated argument: `'` → `'\''`.
 String _sq(String value) => "'${value.replaceAll("'", "'\\''")}'";
+
+/// Comment-line scrubbing (the file's CR/LF contract): `#` frames a
+/// comment to end-of-line, so a raw newline inside an interpolated
+/// path or pattern would let attacker- or accident-shaped text escape
+/// into a live shell line. Every comment line runs through this;
+/// command-line args keep the real value — a newline inside single
+/// quotes is a legal, inert character in the argument.
+String _commentSafe(String value) => value.replaceAll(RegExp('[\r\n]'), ' ');
+
+/// Dialect translation for one filter pattern (the engine matches
+/// `[`, `]`, and `\` literally — gitignore classes and interior
+/// escapes are NOT supported — where rsync's wildmatch reads all
+/// three): `\` first so a literal backslash cannot be mistaken for
+/// part of a bracket escape, then the brackets. `*`, `?`, `**`, `/`,
+/// and `!`-as-include already share semantics, so nothing else
+/// translates.
+String _escapeRsyncGlob(String pattern) => pattern
+    .replaceAll(r'\', r'\\')
+    .replaceAll('[', r'\[')
+    .replaceAll(']', r'\]');
 
 /// The remote-path byte escaping (§2.1): anything outside
 /// `[A-Za-z0-9._/+@%=:,-]` takes a backslash so the REMOTE shell's

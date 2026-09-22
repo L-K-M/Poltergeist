@@ -2670,6 +2670,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Copied rsync command — deletions are permanent when pasted';
 
   @override
+  String get syncRsyncCopyFailed =>
+      'Couldn\'t copy the rsync command — clipboard unavailable';
+
+  @override
   String get syncHeavySuggestionAccept => 'Exclude';
 
   @override

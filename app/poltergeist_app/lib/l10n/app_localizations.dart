@@ -4087,6 +4087,12 @@ abstract class AppLocalizations {
   /// **'Copied rsync command — deletions are permanent when pasted'**
   String get syncCopiedRsyncCommandPermanent;
 
+  /// Toast when the rsync export's clipboard write throws (a platform-channel failure surfaces as feedback, never an unhandled async error).
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t copy the rsync command — clipboard unavailable'**
+  String get syncRsyncCopyFailed;
+
   /// Heavy-directory suggestion's accept verb (05 §9): adds the name to the pair's exclude rules.
   ///
   /// In en, this message translates to:

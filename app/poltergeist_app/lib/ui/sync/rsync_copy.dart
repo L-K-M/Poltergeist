@@ -21,7 +21,19 @@ Future<void> copyRsyncCommand(
 ) async {
   final export = controller.rsyncExport();
   if (export == null) return;
-  await Clipboard.setData(ClipboardData(text: export.text));
+  try {
+    await Clipboard.setData(ClipboardData(text: export.text));
+  } catch (_) {
+    // Callers unawait this future — an unguarded platform-channel throw
+    // would surface as an unhandled async error; the user gets a toast
+    // instead.
+    if (!context.mounted) return;
+    showTopToastIn(
+      context,
+      message: AppLocalizations.of(context).syncRsyncCopyFailed,
+    );
+    return;
+  }
   if (!context.mounted) return;
   final l10n = AppLocalizations.of(context);
   showTopToastIn(

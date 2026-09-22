@@ -3448,6 +3448,10 @@
   "@syncCopiedRsyncCommandPermanent": {
     "description": "Toast variant for a deletions:permanent + backups:none plan (05 §2.1): the one lethal configuration warns at copy time."
   },
+  "syncRsyncCopyFailed": "Couldn't copy the rsync command — clipboard unavailable",
+  "@syncRsyncCopyFailed": {
+    "description": "Toast when the rsync export's clipboard write throws (a platform-channel failure surfaces as feedback, never an unhandled async error)."
+  },
   "syncHeavySuggestionAccept": "Exclude",
   "@syncHeavySuggestionAccept": {
     "description": "Heavy-directory suggestion's accept verb (05 §9): adds the name to the pair's exclude rules."

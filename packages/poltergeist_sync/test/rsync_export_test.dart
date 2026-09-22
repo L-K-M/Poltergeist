@@ -42,6 +42,7 @@ typedef _Fixture = ({
   ResolvedSyncEndpoints endpoints,
   SyncRuleSet rules,
   int manualOverrides,
+  bool mtimesUntrusted,
   List<String> engineSkipPaths,
 });
 
@@ -50,12 +51,14 @@ _Fixture _f(
   ResolvedSyncEndpoints endpoints = _localPair,
   SyncRuleSet rules = const SyncRuleSet(),
   int manualOverrides = 0,
+  bool mtimesUntrusted = false,
   List<String> engineSkipPaths = const [],
 }) => (
   name: name,
   endpoints: endpoints,
   rules: rules,
   manualOverrides: manualOverrides,
+  mtimesUntrusted: mtimesUntrusted,
   engineSkipPaths: engineSkipPaths,
 );
 
@@ -288,6 +291,27 @@ final _fixtures = <_Fixture>[
       trashPathRight: 'tmp/trash',
     ),
   ),
+  // A UNC spelling is absolute, not in-root — it must not become an
+  // exclude.
+  _f(
+    'trash_unc_path',
+    rules: const SyncRuleSet(
+      deletions: DeletionPolicy.trash,
+      trashPathRight: r'\\server\share\trash',
+    ),
+  ),
+  // A relative trash path under a REMOTE destination: the backup-dir
+  // value rides the remote command line, so the remote-shell escape
+  // applies on top of quoting — and the same exclude filters the
+  // source side.
+  _f(
+    'trash_relative_remote',
+    endpoints: _localRemote,
+    rules: const SyncRuleSet(
+      deletions: DeletionPolicy.trash,
+      trashPathRight: 'my trash/dir',
+    ),
+  ),
   _f(
     'additive_trash_paths',
     rules: const SyncRuleSet(
@@ -312,6 +336,39 @@ final _fixtures = <_Fixture>[
     'exclude_glob_divergence',
     rules: const SyncRuleSet(excludeGlobs: ['releases[0-9]']),
   ),
+  // gitignore's `\!`/`\#` leading escapes and a genuine comment/blank
+  // line — the escapes emit literally, the comment and blank drop.
+  _f(
+    'exclude_glob_escapes',
+    rules: const SyncRuleSet(
+      excludeGlobs: [r'\#tag.txt', r'\!bang.txt', '# comment', ''],
+    ),
+  ),
+  // An empty path must render `''` (rsync errors on it), never
+  // collapse to a `/` root source.
+  _f(
+    'empty_source_path',
+    endpoints: const ResolvedSyncEndpoints(
+      left: ResolvedLocalEndpoint(path: '', os: SyncEndpointOs.posix),
+      right: _localRight,
+    ),
+  ),
+  // CR/LF inside endpoint paths and glob values: comment lines get
+  // scrubbed (the note, the preview), the live line keeps the real
+  // single-quoted bytes. The fixture uses `\n` only — a literal CRLF
+  // in the golden file would be eaten by the Windows-checkout
+  // normalization (the `\r` case stays pinned in the contract tests).
+  _f(
+    'newline_in_values',
+    endpoints: const ResolvedSyncEndpoints(
+      left: _localLeft,
+      right: ResolvedLocalEndpoint(
+        path: '/srv/si\nte',
+        os: SyncEndpointOs.posix,
+      ),
+    ),
+    rules: const SyncRuleSet(excludeGlobs: ['a[\nb']),
+  ),
   // Comparison-mode mapping.
   _f(
     'comparison_content_hash',
@@ -324,6 +381,13 @@ final _fixtures = <_Fixture>[
   _f(
     'preserve_mtime_off',
     rules: const SyncRuleSet(preserveMtime: false),
+  ),
+  // The caller-side §4 mtimeUnreliable downgrade: the ruleset arrives
+  // already sizeOnly, the flag keeps the divergence note honest.
+  _f(
+    'mtimes_untrusted',
+    rules: const SyncRuleSet(comparison: ComparisonMode.sizeOnly),
+    mtimesUntrusted: true,
   ),
   _f(
     'mtime_tolerance_30',
@@ -360,11 +424,17 @@ void main() {
           fixture.endpoints,
           fixture.rules,
           manualOverrides: fixture.manualOverrides,
+          mtimesUntrusted: fixture.mtimesUntrusted,
           engineSkipPaths: fixture.engineSkipPaths,
           now: _now,
         );
         if (update) {
           file.writeAsStringSync(actual);
+          // Loud by design: the env var must leave a trace in the
+          // output so a leaked UPDATE_GOLDENS cannot silently green a
+          // regression.
+          // ignore: avoid_print
+          print('golden rewritten: ${file.path}');
           return;
         }
         expect(
@@ -471,6 +541,123 @@ void main() {
       // The anchored form — '/locked' — can only match the transfer
       // root's entry, never a same-named directory deeper in the tree.
       expect(out, contains("--exclude='/locked'"));
+    });
+
+    test('escaped \\# and \\! globs emit literally; comments drop', () {
+      final out = buildRsyncCommand(
+        _localPair,
+        const SyncRuleSet(
+          excludeGlobs: [r'\#tag.txt', r'\!bang.txt', '# real comment'],
+        ),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      // User globs emit reversed — bang before tag — but nothing is
+      // silently swallowed.
+      expect(out, contains("--exclude='!bang.txt'"));
+      expect(out, contains("--exclude='#tag.txt'"));
+      expect(out, isNot(contains('real comment')));
+    });
+
+    test('literal brackets and backslashes escape for rsync', () {
+      final out = buildRsyncCommand(
+        _localPair,
+        const SyncRuleSet(excludeGlobs: ['releases[0-9]', r'a\b']),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      // The engine matches these literally; wildmatch would read the
+      // class/escape — the emitted pattern carries backslashes so both
+      // sides agree.
+      expect(out, contains(r"--exclude='releases\[0-9\]'"));
+      expect(out, contains(r"--exclude='a\\b'"));
+      expect(out, contains('is emitted escaped as'));
+      expect(out, isNot(contains('is approximated')));
+    });
+
+    test('an empty path renders empty — never the filesystem root', () {
+      final out = buildRsyncCommand(
+        const ResolvedSyncEndpoints(
+          left: ResolvedLocalEndpoint(
+            path: '',
+            os: SyncEndpointOs.posix,
+          ),
+          right: _localRight,
+        ),
+        const SyncRuleSet(),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      // `''` fails loudly under rsync; '/' would sync the root.
+      expect(out, contains("-- '' '/srv/site'"));
+    });
+
+    test('a UNC trash path is absolute — no in-root exclude', () {
+      final out = buildRsyncCommand(
+        _localPair,
+        const SyncRuleSet(
+          deletions: DeletionPolicy.trash,
+          trashPathRight: r'\\server\share\trash',
+        ),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      expect(out, contains(r"--backup-dir='\\server\share\trash'"));
+      // Misclassified as in-root it would emit this exclude instead.
+      expect(out, isNot(contains(r"'/\\server")));
+      expect(out, isNot(contains('the trash exclude')));
+    });
+
+    test('CR/LF cannot break out of a comment line', () {
+      final out = buildRsyncCommand(
+        const ResolvedSyncEndpoints(
+          left: _localLeft,
+          right: ResolvedLocalEndpoint(
+            path: '/srv/si\nte',
+            os: SyncEndpointOs.posix,
+          ),
+        ),
+        const SyncRuleSet(excludeGlobs: ['a[\r\nb']),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      final lines = out.split('\n');
+      final preview = lines.firstWhere(
+        (l) => l.startsWith('# Preview first'),
+      );
+      // Comment lines scrubbed — the newline became a space.
+      expect(preview, contains('/srv/si te'));
+      expect(out, contains("# note: pattern 'a[  b'"));
+      // The live line keeps the real path bytes inside its quotes —
+      // a newline inside single quotes is a legal argument character.
+      expect(out, contains("'/srv/si\nte'"));
+    });
+
+    test('remote-side flag values carry the remote-shell escape', () {
+      final out = buildRsyncCommand(
+        _localRemote,
+        const SyncRuleSet(
+          deletions: DeletionPolicy.trash,
+          trashPathRight: 'my trash/dir',
+        ),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      // The remote command line re-parses every forwarded arg — a
+      // space must not split the backup-dir or a filter pattern.
+      expect(out, contains(r"--backup-dir='my\ trash/dir'"));
+      expect(out, contains(r"--exclude='/my\ trash/dir'"));
+      expect(out, contains(r"--exclude='\*.poltergeist-\*'"));
+    });
+
+    test('a local-side filter pattern is not remote-escaped', () {
+      final out = buildRsyncCommand(
+        _localPair,
+        const SyncRuleSet(excludeGlobs: ['*.log']),
+        engineSkipPaths: const [],
+        now: _now,
+      );
+      expect(out, contains("--exclude='*.log'"));
     });
 
     test('maxDelete clamps above zero — a 0 can never reach the flags', () {
