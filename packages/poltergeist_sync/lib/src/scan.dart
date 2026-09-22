@@ -214,6 +214,7 @@ final class TreeScanner {
             ScanWarning(
               relativePath: listing.relative,
               side: side,
+              kind: ScanWarningKind.listingFailure,
               message:
                   'Could not list "${listing.relative}/" — $error. '
                   'The subtree is excluded on both sides.',
@@ -231,6 +232,7 @@ final class TreeScanner {
               ScanWarning(
                 relativePath: listing.relative,
                 side: side,
+                kind: ScanWarningKind.malformedName,
                 message:
                     'Skipping malformed entry name "$name" under '
                     '"${listing.relative}/".',
@@ -255,6 +257,7 @@ final class TreeScanner {
               ScanWarning(
                 relativePath: relative,
                 side: side,
+                kind: ScanWarningKind.mtimeClamped,
                 message:
                     'Modification time on "$relative" is outside the '
                     'SFTP v3 range; it will compare clamped.',
@@ -285,6 +288,7 @@ final class TreeScanner {
         ScanWarning(
           relativePath: '',
           side: side,
+          kind: ScanWarningKind.symlinksSkipped,
           message:
               '$symlinkCount symbolic ${symlinkCount == 1 ? 'link' : 'links'} '
               'skipped.',
@@ -428,6 +432,7 @@ final class TreeScanner {
         ScanWarning(
           relativePath: '',
           side: side,
+          kind: ScanWarningKind.caseProbeFailed,
           message:
               'Could not probe case sensitivity under "$root"; assuming '
               'case-sensitive.',

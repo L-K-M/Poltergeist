@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:poltergeist_core/poltergeist_core.dart'
     show BookmarkStore, FsLocation;
+import 'package:poltergeist_sync/poltergeist_sync.dart'
+    show LocalEndpoint, RemoteEndpoint, SyncEndpoint;
 
 import '../../l10n/app_localizations.dart';
 import '../../services/checkout_session.dart';
@@ -13,9 +15,11 @@ import '../../services/pane_drop.dart';
 import '../../services/pane_location.dart';
 import '../../services/pane_tabs_controller.dart';
 import '../../services/preview_session.dart';
+import '../../services/sync_plan_controller.dart';
 import '../../services/workspace_controller.dart';
 import '../server_appearance.dart';
 import '../server_state_indicator.dart';
+import '../sync/sync_plan_view.dart';
 import 'pane_drop_area.dart';
 import 'pane_view.dart';
 import 'quick_connect_view.dart';
@@ -25,6 +29,8 @@ import 'quick_connect_view.dart';
 /// with it. A remote tab mid-connect has no path yet, so its bookmark
 /// label stands in; an unbound tab names the launcher surface.
 String paneTabTitle(PaneTab tab, AppLocalizations l10n) {
+  final session = tab.syncSession;
+  if (session != null) return l10n.syncTabTitle(session.pair.name);
   final controller = tab.controller;
   final location = controller.location;
   if (location != null) return paneLastSegment(location.path);
@@ -36,6 +42,11 @@ String paneTabTitle(PaneTab tab, AppLocalizations l10n) {
 /// The chip's tooltip (02 §3): full path, plus the server for remote
 /// tabs. Unbound tabs name their surface.
 String _paneTabTooltip(PaneTab tab, AppLocalizations l10n) {
+  final session = tab.syncSession;
+  if (session != null) {
+    return '${_endpointTooltip(session.pair.left)} ⇄ '
+        '${_endpointTooltip(session.pair.right)}';
+  }
   final controller = tab.controller;
   final bookmark = controller.remoteBookmark;
   final path = controller.location?.path ?? bookmark?.remotePath;
@@ -45,6 +56,13 @@ String _paneTabTooltip(PaneTab tab, AppLocalizations l10n) {
   if (path != null) return path;
   return l10n.tabLauncherTitle;
 }
+
+/// The sync tab's tooltip: both endpoint paths in the pair's order.
+String _endpointTooltip(SyncEndpoint endpoint) => switch (endpoint) {
+  LocalEndpoint(:final path) => path,
+  RemoteEndpoint(:final server, :final path) =>
+    '${server.identity?.host ?? server.serverConfigId ?? 'remote'}:$path',
+};
 
 /// The confirm dialog's one-line description of a fired guard trigger
 /// (02 §3's list) — exhaustive over the registry's kinds so a trigger
@@ -78,6 +96,8 @@ class PaneTabsView extends StatelessWidget {
     this.preview,
     this.checkoutSession,
     this.onReviewLocalEdits,
+    this.onSyncSaveAsFavorite,
+    this.onSyncEditRules,
     this.clock,
   });
 
@@ -123,6 +143,14 @@ class PaneTabsView extends StatelessWidget {
   /// The banner's `Review…` — forwarded to the mounted [PaneView].
   final void Function(String serverId)? onReviewLocalEdits;
 
+  /// `sync.saveAsFavorite` — the shell persists the session's pair as a
+  /// savedSync bookmark.
+  final void Function(SyncPlanController session)? onSyncSaveAsFavorite;
+
+  /// The pair/rules editor — the shell opens the options surface for
+  /// the session's pair.
+  final void Function(SyncPlanController session)? onSyncEditRules;
+
   /// Injectable clock forwarded to the tab view's date rendering.
   final DateTime Function()? clock;
 
@@ -148,6 +176,19 @@ class PaneTabsView extends StatelessWidget {
                   workspace: workspace,
                   focusNode: focusNode,
                   onSwapFocus: onSwapFocus,
+                );
+              }
+              final syncSession = activeTab.syncSession;
+              if (syncSession != null) {
+                return SyncPlanView(
+                  key: ValueKey(activeTab.id),
+                  controller: syncSession,
+                  onSaveAsFavorite: onSyncSaveAsFavorite == null
+                      ? null
+                      : () => onSyncSaveAsFavorite!(syncSession),
+                  onEditRules: onSyncEditRules == null
+                      ? null
+                      : () => onSyncEditRules!(syncSession),
                 );
               }
               return PaneView(

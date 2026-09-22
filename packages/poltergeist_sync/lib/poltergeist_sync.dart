@@ -6,8 +6,12 @@
 library;
 
 export 'src/compare.dart';
+export 'src/diff.dart';
 export 'src/executor.dart';
 export 'src/ignore.dart';
 export 'src/journal.dart';
+export 'src/pair_id.dart';
 export 'src/plan.dart';
+export 'src/saved_sync_codec.dart';
 export 'src/scan.dart';
+export 'src/sync_state.dart';

@@ -29,6 +29,8 @@ dependencies:
   posix: 6.5.2
   poltergeist_core:
     path: ../../packages/poltergeist_core
+  poltergeist_sync:
+    path: ../../packages/poltergeist_sync
   screen_retriever: 0.2.2
   uuid: 4.6.0
   window_manager: 0.5.2

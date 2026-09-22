@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:path/path.dart' as p;
 import 'package:poltergeist_core/poltergeist_core.dart';
+import 'package:poltergeist_sync/poltergeist_sync.dart';
 
 import '../l10n/app_localizations.dart';
 import '../services/activity_panel_controller.dart';
@@ -22,6 +23,7 @@ import '../services/engine_session.dart';
 import '../services/external_file_opener.dart';
 import '../services/pane_controller.dart';
 import '../services/pane_drop.dart';
+import '../services/pane_location.dart';
 import '../services/pane_tabs_controller.dart';
 import '../services/preview_session.dart';
 import '../services/probe_settings_store.dart';
@@ -34,6 +36,10 @@ import '../services/sidebar_controller.dart';
 import '../services/sidebar_probe_owner.dart';
 import '../services/ssh_config_import_setup.dart';
 import '../services/sync_browsing_controller.dart';
+import '../services/sync_environment.dart';
+import '../services/sync_plan_controller.dart';
+import '../services/sync_queue_facade.dart';
+import '../services/uuid.dart';
 import '../services/workspace_controller.dart';
 import '../services/workspace_library.dart';
 import '../services/workspace_state.dart';
@@ -57,6 +63,9 @@ import 'preview_panel.dart';
 import 'settings/backup_settings_command.dart';
 import 'settings/preview_settings.dart';
 import 'sidebar/sidebar_view.dart';
+import 'sync/sync_commands.dart';
+import 'sync/sync_pair_editor.dart';
+import 'sync/sync_plan_format.dart' show syncEndpointLabel;
 import 'top_toast.dart';
 import 'workspace/workspace_commands.dart';
 
@@ -116,6 +125,8 @@ class WorkspaceShell extends StatefulWidget {
         defaultLargeDownloadThresholdBytes,
     this.onPreviewCacheCapacityChanged,
     this.onPreviewThresholdChanged,
+    this.syncEnvironment,
+    this.syncTasks,
   });
 
   final double initialPaneRatio;
@@ -303,6 +314,13 @@ class WorkspaceShell extends StatefulWidget {
   /// the change session-local.
   final FutureOr<void> Function(int bytes)? onPreviewCacheCapacityChanged;
   final FutureOr<void> Function(int bytes)? onPreviewThresholdChanged;
+
+  /// The 05 sync seams (M8): the environment plan-view sessions draw
+  /// filesystems/state/journals from, and the activity-panel registry
+  /// their runs report through. Null unregisters the sync commands and
+  /// keeps savedSync rows at their honest notice — never a dead verb.
+  final SyncEnvironment? syncEnvironment;
+  final SyncQueueTasks? syncTasks;
 
   @override
   State<WorkspaceShell> createState() => _WorkspaceShellState();
@@ -1171,6 +1189,24 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
           pickAndOpen: _pickAndOpenExternal,
           previewSettings: _previewDownloadsSettings,
         ),
+      // 05 §9's sync commands register only while every seam they
+      // need exists (environment for sessions, task registry for run
+      // visibility) — the same conditional-posture as the import
+      // command, since a command without its seams is a dead verb.
+      if (workspace != null &&
+          widget.syncEnvironment != null &&
+          widget.syncTasks != null)
+        ...buildSyncCommands(
+          workspace: workspace,
+          synchronizeEnabled: () =>
+              !_commandSessionActive &&
+              _syncEndpointFor(workspace.left) != null &&
+              _syncEndpointFor(workspace.right) != null,
+          savedSyncEnabled: () =>
+              !_commandSessionActive && widget.bookmarks != null,
+          synchronizePanes: (context) => _synchronizePanes(),
+          newSavedSync: (context) => _newSavedSync(),
+        ),
       // `queue.togglePause` registers unconditionally (D21): its menu
       // row stays visible-disabled while no queue seam is bound.
       ...buildActivityCommands(activity: _activity),
@@ -1302,6 +1338,9 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                     dropDelegate: dropDelegate,
                                     checkoutSession: widget.checkoutSession,
                                     onReviewLocalEdits: onReviewLocalEdits,
+                                    onSyncSaveAsFavorite:
+                                        _saveSyncAsFavorite,
+                                    onSyncEditRules: _editSyncRules,
                                   ),
                                   secondary: rightFocus == null
                                       ? const SizedBox.shrink()
@@ -1325,6 +1364,10 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
                                               widget.checkoutSession,
                                           onReviewLocalEdits:
                                               onReviewLocalEdits,
+                                          onSyncSaveAsFavorite:
+                                              _saveSyncAsFavorite,
+                                          onSyncEditRules:
+                                              _editSyncRules,
                                         ),
                                     ),
                                     if (preview != null)
@@ -2286,19 +2329,23 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
   /// modifier vocabulary (plain = preferred-pane rules, ⌘/Ctrl = new
   /// tab in the plain-click pane, ⌥/Alt = the pane a plain click would
   /// not have used). A workspace favorite opens per §3 — the guarded
-  /// both-pane replacement, shared with the menu command. The
-  /// saved-sync kind answers with the honest not-yet notice — its open
-  /// verb lands with the 05 sync preview — never a dead row.
+  /// both-pane replacement, shared with the menu command. A savedSync
+  /// decodes back into its pair and opens the 05 plan view in the
+  /// resolved pane.
   void _openFavorite(Bookmark bookmark, SidebarOpenAction action) {
     final workspace = _workspace;
     if (workspace == null) return;
-    final l10n = AppLocalizations.of(context);
     switch (bookmark.kind) {
       case BookmarkKind.workspace:
         unawaited(_openWorkspaceFavorite(bookmark));
         return;
       case BookmarkKind.savedSync:
-        _showSidebarNotice(l10n.sidebarSyncLater);
+        unawaited(
+          _openSavedSyncFavorite(
+            bookmark,
+            _favoriteTargetPane(workspace, bookmark, action),
+          ),
+        );
         return;
       case BookmarkKind.localFolder || BookmarkKind.remotePath:
         break;
@@ -2343,6 +2390,236 @@ class _WorkspaceShellState extends State<WorkspaceShell> {
       case BookmarkKind.workspace || BookmarkKind.savedSync:
         break; // answered above — the switch is exhaustive.
     }
+  }
+
+  /// ── Sync pair openings (05 §9) ───────────────────────────────────
+  ///
+  /// All three entry points — `sync.synchronizePanes` (⌥⌘Y), the
+  /// sidebar's savedSync row, and `sync.newSavedSync`'s post-save
+  /// open — land on the same path: build or decode the SyncPair, mint
+  /// a SyncPlanController bound to the shared environment and the
+  /// activity-panel task registry, and open its transient plan tab on
+  /// the resolved pane.
+
+  /// A pane's live location as a sync endpoint (the ad-hoc pair's
+  /// legs): local paths map straight across; remote locations need
+  /// the bound bookmark's server ref — the RemoteEndpoint shape 04
+  /// §2.1 names. Launcher/unbound panes yield null, which disables
+  /// `sync.synchronizePanes` rather than dead-ending the command.
+  SyncEndpoint? _syncEndpointFor(PaneTabsController strip) {
+    final controller = strip.activeTab?.controller;
+    if (controller == null) return null;
+    return switch (controller.location) {
+      LocalPaneLocation(:final path) => LocalEndpoint(path),
+      RemotePaneLocation(:final path) =>
+        switch (controller.remoteBookmark?.server) {
+          final BookmarkServerRef ref =>
+            RemoteEndpoint(server: ref, path: path),
+          _ => null,
+        },
+      _ => null,
+    };
+  }
+
+  /// The ad-hoc pair's display name — one label per leg so the tab
+  /// reads as a direction, like §7's header does.
+  String _syncPairLabel(
+    AppLocalizations l10n,
+    SyncEndpoint left,
+    SyncEndpoint right,
+  ) =>
+      l10n.syncPairLabel(
+        syncEndpointLabel(left, shortenRemotePath: true),
+        syncEndpointLabel(right, shortenRemotePath: true),
+      );
+
+  /// `sync.synchronizePanes` (05 §9): the ad-hoc pair from both
+  /// panes' live locations — never persisted as a favorite, so its
+  /// state keys on the canonical pair id alone (§9's ad-hoc rule).
+  Future<void> _synchronizePanes() async {
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final left = _syncEndpointFor(workspace.left);
+    final right = _syncEndpointFor(workspace.right);
+    if (left == null || right == null) return;
+    final l10n = AppLocalizations.of(context);
+    await _openSyncPlan(
+      SyncPair(
+        id: uuidV4(),
+        name: _syncPairLabel(l10n, left, right),
+        left: left,
+        right: right,
+        rules: const SyncRuleSet(),
+      ),
+    );
+  }
+
+  /// The savedSync favorite's open (05 §9): decode the spec back into
+  /// its SyncPair — a spec-less row is a malformed favorite, reported
+  /// rather than silently ignored — and open its plan view on the
+  /// resolved pane.
+  Future<void> _openSavedSyncFavorite(
+    Bookmark bookmark,
+    PaneTabsController strip,
+  ) async {
+    final pair = syncPairFromBookmark(bookmark);
+    if (pair == null) {
+      ApplicationErrorReporter().report(
+        StateError('sidebar.open: savedSync ${bookmark.id} has no spec'),
+        StackTrace.current,
+      );
+      return;
+    }
+    await _openSyncPlan(pair, strip: strip);
+  }
+
+  /// `sync.newSavedSync` (05 §9): the pair editor collects the
+  /// definition, the result persists as a savedSync bookmark, and
+  /// its plan view opens — the same surface the sidebar row lands on.
+  Future<void> _newSavedSync() async {
+    final store = widget.bookmarks;
+    if (store == null) return;
+    final servers = await _syncServerChoices(store);
+    if (!mounted) return;
+    final result = await showDialog<SyncPairEditorResult>(
+      context: context,
+      builder: (_) => SyncPairEditorDialog(servers: servers),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await _persistSyncPair(result.pair);
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (mounted) {
+        _showSidebarNotice(AppLocalizations.of(context).sidebarActionFailed);
+      }
+      return;
+    }
+    if (!mounted) return;
+    await _openSyncPlan(result.pair, caseOverrides: result.caseOverrides);
+  }
+
+  /// The plan view's Save as Favorite (05 §7): persists the open
+  /// pair as a savedSync bookmark — an existing favorite with the
+  /// pair's id keeps its group, sort key, and creation stamp (the
+  /// re-save is an update, never a second row).
+  Future<void> _saveSyncAsFavorite(SyncPlanController session) async {
+    final store = widget.bookmarks;
+    if (store == null) return;
+    try {
+      await _persistSyncPair(session.pair);
+      if (!mounted) return;
+      showTopToastIn(
+        context,
+        message: AppLocalizations.of(
+          context,
+        ).syncSavedFavoriteToast(session.pair.name),
+      );
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      if (!mounted) return;
+      _showSidebarNotice(AppLocalizations.of(context).sidebarActionFailed);
+    }
+  }
+
+  /// Upserts [pair] as its savedSync bookmark (04 §2.1: the bookmark
+  /// id IS the pair id). Preserves group/sortKey/createdAt across
+  /// re-saves; a fresh pair appends ungrouped.
+  Future<void> _persistSyncPair(SyncPair pair) async {
+    final store = widget.bookmarks!;
+    final existing = await store.byId(pair.id);
+    final now = DateTime.now();
+    final bookmark = bookmarkFromSyncPair(
+      pair,
+      group: existing?.group,
+      sortKey: existing?.sortKey ?? await store.sortKeyForInsert(),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    );
+    await store.save(bookmark);
+  }
+
+  /// The remote bookmarks the pair editor's endpoint pickers offer —
+  /// every stored remotePath row carrying a server reference (an
+  /// embedded identity or config id both resolve to a RemoteEndpoint).
+  Future<List<Bookmark>> _syncServerChoices(BookmarkStore store) async {
+    try {
+      return [
+        for (final bookmark in await store.load())
+          if (bookmark.kind == BookmarkKind.remotePath &&
+              bookmark.server != null)
+            bookmark,
+      ];
+    } on Object catch (error, stackTrace) {
+      ApplicationErrorReporter().report(error, stackTrace);
+      return const [];
+    }
+  }
+
+  /// The plan view's rules edit (05 §7's options affordance): the
+  /// same pair editor, seeded from the live pair. Saving updates the
+  /// session (rules + case overrides → rescan) and re-saves the
+  /// bookmark when the pair is a persisted favorite.
+  Future<void> _editSyncRules(SyncPlanController session) async {
+    final store = widget.bookmarks;
+    final servers = store == null
+        ? const <Bookmark>[]
+        : await _syncServerChoices(store);
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
+    final result = await showDialog<SyncPairEditorResult>(
+      context: context,
+      builder: (_) => SyncPairEditorDialog(
+        initial: session.pair,
+        servers: servers,
+        saveLabel: l10n.syncEditorSaveAndRescan,
+      ),
+    );
+    if (result == null || !mounted) return;
+    await session.updatePairDefinition(
+      result.pair,
+      caseOverrides: result.caseOverrides,
+    );
+    final existing = store == null ? null : await store.byId(result.pair.id);
+    if (existing?.kind == BookmarkKind.savedSync) {
+      try {
+        await _persistSyncPair(result.pair);
+      } on Object catch (error, stackTrace) {
+        ApplicationErrorReporter().report(error, stackTrace);
+      }
+    }
+  }
+
+  /// Every sync open lands here: one SyncPlanController per tab on
+  /// the resolved strip (default the active pane), deviceId resolved
+  /// once for the session's run-id prefixes.
+  Future<void> _openSyncPlan(
+    SyncPair pair, {
+    SyncCaseOverrides? caseOverrides,
+    PaneTabsController? strip,
+  }) async {
+    final environment = widget.syncEnvironment;
+    final syncTasks = widget.syncTasks;
+    if (_workspace == null || environment == null || syncTasks == null) {
+      return;
+    }
+    final deviceId = await environment.deviceId();
+    // The await lets a workspace swap dispose the shell's workspace
+    // mid-flight — re-resolve, never open on a stale strip.
+    if (!mounted) return;
+    final workspace = _workspace;
+    if (workspace == null) return;
+    final target = strip ?? workspace.activePane;
+    target.openSyncPlanTab(
+      SyncPlanController(
+        pair: pair,
+        environment: environment,
+        syncTasks: syncTasks,
+        deviceId: deviceId,
+        caseOverrides: caseOverrides,
+      ),
+    );
+    workspace.setActivePane(target);
   }
 
   /// The workspace favorite's open (02 §3): the detail doc's exact

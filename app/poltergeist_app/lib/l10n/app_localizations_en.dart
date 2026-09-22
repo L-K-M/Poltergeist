@@ -2245,4 +2245,635 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get previewMiBSuffix => 'MiB';
+
+  @override
+  String syncTabTitle(String name) {
+    return 'Sync: $name';
+  }
+
+  @override
+  String syncScanning(int leftCount, int rightCount) {
+    return 'Scanning… left $leftCount entries · right $rightCount entries';
+  }
+
+  @override
+  String get syncCancel => 'Cancel';
+
+  @override
+  String get syncPause => 'Pause';
+
+  @override
+  String get syncResume => 'Resume';
+
+  @override
+  String get syncModeLabel => 'Mode';
+
+  @override
+  String get syncModeUpdate => 'Update';
+
+  @override
+  String get syncModeMirror => 'Mirror';
+
+  @override
+  String get syncModeAdditive => 'Additive';
+
+  @override
+  String syncHeaderCopyNew(int count, String bytes) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Copy $count new files ($bytes)',
+      one: 'Copy $count new file ($bytes)',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderCreateFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'create $count folders',
+      one: 'create $count folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderUpdateFiles(int count) {
+    return 'update $count';
+  }
+
+  @override
+  String syncHeaderOnDestination(String destination) {
+    return 'on $destination.';
+  }
+
+  @override
+  String get syncHeaderBothSides => 'both sides';
+
+  @override
+  String syncHeaderCreateOnly(int count, String destination) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Create $count folders on $destination.',
+      one: 'Create $count folder on $destination.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncHeaderNothingDeleted => 'Nothing will be deleted.';
+
+  @override
+  String syncHeaderDeleteTrash(int count, String side, String trashLocation) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count files on $side (moved to trash at $trashLocation).',
+      one: 'Delete $count file on $side (moved to trash at $trashLocation).',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderDeletePermanent(int count, String side) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count files on $side permanently.',
+      one: 'Delete $count file on $side permanently.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderReplaceTrash(int count, String side, String trashLocation) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Replace $count files of a different kind on $side (previous versions moved to trash at $trashLocation).',
+      one:
+          'Replace $count file of a different kind on $side (previous version moved to trash at $trashLocation).',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderReplacePermanent(int count, String side) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Replace $count files of a different kind on $side (previous versions deleted permanently).',
+      one:
+          'Replace $count file of a different kind on $side (previous version deleted permanently).',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderRemoveEmptyFolders(int count, String side) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Remove $count empty folders on $side.',
+      one: 'Remove $count empty folder on $side.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncHeaderConflicts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count conflicts need a decision.',
+      one: '$count conflict needs a decision.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncHeaderNothingToDo => 'Both sides match. Nothing to do.';
+
+  @override
+  String get syncHeaderSizeOnlyNotice =>
+      'Timestamps are unreliable on at least one side — comparing by size only.';
+
+  @override
+  String syncWarningsTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count scan warnings',
+      one: '$count scan warning',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncFilterAll(int count) {
+    return 'All ($count)';
+  }
+
+  @override
+  String syncFilterNew(int count) {
+    return 'New ($count)';
+  }
+
+  @override
+  String syncFilterUpdates(int count) {
+    return 'Updates ($count)';
+  }
+
+  @override
+  String syncFilterDeletes(int count) {
+    return 'Deletes ($count)';
+  }
+
+  @override
+  String syncFilterConflicts(int count) {
+    return 'Conflicts ($count)';
+  }
+
+  @override
+  String syncFilterSkipped(int count) {
+    return 'Skipped ($count)';
+  }
+
+  @override
+  String get syncFilterFieldHint => 'Filter items';
+
+  @override
+  String get syncFilterOnlyActions => 'Only show actions';
+
+  @override
+  String get syncReasonOnlyHere => 'only exists here';
+
+  @override
+  String syncReasonNewerHere(String sourceAge, String destinationAge) {
+    return 'newer here ($sourceAge vs $destinationAge)';
+  }
+
+  @override
+  String syncReasonSizesDiffer(String leftSize, String rightSize) {
+    return 'sizes differ ($leftSize vs $rightSize)';
+  }
+
+  @override
+  String get syncReasonContentsDiffer => 'contents differ';
+
+  @override
+  String get syncReasonBothChanged => 'changed on both sides';
+
+  @override
+  String syncReasonTypeDiffers(String leftKind, String rightKind) {
+    return 'type differs ($leftKind here, $rightKind there)';
+  }
+
+  @override
+  String get syncReasonExcluded => 'excluded by rule';
+
+  @override
+  String get syncReasonCaseCollision => 'names differ only by case';
+
+  @override
+  String get syncReasonNormalizationCollision =>
+      'names differ only by Unicode form';
+
+  @override
+  String get syncReasonInvalidName => 'name invalid on Windows';
+
+  @override
+  String get syncReasonScanError => 'couldn\'t scan — subtree excluded';
+
+  @override
+  String get syncReasonEqual => 'identical';
+
+  @override
+  String get syncReasonSymlink => 'symbolic link — skipped';
+
+  @override
+  String get syncKindFile => 'file';
+
+  @override
+  String get syncKindFolder => 'folder';
+
+  @override
+  String get syncKindSymlink => 'symbolic link';
+
+  @override
+  String get syncKindOther => 'other';
+
+  @override
+  String get syncSideLeft => 'left';
+
+  @override
+  String get syncSideRight => 'right';
+
+  @override
+  String get syncOverrideSkip => 'Skip';
+
+  @override
+  String get syncOverrideCopyLeftToRight => 'Copy left → right';
+
+  @override
+  String get syncOverrideCopyRightToLeft => 'Copy right → left';
+
+  @override
+  String get syncOverrideDelete => 'Delete';
+
+  @override
+  String get syncOverrideReset => 'Reset to suggested';
+
+  @override
+  String syncOverrideSkippedTypeDiffers(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count type-differs rows skipped — replacing a different kind stays a per-item choice',
+      one:
+          '$count type-differs row skipped — replacing a different kind stays a per-item choice',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncResolveConflictsLabel => 'Resolve conflicts:';
+
+  @override
+  String get syncResolveNewerWins => 'Newer wins';
+
+  @override
+  String get syncResolveKeepLeft => 'Keep left';
+
+  @override
+  String get syncResolveKeepRight => 'Keep right';
+
+  @override
+  String get syncResolveSkipAll => 'Skip all';
+
+  @override
+  String get syncSaveAsFavorite => 'Save as Favorite…';
+
+  @override
+  String syncRunCopyFiles(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Copy $count Files',
+      one: 'Copy 1 File',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncRunCopyPart(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Copy $count',
+      one: 'Copy 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncRunCreateFolders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Create $count Folders',
+      one: 'Create $count Folder',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncRunDeletePart(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Delete $count',
+      one: 'Delete 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncRunNothingToDo => 'Nothing to Do';
+
+  @override
+  String syncHeavySuggestion(String name, int count) {
+    return '$name is $count of these files — exclude?';
+  }
+
+  @override
+  String get syncDeleteConfirmTitle => 'Confirm deletions';
+
+  @override
+  String syncDeleteConfirmFraction(
+    int count,
+    int total,
+    String side,
+    String pct,
+  ) {
+    return 'This will delete $count of $total files on $side — more than $pct of that side. Type DELETE to continue.';
+  }
+
+  @override
+  String syncDeleteConfirmFloor(int count, int total, String side) {
+    return 'This will delete $count of $total files on $side — 90 % or more of that side. Type DELETE to continue.';
+  }
+
+  @override
+  String get syncDeleteConfirmFieldHint => 'DELETE';
+
+  @override
+  String get syncDeleteConfirmHalf => 'half';
+
+  @override
+  String get syncDeleteConfirmButton => 'Delete';
+
+  @override
+  String get syncMaxDeleteTitle => 'Too many deletions';
+
+  @override
+  String syncMaxDeleteBody(int count, String side, int cap) {
+    return 'This plan would delete $count files on $side — over the $cap-file cap. Run stays disabled rather than silently diverging the destination. Raise the cap in the pair\'s rules to run it.';
+  }
+
+  @override
+  String get syncMaxDeleteSaveAdjust => 'Save as Favorite & Adjust Rules…';
+
+  @override
+  String get syncRetryFailed => 'Retry Failed';
+
+  @override
+  String get syncRestoreTrashed => 'Restore Trashed Files…';
+
+  @override
+  String get syncCopyReport => 'Copy Report';
+
+  @override
+  String get syncHeavySuggestionAccept => 'Exclude';
+
+  @override
+  String get syncRestoreDialogTitle => 'Restore Trashed Files';
+
+  @override
+  String syncRestoreSummary(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count files will be restored from trash.',
+      one: '$count file will be restored from trash.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncRestoreButton => 'Restore';
+
+  @override
+  String syncRestoreResult(int restored, int skipped) {
+    String _temp0 = intl.Intl.pluralLogic(
+      restored,
+      locale: localeName,
+      other: 'Restored $restored files',
+      one: 'Restored $restored file',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      skipped,
+      locale: localeName,
+      other: ' — $skipped skipped',
+      one: ' — $skipped skipped',
+      zero: '',
+    );
+    return '$_temp0$_temp1';
+  }
+
+  @override
+  String get syncDirectionLeftToRight => 'Left to right';
+
+  @override
+  String get syncDirectionRightToLeft => 'Right to left';
+
+  @override
+  String get syncDirectionBothWays => 'Both ways';
+
+  @override
+  String get syncEditorOptionsSection => 'Options';
+
+  @override
+  String get syncEditorTitle => 'Sync pair';
+
+  @override
+  String get syncEditorNameLabel => 'Name';
+
+  @override
+  String get syncEditorDeletionsLabel => 'Deletions';
+
+  @override
+  String get syncEditorDeletionsNone => 'Never delete';
+
+  @override
+  String get syncEditorDeletionsTrash => 'Move to trash';
+
+  @override
+  String get syncEditorDeletionsPermanent => 'Delete permanently';
+
+  @override
+  String get syncEditorBackupsLabel => 'Overwrite backups';
+
+  @override
+  String get syncEditorBackupsTrash => 'Keep in trash';
+
+  @override
+  String get syncEditorBackupsNone => 'None';
+
+  @override
+  String get syncEditorComparisonLabel => 'Compare by';
+
+  @override
+  String get syncEditorComparisonSizeMtime => 'Size and modification time';
+
+  @override
+  String get syncEditorComparisonSizeOnly => 'Size only';
+
+  @override
+  String get syncEditorComparisonContentHash => 'Content hash';
+
+  @override
+  String get syncEditorConflictLabel => 'Conflicts';
+
+  @override
+  String get syncEditorConflictAsk => 'Ask each time';
+
+  @override
+  String get syncEditorConflictNewerWins => 'Newer wins';
+
+  @override
+  String get syncEditorConflictKeepLeft => 'Keep left';
+
+  @override
+  String get syncEditorConflictKeepRight => 'Keep right';
+
+  @override
+  String get syncEditorConflictSkip => 'Skip';
+
+  @override
+  String get syncEditorMaxDeleteLabel => 'Deletion cap (maxDelete)';
+
+  @override
+  String get syncEditorFractionWarnLabel => 'Typed-confirmation threshold';
+
+  @override
+  String get syncEditorExcludeLabel => 'Exclude rules';
+
+  @override
+  String get syncEditorIncludeHidden => 'Include hidden files';
+
+  @override
+  String get syncEditorTrashLeftLabel => 'Left trash path';
+
+  @override
+  String get syncEditorTrashRightLabel => 'Right trash path';
+
+  @override
+  String get syncEditorPathHint => '/path';
+
+  @override
+  String get syncEditorMtimeToleranceLabel =>
+      'Modification-time tolerance (seconds)';
+
+  @override
+  String get syncEditorPreserveMtime => 'Preserve modification times';
+
+  @override
+  String get syncEditorConcurrencyLabel => 'Transfer concurrency';
+
+  @override
+  String get syncEditorCaseLeftLabel => 'Left case sensitivity';
+
+  @override
+  String get syncEditorCaseRightLabel => 'Right case sensitivity';
+
+  @override
+  String get syncEditorCaseAuto => 'Detect automatically';
+
+  @override
+  String get syncEditorCaseSensitive => 'Case-sensitive';
+
+  @override
+  String get syncEditorCaseInsensitive => 'Case-insensitive';
+
+  @override
+  String get syncEditorSave => 'Save';
+
+  @override
+  String get syncEditorSaveAndRescan => 'Save & Rescan';
+
+  @override
+  String get syncNewSavedSync => 'New Saved Sync…';
+
+  @override
+  String syncPairLabel(String left, String right) {
+    return '$left ⇄ $right';
+  }
+
+  @override
+  String get syncSynchronizePanes => 'Synchronize Panes';
+
+  @override
+  String get syncRescan => 'Rescan';
+
+  @override
+  String syncScanFailed(String error) {
+    return 'The scan could not complete — $error';
+  }
+
+  @override
+  String get syncRemoteUnavailable =>
+      'Remote sync pairs aren\'t available yet — remote filesystems arrive with the engine-protocol transfer verbs.';
+
+  @override
+  String syncRunFailed(String error) {
+    return 'The run failed — $error';
+  }
+
+  @override
+  String syncSummaryCounts(int done, int failed, int skipped) {
+    String _temp0 = intl.Intl.pluralLogic(
+      done,
+      locale: localeName,
+      other: '$done done',
+      one: '$done done',
+    );
+    String _temp1 = intl.Intl.pluralLogic(
+      failed,
+      locale: localeName,
+      other: '$failed failed',
+      one: '$failed failed',
+    );
+    String _temp2 = intl.Intl.pluralLogic(
+      skipped,
+      locale: localeName,
+      other: '$skipped skipped',
+      one: '$skipped skipped',
+    );
+    return '$_temp0 · $_temp1 · $_temp2';
+  }
+
+  @override
+  String get syncPairLocalLabel => 'local';
+
+  @override
+  String syncSavedFavoriteToast(String name) {
+    return 'Saved sync \"$name\" added to favorites';
+  }
 }

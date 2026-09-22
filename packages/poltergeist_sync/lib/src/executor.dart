@@ -304,6 +304,31 @@ SyncRunGate _evaluateRails(
   return const SyncRunClear();
 }
 
+/// §10's pause rail: in-flight items finish; the next item waits on
+/// [resumed] until [resume] runs. Checked between items, never inside
+/// a transfer — a paused run is idle work, not deadlocked bytes.
+final class SyncRunPause {
+  var _paused = false;
+  Completer<void> _resumed = Completer<void>()..complete();
+
+  bool get isPaused => _paused;
+
+  void pause() {
+    if (_paused) return;
+    _paused = true;
+    _resumed = Completer<void>();
+  }
+
+  void resume() {
+    _paused = false;
+    if (!_resumed.isCompleted) _resumed.complete();
+  }
+
+  /// Completes when the run may dispatch the next item — immediately
+  /// while unpaused.
+  Future<void> get resumed => _resumed.future;
+}
+
 /// One progress event for the plan view's live rows and the activity
 /// panel (05 §10).
 final class SyncRunEvent {
@@ -426,6 +451,7 @@ final class SyncExecutor {
     required String pairId,
     bool deleteConfirmationAcknowledged = false,
     RemoteTransferCancellation? cancellation,
+    SyncRunPause? pause,
     void Function(SyncRunEvent event)? onEvent,
     DateTime? startedAt,
   }) async {
@@ -460,6 +486,7 @@ final class SyncExecutor {
         plan: plan,
         journal: journal,
         cancellation: cancellation,
+        pause: pause,
         onEvent: onEvent,
       );
       await session.execute();
@@ -484,6 +511,7 @@ final class SyncExecutor {
   Future<SyncRun> retryFailed(
     SyncRun previous, {
     RemoteTransferCancellation? cancellation,
+    SyncRunPause? pause,
     void Function(SyncRunEvent event)? onEvent,
   }) async {
     if (_runInProgress) {
@@ -495,6 +523,7 @@ final class SyncExecutor {
       plan: previous.plan,
       journal: previous.journal,
       cancellation: cancellation,
+      pause: pause,
       onEvent: onEvent,
       retry: true,
     );
@@ -521,6 +550,7 @@ final class _RunSession {
     required this.plan,
     required this.journal,
     this.cancellation,
+    this.pause,
     this.onEvent,
     this.retry = false,
   });
@@ -529,6 +559,10 @@ final class _RunSession {
   final SyncPlan plan;
   final SyncRunJournal journal;
   final RemoteTransferCancellation? cancellation;
+
+  /// §10's between-items hold — in-flight items finish, the next item
+  /// waits. Cancel unblocks a paused wait the same as an idle one.
+  final SyncRunPause? pause;
   final void Function(SyncRunEvent)? onEvent;
 
   /// `Retry Failed` — only `failed` items re-run, at attempt n+1.
@@ -635,6 +669,7 @@ final class _RunSession {
     deletes.sort((a, b) => depthOf(b) - depthOf(a));
 
     for (final item in mkdirs) {
+      await _waitUnpaused();
       if (!_claim(item)) continue;
       await _runItem(item);
     }
@@ -652,6 +687,7 @@ final class _RunSession {
     }
 
     for (final item in transfers) {
+      await _waitUnpaused();
       if (!_claim(item)) continue;
       if (_carriesPreDelete(item)) {
         await drain();
@@ -674,9 +710,23 @@ final class _RunSession {
       }
     } else {
       for (final item in deletes) {
+        await _waitUnpaused();
         if (!_claim(item)) continue;
         await _runItem(item);
       }
+    }
+  }
+
+  /// §10's between-items hold: waits while paused; cancellation breaks
+  /// the wait so a paused run still unwinds promptly.
+  Future<void> _waitUnpaused() async {
+    final gate = pause;
+    if (gate == null || !gate.isPaused) return;
+    final cancel = cancellation;
+    if (cancel == null) {
+      await gate.resumed;
+    } else {
+      await Future.any([gate.resumed, cancel.whenCancelled]);
     }
   }
 

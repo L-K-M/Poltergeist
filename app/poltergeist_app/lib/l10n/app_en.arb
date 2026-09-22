@@ -2990,5 +2990,695 @@
   "previewMiBSuffix": "MiB",
   "@previewMiBSuffix": {
     "description": "Unit suffix of the Preview & downloads numeric fields (mebibytes)."
+  },
+  "syncTabTitle": "Sync: {name}",
+  "@syncTabTitle": {
+    "description": "Plan-view tab title (05 §7): the pair's name.",
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "syncScanning": "Scanning… left {leftCount} entries · right {rightCount} entries",
+  "@syncScanning": {
+    "description": "Live scan progress line (05 §3's verbatim shape).",
+    "placeholders": {
+      "leftCount": {"type": "int"},
+      "rightCount": {"type": "int"}
+    }
+  },
+  "syncCancel": "Cancel",
+  "syncPause": "Pause",
+  "@syncPause": {
+    "description": "Run-control verb (05 §10): holds the running sync between items."
+  },
+  "syncResume": "Resume",
+  "@syncResume": {
+    "description": "Run-control verb (05 §10): releases a paused sync run."
+  },
+  "@syncCancel": {
+    "description": "Scan-cancel and dialog-cancel verb in the sync plan view."
+  },
+  "syncModeLabel": "Mode",
+  "@syncModeLabel": {
+    "description": "Label of the plan view's sync-mode picker (05 §5)."
+  },
+  "syncModeUpdate": "Update",
+  "@syncModeUpdate": {
+    "description": "One-way copy mode (05 §5): copy new and newer files, never delete."
+  },
+  "syncModeMirror": "Mirror",
+  "@syncModeMirror": {
+    "description": "One-way mirror mode (05 §5): make the destination match the source, deletions included."
+  },
+  "syncModeAdditive": "Additive",
+  "@syncModeAdditive": {
+    "description": "Bidirectional mode (05 §5): newest files travel both ways, nothing is deleted."
+  },
+  "syncHeaderCopyNew": "{count, plural, =1{Copy {count} new file ({bytes})} other{Copy {count} new files ({bytes})}}",
+  "@syncHeaderCopyNew": {
+    "description": "Plan header clause (05 §7): new-file copies landing on the destination.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "bytes": {"type": "String"}
+    }
+  },
+  "syncHeaderCreateFolders": "{count, plural, =1{create {count} folder} other{create {count} folders}}",
+  "@syncHeaderCreateFolders": {
+    "description": "Plan header clause (05 §7): directory creations landing on the destination.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncHeaderUpdateFiles": "update {count}",
+  "@syncHeaderUpdateFiles": {
+    "description": "Plan header clause (05 §7): overwrite updates landing on the destination — the count renders bare per the spec's sentence pattern.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncHeaderOnDestination": "on {destination}.",
+  "@syncHeaderOnDestination": {
+    "description": "Plan header tail (05 §7): the destination phrase closing the copy sentence — {destination} is '{favoriteLabel}:{path}', a shortened local path, or 'both sides' for Additive.",
+    "placeholders": {
+      "destination": {"type": "String"}
+    }
+  },
+  "syncHeaderBothSides": "both sides",
+  "@syncHeaderBothSides": {
+    "description": "Additive's {destination} value (05 §7): the two-way aggregate renders 'on both sides.'"
+  },
+  "syncHeaderCreateOnly": "{count, plural, =1{Create {count} folder on {destination}.} other{Create {count} folders on {destination}.}}",
+  "@syncHeaderCreateOnly": {
+    "description": "Plan header sentence for a dirs-only plan (05 §7) — a plan with only directory creations must never show an empty headline.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "destination": {"type": "String"}
+    }
+  },
+  "syncHeaderNothingDeleted": "Nothing will be deleted.",
+  "@syncHeaderNothingDeleted": {
+    "description": "Green plan-header tail (05 §7): rendered only when the plan holds no delete-phase items and no kind-change pre-deletes."
+  },
+  "syncHeaderDeleteTrash": "{count, plural, =1{Delete {count} file on {side} (moved to trash at {trashLocation}).} other{Delete {count} files on {side} (moved to trash at {trashLocation}).}}",
+  "@syncHeaderDeleteTrash": {
+    "description": "Red plan-header clause (05 §7): delete-phase files headed for the side's trash root.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "side": {"type": "String"},
+      "trashLocation": {"type": "String"}
+    }
+  },
+  "syncHeaderDeletePermanent": "{count, plural, =1{Delete {count} file on {side} permanently.} other{Delete {count} files on {side} permanently.}}",
+  "@syncHeaderDeletePermanent": {
+    "description": "Red plan-header clause (05 §7): delete-phase files under the permanent-deletion opt-in.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "side": {"type": "String"}
+    }
+  },
+  "syncHeaderReplaceTrash": "{count, plural, =1{Replace {count} file of a different kind on {side} (previous version moved to trash at {trashLocation}).} other{Replace {count} files of a different kind on {side} (previous versions moved to trash at {trashLocation}).}}",
+  "@syncHeaderReplaceTrash": {
+    "description": "Red plan-header clause (05 §7): kind-change pre-deletes whose removed versions go to trash.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "side": {"type": "String"},
+      "trashLocation": {"type": "String"}
+    }
+  },
+  "syncHeaderReplacePermanent": "{count, plural, =1{Replace {count} file of a different kind on {side} (previous version deleted permanently).} other{Replace {count} files of a different kind on {side} (previous versions deleted permanently).}}",
+  "@syncHeaderReplacePermanent": {
+    "description": "Red plan-header clause (05 §7): kind-change pre-deletes under the permanent-deletion opt-in.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "side": {"type": "String"}
+    }
+  },
+  "syncHeaderRemoveEmptyFolders": "{count, plural, =1{Remove {count} empty folder on {side}.} other{Remove {count} empty folders on {side}.}}",
+  "@syncHeaderRemoveEmptyFolders": {
+    "description": "Plan-header tail (05 §8 rail 3): a plan whose only removals are zero-count directory cleanups never shows the green 'nothing deleted' sentence.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "side": {"type": "String"}
+    }
+  },
+  "syncHeaderConflicts": "{count, plural, =1{{count} conflict needs a decision.} other{{count} conflicts need a decision.}}",
+  "@syncHeaderConflicts": {
+    "description": "Amber plan-header clause (05 §7): unresolved conflict rows.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncHeaderNothingToDo": "Both sides match. Nothing to do.",
+  "@syncHeaderNothingToDo": {
+    "description": "Plan-header sentence for an equal pair (05 §7)."
+  },
+  "syncHeaderSizeOnlyNotice": "Timestamps are unreliable on at least one side — comparing by size only.",
+  "@syncHeaderSizeOnlyNotice": {
+    "description": "The §4 sizeOnly fallback's own line under the header sentence (05 §7) — mtime trust is degraded, so the plan compares sizes only."
+  },
+  "syncWarningsTitle": "{count, plural, =1{{count} scan warning} other{{count} scan warnings}}",
+  "@syncWarningsTitle": {
+    "description": "Warnings-strip header in the plan view (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterAll": "All ({count})",
+  "@syncFilterAll": {
+    "description": "Filter chip: every plan item (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterNew": "New ({count})",
+  "@syncFilterNew": {
+    "description": "Filter chip: create actions (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterUpdates": "Updates ({count})",
+  "@syncFilterUpdates": {
+    "description": "Filter chip: overwrite updates (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterDeletes": "Deletes ({count})",
+  "@syncFilterDeletes": {
+    "description": "Filter chip: deletions including per-file kind-change pre-delete tolls (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterConflicts": "Conflicts ({count})",
+  "@syncFilterConflicts": {
+    "description": "Filter chip: rows needing a decision (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterSkipped": "Skipped ({count})",
+  "@syncFilterSkipped": {
+    "description": "Filter chip: equal, excluded, and user-skipped rows (05 §7).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncFilterFieldHint": "Filter items",
+  "@syncFilterFieldHint": {
+    "description": "Placeholder text inside the plan view's item text filter (05 §7)."
+  },
+  "syncFilterOnlyActions": "Only show actions",
+  "@syncFilterOnlyActions": {
+    "description": "Toggle hiding equal/excluded rows (05 §7; default on)."
+  },
+  "syncReasonOnlyHere": "only exists here",
+  "@syncReasonOnlyHere": {
+    "description": "Plan row reason (05 §7): the entry exists on one side only."
+  },
+  "syncReasonNewerHere": "newer here ({sourceAge} vs {destinationAge})",
+  "@syncReasonNewerHere": {
+    "description": "Plan row reason (05 §7): one side's copy is newer — both ages render like '2 min ago'.",
+    "placeholders": {
+      "sourceAge": {"type": "String"},
+      "destinationAge": {"type": "String"}
+    }
+  },
+  "syncReasonSizesDiffer": "sizes differ ({leftSize} vs {rightSize})",
+  "@syncReasonSizesDiffer": {
+    "description": "Plan row reason (05 §7): same name, different sizes.",
+    "placeholders": {
+      "leftSize": {"type": "String"},
+      "rightSize": {"type": "String"}
+    }
+  },
+  "syncReasonContentsDiffer": "contents differ",
+  "@syncReasonContentsDiffer": {
+    "description": "Plan row reason (05 §7): hashes disagree."
+  },
+  "syncReasonBothChanged": "changed on both sides",
+  "@syncReasonBothChanged": {
+    "description": "Plan row reason (05 §7): Additive's divergent-pair conflict."
+  },
+  "syncReasonTypeDiffers": "type differs ({leftKind} here, {rightKind} there)",
+  "@syncReasonTypeDiffers": {
+    "description": "Plan row reason (05 §7): file vs folder vs link at one path — kind labels like 'file here, folder there'.",
+    "placeholders": {
+      "leftKind": {"type": "String"},
+      "rightKind": {"type": "String"}
+    }
+  },
+  "syncReasonExcluded": "excluded by rule",
+  "@syncReasonExcluded": {
+    "description": "Plan row reason (05 §7): an ignore rule or the one-sided-symlink policy excluded the entry."
+  },
+  "syncReasonCaseCollision": "names differ only by case",
+  "@syncReasonCaseCollision": {
+    "description": "Plan row reason (05 §7): case variants that would merge on the destination."
+  },
+  "syncReasonNormalizationCollision": "names differ only by Unicode form",
+  "@syncReasonNormalizationCollision": {
+    "description": "Plan row reason (05 §7): NFC/NFD twins on one side."
+  },
+  "syncReasonInvalidName": "name invalid on Windows",
+  "@syncReasonInvalidName": {
+    "description": "Plan row reason (05 §7): the destination's local-safety funnel rejects a component."
+  },
+  "syncReasonScanError": "couldn't scan — subtree excluded",
+  "@syncReasonScanError": {
+    "description": "Plan row reason (05 §7): the other side failed to list this subtree (§6 rule 8)."
+  },
+  "syncReasonEqual": "identical",
+  "@syncReasonEqual": {
+    "description": "Plan row reason (05 §7): the most common row when 'only show actions' is off."
+  },
+  "syncReasonSymlink": "symbolic link — skipped",
+  "@syncReasonSymlink": {
+    "description": "Plan row reason (05 §7): v1's SymlinkPolicy.skip rows."
+  },
+  "syncKindFile": "file",
+  "@syncKindFile": {
+    "description": "Entry-kind label inside reason strings (05 §7)."
+  },
+  "syncKindFolder": "folder",
+  "@syncKindFolder": {
+    "description": "Entry-kind label inside reason strings (05 §7)."
+  },
+  "syncKindSymlink": "symbolic link",
+  "@syncKindSymlink": {
+    "description": "Entry-kind label inside reason strings (05 §7)."
+  },
+  "syncKindOther": "other",
+  "@syncKindOther": {
+    "description": "Entry-kind label inside reason strings (05 §7)."
+  },
+  "syncSideLeft": "left",
+  "@syncSideLeft": {
+    "description": "Side label inside sync copy (05 §7) — the pane-A side."
+  },
+  "syncSideRight": "right",
+  "@syncSideRight": {
+    "description": "Side label inside sync copy (05 §7) — the pane-B side."
+  },
+  "syncOverrideSkip": "Skip",
+  "@syncOverrideSkip": {
+    "description": "Per-item override menu verb (05 §7)."
+  },
+  "syncOverrideCopyLeftToRight": "Copy left → right",
+  "@syncOverrideCopyLeftToRight": {
+    "description": "Per-item override menu verb (05 §7)."
+  },
+  "syncOverrideCopyRightToLeft": "Copy right → left",
+  "@syncOverrideCopyRightToLeft": {
+    "description": "Per-item override menu verb (05 §7)."
+  },
+  "syncOverrideDelete": "Delete",
+  "@syncOverrideDelete": {
+    "description": "Per-item override menu verb (05 §7) — Mirror mode only."
+  },
+  "syncOverrideReset": "Reset to suggested",
+  "@syncOverrideReset": {
+    "description": "Per-item override menu verb (05 §7): returns the row to its diff-suggested action."
+  },
+  "syncOverrideSkippedTypeDiffers": "{count, plural, =1{{count} type-differs row skipped — replacing a different kind stays a per-item choice} other{{count} type-differs rows skipped — replacing a different kind stays a per-item choice}}",
+  "@syncOverrideSkippedTypeDiffers": {
+    "description": "Bulk-override result line (05 §7): in no-delete modes a bulk copy skips typeDiffers rows, reported never silent.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncResolveConflictsLabel": "Resolve conflicts:",
+  "@syncResolveConflictsLabel": {
+    "description": "Bulk conflict bar's leading label (05 §7)."
+  },
+  "syncResolveNewerWins": "Newer wins",
+  "@syncResolveNewerWins": {
+    "description": "Bulk conflict resolution verb (05 §7) — hidden whenever the pair's mtimes are untrusted."
+  },
+  "syncResolveKeepLeft": "Keep left",
+  "@syncResolveKeepLeft": {
+    "description": "Bulk conflict resolution verb (05 §7)."
+  },
+  "syncResolveKeepRight": "Keep right",
+  "@syncResolveKeepRight": {
+    "description": "Bulk conflict resolution verb (05 §7)."
+  },
+  "syncResolveSkipAll": "Skip all",
+  "@syncResolveSkipAll": {
+    "description": "Bulk conflict resolution verb (05 §7)."
+  },
+  "syncSaveAsFavorite": "Save as Favorite…",
+  "@syncSaveAsFavorite": {
+    "description": "Plan-view action-bar verb (05 §7/§9): persists the pair as a savedSync bookmark."
+  },
+  "syncRunCopyFiles": "{count, plural, =1{Copy 1 File} other{Copy {count} Files}}",
+  "@syncRunCopyFiles": {
+    "description": "Run button with a copies-only consequence (05 §7's 'Copy 15 Files').",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncRunCopyPart": "{count, plural, =1{Copy 1} other{Copy {count}}}",
+  "@syncRunCopyPart": {
+    "description": "Run-button copy clause inside a multi-verb label (05 §7's 'Copy 12, Delete 5').",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncRunCreateFolders": "{count, plural, =1{Create {count} Folder} other{Create {count} Folders}}",
+  "@syncRunCreateFolders": {
+    "description": "Run-button mkdir clause (05 §7) — the dirs-only consequence.",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncRunDeletePart": "{count, plural, =1{Delete 1} other{Delete {count}}}",
+  "@syncRunDeletePart": {
+    "description": "Run-button delete clause inside a multi-verb label (05 §7's 'Copy 12, Delete 5').",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncRunNothingToDo": "Nothing to Do",
+  "@syncRunNothingToDo": {
+    "description": "Disabled Run button for an all-equal plan (05 §7)."
+  },
+  "syncHeavySuggestion": "{name} is {count} of these files — exclude?",
+  "@syncHeavySuggestion": {
+    "description": "First-run suggestion chip (05 §7): one known heavy directory contributes over half the plan.",
+    "placeholders": {
+      "name": {"type": "String"},
+      "count": {"type": "int"}
+    }
+  },
+  "syncDeleteConfirmTitle": "Confirm deletions",
+  "@syncDeleteConfirmTitle": {
+    "description": "Typed-confirmation dialog title (05 §8 rail 3)."
+  },
+  "syncDeleteConfirmFraction": "This will delete {count} of {total} files on {side} — more than {pct} of that side. Type DELETE to continue.",
+  "@syncDeleteConfirmFraction": {
+    "description": "Typed-confirmation body (05 §8 rail 3): the fraction clause tripped — {pct} renders the word 'half' at the 0.5 default and a numeric percentage otherwise.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "total": {"type": "int"},
+      "side": {"type": "String"},
+      "pct": {"type": "String"}
+    }
+  },
+  "syncDeleteConfirmFloor": "This will delete {count} of {total} files on {side} — 90 % or more of that side. Type DELETE to continue.",
+  "@syncDeleteConfirmFloor": {
+    "description": "Typed-confirmation body (05 §8 rail 3): the ≥90 % floor clause tripped — inclusive wording, never 'more than 90 %'.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "total": {"type": "int"},
+      "side": {"type": "String"}
+    }
+  },
+  "syncDeleteConfirmFieldHint": "DELETE",
+  "@syncDeleteConfirmFieldHint": {
+    "description": "Placeholder inside the typed-confirmation field (05 §8 rail 3)."
+  },
+  "syncDeleteConfirmHalf": "half",
+  "@syncDeleteConfirmHalf": {
+    "description": "The {pct} slot of syncDeleteConfirmFraction at the default 0.5 threshold — the word, not a number (05 §8 rail 3)."
+  },
+  "syncDeleteConfirmButton": "Delete",
+  "@syncDeleteConfirmButton": {
+    "description": "Typed-confirmation dialog's confirm verb (05 §8 rail 3) — disabled until the field reads exactly DELETE."
+  },
+  "syncMaxDeleteTitle": "Too many deletions",
+  "@syncMaxDeleteTitle": {
+    "description": "maxDelete refusal dialog title (05 §8 rail 4)."
+  },
+  "syncMaxDeleteBody": "This plan would delete {count} files on {side} — over the {cap}-file cap. Run stays disabled rather than silently diverging the destination. Raise the cap in the pair's rules to run it.",
+  "@syncMaxDeleteBody": {
+    "description": "maxDelete refusal body (05 §8 rail 4): explains and points at the pair's rules — never an override button.",
+    "placeholders": {
+      "count": {"type": "int"},
+      "side": {"type": "String"},
+      "cap": {"type": "int"}
+    }
+  },
+  "syncMaxDeleteSaveAdjust": "Save as Favorite & Adjust Rules…",
+  "@syncMaxDeleteSaveAdjust": {
+    "description": "Ad-hoc pair's refusal escape (05 §8 rail 4): saves the pair and opens the editor on maxDelete, so Run-disabled is never a dead end."
+  },
+  "syncRetryFailed": "Retry Failed",
+  "@syncRetryFailed": {
+    "description": "Summary-bar verb (05 §7): re-executes only the failed plan items."
+  },
+  "syncRestoreTrashed": "Restore Trashed Files…",
+  "@syncRestoreTrashed": {
+    "description": "Summary-bar verb (05 §7/§8 rail 9): puts the run's trashed entries back."
+  },
+  "syncCopyReport": "Copy Report",
+  "@syncCopyReport": {
+    "description": "Summary-bar verb (05 §7): copies the run's per-item outcome table to the clipboard."
+  },
+  "syncHeavySuggestionAccept": "Exclude",
+  "@syncHeavySuggestionAccept": {
+    "description": "Heavy-directory suggestion's accept verb (05 §9): adds the name to the pair's exclude rules."
+  },
+  "syncRestoreDialogTitle": "Restore Trashed Files",
+  "@syncRestoreDialogTitle": {
+    "description": "Restore dialog title (05 §8 rail 9)."
+  },
+  "syncRestoreSummary": "{count, plural, =1{{count} file will be restored from trash.} other{{count} files will be restored from trash.}}",
+  "@syncRestoreSummary": {
+    "description": "Restore dialog's count line — only journaled trash entries restore (05 §8 rail 9).",
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "syncRestoreButton": "Restore",
+  "@syncRestoreButton": {
+    "description": "Restore dialog's confirm verb."
+  },
+  "syncRestoreResult": "{restored, plural, =1{Restored {restored} file} other{Restored {restored} files}}{skipped, plural, =0{} =1{ — {skipped} skipped} other{ — {skipped} skipped}}",
+  "@syncRestoreResult": {
+    "description": "Post-restore summary line: how many entries came back and how many were skipped.",
+    "placeholders": {
+      "restored": {"type": "int"},
+      "skipped": {"type": "int"}
+    }
+  },
+  "syncDirectionLeftToRight": "Left to right",
+  "@syncDirectionLeftToRight": {
+    "description": "Pair-editor direction choice (05 §5): one-way, left feeds right."
+  },
+  "syncDirectionRightToLeft": "Right to left",
+  "@syncDirectionRightToLeft": {
+    "description": "Pair-editor direction choice (05 §5): one-way, right feeds left."
+  },
+  "syncDirectionBothWays": "Both ways",
+  "@syncDirectionBothWays": {
+    "description": "Pair-editor direction choice (05 §5): bidirectional — Additive's direction."
+  },
+  "syncEditorOptionsSection": "Options",
+  "@syncEditorOptionsSection": {
+    "description": "Pair editor's collapsible advanced-rules section title (05 §9)."
+  },
+  "syncEditorTitle": "Sync pair",
+  "@syncEditorTitle": {
+    "description": "Pair editor dialog title (05 §9) — the saved-sync definition surface."
+  },
+  "syncEditorNameLabel": "Name",
+  "@syncEditorNameLabel": {
+    "description": "Pair name field label."
+  },
+  "syncEditorDeletionsLabel": "Deletions",
+  "@syncEditorDeletionsLabel": {
+    "description": "Deletion-policy field label (05 §6): none / moved to trash / permanent."
+  },
+  "syncEditorDeletionsNone": "Never delete",
+  "@syncEditorDeletionsNone": {
+    "description": "Deletion-policy choice (05 §6): no deletions — Update and Additive's fixed value."
+  },
+  "syncEditorDeletionsTrash": "Move to trash",
+  "@syncEditorDeletionsTrash": {
+    "description": "Deletion-policy choice (05 §6, D15): deletions rename into .poltergeist-trash."
+  },
+  "syncEditorDeletionsPermanent": "Delete permanently",
+  "@syncEditorDeletionsPermanent": {
+    "description": "Deletion-policy choice (05 §6): the explicit per-pair permanent opt-in."
+  },
+  "syncEditorBackupsLabel": "Overwrite backups",
+  "@syncEditorBackupsLabel": {
+    "description": "Backup-policy field label (05 §8 rail 5): whether overwritten files keep a trashed previous version."
+  },
+  "syncEditorBackupsTrash": "Keep in trash",
+  "@syncEditorBackupsTrash": {
+    "description": "Backup-policy choice (05 §6): overwritten versions move to trash (default)."
+  },
+  "syncEditorBackupsNone": "None",
+  "@syncEditorBackupsNone": {
+    "description": "Backup-policy choice (05 §6): overwrites keep no previous version."
+  },
+  "syncEditorComparisonLabel": "Compare by",
+  "@syncEditorComparisonLabel": {
+    "description": "Comparison-mode field label (05 §4)."
+  },
+  "syncEditorComparisonSizeMtime": "Size and modification time",
+  "@syncEditorComparisonSizeMtime": {
+    "description": "Comparison-mode choice (05 §4, default)."
+  },
+  "syncEditorComparisonSizeOnly": "Size only",
+  "@syncEditorComparisonSizeOnly": {
+    "description": "Comparison-mode choice (05 §4): never consults mtimes."
+  },
+  "syncEditorComparisonContentHash": "Content hash",
+  "@syncEditorComparisonContentHash": {
+    "description": "Comparison-mode choice (05 §4): size-equal pairs hash by streamed SHA-256."
+  },
+  "syncEditorConflictLabel": "Conflicts",
+  "@syncEditorConflictLabel": {
+    "description": "Conflict-default field label (05 §5): what the diff does with rows needing a decision."
+  },
+  "syncEditorConflictAsk": "Ask each time",
+  "@syncEditorConflictAsk": {
+    "description": "Conflict-default choice (05 §6, default)."
+  },
+  "syncEditorConflictNewerWins": "Newer wins",
+  "@syncEditorConflictNewerWins": {
+    "description": "Conflict-default choice (05 §6) — degrades to ask whenever mtimes are untrusted (§4)."
+  },
+  "syncEditorConflictKeepLeft": "Keep left",
+  "@syncEditorConflictKeepLeft": {
+    "description": "Conflict-default choice (05 §6)."
+  },
+  "syncEditorConflictKeepRight": "Keep right",
+  "@syncEditorConflictKeepRight": {
+    "description": "Conflict-default choice (05 §6)."
+  },
+  "syncEditorConflictSkip": "Skip",
+  "@syncEditorConflictSkip": {
+    "description": "Conflict-default choice (05 §6)."
+  },
+  "syncEditorMaxDeleteLabel": "Deletion cap (maxDelete)",
+  "@syncEditorMaxDeleteLabel": {
+    "description": "Hard deletion cap field label (05 §6/§8 rail 4, default 500)."
+  },
+  "syncEditorFractionWarnLabel": "Typed-confirmation threshold",
+  "@syncEditorFractionWarnLabel": {
+    "description": "deleteFractionWarn field label (05 §6/§8 rail 3): the fraction of one side whose deletion asks for typed DELETE."
+  },
+  "syncEditorExcludeLabel": "Exclude rules",
+  "@syncEditorExcludeLabel": {
+    "description": "Gitignore-style exclude list field label (05 §3) — one pattern per line."
+  },
+  "syncEditorIncludeHidden": "Include hidden files",
+  "@syncEditorIncludeHidden": {
+    "description": "includeHidden toggle label (05 §3, default on)."
+  },
+  "syncEditorTrashLeftLabel": "Left trash path",
+  "@syncEditorTrashLeftLabel": {
+    "description": "trashPathLeft field label (05 §6): out-of-root trash for the left side, empty for in-root .poltergeist-trash."
+  },
+  "syncEditorTrashRightLabel": "Right trash path",
+  "@syncEditorTrashRightLabel": {
+    "description": "trashPathRight field label (05 §6): out-of-root trash for the right side."
+  },
+  "syncEditorPathHint": "/path",
+  "@syncEditorPathHint": {
+    "description": "Placeholder inside the pair editor's path fields (05 §9)."
+  },
+  "syncEditorMtimeToleranceLabel": "Modification-time tolerance (seconds)",
+  "@syncEditorMtimeToleranceLabel": {
+    "description": "mtimeToleranceSecs field label (05 §4, default 2)."
+  },
+  "syncEditorPreserveMtime": "Preserve modification times",
+  "@syncEditorPreserveMtime": {
+    "description": "preserveMtime toggle (05 §4, default on): off forces size-only comparison semantics."
+  },
+  "syncEditorConcurrencyLabel": "Transfer concurrency",
+  "@syncEditorConcurrencyLabel": {
+    "description": "transferConcurrency field label (05 §6, 1–8, default 4)."
+  },
+  "syncEditorCaseLeftLabel": "Left case sensitivity",
+  "@syncEditorCaseLeftLabel": {
+    "description": "Per-side case-sensitivity override (05 §3/§9) — the remote side's only sensitivity input."
+  },
+  "syncEditorCaseRightLabel": "Right case sensitivity",
+  "@syncEditorCaseRightLabel": {
+    "description": "Per-side case-sensitivity override (05 §3/§9)."
+  },
+  "syncEditorCaseAuto": "Detect automatically",
+  "@syncEditorCaseAuto": {
+    "description": "Case-sensitivity override choice: probe the local side / assume sensitive on remote."
+  },
+  "syncEditorCaseSensitive": "Case-sensitive",
+  "@syncEditorCaseSensitive": {
+    "description": "Case-sensitivity override choice."
+  },
+  "syncEditorCaseInsensitive": "Case-insensitive",
+  "@syncEditorCaseInsensitive": {
+    "description": "Case-sensitivity override choice."
+  },
+  "syncEditorSave": "Save",
+  "@syncEditorSave": {
+    "description": "Pair editor's save verb."
+  },
+  "syncEditorSaveAndRescan": "Save & Rescan",
+  "@syncEditorSaveAndRescan": {
+    "description": "Pair editor's save verb when the editor opened from a plan view (05 §8 rail 4's 'saves the pair, opens the editor, rescans on close')."
+  },
+  "syncNewSavedSync": "New Saved Sync…",
+  "@syncNewSavedSync": {
+    "description": "Command label: define a saved sync pair (05 §9, sync.newSavedSync)."
+  },
+  "syncPairLabel": "{left} ⇄ {right}",
+  "@syncPairLabel": {
+    "description": "A sync pair's display name — each leg's endpoint label joined by the §7 direction glyph (tab title and favorite name).",
+    "placeholders": {
+      "left": {"type": "String"},
+      "right": {"type": "String"}
+    }
+  },
+  "syncSynchronizePanes": "Synchronize Panes",
+  "@syncSynchronizePanes": {
+    "description": "Command label: build an ad-hoc pair from the two panes and open its plan view (05 §7, sync.synchronizePanes, ⌥⌘Y)."
+  },
+  "syncRescan": "Rescan",
+  "@syncRescan": {
+    "description": "Plan-view verb: re-run the scan and diff (05 §7)."
+  },
+  "syncScanFailed": "The scan could not complete — {error}",
+  "@syncScanFailed": {
+    "description": "Plan-view error sentence when scanning or diffing fails before a plan exists.",
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "syncRemoteUnavailable": "Remote sync pairs aren't available yet — remote filesystems arrive with the engine-protocol transfer verbs.",
+  "@syncRemoteUnavailable": {
+    "description": "Honest-absence error when a sync pair's endpoint is remote (STATUS item 23 — same posture the transfer queue takes)."
+  },
+  "syncRunFailed": "The run failed — {error}",
+  "@syncRunFailed": {
+    "description": "Plan-view run-error sentence: the executor aborted before finishing.",
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "syncSummaryCounts": "{done, plural, =1{{done} done} other{{done} done}} · {failed, plural, =1{{failed} failed} other{{failed} failed}} · {skipped, plural, =1{{skipped} skipped} other{{skipped} skipped}}",
+  "@syncSummaryCounts": {
+    "description": "Post-run summary counts in the plan view's action bar (05 §7).",
+    "placeholders": {
+      "done": {"type": "int"},
+      "failed": {"type": "int"},
+      "skipped": {"type": "int"}
+    }
+  },
+  "syncPairLocalLabel": "local",
+  "@syncPairLocalLabel": {
+    "description": "Endpoint label for a local side inside header copy — '{favoriteLabel}:{path}' renders as 'local:{path}' when the side has no bookmark label."
+  },
+  "syncSavedFavoriteToast": "Saved sync \"{name}\" added to favorites",
+  "@syncSavedFavoriteToast": {
+    "description": "Toast after the plan view's Save as Favorite persists the pair as a savedSync bookmark (05 §7).",
+    "placeholders": {
+      "name": {"type": "String"}
+    }
   }
 }
