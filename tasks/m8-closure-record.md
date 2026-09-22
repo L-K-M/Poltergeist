@@ -2,7 +2,8 @@
 
 M8 (sync — 05 in full: scan/diff/plan/preview/execute, rsync exporter)
 is CLOSED on evidence with bounded residuals recorded as open items
-27–30. Audited against main head `187d5b7` (post-#177, the rsync
+27–30 (DoD item 8 PARTIAL; D28 chown deferred to M9). Audited against
+main head `187d5b7` (post-#177, the rsync
 exporter merge). One audit PR adds the missing setstat-ignoring
 integration leg and the sizeOnly-notice render proof (the only
 testable gaps the audit found), the STATUS sweep, and this record; no
@@ -66,8 +67,8 @@ feature work, no pin bump, no Séance edits.
    the milestone already clears.
 2. **Docker matrix includes the setstat-ignoring server; the
    `sizeOnly` fallback notice appears — MET after the audit's gap
-   fix.** The matrix leg existed (`test/integration/
-   docker-compose.yml` `sshd-restricted` on 2204,
+   fix.** The matrix leg existed
+   (`test/integration/docker-compose.yml` `sshd-restricted` on 2204,
    `sshd_config.restricted` denying `setstat,fsetstat`,
    `run.sh` exporting `POLTERGEIST_SSHD_RESTRICTED`), but no sync test
    exercised it and no widget test proved the notice. This PR lands
@@ -145,7 +146,8 @@ feature work, no pin bump, no Séance edits.
   green), no engine-protocol change.
 - Tag chore not run — matching every prior untagged close.
 - Docker is unavailable on this host: the new integration leg is
-  CI-verified (it self-skips cleanly without `POLTERGEIST_SSHD`,
+  CI-verified (it self-skips cleanly without
+  `POLTERGEIST_SSHD`/`POLTERGEIST_SSHD_RESTRICTED`,
   which keeps local `dart test packages/poltergeist_sync` honest).
 
 ## Local verification (this audit host)
