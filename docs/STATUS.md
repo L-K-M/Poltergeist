@@ -8370,9 +8370,10 @@ standing untagged-close pattern. Local: dart/flutter analyze clean;
     main on the stale streak. Until then tier-A enforcement is also
     inert (drift-skipped; the bench job annotates this). Supervisor
     dispatch runs 35781589991 (completed soft) and 35782936812 (pending
-    at audit time) are the apparent seeding attempts; both observed runs
-    drew the old image. Do not flip until the store shows a clean
-    committed-fingerprint observation.
+    at audit time) are the apparent seeding attempts; the merge run and
+    the completed dispatch both drew the old image, while the pending
+    run's image was unknown at audit time. Do not flip until the store
+    shows a clean committed-fingerprint observation.
 32. **2026-09-22: M9 — human-only QA residual.** Everything automation
     cannot see is collected in
     [`docs/qa/RELEASE-CHECKLIST.md`](qa/RELEASE-CHECKLIST.md): native

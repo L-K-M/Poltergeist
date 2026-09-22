@@ -160,7 +160,7 @@ found was a missing committed artifact, not a behavior defect.
 | 1 | Command-completeness invariant test green over the full registry | MET — `app_menus_test.dart` "every registered command is menu- or shortcut-reachable on every platform" green locally and in CI; exception list hygienic. |
 | 2 | Palette opens, filters, executes, teaches shortcuts | MET — tests + inspected captures (item 1 above). |
 | 3 | a11y checklist in 08 fully ticked; VoiceOver and NVDA walkthrough notes committed | MET-with-recorded-boundary — every 08 §7 automated suite exists and passes (semantics, keyboard-completeness, contrast, hardcoded-string); walkthrough notes are committed at `docs/qa/screen-reader-notes.md` as an honest record that native-reader walks have not run (no hosts) — the walks stay on the release checklist (open item 32). |
-| 4 | Every D12 benchmark green and enforced (both tier flags on) | **PARTIAL — supervisor tail (open item 31).** Code landed; `BENCH_ENFORCE_A` set (currently inert on runner-image drift); `BENCH_ENFORCE_B` deliberately unset pending a clean-fingerprint seeding run — drift streak at 8 consecutive main runs makes early arming red; precise state in item 3 above. |
+| 4 | Every D12 benchmark green and enforced (both tier flags on) | **PARTIAL — supervisor tail (open item 31) plus a P6 structural gap.** P6 stays `landed: false` (~830 frames vs the ≥1800 floor), so it is neither green nor enforced even once both flags arm; `BENCH_ENFORCE_A` set (currently inert on runner-image drift); `BENCH_ENFORCE_B` deliberately unset pending a clean-fingerprint seeding run — drift streak at 8 consecutive main runs makes early arming red; precise state in item 3 above. |
 | 5 | Known-issues section (Linux a11y, Windows IME) in README | MET by this PR — the section was missing on HEAD; added with linked+dated upstream issues. |
 
 ## §3.12 close chores
@@ -199,7 +199,9 @@ found was a missing committed artifact, not a behavior defect.
   otherwise the next enforced run reds on the stale streak and the
   controlled-axis mismatch. Two supervisor dispatches at `495dd9e`
   (35781589991 completed soft, 35782936812 pending) appear to be the
-  seeding attempts; both observed runs drew the pre-rotation image.
+  seeding attempts; the merge run and the completed dispatch drew the
+  pre-rotation image, while the pending run's image was unknown at
+  audit time.
 - **32 — Human-only QA residual.** Native-reader walkthroughs
   (VoiceOver/NVDA), native chrome/dialogs, scroll feel, Quick Look on a
   real macOS host, and real-IME entry — all rows of

@@ -54,6 +54,11 @@ known-divergent surface.
   path covers it.
 - [ ] Theme flip (light/dark) live-restyles listing, plan view, and
   editor; HiDPI scaling at 100 %/150 %/200 % shows no clipped chrome.
+- [ ] Scroll feel: listing, plan view, and editor scroll smoothly under
+  native input on each platform (trackpad inertia, mouse wheel,
+  scrollbar drag); no jank or stuck scrollbars.
+- [ ] macOS Quick Look on real hardware: space-bar preview of the
+  supported file kinds opens and dismisses cleanly.
 - [ ] Tier-B benchmark suite run once on the reference macOS machine in
   release mode; results attached to the release PR as a readable artifact.
   The authoritative gate is the CI bench job's in-job tier-B runs against
